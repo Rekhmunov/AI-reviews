@@ -82,17 +82,24 @@ def build_groups(
     for o in orders:
         article = str(o.get("article") or "").strip()
         title, brand, color = _product_title(o, cards, by_article, by_nm)
-        key = "{}|{}|{}".format(article, title, color)
+        local = by_article.get(article.lower()) or by_nm.get(str(o.get("nm_id") or ""))
+        category = str((local or {}).get("product_category") or "").strip()
+        photo = str((local or {}).get("photo_path") or "").strip()
+        key = "{}|{}|{}|{}".format(article, title, color, category)
         if key not in grouped:
             grouped[key] = {
                 "article": article,
                 "product_name": title,
                 "brand": brand,
                 "color": color,
+                "category": category,
+                "product_photo": photo,
                 "nm_id": o.get("nm_id"),
                 "barcodes": [],
                 "orders": [],
+                "order_ids": [],
                 "qty": 0,
+                "group_key": key,
             }
         g = grouped[key]
         skus = o.get("skus") if isinstance(o.get("skus"), list) else parse_json_list(
@@ -113,8 +120,57 @@ def build_groups(
                 "article": article,
             }
         )
+        g["order_ids"].append(oid)
         g["qty"] = len(g["orders"])
     return list(grouped.values())
+
+
+def _photo_data_uri(path: str) -> str:
+    p = Path(path)
+    if not p.is_file():
+        return ""
+    try:
+        raw = p.read_bytes()
+    except Exception:
+        return ""
+    suffix = p.suffix.lower()
+    mime = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+    }.get(suffix, "image/jpeg")
+    import base64
+
+    return "data:{};base64,{}".format(mime, base64.b64encode(raw).decode("ascii"))
+
+
+def sticker_groups_for_category_print(
+    db: Database,
+    orders_svc: OrdersService,
+    source_id: int,
+    api_key: str,
+    supply_id: str,
+) -> List[Dict[str, Any]]:
+    rows = orders_svc.orders_in_supply(source_id, supply_id, api_key=api_key)
+    products = ProductService(db).list_all()
+    cards = fetch_cards(api_key, rows)
+    groups = build_groups(rows, {}, cards, products)
+    # Collapse by category for the modal: one row per product group
+    out = []
+    for g in groups:
+        out.append(
+            {
+                "group_key": g.get("group_key") or g.get("article"),
+                "product_name": g.get("product_name"),
+                "article": g.get("article"),
+                "category": g.get("category") or "Без категории",
+                "qty": g.get("qty") or 0,
+                "order_ids": list(g.get("order_ids") or []),
+            }
+        )
+    return out
 
 
 def fetch_stickers_map(api_key: str, order_ids: List[int]) -> Dict[int, Dict[str, Any]]:
@@ -214,6 +270,20 @@ def render_picking_list_html(
         for g in groups:
             orders = list(g.get("orders") or [])
             qty = int(g.get("qty") or len(orders))
+            photo = str(g.get("product_photo") or "").strip()
+            photo_html = ""
+            if photo:
+                data_uri = (
+                    photo
+                    if photo.startswith("data:")
+                    else _photo_data_uri(photo)
+                )
+                if data_uri:
+                    photo_html = (
+                        '<div class="sku-photo"><img src="{}" alt=""/></div>'.format(
+                            data_uri
+                        )
+                    )
             meta = ['<div class="sku-title">{}</div>'.format(_esc(g.get("product_name")))]
             if g.get("brand"):
                 meta.append('<div class="sku-meta">{}</div>'.format(_esc(g.get("brand"))))
@@ -230,7 +300,9 @@ def render_picking_list_html(
             meta.append('<div class="sku-qty">{} шт</div>'.format(qty))
             rows.append(
                 '<tr class="product-row"><td class="main" colspan="3">'
-                '<div class="sku-text">{}</div></td></tr>'.format("".join(meta))
+                '{}<div class="sku-text">{}</div></td></tr>'.format(
+                    photo_html, "".join(meta)
+                )
             )
             for o in orders:
                 pb = str(o.get("sticker_part_b") or "").strip()
@@ -285,6 +357,7 @@ def render_picking_list_html(
   }}
   .sku-title {{ font-weight: 700; }}
   .sku-meta, .sku-article, .sku-barcode, .sku-color, .sku-qty {{ color: #475569; }}
+  .sku-photo img {{ max-width: 72px; max-height: 72px; object-fit: contain; margin-bottom: 6px; }}
   .order-row.dup .sticker {{ color: #b91c1c; font-weight: 700; }}
   .check {{ width: 70px; text-align: center; }}
   @media print {{ .no-print {{ display: none; }} }}
@@ -428,12 +501,19 @@ def print_picking_list(
     variant: str = "summary",
 ) -> Path:
     supply = orders_svc.get_supply(source_id, supply_id) or {}
-    rows = orders_svc.orders_in_supply(source_id, supply_id)
+    rows = orders_svc.orders_in_supply(source_id, supply_id, api_key=api_key)
     ids = [int(r["order_id"]) for r in rows]
     stickers = fetch_stickers_map(api_key, ids) if ids else {}
     cards = fetch_cards(api_key, rows)
     products = ProductService(db).list_all()
     groups = build_groups(rows, stickers, cards, products)
+    # Embed local photos as data URIs for browser print
+    for g in groups:
+        photo = str(g.get("product_photo") or "").strip()
+        if photo and not photo.startswith("data:"):
+            data_uri = _photo_data_uri(photo)
+            if data_uri:
+                g["product_photo"] = data_uri
     html_doc = render_picking_list_html(
         supply_id,
         str(supply.get("name") or ""),
@@ -451,7 +531,7 @@ def print_supply_stickers(
     supply_id: str,
     order_ids: Optional[List[int]] = None,
 ) -> Path:
-    rows = orders_svc.orders_in_supply(source_id, supply_id)
+    rows = orders_svc.orders_in_supply(source_id, supply_id, api_key=api_key)
     if order_ids is not None:
         want = set(int(x) for x in order_ids)
         rows = [r for r in rows if int(r["order_id"]) in want]

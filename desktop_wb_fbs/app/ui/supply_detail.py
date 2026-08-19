@@ -64,10 +64,14 @@ class SupplyDetailDialog(QDialog):
             ("Лист подбора", partial(self.picking_list, "summary"), True),
             ("Расширенный лист подбора", partial(self.picking_list, "extended"), True),
             ("Стикеры", self.print_stickers, False),
+            ("Стикеры по категориям", self.stickers_by_category, True),
             ("Маркировка", self.open_kiz, False),
+            ("Обновить статусы КИЗ", self.refresh_kiz_status, True),
             ("Проверка ШК", self.open_pick, False),
             ("Грузоместа", self.manage_trbx, True),
+            ("Отменённые заказы", self.show_cancelled, True),
             ("QR поставки", self.print_qr, True),
+            ("Портал ВБ", self.open_portal, True),
         ):
             btn = QPushButton(text)
             if secondary:
@@ -77,7 +81,10 @@ class SupplyDetailDialog(QDialog):
             btn.clicked.connect(slot)
             actions.addWidget(btn)
         actions.addStretch(1)
-        root.addLayout(actions)
+        # Wrap actions in a scroll-friendly row via nested layout if needed
+        actions_wrap = QWidget()
+        actions_wrap.setLayout(actions)
+        root.addWidget(actions_wrap)
 
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels(
@@ -113,11 +120,14 @@ class SupplyDetailDialog(QDialog):
                 supply_status_label(done=supply.get("done"), scan_dt=supply.get("scan_dt")),
             )
         )
-        rows = self.orders.orders_in_supply(self.source_id, self.supply_id)
+        rows = self.orders.orders_in_supply(
+            self.source_id, self.supply_id, api_key=self.api_key
+        )
         self.table.setRowCount(len(rows))
         for i, r in enumerate(rows):
             self.table.setItem(i, 0, QTableWidgetItem(str(r.get("order_id"))))
-            self.table.setItem(i, 1, QTableWidgetItem(str(r.get("article") or "")))
+            name = str(r.get("product_name") or r.get("article") or "")
+            self.table.setItem(i, 1, QTableWidgetItem(name))
             self.table.setItem(i, 2, QTableWidgetItem(str(r.get("cargo_label") or "")))
             self.table.setItem(i, 3, QTableWidgetItem(str(r.get("price_label") or "")))
             codes = [c for c in (r.get("kiz_codes") or []) if str(c).strip(" \t\r\n")]
@@ -163,6 +173,130 @@ class SupplyDetailDialog(QDialog):
             show_supply_qr(self.api_key, self.supply_id, self)
         except Exception as exc:
             QMessageBox.critical(self, "QR", str(exc))
+
+    def open_portal(self) -> None:
+        from PyQt5.QtCore import QUrl
+        from PyQt5.QtGui import QDesktopServices
+
+        url = (
+            "https://seller.wildberries.ru/marketplace-orders-fbs/supply-detail/packaging"
+            "?supplyID={}".format(self.supply_id)
+        )
+        QDesktopServices.openUrl(QUrl(url))
+
+    def show_cancelled(self) -> None:
+        from app.services.cancelled import list_cancelled_in_supply
+
+        try:
+            data = list_cancelled_in_supply(
+                self.db, self.source_id, self.api_key, self.supply_id
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Отменённые", str(exc))
+            return
+        rows = data.get("rows") or []
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Отменённые заказы · {}".format(self.supply_id))
+        dlg.resize(640, 420)
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(
+            QLabel("Найдено отменённых в поставке: {}".format(len(rows)))
+        )
+        table = QTableWidget(len(rows), 3)
+        table.setHorizontalHeaderLabels(["Заказ", "Артикул", "Причина"])
+        table.horizontalHeader().setStretchLastSection(True)
+        for i, r in enumerate(rows):
+            table.setItem(i, 0, QTableWidgetItem(str(r.get("order_id"))))
+            table.setItem(i, 1, QTableWidgetItem(str(r.get("article") or "")))
+            table.setItem(i, 2, QTableWidgetItem(str(r.get("cancel_reason") or "")))
+        lay.addWidget(table, 1)
+        close = QDialogButtonBox(QDialogButtonBox.Close)
+        close.rejected.connect(dlg.reject)
+        lay.addWidget(close)
+        dlg.exec_()
+        self.reload()
+
+    def stickers_by_category(self) -> None:
+        from app.services.print_docs import (
+            print_supply_stickers,
+            sticker_groups_for_category_print,
+        )
+
+        try:
+            groups = sticker_groups_for_category_print(
+                self.db, self.orders, self.source_id, self.api_key, self.supply_id
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Стикеры", str(exc))
+            return
+        if not groups:
+            QMessageBox.information(self, "Стикеры", "Нет товаров для печати")
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Стикеры по категориям")
+        dlg.resize(560, 480)
+        lay = QVBoxLayout(dlg)
+        table = QTableWidget(len(groups), 4)
+        table.setHorizontalHeaderLabels(["", "Категория", "Товар", "Шт"])
+        table.horizontalHeader().setStretchLastSection(True)
+        for i, g in enumerate(groups):
+            chk = QTableWidgetItem()
+            chk.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+            chk.setCheckState(Qt.Unchecked)
+            chk.setData(Qt.UserRole, list(g.get("order_ids") or []))
+            table.setItem(i, 0, chk)
+            table.setItem(i, 1, QTableWidgetItem(str(g.get("category") or "")))
+            table.setItem(
+                i,
+                2,
+                QTableWidgetItem(
+                    "{} · {}".format(g.get("product_name") or "", g.get("article") or "")
+                ),
+            )
+            table.setItem(i, 3, QTableWidgetItem(str(g.get("qty") or 0)))
+        lay.addWidget(table, 1)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Ok).setText("Печать выбранных")
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        lay.addWidget(buttons)
+        if dlg.exec_() != QDialog.Accepted:
+            return
+        order_ids = []
+        for i in range(table.rowCount()):
+            item = table.item(i, 0)
+            if item and item.checkState() == Qt.Checked:
+                order_ids.extend(item.data(Qt.UserRole) or [])
+        if not order_ids:
+            QMessageBox.information(self, "Стикеры", "Ничего не выбрано")
+            return
+        try:
+            print_supply_stickers(
+                self.db,
+                self.orders,
+                self.source_id,
+                self.api_key,
+                self.supply_id,
+                order_ids=order_ids,
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Стикеры", str(exc))
+
+    def refresh_kiz_status(self) -> None:
+        try:
+            result = self.kiz.refresh_statuses(
+                self.source_id, self.api_key, self.supply_id
+            )
+            QMessageBox.information(
+                self,
+                "Статусы",
+                "Обновлено заказов: {} · отменённых: {}".format(
+                    result.get("updated", 0), result.get("cancelled", 0)
+                ),
+            )
+            self.reload()
+        except Exception as exc:
+            QMessageBox.critical(self, "Статусы", str(exc))
 
     def manage_trbx(self) -> None:
         dlg = TrbxDialog(self.trbx, self.source_id, self.api_key, self.supply_id, self)

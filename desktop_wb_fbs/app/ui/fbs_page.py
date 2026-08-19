@@ -35,15 +35,13 @@ class SyncWorker(QThread):
     def __init__(
         self,
         db: Database,
-        source_id: int,
-        api_key: str,
+        sources: List[Dict[str, Any]],
         lookback_days: int,
         parent: Optional[QWidget] = None,
     ) -> None:
         super(SyncWorker, self).__init__(parent)
         self.db = db
-        self.source_id = source_id
-        self.api_key = api_key
+        self.sources = list(sources or [])
         self.lookback_days = lookback_days
         self._stop = False
 
@@ -51,16 +49,63 @@ class SyncWorker(QThread):
         self._stop = True
 
     def run(self) -> None:
+        from app.services.pallet import compute_pallet_summary
+
         try:
-            result = sync_source(
-                self.db,
-                self.source_id,
-                self.api_key,
-                lookback_days=self.lookback_days,
-                stop_requested=lambda: self._stop,
-                progress=lambda m, n: self.progress.emit(m, n),
+            total_orders = 0
+            total_supplies = 0
+            all_errors = []  # type: List[str]
+            stopped = False
+            scope_error = False
+            scope_message = ""
+            for src in self.sources:
+                if self._stop:
+                    stopped = True
+                    break
+                sid = int(src["id"])
+                name = str(src.get("name") or sid)
+                self.progress.emit("{}…".format(name), total_orders)
+
+                def _prog(msg, n, _name=name):
+                    self.progress.emit("{} · {}".format(_name, msg), n)
+
+                result = sync_source(
+                    self.db,
+                    sid,
+                    str(src.get("api_key") or ""),
+                    lookback_days=self.lookback_days,
+                    stop_requested=lambda: self._stop,
+                    progress=_prog,
+                )
+                if result.get("scope_error"):
+                    scope_error = True
+                    scope_message = str(result.get("message") or "")
+                    all_errors.append("{}: {}".format(name, scope_message))
+                    continue
+                total_orders += int(result.get("orders") or 0)
+                total_supplies += int(result.get("supplies") or 0)
+                for e in result.get("errors") or []:
+                    all_errors.append("{}: {}".format(name, e))
+                if result.get("stopped"):
+                    stopped = True
+                    break
+            pallet_summary = []
+            try:
+                pallet_summary = compute_pallet_summary(self.db, self.sources)
+            except Exception:
+                pallet_summary = []
+            self.finished_ok.emit(
+                {
+                    "orders": total_orders,
+                    "supplies": total_supplies,
+                    "errors": all_errors,
+                    "stopped": stopped,
+                    "scope_error": scope_error,
+                    "message": scope_message,
+                    "pallet_summary": pallet_summary,
+                    "synced_sources": len(self.sources),
+                }
             )
-            self.finished_ok.emit(result)
         except Exception as exc:
             self.failed.emit(str(exc))
 
@@ -78,6 +123,8 @@ class FbsPage(QWidget):
         self._page_size = 50
         self._worker = None  # type: Optional[SyncWorker]
         self._selected_order_ids = set()  # type: set
+        self._select_all_matching = False
+        self._last_total = 0
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)
@@ -112,7 +159,7 @@ class FbsPage(QWidget):
         self.search.setPlaceholderText("Поиск: заказ, артикул, поставка…")
         self.search.setClearButtonEnabled(True)
         self.search.setMinimumWidth(260)
-        self.search.returnPressed.connect(self.reload_table)
+        self.search.returnPressed.connect(self.run_search)
         self.search.textChanged.connect(self._on_search_debounce)
         toolbar.addWidget(self.search)
         root.addLayout(toolbar)
@@ -124,6 +171,13 @@ class FbsPage(QWidget):
         )
         self.sync_info.hide()
         root.addWidget(self.sync_info)
+        self.pallet_info = QLabel("")
+        self.pallet_info.setWordWrap(True)
+        self.pallet_info.setStyleSheet(
+            "background:#f8fafc;border:1px solid #e2e8f0;padding:8px;border-radius:4px;color:#334155;"
+        )
+        self.pallet_info.hide()
+        root.addWidget(self.pallet_info)
 
         tabs_row = QHBoxLayout()
         self.tabs = QTabWidget()
@@ -149,6 +203,13 @@ class FbsPage(QWidget):
         bottom = QHBoxLayout()
         self.sel_label = QLabel("Выбрано: 0")
         bottom.addWidget(self.sel_label)
+        self.btn_select_all_matching = QPushButton("Выбрать все подходящие")
+        self.btn_select_all_matching.setStyleSheet(
+            "background:#fff;color:#1e293b;border:1px solid #cbd5e1;"
+        )
+        self.btn_select_all_matching.clicked.connect(self.select_all_matching)
+        self.btn_select_all_matching.hide()
+        bottom.addWidget(self.btn_select_all_matching)
         self.btn_new_supply = QPushButton("Новая поставка")
         self.btn_new_supply.clicked.connect(self.create_supply)
         self.btn_add_supply = QPushButton("Добавить к существующей")
@@ -231,10 +292,10 @@ class FbsPage(QWidget):
         self._tab = {0: "new", 1: "assembly", 2: "delivery"}.get(index, "new")
         self._page = 0
         self._selected_order_ids.clear()
+        self._select_all_matching = False
         self.reload_table()
 
     def _on_search_debounce(self, _text: str) -> None:
-        # Simple: reload on Enter only; also allow delayed via timer-less immediate for short
         pass
 
     def update_bottom_visibility(self) -> None:
@@ -247,6 +308,7 @@ class FbsPage(QWidget):
         self.btn_open_supply.setVisible(is_asm or is_del)
         self.btn_print_stickers.setVisible(is_asm or is_new)
         self.btn_supply_qr.setVisible(is_del)
+        self.btn_select_all_matching.setVisible(is_new)
 
     def reload_table(self) -> None:
         self.update_bottom_visibility()
@@ -267,16 +329,34 @@ class FbsPage(QWidget):
             rows, total = self.orders.list_orders(
                 sid, tab="new", search=search, limit=limit, offset=offset
             )
+            self._last_total = total
             self._fill_orders_table(rows)
+            page_count = len(rows)
+            can_all = (
+                page_count > 0
+                and total > page_count
+                and not self._select_all_matching
+            )
+            self.btn_select_all_matching.setEnabled(can_all or self._select_all_matching)
+            if self._select_all_matching:
+                self.btn_select_all_matching.setText(
+                    "Выбраны все {} · сбросить".format(total)
+                )
+            else:
+                self.btn_select_all_matching.setText(
+                    "Выбрать все подходящие ({})".format(total)
+                )
         elif self._tab == "assembly":
             rows, total = self.orders.list_supplies(
                 sid, done=False, search=search, limit=limit, offset=offset
             )
+            self._last_total = total
             self._fill_supplies_table(rows)
         else:
             rows, total = self.orders.list_supplies(
                 sid, done=True, search=search, limit=limit, offset=offset
             )
+            self._last_total = total
             self._fill_supplies_table(rows)
 
         pages = max(1, (total + limit - 1) // limit)
@@ -290,7 +370,7 @@ class FbsPage(QWidget):
             self.table.itemChanged.disconnect(self._on_check_change)
         except Exception:
             pass
-        cols = ["", "Заказ", "Артикул", "Склад", "Тип", "Цена", "B2B", "ШК"]
+        cols = ["", "Заказ", "Товар", "Артикул", "Склад", "Тип", "Цена", "B2B", "ШК"]
         self.table.blockSignals(True)
         self.table.clear()
         self.table.setColumnCount(len(cols))
@@ -306,18 +386,21 @@ class FbsPage(QWidget):
             chk.setData(Qt.UserRole, oid)
             self.table.setItem(r, 0, chk)
             self.table.setItem(r, 1, QTableWidgetItem(str(oid)))
-            self.table.setItem(r, 2, QTableWidgetItem(str(row.get("article") or "")))
             self.table.setItem(
-                r, 3, QTableWidgetItem(str(row.get("warehouse_id") or ""))
+                r, 2, QTableWidgetItem(str(row.get("product_name") or ""))
             )
-            self.table.setItem(r, 4, QTableWidgetItem(str(row.get("cargo_label") or "")))
-            self.table.setItem(r, 5, QTableWidgetItem(str(row.get("price_label") or "")))
+            self.table.setItem(r, 3, QTableWidgetItem(str(row.get("article") or "")))
             self.table.setItem(
-                r, 6, QTableWidgetItem("да" if row.get("is_b2b") else "")
+                r, 4, QTableWidgetItem(str(row.get("warehouse_label") or row.get("warehouse_id") or ""))
+            )
+            self.table.setItem(r, 5, QTableWidgetItem(str(row.get("cargo_label") or "")))
+            self.table.setItem(r, 6, QTableWidgetItem(str(row.get("price_label") or "")))
+            self.table.setItem(
+                r, 7, QTableWidgetItem("да" if row.get("is_b2b") else "")
             )
             skus = row.get("skus") or []
             self.table.setItem(
-                r, 7, QTableWidgetItem(", ".join(str(s) for s in skus[:3]))
+                r, 8, QTableWidgetItem(", ".join(str(s) for s in skus[:3]))
             )
         self.table.blockSignals(False)
         self.table.itemChanged.connect(self._on_check_change)
@@ -370,21 +453,21 @@ class FbsPage(QWidget):
         self.reload_table()
 
     def start_sync(self) -> None:
-        src = self.current_source()
-        if not src:
-            QMessageBox.warning(self, "Синхронизация", "Выберите источник")
+        all_sources = self.sources.list_fbs_enabled()
+        if not all_sources:
+            QMessageBox.warning(self, "Синхронизация", "Нет включённых источников FBS")
             return
         if self._worker and self._worker.isRunning():
             return
-        # Fixed lookback (как ручной sync в вебе по умолчанию); без шестерёнки/автоматики.
         lookback = 3
-        self.sync_info.setText("Синхронизация…")
+        self.sync_info.setText(
+            "Синхронизация {} источник(ов)…".format(len(all_sources))
+        )
         self.sync_info.show()
+        self.pallet_info.hide()
         self.sync_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
-        self._worker = SyncWorker(
-            self.db, int(src["id"]), str(src["api_key"]), lookback, self
-        )
+        self._worker = SyncWorker(self.db, all_sources, lookback, self)
         self._worker.progress.connect(self._on_sync_progress)
         self._worker.finished_ok.connect(self._on_sync_done)
         self._worker.failed.connect(self._on_sync_fail)
@@ -401,21 +484,35 @@ class FbsPage(QWidget):
     def _on_sync_done(self, result: dict) -> None:
         self.sync_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
-        src = self.current_source()
-        if src:
-            self.sources.touch_synced(int(src["id"]))
-        if result.get("scope_error"):
-            self.sync_info.setText(str(result.get("message") or "Ошибка scope"))
-            return
+        for src in self.sources.list_fbs_enabled():
+            try:
+                self.sources.touch_synced(int(src["id"]))
+            except Exception:
+                pass
         err = result.get("errors") or []
-        msg = "Готово: заказов {}, поставок {}".format(
-            result.get("orders", 0), result.get("supplies", 0)
+        msg = "Готово: заказов {}, поставок {} · источников {}".format(
+            result.get("orders", 0),
+            result.get("supplies", 0),
+            result.get("synced_sources", 0),
         )
         if result.get("stopped"):
             msg += " (остановлено)"
         if err:
             msg += " · ошибки: " + "; ".join(str(e) for e in err[:3])
+        if result.get("scope_error") and result.get("message"):
+            msg = str(result.get("message"))
         self.sync_info.setText(msg)
+        pallets = result.get("pallet_summary") or []
+        if pallets:
+            lines = []
+            for p in pallets:
+                lines.append(
+                    "{}: {}".format(p.get("name") or "", p.get("pallets_label") or "")
+                )
+            self.pallet_info.setText("Паллеты (Новые + На сборке):\n" + "\n".join(lines))
+            self.pallet_info.show()
+        else:
+            self.pallet_info.hide()
         self.reload_table()
 
     def _on_sync_fail(self, err: str) -> None:
@@ -423,6 +520,62 @@ class FbsPage(QWidget):
         self.stop_btn.setEnabled(False)
         self.sync_info.setText("Ошибка: {}".format(err))
         QMessageBox.critical(self, "Синхронизация", err)
+
+    def select_all_matching(self) -> None:
+        src = self.current_source()
+        if not src or self._tab != "new":
+            return
+        if self._select_all_matching:
+            self._select_all_matching = False
+            self._selected_order_ids.clear()
+            self.reload_table()
+            return
+        ids = self.orders.list_order_ids(
+            int(src["id"]), tab="new", search=self.search.text().strip()
+        )
+        self._selected_order_ids = set(ids)
+        self._select_all_matching = True
+        self.reload_table()
+
+    def run_search(self) -> None:
+        """Local filter + optional WB lookup by numeric order id."""
+        src = self.current_source()
+        q = self.search.text().strip()
+        self._page = 0
+        self._select_all_matching = False
+        if src and q.isdigit() and self._tab == "new":
+            from app.services.lookup import lookup_order_by_id
+
+            try:
+                result = lookup_order_by_id(
+                    self.db, int(src["id"]), int(q), str(src["api_key"])
+                )
+            except Exception as exc:
+                QMessageBox.warning(self, "Поиск", str(exc))
+                self.reload_table()
+                return
+            if result.get("found"):
+                tab = str(result.get("tab") or "")
+                src_kind = result.get("source") or ""
+                self.sync_info.setText(
+                    "Найден заказ {} ({}, вкладка «{}»)".format(
+                        q,
+                        "локально" if src_kind == "local" else "через WB",
+                        tab or "—",
+                    )
+                )
+                self.sync_info.show()
+                # Switch to operational tab if possible
+                tab_idx = {"new": 0, "assembly": 1, "delivery": 2}.get(tab)
+                if tab_idx is not None and tab in ("new", "assembly", "delivery"):
+                    self.tabs.blockSignals(True)
+                    self.tabs.setCurrentIndex(tab_idx)
+                    self._tab = tab
+                    self.tabs.blockSignals(False)
+            elif result.get("message"):
+                self.sync_info.setText(str(result.get("message")))
+                self.sync_info.show()
+        self.reload_table()
 
     def collect_mgt(self) -> None:
         from app.ui.dialogs_extra import CollectMgtDialog

@@ -7,6 +7,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.db import Database
+from app.services.catalog import ProductService
 from app.wb import (
     cargo_type_label,
     format_price_rub,
@@ -18,27 +19,58 @@ from app.wb.client import WbFbsClient
 from app.wb.sync import upsert_supply
 
 
+def _warehouse_label(row: Dict[str, Any]) -> str:
+    offices = parse_json_list(row.get("offices_json"))
+    names = [str(x).strip() for x in offices if str(x or "").strip()]
+    if names:
+        return ", ".join(names)
+    wh = row.get("warehouse_id")
+    return str(wh) if wh is not None else ""
+
+
 class OrdersService:
     def __init__(self, db: Database) -> None:
         self.db = db
+        self._product_title_cache = None  # type: ignore
+
+    def _product_maps(self) -> Tuple[Dict[str, str], Dict[str, str]]:
+        by_art = {}  # type: Dict[str, str]
+        by_nm = {}  # type: Dict[str, str]
+        for p in ProductService(self.db).list_all():
+            name = str(p.get("name") or "").strip()
+            if not name:
+                continue
+            art = str(p.get("supplier_article") or "").strip().lower()
+            nm = str(p.get("wb_nmid") or "").strip()
+            if art:
+                by_art[art] = name
+            if nm:
+                by_nm[nm] = name
+        return by_art, by_nm
+
+    def _enrich_order(self, it: Dict[str, Any], by_art: Dict[str, str], by_nm: Dict[str, str]) -> Dict[str, Any]:
+        it["cargo_label"] = cargo_type_label(it.get("cargo_type"))
+        it["price_label"] = format_price_rub(
+            it.get("final_price"), it.get("currency_code")
+        )
+        it["skus"] = parse_json_list(it.get("skus_json"))
+        it["is_b2b"] = bool(int(it.get("is_b2b") or 0))
+        it["warehouse_label"] = _warehouse_label(it)
+        art = str(it.get("article") or "").strip().lower()
+        nm = str(it.get("nm_id") or "").strip()
+        it["product_name"] = by_art.get(art) or by_nm.get(nm) or ""
+        return it
 
     def tab_counts(self, source_id: int) -> Dict[str, int]:
+        out = {"new": 0, "assembly": 0, "delivery": 0}
         with self.db.connect() as conn:
-            rows = conn.execute(
+            n = conn.execute(
                 """
-                SELECT tab, COUNT(*) AS c FROM wb_fbs_orders
-                WHERE source_id = ? AND is_archive = 0
-                GROUP BY tab
+                SELECT COUNT(*) AS c FROM wb_fbs_orders
+                WHERE source_id = ? AND tab = 'new' AND is_archive = 0
                 """,
                 (source_id,),
-            ).fetchall()
-        out = {"new": 0, "assembly": 0, "delivery": 0}
-        for r in rows:
-            t = str(r["tab"] or "")
-            if t in out:
-                out[t] = int(r["c"])
-        # assembly/delivery counts are supply-based in UI — keep order counts for new
-        with self.db.connect() as conn:
+            ).fetchone()
             a = conn.execute(
                 """
                 SELECT COUNT(*) AS c FROM wb_fbs_supplies
@@ -53,19 +85,32 @@ class OrdersService:
                 """,
                 (source_id,),
             ).fetchone()
+        out["new"] = int(n["c"] if n else 0)
         out["assembly"] = int(a["c"] if a else 0)
         out["delivery"] = int(d["c"] if d else 0)
-        # new = orders still in new tab
-        with self.db.connect() as conn:
-            n = conn.execute(
-                """
-                SELECT COUNT(*) AS c FROM wb_fbs_orders
-                WHERE source_id = ? AND tab = 'new' AND is_archive = 0
-                """,
-                (source_id,),
-            ).fetchone()
-        out["new"] = int(n["c"] if n else 0)
         return out
+
+    def list_order_ids(
+        self, source_id: int, tab: str = "new", search: str = ""
+    ) -> List[int]:
+        cond = ["source_id = ?", "tab = ?", "is_archive = 0"]
+        params = [source_id, tab]  # type: List[Any]
+        q = str(search or "").strip()
+        if q:
+            like = "%{}%".format(q.lower())
+            cond.append(
+                "(LOWER(CAST(order_id AS TEXT)) LIKE ? OR LOWER(article) LIKE ?"
+                " OR LOWER(supply_id) LIKE ? OR LOWER(skus_json) LIKE ?"
+                " OR LOWER(COALESCE(offices_json,'')) LIKE ?)"
+            )
+            params.extend([like, like, like, like, like])
+        where = " AND ".join(cond)
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT order_id FROM wb_fbs_orders WHERE " + where + " ORDER BY order_id",
+                params,
+            ).fetchall()
+        return [int(r["order_id"]) for r in rows]
 
     def list_orders(
         self,
@@ -82,9 +127,10 @@ class OrdersService:
             like = "%{}%".format(q.lower())
             cond.append(
                 "(LOWER(CAST(order_id AS TEXT)) LIKE ? OR LOWER(article) LIKE ?"
-                " OR LOWER(supply_id) LIKE ? OR LOWER(skus_json) LIKE ?)"
+                " OR LOWER(supply_id) LIKE ? OR LOWER(skus_json) LIKE ?"
+                " OR LOWER(COALESCE(offices_json,'')) LIKE ?)"
             )
-            params.extend([like, like, like, like])
+            params.extend([like, like, like, like, like])
         where = " AND ".join(cond)
         with self.db.connect() as conn:
             total = conn.execute(
@@ -100,14 +146,8 @@ class OrdersService:
                 ),
                 params + [limit, offset],
             ).fetchall()
-        items = Database.rows_to_dicts(rows)
-        for it in items:
-            it["cargo_label"] = cargo_type_label(it.get("cargo_type"))
-            it["price_label"] = format_price_rub(
-                it.get("final_price"), it.get("currency_code")
-            )
-            it["skus"] = parse_json_list(it.get("skus_json"))
-            it["is_b2b"] = bool(int(it.get("is_b2b") or 0))
+        by_art, by_nm = self._product_maps()
+        items = [self._enrich_order(dict(r), by_art, by_nm) for r in rows]
         return items, int(total["c"] if total else 0)
 
     def list_supplies(
@@ -174,7 +214,54 @@ class OrdersService:
         d["is_b2b"] = bool(int(d.get("is_b2b") or 0))
         return d
 
-    def orders_in_supply(self, source_id: int, supply_id: str) -> List[Dict[str, Any]]:
+    def ensure_supply_order_ids(
+        self, source_id: int, api_key: str, supply_id: str
+    ) -> List[int]:
+        """Refresh order ids from WB when local list is empty (done supplies)."""
+        supply = self.get_supply(source_id, supply_id)
+        oids = list((supply or {}).get("order_ids") or [])
+        if oids:
+            return [int(x) for x in oids]
+        client = WbFbsClient(api_key)
+        oids = [int(x) for x in client.get_supply_order_ids(supply_id)]
+        time.sleep(0.21)
+        boxes = client.get_supply_boxes(supply_id)
+        now = utc_now()
+        with self.db.connect() as conn:
+            conn.execute(
+                """
+                UPDATE wb_fbs_supplies
+                SET order_ids_json = ?, boxes_json = ?, synced_at = ?
+                WHERE source_id = ? AND supply_id = ?
+                """,
+                (
+                    json.dumps(oids, ensure_ascii=False),
+                    json.dumps(boxes, ensure_ascii=False),
+                    now,
+                    source_id,
+                    supply_id,
+                ),
+            )
+            for oid in oids:
+                conn.execute(
+                    """
+                    UPDATE wb_fbs_orders
+                    SET supply_id = ?, synced_at = ?
+                    WHERE source_id = ? AND order_id = ?
+                    """,
+                    (supply_id, now, source_id, int(oid)),
+                )
+            conn.commit()
+        return oids
+
+    def orders_in_supply(
+        self, source_id: int, supply_id: str, api_key: str = ""
+    ) -> List[Dict[str, Any]]:
+        if api_key:
+            try:
+                self.ensure_supply_order_ids(source_id, api_key, supply_id)
+            except Exception:
+                pass
         with self.db.connect() as conn:
             rows = conn.execute(
                 """
@@ -184,15 +271,11 @@ class OrdersService:
                 """,
                 (source_id, supply_id),
             ).fetchall()
-        items = Database.rows_to_dicts(rows)
+        by_art, by_nm = self._product_maps()
+        items = [self._enrich_order(dict(r), by_art, by_nm) for r in rows]
         for it in items:
-            it["skus"] = parse_json_list(it.get("skus_json"))
             it["kiz_codes"] = parse_json_list(it.get("kiz_codes_json"))
             it["pick_verified"] = bool(int(it.get("pick_verified") or 0))
-            it["cargo_label"] = cargo_type_label(it.get("cargo_type"))
-            it["price_label"] = format_price_rub(
-                it.get("final_price"), it.get("currency_code")
-            )
         return items
 
     def create_supply_from_orders(

@@ -56,6 +56,28 @@ def compute_tab(*, supplier_status: str, wb_status: str, is_archive: bool) -> st
     return TAB_ASSEMBLY if ss else TAB_NEW
 
 
+def is_cancelled_status(*, supplier_status: object = "", wb_status: object = "") -> bool:
+    ss = str(supplier_status or "").strip().lower()
+    ws = str(wb_status or "").strip().lower()
+    return ss in _CANCELLED_SUPPLIER or ws in _CANCELLED_WB
+
+
+def cancel_reason_label(*, supplier_status: object = "", wb_status: object = "") -> str:
+    ws = str(wb_status or "").strip().lower()
+    ss = str(supplier_status or "").strip().lower()
+    if ws == "declined_by_client":
+        return "Покупатель в первый час"
+    if ws == "canceled_by_client":
+        return "Отказ на ПВЗ"
+    if ws == "defect":
+        return "Найдены дефекты"
+    if ws == "canceled_by_carrier" or ss == "cancel_carrier":
+        return "Перевозчик"
+    if ws == "canceled" or ss == "cancel":
+        return "Отмена продавцом"
+    return ""
+
+
 def as_int_or_none(value: object) -> Optional[int]:
     if value is None or value == "":
         return None

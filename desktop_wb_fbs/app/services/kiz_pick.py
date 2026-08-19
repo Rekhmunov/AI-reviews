@@ -4,11 +4,19 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.db import Database
 from app.services.catalog import ProductService
-from app.wb import kiz_code_clean, parse_json_list, utc_now
+from app.wb import (
+    cancel_reason_label,
+    compute_tab,
+    is_cancelled_status,
+    kiz_code_clean,
+    parse_json_list,
+    utc_now,
+)
 from app.wb.client import WbFbsClient
 
 _GTIN_RE = re.compile(r"^01(\d{14})21")
@@ -165,6 +173,55 @@ class KizService:
         else:
             client.delete_order_meta(order_id, "sgtin")
         self.save_local(source_id, order_id, cleaned, wb_synced=True)
+
+    def refresh_statuses(
+        self, source_id: int, api_key: str, supply_id: str
+    ) -> Dict[str, Any]:
+        """Refresh WB order statuses for supply + re-detect cancelled / KIZ needed."""
+        client = WbFbsClient(api_key)
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT order_id FROM wb_fbs_orders
+                WHERE source_id = ? AND supply_id = ?
+                """,
+                (source_id, supply_id),
+            ).fetchall()
+        ids = [int(r["order_id"]) for r in rows]
+        if not ids:
+            return {"updated": 0, "cancelled": 0}
+        updated = 0
+        cancelled = 0
+        now = utc_now()
+        for i in range(0, len(ids), 1000):
+            chunk = ids[i : i + 1000]
+            statuses = client.get_statuses(chunk)
+            with self.db.connect() as conn:
+                for st in statuses:
+                    if not isinstance(st, dict) or st.get("id") is None:
+                        continue
+                    try:
+                        oid = int(st["id"])
+                    except (TypeError, ValueError):
+                        continue
+                    ss = str(st.get("supplierStatus") or "")
+                    ws = str(st.get("wbStatus") or "")
+                    tab = compute_tab(supplier_status=ss, wb_status=ws, is_archive=False)
+                    if is_cancelled_status(supplier_status=ss, wb_status=ws):
+                        cancelled += 1
+                    conn.execute(
+                        """
+                        UPDATE wb_fbs_orders
+                        SET supplier_status = ?, wb_status = ?, tab = ?, synced_at = ?
+                        WHERE source_id = ? AND order_id = ?
+                        """,
+                        (ss, ws, tab, now, source_id, oid),
+                    )
+                    updated += 1
+                conn.commit()
+            if i + 1000 < len(ids):
+                time.sleep(0.21)
+        return {"updated": updated, "cancelled": cancelled}
 
 
 class PickVerifyService:
