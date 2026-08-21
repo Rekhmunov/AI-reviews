@@ -345,6 +345,70 @@ def _carrier_org_from_fields(fields: dict[str, Any] | None) -> tuple[str, str, s
     return name, inn, kpp
 
 
+def _strip_ip_prefix(name: str) -> str:
+    """Remove leading «ИП» / «И.П.» / «индивидуальный предприниматель» for FIO split."""
+    raw = str(name or "").strip()
+    raw = re.sub(
+        r'^[«"\']?\s*(?:И\.\s*П\.|ИП|индивидуальный\s+предприниматель)\s*[»"\']?\s*',
+        "",
+        raw,
+        flags=re.I,
+    )
+    return raw.strip(" «»\"'")
+
+
+def _add_carrier_idsv(
+    id_parent: ET.Element,
+    name: str,
+    inn: str,
+    kpp: str = "",
+    *,
+    style: str = "zakaz",
+) -> ET.Element:
+    """Emit carrier party under ИдСв: СвЮЛУч (ООО, 10-digit INN) or СвИП (12-digit INN).
+
+    Only the identification element type changes. Address / phone stay with the caller.
+    ``style`` preserves historical attribute assembly for empty ЮЛ payloads:
+    - zakaz: fallback «Перевозчик (уточнить)» when no name/inn/kpp
+    - etrn: always emit НаимОрг (may be empty)
+    """
+    inn_digits = re.sub(r"\D", "", str(inn or ""))[:12]
+    org_name = str(name or "").strip()
+    kpp_digits = re.sub(r"\D", "", str(kpp or ""))[:9]
+
+    # ИП: Contour/Diadoc OrgType=2 — СвИП + ИННФЛ + ФИО (no КПП).
+    if len(inn_digits) == 12:
+        sv_ip = _el(id_parent, "СвИП", ИННФЛ=inn_digits)
+        fam, imya, otch = _split_fio(_strip_ip_prefix(org_name))
+        if not fam:
+            fam, imya = "Не", "указан"
+        fio_attrs = {"Фамилия": fam, "Имя": imya or "не указано"}
+        if otch:
+            fio_attrs["Отчество"] = otch
+        _el(sv_ip, "ФИО", **fio_attrs)
+        return sv_ip
+
+    # Организация (ООО и т.п.): прежнее поведение СвЮЛУч.
+    if style == "etrn":
+        per_attrs: dict[str, str] = {"НаимОрг": org_name}
+        if inn_digits:
+            per_attrs["ИННЮЛ"] = inn_digits
+        if kpp_digits:
+            per_attrs["КПП"] = kpp_digits
+        return _el(id_parent, "СвЮЛУч", **per_attrs)
+
+    prv_attrs: dict[str, str] = {}
+    if org_name:
+        prv_attrs["НаимОрг"] = org_name
+    if inn_digits:
+        prv_attrs["ИННЮЛ"] = inn_digits
+    if kpp_digits:
+        prv_attrs["КПП"] = kpp_digits
+    if prv_attrs:
+        return _el(id_parent, "СвЮЛУч", **prv_attrs)
+    return _el(id_parent, "СвЮЛУч", НаимОрг="Перевозчик (уточнить)")
+
+
 def _has_structured_address(addr: dict[str, str] | None) -> bool:
     if not addr:
         return False
@@ -1191,12 +1255,10 @@ def build_ozon_etrn_xml(
     # --- СвПер ---
     sv_per = _el(sod, "СвПер")
     id_per = _el(sv_per, "ИдСв")
-    per_attrs = {"НаимОрг": carrier_name}
-    if carrier_inn:
-        per_attrs["ИННЮЛ"] = carrier_inn
-    if carrier_kpp:
-        per_attrs["КПП"] = carrier_kpp
-    _el(id_per, "СвЮЛУч", **per_attrs)
+    # 10-digit INN → СвЮЛУч; 12-digit → СвИП (same rule as ЭЗЗ / Contour OrgType).
+    _add_carrier_idsv(
+        id_per, carrier_name, carrier_inn, carrier_kpp, style="etrn"
+    )
     # Prefer structured carrier address; else parse free-text; else shipper fallback.
     carrier_addr = _addr_from_carrier_fields(carrier_fields)
     if not _has_structured_address(carrier_addr):

@@ -402,6 +402,38 @@ def test_etrn_carrier_uses_structured_fields():
     assert adr.attrib.get("Дом") == "7"
 
 
+def test_etrn_carrier_ip_uses_svip_not_ulyuch():
+    """12-digit carrier INN → СвИП; ООО path (СвЮЛУч) untouched for 10-digit."""
+    root = ET.fromstring(
+        _build(
+            carrier_fields={
+                "carrier_name": "ИП Петрова Елена Владимировна",
+                "carrier_inn": "370700174809",
+                "carrier_kpp": "370701001",
+                "carrier_phone": "+79001112233",
+                "carrier_addr_index": "153000",
+                "carrier_addr_region_code": "37",
+                "carrier_addr_city": "Иваново",
+                "carrier_addr_street": "ул. Ленина",
+                "carrier_addr_house": "1",
+            },
+        )
+    )
+    assert root.find("Документ/СодИнфГО/СвПер/ИдСв/СвЮЛУч") is None
+    ip = root.find("Документ/СодИнфГО/СвПер/ИдСв/СвИП")
+    assert ip is not None
+    assert ip.attrib.get("ИННФЛ") == "370700174809"
+    fio = ip.find("ФИО")
+    assert fio is not None
+    assert fio.attrib.get("Фамилия") == "Петрова"
+    assert fio.attrib.get("Имя") == "Елена"
+    assert fio.attrib.get("Отчество") == "Владимировна"
+    adr = root.find("Документ/СодИнфГО/СвПер/Адрес/АдрРФ")
+    assert adr is not None
+    assert adr.attrib.get("Индекс") == "153000"
+    assert root.find("Документ/СодИнфГО/СвПер/Контакт/Тлф").text
+
+
 def test_compose_carrier_line_for_documents():
     from review_processor.repository import ReviewRepository
 
