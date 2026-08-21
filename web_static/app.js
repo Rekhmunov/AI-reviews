@@ -12932,6 +12932,67 @@ async function loadProducts() {
   }
 }
 
+function _csvEscapeCell(value) {
+  const s = String(value ?? "");
+  if (/[;"\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+async function exportProductsCsv() {
+  const info = document.getElementById("productsInfo");
+  try {
+    if (!Array.isArray(_productsCache) || !_productsCache.length) {
+      const res = await fetch("/api/products");
+      const data = await res.json();
+      _productsCache = data.items || [];
+    }
+    if (!_productsCache.length) {
+      if (info) info.textContent = "Нет товаров для экспорта";
+      return;
+    }
+    const headers = [
+      "Наименование товара",
+      "Артикул продавца",
+      "Артикул WB (nmId)",
+      "SKU Ozon",
+      "Артикул Яндекс Маркет (offerId)",
+      "Кратность в коробе",
+      "Категория товара",
+      "Без проверки GTIN маркировки",
+    ];
+    const lines = [headers.map(_csvEscapeCell).join(";")];
+    for (const item of _productsCache) {
+      const boxQty = item.box_qty;
+      const boxQtyText = (boxQty === null || boxQty === undefined || boxQty === "")
+        ? ""
+        : String(boxQty);
+      lines.push([
+        item.name || "",
+        item.supplier_article || "",
+        item.wb_nmid || "",
+        item.ozon_sku || "",
+        item.yandex_offer_id || "",
+        boxQtyText,
+        item.product_category || "",
+        item.skip_kiz_gtin_check ? "да" : "нет",
+      ].map(_csvEscapeCell).join(";"));
+    }
+    const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const stamp = new Date().toISOString().slice(0, 10);
+    a.download = `products_${stamp}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    if (info) info.textContent = `Товаров: ${_productsCache.length}. Экспорт: ${_productsCache.length}`;
+  } catch (e) {
+    if (info) info.textContent = "Ошибка экспорта CSV";
+  }
+}
+window.exportProductsCsv = exportProductsCsv;
+
 function editProduct(id) {
   const item = _productsCache.find(p => p.id === id);
   if (item) openAddProductForm(item);
