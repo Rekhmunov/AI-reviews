@@ -3746,9 +3746,79 @@ _wb_fbs_sync_state: dict[str, object] = {
     "cancel_requested": False,
     "source_id": None,
     "source_ids": [],
+    "sources": [],  # per-cabinet progress rows for UI
     "pallet_summary": [],
 }
 _wb_fbs_sync_lock = threading.Lock()
+
+# Cap parallel cabinets so one tenant cannot spawn unbounded WB/DB workers.
+_WB_FBS_SYNC_MAX_WORKERS = 8
+
+
+def _copy_sync_state() -> dict[str, object]:
+    """Snapshot sync state for API (deep-copy mutable lists)."""
+    st = dict(_wb_fbs_sync_state)
+    st["errors"] = list(_wb_fbs_sync_state.get("errors") or [])
+    st["source_ids"] = list(_wb_fbs_sync_state.get("source_ids") or [])
+    st["pallet_summary"] = [
+        dict(x) if isinstance(x, dict) else x
+        for x in (_wb_fbs_sync_state.get("pallet_summary") or [])
+    ]
+    st["sources"] = [
+        dict(x) if isinstance(x, dict) else x
+        for x in (_wb_fbs_sync_state.get("sources") or [])
+    ]
+    return st
+
+
+def _sync_sources_list() -> list[dict[str, Any]]:
+    raw = _wb_fbs_sync_state.get("sources") or []
+    return raw if isinstance(raw, list) else []
+
+
+def _set_source_sync_row(source_id: int, **fields: object) -> None:
+    """Update one cabinet progress row (call under ``_wb_fbs_sync_lock``)."""
+    for row in _sync_sources_list():
+        if not isinstance(row, dict):
+            continue
+        try:
+            if int(row.get("source_id")) != int(source_id):
+                continue
+        except (TypeError, ValueError):
+            continue
+        row.update(fields)
+        return
+
+
+def _refresh_aggregate_sync_message(*, fallback: str = "") -> None:
+    """Keep top-level ``message`` in sync with per-source rows (call under lock)."""
+    rows = [r for r in _sync_sources_list() if isinstance(r, dict)]
+    if not rows:
+        if fallback:
+            _wb_fbs_sync_state["message"] = fallback
+        return
+    done_n = sum(1 for r in rows if str(r.get("status") or "") in ("done", "error", "stopped"))
+    running = [r for r in rows if str(r.get("status") or "") == "running"]
+    if running:
+        _wb_fbs_sync_state["message"] = (
+            f"Синхронизация… {done_n}/{len(rows)} готово, активных: {len(running)}"
+        )
+    elif fallback:
+        _wb_fbs_sync_state["message"] = fallback
+    else:
+        _wb_fbs_sync_state["message"] = f"Синхронизация… {done_n}/{len(rows)}"
+
+
+def _sum_source_orders() -> int:
+    total = 0
+    for row in _sync_sources_list():
+        if not isinstance(row, dict):
+            continue
+        try:
+            total += int(row.get("orders") or 0)
+        except (TypeError, ValueError):
+            continue
+    return total
 
 
 def _as_positive_int(value: object) -> int | None:
@@ -3930,7 +4000,7 @@ def compute_wb_fbs_pallet_summary(
 
 def get_sync_state() -> dict[str, object]:
     with _wb_fbs_sync_lock:
-        return dict(_wb_fbs_sync_state)
+        return _copy_sync_state()
 
 
 def request_sync_stop() -> bool:
@@ -3949,11 +4019,17 @@ def start_sync_thread(
     is_auto: bool = False,
     lookback_days: int | None = None,
 ) -> tuple[bool, str]:
-    """Sync all provided FBS sources sequentially (same set as the UI picker)."""
+    """Sync all provided FBS sources in parallel (one thread per cabinet / token).
+
+    Progress is tracked per source in ``sources`` so the UI can show a line
+    for each cabinet. Within a single source the API pacing stays sequential.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     jobs: list[dict[str, Any]] = []
     for raw in sources:
         try:
-            sid = int(raw.get("source_id") or raw.get("id"))
+            sid = int(raw.get("source_id") if "source_id" in raw else raw.get("id"))
         except (TypeError, ValueError):
             continue
         api_key = str(raw.get("api_key") or "").strip()
@@ -3983,6 +4059,18 @@ def start_sync_thread(
         except Exception:
             effective_lookback = 3
 
+    source_rows = [
+        {
+            "source_id": int(j["source_id"]),
+            "name": str(j["name"]),
+            "status": "pending",
+            "message": "Ожидание…",
+            "orders": 0,
+            "supplies": 0,
+        }
+        for j in jobs
+    ]
+
     with _wb_fbs_sync_lock:
         if _wb_fbs_sync_state.get("in_progress"):
             return False, "Синхронизация уже запущена"
@@ -3996,6 +4084,7 @@ def start_sync_thread(
                 "cancel_requested": False,
                 "source_id": jobs[0]["source_id"],
                 "source_ids": [j["source_id"] for j in jobs],
+                "sources": source_rows,
                 "pallet_summary": [],
             }
         )
@@ -4011,68 +4100,186 @@ def start_sync_thread(
         scope_failures = 0
         stopped = False
         synced_sources = 0
+        results_lock = threading.Lock()
+
+        def _sync_one(job: dict[str, Any]) -> dict[str, Any]:
+            sid = int(job["source_id"])
+            label = str(job["name"])
+            if stop_requested():
+                with _wb_fbs_sync_lock:
+                    _set_source_sync_row(
+                        sid, status="stopped", message="Остановлено"
+                    )
+                    _refresh_aggregate_sync_message()
+                return {
+                    "source_id": sid,
+                    "label": label,
+                    "stopped": True,
+                    "skipped": True,
+                }
+
+            with _wb_fbs_sync_lock:
+                _wb_fbs_sync_state["source_id"] = sid
+                _set_source_sync_row(
+                    sid, status="running", message="Запуск…"
+                )
+                _refresh_aggregate_sync_message()
+
+            def progress(msg: str, n: int, _sid: int = sid) -> None:
+                with _wb_fbs_sync_lock:
+                    _set_source_sync_row(
+                        _sid,
+                        status="running",
+                        message=str(msg or ""),
+                        orders=int(n or 0),
+                    )
+                    _wb_fbs_sync_state["synced"] = _sum_source_orders()
+                    _refresh_aggregate_sync_message()
+
+            try:
+                result = sync_wb_fbs_source(
+                    repo,
+                    user_id=user_id,
+                    source_id=sid,
+                    api_key=str(job["api_key"]),
+                    stop_requested=stop_requested,
+                    progress=progress,
+                    lookback_days=effective_lookback,
+                )
+            except Exception as exc:
+                _log.exception("wb_fbs sync failed for source %s", sid)
+                err_text = (
+                    SCOPE_ERROR_MESSAGE
+                    if is_marketplace_scope_error(exc)
+                    else str(exc)
+                )
+                with _wb_fbs_sync_lock:
+                    _set_source_sync_row(
+                        sid, status="error", message=err_text
+                    )
+                    _refresh_aggregate_sync_message()
+                return {
+                    "source_id": sid,
+                    "label": label,
+                    "scope_error": is_marketplace_scope_error(exc),
+                    "error": err_text,
+                    "exc": True,
+                }
+
+            orders_n = int(result.get("orders") or 0)
+            supplies_n = int(result.get("supplies") or 0)
+            if result.get("scope_error"):
+                msg = str(result.get("message") or SCOPE_ERROR_MESSAGE)
+                with _wb_fbs_sync_lock:
+                    _set_source_sync_row(
+                        sid,
+                        status="error",
+                        message=msg,
+                        orders=orders_n,
+                        supplies=supplies_n,
+                    )
+                    _refresh_aggregate_sync_message()
+                return {
+                    "source_id": sid,
+                    "label": label,
+                    "scope_error": True,
+                    "error": msg,
+                    "result": result,
+                }
+
+            errs = list(result.get("errors") or [])
+            safe_errs = [e for e in errs if not is_marketplace_scope_error(e)]
+            if errs and not safe_errs:
+                with _wb_fbs_sync_lock:
+                    _set_source_sync_row(
+                        sid,
+                        status="error",
+                        message=SCOPE_ERROR_MESSAGE,
+                        orders=orders_n,
+                        supplies=supplies_n,
+                    )
+                    _refresh_aggregate_sync_message()
+                return {
+                    "source_id": sid,
+                    "label": label,
+                    "scope_error": True,
+                    "error": SCOPE_ERROR_MESSAGE,
+                    "result": result,
+                }
+
+            if result.get("stopped"):
+                status = "stopped"
+                line = "Остановлено"
+            elif safe_errs:
+                status = "error"
+                line = "Готово с ошибками"
+            else:
+                status = "done"
+                line = (
+                    f"Готово · заказов: {orders_n} · поставок: {supplies_n}"
+                )
+            with _wb_fbs_sync_lock:
+                _set_source_sync_row(
+                    sid,
+                    status=status,
+                    message=line,
+                    orders=orders_n,
+                    supplies=supplies_n,
+                )
+                _wb_fbs_sync_state["synced"] = _sum_source_orders()
+                _refresh_aggregate_sync_message()
+            return {
+                "source_id": sid,
+                "label": label,
+                "result": result,
+                "safe_errs": safe_errs,
+                "orders": orders_n,
+                "supplies": supplies_n,
+            }
 
         try:
-            for idx, job in enumerate(jobs, start=1):
-                if stop_requested():
-                    stopped = True
-                    break
-                sid = int(job["source_id"])
-                label = str(job["name"])
-                with _wb_fbs_sync_lock:
-                    _wb_fbs_sync_state["source_id"] = sid
-                    _wb_fbs_sync_state["message"] = (
-                        f"Источник {idx}/{len(jobs)}: {label}"
-                    )
+            workers = max(1, min(len(jobs), _WB_FBS_SYNC_MAX_WORKERS))
+            with ThreadPoolExecutor(
+                max_workers=workers, thread_name_prefix="wb-fbs-sync"
+            ) as pool:
+                futures = [pool.submit(_sync_one, job) for job in jobs]
+                for fut in as_completed(futures):
+                    try:
+                        outcome = fut.result()
+                    except Exception as exc:
+                        _log.exception("wb_fbs parallel worker crashed")
+                        with results_lock:
+                            all_errors.append(str(exc))
+                        continue
 
-                def progress(msg: str, n: int, _label: str = label, _idx: int = idx) -> None:
-                    with _wb_fbs_sync_lock:
-                        _wb_fbs_sync_state["message"] = (
-                            f"[{_idx}/{len(jobs)}] {_label}: {msg}"
-                        )
-                        _wb_fbs_sync_state["synced"] = total_orders + int(n or 0)
+                    label = str(outcome.get("label") or "Источник")
+                    if outcome.get("skipped"):
+                        with results_lock:
+                            stopped = True
+                        continue
+                    if outcome.get("scope_error"):
+                        with results_lock:
+                            scope_failures += 1
+                            all_errors.append(
+                                f"{label}: {outcome.get('error') or SCOPE_ERROR_MESSAGE}"
+                            )
+                        continue
+                    if outcome.get("exc"):
+                        with results_lock:
+                            all_errors.append(
+                                f"{label}: {outcome.get('error') or 'ошибка'}"
+                            )
+                        continue
 
-                try:
-                    result = sync_wb_fbs_source(
-                        repo,
-                        user_id=user_id,
-                        source_id=sid,
-                        api_key=str(job["api_key"]),
-                        stop_requested=stop_requested,
-                        progress=progress,
-                        lookback_days=effective_lookback,
-                    )
-                except Exception as exc:
-                    _log.exception("wb_fbs sync failed for source %s", sid)
-                    if is_marketplace_scope_error(exc):
-                        scope_failures += 1
-                        all_errors.append(f"{label}: {SCOPE_ERROR_MESSAGE}")
-                    else:
-                        all_errors.append(f"{label}: {exc}")
-                    continue
-
-                if result.get("scope_error"):
-                    scope_failures += 1
-                    all_errors.append(
-                        f"{label}: {result.get('message') or SCOPE_ERROR_MESSAGE}"
-                    )
-                    continue
-
-                errs = list(result.get("errors") or [])
-                safe_errs = [e for e in errs if not is_marketplace_scope_error(e)]
-                if errs and not safe_errs:
-                    scope_failures += 1
-                    all_errors.append(f"{label}: {SCOPE_ERROR_MESSAGE}")
-                    continue
-
-                total_orders += int(result.get("orders") or 0)
-                total_supplies += int(result.get("supplies") or 0)
-                synced_sources += 1
-                for err in safe_errs:
-                    all_errors.append(f"{label}: {err}")
-                if result.get("stopped"):
-                    stopped = True
-                    break
+                    result = outcome.get("result") or {}
+                    with results_lock:
+                        total_orders += int(outcome.get("orders") or 0)
+                        total_supplies += int(outcome.get("supplies") or 0)
+                        synced_sources += 1
+                        for err in list(outcome.get("safe_errs") or []):
+                            all_errors.append(f"{label}: {err}")
+                        if result.get("stopped"):
+                            stopped = True
 
             if synced_sources > 0:
                 # Tenant-level FBS timestamp — do NOT reuse supply_sources.last_synced_at
@@ -4080,7 +4287,10 @@ def start_sync_thread(
                 try:
                     repo.mark_wb_fbs_synced(user_id=user_id, is_auto=bool(is_auto))
                 except Exception:
-                    _log.warning("wb_fbs: failed to update wb_fbs_last_synced_at for user %s", user_id)
+                    _log.warning(
+                        "wb_fbs: failed to update wb_fbs_last_synced_at for user %s",
+                        user_id,
+                    )
 
             pallet_summary: list[dict[str, Any]] = []
             if synced_sources > 0:

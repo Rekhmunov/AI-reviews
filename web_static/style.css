@@ -7760,6 +7760,28 @@ tr.dnd-over td {
   font-size: 16px;
   font-weight: 600;
 }
+.wb-fbs-sync-info-source-row {
+  font-size: 15px;
+  font-weight: 500;
+  color: #475569;
+  padding: 2px 0;
+}
+.wb-fbs-sync-info-source-row + .wb-fbs-sync-info-source-row {
+  margin-top: 4px;
+}
+.wb-fbs-sync-info-source-name {
+  font-weight: 700;
+  color: #0f172a;
+}
+.wb-fbs-sync-info-source-row.is-ok {
+  color: #166534;
+}
+.wb-fbs-sync-info-source-row.is-error {
+  color: #b91c1c;
+}
+.wb-fbs-sync-info-source-row.is-stopped {
+  color: #92400e;
+}
 .wb-fbs-sync-info-pallets {
   margin-top: 8px;
   display: grid;
