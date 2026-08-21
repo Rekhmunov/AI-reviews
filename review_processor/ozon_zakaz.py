@@ -18,6 +18,7 @@ from xml.etree import ElementTree as ET
 
 from .ozon_etrn import (
     OZON_CONSIGNEE_EDO_GUID,
+    _add_carrier_idsv,
     _addr_from_carrier_fields,
     _addr_from_production_fields,
     _cargo_stats,
@@ -559,17 +560,10 @@ def build_ozon_zakaz_xml(
     # --- СвПрв ---
     sv_prv = _el(sod, "СвПрв")
     id_prv = _el(sv_prv, "ИдСв")
-    prv_attrs: dict[str, str] = {}
-    if carrier_name:
-        prv_attrs["НаимОрг"] = carrier_name
-    if carrier_inn:
-        prv_attrs["ИННЮЛ"] = carrier_inn
-    if carrier_kpp:
-        prv_attrs["КПП"] = carrier_kpp
-    if prv_attrs:
-        _el(id_prv, "СвЮЛУч", **prv_attrs)
-    else:
-        _el(id_prv, "СвЮЛУч", НаимОрг="Перевозчик (уточнить)")
+    # 10-digit INN → СвЮЛУч; 12-digit → СвИП (Контур OrgType 1/2).
+    _add_carrier_idsv(
+        id_prv, carrier_name, carrier_inn, carrier_kpp, style="zakaz"
+    )
     _addr_block(sv_prv, carrier_addr)
     # Carrier phone from catalog; fallback to юр.лица / driver (contact_phone).
     carrier_phone = ""

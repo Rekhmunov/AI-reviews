@@ -437,3 +437,38 @@ def test_zakaz_fias_survives_address_line_fallback():
     assert go_fias is not None
     assert go_fias.attrib.get("ИдНом") == fias
     assert go_fias.findtext("Регион")  # region recovered from address/index
+
+
+def test_zakaz_carrier_ip_uses_svip_not_ulyuch():
+    """12-digit carrier INN → СвИП/ИННФЛ+ФИО; КПП ignored; address/phone unchanged."""
+    root = ET.fromstring(
+        _build(
+            carrier_fields={
+                "carrier_name": "ИП Петрова Елена Владимировна",
+                "carrier_inn": "370700174809",
+                "carrier_kpp": "370701001",  # must not appear on СвИП
+                "carrier_phone": "+7 (900) 111-22-33",
+                "carrier_addr_index": "153000",
+                "carrier_addr_region_code": "37",
+                "carrier_addr_city": "Иваново",
+                "carrier_addr_street": "ул. Ленина",
+                "carrier_addr_house": "1",
+            },
+        )
+    )
+    sod = root.find("Документ/СодИнфГО")
+    assert sod.find("СвПрв/ИдСв/СвЮЛУч") is None
+    ip = sod.find("СвПрв/ИдСв/СвИП")
+    assert ip is not None
+    assert ip.attrib.get("ИННФЛ") == "370700174809"
+    assert "КПП" not in ip.attrib
+    fio = ip.find("ФИО")
+    assert fio is not None
+    assert fio.attrib.get("Фамилия") == "Петрова"
+    assert fio.attrib.get("Имя") == "Елена"
+    assert fio.attrib.get("Отчество") == "Владимировна"
+    assert sod.find("СвПрв/Конт/Тлф").text == "+7 (900) 111-22-33"
+    adr = sod.find("СвПрв/Адрес/АдрРФ")
+    assert adr is not None
+    assert adr.attrib.get("Индекс") == "153000"
+    assert adr.attrib.get("КодРегион") == "37"
