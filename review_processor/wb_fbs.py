@@ -3263,6 +3263,43 @@ def _persist_supply_boxes(
         )
 
 
+def need_fetch_done_supply_boxes(existing_boxes: list[Any] | None) -> bool:
+    """Closed supplies cannot change trbx; refresh only when local cache is empty."""
+    return not bool(existing_boxes)
+
+
+def cached_supply_boxes_by_id(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_ids: list[str],
+) -> dict[str, list[Any]]:
+    """Load local boxes_json for the given supply ids (empty list when missing/invalid)."""
+    ids = [str(s or "").strip() for s in supply_ids if str(s or "").strip()]
+    if not ids:
+        return {}
+    placeholders = ", ".join("?" for _ in ids)
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT supply_id, boxes_json
+                FROM wb_fbs_supplies
+                WHERE user_id = ? AND source_id = ? AND supply_id IN ({placeholders})
+                """
+            ),
+            (user_id, source_id, *ids),
+        ).fetchall()
+    out: dict[str, list[Any]] = {}
+    for row in rows:
+        d = repo._row_to_dict(row)
+        sid = str(d.get("supply_id") or "").strip()
+        if sid:
+            out[sid] = _parse_json_list(d.get("boxes_json"))
+    return out
+
+
 def enrich_delivery_supplies_from_wb(
     repo: ReviewRepository,
     *,
@@ -3611,7 +3648,7 @@ def sync_wb_fbs_source(
             "stopped": True,
         }
 
-    # 4) Supplies (+ order ids / boxes for open ones only)
+    # 4) Supplies (+ order ids / boxes for open; boxes for done only if not cached)
     _prog("Поставки FBS…", _supply_count())
     next_sup = 0
     sup_pages = 0
@@ -3623,6 +3660,18 @@ def sync_wb_fbs_source(
             supplies, next_sup = client.get_supplies(limit=1000, next_token=next_sup)
             if not supplies:
                 break
+            # Closed supplies cannot change trbx after deliver — reuse local boxes_json.
+            done_sids = [
+                str(s.get("id") or "").strip()
+                for s in supplies
+                if bool(s.get("done")) and str(s.get("id") or "").strip()
+            ]
+            cached_done_boxes = cached_supply_boxes_by_id(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                supply_ids=done_sids,
+            )
             for supply in supplies:
                 if _stopped():
                     stopped = True
@@ -3641,13 +3690,16 @@ def sync_wb_fbs_source(
                     except Exception as exc:
                         errors.append(friendly_sync_error(f"supply {sid}", exc))
                 elif sid and is_done:
-                    # After PATCH /deliver WB sets done=true, but the supply stays
-                    # on portal «В доставке» — still need trbx cargo places.
-                    try:
-                        boxes = client.get_supply_boxes(sid)
-                        time.sleep(0.21)
-                    except Exception as exc:
-                        _log.debug("boxes for done supply %s: %s", sid, exc)
+                    # After PATCH /deliver WB sets done=true; trbx is frozen.
+                    # Fetch only when local cache is empty (first time / missing).
+                    local_boxes = cached_done_boxes.get(sid) or []
+                    if need_fetch_done_supply_boxes(local_boxes):
+                        try:
+                            boxes = client.get_supply_boxes(sid)
+                            time.sleep(0.21)
+                        except Exception as exc:
+                            _log.debug("boxes for done supply %s: %s", sid, exc)
+                    # else: boxes=[] → upsert_supply keeps existing non-empty boxes_json
                 upsert_supply(
                     repo,
                     user_id=user_id,
