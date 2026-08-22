@@ -34,6 +34,11 @@
     loadSeq: 0,
     forceSaveByOrder: {},
     sessionScannedIds: [],
+    localAutosaveSeqByOrder: {},
+    localAutosaveChain: null,
+    localAutosaveInflight: 0,
+    baselineKizByOrder: {},
+    baselinePickByOrder: {},
     saving: false,
     clearing: false,
     loadUi: {
@@ -667,9 +672,163 @@
     return result;
   }
 
+  function captureScanBaselines(mode) {
+    if (mode === "kiz") {
+      state.baselineKizByOrder = {};
+      for (const row of state.kizRows || []) {
+        const oid = Number(row.order_id);
+        if (!Number.isFinite(oid)) continue;
+        state.baselineKizByOrder[oid] = normalizeKizCodesList(row.kiz_codes);
+      }
+      return;
+    }
+    state.baselinePickByOrder = {};
+    for (const row of state.pickRows || []) {
+      const oid = Number(row.order_id);
+      if (!Number.isFinite(oid)) continue;
+      state.baselinePickByOrder[oid] = {
+        verified: !!row.pick_verified,
+        barcode: String(row.pick_barcode || "").trim(),
+      };
+    }
+  }
+
+  function kizBaselineEquals(orderId, codes) {
+    const oid = Number(orderId);
+    const base = state.baselineKizByOrder[oid];
+    if (!Array.isArray(base)) return false;
+    const cur = normalizeKizCodesList(codes);
+    if (base.length !== cur.length) return false;
+    for (let i = 0; i < base.length; i += 1) {
+      if (base[i] !== cur[i]) return false;
+    }
+    return true;
+  }
+
+  function pickBaselineEquals(orderId, row) {
+    const oid = Number(orderId);
+    const base = state.baselinePickByOrder[oid];
+    if (!base) return false;
+    return (
+      base.verified === !!row.pick_verified &&
+      base.barcode === String(row.pick_barcode || "").trim()
+    );
+  }
+
+  /** Queue silent local-only save — scan path never awaits (parity with desktop modal). */
+  function scheduleKizLocalAutosave(orderId) {
+    const oid = Number(orderId);
+    if (!Number.isFinite(oid) || oid <= 0) return;
+    const seq = (Number(state.localAutosaveSeqByOrder[oid]) || 0) + 1;
+    state.localAutosaveSeqByOrder[oid] = seq;
+    const run = () => flushKizLocalAutosave(oid, seq);
+    state.localAutosaveChain = (state.localAutosaveChain || Promise.resolve())
+      .then(run, run)
+      .catch(() => {});
+  }
+
+  function schedulePickLocalAutosave(orderId) {
+    const oid = Number(orderId);
+    if (!Number.isFinite(oid) || oid <= 0) return;
+    const key = `pick:${oid}`;
+    const seq = (Number(state.localAutosaveSeqByOrder[key]) || 0) + 1;
+    state.localAutosaveSeqByOrder[key] = seq;
+    const run = () => flushPickLocalAutosave(oid, seq);
+    state.localAutosaveChain = (state.localAutosaveChain || Promise.resolve())
+      .then(run, run)
+      .catch(() => {});
+  }
+
+  async function awaitLocalAutosaves() {
+    for (let i = 0; i < 40; i += 1) {
+      const tip = state.localAutosaveChain || Promise.resolve();
+      try {
+        await tip;
+      } catch (_e) {
+        /* ignore autosave faults — explicit Save still covers */
+      }
+      const latest = state.localAutosaveChain || tip;
+      const inflight = Number(state.localAutosaveInflight) || 0;
+      if (tip === latest && inflight <= 0) return;
+    }
+  }
+
+  async function flushKizLocalAutosave(orderId, seq, attempt = 0) {
+    const oid = Number(orderId);
+    if ((Number(state.localAutosaveSeqByOrder[oid]) || 0) !== seq) return;
+    if (state.route.view !== "scan" || state.route.mode !== "kiz") return;
+    const row = (state.kizRows || []).find((r) => Number(r.order_id) === oid);
+    if (!row) return;
+    const codes = normalizeKizCodesList(row.kiz_codes);
+    const wasBound = !!row.kiz_bound;
+    const hadLocal = !!row.kiz_local;
+    const clear =
+      !codes.length &&
+      (wasBound || hadLocal || !!state.pendingKizClear[oid]);
+    if (!codes.length && !clear) return;
+    if (kizBaselineEquals(oid, codes) && !clear) return;
+
+    state.localAutosaveInflight = (Number(state.localAutosaveInflight) || 0) + 1;
+    try {
+      await saveKizLocal(row);
+      if ((Number(state.localAutosaveSeqByOrder[oid]) || 0) !== seq) return;
+      row.kiz_local = true;
+      state.baselineKizByOrder[oid] = codes.slice();
+    } catch (e) {
+      if ((Number(state.localAutosaveSeqByOrder[oid]) || 0) !== seq) return;
+      if (attempt < 1) {
+        await new Promise((r) => setTimeout(r, 120));
+        if ((Number(state.localAutosaveSeqByOrder[oid]) || 0) !== seq) return;
+        return flushKizLocalAutosave(oid, seq, attempt + 1);
+      }
+      setBanner(e.message || String(e), "err");
+      refreshScanChrome("kiz");
+    } finally {
+      state.localAutosaveInflight = Math.max(
+        0,
+        (Number(state.localAutosaveInflight) || 0) - 1
+      );
+    }
+  }
+
+  async function flushPickLocalAutosave(orderId, seq, attempt = 0) {
+    const oid = Number(orderId);
+    const key = `pick:${oid}`;
+    if ((Number(state.localAutosaveSeqByOrder[key]) || 0) !== seq) return;
+    if (state.route.view !== "scan" || state.route.mode !== "pick") return;
+    const row = (state.pickRows || []).find((r) => Number(r.order_id) === oid);
+    if (!row) return;
+    if (pickBaselineEquals(oid, row)) return;
+
+    state.localAutosaveInflight = (Number(state.localAutosaveInflight) || 0) + 1;
+    try {
+      await savePickLocal(row);
+      if ((Number(state.localAutosaveSeqByOrder[key]) || 0) !== seq) return;
+      state.baselinePickByOrder[oid] = {
+        verified: !!row.pick_verified,
+        barcode: String(row.pick_barcode || "").trim(),
+      };
+    } catch (e) {
+      if ((Number(state.localAutosaveSeqByOrder[key]) || 0) !== seq) return;
+      if (attempt < 1) {
+        await new Promise((r) => setTimeout(r, 120));
+        if ((Number(state.localAutosaveSeqByOrder[key]) || 0) !== seq) return;
+        return flushPickLocalAutosave(oid, seq, attempt + 1);
+      }
+      setBanner(e.message || String(e), "err");
+      refreshScanChrome("pick");
+    } finally {
+      state.localAutosaveInflight = Math.max(
+        0,
+        (Number(state.localAutosaveInflight) || 0) - 1
+      );
+    }
+  }
+
   /** Explicit «Сохранить»: local + push КИЗ to Wildberries (like desktop modal). */
   async function saveKizPushAll() {
     if (state.saving) return;
+    await awaitLocalAutosaves();
     const rows = state.kizRows || [];
     const items = [];
     for (const row of rows) {
@@ -785,6 +944,7 @@
   /** Explicit «Сохранить» for pick: local-only batch (like desktop modal). */
   async function savePickLocalAll() {
     if (state.saving) return;
+    await awaitLocalAutosaves();
     const rows = state.pickRows || [];
     const items = [];
     for (const row of rows) {
@@ -1090,11 +1250,12 @@
         delete state.pendingKizClear[oid];
         setBanner(`Заказ ${oid} убран из просканированных`, "ok");
       }
-      renderScan();
+      refreshScanChrome("kiz");
       return;
     }
 
     state.clearing = true;
+    refreshSaveButton("kiz");
     try {
       row.kiz_codes = [""];
       if (wasBound || hadLocal || needsWbClear) {
@@ -1107,7 +1268,7 @@
       }
       // Remove from «Просканировано» immediately — do not leave a «—» ghost row.
       removeSessionScanned(oid);
-      await saveKizLocal(row);
+      scheduleKizLocalAutosave(oid);
       if (state.rowErrors[oid]) delete state.rowErrors[oid];
       if (String(row.kiz_status || "") === "error") row.kiz_status = "empty";
       setBanner(
@@ -1120,7 +1281,7 @@
       setBanner(e.message || String(e), "err");
     } finally {
       state.clearing = false;
-      renderScan();
+      refreshScanChrome("kiz");
     }
   }
 
@@ -2071,6 +2232,270 @@
     navigate(`#/s/${sid}`);
   }
 
+  function scanProgress(mode) {
+    const rows = mode === "kiz" ? state.kizRows : state.pickRows;
+    const fn = mode === "kiz" ? rowKizFilled : rowPickFilled;
+    return countProgress(rows, fn);
+  }
+
+  function buildScanCardHtml(mode) {
+    const rows = mode === "kiz" ? state.kizRows : state.pickRows;
+    const pending = rows.find((r) => Number(r.order_id) === Number(state.pendingOrderId));
+    const step = state.step;
+    if (!rows.length) {
+      return `<div class="tsd-empty">Нет заказов в этом режиме</div>`;
+    }
+    if (step === "sticker" || !pending) {
+      return `
+        <div class="tsd-scan-card" id="tsdScanCard">
+          <div class="tsd-scan-step">Шаг 1</div>
+          <p class="tsd-scan-prompt">Сканируйте стикер заказа</p>
+          <div class="tsd-scan-field">
+            <input class="tsd-scan-input" id="tsdScanInput" type="text" autocomplete="off" inputmode="none" />
+            <button type="button" class="tsd-scan-clear" id="tsdScanClear" hidden
+              aria-label="Очистить поле" title="Очистить">×</button>
+          </div>
+        </div>`;
+    }
+    const photo = pending.product_photo
+      ? `<img src="${esc(pending.product_photo)}" alt="" width="64" height="64" />`
+      : "";
+    const existingKizN = mode === "kiz" ? filledKizEntries(pending).length : 0;
+    const prompt =
+      mode === "kiz"
+        ? existingKizN
+          ? `Сканируйте КИЗ ${existingKizN + 1}`
+          : "Сканируйте КИЗ"
+        : "Сканируйте штрихкод товара";
+    const multiHint =
+      mode === "kiz" && existingKizN
+        ? `<p class="tsd-scan-subhint">У заказа уже ${existingKizN} КИЗ — новый код добавится к заказу</p>`
+        : "";
+    const pendingBarcodes = orderBarcodesLabel(pending);
+    const pendingBarcodesHtml = pendingBarcodes
+      ? `<div class="tsd-product-barcodes">${esc(pendingBarcodes)}</div>`
+      : "";
+    return `
+        <div class="tsd-scan-card" id="tsdScanCard">
+          <div class="tsd-scan-step">Шаг 2</div>
+          <p class="tsd-scan-prompt">${prompt}</p>
+          ${multiHint}
+          <div class="tsd-scan-context">Заказ ${esc(pending.order_id)} · стикер ${esc(pending.sticker_number || "—")}</div>
+          <div class="tsd-scan-field">
+            <input class="tsd-scan-input" id="tsdScanInput" type="text" autocomplete="off" inputmode="none" />
+            <button type="button" class="tsd-scan-clear" id="tsdScanClear" hidden
+              aria-label="Очистить поле" title="Очистить">×</button>
+          </div>
+          <div class="tsd-product">${photo}<div>
+            <div class="tsd-product-name">${esc(pending.product_name || pending.article || "—")}</div>
+            <div class="tsd-product-sub">${esc([pending.brand, pending.article].filter(Boolean).join(" · "))}</div>
+            ${pendingBarcodesHtml}
+          </div></div>
+          <div class="tsd-scan-actions">
+            <button type="button" class="tsd-btn tsd-btn-ghost tsd-btn-block" id="tsdCancelStep">Отмена шага</button>
+          </div>
+        </div>`;
+  }
+
+  function refreshScanBanner() {
+    const shell = document.querySelector(".tsd-scan-shell");
+    if (!shell) return;
+    const banner = state.banner;
+    let ban = shell.querySelector(".tsd-banner");
+    if (!banner) {
+      if (ban) ban.remove();
+      return;
+    }
+    if (!ban) {
+      ban = document.createElement("div");
+      const stats = shell.querySelector(".tsd-stats");
+      if (stats && stats.nextSibling) shell.insertBefore(ban, stats.nextSibling);
+      else shell.insertBefore(ban, shell.children[1] || null);
+    }
+    ban.className = `tsd-banner is-${banner.kind || "info"}`;
+    ban.textContent = banner.text;
+  }
+
+  function refreshScanStats(mode) {
+    const shell = document.querySelector(".tsd-scan-shell");
+    if (!shell) return false;
+    const stats = shell.querySelector(".tsd-stats");
+    if (!stats) return false;
+    const { total, done, left } = scanProgress(mode);
+    const spans = stats.querySelectorAll("span");
+    if (spans.length >= 2) {
+      spans[0].textContent = `Готово ${done} / ${total}`;
+      spans[1].textContent = `Осталось ${left}`;
+    }
+    updateProgressBar(mode);
+    return true;
+  }
+
+  function refreshScannedListSection(mode) {
+    const shell = document.querySelector(".tsd-scan-shell");
+    if (!shell) return false;
+    const old = shell.querySelector(".tsd-scanned");
+    const wrap = document.createElement("div");
+    wrap.innerHTML = renderScannedListHtml(mode).trim();
+    const next = wrap.firstElementChild;
+    if (!next) return false;
+    if (old) old.replaceWith(next);
+    else shell.appendChild(next);
+    wireScannedList(mode);
+    return true;
+  }
+
+  function refreshSaveButton(mode) {
+    const btn = document.getElementById("tsdSaveBtn");
+    if (!btn) return;
+    const saveDisabled =
+      state.saving ||
+      state.clearing ||
+      (mode === "kiz" ? !hasPendingKizPush() : !orderedScannedRows(mode).length);
+    btn.disabled = saveDisabled;
+    btn.textContent = state.saving ? "Сохранение…" : "Сохранить";
+  }
+
+  function refreshScanChrome(mode) {
+    refreshScanStats(mode);
+    refreshScanBanner();
+    refreshScannedListSection(mode);
+    refreshSaveButton(mode);
+    syncScrollTopFab();
+  }
+
+  function wireScannedList(mode) {
+    const scannedList = document.getElementById("tsdScannedList");
+    if (!scannedList || mode !== "kiz") return;
+    scannedList.addEventListener("click", (ev) => {
+      const btn = ev.target && ev.target.closest ? ev.target.closest("[data-action]") : null;
+      if (!btn) return;
+      const action = btn.getAttribute("data-action");
+      const oid = btn.getAttribute("data-order-id");
+      if (action === "clear-kiz-all") {
+        ev.preventDefault();
+        clearKizCodes(oid);
+      }
+    });
+  }
+
+  function wireScanInput(mode, opts) {
+    const keepSearchFocus = !!(opts && opts.keepSearchFocus);
+    const input = document.getElementById("tsdScanInput");
+    const clearBtn = document.getElementById("tsdScanClear");
+    const syncScanClearBtn = () => {
+      if (!clearBtn || !input) return;
+      clearBtn.hidden = !String(input.value || "").length;
+    };
+    if (input && !keepSearchFocus && !state.searchOpen && !shouldShowBrowseSheet()) {
+      setTimeout(() => input.focus(), 40);
+    }
+    if (input) {
+      syncScanClearBtn();
+      input.addEventListener("keydown", (ev) => {
+        if (state.step === "mark" && mode === "kiz" && isGsKeyEvent(ev)) {
+          ev.preventDefault();
+          insertGsIntoInput(input);
+          return;
+        }
+        if (ev.key === "Enter") {
+          ev.preventDefault();
+          onScanEnter(input);
+        }
+      });
+      input.addEventListener("input", () => {
+        syncScanClearBtn();
+        if (hasCyrillic(input.value)) {
+          const el = document.querySelector(".tsd-banner");
+          if (!el) {
+            const shell = document.querySelector(".tsd-scan-shell");
+            if (shell) {
+              const ban = document.createElement("div");
+              ban.className = "tsd-banner is-warn";
+              ban.textContent =
+                "Русская раскладка — переключите на EN (или сканируйте ещё раз)";
+              shell.insertBefore(ban, shell.children[1] || null);
+            }
+          }
+        }
+      });
+    }
+    if (clearBtn && input) {
+      clearBtn.addEventListener("click", () => {
+        input.value = "";
+        syncScanClearBtn();
+        input.focus();
+      });
+    }
+    const cancel = document.getElementById("tsdCancelStep");
+    if (cancel) {
+      cancel.addEventListener("click", () => {
+        state.pendingOrderId = null;
+        state.step = "sticker";
+        setBanner(null);
+        if (!patchScanCard(mode)) renderScan();
+        else refreshScanChrome(mode);
+      });
+    }
+  }
+
+  function wireScanFooter(mode) {
+    const saveBtn = document.getElementById("tsdSaveBtn");
+    if (saveBtn) {
+      saveBtn.addEventListener("click", () => {
+        if (mode === "kiz") saveKizPushAll();
+        else savePickLocalAll();
+      });
+    }
+    wireScannedList(mode);
+  }
+
+  function patchScanCard(mode) {
+    const shell = document.querySelector(".tsd-scan-shell");
+    if (!shell) return false;
+    const html = buildScanCardHtml(mode);
+    const card = document.getElementById("tsdScanCard");
+    const empty = shell.querySelector(".tsd-empty");
+    if (card) {
+      card.outerHTML = html;
+    } else if (empty) {
+      empty.outerHTML = html;
+    } else {
+      const footer = shell.querySelector(".tsd-scan-footer");
+      if (footer) footer.insertAdjacentHTML("beforebegin", html);
+      else return false;
+    }
+    wireScanInput(mode);
+    return true;
+  }
+
+  function patchScanAfterSuccess(mode, input) {
+    if (!patchScanCard(mode)) {
+      renderScan();
+      return;
+    }
+    refreshScanChrome(mode);
+    const field = input || document.getElementById("tsdScanInput");
+    if (field) {
+      field.value = "";
+      if (!state.searchOpen && !shouldShowBrowseSheet()) {
+        setTimeout(() => field.focus(), 0);
+      }
+    }
+  }
+
+  function patchScanAfterStickerMatch(mode) {
+    if (!patchScanCard(mode)) {
+      renderScan();
+      return;
+    }
+    refreshScanChrome(mode);
+    const input = document.getElementById("tsdScanInput");
+    if (input && !state.searchOpen && !shouldShowBrowseSheet()) {
+      setTimeout(() => input.focus(), 40);
+    }
+  }
+
   function renderScan(opts) {
     const keepSearchFocus = !!(opts && opts.keepSearchFocus);
     const mode = state.route.mode;
@@ -2092,68 +2517,9 @@
     title.textContent = mode === "kiz" ? "С маркировкой" : "Без маркировки";
     updateProgressBar(mode);
 
-    const rows = mode === "kiz" ? state.kizRows : state.pickRows;
-    const fn = mode === "kiz" ? rowKizFilled : rowPickFilled;
-    const { total, done, left } = countProgress(rows, fn);
-    const pending = rows.find((r) => Number(r.order_id) === Number(state.pendingOrderId));
-    const step = state.step;
+    const { total, done, left } = scanProgress(mode);
     const banner = state.banner;
-
-    let body = "";
-    if (!total) {
-      body = `<div class="tsd-empty">Нет заказов в этом режиме</div>`;
-    } else if (step === "sticker" || !pending) {
-      body = `
-        <div class="tsd-scan-card" id="tsdScanCard">
-          <div class="tsd-scan-step">Шаг 1</div>
-          <p class="tsd-scan-prompt">Сканируйте стикер заказа</p>
-          <div class="tsd-scan-field">
-            <input class="tsd-scan-input" id="tsdScanInput" type="text" autocomplete="off" inputmode="none" />
-            <button type="button" class="tsd-scan-clear" id="tsdScanClear" hidden
-              aria-label="Очистить поле" title="Очистить">×</button>
-          </div>
-        </div>`;
-    } else {
-      const photo = pending.product_photo
-        ? `<img src="${esc(pending.product_photo)}" alt="" width="64" height="64" />`
-        : "";
-      const existingKizN =
-        mode === "kiz" ? filledKizEntries(pending).length : 0;
-      const prompt =
-        mode === "kiz"
-          ? existingKizN
-            ? `Сканируйте КИЗ ${existingKizN + 1}`
-            : "Сканируйте КИЗ"
-          : "Сканируйте штрихкод товара";
-      const multiHint =
-        mode === "kiz" && existingKizN
-          ? `<p class="tsd-scan-subhint">У заказа уже ${existingKizN} КИЗ — новый код добавится к заказу</p>`
-          : "";
-      const pendingBarcodes = orderBarcodesLabel(pending);
-      const pendingBarcodesHtml = pendingBarcodes
-        ? `<div class="tsd-product-barcodes">${esc(pendingBarcodes)}</div>`
-        : "";
-      body = `
-        <div class="tsd-scan-card" id="tsdScanCard">
-          <div class="tsd-scan-step">Шаг 2</div>
-          <p class="tsd-scan-prompt">${prompt}</p>
-          ${multiHint}
-          <div class="tsd-scan-context">Заказ ${esc(pending.order_id)} · стикер ${esc(pending.sticker_number || "—")}</div>
-          <div class="tsd-scan-field">
-            <input class="tsd-scan-input" id="tsdScanInput" type="text" autocomplete="off" inputmode="none" />
-            <button type="button" class="tsd-scan-clear" id="tsdScanClear" hidden
-              aria-label="Очистить поле" title="Очистить">×</button>
-          </div>
-          <div class="tsd-product">${photo}<div>
-            <div class="tsd-product-name">${esc(pending.product_name || pending.article || "—")}</div>
-            <div class="tsd-product-sub">${esc([pending.brand, pending.article].filter(Boolean).join(" · "))}</div>
-            ${pendingBarcodesHtml}
-          </div></div>
-          <div class="tsd-scan-actions">
-            <button type="button" class="tsd-btn tsd-btn-ghost tsd-btn-block" id="tsdCancelStep">Отмена шага</button>
-          </div>
-        </div>`;
-    }
+    const body = buildScanCardHtml(mode);
 
     const saveLabel = "Сохранить";
     const saveDisabled =
@@ -2199,84 +2565,8 @@
       wireBrowseSheet();
     }
 
-    const input = document.getElementById("tsdScanInput");
-    const clearBtn = document.getElementById("tsdScanClear");
-    const syncScanClearBtn = () => {
-      if (!clearBtn || !input) return;
-      clearBtn.hidden = !String(input.value || "").length;
-    };
-    if (input && !keepSearchFocus && !state.searchOpen && !shouldShowBrowseSheet()) {
-      setTimeout(() => input.focus(), 40);
-    }
-    if (input) {
-      syncScanClearBtn();
-      input.addEventListener("keydown", (ev) => {
-        // Mark step only: preserve real GS that <input> would otherwise drop.
-        if (state.step === "mark" && mode === "kiz" && isGsKeyEvent(ev)) {
-          ev.preventDefault();
-          insertGsIntoInput(input);
-          return;
-        }
-        if (ev.key === "Enter") {
-          ev.preventDefault();
-          onScanEnter(input);
-        }
-      });
-      // Do not remount on Cyrillic mid-scan — only banner hint; Enter applies layout map.
-      input.addEventListener("input", () => {
-        syncScanClearBtn();
-        if (hasCyrillic(input.value)) {
-          const el = document.querySelector(".tsd-banner");
-          if (!el) {
-            const shell = document.querySelector(".tsd-scan-shell");
-            if (shell) {
-              const ban = document.createElement("div");
-              ban.className = "tsd-banner is-warn";
-              ban.textContent = "Русская раскладка — переключите на EN (или сканируйте ещё раз)";
-              shell.insertBefore(ban, shell.children[1] || null);
-            }
-          }
-        }
-      });
-    }
-    if (clearBtn && input) {
-      clearBtn.addEventListener("click", () => {
-        input.value = "";
-        syncScanClearBtn();
-        input.focus();
-      });
-    }
-    const cancel = document.getElementById("tsdCancelStep");
-    if (cancel) {
-      cancel.addEventListener("click", () => {
-        state.pendingOrderId = null;
-        state.step = "sticker";
-        setBanner(null);
-        renderScan();
-      });
-    }
-    const saveBtn = document.getElementById("tsdSaveBtn");
-    if (saveBtn) {
-      saveBtn.addEventListener("click", () => {
-        if (mode === "kiz") saveKizPushAll();
-        else savePickLocalAll();
-      });
-    }
-    const scannedList = document.getElementById("tsdScannedList");
-    if (scannedList && mode === "kiz") {
-      scannedList.addEventListener("click", (ev) => {
-        const btn = ev.target && ev.target.closest
-          ? ev.target.closest("[data-action]")
-          : null;
-        if (!btn) return;
-        const action = btn.getAttribute("data-action");
-        const oid = btn.getAttribute("data-order-id");
-        if (action === "clear-kiz-all") {
-          ev.preventDefault();
-          clearKizCodes(oid);
-        }
-      });
-    }
+    wireScanInput(mode, { keepSearchFocus });
+    wireScanFooter(mode);
     syncScrollTopFab();
   }
 
@@ -2304,7 +2594,7 @@
         setBanner("Стикер совпал у нескольких заказов — сканируйте QR ещё раз", "err");
         beep(false);
         input.select();
-        renderScan();
+        refreshScanBanner();
         return;
       }
       if (!found.row) {
@@ -2316,14 +2606,14 @@
         );
         beep(false);
         input.select();
-        renderScan();
+        refreshScanBanner();
         return;
       }
       state.pendingOrderId = Number(found.row.order_id);
       state.step = mode === "kiz" ? "mark" : "sku";
       setBanner(null);
       beep(true);
-      renderScan();
+      patchScanAfterStickerMatch(mode);
       return;
     }
 
@@ -2332,7 +2622,7 @@
     if (!row) {
       state.pendingOrderId = null;
       state.step = "sticker";
-      renderScan();
+      patchScanAfterSuccess(mode, input);
       return;
     }
 
@@ -2345,7 +2635,7 @@
           state.rowErrors[Number(row.order_id)] = check.error || "КИЗ не подходит";
           beep(false);
           input.select();
-          renderScan();
+          refreshScanBanner();
           return;
         }
         delete state.rowErrors[Number(row.order_id)];
@@ -2357,7 +2647,7 @@
           setBanner("Этот КИЗ уже в этом заказе", "err");
           beep(false);
           input.select();
-          renderScan();
+          refreshScanBanner();
           return;
         }
         const dup = state.kizRows.find((r) =>
@@ -2370,7 +2660,7 @@
           setBanner(`Этот КИЗ уже в заказе ${dup.order_id}`, "err");
           beep(false);
           input.select();
-          renderScan();
+          refreshScanBanner();
           return;
         }
         if (!Array.isArray(row.kiz_codes) || !row.kiz_codes.length) row.kiz_codes = [""];
@@ -2383,9 +2673,9 @@
           }
         }
         if (!placed) row.kiz_codes.push(mark);
-        await saveKizLocal(row);
         row.kiz_local = true;
         noteSessionScanned(row.order_id);
+        scheduleKizLocalAutosave(row.order_id);
         const kizN = filledKizEntries(row).length;
         setBanner(
           kizN <= 1
@@ -2399,23 +2689,24 @@
           setBanner(check.error || "ШК не подходит", "err");
           beep(false);
           input.select();
-          renderScan();
+          refreshScanBanner();
           return;
         }
         row.pick_verified = true;
         row.pick_barcode = digitsOnly(raw);
-        await savePickLocal(row);
         noteSessionScanned(row.order_id);
+        schedulePickLocalAutosave(row.order_id);
         setBanner(`ШК подтверждён · заказ ${row.order_id}`, "ok");
       }
       beep(true);
       state.pendingOrderId = null;
       state.step = "sticker";
-      renderScan();
+      patchScanAfterSuccess(mode, input);
     } catch (e) {
       setBanner(e.message || String(e), "err");
       beep(false);
-      renderScan();
+      refreshScanBanner();
+      input.select();
     }
   }
 
@@ -2545,6 +2836,7 @@
           await loadPick(state.route.supplyId);
         }
         if (seq !== state.loadSeq) return;
+        captureScanBaselines(state.route.mode);
         stopLoadingUi();
         if (!state.step) state.step = "sticker";
         renderScan();
