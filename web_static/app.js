@@ -24955,15 +24955,82 @@ function _wbFbsKizNormalizeScan(value) {
   return _wbFbsFixRuKeyboardLayout(String(value || "").replace(/\s+/g, "")).trim();
 }
 
+/** Trim only space/tab/CR/LF — never GS (\\u001D). JS .trim() is OK today, keep explicit. */
+function _wbFbsKizStripMarkEdges(value) {
+  return String(value || "").replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, "");
+}
+
+/**
+ * Browsers strip C0 controls (incl. GS \\u001D) from <input type="text"> typing.
+ * Wedge scanners that emit a real GS never land in input.value — capture keydown
+ * and insert via the value property. Arrow scanners (↔) stay on the printable path.
+ */
+function _wbFbsKizIsGsKeyEvent(event) {
+  if (!event) return false;
+  if (event.key === "\u001D" || event.keyCode === 29 || event.which === 29) return true;
+  // Some firmwares send GS as Ctrl+] (ASCII 29).
+  if (event.ctrlKey && !event.altKey && !event.metaKey) {
+    if (event.key === "]" || event.code === "BracketRight" || event.keyCode === 221) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function _wbFbsKizIsGsPreserveTarget(el) {
+  if (!el || el.disabled || el.readOnly) return false;
+  if (el.id === "wbFbsKizMarkScan") return true;
+  return !!(el.classList && el.classList.contains("wb-fbs-kiz-code-input"));
+}
+
+function _wbFbsKizInsertGsIntoInput(input) {
+  if (!_wbFbsKizIsGsPreserveTarget(input)) return false;
+  const start = Number.isInteger(input.selectionStart) ? input.selectionStart : String(input.value || "").length;
+  const end = Number.isInteger(input.selectionEnd) ? input.selectionEnd : String(input.value || "").length;
+  const before = String(input.value || "").slice(0, start);
+  const after = String(input.value || "").slice(end);
+  // Property assign — same rule as renderWbFbsKizTable (HTML value="" drops \\u001D).
+  input.value = `${before}\u001D${after}`;
+  const pos = start + 1;
+  try {
+    input.setSelectionRange(pos, pos);
+  } catch (_e) {
+    /* ignore */
+  }
+  try {
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  } catch (_e) {
+    /* ignore */
+  }
+  return true;
+}
+
+function _wbFbsKizPreserveGsKeydown(event) {
+  if (!_wbFbsKizIsGsKeyEvent(event)) return;
+  const target = event.target;
+  if (!_wbFbsKizIsGsPreserveTarget(target)) return;
+  event.preventDefault();
+  // Stop only the default insert/drop — do not block other capture listeners.
+  _wbFbsKizInsertGsIntoInput(target);
+}
+
+// One delegated capture listener for the whole page (cheap no-op when not a KIZ field).
+if (typeof document !== "undefined" && document.addEventListener) {
+  document.addEventListener("keydown", _wbFbsKizPreserveGsKeydown, true);
+}
+
 /** КИЗ / Data Matrix: scanners often emit ↔ instead of GS (\\u001D). */
 function _wbFbsKizNormalizeMark(value) {
   // Also fix RU keyboard layout: crypto/tail letters of sgtin arrive as Cyrillic
   // when the OS layout is Russian (same wedge-scanner issue as sticker QR).
-  return _wbFbsFixRuKeyboardLayout(
-    String(value || "")
-      .replace(/\u2194/g, "\u001D") // ↔
-      .replace(/\r?\n/g, "")
-  ).trim();
+  // Keep ↔ → GS for legacy scanners; real GS is preserved via keydown insert above.
+  return _wbFbsKizStripMarkEdges(
+    _wbFbsFixRuKeyboardLayout(
+      String(value || "")
+        .replace(/\u2194/g, "\u001D") // ↔
+        .replace(/\r?\n/g, "")
+    )
+  );
 }
 
 /** GS1 AI 01 → 14-digit GTIN from the start of a КИЗ / sgtin payload. */
