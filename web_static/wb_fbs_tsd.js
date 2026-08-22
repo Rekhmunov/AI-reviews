@@ -287,15 +287,63 @@
     return String(raw || "").replace(/\s+/g, "").trim();
   }
 
+  /** Trim only space/tab/CR/LF — never GS (\\u001D). */
+  function stripKizMarkEdges(value) {
+    return String(value || "").replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, "");
+  }
+
+  /**
+   * Browsers drop real GS (\\u001D) from <input> typing. Capture keydown and
+   * insert via value property. Arrow (↔) scanners keep the printable path.
+   */
+  function isGsKeyEvent(event) {
+    if (!event) return false;
+    if (event.key === "\u001D" || event.keyCode === 29 || event.which === 29) return true;
+    if (event.ctrlKey && !event.altKey && !event.metaKey) {
+      if (event.key === "]" || event.code === "BracketRight" || event.keyCode === 221) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function insertGsIntoInput(input) {
+    if (!input || input.disabled || input.readOnly) return false;
+    const start = Number.isInteger(input.selectionStart)
+      ? input.selectionStart
+      : String(input.value || "").length;
+    const end = Number.isInteger(input.selectionEnd)
+      ? input.selectionEnd
+      : String(input.value || "").length;
+    const before = String(input.value || "").slice(0, start);
+    const after = String(input.value || "").slice(end);
+    input.value = `${before}\u001D${after}`;
+    const pos = start + 1;
+    try {
+      input.setSelectionRange(pos, pos);
+    } catch (_e) {
+      /* ignore */
+    }
+    try {
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    } catch (_e) {
+      /* ignore */
+    }
+    return true;
+  }
+
   /** Parity with desktop `_wbFbsKizNormalizeMark` (WB push / Save). */
   function normalizeKizMark(value) {
     // Scanners often emit ↔ instead of GS (\\u001D). Do not use \\s strip —
     // it must not destroy GS separators in Honest Sign / sgtin payloads.
-    return fixRuKeyboardLayout(
-      String(value || "")
-        .replace(/\u2194/g, "\u001D")
-        .replace(/\r?\n/g, "")
-    ).trim();
+    // Real GS is inserted on keydown (see tsdScanInput wiring).
+    return stripKizMarkEdges(
+      fixRuKeyboardLayout(
+        String(value || "")
+          .replace(/\u2194/g, "\u001D")
+          .replace(/\r?\n/g, "")
+      )
+    );
   }
 
   /** Parity with desktop `_wbFbsKizNormalizeCodesList`. */
@@ -2163,6 +2211,12 @@
     if (input) {
       syncScanClearBtn();
       input.addEventListener("keydown", (ev) => {
+        // Mark step only: preserve real GS that <input> would otherwise drop.
+        if (state.step === "mark" && mode === "kiz" && isGsKeyEvent(ev)) {
+          ev.preventDefault();
+          insertGsIntoInput(input);
+          return;
+        }
         if (ev.key === "Enter") {
           ev.preventDefault();
           onScanEnter(input);
