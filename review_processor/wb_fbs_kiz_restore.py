@@ -241,6 +241,73 @@ def kiz_datamatrix_png_base64(code: str, *, scale: int = 4) -> str:
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
+def resolve_order_for_restore(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    order_id: int,
+    api_key: str = "",
+) -> dict[str, Any] | None:
+    """Local order row, else same remote lookup path as supplies search."""
+    oid = int(order_id)
+    local = wb.get_order_by_id(
+        repo, user_id=user_id, source_id=source_id, order_id=oid
+    )
+    if local:
+        return local
+
+    key = str(api_key or "").strip()
+    if not key:
+        return None
+
+    lookup = wb.lookup_order_by_id(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        order_id=oid,
+        api_key=key,
+        allow_remote=True,
+    )
+    if not lookup.get("found"):
+        return None
+
+    stored = wb.get_order_by_id(
+        repo, user_id=user_id, source_id=source_id, order_id=oid
+    )
+    row: dict[str, Any] | None = stored
+    if row is None:
+        item = lookup.get("item")
+        row = dict(item) if isinstance(item, dict) else None
+    if row is None:
+        return None
+
+    try:
+        from . import wb_fbs_detail as detail
+
+        client = wb.WbFbsClient(key)
+        enriched = detail.attach_sticker_parts_to_orders(
+            client, [dict(row)], api_key=key
+        )
+        if enriched:
+            detail.persist_stickers_from_enriched_orders(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                orders=enriched,
+            )
+            refreshed = wb.get_order_by_id(
+                repo, user_id=user_id, source_id=source_id, order_id=oid
+            )
+            if refreshed:
+                return refreshed
+            return enriched[0]
+    except Exception as exc:
+        _log.warning("resolve_order_for_restore stickers order=%s: %s", oid, exc)
+
+    return row
+
+
 def kiz_restore_lookup(
     repo: ReviewRepository,
     *,
@@ -267,7 +334,14 @@ def kiz_restore_lookup(
 
     if scan_text and looks_like_kiz_scan(scan_text):
         code = normalize_kiz_mark(scan_text)
-        dm = kiz_datamatrix_png_base64(code)
+        try:
+            dm = kiz_datamatrix_png_base64(code)
+        except ValueError as exc:
+            return {
+                "ok": False,
+                "error": "datamatrix_failed",
+                "message": str(exc) or "Не удалось сформировать DataMatrix",
+            }
         return {
             "ok": True,
             "mode": "kiz",
@@ -300,8 +374,12 @@ def kiz_restore_lookup(
             mode = "sticker"
 
     if resolved_order is None and oid_hint is not None:
-        resolved_order = wb.get_order_by_id(
-            repo, user_id=user_id, source_id=source_id, order_id=int(oid_hint)
+        resolved_order = resolve_order_for_restore(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            order_id=int(oid_hint),
+            api_key=api_key,
         )
         mode = "order"
 
@@ -343,7 +421,15 @@ def kiz_restore_lookup(
         }
 
     code = codes[0]
-    dm = kiz_datamatrix_png_base64(code)
+    try:
+        dm = kiz_datamatrix_png_base64(code)
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "error": "datamatrix_failed",
+            "message": str(exc) or "Не удалось сформировать DataMatrix",
+            "order_id": oid,
+        }
     part_a = str(resolved_order.get("sticker_part_a") or "").strip()
     part_b = str(resolved_order.get("sticker_part_b") or "").strip()
     return {

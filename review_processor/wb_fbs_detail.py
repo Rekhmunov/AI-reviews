@@ -1870,12 +1870,45 @@ def attach_sticker_parts_to_orders(
         st = stickers.get(oid) or {}
         part_a = str(st.get("partA") or o.get("sticker_part_a") or "").strip()
         part_b = str(st.get("partB") or o.get("sticker_part_b") or "").strip()
+        barcode = str(st.get("barcode") or o.get("sticker_barcode") or "").strip()
         o["sticker_part_a"] = part_a
         o["sticker_part_b"] = part_b
+        o["sticker_barcode"] = barcode
         o["sticker_number"] = _sticker_number(part_a, part_b) or str(
             o.get("sticker_number") or ""
         ).strip()
     return orders
+
+
+def persist_stickers_from_enriched_orders(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    orders: list[dict[str, Any]],
+) -> int:
+    """Write sticker fields from enriched order rows into ``wb_fbs_orders``."""
+    batch: dict[int, dict[str, Any]] = {}
+    for o in orders:
+        if not isinstance(o, dict):
+            continue
+        oid = _int_or_zero(o.get("order_id"))
+        if not oid:
+            continue
+        part_a = str(o.get("sticker_part_a") or "").strip()
+        part_b = str(o.get("sticker_part_b") or "").strip()
+        barcode = str(o.get("sticker_barcode") or "").strip()
+        if part_a or part_b or barcode:
+            batch[oid] = {
+                "sticker_barcode": barcode,
+                "sticker_part_a": part_a,
+                "sticker_part_b": part_b,
+            }
+    if not batch:
+        return 0
+    return wb.persist_order_stickers_batch(
+        repo, user_id=user_id, source_id=source_id, stickers=batch
+    )
 
 
 def build_kiz_marking_payload(

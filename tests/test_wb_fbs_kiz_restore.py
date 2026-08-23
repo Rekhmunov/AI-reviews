@@ -128,9 +128,9 @@ class KizRestoreLookupTests(unittest.TestCase):
 
     @patch("review_processor.wb_fbs_kiz_restore.kiz_datamatrix_png_base64", return_value="pngb64")
     @patch("review_processor.wb_fbs_kiz_restore.load_kiz_for_order", return_value=[])
-    @patch("review_processor.wb_fbs_kiz_restore.wb.get_order_by_id")
-    def test_order_without_kiz(self, get_order, _load, _dm):
-        get_order.return_value = {"order_id": 400004, "kiz_codes_json": "[]"}
+    @patch("review_processor.wb_fbs_kiz_restore.resolve_order_for_restore")
+    def test_order_without_kiz(self, resolve_order, _load, _dm):
+        resolve_order.return_value = {"order_id": 400004, "kiz_codes_json": "[]"}
         repo = MagicMock()
         out = restore.kiz_restore_lookup(
             repo,
@@ -140,6 +140,31 @@ class KizRestoreLookupTests(unittest.TestCase):
         )
         self.assertFalse(out["ok"])
         self.assertEqual(out["error"], "no_kiz")
+
+    @patch("review_processor.wb_fbs_kiz_restore.kiz_datamatrix_png_base64", return_value="pngb64")
+    @patch("review_processor.wb_fbs_kiz_restore.load_kiz_for_order", return_value=["010467012345678921REMOTE"])
+    @patch("review_processor.wb_fbs_kiz_restore.resolve_order_for_restore")
+    def test_remote_order_lookup(self, resolve_order, load_mock, _dm):
+        resolve_order.return_value = {
+            "order_id": 500005,
+            "article": "sku-remote",
+            "sticker_part_a": "1",
+            "sticker_part_b": "2345",
+            "sticker_barcode": "!remote",
+        }
+        repo = MagicMock()
+        out = restore.kiz_restore_lookup(
+            repo,
+            user_id=1,
+            source_id=2,
+            order_id=500005,
+            api_key="key",
+        )
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["mode"], "order")
+        self.assertEqual(out["order_id"], 500005)
+        resolve_order.assert_called_once()
+        load_mock.assert_called_once()
 
 
 class PersistStickerBatchTests(unittest.TestCase):

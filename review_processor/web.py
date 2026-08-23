@@ -9817,6 +9817,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 wb_detail.attach_sticker_parts_to_orders(
                     client, [item], api_key=api_key
                 )
+                wb_detail.persist_stickers_from_enriched_orders(
+                    repository,
+                    user_id=owner_id,
+                    source_id=int(source_id),
+                    orders=[item],
+                )
             except Exception as exc:
                 _log.warning("wb-fbs order lookup sticker enrich: %s", exc)
         return payload
@@ -10741,6 +10747,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             err = str(result.get("error") or "lookup_failed")
             msg = str(result.get("message") or "Не удалось найти КИЗ")
             status = 404 if err in {"not_found", "no_kiz", "ambiguous_sticker"} else 400
+            if err == "datamatrix_failed":
+                status = 400
             raise HTTPException(status_code=status, detail=msg)
         return result
 

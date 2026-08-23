@@ -18108,7 +18108,7 @@ function printWbFbsKizRestore() {
 window.printWbFbsKizRestore = printWbFbsKizRestore;
 
 async function _wbFbsKizPersistStickerForOrder(row) {
-  const sid = Number(wbFbsKizState?.sourceId || wbFbsDetailState?.sourceId || 0);
+  const sid = Number(wbFbsState?.sourceId || 0);
   const oid = Number(row?.order_id || 0);
   if (!sid || !oid) return;
   const body = {
