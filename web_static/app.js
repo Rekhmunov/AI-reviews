@@ -17883,6 +17883,253 @@ function closeWbFbsKizCirculationModal() {
   document.getElementById("wbFbsKizCirculationModal")?.classList.add("hidden");
 }
 
+const wbFbsKizRestoreState = {
+  sourceId: null,
+  kizCode: "",
+  datamatrixPng: "",
+  orderId: null,
+  mode: "",
+  loading: false,
+};
+
+function _wbFbsKizRestoreSourceId() {
+  const sel = document.getElementById("wbFbsSourceSelect");
+  const sid = Number(sel?.value || wbFbsState?.sourceId || 0);
+  return Number.isFinite(sid) && sid > 0 ? sid : 0;
+}
+
+function _wbFbsKizRestoreSetInfo(text, isOk) {
+  const el = document.getElementById("wbFbsKizRestoreInfo");
+  if (!el) return;
+  const msg = String(text || "").trim();
+  if (!msg) {
+    el.hidden = true;
+    el.textContent = "";
+    el.classList.remove("is-error", "is-ok");
+    return;
+  }
+  el.hidden = false;
+  el.textContent = msg;
+  el.classList.toggle("is-error", !isOk);
+  el.classList.toggle("is-ok", !!isOk);
+}
+
+function _wbFbsKizRestoreResetPreview() {
+  wbFbsKizRestoreState.kizCode = "";
+  wbFbsKizRestoreState.datamatrixPng = "";
+  wbFbsKizRestoreState.orderId = null;
+  wbFbsKizRestoreState.mode = "";
+  const preview = document.getElementById("wbFbsKizRestorePreview");
+  const img = document.getElementById("wbFbsKizRestoreDmImg");
+  const meta = document.getElementById("wbFbsKizRestoreMeta");
+  const printBtn = document.getElementById("wbFbsKizRestorePrintBtn");
+  if (preview) preview.hidden = true;
+  if (img) img.removeAttribute("src");
+  if (meta) meta.textContent = "";
+  if (printBtn) printBtn.disabled = true;
+}
+
+function openWbFbsKizRestoreModal() {
+  const sid = _wbFbsKizRestoreSourceId();
+  if (!sid) {
+    alert("Выберите источник WB FBS");
+    return;
+  }
+  wbFbsKizRestoreState.sourceId = sid;
+  _wbFbsKizRestoreResetPreview();
+  _wbFbsKizRestoreSetInfo("");
+  const scan = document.getElementById("wbFbsKizRestoreScan");
+  const order = document.getElementById("wbFbsKizRestoreOrderId");
+  if (scan) scan.value = "";
+  if (order) order.value = "";
+  const modal = document.getElementById("wbFbsKizRestoreModal");
+  if (!modal) return;
+  modal.classList.remove("hidden");
+  setTimeout(() => scan?.focus(), 40);
+}
+window.openWbFbsKizRestoreModal = openWbFbsKizRestoreModal;
+
+function closeWbFbsKizRestoreModal() {
+  document.getElementById("wbFbsKizRestoreModal")?.classList.add("hidden");
+  _wbFbsKizRestoreResetPreview();
+  _wbFbsKizRestoreSetInfo("");
+}
+window.closeWbFbsKizRestoreModal = closeWbFbsKizRestoreModal;
+
+function onWbFbsKizRestoreScanKey(event) {
+  if (!event || event.key !== "Enter") return;
+  event.preventDefault();
+  if (_wbFbsKizRuLayoutModalOpen()) return;
+  lookupWbFbsKizRestore();
+}
+window.onWbFbsKizRestoreScanKey = onWbFbsKizRestoreScanKey;
+
+async function lookupWbFbsKizRestore() {
+  if (wbFbsKizRestoreState.loading) return;
+  const sid = _wbFbsKizRestoreSourceId();
+  if (!sid) {
+    alert("Выберите источник WB FBS");
+    return;
+  }
+  const scanEl = document.getElementById("wbFbsKizRestoreScan");
+  const orderEl = document.getElementById("wbFbsKizRestoreOrderId");
+  const rawScan = String(scanEl?.value || "").trim();
+  if (rawScan && _wbFbsKizHasCyrillic(rawScan)) {
+    _wbFbsKizBlockRuLayout(scanEl);
+    return;
+  }
+  const scan = rawScan ? _wbFbsKizNormalizeScan(rawScan) : "";
+  const orderRaw = String(orderEl?.value || "").trim();
+  const orderId = orderRaw ? orderRaw.replace(/\D+/g, "") : "";
+  if (!scan && !orderId) {
+    _wbFbsKizRestoreSetInfo("Отсканируйте стикер WB, КИЗ или укажите номер заказа");
+    return;
+  }
+  wbFbsKizRestoreState.loading = true;
+  _wbFbsKizRestoreResetPreview();
+  _wbFbsKizRestoreSetInfo("Ищем КИЗ…");
+  const lookupBtn = document.getElementById("wbFbsKizRestoreLookupBtn");
+  if (lookupBtn) lookupBtn.disabled = true;
+  try {
+    const body = { source_id: sid, scan: scan || "" };
+    if (orderId) body.order_id = Number(orderId);
+    const res = await fetch("/api/wb-fbs/kiz-restore/lookup", {
+      method: "POST",
+      headers: { ...jsonHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const detail = typeof payload?.detail === "string" ? payload.detail : "Не удалось найти КИЗ";
+      throw new Error(detail);
+    }
+    const code = String(payload.kiz_code || "").trim();
+    const dm = String(payload.datamatrix_png || "").trim();
+    if (!code || !dm) throw new Error("Сервер не вернул код КИЗ");
+    wbFbsKizRestoreState.kizCode = code;
+    wbFbsKizRestoreState.datamatrixPng = dm;
+    wbFbsKizRestoreState.orderId = payload.order_id != null ? Number(payload.order_id) : null;
+    wbFbsKizRestoreState.mode = String(payload.mode || "");
+    const img = document.getElementById("wbFbsKizRestoreDmImg");
+    const preview = document.getElementById("wbFbsKizRestorePreview");
+    const meta = document.getElementById("wbFbsKizRestoreMeta");
+    const printBtn = document.getElementById("wbFbsKizRestorePrintBtn");
+    if (img) img.src = `data:image/png;base64,${dm}`;
+    if (preview) preview.hidden = false;
+    if (printBtn) printBtn.disabled = false;
+    const parts = [];
+    if (payload.order_id) parts.push(`Заказ ${payload.order_id}`);
+    if (payload.sticker_number) parts.push(`стикер ${payload.sticker_number}`);
+    if (payload.article) parts.push(`арт. ${payload.article}`);
+    if (meta) meta.textContent = parts.join(" · ") || "КИЗ готов к печати";
+    const modeLabel =
+      payload.mode === "kiz"
+        ? "КИЗ распознан напрямую"
+        : payload.mode === "sticker"
+          ? "КИЗ найден по стикеру"
+          : "КИЗ найден по номеру заказа";
+    _wbFbsKizRestoreSetInfo(modeLabel, true);
+    if (scanEl && payload.mode !== "kiz") scanEl.value = "";
+  } catch (err) {
+    _wbFbsKizRestoreSetInfo(err?.message || String(err));
+  } finally {
+    wbFbsKizRestoreState.loading = false;
+    if (lookupBtn) lookupBtn.disabled = false;
+    scanEl?.focus();
+  }
+}
+window.lookupWbFbsKizRestore = lookupWbFbsKizRestore;
+
+function _wbFbsKizRestorePrintHtml(code, dmDataUrl, metaText) {
+  const safeCode = _wbFbsEsc(code);
+  const safeMeta = _wbFbsEsc(metaText || "");
+  return `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><title>КИЗ</title>
+<style>
+@page { size: 58mm 40mm; margin: 0; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { margin: 0; padding: 0; background: #fff; color: #000;
+  font-family: Arial, Helvetica, sans-serif; }
+.toolbar { padding: 8px 12px; }
+.toolbar button { font: 14px/1.2 Arial, sans-serif; padding: 6px 12px; cursor: pointer; }
+.toolbar span { margin-left: 8px; color: #64748b; font-size: 13px; }
+.sheet {
+  width: 58mm; height: 40mm; overflow: hidden;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 2mm; gap: 1mm;
+}
+.dm { width: 32mm; height: 32mm; object-fit: contain; display: block; }
+.meta { font-size: 2.4mm; line-height: 1.2; text-align: center; max-width: 54mm;
+  word-break: break-all; color: #334155; }
+@media print {
+  .toolbar { display: none !important; }
+  html, body { width: 58mm; height: 40mm; overflow: hidden; }
+}
+</style></head><body>
+<div class="toolbar">
+  <button type="button" onclick="window.print()">Печать</button>
+  <span>Data Matrix КИЗ · 58×40 мм</span>
+</div>
+<section class="sheet">
+  <img class="dm" alt="КИЗ" src="${dmDataUrl}" />
+  ${safeMeta ? `<div class="meta">${safeMeta}</div>` : ""}
+</section>
+<script>
+window.addEventListener("load", function () {
+  setTimeout(function () { window.print(); }, 300);
+});
+<\/script>
+</body></html>`;
+}
+
+function printWbFbsKizRestore() {
+  const code = String(wbFbsKizRestoreState.kizCode || "").trim();
+  const dm = String(wbFbsKizRestoreState.datamatrixPng || "").trim();
+  if (!code || !dm) {
+    _wbFbsKizRestoreSetInfo("Сначала найдите КИЗ для печати");
+    return;
+  }
+  const win = window.open("", "_blank");
+  if (!win) {
+    _wbFbsKizRestoreSetInfo("Разрешите всплывающие окна для печати КИЗ");
+    return;
+  }
+  const metaParts = [];
+  if (wbFbsKizRestoreState.orderId) metaParts.push(`Заказ ${wbFbsKizRestoreState.orderId}`);
+  const metaEl = document.getElementById("wbFbsKizRestoreMeta");
+  if (metaEl && metaEl.textContent) metaParts.push(metaEl.textContent);
+  const dmUrl = `data:image/png;base64,${dm}`;
+  try {
+    win.document.write(_wbFbsKizRestorePrintHtml(code, dmUrl, metaParts.join(" · ")));
+    win.document.close();
+  } catch (err) {
+    _wbFbsKizRestoreSetInfo(err?.message || "Не удалось открыть окно печати");
+  }
+}
+window.printWbFbsKizRestore = printWbFbsKizRestore;
+
+async function _wbFbsKizPersistStickerForOrder(row) {
+  const sid = Number(wbFbsKizState?.sourceId || wbFbsDetailState?.sourceId || 0);
+  const oid = Number(row?.order_id || 0);
+  if (!sid || !oid) return;
+  const body = {
+    source_id: sid,
+    order_id: oid,
+    sticker_barcode: row?.sticker_barcode || "",
+    sticker_part_a: row?.sticker_part_a || "",
+    sticker_part_b: row?.sticker_part_b || "",
+  };
+  if (!body.sticker_barcode && !body.sticker_part_a && !body.sticker_part_b) return;
+  try {
+    await fetch("/api/wb-fbs/kiz-restore/persist-sticker", {
+      method: "POST",
+      headers: { ...jsonHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (_e) {
+    /* non-blocking */
+  }
+}
+
 async function refreshWbFbsKizCirculation() {
   const sid = _wbFbsKizCircSourceId();
   if (!sid) return;
@@ -24980,6 +25227,7 @@ function _wbFbsKizIsGsKeyEvent(event) {
 function _wbFbsKizIsGsPreserveTarget(el) {
   if (!el || el.disabled || el.readOnly) return false;
   if (el.id === "wbFbsKizMarkScan") return true;
+  if (el.id === "wbFbsKizRestoreScan") return true;
   return !!(el.classList && el.classList.contains("wb-fbs-kiz-code-input"));
 }
 
@@ -25883,6 +26131,7 @@ function onWbFbsKizStickerScanKey(event) {
     if (input) input.select();
     return;
   }
+  _wbFbsKizPersistStickerForOrder(found.row);
   _wbFbsKizSetInfo("");
   if (input) input.value = "";
   beginWbFbsKizMarkScan(Number(found.row.order_id));

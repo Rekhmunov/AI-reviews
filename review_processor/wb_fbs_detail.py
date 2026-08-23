@@ -1930,6 +1930,29 @@ def build_kiz_marking_payload(
                 sticker_type="png",
                 keep_files=False,
             )
+    sticker_batch: dict[int, dict[str, Any]] = {}
+    for oid in order_ids:
+        st = stickers.get(oid) or {}
+        part_a0 = str(st.get("partA") or "").strip()
+        part_b0 = str(st.get("partB") or "").strip()
+        barcode0 = str(st.get("barcode") or "").strip()
+        if part_a0 or part_b0 or barcode0:
+            sticker_batch[int(oid)] = {
+                "sticker_barcode": barcode0,
+                "sticker_part_a": part_a0,
+                "sticker_part_b": part_b0,
+            }
+    if sticker_batch:
+        try:
+            wb.persist_order_stickers_batch(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                stickers=sticker_batch,
+            )
+        except Exception as exc:
+            _log.warning("persist_order_stickers_batch: %s", exc)
+
     nm_ids: list[int] = []
     for o in required_orders:
         try:

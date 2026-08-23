@@ -1614,6 +1614,10 @@
                       onclick="openWbFbsKizCirculationModal()" title="Вывод и возврат КИЗ в Честный знак">
                 Вывод КИЗ
               </button>
+              <button type="button" id="wbFbsKizRestoreBtn" class="secondary"
+                      onclick="openWbFbsKizRestoreModal()" title="Перепечатка сохранённого КИЗ (Data Matrix)">
+                Восстановление КИЗ
+              </button>
               <button type="button" id="wbFbsTsdBtn" class="secondary"
                       onclick="window.location.href='/wb-fbs/tsd'" title="ТСД — сборка на складе">
                 ТСД
@@ -2378,6 +2382,54 @@
             </p>
             <div class="wb-fbs-kiz-ru-layout-actions">
               <button type="button" id="wbFbsKizRuLayoutOk" onclick="dismissWbFbsKizRuLayoutWarning()">Понятно</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="wbFbsKizRestoreModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="wbFbsKizRestoreTitle"
+             onclick="if(event.target===this)closeWbFbsKizRestoreModal()">
+          <div class="modal-card wb-fbs-kiz-modal wb-fbs-kiz-restore-modal">
+            <div class="wb-fbs-kiz-header">
+              <div class="wb-fbs-kiz-header-main">
+                <h3 id="wbFbsKizRestoreTitle" class="wb-fbs-kiz-title">Восстановление КИЗ</h3>
+                <p class="wb-fbs-kiz-sub">Перепечатка сохранённого Data Matrix — без новой маркировки и без Честного знака</p>
+              </div>
+              <div class="wb-fbs-kiz-header-actions">
+                <button type="button" class="icon-btn secondary" onclick="closeWbFbsKizRestoreModal()" aria-label="Закрыть">✕</button>
+              </div>
+            </div>
+            <div class="wb-fbs-kiz-restore-body">
+              <div class="wb-fbs-kiz-restore-fields">
+                <label class="wb-fbs-kiz-restore-field" for="wbFbsKizRestoreScan">
+                  <span class="wb-fbs-kiz-restore-label">Сканирование</span>
+                  <div class="wb-fbs-kiz-scan-field">
+                    <input id="wbFbsKizRestoreScan" class="wb-fbs-kiz-scan-input" type="text" autocomplete="off"
+                           placeholder="Стикер WB, номер заказа или КИЗ"
+                           oninput="onWbFbsKizScanInputCheck(event)"
+                           onkeydown="onWbFbsKizRestoreScanKey(event)" />
+                    <button type="button" class="wb-fbs-kiz-scan-clear" title="Очистить"
+                            aria-label="Очистить поле сканирования"
+                            onclick="clearWbFbsKizScanField('wbFbsKizRestoreScan')">✕</button>
+                  </div>
+                </label>
+                <label class="wb-fbs-kiz-restore-field" for="wbFbsKizRestoreOrderId">
+                  <span class="wb-fbs-kiz-restore-label">Номер заказа</span>
+                  <input id="wbFbsKizRestoreOrderId" class="wb-fbs-kiz-restore-order-input" type="text"
+                         inputmode="numeric" autocomplete="off" placeholder="Необязательно"
+                         onkeydown="if(event.key==='Enter'){event.preventDefault();lookupWbFbsKizRestore();}" />
+                </label>
+              </div>
+              <div class="wb-fbs-kiz-restore-actions">
+                <button type="button" id="wbFbsKizRestoreLookupBtn" onclick="lookupWbFbsKizRestore()">Найти КИЗ</button>
+                <button type="button" class="secondary" id="wbFbsKizRestorePrintBtn"
+                        onclick="printWbFbsKizRestore()" disabled>Печать</button>
+              </div>
+              <div id="wbFbsKizRestoreInfo" class="wb-fbs-kiz-restore-info" hidden></div>
+              <div id="wbFbsKizRestorePreview" class="wb-fbs-kiz-restore-preview" hidden>
+                <img id="wbFbsKizRestoreDmImg" class="wb-fbs-kiz-restore-dm" alt="Data Matrix КИЗ" />
+                <div id="wbFbsKizRestoreMeta" class="wb-fbs-kiz-restore-meta"></div>
+              </div>
             </div>
           </div>
         </div>

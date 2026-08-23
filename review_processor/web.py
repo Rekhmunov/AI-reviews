@@ -10688,6 +10688,95 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"ok": True, "token": token}
 
+    @app.post("/api/wb-fbs/kiz-restore/lookup")
+    async def wb_fbs_kiz_restore_lookup(request: Request) -> dict[str, object]:
+        from . import wb_fbs_kiz_restore as kiz_restore
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        try:
+            source_id = int(body.get("source_id") or 0)
+        except (TypeError, ValueError):
+            source_id = 0
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        src_full = repository.get_supply_source_with_key(
+            user_id=owner_id, source_id=source_id
+        )
+        if not src_full:
+            raise HTTPException(status_code=400, detail="Источник не найден")
+        if not wb_fbs_mod.is_fbs_source_name(src_full.get("name")):
+            raise HTTPException(status_code=400, detail="Источник не является ФБС")
+        api_key = str(src_full.get("api_key") or "").strip()
+        scan = str(body.get("scan") or "").strip()
+        order_id_raw = body.get("order_id")
+        order_id: int | None = None
+        if order_id_raw is not None and str(order_id_raw).strip():
+            try:
+                order_id = int(order_id_raw)
+            except (TypeError, ValueError):
+                order_id = wb_fbs_mod.parse_order_id_query(order_id_raw)
+        if order_id is None and not scan:
+            raise HTTPException(
+                status_code=400,
+                detail="Отсканируйте стикер/КИЗ или укажите номер заказа",
+            )
+        result = kiz_restore.kiz_restore_lookup(
+            repository,
+            user_id=owner_id,
+            source_id=source_id,
+            api_key=api_key,
+            scan=scan or None,
+            order_id=order_id,
+        )
+        if not result.get("ok"):
+            err = str(result.get("error") or "lookup_failed")
+            msg = str(result.get("message") or "Не удалось найти КИЗ")
+            status = 404 if err in {"not_found", "no_kiz", "ambiguous_sticker"} else 400
+            raise HTTPException(status_code=status, detail=msg)
+        return result
+
+    @app.post("/api/wb-fbs/kiz-restore/persist-sticker")
+    async def wb_fbs_kiz_restore_persist_sticker(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        try:
+            source_id = int(body.get("source_id") or 0)
+            order_id = int(body.get("order_id") or 0)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Укажите source_id и order_id")
+        if not source_id or not order_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и order_id")
+        updated = wb_fbs_mod.persist_order_stickers_batch(
+            repository,
+            user_id=owner_id,
+            source_id=source_id,
+            stickers={
+                order_id: {
+                    "sticker_barcode": body.get("sticker_barcode"),
+                    "sticker_part_a": body.get("sticker_part_a"),
+                    "sticker_part_b": body.get("sticker_part_b"),
+                }
+            },
+        )
+        return {"ok": True, "updated": updated}
+
     @app.get("/api/wb-fbs/kiz-circulation")
     def wb_fbs_kiz_circulation_overview(
         request: Request, source_id: int

@@ -1156,6 +1156,106 @@ def ensure_wb_fbs_tables(repo: ReviewRepository) -> None:
                 "WHERE rid <> ''"
             )
         )
+        # WB order sticker binding (for КИЗ restore by sticker scan).
+        conn.execute(
+            """
+            ALTER TABLE wb_fbs_orders
+            ADD COLUMN IF NOT EXISTS sticker_barcode TEXT NOT NULL DEFAULT ''
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE wb_fbs_orders
+            ADD COLUMN IF NOT EXISTS sticker_part_a TEXT NOT NULL DEFAULT ''
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE wb_fbs_orders
+            ADD COLUMN IF NOT EXISTS sticker_part_b TEXT NOT NULL DEFAULT ''
+            """
+        )
+        conn.execute(
+            repo._sql(
+                "CREATE INDEX IF NOT EXISTS idx_wb_fbs_orders_sticker_barcode "
+                "ON wb_fbs_orders(user_id, source_id, sticker_barcode) "
+                "WHERE sticker_barcode <> ''"
+            )
+        )
+        conn.execute(
+            repo._sql(
+                "CREATE INDEX IF NOT EXISTS idx_wb_fbs_orders_sticker_part_b "
+                "ON wb_fbs_orders(user_id, source_id, sticker_part_b) "
+                "WHERE sticker_part_b <> ''"
+            )
+        )
+
+
+def persist_order_stickers_batch(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    stickers: dict[int, dict[str, Any]],
+) -> int:
+    """Persist sticker fields on ``wb_fbs_orders`` (bind sticker → order_id).
+
+    Only updates rows that already exist locally. Empty sticker payloads are skipped.
+    Returns count of updated rows.
+    """
+    if not stickers:
+        return 0
+    ensure_wb_fbs_tables(repo)
+    updated = 0
+    with repo._connect() as conn:
+        for oid_raw, st in stickers.items():
+            if not isinstance(st, dict):
+                continue
+            try:
+                oid = int(oid_raw)
+            except (TypeError, ValueError):
+                continue
+            barcode = str(st.get("sticker_barcode") or st.get("barcode") or "").strip()
+            part_a = str(st.get("sticker_part_a") or st.get("partA") or "").strip()
+            part_b = str(st.get("sticker_part_b") or st.get("partB") or "").strip()
+            if not (barcode or part_a or part_b):
+                continue
+            cur = conn.execute(
+                repo._sql(
+                    """
+                    UPDATE wb_fbs_orders
+                    SET sticker_barcode = CASE
+                            WHEN ? <> '' THEN ?
+                            ELSE sticker_barcode
+                        END,
+                        sticker_part_a = CASE
+                            WHEN ? <> '' THEN ?
+                            ELSE sticker_part_a
+                        END,
+                        sticker_part_b = CASE
+                            WHEN ? <> '' THEN ?
+                            ELSE sticker_part_b
+                        END
+                    WHERE user_id = ? AND source_id = ? AND order_id = ?
+                    """
+                ),
+                (
+                    barcode,
+                    barcode,
+                    part_a,
+                    part_a,
+                    part_b,
+                    part_b,
+                    int(user_id),
+                    int(source_id),
+                    oid,
+                ),
+            )
+            try:
+                updated += int(cur.rowcount or 0)
+            except (TypeError, ValueError, AttributeError):
+                pass
+    return updated
 
 
 def _kiz_code_clean(value: object) -> str:
