@@ -21,6 +21,68 @@ class KizRestoreDetectionTests(unittest.TestCase):
         self.assertFalse(restore.looks_like_kiz_scan("13640169"))
 
 
+class KizLocalDatabaseTests(unittest.TestCase):
+    def _repo_with_kiz_rows(self, rows: list[dict]):
+        repo = MagicMock()
+        repo._sql = lambda sql: sql
+        repo._row_to_dict = lambda row: dict(row)
+
+        class _Result:
+            def __init__(self, payload):
+                self._payload = payload
+
+            def fetchall(self):
+                return self._payload
+
+        conn = MagicMock()
+        conn.execute = MagicMock(side_effect=lambda sql, params=None: _Result(rows))
+        repo._connect.return_value.__enter__ = MagicMock(return_value=conn)
+        repo._connect.return_value.__exit__ = MagicMock(return_value=False)
+        return repo
+
+    @patch("review_processor.wb_fbs_kiz_restore.wb.ensure_wb_fbs_tables")
+    def test_find_kiz_in_local_database(self, _ensure):
+        code = "010467012345678921SAVED"
+        repo = self._repo_with_kiz_rows(
+            [
+                {
+                    "order_id": 700007,
+                    "kiz_codes_json": json.dumps([code]),
+                    "article": "art-1",
+                    "supply_id": "WB-GI-1",
+                    "tab": "finished",
+                }
+            ]
+        )
+        hit = restore.find_kiz_in_local_database(
+            repo, user_id=1, source_id=2, kiz_code=code
+        )
+        self.assertTrue(hit["found"])
+        self.assertEqual(hit["order_ids"], [700007])
+
+    @patch("review_processor.wb_fbs_kiz_restore.wb.ensure_wb_fbs_tables")
+    def test_find_kiz_missing_in_local_database(self, _ensure):
+        repo = self._repo_with_kiz_rows(
+            [
+                {
+                    "order_id": 700008,
+                    "kiz_codes_json": json.dumps(["010467012345678921OTHER"]),
+                    "article": "art-2",
+                    "supply_id": "",
+                    "tab": "new",
+                }
+            ]
+        )
+        hit = restore.find_kiz_in_local_database(
+            repo,
+            user_id=1,
+            source_id=2,
+            kiz_code="010467012345678921UNKNOWN",
+        )
+        self.assertFalse(hit["found"])
+        self.assertEqual(hit["order_ids"], [])
+
+
 class StickerMatchTests(unittest.TestCase):
     def _repo_with_orders(self, orders: list[dict]):
         repo = MagicMock()
@@ -84,8 +146,10 @@ class StickerMatchTests(unittest.TestCase):
 
 
 class KizRestoreLookupTests(unittest.TestCase):
+    @patch("review_processor.wb_fbs_kiz_restore.find_kiz_in_local_database")
     @patch("review_processor.wb_fbs_kiz_restore.kiz_datamatrix_png_base64", return_value="pngb64")
-    def test_direct_kiz_scan(self, _dm):
+    def test_direct_kiz_scan(self, _dm, db_hit):
+        db_hit.return_value = {"found": True, "order_ids": [600006], "matches": []}
         repo = MagicMock()
         code = "010467012345678921ABC"
         out = restore.kiz_restore_lookup(
@@ -98,6 +162,24 @@ class KizRestoreLookupTests(unittest.TestCase):
         self.assertEqual(out["mode"], "kiz")
         self.assertEqual(out["kiz_code"], code)
         self.assertEqual(out["datamatrix_png"], "pngb64")
+        self.assertTrue(out["in_local_database"])
+        self.assertEqual(out["matched_order_ids"], [600006])
+
+    @patch("review_processor.wb_fbs_kiz_restore.find_kiz_in_local_database")
+    @patch("review_processor.wb_fbs_kiz_restore.kiz_datamatrix_png_base64", return_value="pngb64")
+    def test_direct_kiz_scan_not_in_database(self, _dm, db_hit):
+        db_hit.return_value = {"found": False, "order_ids": [], "matches": []}
+        repo = MagicMock()
+        code = "010467012345678921ABC"
+        out = restore.kiz_restore_lookup(
+            repo,
+            user_id=1,
+            source_id=2,
+            scan=code,
+        )
+        self.assertTrue(out["ok"])
+        self.assertFalse(out["in_local_database"])
+        self.assertIn("database_warning", out)
 
     @patch("review_processor.wb_fbs_kiz_restore.kiz_datamatrix_png_base64", return_value="pngb64")
     @patch("review_processor.wb_fbs_kiz_restore.load_kiz_for_order", return_value=["010467012345678921X"])

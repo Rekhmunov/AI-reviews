@@ -17898,20 +17898,23 @@ function _wbFbsKizRestoreSourceId() {
   return Number.isFinite(sid) && sid > 0 ? sid : 0;
 }
 
-function _wbFbsKizRestoreSetInfo(text, isOk) {
+function _wbFbsKizRestoreSetInfo(text, tone) {
   const el = document.getElementById("wbFbsKizRestoreInfo");
   if (!el) return;
   const msg = String(text || "").trim();
   if (!msg) {
     el.hidden = true;
     el.textContent = "";
-    el.classList.remove("is-error", "is-ok");
+    el.classList.remove("is-error", "is-ok", "is-warn");
     return;
   }
+  const t = tone === "ok" || tone === "warn" || tone === "error" ? tone : (tone ? "ok" : "error");
   el.hidden = false;
   el.textContent = msg;
-  el.classList.toggle("is-error", !isOk);
-  el.classList.toggle("is-ok", !!isOk);
+  el.classList.remove("is-error", "is-ok", "is-warn");
+  if (t === "ok") el.classList.add("is-ok");
+  else if (t === "warn") el.classList.add("is-warn");
+  else el.classList.add("is-error");
 }
 
 function _wbFbsKizRestoreResetPreview() {
@@ -18022,13 +18025,31 @@ async function lookupWbFbsKizRestore() {
     if (payload.sticker_number) parts.push(`стикер ${payload.sticker_number}`);
     if (payload.article) parts.push(`арт. ${payload.article}`);
     if (meta) meta.textContent = parts.join(" · ") || "КИЗ готов к печати";
-    const modeLabel =
-      payload.mode === "kiz"
-        ? "КИЗ распознан напрямую"
-        : payload.mode === "sticker"
+    const dbWarn = String(payload.database_warning || "").trim();
+    if (payload.mode === "kiz") {
+      if (payload.in_local_database === false) {
+        _wbFbsKizRestoreSetInfo(
+          dbWarn ||
+            "Такой КИЗ в локальной базе не найден. Проверьте сканирование. Печать доступна, но код не сверен с базой.",
+          "warn"
+        );
+      } else if (dbWarn) {
+        _wbFbsKizRestoreSetInfo(dbWarn, "warn");
+      } else {
+        const ids = Array.isArray(payload.matched_order_ids) ? payload.matched_order_ids : [];
+        const idText = ids.length === 1 ? `заказ ${ids[0]}` : ids.length ? `заказы ${ids.slice(0, 5).join(", ")}` : "";
+        _wbFbsKizRestoreSetInfo(
+          idText ? `КИЗ найден в базе · ${idText}` : "КИЗ найден в локальной базе",
+          "ok"
+        );
+      }
+    } else {
+      const modeLabel =
+        payload.mode === "sticker"
           ? "КИЗ найден по стикеру"
           : "КИЗ найден по номеру заказа";
-    _wbFbsKizRestoreSetInfo(modeLabel, true);
+      _wbFbsKizRestoreSetInfo(modeLabel, "ok");
+    }
     if (scanEl && payload.mode !== "kiz") scanEl.value = "";
   } catch (err) {
     _wbFbsKizRestoreSetInfo(err?.message || String(err));

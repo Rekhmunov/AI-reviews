@@ -241,6 +241,61 @@ def kiz_datamatrix_png_base64(code: str, *, scale: int = 4) -> str:
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
+def kiz_mark_key(value: object) -> str:
+    """Canonical key for comparing two КИЗ payloads (GS / ↔ preserved)."""
+    return normalize_kiz_mark(value)
+
+
+def find_kiz_in_local_database(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    kiz_code: str,
+) -> dict[str, Any]:
+    """Find orders in local ``kiz_codes_json`` that contain this exact КИЗ."""
+    needle = kiz_mark_key(kiz_code)
+    if not needle:
+        return {"found": False, "order_ids": [], "matches": []}
+
+    wb.ensure_wb_fbs_tables(repo)
+    matches: list[dict[str, Any]] = []
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                """
+                SELECT order_id, kiz_codes_json, article, supply_id, tab
+                FROM wb_fbs_orders
+                WHERE user_id = ? AND source_id = ?
+                  AND kiz_codes_json IS NOT NULL
+                  AND kiz_codes_json <> '[]'
+                """
+            ),
+            (int(user_id), int(source_id)),
+        ).fetchall()
+
+    for row in rows:
+        d = repo._row_to_dict(row)
+        codes = _kiz_codes_from_local_row(d)
+        if not any(kiz_mark_key(c) == needle for c in codes):
+            continue
+        try:
+            oid = int(d.get("order_id"))
+        except (TypeError, ValueError, KeyError):
+            continue
+        matches.append(
+            {
+                "order_id": oid,
+                "article": str(d.get("article") or "").strip(),
+                "supply_id": str(d.get("supply_id") or "").strip(),
+                "tab": str(d.get("tab") or "").strip(),
+            }
+        )
+
+    order_ids = [int(m["order_id"]) for m in matches]
+    return {"found": bool(matches), "order_ids": order_ids, "matches": matches}
+
+
 def resolve_order_for_restore(
     repo: ReviewRepository,
     *,
@@ -342,13 +397,33 @@ def kiz_restore_lookup(
                 "error": "datamatrix_failed",
                 "message": str(exc) or "Не удалось сформировать DataMatrix",
             }
-        return {
+        db_hit = find_kiz_in_local_database(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            kiz_code=code,
+        )
+        matched_ids = list(db_hit.get("order_ids") or [])
+        out: dict[str, Any] = {
             "ok": True,
             "mode": "kiz",
-            "order_id": oid_hint,
+            "order_id": matched_ids[0] if len(matched_ids) == 1 else oid_hint,
             "kiz_code": code,
             "datamatrix_png": dm,
+            "in_local_database": bool(db_hit.get("found")),
+            "matched_order_ids": matched_ids[:20],
         }
+        if not db_hit.get("found"):
+            out["database_warning"] = (
+                "Такой КИЗ в локальной базе не найден. "
+                "Возможно, код отсканирован с ошибкой или он не сохранялся в FeedPilot."
+            )
+        elif len(matched_ids) > 1:
+            out["database_warning"] = (
+                f"КИЗ найден у нескольких заказов: {', '.join(str(x) for x in matched_ids[:5])}"
+                f"{'…' if len(matched_ids) > 5 else ''}."
+            )
+        return out
 
     resolved_order: dict[str, Any] | None = None
     mode = "order"

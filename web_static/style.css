@@ -9689,6 +9689,11 @@ button.wb-fbs-kiz-add:disabled {
   background: #f0fdf4;
   border-color: #bbf7d0;
 }
+.wb-fbs-kiz-restore-info.is-warn {
+  color: #92400e;
+  background: #fffbeb;
+  border-color: #fcd34d;
+}
 .wb-fbs-kiz-restore-preview {
   display: flex;
   flex-direction: column;
