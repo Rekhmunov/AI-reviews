@@ -17382,6 +17382,7 @@ function onWbFbsKizCircFilterChange() {
 
 function resetWbFbsKizCircFilters() {
   wbFbsKizCircState.filters = _wbFbsKizCircDefaultFilters();
+  wbFbsKizCircState.selectedKeys.clear();
   _wbFbsKizCircSyncFilterControls();
   _wbFbsKizCircRenderTable();
 }
