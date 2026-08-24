@@ -14280,6 +14280,136 @@ function renderSupplyStockReceiptList() {
   _sbBindBulkChecks("receipt");
 }
 
+let _sbReceiptScanHighlightTimer = null;
+
+function _sbBarcodeMatchKeys(value) {
+  const out = new Set();
+  const raw = String(value || "").trim();
+  if (!raw) return out;
+  out.add(raw);
+  out.add(raw.toLowerCase());
+  const digits = raw.replace(/\D/g, "");
+  if (digits) {
+    out.add(digits);
+    const trimmed = digits.replace(/^0+/, "");
+    if (trimmed) out.add(trimmed);
+  }
+  return out;
+}
+
+function _sbSetsIntersect(a, b) {
+  for (const x of a) {
+    if (b.has(x)) return true;
+  }
+  return false;
+}
+
+function _sbReceiptScanLookupKeys(scan) {
+  const keys = new Set();
+  const raw = String(scan || "").trim();
+  if (!raw) return keys;
+  const gtin14 = _wbFbsKizExtractGtin14(raw);
+  if (gtin14) {
+    for (const code of _wbFbsKizGtinToProductSkus(gtin14)) keys.add(code);
+    return keys;
+  }
+  return _sbBarcodeMatchKeys(raw);
+}
+
+function _sbFindReceiptProductByScan(scan) {
+  const scanKeys = _sbReceiptScanLookupKeys(scan);
+  if (!scanKeys.size) return null;
+  for (const product of supplyBalancesState.catalogItems || []) {
+    if (product.item_type !== "product") continue;
+    for (const code of product.barcodes || []) {
+      if (_sbSetsIntersect(scanKeys, _sbBarcodeMatchKeys(code))) return product;
+    }
+  }
+  return null;
+}
+
+function _sbHighlightReceiptRow(row) {
+  if (!row) return;
+  const list = document.getElementById("supplyStockReceiptList");
+  if (list) {
+    list.querySelectorAll(".sb-adj-row.is-scan-hit").forEach((el) => el.classList.remove("is-scan-hit"));
+  }
+  row.classList.add("is-scan-hit");
+  if (_sbReceiptScanHighlightTimer) clearTimeout(_sbReceiptScanHighlightTimer);
+  _sbReceiptScanHighlightTimer = setTimeout(() => {
+    row.classList.remove("is-scan-hit");
+    _sbReceiptScanHighlightTimer = null;
+  }, 1400);
+  try {
+    row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  } catch (_e) {
+    /* ignore */
+  }
+}
+
+function _sbIncrementReceiptProductQty(product) {
+  const list = document.getElementById("supplyStockReceiptList");
+  if (!list || !product) return false;
+  const type = String(product.item_type || "");
+  const id = Number(product.item_id || 0);
+  let row = list.querySelector(`.sb-adj-row[data-sb-type="${type}"][data-sb-id="${id}"]`);
+  if (!row) return false;
+  if (row.hidden || row.classList.contains("hidden")) {
+    const searchEl = document.getElementById("supplyStockReceiptSearch");
+    if (searchEl) {
+      searchEl.value = "";
+      onSupplyStockModalSearch("receipt");
+    }
+    row = list.querySelector(`.sb-adj-row[data-sb-type="${type}"][data-sb-id="${id}"]`);
+    if (!row) return false;
+  }
+  const qtyEl = row.querySelector(".sb-adj-qty");
+  if (!qtyEl) return false;
+  const cur = Number(qtyEl.value);
+  const next = (Number.isFinite(cur) && cur > 0 ? cur : 0) + 1;
+  qtyEl.value = String(next);
+  _sbHighlightReceiptRow(row);
+  return true;
+}
+
+function processSupplyStockReceiptScan() {
+  const scanEl = document.getElementById("supplyStockReceiptScan");
+  const rawScan = String(scanEl?.value || "").trim();
+  if (!rawScan) {
+    _sbSetDocErr("supplyStockReceiptErr", "Отсканируйте штрихкод или маркировку");
+    return;
+  }
+  if (_wbFbsKizHasCyrillic(rawScan)) {
+    _wbFbsKizBlockRuLayout(scanEl);
+    return;
+  }
+  const scan = _wbFbsKizExtractGtin14(_wbFbsKizNormalizeMark(rawScan))
+    || String(_wbFbsKizNormalizeMark(rawScan) || "").includes("\u001D")
+    ? _wbFbsKizNormalizeMark(rawScan)
+    : _wbFbsKizNormalizeScan(rawScan);
+  const product = _sbFindReceiptProductByScan(scan);
+  if (!product) {
+    _sbSetDocErr("supplyStockReceiptErr", "Товар не найден в справочнике по ШК или GTIN");
+    return;
+  }
+  if (!_sbIncrementReceiptProductQty(product)) {
+    _sbSetDocErr("supplyStockReceiptErr", "Не удалось обновить количество в списке");
+    return;
+  }
+  _sbSetDocErr("supplyStockReceiptErr", "");
+  if (scanEl) scanEl.value = "";
+  scanEl?.focus();
+}
+window.processSupplyStockReceiptScan = processSupplyStockReceiptScan;
+
+function onSupplyStockReceiptScanKey(event) {
+  if (!event || event.key !== "Enter") return;
+  event.preventDefault();
+  if (_wbFbsKizRuLayoutModalOpen()) return;
+  processSupplyStockReceiptScan();
+}
+window.onSupplyStockReceiptScanKey = onSupplyStockReceiptScanKey;
+
 function _sbCollectReceiptItemsFromList() {
   const list = document.getElementById("supplyStockReceiptList");
   if (!list) return [];
@@ -14310,14 +14440,17 @@ async function openSupplyStockReceiptModal() {
   const list = document.getElementById("supplyStockReceiptList");
   const bulkEl = document.getElementById("supplyStockReceiptBulkValue");
   const searchEl = document.getElementById("supplyStockReceiptSearch");
+  const scanEl = document.getElementById("supplyStockReceiptScan");
   if (dateEl) dateEl.value = supplyBalancesState.today || "";
   if (bulkEl) bulkEl.value = "";
   if (searchEl) searchEl.value = "";
+  if (scanEl) scanEl.value = "";
   if (list) list.innerHTML = `<div class="sb-doc-empty">Загрузка…</div>`;
   try {
     await _sbLoadCatalogItems();
     renderSupplyStockReceiptList();
     onSupplyStockModalSearch("receipt");
+    setTimeout(() => scanEl?.focus(), 40);
   } catch (e) {
     _sbSetDocErr("supplyStockReceiptErr", String(e.message || e));
     if (list) list.innerHTML = `<div class="sb-doc-empty">Не удалось загрузить список</div>`;
@@ -14326,6 +14459,10 @@ async function openSupplyStockReceiptModal() {
 window.openSupplyStockReceiptModal = openSupplyStockReceiptModal;
 
 function closeSupplyStockReceiptModal() {
+  if (_sbReceiptScanHighlightTimer) {
+    clearTimeout(_sbReceiptScanHighlightTimer);
+    _sbReceiptScanHighlightTimer = null;
+  }
   setModalVisibility("supplyStockReceiptModal", false);
 }
 window.closeSupplyStockReceiptModal = closeSupplyStockReceiptModal;
@@ -26538,6 +26675,7 @@ function _wbFbsKizIsGsPreserveTarget(el) {
   if (!el || el.disabled || el.readOnly) return false;
   if (el.id === "wbFbsKizMarkScan") return true;
   if (el.id === "wbFbsKizRestoreScan") return true;
+  if (el.id === "supplyStockReceiptScan") return true;
   return !!(el.classList && el.classList.contains("wb-fbs-kiz-code-input"));
 }
 

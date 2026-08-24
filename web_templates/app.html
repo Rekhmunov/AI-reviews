@@ -5137,6 +5137,18 @@
           <button type="button" class="secondary" onclick="supplyStockBulkClear('receipt','all')">Обнулить все</button>
           <button type="button" class="secondary" onclick="supplyStockBulkClear('receipt','selected')">Обнулить выбранные</button>
         </div>
+        <div class="sb-receipt-scan-bar">
+          <label class="sb-receipt-scan-label" for="supplyStockReceiptScan">Сканирование</label>
+          <div class="sb-receipt-scan-field">
+            <input id="supplyStockReceiptScan" class="sb-receipt-scan-input" type="text" autocomplete="off"
+                   placeholder="Штрихкод или маркировка (КИЗ)"
+                   oninput="onWbFbsKizScanInputCheck(event)"
+                   onkeydown="onSupplyStockReceiptScanKey(event)" />
+            <button type="button" class="sb-receipt-scan-clear" title="Очистить"
+                    aria-label="Очистить поле сканирования"
+                    onclick="clearWbFbsKizScanField('supplyStockReceiptScan')">✕</button>
+          </div>
+        </div>
       </div>
       <div class="sb-adj-list-wrap">
         <div class="sb-adj-list-head">

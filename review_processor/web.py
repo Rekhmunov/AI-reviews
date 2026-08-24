@@ -15900,6 +15900,8 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         }
         materials = repository.list_feedback_materials(user_id=owner_id)
         products = repository.list_product_photos(user_id=owner_id)
+        from .repository import _normalize_product_barcodes
+
         items: list[dict[str, object]] = []
         material_items: list[dict[str, object]] = []
         product_items: list[dict[str, object]] = []
@@ -15925,6 +15927,12 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             article = str(p.get("supplier_article") or "").strip()
             wb_nmid = str(p.get("wb_nmid") or "").strip()
             ozon_sku = str(p.get("ozon_sku") or "").strip()
+            product_barcodes = _normalize_product_barcodes(p.get("barcodes"))
+            barcode_keys: list[str] = []
+            for code in product_barcodes + [article, ozon_sku, wb_nmid]:
+                text = str(code or "").strip()
+                if text and text not in barcode_keys:
+                    barcode_keys.append(text)
             product_items.append(
                 {
                     "item_type": "product",
@@ -15939,7 +15947,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                         if p.get("photo_path")
                         else None
                     ),
-                    "barcodes": [x for x in (article, ozon_sku) if x],
+                    "barcodes": barcode_keys,
                     "visible": vis_map.get(("product", pid_item), True),
                     "sort_order": sort_map.get(("product", pid_item), 10**9),
                     "min_qty": min_map.get(("product", pid_item)),

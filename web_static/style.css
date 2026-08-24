@@ -10445,6 +10445,67 @@ button.wb-fbs-kiz-add:disabled {
   outline-offset: 1px;
   border-color: #60a5fa;
 }
+.sb-receipt-scan-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0 0;
+}
+.sb-receipt-scan-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #475569;
+}
+.sb-receipt-scan-field {
+  flex: 1 1 280px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.sb-receipt-scan-input {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #0f172a;
+  font-size: 16px;
+  box-shadow: none;
+}
+.sb-receipt-scan-input:focus {
+  outline: 2px solid #93c5fd;
+  outline-offset: 1px;
+  border-color: #93c5fd;
+}
+.sb-receipt-scan-clear {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #64748b;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: none;
+}
+.sb-receipt-scan-clear:hover {
+  background: #f8fafc;
+  color: #0f172a;
+}
+.sb-adj-row.is-scan-hit {
+  background: #ecfdf5;
+  box-shadow: inset 0 0 0 2px #34d399;
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+}
 .sb-bulk-bar button.secondary {
   min-height: 40px;
   font-size: 15px;
