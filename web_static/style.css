@@ -9890,6 +9890,10 @@ button.wb-fbs-kiz-add:disabled {
   font-size: 12px;
   color: #94a3b8;
 }
+.wb-fbs-returns-load-hint {
+  color: #64748b;
+  font-size: 13px;
+}
 .wb-fbs-returns-return-id {
   font-size: 12px;
   color: #64748b;

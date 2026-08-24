@@ -815,14 +815,18 @@ def _enrich_return_scan_catalog_fields(
     *,
     user_id: int,
     item: dict[str, Any],
+    by_article: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     article = str(item.get("product_article") or "").strip()
     product: dict[str, Any] | None = None
     if article:
-        for p in repo.list_product_photos(user_id=user_id):
-            if str(p.get("supplier_article") or "").strip() == article:
-                product = p
-                break
+        if by_article is not None:
+            product = by_article.get(article)
+        else:
+            for p in repo.list_product_photos(user_id=user_id):
+                if str(p.get("supplier_article") or "").strip() == article:
+                    product = p
+                    break
     if product is None:
         gtin14 = str(item.get("gtin14") or "").strip()
         if gtin14:
@@ -832,6 +836,39 @@ def _enrich_return_scan_catalog_fields(
             return item
     item.update(_catalog_fields_from_product(product))
     return item
+
+
+def _catalog_by_article_index(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    for p in repo.list_product_photos(user_id=user_id):
+        article = str(p.get("supplier_article") or "").strip()
+        if article and article not in out:
+            out[article] = p
+    return out
+
+
+def _return_scans_search_sql(search: str) -> tuple[str, list[Any]]:
+    q = str(search or "").strip()
+    if not q:
+        return "", []
+    pattern = f"%{q}%"
+    clause = """(
+        CAST(order_id AS TEXT) ILIKE ?
+        OR return_sticker_id ILIKE ?
+        OR assembly_sticker_barcode ILIKE ?
+        OR assembly_sticker_number ILIKE ?
+        OR kiz_code ILIKE ?
+        OR scan_raw ILIKE ?
+        OR product_name ILIKE ?
+        OR product_article ILIKE ?
+        OR product_barcodes_json ILIKE ?
+        OR matched_order_ids_json ILIKE ?
+    )"""
+    return clause, [pattern] * 10
 
 
 def _scan_row_to_api(row: dict[str, Any]) -> dict[str, Any]:
@@ -1179,8 +1216,9 @@ def list_return_scans(
     date_to: str = "",
     search: str = "",
     scan_types: list[str] | None = None,
-    limit: int = 500,
-) -> list[dict[str, Any]]:
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
     ensure_wb_fbs_returns_tables(repo)
     clauses = ["user_id = ?", "source_id = ?"]
     params: list[Any] = [user_id, source_id]
@@ -1197,39 +1235,34 @@ def list_return_scans(
         placeholders = ",".join("?" for _ in scan_types)
         clauses.append(f"scan_type IN ({placeholders})")
         params.extend(scan_types)
+    search_clause, search_params = _return_scans_search_sql(search)
+    if search_clause:
+        clauses.append(search_clause)
+        params.extend(search_params)
+    page_limit = max(1, min(int(limit), 2000))
+    page_offset = max(0, int(offset))
+    fetch_limit = page_limit + 1
     sql = (
         "SELECT * FROM wb_fbs_return_scans WHERE "
         + " AND ".join(clauses)
-        + " ORDER BY scanned_at DESC LIMIT ?"
+        + " ORDER BY scanned_at DESC LIMIT ? OFFSET ?"
     )
-    params.append(max(1, min(int(limit), 2000)))
+    params.extend([fetch_limit, page_offset])
     with repo._connect() as conn:
         rows = conn.execute(repo._sql(sql), tuple(params)).fetchall()
+    has_more = len(rows) > page_limit
+    if has_more:
+        rows = rows[:page_limit]
     items = [_scan_row_to_api(repo._row_to_dict(r)) for r in rows]
+    by_article = _catalog_by_article_index(repo, user_id=user_id)
     for item in items:
-        _enrich_return_scan_catalog_fields(repo, user_id=user_id, item=item)
-    q = str(search or "").strip().casefold()
-    if not q:
-        return items
-    out: list[dict[str, Any]] = []
-    for item in items:
-        blob = " ".join(
-            [
-                str(item.get("order_id") or ""),
-                str(item.get("return_sticker_id") or ""),
-                str(item.get("assembly_sticker_barcode") or ""),
-                str(item.get("assembly_sticker_number") or ""),
-                str(item.get("kiz_code") or ""),
-                str(item.get("scan_raw") or ""),
-                str(item.get("product_name") or ""),
-                str(item.get("product_article") or ""),
-                " ".join(str(x) for x in (item.get("product_barcodes") or [])),
-                " ".join(str(x) for x in (item.get("matched_order_ids") or [])),
-            ]
-        ).casefold()
-        if q in blob:
-            out.append(item)
-    return out
+        _enrich_return_scan_catalog_fields(
+            repo,
+            user_id=user_id,
+            item=item,
+            by_article=by_article,
+        )
+    return {"items": items, "has_more": has_more}
 
 
 def _goods_return_srid_hint(

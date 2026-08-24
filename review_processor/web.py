@@ -10929,7 +10929,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         date_to: str = "",
         search: str = "",
         scan_type: str = "",
-        limit: int = 500,
+        limit: int = 50,
+        offset: int = 0,
     ) -> dict[str, object]:
         from . import wb_fbs_returns as returns_mod
 
@@ -10941,19 +10942,23 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="Укажите source_id")
         types = [t.strip() for t in str(scan_type or "").split(",") if t.strip()]
         if types == ["__none__"]:
-            items = []
-        else:
-            items = returns_mod.list_return_scans(
-                repository,
-                user_id=owner_id,
-                source_id=source_id,
-                date_from=date_from,
-                date_to=date_to,
-                search=search,
-                scan_types=types or None,
-                limit=limit,
-            )
-        return {"ok": True, "items": items}
+            return {"ok": True, "items": [], "has_more": False}
+        result = returns_mod.list_return_scans(
+            repository,
+            user_id=owner_id,
+            source_id=source_id,
+            date_from=date_from,
+            date_to=date_to,
+            search=search,
+            scan_types=types or None,
+            limit=limit,
+            offset=offset,
+        )
+        return {
+            "ok": True,
+            "items": result.get("items") or [],
+            "has_more": bool(result.get("has_more")),
+        }
 
     @app.get("/api/wb-fbs/returns/lookup")
     def wb_fbs_returns_lookup(
@@ -11097,7 +11102,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if types == ["__none__"]:
             items = []
         else:
-            items = returns_mod.list_return_scans(
+            result = returns_mod.list_return_scans(
                 repository,
                 user_id=owner_id,
                 source_id=source_id,
@@ -11107,6 +11112,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 scan_types=types or None,
                 limit=5000,
             )
+            items = result.get("items") or []
         csv_text = returns_mod.export_return_scans_csv(items)
         return Response(
             content=csv_text,

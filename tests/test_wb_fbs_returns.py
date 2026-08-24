@@ -279,6 +279,60 @@ class ReturnCatalogFieldsTests(unittest.TestCase):
         self.assertEqual(item["barcode_label_name"], "Под этикетку")
 
 
+class ListReturnScansTests(unittest.TestCase):
+    def test_return_scans_search_sql_empty(self):
+        clause, params = returns._return_scans_search_sql("")
+        self.assertEqual(clause, "")
+        self.assertEqual(params, [])
+
+    def test_return_scans_search_sql_pattern(self):
+        clause, params = returns._return_scans_search_sql("5525")
+        self.assertIn("ILIKE", clause)
+        self.assertEqual(len(params), 10)
+        self.assertTrue(all(p == "%5525%" for p in params))
+
+    @patch("review_processor.wb_fbs_returns._enrich_return_scan_catalog_fields", side_effect=lambda _repo, **kwargs: kwargs["item"])
+    @patch("review_processor.wb_fbs_returns._catalog_by_article_index", return_value={})
+    @patch("review_processor.wb_fbs_returns.ensure_wb_fbs_returns_tables")
+    def test_list_return_scans_has_more(self, _ensure, _catalog, _enrich):
+        repo = MagicMock()
+        row = {
+            "id": 1,
+            "user_id": 1,
+            "source_id": 2,
+            "scanned_at": "2025-01-01T00:00:00+00:00",
+            "scan_type": "return_sticker",
+            "scan_raw": "x",
+            "return_sticker_id": "",
+            "order_id": 1,
+            "assembly_sticker_barcode": "",
+            "assembly_sticker_number": "",
+            "kiz_code": "",
+            "matched_order_ids_json": "[]",
+            "product_name": "",
+            "product_article": "",
+            "product_photo": "",
+            "product_barcodes_json": "[]",
+            "gtin14": "",
+            "duplicate_of_id": None,
+        }
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = [row, row]
+        repo._connect.return_value.__enter__.return_value = conn
+        repo._row_to_dict.side_effect = lambda r: dict(r)
+        repo._sql.side_effect = lambda q: q
+
+        result = returns.list_return_scans(
+            repo,
+            user_id=1,
+            source_id=2,
+            limit=1,
+            offset=0,
+        )
+        self.assertTrue(result["has_more"])
+        self.assertEqual(len(result["items"]), 1)
+
+
 class ReturnOrderPreviewTests(unittest.TestCase):
     @patch("review_processor.wb_fbs_returns._kiz_codes_for_order", return_value=["010467012345678921PREV"])
     @patch("review_processor.wb_fbs_returns._product_from_order", return_value={"product_name": "Товар", "product_article": "art-1"})

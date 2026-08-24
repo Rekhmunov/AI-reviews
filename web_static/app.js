@@ -18240,6 +18240,11 @@ const wbFbsReturnsState = {
   items: [],
   previewItem: null,
   loading: false,
+  loadingMore: false,
+  hasMore: false,
+  pageSize: 50,
+  loadSeq: 0,
+  loadAbort: null,
   scanning: false,
   syncing: false,
 };
@@ -18368,9 +18373,15 @@ function renderWbFbsReturnsTable() {
   const tbody = document.getElementById("wbFbsReturnsTbody");
   if (!tbody) return;
   const items = Array.isArray(wbFbsReturnsState.items) ? wbFbsReturnsState.items : [];
-  if (!items.length) {
+  if (!items.length && !wbFbsReturnsState.loadingMore) {
     tbody.innerHTML = `<tr><td colspan="5" class="wb-fbs-empty">Нет записей по выбранным фильтрам</td></tr>`;
     return;
+  }
+  let footer = "";
+  if (wbFbsReturnsState.loadingMore) {
+    footer = `<tr class="wb-fbs-returns-load-row"><td colspan="5" class="wb-fbs-empty">Загрузка…</td></tr>`;
+  } else if (wbFbsReturnsState.hasMore) {
+    footer = `<tr class="wb-fbs-returns-load-row"><td colspan="5" class="wb-fbs-empty wb-fbs-returns-load-hint">Прокрутите вниз, чтобы загрузить старые записи</td></tr>`;
   }
   tbody.innerHTML = items.map((item) => {
     const id = Number(item.id || 0);
@@ -18435,21 +18446,47 @@ function renderWbFbsReturnsTable() {
         </div>
       </td>
     </tr>`;
-  }).join("");
+  }).join("") + footer;
 }
 window.renderWbFbsReturnsTable = renderWbFbsReturnsTable;
 
-async function loadWbFbsReturnsScans() {
+function _wbFbsReturnsJournalOffset() {
+  const items = Array.isArray(wbFbsReturnsState.items) ? wbFbsReturnsState.items : [];
+  return items.filter((row) => !row?.preview && Number(row?.id || 0) > 0).length;
+}
+
+async function loadWbFbsReturnsScans(options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const append = !!opts.append;
   const sid = _wbFbsReturnsSourceId();
   if (!sid) return;
-  wbFbsReturnsState.loading = true;
-  wbFbsReturnsState.previewItem = null;
-  const tbody = document.getElementById("wbFbsReturnsTbody");
-  if (tbody && !wbFbsReturnsState.items.length) {
-    tbody.innerHTML = `<tr><td colspan="5" class="wb-fbs-empty">Загрузка…</td></tr>`;
+  if (append) {
+    if (wbFbsReturnsState.loading || wbFbsReturnsState.loadingMore || !wbFbsReturnsState.hasMore) return;
+    wbFbsReturnsState.loadingMore = true;
+    renderWbFbsReturnsTable();
+  } else {
+    if (wbFbsReturnsState.loadAbort) {
+      try { wbFbsReturnsState.loadAbort.abort(); } catch (_) {}
+    }
+    wbFbsReturnsState.loadAbort = (typeof AbortController !== "undefined") ? new AbortController() : null;
+    wbFbsReturnsState.loading = true;
+    wbFbsReturnsState.loadingMore = false;
+    wbFbsReturnsState.hasMore = false;
+    wbFbsReturnsState.previewItem = null;
+    wbFbsReturnsState.items = [];
+    const tbodyReset = document.getElementById("wbFbsReturnsTbody");
+    if (tbodyReset) {
+      tbodyReset.innerHTML = `<tr><td colspan="5" class="wb-fbs-empty">Загрузка…</td></tr>`;
+    }
   }
+  const seq = ++wbFbsReturnsState.loadSeq;
+  const signal = wbFbsReturnsState.loadAbort ? wbFbsReturnsState.loadAbort.signal : undefined;
   try {
-    const params = new URLSearchParams({ source_id: String(sid) });
+    const params = new URLSearchParams({
+      source_id: String(sid),
+      limit: String(wbFbsReturnsState.pageSize),
+      offset: String(append ? _wbFbsReturnsJournalOffset() : 0),
+    });
     const df = document.getElementById("wbFbsReturnsDateFrom")?.value || "";
     const dt = document.getElementById("wbFbsReturnsDateTo")?.value || "";
     const search = document.getElementById("wbFbsReturnsSearchFilter")?.value || "";
@@ -18458,24 +18495,40 @@ async function loadWbFbsReturnsScans() {
     if (dt) params.set("date_to", dt);
     if (search.trim()) params.set("search", search.trim());
     if (scanType) params.set("scan_type", scanType);
-    const res = await fetch(`/api/wb-fbs/returns/scans?${params.toString()}`);
+    const res = await fetch(`/api/wb-fbs/returns/scans?${params.toString()}`, signal ? { signal } : undefined);
+    if (seq !== wbFbsReturnsState.loadSeq) return;
     const payload = await res.json().catch(() => ({}));
     if (!res.ok) {
       const detail = typeof payload?.detail === "string" ? payload.detail : "Не удалось загрузить журнал";
       throw new Error(detail);
     }
     let items = Array.isArray(payload.items) ? payload.items : [];
+    wbFbsReturnsState.hasMore = !!payload.has_more;
+    if (append) {
+      const seen = new Set(
+        (wbFbsReturnsState.items || [])
+          .filter((row) => Number(row?.id || 0) > 0)
+          .map((row) => Number(row.id)),
+      );
+      const fresh = items.filter((row) => !seen.has(Number(row?.id || 0)));
+      wbFbsReturnsState.items = [...wbFbsReturnsState.items, ...fresh];
+      renderWbFbsReturnsTable();
+      return;
+    }
     const orderIdQuery = _wbFbsParseOrderIdQuery(search);
     const hasExactOrder = orderIdQuery
       ? items.some((row) => Number(row?.order_id) === orderIdQuery)
       : false;
     if (orderIdQuery && !hasExactOrder) {
+      const tbody = document.getElementById("wbFbsReturnsTbody");
       if (tbody) {
         tbody.innerHTML = `<tr><td colspan="5" class="wb-fbs-empty">Ищем заказ ${orderIdQuery} в WB…</td></tr>`;
       }
       const lookupRes = await fetch(
-        `/api/wb-fbs/returns/lookup?source_id=${sid}&order_id=${orderIdQuery}`
+        `/api/wb-fbs/returns/lookup?source_id=${sid}&order_id=${orderIdQuery}`,
+        signal ? { signal } : undefined,
       );
+      if (seq !== wbFbsReturnsState.loadSeq) return;
       const lookupPayload = await lookupRes.json().catch(() => ({}));
       if (lookupRes.ok && lookupPayload?.item) {
         wbFbsReturnsState.previewItem = lookupPayload.item;
@@ -18493,14 +18546,43 @@ async function loadWbFbsReturnsScans() {
     wbFbsReturnsState.items = items;
     renderWbFbsReturnsTable();
   } catch (err) {
+    if (err?.name === "AbortError") return;
+    if (seq !== wbFbsReturnsState.loadSeq) return;
     _wbFbsReturnsSetInfo(err?.message || String(err));
-    const tbodyErr = document.getElementById("wbFbsReturnsTbody");
-    if (tbodyErr) tbodyErr.innerHTML = `<tr><td colspan="5" class="wb-fbs-empty">Ошибка загрузки</td></tr>`;
+    if (!append) {
+      const tbodyErr = document.getElementById("wbFbsReturnsTbody");
+      if (tbodyErr) tbodyErr.innerHTML = `<tr><td colspan="5" class="wb-fbs-empty">Ошибка загрузки</td></tr>`;
+    }
   } finally {
-    wbFbsReturnsState.loading = false;
+    if (seq === wbFbsReturnsState.loadSeq) {
+      wbFbsReturnsState.loading = false;
+      wbFbsReturnsState.loadingMore = false;
+      if (append) renderWbFbsReturnsTable();
+    }
   }
 }
 window.loadWbFbsReturnsScans = loadWbFbsReturnsScans;
+
+let _wbFbsReturnsScrollTimer = null;
+function _wbFbsReturnsOnTableScroll() {
+  if (_wbFbsReturnsScrollTimer) return;
+  _wbFbsReturnsScrollTimer = setTimeout(() => {
+    _wbFbsReturnsScrollTimer = null;
+    const wrap = document.getElementById("wbFbsReturnsTableWrap");
+    if (!wrap) return;
+    if (wrap.scrollTop + wrap.clientHeight >= wrap.scrollHeight - 96) {
+      loadWbFbsReturnsScans({ append: true });
+    }
+  }, 120);
+}
+
+function initWbFbsReturnsInfiniteScroll() {
+  const wrap = document.getElementById("wbFbsReturnsTableWrap");
+  if (!wrap || wrap.dataset.returnsScrollBound === "1") return;
+  wrap.dataset.returnsScrollBound = "1";
+  wrap.addEventListener("scroll", _wbFbsReturnsOnTableScroll, { passive: true });
+}
+window.initWbFbsReturnsInfiniteScroll = initWbFbsReturnsInfiniteScroll;
 
 function onWbFbsReturnsFilterChange() {
   loadWbFbsReturnsScans();
@@ -18732,8 +18814,8 @@ function openWbFbsKizRestoreModal() {
   if (!modal) return;
   modal.classList.remove("hidden");
   initWbFbsReturnsColumnResizer();
+  initWbFbsReturnsInfiniteScroll();
   loadWbFbsReturnsScans();
-  syncWbFbsReturnsGoods();
   setTimeout(() => scan?.focus(), 40);
 }
 window.openWbFbsKizRestoreModal = openWbFbsKizRestoreModal;
