@@ -9798,8 +9798,10 @@ button.wb-fbs-kiz-add:disabled {
   min-height: 34px;
 }
 .wb-fbs-returns-col-status {
-  width: 108px;
   white-space: nowrap;
+}
+.wb-fbs-returns-table th[data-col] {
+  position: relative;
 }
 .wb-fbs-returns-status {
   display: inline-flex;

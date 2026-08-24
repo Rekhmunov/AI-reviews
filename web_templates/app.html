@@ -2483,13 +2483,20 @@
             </div>
             <div id="wbFbsReturnsInfo" class="wb-fbs-kiz-info" hidden></div>
             <div class="wb-fbs-kiz-table-wrap">
-              <table class="wb-fbs-kiz-table wb-fbs-returns-table">
+              <table id="wbFbsReturnsTable" class="wb-fbs-kiz-table wb-fbs-returns-table">
+                <colgroup id="wbFbsReturnsColgroup">
+                  <col data-col="0" class="wb-fbs-returns-col-order" />
+                  <col data-col="1" class="wb-fbs-returns-col-product" />
+                  <col data-col="2" class="wb-fbs-returns-col-kiz" />
+                  <col data-col="3" class="wb-fbs-returns-col-status" />
+                  <col data-fixed="1" class="wb-fbs-returns-col-act" style="width:48px" />
+                </colgroup>
                 <thead>
                   <tr>
-                    <th class="wb-fbs-kiz-col-order">Заказ/стикер</th>
-                    <th class="wb-fbs-kiz-col-product">Товар</th>
-                    <th class="wb-fbs-kiz-col-kiz">КИЗ</th>
-                    <th class="wb-fbs-returns-col-status">Статус</th>
+                    <th data-col="0" class="wb-fbs-kiz-col-order">Заказ/стикер<span class="col-resize-handle"></span></th>
+                    <th data-col="1" class="wb-fbs-kiz-col-product">Товар<span class="col-resize-handle"></span></th>
+                    <th data-col="2" class="wb-fbs-kiz-col-kiz">КИЗ<span class="col-resize-handle"></span></th>
+                    <th data-col="3" class="wb-fbs-returns-col-status">Статус<span class="col-resize-handle"></span></th>
                     <th class="wb-fbs-kiz-col-act"></th>
                   </tr>
                 </thead>
