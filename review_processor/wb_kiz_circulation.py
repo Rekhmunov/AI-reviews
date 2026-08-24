@@ -830,7 +830,7 @@ def load_kiz_codes_for_order(
 
     Matches analytics ``srid`` / Marketplace ``rid`` the same way as circulation
     events list (mid-token + full rid). Prefers op=return rows when
-  ``prefer_return`` (default) — typical for the «Возвраты» workflow.
+    ``prefer_return`` (default) — typical for the «Возвраты» workflow.
     """
     from . import wb_fbs as wb_fbs_mod
 

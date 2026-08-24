@@ -265,19 +265,69 @@ def _upsert_goods_return_row(
                 ),
             )
             return "updated"
-        conn.execute(
-            repo._sql(
-                """
-                INSERT INTO wb_fbs_goods_returns (
-                    user_id, source_id, wb_order_id, sticker_id, barcode, shk_id,
-                    nm_id, srid, status, reason, ready_to_return_dt, completed_dt,
-                    order_dt, raw_json, synced_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """
-            ),
-            values,
-        )
-        return "inserted"
+        try:
+            conn.execute(
+                repo._sql(
+                    """
+                    INSERT INTO wb_fbs_goods_returns (
+                        user_id, source_id, wb_order_id, sticker_id, barcode, shk_id,
+                        nm_id, srid, status, reason, ready_to_return_dt, completed_dt,
+                        order_dt, raw_json, synced_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """
+                ),
+                values,
+            )
+            return "inserted"
+        except Exception as exc:
+            msg = str(exc).lower()
+            if "duplicate" not in msg and "unique" not in msg and "already exists" not in msg:
+                raise
+            existing = conn.execute(
+                repo._sql(
+                    """
+                    SELECT raw_json FROM wb_fbs_goods_returns
+                    WHERE user_id = ? AND source_id = ? AND srid = ?
+                    LIMIT 1
+                    """
+                ),
+                (user_id, source_id, srid),
+            ).fetchone()
+            if not existing:
+                raise
+            prev = repo._row_to_dict(existing)
+            if str(prev.get("raw_json") or "") == raw_json:
+                return "unchanged"
+            conn.execute(
+                repo._sql(
+                    """
+                    UPDATE wb_fbs_goods_returns SET
+                        wb_order_id = ?, sticker_id = ?, barcode = ?, shk_id = ?,
+                        nm_id = ?, status = ?, reason = ?,
+                        ready_to_return_dt = ?, completed_dt = ?, order_dt = ?,
+                        raw_json = ?, synced_at = ?
+                    WHERE user_id = ? AND source_id = ? AND srid = ?
+                    """
+                ),
+                (
+                    values[2],
+                    values[3],
+                    values[4],
+                    values[5],
+                    values[6],
+                    values[8],
+                    values[9],
+                    values[10],
+                    values[11],
+                    values[12],
+                    raw_json,
+                    values[14],
+                    user_id,
+                    source_id,
+                    srid,
+                ),
+            )
+            return "updated"
 
     if order_id > 0 and sticker_id:
         existing = conn.execute(
