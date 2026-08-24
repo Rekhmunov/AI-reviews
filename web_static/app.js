@@ -18984,18 +18984,17 @@ function _wbFbsReturnsBarcodeSpec(code) {
   return { format: "CODE128", value: raw };
 }
 
-function _wbFbsReturnsRenderBarcodeTextCanvas(labelText) {
+function _wbFbsWrapBarcodeLabelLines(labelText, maxWidthMm, fontSizeMm = 2.8) {
   const text = String(labelText || "").trim();
-  if (!text) return { dataUrl: "", heightMm: 0 };
-  const SCALE = 4;
-  const PAGE_W = 58;
-  const PAD = 1.5;
-  const maxWidthMm = PAGE_W - PAD * 2 - 2;
-  const fontSize = 7.5 * SCALE;
-  const lineH = 9.5 * SCALE;
-  const canvasW = Math.round(maxWidthMm * SCALE * 3.78);
-  const measure = document.createElement("canvas").getContext("2d");
-  measure.font = `${fontSize}px Arial, Helvetica, sans-serif`;
+  if (!text) return [];
+  const SCALE = 8;
+  const MM = 3.7795275591;
+  const maxPx = Math.max(32, Math.round(maxWidthMm * MM * SCALE));
+  const fontPx = Math.max(10, Math.round(fontSizeMm * MM * SCALE));
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return [text];
+  ctx.font = `600 ${fontPx}px Arial, Helvetica, sans-serif`;
   const lines = [];
   for (const paragraph of text.split(/\r?\n/)) {
     const words = String(paragraph || "").trim().split(/\s+/).filter(Boolean);
@@ -19006,7 +19005,7 @@ function _wbFbsReturnsRenderBarcodeTextCanvas(labelText) {
     let cur = "";
     for (const word of words) {
       const test = cur ? `${cur} ${word}` : word;
-      if (measure.measureText(test).width > canvasW - 8 && cur) {
+      if (ctx.measureText(test).width > maxPx - 4 && cur) {
         lines.push(cur);
         cur = word;
       } else {
@@ -19015,57 +19014,49 @@ function _wbFbsReturnsRenderBarcodeTextCanvas(labelText) {
     }
     if (cur) lines.push(cur);
   }
-  const trimmed = lines.filter((line, idx, arr) => line || (idx > 0 && idx < arr.length - 1));
-  if (!trimmed.length) return { dataUrl: "", heightMm: 0 };
-  const canvas = document.createElement("canvas");
-  canvas.width = canvasW;
-  canvas.height = trimmed.length * lineH + 4;
-  const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#000";
-  ctx.font = `${fontSize}px Arial, Helvetica, sans-serif`;
-  ctx.textAlign = "left";
-  ctx.textBaseline = "top";
-  trimmed.forEach((line, i) => ctx.fillText(line, 0, i * lineH + 2));
-  return {
-    dataUrl: canvas.toDataURL("image/png"),
-    heightMm: canvas.height / (SCALE * 3.78),
-  };
+  return lines.length ? lines : [text];
 }
 
 function _wbFbsReturnsBarcodePrintHtml(barcode, labelText) {
   if (typeof JsBarcode === "undefined") {
     throw new Error("Библиотека штрихкодов не загружена");
   }
+  const PRINT_SCALE = 8;
+  const MM = 3.7795275591;
+  const MMpx = MM * PRINT_SCALE;
+  const PAD = 1.5;
+  const PAGE_W = 58;
+  const PAGE_H = 40;
+  const innerW = PAGE_W - PAD * 2;
+  const innerH = PAGE_H - PAD * 2;
   const spec = _wbFbsReturnsBarcodeSpec(barcode);
+  const showDigits = spec.format === "EAN13" || spec.format === "EAN8";
   const bcCanvas = document.createElement("canvas");
   JsBarcode(bcCanvas, spec.value, {
     format: spec.format,
-    width: 2,
-    height: 64,
-    displayValue: spec.format === "EAN13" || spec.format === "EAN8",
-    fontSize: 11,
-    textMargin: 1,
+    width: 3,
+    height: 120,
+    displayValue: showDigits,
+    fontSize: 14,
+    font: "Arial, Helvetica, sans-serif",
+    textMargin: 2,
     margin: 0,
     background: "#ffffff",
     lineColor: "#000000",
   });
   const bcDataUrl = bcCanvas.toDataURL("image/png");
-  const bcAspect = bcCanvas.height / bcCanvas.width;
-  const textCanvas = _wbFbsReturnsRenderBarcodeTextCanvas(labelText);
-  const MMpx = 3.7795;
-  const PAD = 1.2;
-  const PAGE_W = 58;
-  const PAGE_H = 40;
-  const frameW = PAGE_W - PAD * 2;
-  const frameH = PAGE_H - PAD * 2;
-  const bcW = frameW - 3;
-  const bcH = Math.min(bcW * bcAspect, frameH * 0.46);
-  const bcX = PAD + 1.5;
-  const bcY = PAD + 1.2;
-  const txtX = PAD + 1.5;
+  const bcAspect = bcCanvas.height / Math.max(1, bcCanvas.width);
+  const textLines = _wbFbsWrapBarcodeLabelLines(labelText, innerW - 2, 2.8);
+  const textLineCount = Math.max(1, textLines.length);
+  const textBlockMm = Math.min(innerH * 0.42, 1.2 + textLineCount * 3.2);
+  const bcW = innerW - 2;
+  const bcH = Math.max(12, Math.min(innerH - textBlockMm - 2, bcW * bcAspect));
+  const bcX = PAD + 1;
+  const bcY = PAD + 1;
+  const txtX = PAD + 1;
   const txtY = bcY + bcH + 1.2;
-  const txtW = frameW - 3;
-  const txtH = textCanvas.heightMm || 0;
+  const fontMm = 2.8;
+  const lineMm = 3.2;
   return `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><title>ШК</title>
 <style>
 @page { size: 58mm 40mm; margin: 0; }
@@ -19073,7 +19064,7 @@ function _wbFbsReturnsBarcodePrintHtml(barcode, labelText) {
 html, body { width: 58mm; height: 40mm; overflow: hidden; background: #fff; }
 .toolbar { padding: 8px 12px; font-family: Arial, sans-serif; }
 @media print { .toolbar { display: none !important; } }
-canvas { display: block; }
+canvas { display: block; width: 58mm; height: 40mm; }
 </style></head><body>
 <div class="toolbar">
   <button type="button" onclick="window.print()">Печать</button>
@@ -19082,26 +19073,39 @@ canvas { display: block; }
 <canvas id="c" width="${Math.round(PAGE_W * MMpx)}" height="${Math.round(PAGE_H * MMpx)}"></canvas>
 <script>
 (function(){
+  const PRINT_SCALE = ${PRINT_SCALE};
+  const mm = ${MM} * PRINT_SCALE;
   const c = document.getElementById("c");
   const ctx = c.getContext("2d");
-  const mm = ${MMpx};
+  const textLines = ${JSON.stringify(textLines)};
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, c.width, c.height);
   ctx.strokeStyle = "#000";
-  ctx.lineWidth = 0.28 * mm;
-  ctx.strokeRect(${PAD} * mm, ${PAD} * mm, ${frameW} * mm, ${frameH} * mm);
+  ctx.lineWidth = 0.25 * mm;
+  ctx.strokeRect(${PAD} * mm, ${PAD} * mm, ${innerW} * mm, ${innerH} * mm);
+  const drawText = function() {
+    if (!textLines.length) {
+      window.print();
+      return;
+    }
+    ctx.fillStyle = "#000";
+    ctx.font = "600 " + (${fontMm} * mm) + "px Arial, Helvetica, sans-serif";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    const lineStep = ${lineMm} * mm;
+    textLines.forEach(function(line, i) {
+      ctx.fillText(line, ${txtX} * mm, ${txtY} * mm + i * lineStep);
+    });
+    window.print();
+  };
   const bc = new Image();
   bc.onload = function() {
+    ctx.imageSmoothingEnabled = false;
     ctx.drawImage(bc, ${bcX} * mm, ${bcY} * mm, ${bcW} * mm, ${bcH} * mm);
-    ${textCanvas.dataUrl ? `
-    const bt = new Image();
-    bt.onload = function() {
-      ctx.drawImage(bt, ${txtX} * mm, ${txtY} * mm, ${txtW} * mm, ${txtH} * mm);
-      window.print();
-    };
-    bt.src = ${JSON.stringify(textCanvas.dataUrl)};
-    ` : "window.print();"}
+    ctx.imageSmoothingEnabled = true;
+    drawText();
   };
+  bc.onerror = function() { drawText(); };
   bc.src = ${JSON.stringify(bcDataUrl)};
 })();
 <\/script>
