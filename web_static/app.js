@@ -19059,16 +19059,18 @@ function _wbFbsReturnsBarcodePrintHtml(barcode, labelText) {
   const barsAspect = bcCanvas.height / Math.max(1, bcCanvas.width);
   const textLines = _wbFbsWrapBarcodeLabelLines(labelText, innerW - 6, 2.8);
   const textLineCount = Math.max(1, textLines.length);
-  const productLineMm = 3.2;
-  const productBlockMm = textLines.length ? 0.8 + textLineCount * productLineMm : 0;
+  const BC_WIDTH_SCALE = 0.8;
+  const TEXT_AREA_SCALE = 1.2;
+  const productLineMm = 3.2 * TEXT_AREA_SCALE;
+  const productBlockMm = textLines.length ? 0.8 * TEXT_AREA_SCALE + textLineCount * productLineMm : 0;
   const digitsLineMm = showDigits ? 3.2 : 0;
-  const bcW = innerW - 4;
+  const bcW = (innerW - 4) * BC_WIDTH_SCALE;
   const barsH = Math.max(
     10,
     Math.min(
       innerH - productBlockMm - digitsLineMm - 2.4,
       bcW * barsAspect,
-      innerH * 0.44,
+      innerH * 0.44 * BC_WIDTH_SCALE,
     ),
   );
   const bcX = PAD + (innerW - bcW) / 2;
