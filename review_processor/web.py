@@ -10821,6 +10821,204 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         return {"ok": True, "updated": updated}
 
+    @app.post("/api/wb-fbs/returns/sync")
+    async def wb_fbs_returns_sync(request: Request) -> dict[str, object]:
+        from . import wb_fbs_returns as returns_mod
+        from .wb_kiz_circulation import get_wb_analytics_api_key
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        try:
+            source_id = int(body.get("source_id") or 0)
+        except (TypeError, ValueError):
+            source_id = 0
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        src_full = repository.get_supply_source_with_key(
+            user_id=owner_id, source_id=source_id
+        )
+        if not src_full:
+            raise HTTPException(status_code=400, detail="Источник не найден")
+        if not wb_fbs_mod.is_fbs_source_name(src_full.get("name")):
+            raise HTTPException(status_code=400, detail="Источник не является ФБС")
+        date_from = str(body.get("date_from") or "").strip()
+        date_to = str(body.get("date_to") or "").strip()
+        if not date_from or not date_to:
+            date_from, date_to = returns_mod.default_sync_date_range(31)
+        api_key = get_wb_analytics_api_key(repository, user_id=owner_id)
+        if not api_key:
+            raise HTTPException(
+                status_code=400,
+                detail="Не задан WB Analytics API ключ (Настройки → Честный знак)",
+            )
+        try:
+            result = returns_mod.sync_goods_returns(
+                repository,
+                user_id=owner_id,
+                source_id=source_id,
+                api_key=api_key,
+                date_from=date_from,
+                date_to=date_to,
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return result
+
+    @app.post("/api/wb-fbs/returns/scan")
+    async def wb_fbs_returns_scan(request: Request) -> dict[str, object]:
+        from . import wb_fbs_returns as returns_mod
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        try:
+            source_id = int(body.get("source_id") or 0)
+        except (TypeError, ValueError):
+            source_id = 0
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        src_full = repository.get_supply_source_with_key(
+            user_id=owner_id, source_id=source_id
+        )
+        if not src_full:
+            raise HTTPException(status_code=400, detail="Источник не найден")
+        api_key = str(src_full.get("api_key") or "").strip()
+        scan = str(body.get("scan") or "").strip()
+        if not scan:
+            raise HTTPException(status_code=400, detail="Пустое сканирование")
+        result = returns_mod.process_return_scan(
+            repository,
+            user_id=owner_id,
+            source_id=source_id,
+            api_key=api_key,
+            scan=scan,
+        )
+        if not result.get("ok"):
+            err = str(result.get("error") or "scan_failed")
+            msg = str(result.get("message") or "Не удалось обработать скан")
+            status = 409 if err == "duplicate" else 404 if err in {"not_found", "ambiguous_sticker"} else 400
+            raise HTTPException(status_code=status, detail=msg)
+        return result
+
+    @app.get("/api/wb-fbs/returns/scans")
+    def wb_fbs_returns_scans(
+        request: Request,
+        source_id: int,
+        date_from: str = "",
+        date_to: str = "",
+        search: str = "",
+        scan_type: str = "",
+        limit: int = 500,
+    ) -> dict[str, object]:
+        from . import wb_fbs_returns as returns_mod
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        types = [t.strip() for t in str(scan_type or "").split(",") if t.strip()]
+        items = returns_mod.list_return_scans(
+            repository,
+            user_id=owner_id,
+            source_id=source_id,
+            date_from=date_from,
+            date_to=date_to,
+            search=search,
+            scan_types=types or None,
+            limit=limit,
+        )
+        return {"ok": True, "items": items}
+
+    @app.get("/api/wb-fbs/returns/print")
+    def wb_fbs_returns_print(
+        request: Request, source_id: int, scan_id: int
+    ) -> dict[str, object]:
+        from . import wb_fbs_returns as returns_mod
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if not source_id or not scan_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и scan_id")
+        item = returns_mod.get_return_scan_by_id(
+            repository,
+            user_id=owner_id,
+            source_id=source_id,
+            scan_id=scan_id,
+        )
+        if not item:
+            raise HTTPException(status_code=404, detail="Запись не найдена")
+        kiz_code = str(item.get("kiz_code") or "").strip()
+        if not kiz_code:
+            raise HTTPException(status_code=400, detail="Нет КИЗ для печати")
+        try:
+            dm = returns_mod.render_kiz_print_png(kiz_code)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "ok": True,
+            "kiz_code": kiz_code,
+            "datamatrix_png": dm,
+            "product_name": str(item.get("product_name") or "").strip(),
+            "order_id": item.get("order_id"),
+        }
+
+    @app.get("/api/wb-fbs/returns/export")
+    def wb_fbs_returns_export(
+        request: Request,
+        source_id: int,
+        date_from: str = "",
+        date_to: str = "",
+        search: str = "",
+        scan_type: str = "",
+    ):
+        from . import wb_fbs_returns as returns_mod
+        from fastapi.responses import Response
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        types = [t.strip() for t in str(scan_type or "").split(",") if t.strip()]
+        items = returns_mod.list_return_scans(
+            repository,
+            user_id=owner_id,
+            source_id=source_id,
+            date_from=date_from,
+            date_to=date_to,
+            search=search,
+            scan_types=types or None,
+            limit=5000,
+        )
+        csv_text = returns_mod.export_return_scans_csv(items)
+        return Response(
+            content=csv_text,
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": 'attachment; filename="wb-fbs-returns.csv"'
+            },
+        )
+
     @app.get("/api/wb-fbs/kiz-circulation")
     def wb_fbs_kiz_circulation_overview(
         request: Request, source_id: int

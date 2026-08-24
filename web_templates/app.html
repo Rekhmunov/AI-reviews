@@ -1652,7 +1652,7 @@
                 Вывод КИЗ
               </button>
               <button type="button" id="wbFbsKizRestoreBtn" class="secondary"
-                      onclick="openWbFbsKizRestoreModal()" title="Перепечатка сохранённого КИЗ (Data Matrix)">
+                      onclick="openWbFbsKizRestoreModal()" title="Журнал возвратов и перепечатка КИЗ">
                 Возвраты
               </button>
               <button type="button" id="wbFbsTsdBtn" class="secondary"
@@ -2424,49 +2424,79 @@
         </div>
 
         <div id="wbFbsKizRestoreModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
-             aria-labelledby="wbFbsKizRestoreTitle"
-             onclick="if(event.target===this)closeWbFbsKizRestoreModal()">
-          <div class="modal-card wb-fbs-kiz-modal wb-fbs-kiz-restore-modal">
+             aria-labelledby="wbFbsKizRestoreTitle">
+          <div class="modal-card wb-fbs-kiz-modal wb-fbs-returns-modal">
             <div class="wb-fbs-kiz-header">
               <div class="wb-fbs-kiz-header-main">
-                <h3 id="wbFbsKizRestoreTitle" class="wb-fbs-kiz-title">Восстановление КИЗ</h3>
-                <p class="wb-fbs-kiz-sub">Перепечатка сохранённого Data Matrix — без новой маркировки и без Честного знака</p>
+                <h3 id="wbFbsKizRestoreTitle" class="wb-fbs-kiz-title">Возвраты</h3>
+                <p class="wb-fbs-kiz-sub">Сканируйте стикер возврата, стикер сборки или маркировку. Журнал сохраняется в базе.</p>
               </div>
               <div class="wb-fbs-kiz-header-actions">
+                <button type="button" class="secondary" id="wbFbsReturnsExportBtn" onclick="exportWbFbsReturnsCsv()">Экспорт CSV</button>
                 <button type="button" class="icon-btn secondary" onclick="closeWbFbsKizRestoreModal()" aria-label="Закрыть">✕</button>
               </div>
             </div>
-            <div class="wb-fbs-kiz-restore-body">
-              <div class="wb-fbs-kiz-restore-fields">
-                <label class="wb-fbs-kiz-restore-field" for="wbFbsKizRestoreScan">
-                  <span class="wb-fbs-kiz-restore-label">Сканирование</span>
-                  <div class="wb-fbs-kiz-scan-field">
-                    <input id="wbFbsKizRestoreScan" class="wb-fbs-kiz-scan-input" type="text" autocomplete="off"
-                           placeholder="Стикер WB, номер заказа или КИЗ"
-                           oninput="onWbFbsKizScanInputCheck(event)"
-                           onkeydown="onWbFbsKizRestoreScanKey(event)" />
-                    <button type="button" class="wb-fbs-kiz-scan-clear" title="Очистить"
-                            aria-label="Очистить поле сканирования"
-                            onclick="clearWbFbsKizScanField('wbFbsKizRestoreScan')">✕</button>
+            <div class="wb-fbs-kiz-toolbar">
+              <div class="wb-fbs-kiz-filters" id="wbFbsReturnsFilters">
+                <label class="wb-fbs-kiz-check">
+                  <input type="checkbox" id="wbFbsReturnsFilterReturn" checked onchange="onWbFbsReturnsFilterChange()" />
+                  Возврат
+                </label>
+                <label class="wb-fbs-kiz-check">
+                  <input type="checkbox" id="wbFbsReturnsFilterAssembly" checked onchange="onWbFbsReturnsFilterChange()" />
+                  Стикер
+                </label>
+                <label class="wb-fbs-kiz-check">
+                  <input type="checkbox" id="wbFbsReturnsFilterKiz" checked onchange="onWbFbsReturnsFilterChange()" />
+                  Маркировка
+                </label>
+                <input id="wbFbsReturnsSearchFilter" class="wb-fbs-kiz-search" type="search"
+                       placeholder="🔍 Поиск..." autocomplete="off"
+                       title="Поиск по заказу, стикеру, КИЗ, товару"
+                       oninput="onWbFbsReturnsFilterChange()" />
+                <div class="supplies-date-wrap wb-fbs-returns-date-wrap">
+                  <button id="wbFbsReturnsDateBtn" type="button" class="secondary wb-fbs-returns-date-btn"
+                          onclick="toggleWbFbsReturnsDatePanel()" title="Фильтр по дате">📅</button>
+                  <input type="hidden" id="wbFbsReturnsDateFrom" />
+                  <input type="hidden" id="wbFbsReturnsDateTo" />
+                  <div id="wbFbsReturnsDatePanel" class="supplies-date-panel" style="display:none">
+                    <div id="wbFbsReturnsCalendar"></div>
                   </div>
-                </label>
-                <label class="wb-fbs-kiz-restore-field" for="wbFbsKizRestoreOrderId">
-                  <span class="wb-fbs-kiz-restore-label">Номер заказа</span>
-                  <input id="wbFbsKizRestoreOrderId" class="wb-fbs-kiz-restore-order-input" type="text"
-                         inputmode="numeric" autocomplete="off" placeholder="Необязательно"
-                         onkeydown="if(event.key==='Enter'){event.preventDefault();lookupWbFbsKizRestore();}" />
-                </label>
+                </div>
               </div>
-              <div class="wb-fbs-kiz-restore-actions">
-                <button type="button" id="wbFbsKizRestoreLookupBtn" onclick="lookupWbFbsKizRestore()">Найти КИЗ</button>
-                <button type="button" class="secondary" id="wbFbsKizRestorePrintBtn"
-                        onclick="printWbFbsKizRestore()" disabled>Печать</button>
+              <div class="wb-fbs-kiz-toolbar-actions">
+                <span id="wbFbsReturnsSyncInfo" class="wb-fbs-kiz-scan-count" aria-live="polite"></span>
+                <button type="button" class="secondary" id="wbFbsReturnsSyncBtn" onclick="syncWbFbsReturnsGoods()">Синхр. WB</button>
               </div>
-              <div id="wbFbsKizRestoreInfo" class="wb-fbs-kiz-restore-info" hidden></div>
-              <div id="wbFbsKizRestorePreview" class="wb-fbs-kiz-restore-preview" hidden>
-                <img id="wbFbsKizRestoreDmImg" class="wb-fbs-kiz-restore-dm" alt="Data Matrix КИЗ" />
-                <div id="wbFbsKizRestoreMeta" class="wb-fbs-kiz-restore-meta"></div>
+            </div>
+            <div class="wb-fbs-kiz-scan-bar">
+              <label class="wb-fbs-kiz-scan-label" for="wbFbsKizRestoreScan">Сканирование</label>
+              <div class="wb-fbs-kiz-scan-field">
+                <input id="wbFbsKizRestoreScan" class="wb-fbs-kiz-scan-input" type="text" autocomplete="off"
+                       placeholder="Стикер возврата, стикер сборки или КИЗ"
+                       oninput="onWbFbsKizScanInputCheck(event)"
+                       onkeydown="onWbFbsKizRestoreScanKey(event)" />
+                <button type="button" class="wb-fbs-kiz-scan-clear" title="Очистить"
+                        aria-label="Очистить поле сканирования"
+                        onclick="clearWbFbsKizScanField('wbFbsKizRestoreScan')">✕</button>
               </div>
+            </div>
+            <div id="wbFbsReturnsInfo" class="wb-fbs-kiz-info" hidden></div>
+            <div class="wb-fbs-kiz-table-wrap">
+              <table class="wb-fbs-kiz-table wb-fbs-returns-table">
+                <thead>
+                  <tr>
+                    <th class="wb-fbs-kiz-col-order">Заказ/стикер</th>
+                    <th class="wb-fbs-kiz-col-product">Товар</th>
+                    <th class="wb-fbs-kiz-col-kiz">КИЗ</th>
+                    <th class="wb-fbs-returns-col-status">Статус</th>
+                    <th class="wb-fbs-kiz-col-act"></th>
+                  </tr>
+                </thead>
+                <tbody id="wbFbsReturnsTbody">
+                  <tr><td colspan="5" class="wb-fbs-empty">Загрузка…</td></tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
