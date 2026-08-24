@@ -646,7 +646,7 @@ def _process_return_sticker_scan(
         return {
             "ok": False,
             "error": "duplicate",
-            "message": "Этот стикер возврата уже просканирован ранее",
+            "message": "Этот стикер возврата уже просканирован",
             "item": _scan_row_to_api(dup),
         }
     try:
@@ -780,12 +780,17 @@ def _process_kiz_scan(
         if order_row
         else _product_from_gtin(repo, user_id=user_id, gtin14=gtin14)
     )
-    if gtin14 and product.get("product_barcodes"):
+    gtin_warning = ""
+    if gtin14:
         catalog = _catalog_barcodes_index(repo, user_id=user_id)
-        if gtin14 not in catalog and _digits_only(gtin14) not in {
-            _digits_only(k) for k in catalog
-        }:
-            product["gtin_warning"] = "GTIN не найден в каталоге товаров"
+        gtin_digits = _digits_only(gtin14)
+        in_catalog = (
+            gtin14 in catalog
+            or gtin14.lstrip("0") in catalog
+            or gtin_digits in catalog
+        )
+        if not in_catalog:
+            gtin_warning = "GTIN не найден в каталоге товаров"
     assembly_number = ""
     assembly_barcode = ""
     if order_row:
@@ -816,6 +821,12 @@ def _process_kiz_scan(
         )
     elif not db_hit.get("found"):
         item["warning"] = "КИЗ не найден в локальной базе заказов"
+    if gtin_warning:
+        item["warning"] = (
+            f"{item['warning']} · {gtin_warning}"
+            if item.get("warning")
+            else gtin_warning
+        )
     return {"ok": True, "item": item}
 
 
