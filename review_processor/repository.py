@@ -7462,6 +7462,9 @@ class ReviewRepository:
         conn.execute(
             "ALTER TABLE product_photos ADD COLUMN IF NOT EXISTS barcodes_json TEXT NOT NULL DEFAULT '[]'"
         )
+        conn.execute(
+            "ALTER TABLE product_photos ADD COLUMN IF NOT EXISTS barcode_label_name TEXT NOT NULL DEFAULT ''"
+        )
 
     def _product_photo_to_dict(self, row: Any) -> dict[str, Any]:
         d = self._row_to_dict(row)
@@ -7488,6 +7491,7 @@ class ReviewRepository:
         product_category: str = "",
         skip_kiz_gtin_check: bool = False,
         barcodes: list[str] | None = None,
+        barcode_label_name: str = "",
     ) -> dict[str, Any]:
         now = _utc_now()
         barcodes_json = json.dumps(_normalize_product_barcodes(barcodes), ensure_ascii=False)
@@ -7498,9 +7502,9 @@ class ReviewRepository:
                 INSERT INTO product_photos (
                     user_id, name, supplier_article, wb_nmid, ozon_sku, yandex_offer_id,
                     box_qty, product_category, skip_kiz_gtin_check, barcodes_json,
-                    photo_path, created_at, updated_at
+                    barcode_label_name, photo_path, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """),
                 (
                     user_id,
@@ -7513,6 +7517,7 @@ class ReviewRepository:
                     str(product_category or "").strip(),
                     1 if skip_kiz_gtin_check else 0,
                     barcodes_json,
+                    str(barcode_label_name or "").strip(),
                     photo_path,
                     now,
                     now,
@@ -7529,6 +7534,7 @@ class ReviewRepository:
         product_category: str = "",
         skip_kiz_gtin_check: bool = False,
         barcodes: list[str] | None = None,
+        barcode_label_name: str | None = None,
     ) -> bool:
         now = _utc_now()
         sets = [
@@ -7553,6 +7559,9 @@ class ReviewRepository:
             1 if skip_kiz_gtin_check else 0,
             now,
         ]
+        if barcode_label_name is not None:
+            sets.insert(-1, "barcode_label_name=?")
+            params.insert(-1, str(barcode_label_name or "").strip())
         if barcodes is not None:
             sets.insert(-1, "barcodes_json=?")
             params.insert(-1, json.dumps(_normalize_product_barcodes(barcodes), ensure_ascii=False))

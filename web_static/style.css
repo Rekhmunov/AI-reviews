@@ -5050,10 +5050,18 @@ body.sst-col-resizing * {
 }
 
 .product-form-field input,
-.product-form-field select {
+.product-form-field select,
+.product-form-field textarea {
   width: 100%;
   min-height: 40px;
   box-sizing: border-box;
+}
+
+.product-form-field textarea {
+  min-height: 96px;
+  resize: vertical;
+  padding: 8px 12px;
+  line-height: 1.4;
 }
 
 .product-form-barcodes-list {
@@ -9886,6 +9894,49 @@ button.wb-fbs-kiz-add:disabled {
   font-size: 12px;
   color: #64748b;
   margin-top: 4px;
+}
+.wb-fbs-returns-barcode-modal {
+  width: min(420px, calc(100vw - 32px));
+}
+.wb-fbs-returns-barcode-lead {
+  margin: 0 0 16px;
+  color: #64748b;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.wb-fbs-returns-barcode-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+  max-height: 240px;
+  overflow: auto;
+}
+.wb-fbs-returns-barcode-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1.35;
+}
+.wb-fbs-returns-barcode-option:has(input:checked) {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+.wb-fbs-returns-barcode-option input {
+  flex: 0 0 auto;
+}
+.wb-fbs-returns-barcode-option span {
+  word-break: break-all;
+}
+.wb-fbs-returns-barcode-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 @media (max-width: 900px) {
   .wb-fbs-returns-col-status {

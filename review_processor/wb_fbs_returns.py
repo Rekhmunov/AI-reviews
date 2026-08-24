@@ -581,6 +581,41 @@ def _catalog_barcodes_index(repo: ReviewRepository, *, user_id: int) -> dict[str
     return index
 
 
+def _catalog_product_for_order(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    order_row: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not order_row:
+        return None
+    article = str(order_row.get("article") or "").strip()
+    nm_id = str(order_row.get("nm_id") or "").strip()
+    for p in repo.list_product_photos(user_id=user_id):
+        if article and str(p.get("supplier_article") or "").strip() == article:
+            return p
+        if nm_id and str(p.get("wb_nmid") or "").strip() == nm_id:
+            return p
+    return None
+
+
+def _catalog_fields_from_product(product: dict[str, Any] | None) -> dict[str, Any]:
+    if not product:
+        return {
+            "catalog_barcodes": [],
+            "barcode_label_name": "",
+        }
+    barcodes = [
+        str(b or "").strip()
+        for b in (product.get("barcodes") or [])
+        if str(b or "").strip()
+    ]
+    return {
+        "catalog_barcodes": barcodes,
+        "barcode_label_name": str(product.get("barcode_label_name") or "").strip(),
+    }
+
+
 def _product_from_order(
     repo: ReviewRepository,
     *,
@@ -622,11 +657,16 @@ def _product_from_order(
                 if text and text not in barcodes:
                     barcodes.append(text)
             break
+    catalog_product = _catalog_product_for_order(
+        repo, user_id=user_id, order_row=order_row
+    )
+    catalog_fields = _catalog_fields_from_product(catalog_product)
     return {
         "product_name": name,
         "product_article": article,
         "product_photo": photo,
         "product_barcodes": barcodes,
+        **catalog_fields,
     }
 
 
@@ -649,6 +689,7 @@ def _product_from_gtin(
         "product_article": str(p.get("supplier_article") or "").strip(),
         "product_photo": photo,
         "product_barcodes": list(p.get("barcodes") or []),
+        **_catalog_fields_from_product(p),
     }
 
 
@@ -767,6 +808,30 @@ def _insert_return_scan(
             (scan_id,),
         ).fetchone()
     return _scan_row_to_api(repo._row_to_dict(row) if row else {})
+
+
+def _enrich_return_scan_catalog_fields(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    item: dict[str, Any],
+) -> dict[str, Any]:
+    article = str(item.get("product_article") or "").strip()
+    product: dict[str, Any] | None = None
+    if article:
+        for p in repo.list_product_photos(user_id=user_id):
+            if str(p.get("supplier_article") or "").strip() == article:
+                product = p
+                break
+    if product is None:
+        gtin14 = str(item.get("gtin14") or "").strip()
+        if gtin14:
+            fields = _product_from_gtin(repo, user_id=user_id, gtin14=gtin14)
+            item["catalog_barcodes"] = list(fields.get("catalog_barcodes") or [])
+            item["barcode_label_name"] = str(fields.get("barcode_label_name") or "").strip()
+            return item
+    item.update(_catalog_fields_from_product(product))
+    return item
 
 
 def _scan_row_to_api(row: dict[str, Any]) -> dict[str, Any]:
@@ -1098,7 +1163,11 @@ def get_return_scan_by_id(
             ),
             (user_id, source_id, scan_id),
         ).fetchone()
-    return _scan_row_to_api(repo._row_to_dict(row)) if row else None
+    return _enrich_return_scan_catalog_fields(
+        repo,
+        user_id=user_id,
+        item=_scan_row_to_api(repo._row_to_dict(row)) if row else {},
+    ) if row else None
 
 
 def list_return_scans(
@@ -1137,6 +1206,8 @@ def list_return_scans(
     with repo._connect() as conn:
         rows = conn.execute(repo._sql(sql), tuple(params)).fetchall()
     items = [_scan_row_to_api(repo._row_to_dict(r)) for r in rows]
+    for item in items:
+        _enrich_return_scan_catalog_fields(repo, user_id=user_id, item=item)
     q = str(search or "").strip().casefold()
     if not q:
         return items

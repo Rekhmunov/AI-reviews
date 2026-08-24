@@ -12691,6 +12691,8 @@ function openAddProductForm(editItem = null) {
   loadProductCategories().then(() => _fillProductCategorySelect(category));
   const skipGtin = document.getElementById("productFormSkipKizGtinCheck");
   if (skipGtin) skipGtin.checked = !!editItem?.skip_kiz_gtin_check;
+  const barcodeLabelName = document.getElementById("productFormBarcodeLabelName");
+  if (barcodeLabelName) barcodeLabelName.value = editItem?.barcode_label_name || "";
   const barcodes = Array.isArray(editItem?.barcodes)
     ? editItem.barcodes.map((x) => String(x || "").trim()).filter(Boolean)
     : [];
@@ -13051,7 +13053,7 @@ window.saveProductFillBarcodesModal = saveProductFillBarcodesModal;
 // ── Products table column resizer ────────────────────────────────────────
 const PRODUCTS_COL_WIDTHS_KEY = "products_col_widths_v4";
 // photo, name, seller, wb, ozon, ym, box qty, category, barcodes, actions
-const PRODUCTS_DEFAULT_WIDTHS = [7, 14, 10, 9, 9, 9, 9, 14, 12, 7];
+const PRODUCTS_DEFAULT_WIDTHS = [7, 14, 10, 9, 9, 9, 9, 12, 12, 10, 7];
 
 function initProductsColumnResizer() {
   const table = document.getElementById("productsTable");
@@ -13121,7 +13123,7 @@ async function loadProducts() {
     if (info) info.textContent = `Товаров: ${_productsCache.length}`;
     tbody.innerHTML = "";
     if (!_productsCache.length) {
-      tbody.innerHTML = '<tr><td colspan="10" class="small" style="color:#94a3b8;padding:16px">Нет товаров. Нажмите «+ Добавить товар»</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="11" class="small" style="color:#94a3b8;padding:16px">Нет товаров. Нажмите «+ Добавить товар»</td></tr>';
       initProductsColumnResizer();
       return;
     }
@@ -13135,6 +13137,10 @@ async function loadProducts() {
         ? item.barcodes.map((x) => String(x || "").trim()).filter(Boolean)
         : [];
       const barcodesText = barcodes.length ? barcodes.join(", ") : "—";
+      const labelName = String(item.barcode_label_name || "").trim();
+      const labelPreview = labelName
+        ? (labelName.length > 48 ? `${labelName.slice(0, 48)}…` : labelName)
+        : "—";
       tr.innerHTML = `
         <td>${item.photo_url ? `<img src="${esc(item.photo_url)}" class="product-thumb" alt="" onerror="this.style.display='none'">` : '<div class="product-thumb-empty"></div>'}</td>
         <td>${esc(item.name || "")}</td>
@@ -13144,6 +13150,7 @@ async function loadProducts() {
         <td>${esc(item.yandex_offer_id || "—")}</td>
         <td>${esc(boxQtyText)}</td>
         <td title="${esc(item.product_category || "")}">${esc(item.product_category || "—")}</td>
+        <td title="${esc(labelName)}">${esc(labelPreview)}</td>
         <td title="${esc(barcodesText)}">${esc(barcodesText)}</td>
         <td>
           <button type="button" class="secondary" style="font-size:12px;padding:4px 8px" onclick="editProduct(${item.id})">✏</button>
@@ -13183,6 +13190,7 @@ async function exportProductsCsv() {
       "Артикул Яндекс Маркет (offerId)",
       "Кратность в коробе",
       "Категория товара",
+      "Название для этикетки ШК",
       "ШК",
       "Без проверки GTIN маркировки",
     ];
@@ -13203,6 +13211,7 @@ async function exportProductsCsv() {
         item.yandex_offer_id || "",
         boxQtyText,
         item.product_category || "",
+        item.barcode_label_name || "",
         barcodes.join(", "),
         item.skip_kiz_gtin_check ? "да" : "нет",
       ].map(_csvEscapeCell).join(";"));
@@ -13237,6 +13246,7 @@ async function saveProduct() {
   const yandexOfferId = String(document.getElementById("productFormYandexOfferId")?.value || "").trim();
   const boxQty = String(document.getElementById("productFormBoxQty")?.value || "").trim();
   const productCategory = String(document.getElementById("productFormCategory")?.value || "").trim();
+  const barcodeLabelName = String(document.getElementById("productFormBarcodeLabelName")?.value || "").trim();
   const skipKizGtinCheck = !!document.getElementById("productFormSkipKizGtinCheck")?.checked;
   const barcodes = _productBarcodeRowsFromDom().filter(Boolean);
   const photoFile = document.getElementById("productFormPhoto")?.files?.[0];
@@ -13266,6 +13276,7 @@ async function saveProduct() {
   fd.append("yandex_offer_id", yandexOfferId);
   fd.append("box_qty", boxQty);
   fd.append("product_category", productCategory);
+  fd.append("barcode_label_name", barcodeLabelName);
   fd.append("skip_kiz_gtin_check", skipKizGtinCheck ? "1" : "0");
   fd.append("barcodes", JSON.stringify(barcodes));
   if (photoFile) fd.append("photo", photoFile);
@@ -18383,9 +18394,14 @@ function renderWbFbsReturnsTable() {
       : `<span class="wb-fbs-empty-inline">—</span>`;
     const safeKey = isPreview ? `preview_${orderId}` : `ret_${id}`;
     const canPrint = !!kizCode;
+    const catalogBarcodes = Array.isArray(item.catalog_barcodes)
+      ? item.catalog_barcodes.map((b) => String(b || "").trim()).filter(Boolean)
+      : [];
+    const canPrintBarcode = catalogBarcodes.length > 0;
     const printArgs = isPreview && orderId > 0
       ? `null, ${orderId}`
       : `${id}`;
+    const barcodePrintArgs = printArgs;
     return `<tr class="wb-fbs-returns-row${isPreview ? " is-preview" : ""}" data-scan-id="${id}" data-order-id="${orderId || ""}">
       <td>${_wbFbsReturnsOrderStickerHtml(item)}</td>
       <td>
@@ -18409,6 +18425,11 @@ function renderWbFbsReturnsTable() {
                     ${canPrint ? `onclick="printWbFbsReturnsKiz(${printArgs})"` : "disabled"}
                     ${canPrint ? "" : 'title="Нет КИЗ для печати"'}>
               Распечатать маркировку
+            </button>
+            <button type="button" class="wb-fbs-row-menu-item${canPrintBarcode ? "" : " is-disabled"}" role="menuitem"
+                    ${canPrintBarcode ? `onclick="openWbFbsReturnsBarcodePrint(${barcodePrintArgs})"` : "disabled"}
+                    ${canPrintBarcode ? "" : 'title="Нет ШК в каталоге товаров"'}>
+              Распечатать ШК
             </button>
           </div>
         </div>
@@ -18904,6 +18925,276 @@ async function printWbFbsReturnsKiz(scanId, orderId) {
   }
 }
 window.printWbFbsReturnsKiz = printWbFbsReturnsKiz;
+
+const wbFbsReturnsBarcodeModalState = {
+  labelText: "",
+  barcodes: [],
+  selected: "",
+};
+
+function _wbFbsReturnsFindItem(scanId, orderId) {
+  const items = Array.isArray(wbFbsReturnsState.items) ? wbFbsReturnsState.items : [];
+  const id = Number(scanId || 0);
+  const oid = Number(orderId || 0);
+  if (id > 0) return items.find((row) => Number(row?.id || 0) === id) || null;
+  if (oid > 0) return items.find((row) => Number(row?.order_id || 0) === oid) || null;
+  return null;
+}
+
+function _wbFbsReturnsCatalogBarcodes(item) {
+  if (!item) return [];
+  return (Array.isArray(item.catalog_barcodes) ? item.catalog_barcodes : [])
+    .map((b) => String(b || "").trim())
+    .filter(Boolean);
+}
+
+function _wbFbsReturnsBarcodeLabelText(item) {
+  const custom = String(item?.barcode_label_name || "").trim();
+  if (custom) return custom;
+  return String(item?.product_name || "").trim();
+}
+
+function _wbFbsReturnsPreferredBarcode(barcodes, item) {
+  const list = (Array.isArray(barcodes) ? barcodes : [])
+    .map((b) => String(b || "").trim())
+    .filter(Boolean);
+  if (!list.length) return "";
+  const gtin14 = String(item?.gtin14 || "").trim() || _wbFbsKizExtractGtin14(item?.kiz_code || "");
+  if (!gtin14) return list[0];
+  const candidates = _wbFbsKizGtinToProductSkus(gtin14);
+  const norm = new Set();
+  for (const c of candidates) {
+    norm.add(c);
+    const digits = c.replace(/\D/g, "");
+    if (digits) norm.add(digits);
+  }
+  for (const code of list) {
+    const digits = code.replace(/\D/g, "");
+    if (norm.has(code) || (digits && norm.has(digits))) return code;
+  }
+  return list[0];
+}
+
+function _wbFbsReturnsBarcodeSpec(code) {
+  const raw = String(code || "").trim();
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length === 13) return { format: "EAN13", value: digits };
+  if (digits.length === 12) return { format: "EAN13", value: digits };
+  if (digits.length === 8) return { format: "EAN8", value: digits };
+  return { format: "CODE128", value: raw };
+}
+
+function _wbFbsReturnsRenderBarcodeTextCanvas(labelText) {
+  const text = String(labelText || "").trim();
+  if (!text) return { dataUrl: "", heightMm: 0 };
+  const SCALE = 4;
+  const PAGE_W = 58;
+  const PAD = 1.5;
+  const maxWidthMm = PAGE_W - PAD * 2 - 2;
+  const fontSize = 7.5 * SCALE;
+  const lineH = 9.5 * SCALE;
+  const canvasW = Math.round(maxWidthMm * SCALE * 3.78);
+  const measure = document.createElement("canvas").getContext("2d");
+  measure.font = `${fontSize}px Arial, Helvetica, sans-serif`;
+  const lines = [];
+  for (const paragraph of text.split(/\r?\n/)) {
+    const words = String(paragraph || "").trim().split(/\s+/).filter(Boolean);
+    if (!words.length) {
+      lines.push("");
+      continue;
+    }
+    let cur = "";
+    for (const word of words) {
+      const test = cur ? `${cur} ${word}` : word;
+      if (measure.measureText(test).width > canvasW - 8 && cur) {
+        lines.push(cur);
+        cur = word;
+      } else {
+        cur = test;
+      }
+    }
+    if (cur) lines.push(cur);
+  }
+  const trimmed = lines.filter((line, idx, arr) => line || (idx > 0 && idx < arr.length - 1));
+  if (!trimmed.length) return { dataUrl: "", heightMm: 0 };
+  const canvas = document.createElement("canvas");
+  canvas.width = canvasW;
+  canvas.height = trimmed.length * lineH + 4;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#000";
+  ctx.font = `${fontSize}px Arial, Helvetica, sans-serif`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  trimmed.forEach((line, i) => ctx.fillText(line, 0, i * lineH + 2));
+  return {
+    dataUrl: canvas.toDataURL("image/png"),
+    heightMm: canvas.height / (SCALE * 3.78),
+  };
+}
+
+function _wbFbsReturnsBarcodePrintHtml(barcode, labelText) {
+  if (typeof JsBarcode === "undefined") {
+    throw new Error("Библиотека штрихкодов не загружена");
+  }
+  const spec = _wbFbsReturnsBarcodeSpec(barcode);
+  const bcCanvas = document.createElement("canvas");
+  JsBarcode(bcCanvas, spec.value, {
+    format: spec.format,
+    width: 2,
+    height: 64,
+    displayValue: spec.format === "EAN13" || spec.format === "EAN8",
+    fontSize: 11,
+    textMargin: 1,
+    margin: 0,
+    background: "#ffffff",
+    lineColor: "#000000",
+  });
+  const bcDataUrl = bcCanvas.toDataURL("image/png");
+  const bcAspect = bcCanvas.height / bcCanvas.width;
+  const textCanvas = _wbFbsReturnsRenderBarcodeTextCanvas(labelText);
+  const MMpx = 3.7795;
+  const PAD = 1.2;
+  const PAGE_W = 58;
+  const PAGE_H = 40;
+  const frameW = PAGE_W - PAD * 2;
+  const frameH = PAGE_H - PAD * 2;
+  const bcW = frameW - 3;
+  const bcH = Math.min(bcW * bcAspect, frameH * 0.46);
+  const bcX = PAD + 1.5;
+  const bcY = PAD + 1.2;
+  const txtX = PAD + 1.5;
+  const txtY = bcY + bcH + 1.2;
+  const txtW = frameW - 3;
+  const txtH = textCanvas.heightMm || 0;
+  return `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><title>ШК</title>
+<style>
+@page { size: 58mm 40mm; margin: 0; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 58mm; height: 40mm; overflow: hidden; background: #fff; }
+.toolbar { padding: 8px 12px; font-family: Arial, sans-serif; }
+@media print { .toolbar { display: none !important; } }
+canvas { display: block; }
+</style></head><body>
+<div class="toolbar">
+  <button type="button" onclick="window.print()">Печать</button>
+  <span style="margin-left:8px;color:#64748b;font-size:13px">ШК · 58×40 мм</span>
+</div>
+<canvas id="c" width="${Math.round(PAGE_W * MMpx)}" height="${Math.round(PAGE_H * MMpx)}"></canvas>
+<script>
+(function(){
+  const c = document.getElementById("c");
+  const ctx = c.getContext("2d");
+  const mm = ${MMpx};
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, c.width, c.height);
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = 0.28 * mm;
+  ctx.strokeRect(${PAD} * mm, ${PAD} * mm, ${frameW} * mm, ${frameH} * mm);
+  const bc = new Image();
+  bc.onload = function() {
+    ctx.drawImage(bc, ${bcX} * mm, ${bcY} * mm, ${bcW} * mm, ${bcH} * mm);
+    ${textCanvas.dataUrl ? `
+    const bt = new Image();
+    bt.onload = function() {
+      ctx.drawImage(bt, ${txtX} * mm, ${txtY} * mm, ${txtW} * mm, ${txtH} * mm);
+      window.print();
+    };
+    bt.src = ${JSON.stringify(textCanvas.dataUrl)};
+    ` : "window.print();"}
+  };
+  bc.src = ${JSON.stringify(bcDataUrl)};
+})();
+<\/script>
+</body></html>`;
+}
+
+function _wbFbsReturnsDoBarcodePrint(barcode, labelText) {
+  const code = String(barcode || "").trim();
+  if (!code) {
+    _wbFbsReturnsSetInfo("Не выбран штрихкод для печати");
+    return;
+  }
+  if (typeof JsBarcode === "undefined") {
+    _wbFbsReturnsSetInfo("Библиотека штрихкодов загружается. Попробуйте через секунду.");
+    return;
+  }
+  try {
+    const html = _wbFbsReturnsBarcodePrintHtml(code, labelText);
+    const win = window.open("", "_blank");
+    if (!win) {
+      _wbFbsReturnsSetInfo("Разрешите всплывающие окна для печати ШК");
+      return;
+    }
+    win.document.write(html);
+    win.document.close();
+  } catch (err) {
+    _wbFbsReturnsSetInfo(err?.message || String(err));
+  }
+}
+
+function closeWbFbsReturnsBarcodeModal() {
+  document.getElementById("wbFbsReturnsBarcodeModal")?.classList.add("hidden");
+  wbFbsReturnsBarcodeModalState.labelText = "";
+  wbFbsReturnsBarcodeModalState.barcodes = [];
+  wbFbsReturnsBarcodeModalState.selected = "";
+}
+window.closeWbFbsReturnsBarcodeModal = closeWbFbsReturnsBarcodeModal;
+
+function _wbFbsReturnsRenderBarcodeModalList() {
+  const list = document.getElementById("wbFbsReturnsBarcodeModalList");
+  if (!list) return;
+  const barcodes = wbFbsReturnsBarcodeModalState.barcodes || [];
+  const selected = String(wbFbsReturnsBarcodeModalState.selected || "");
+  list.innerHTML = barcodes.map((code, idx) => {
+    const safe = _wbFbsEsc(code);
+    const valueAttr = String(code).replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+    const id = `wbFbsReturnsBarcodeOpt_${idx}`;
+    const checked = code === selected ? " checked" : "";
+    return `<label class="wb-fbs-returns-barcode-option" for="${id}">
+      <input type="radio" name="wbFbsReturnsBarcodeChoice" id="${id}" value="${valueAttr}"${checked}
+             onchange="wbFbsReturnsBarcodeModalState.selected=this.value" />
+      <span>${safe}</span>
+    </label>`;
+  }).join("");
+}
+
+function openWbFbsReturnsBarcodeModal(barcodes, labelText, preferred) {
+  wbFbsReturnsBarcodeModalState.barcodes = barcodes.slice();
+  wbFbsReturnsBarcodeModalState.labelText = String(labelText || "");
+  wbFbsReturnsBarcodeModalState.selected = preferred || barcodes[0] || "";
+  _wbFbsReturnsRenderBarcodeModalList();
+  document.getElementById("wbFbsReturnsBarcodeModal")?.classList.remove("hidden");
+}
+window.openWbFbsReturnsBarcodeModal = openWbFbsReturnsBarcodeModal;
+
+function confirmWbFbsReturnsBarcodePrint() {
+  const selected = String(
+    document.querySelector('input[name="wbFbsReturnsBarcodeChoice"]:checked')?.value
+    || wbFbsReturnsBarcodeModalState.selected
+    || ""
+  ).trim();
+  const labelText = wbFbsReturnsBarcodeModalState.labelText;
+  closeWbFbsReturnsBarcodeModal();
+  _wbFbsReturnsDoBarcodePrint(selected, labelText);
+}
+window.confirmWbFbsReturnsBarcodePrint = confirmWbFbsReturnsBarcodePrint;
+
+function openWbFbsReturnsBarcodePrint(scanId, orderId) {
+  const item = _wbFbsReturnsFindItem(scanId, orderId);
+  const barcodes = _wbFbsReturnsCatalogBarcodes(item);
+  if (!barcodes.length) {
+    _wbFbsReturnsSetInfo("У товара нет ШК в каталоге (Настройки → Товары)");
+    return;
+  }
+  const labelText = _wbFbsReturnsBarcodeLabelText(item);
+  if (barcodes.length === 1) {
+    _wbFbsReturnsDoBarcodePrint(barcodes[0], labelText);
+    return;
+  }
+  const preferred = _wbFbsReturnsPreferredBarcode(barcodes, item);
+  openWbFbsReturnsBarcodeModal(barcodes, labelText, preferred);
+}
+window.openWbFbsReturnsBarcodePrint = openWbFbsReturnsBarcodePrint;
 
 function exportWbFbsReturnsCsv() {
   const sid = _wbFbsReturnsSourceId();

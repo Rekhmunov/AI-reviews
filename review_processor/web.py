@@ -3566,6 +3566,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         product_category: str = Form(""),
         skip_kiz_gtin_check: str = Form(""),
         barcodes: str = Form("[]"),
+        barcode_label_name: str = Form(""),
         photo: UploadFile | None = File(None),
     ) -> dict[str, object]:
         user = _require_settings_access(request)
@@ -3585,6 +3586,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             box_qty=parsed_box_qty, product_category=parsed_category,
             skip_kiz_gtin_check=skip_gtin,
             barcodes=parsed_barcodes,
+            barcode_label_name=barcode_label_name.strip(),
         )
         if item:
             item["photo_url"] = f"/api/products/photo/{item['id']}" if item.get("photo_path") else None
@@ -3603,6 +3605,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         product_category: str = Form(""),
         skip_kiz_gtin_check: str = Form(""),
         barcodes: str = Form(""),
+        barcode_label_name: str = Form(""),
         photo: UploadFile | None = File(None),
     ) -> dict[str, object]:
         user = _require_settings_access(request)
@@ -3622,6 +3625,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             box_qty=parsed_box_qty, product_category=parsed_category,
             skip_kiz_gtin_check=skip_gtin,
             barcodes=parsed_barcodes,
+            barcode_label_name=barcode_label_name.strip(),
         )
         if not ok:
             raise HTTPException(status_code=404, detail="Товар не найден")

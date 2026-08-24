@@ -58,12 +58,14 @@ class ProductBoxCategoryParseTests(unittest.TestCase):
             yandex_offer_id="",
             box_qty=12,
             product_category="Постельное белье (ВарФабрик, с маркировкой)",
+            barcode_label_name="TK VarFabric | Постельное белье",
         )
         self.assertEqual(item.get("box_qty"), 12)
         self.assertIn("Постельное белье", str(item.get("product_category") or ""))
         insert_sql = repo._insert_and_get_id.call_args[0][1]
         self.assertIn("box_qty", insert_sql)
         self.assertIn("product_category", insert_sql)
+        self.assertIn("barcode_label_name", insert_sql)
 
 
 if __name__ == "__main__":

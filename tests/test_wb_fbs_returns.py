@@ -250,6 +250,35 @@ class KizScanTests(unittest.TestCase):
         self.assertIn("warning", result["item"])
 
 
+class ReturnCatalogFieldsTests(unittest.TestCase):
+    def test_catalog_fields_from_product(self):
+        out = returns._catalog_fields_from_product(
+            {
+                "barcodes": ["2038564013653", "4670123456789"],
+                "barcode_label_name": "Этикетка",
+            }
+        )
+        self.assertEqual(out["catalog_barcodes"], ["2038564013653", "4670123456789"])
+        self.assertEqual(out["barcode_label_name"], "Этикетка")
+
+    def test_enrich_return_scan_catalog_fields_by_article(self):
+        repo = MagicMock()
+        repo.list_product_photos.return_value = [
+            {
+                "supplier_article": "art-1",
+                "barcodes": ["2038564013653"],
+                "barcode_label_name": "Под этикетку",
+            }
+        ]
+        item = returns._enrich_return_scan_catalog_fields(
+            repo,
+            user_id=1,
+            item={"product_article": "art-1"},
+        )
+        self.assertEqual(item["catalog_barcodes"], ["2038564013653"])
+        self.assertEqual(item["barcode_label_name"], "Под этикетку")
+
+
 class ReturnOrderPreviewTests(unittest.TestCase):
     @patch("review_processor.wb_fbs_returns._kiz_codes_for_order", return_value=["010467012345678921PREV"])
     @patch("review_processor.wb_fbs_returns._product_from_order", return_value={"product_name": "Товар", "product_article": "art-1"})

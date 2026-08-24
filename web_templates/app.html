@@ -852,6 +852,10 @@
                   <input type="checkbox" id="productFormSkipKizGtinCheck" />
                   <span>Без проверки GTIN маркировки (не сверять с ШК)</span>
                 </label>
+                <label class="product-form-field" style="grid-column:1 / -1">
+                  <span>Название для этикетки ШК</span>
+                  <textarea id="productFormBarcodeLabelName" rows="4" placeholder="Текст под штрихкодом на этикетке 58×40 мм" autocomplete="off"></textarea>
+                </label>
                 <div class="product-form-field product-form-barcodes" style="grid-column:1 / -1">
                   <span>ШК (штрихкоды)</span>
                   <div id="productFormBarcodesList" class="product-form-barcodes-list"></div>
@@ -884,6 +888,8 @@
                   <col data-col="7">
                   <col data-col="8">
                   <col data-col="9">
+                  <col data-col="10">
+                  <col data-col="11">
                 </colgroup>
                 <thead>
                   <tr>
@@ -895,8 +901,9 @@
                     <th data-col="5">Артикул ЯМ<div class="col-resize-handle"></div></th>
                     <th data-col="6">Кратность в коробе<div class="col-resize-handle"></div></th>
                     <th data-col="7">Категория товара<div class="col-resize-handle"></div></th>
-                    <th data-col="8">ШК<div class="col-resize-handle"></div></th>
-                    <th data-col="9">Действия</th>
+                    <th data-col="8">Название для этикетки ШК<div class="col-resize-handle"></div></th>
+                    <th data-col="9">ШК<div class="col-resize-handle"></div></th>
+                    <th data-col="10">Действия</th>
                   </tr>
                 </thead>
                 <tbody id="productsTbody"></tbody>
@@ -2504,6 +2511,25 @@
                   <tr><td colspan="5" class="wb-fbs-empty">Загрузка…</td></tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="wbFbsReturnsBarcodeModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="wbFbsReturnsBarcodeModalTitle"
+             onclick="if(event.target===this)closeWbFbsReturnsBarcodeModal()">
+          <div class="modal-card wb-fbs-returns-barcode-modal">
+            <div class="wb-fbs-kiz-header">
+              <div class="wb-fbs-kiz-header-main">
+                <h3 id="wbFbsReturnsBarcodeModalTitle" class="wb-fbs-kiz-title">Печать ШК</h3>
+              </div>
+              <button type="button" class="icon-btn secondary" onclick="closeWbFbsReturnsBarcodeModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <p class="wb-fbs-returns-barcode-lead">У товара несколько штрихкодов. Выберите нужный для этикетки 58×40 мм.</p>
+            <div id="wbFbsReturnsBarcodeModalList" class="wb-fbs-returns-barcode-list" role="radiogroup" aria-label="Штрихкоды товара"></div>
+            <div class="wb-fbs-returns-barcode-actions">
+              <button type="button" class="secondary" onclick="closeWbFbsReturnsBarcodeModal()">Отмена</button>
+              <button type="button" id="wbFbsReturnsBarcodePrintBtn" onclick="confirmWbFbsReturnsBarcodePrint()">Печать</button>
             </div>
           </div>
         </div>
