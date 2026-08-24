@@ -48,6 +48,22 @@ def extract_gtin14(mark: object) -> str:
     return m2.group(1) if m2 else ""
 
 
+def extract_kiz_serial(mark: object) -> str:
+    """AI 21 serial from a GS1 DataMatrix / Chestny ZNAK payload."""
+    raw = normalize_kiz_mark(mark)
+    if not raw:
+        return ""
+    m = re.match(r"^01\d{14}21(.+)$", raw)
+    if not m:
+        return ""
+    tail = m.group(1)
+    if _GS in tail:
+        tail = tail.split(_GS, 1)[0]
+    if tail.startswith("91"):
+        return ""
+    return tail.strip()
+
+
 def looks_like_kiz_scan(scan: object) -> bool:
     """True when scan looks like a GS1 DataMatrix / Chestny ZNAK payload."""
     raw = normalize_kiz_mark(scan)

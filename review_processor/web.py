@@ -11058,12 +11058,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             dm = returns_mod.render_kiz_print_png(kiz_code)
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        from . import wb_fbs_kiz_restore as kiz_restore_mod
+
         return {
             "ok": True,
             "kiz_code": kiz_code,
             "datamatrix_png": dm,
             "product_name": str(item.get("product_name") or "").strip(),
             "order_id": item.get("order_id"),
+            "gtin14": str(item.get("gtin14") or kiz_restore_mod.extract_gtin14(kiz_code) or "").strip(),
+            "kiz_serial": kiz_restore_mod.extract_kiz_serial(kiz_code),
+            "assembly_sticker_number": str(item.get("assembly_sticker_number") or "").strip(),
         }
 
     @app.get("/api/wb-fbs/returns/export")

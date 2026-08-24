@@ -15,6 +15,12 @@ class KizRestoreDetectionTests(unittest.TestCase):
         code = "010467012345678921ABC\u001d91EE06\u001d92ZZ"
         self.assertTrue(restore.looks_like_kiz_scan(code))
         self.assertEqual(restore.extract_gtin14(code), "04670123456789")
+        self.assertEqual(restore.extract_kiz_serial(code), "ABC")
+
+    def test_extract_kiz_serial_without_crypto_tail(self):
+        code = "0104670172422618215FcHZipZ+lk9V"
+        self.assertEqual(restore.extract_gtin14(code), "04670172422618")
+        self.assertEqual(restore.extract_kiz_serial(code), "5FcHZipZ+lk9V")
 
     def test_sticker_scan_not_kiz(self):
         self.assertFalse(restore.looks_like_kiz_scan("!uKEtQZVx"))

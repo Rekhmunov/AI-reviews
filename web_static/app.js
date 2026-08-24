@@ -18785,8 +18785,21 @@ async function processWbFbsReturnsScan() {
 }
 window.processWbFbsReturnsScan = processWbFbsReturnsScan;
 
-function _wbFbsReturnsPrintHtml(productName, dmDataUrl) {
-  const safeName = _wbFbsEsc(productName || "");
+function _wbFbsReturnsPrintHtml(meta, dmDataUrl) {
+  const m = meta && typeof meta === "object" ? meta : { productName: meta };
+  const safeName = _wbFbsEsc(m.productName || "");
+  const sticker = _wbFbsEsc(m.stickerNumber || "");
+  const gtin = _wbFbsEsc(m.gtin14 || "");
+  const serial = _wbFbsEsc(m.serial || "");
+  const stickerHtml = sticker
+    ? `<div class="sticker">${sticker}</div>`
+    : "";
+  const gtinHtml = gtin
+    ? `<div class="gtin-bar">${gtin}</div>`
+    : "";
+  const serialHtml = serial
+    ? `<div class="serial">${serial}</div>`
+    : "";
   return `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><title>КИЗ</title>
 <style>
 @page { size: 58mm 40mm; margin: 0; }
@@ -18799,14 +18812,36 @@ html, body { margin: 0; padding: 0; background: #fff; color: #000;
 .sheet {
   width: 58mm; height: 40mm; overflow: hidden;
   display: flex; flex-direction: row; align-items: center;
-  padding: 2mm; gap: 2mm;
+  padding: 1.5mm 1.5mm 1.5mm 1mm; gap: 1.2mm;
 }
-.dm { width: 35mm; height: 35mm; object-fit: contain; display: block; flex: 0 0 35mm; }
+.dm-wrap {
+  flex: 0 0 27mm; width: 27mm; height: 27mm;
+  display: flex; align-items: center; justify-content: center;
+}
+.dm { width: 27mm; height: 27mm; object-fit: contain; display: block; }
+.info {
+  flex: 1 1 auto; min-width: 0; min-height: 0;
+  display: flex; flex-direction: column; justify-content: center;
+  gap: 0.7mm; padding-right: 0.5mm;
+}
+.sticker {
+  font-size: 2.1mm; line-height: 1.1; font-weight: 700;
+  letter-spacing: 0.01em; text-align: center;
+}
 .name {
-  flex: 1 1 auto; min-width: 0;
-  font-size: 3.2mm; line-height: 1.25; font-weight: 600;
-  word-break: break-word; overflow: hidden;
-  display: -webkit-box; -webkit-line-clamp: 8; -webkit-box-orient: vertical;
+  font-size: 2.15mm; line-height: 1.18; font-weight: 600;
+  word-break: break-word; overflow: hidden; text-align: center;
+  display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical;
+}
+.gtin-bar {
+  background: #000; color: #fff;
+  font-size: 2.25mm; line-height: 1.15; font-weight: 700;
+  padding: 0.45mm 0.5mm; text-align: center;
+  letter-spacing: 0.02em;
+}
+.serial {
+  font-size: 2mm; line-height: 1.1; font-weight: 600;
+  text-align: center; word-break: break-all;
 }
 @media print {
   .toolbar { display: none !important; }
@@ -18818,8 +18853,13 @@ html, body { margin: 0; padding: 0; background: #fff; color: #000;
   <span>КИЗ · 58×40 мм</span>
 </div>
 <section class="sheet">
-  <img class="dm" alt="КИЗ" src="${dmDataUrl}" />
-  ${safeName ? `<div class="name">${safeName}</div>` : ""}
+  <div class="dm-wrap"><img class="dm" alt="КИЗ" src="${dmDataUrl}" /></div>
+  <div class="info">
+    ${stickerHtml}
+    ${safeName ? `<div class="name">${safeName}</div>` : ""}
+    ${gtinHtml}
+    ${serialHtml}
+  </div>
 </section>
 <script>
 window.addEventListener("load", function () {
@@ -18852,7 +18892,12 @@ async function printWbFbsReturnsKiz(scanId, orderId) {
       return;
     }
     const dmUrl = `data:image/png;base64,${dm}`;
-    win.document.write(_wbFbsReturnsPrintHtml(String(payload.product_name || ""), dmUrl));
+    win.document.write(_wbFbsReturnsPrintHtml({
+      productName: String(payload.product_name || ""),
+      stickerNumber: String(payload.assembly_sticker_number || ""),
+      gtin14: String(payload.gtin14 || ""),
+      serial: String(payload.kiz_serial || ""),
+    }, dmUrl));
     win.document.close();
   } catch (err) {
     _wbFbsReturnsSetInfo(err?.message || String(err));
