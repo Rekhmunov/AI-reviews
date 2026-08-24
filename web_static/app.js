@@ -19037,26 +19037,28 @@ function _wbFbsReturnsBarcodePrintHtml(barcode, labelText) {
     width: 3,
     height: 120,
     displayValue: showDigits,
+    flat: showDigits,
     fontSize: 14,
     font: "Arial, Helvetica, sans-serif",
+    textAlign: "center",
     textMargin: 2,
-    margin: 0,
+    margin: 8,
     background: "#ffffff",
     lineColor: "#000000",
   });
   const bcDataUrl = bcCanvas.toDataURL("image/png");
   const bcAspect = bcCanvas.height / Math.max(1, bcCanvas.width);
-  const textLines = _wbFbsWrapBarcodeLabelLines(labelText, innerW - 2, 2.8);
+  const textLines = _wbFbsWrapBarcodeLabelLines(labelText, innerW - 4, 2.8);
   const textLineCount = Math.max(1, textLines.length);
   const textBlockMm = Math.min(innerH * 0.42, 1.2 + textLineCount * 3.2);
-  const bcW = innerW - 2;
+  const bcW = innerW - 4;
   const bcH = Math.max(12, Math.min(innerH - textBlockMm - 2, bcW * bcAspect));
-  const bcX = PAD + 1;
+  const bcX = PAD + (innerW - bcW) / 2;
   const bcY = PAD + 1;
-  const txtX = PAD + 1;
   const txtY = bcY + bcH + 1.2;
   const fontMm = 2.8;
   const lineMm = 3.2;
+  const centerX = PAGE_W / 2;
   return `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><title>ШК</title>
 <style>
 @page { size: 58mm 40mm; margin: 0; }
@@ -19090,11 +19092,12 @@ canvas { display: block; width: 58mm; height: 40mm; }
     }
     ctx.fillStyle = "#000";
     ctx.font = "600 " + (${fontMm} * mm) + "px Arial, Helvetica, sans-serif";
-    ctx.textAlign = "left";
+    ctx.textAlign = "center";
     ctx.textBaseline = "top";
     const lineStep = ${lineMm} * mm;
+    const centerPx = ${centerX} * mm;
     textLines.forEach(function(line, i) {
-      ctx.fillText(line, ${txtX} * mm, ${txtY} * mm + i * lineStep);
+      ctx.fillText(line, centerPx, ${txtY} * mm + i * lineStep);
     });
     window.print();
   };
