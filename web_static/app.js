@@ -18984,6 +18984,19 @@ function _wbFbsReturnsBarcodeSpec(code) {
   return { format: "CODE128", value: raw };
 }
 
+function _wbFbsFormatBarcodeDigits(code, format) {
+  const digits = String(code || "").replace(/\D/g, "");
+  if (format === "EAN13") {
+    const d = digits.length >= 13 ? digits.slice(0, 13) : digits.padStart(13, "0").slice(-13);
+    return `${d[0]} ${d.slice(1, 7)} ${d.slice(7)}`;
+  }
+  if (format === "EAN8") {
+    const d = digits.length >= 8 ? digits.slice(0, 8) : digits.padStart(8, "0").slice(-8);
+    return `${d.slice(0, 4)} ${d.slice(4)}`;
+  }
+  return digits || String(code || "").trim();
+}
+
 function _wbFbsWrapBarcodeLabelLines(labelText, maxWidthMm, fontSizeMm = 2.8) {
   const text = String(labelText || "").trim();
   if (!text) return [];
@@ -19031,33 +19044,39 @@ function _wbFbsReturnsBarcodePrintHtml(barcode, labelText) {
   const innerH = PAGE_H - PAD * 2;
   const spec = _wbFbsReturnsBarcodeSpec(barcode);
   const showDigits = spec.format === "EAN13" || spec.format === "EAN8";
+  const eanDigitsLabel = showDigits ? _wbFbsFormatBarcodeDigits(spec.value, spec.format) : "";
   const bcCanvas = document.createElement("canvas");
   JsBarcode(bcCanvas, spec.value, {
     format: spec.format,
     width: 3,
     height: 120,
-    displayValue: showDigits,
-    flat: showDigits,
-    fontSize: 14,
-    font: "Arial, Helvetica, sans-serif",
-    textAlign: "center",
-    textMargin: 2,
-    margin: 8,
+    displayValue: false,
+    margin: 0,
     background: "#ffffff",
     lineColor: "#000000",
   });
   const bcDataUrl = bcCanvas.toDataURL("image/png");
-  const bcAspect = bcCanvas.height / Math.max(1, bcCanvas.width);
-  const textLines = _wbFbsWrapBarcodeLabelLines(labelText, innerW - 4, 2.8);
+  const barsAspect = bcCanvas.height / Math.max(1, bcCanvas.width);
+  const textLines = _wbFbsWrapBarcodeLabelLines(labelText, innerW - 6, 2.8);
   const textLineCount = Math.max(1, textLines.length);
-  const textBlockMm = Math.min(innerH * 0.42, 1.2 + textLineCount * 3.2);
+  const productLineMm = 3.2;
+  const productBlockMm = textLines.length ? 0.8 + textLineCount * productLineMm : 0;
+  const digitsLineMm = showDigits ? 3.2 : 0;
   const bcW = innerW - 4;
-  const bcH = Math.max(12, Math.min(innerH - textBlockMm - 2, bcW * bcAspect));
+  const barsH = Math.max(
+    10,
+    Math.min(
+      innerH - productBlockMm - digitsLineMm - 2.4,
+      bcW * barsAspect,
+      innerH * 0.44,
+    ),
+  );
   const bcX = PAD + (innerW - bcW) / 2;
   const bcY = PAD + 1;
-  const txtY = bcY + bcH + 1.2;
+  const digitsY = bcY + barsH + 0.6;
+  const productY = digitsY + (showDigits ? digitsLineMm + 0.6 : 0.8);
   const fontMm = 2.8;
-  const lineMm = 3.2;
+  const digitsFontMm = 2.7;
   const centerX = PAGE_W / 2;
   return `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><title>ШК</title>
 <style>
@@ -19080,12 +19099,14 @@ canvas { display: block; width: 58mm; height: 40mm; }
   const c = document.getElementById("c");
   const ctx = c.getContext("2d");
   const textLines = ${JSON.stringify(textLines)};
+  const eanDigits = ${JSON.stringify(eanDigitsLabel)};
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, c.width, c.height);
   ctx.strokeStyle = "#000";
   ctx.lineWidth = 0.25 * mm;
   ctx.strokeRect(${PAD} * mm, ${PAD} * mm, ${innerW} * mm, ${innerH} * mm);
-  const drawText = function() {
+  const centerPx = ${centerX} * mm;
+  const drawProductText = function() {
     if (!textLines.length) {
       window.print();
       return;
@@ -19094,21 +19115,32 @@ canvas { display: block; width: 58mm; height: 40mm; }
     ctx.font = "600 " + (${fontMm} * mm) + "px Arial, Helvetica, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
-    const lineStep = ${lineMm} * mm;
-    const centerPx = ${centerX} * mm;
+    const lineStep = ${productLineMm} * mm;
     textLines.forEach(function(line, i) {
-      ctx.fillText(line, centerPx, ${txtY} * mm + i * lineStep);
+      ctx.fillText(line, centerPx, ${productY} * mm + i * lineStep);
     });
     window.print();
+  };
+  const drawDigits = function() {
+    if (!eanDigits) {
+      drawProductText();
+      return;
+    }
+    ctx.fillStyle = "#000";
+    ctx.font = "600 " + (${digitsFontMm} * mm) + "px Arial, Helvetica, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillText(eanDigits, centerPx, ${digitsY} * mm);
+    drawProductText();
   };
   const bc = new Image();
   bc.onload = function() {
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(bc, ${bcX} * mm, ${bcY} * mm, ${bcW} * mm, ${bcH} * mm);
+    ctx.drawImage(bc, ${bcX} * mm, ${bcY} * mm, ${bcW} * mm, ${barsH} * mm);
     ctx.imageSmoothingEnabled = true;
-    drawText();
+    drawDigits();
   };
-  bc.onerror = function() { drawText(); };
+  bc.onerror = function() { drawDigits(); };
   bc.src = ${JSON.stringify(bcDataUrl)};
 })();
 <\/script>
