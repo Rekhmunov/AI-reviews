@@ -18246,24 +18246,60 @@ function _wbFbsReturnsSourceId() {
   return Number.isFinite(sid) && sid > 0 ? sid : 0;
 }
 
+let _wbFbsReturnsInfoTimer = null;
+
+function _wbFbsReturnsClearInfo() {
+  if (_wbFbsReturnsInfoTimer) {
+    clearTimeout(_wbFbsReturnsInfoTimer);
+    _wbFbsReturnsInfoTimer = null;
+  }
+  const el = document.getElementById("wbFbsReturnsInfo");
+  if (!el) return;
+  el.hidden = true;
+  el.textContent = "";
+  el.innerHTML = "";
+  el.classList.remove("is-error", "is-ok", "is-warn", "has-close");
+}
+
 function _wbFbsReturnsSetInfo(text, tone) {
   const el = document.getElementById("wbFbsReturnsInfo");
   if (!el) return;
+  if (_wbFbsReturnsInfoTimer) {
+    clearTimeout(_wbFbsReturnsInfoTimer);
+    _wbFbsReturnsInfoTimer = null;
+  }
   const msg = String(text || "").trim();
   if (!msg) {
-    el.hidden = true;
-    el.textContent = "";
-    el.classList.remove("is-error", "is-ok", "is-warn");
+    _wbFbsReturnsClearInfo();
     return;
   }
   const t = tone === "ok" || tone === "warn" || tone === "error" ? tone : (tone ? "ok" : "error");
   el.hidden = false;
-  el.textContent = msg;
-  el.classList.remove("is-error", "is-ok", "is-warn");
+  el.classList.remove("is-error", "is-ok", "is-warn", "has-close");
   if (t === "ok") el.classList.add("is-ok");
   else if (t === "warn") el.classList.add("is-warn");
   else el.classList.add("is-error");
+
+  if (t === "ok") {
+    el.innerHTML = `<span class="wb-fbs-returns-info-text">${_wbFbsEsc(msg)}</span>`;
+    _wbFbsReturnsInfoTimer = setTimeout(() => {
+      _wbFbsReturnsInfoTimer = null;
+      _wbFbsReturnsClearInfo();
+    }, 5000);
+    return;
+  }
+
+  el.classList.add("has-close");
+  el.innerHTML =
+    `<span class="wb-fbs-returns-info-text">${_wbFbsEsc(msg)}</span>` +
+    `<button type="button" class="wb-fbs-returns-info-close" aria-label="Закрыть" ` +
+    `onclick="dismissWbFbsReturnsInfo()">✕</button>`;
 }
+
+function dismissWbFbsReturnsInfo() {
+  _wbFbsReturnsClearInfo();
+}
+window.dismissWbFbsReturnsInfo = dismissWbFbsReturnsInfo;
 
 function _wbFbsReturnsScanTypesParam() {
   const types = [];
