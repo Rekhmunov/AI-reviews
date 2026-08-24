@@ -18176,7 +18176,7 @@ function _wbFbsReturnsScanTypesParam() {
   if (document.getElementById("wbFbsReturnsFilterReturn")?.checked) types.push("return_sticker");
   if (document.getElementById("wbFbsReturnsFilterAssembly")?.checked) types.push("assembly_sticker");
   if (document.getElementById("wbFbsReturnsFilterKiz")?.checked) types.push("kiz");
-  return types.join(",");
+  return types.length ? types.join(",") : "__none__";
 }
 
 function _wbFbsReturnsStatusLabel(scanType) {
@@ -18557,7 +18557,10 @@ async function processWbFbsReturnsScan() {
     _wbFbsKizBlockRuLayout(scanEl);
     return;
   }
-  const scan = _wbFbsKizNormalizeScan(rawScan);
+  const scan = _wbFbsKizExtractGtin14(_wbFbsKizNormalizeMark(rawScan))
+    || String(_wbFbsKizNormalizeMark(rawScan) || "").includes("\u001D")
+    ? _wbFbsKizNormalizeMark(rawScan)
+    : _wbFbsKizNormalizeScan(rawScan);
   wbFbsReturnsState.scanning = true;
   _wbFbsReturnsSetInfo("Обработка скана…");
   try {

@@ -10934,16 +10934,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id")
         types = [t.strip() for t in str(scan_type or "").split(",") if t.strip()]
-        items = returns_mod.list_return_scans(
-            repository,
-            user_id=owner_id,
-            source_id=source_id,
-            date_from=date_from,
-            date_to=date_to,
-            search=search,
-            scan_types=types or None,
-            limit=limit,
-        )
+        if types == ["__none__"]:
+            items = []
+        else:
+            items = returns_mod.list_return_scans(
+                repository,
+                user_id=owner_id,
+                source_id=source_id,
+                date_from=date_from,
+                date_to=date_to,
+                search=search,
+                scan_types=types or None,
+                limit=limit,
+            )
         return {"ok": True, "items": items}
 
     @app.get("/api/wb-fbs/returns/print")
@@ -11000,16 +11003,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id")
         types = [t.strip() for t in str(scan_type or "").split(",") if t.strip()]
-        items = returns_mod.list_return_scans(
-            repository,
-            user_id=owner_id,
-            source_id=source_id,
-            date_from=date_from,
-            date_to=date_to,
-            search=search,
-            scan_types=types or None,
-            limit=5000,
-        )
+        if types == ["__none__"]:
+            items = []
+        else:
+            items = returns_mod.list_return_scans(
+                repository,
+                user_id=owner_id,
+                source_id=source_id,
+                date_from=date_from,
+                date_to=date_to,
+                search=search,
+                scan_types=types or None,
+                limit=5000,
+            )
         csv_text = returns_mod.export_return_scans_csv(items)
         return Response(
             content=csv_text,

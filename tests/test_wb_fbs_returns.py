@@ -98,6 +98,36 @@ class ReturnScanDuplicateTests(unittest.TestCase):
 class KizScanTests(unittest.TestCase):
     @patch("review_processor.wb_fbs_returns._insert_return_scan")
     @patch("review_processor.wb_fbs_returns._product_from_gtin", return_value={})
+    @patch("review_processor.wb_fbs_returns._catalog_barcodes_index", return_value={})
+    @patch("review_processor.wb_fbs_returns.kiz_restore.find_kiz_in_local_database")
+    @patch("review_processor.wb_fbs_returns.kiz_restore.looks_like_kiz_scan", return_value=True)
+    @patch("review_processor.wb_fbs_returns.kiz_restore.normalize_kiz_mark", side_effect=lambda x: x)
+    @patch("review_processor.wb_fbs_returns.kiz_restore.extract_gtin14", return_value="04670123456789")
+    def test_kiz_scan_gtin_not_in_catalog_warns(
+        self,
+        _gtin,
+        _norm,
+        _looks,
+        db_hit,
+        _catalog,
+        _prod,
+        insert,
+    ):
+        db_hit.return_value = {"found": False, "order_ids": []}
+        insert.return_value = {"id": 6, "scan_type": "kiz", "kiz_code": "010467012345678921X"}
+        repo = MagicMock()
+        result = returns.process_return_scan(
+            repo,
+            user_id=1,
+            source_id=2,
+            api_key="k",
+            scan="010467012345678921X",
+        )
+        self.assertTrue(result["ok"])
+        self.assertIn("GTIN не найден в каталоге товаров", result["item"].get("warning", ""))
+
+    @patch("review_processor.wb_fbs_returns._insert_return_scan")
+    @patch("review_processor.wb_fbs_returns._product_from_gtin", return_value={})
     @patch("review_processor.wb_fbs_returns.kiz_restore.find_kiz_in_local_database")
     @patch("review_processor.wb_fbs_returns.kiz_restore.looks_like_kiz_scan", return_value=True)
     @patch("review_processor.wb_fbs_returns.kiz_restore.normalize_kiz_mark", side_effect=lambda x: x)
