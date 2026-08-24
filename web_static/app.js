@@ -18227,6 +18227,7 @@ window.initWbFbsReturnsColumnResizer = initWbFbsReturnsColumnResizer;
 const wbFbsReturnsState = {
   sourceId: null,
   items: [],
+  previewItem: null,
   loading: false,
   scanning: false,
   syncing: false,
@@ -18314,6 +18315,7 @@ function _wbFbsReturnsStatusLabel(scanType) {
   if (t === "return_sticker") return { label: "Возврат", cls: "is-return" };
   if (t === "assembly_sticker") return { label: "Стикер", cls: "is-assembly" };
   if (t === "kiz") return { label: "Маркировка", cls: "is-kiz" };
+  if (t === "lookup") return { label: "Поиск WB", cls: "is-lookup" };
   return { label: "—", cls: "" };
 }
 
@@ -18361,6 +18363,8 @@ function renderWbFbsReturnsTable() {
   }
   tbody.innerHTML = items.map((item) => {
     const id = Number(item.id || 0);
+    const isPreview = !!item.preview;
+    const orderId = Number(item.order_id || 0);
     const status = _wbFbsReturnsStatusLabel(item.scan_type);
     const photo = item.product_photo
       ? `<img class="wb-fbs-product-photo" src="${_wbFbsEsc(item.product_photo)}" alt="" width="56" height="56" loading="lazy">`
@@ -18377,9 +18381,12 @@ function renderWbFbsReturnsTable() {
     const kizHtml = kizCode
       ? `<div class="wb-fbs-returns-kiz-text">${_wbFbsEsc(kizCode)}</div>`
       : `<span class="wb-fbs-empty-inline">—</span>`;
-    const safeKey = `ret_${id}`;
+    const safeKey = isPreview ? `preview_${orderId}` : `ret_${id}`;
     const canPrint = !!kizCode;
-    return `<tr class="wb-fbs-returns-row" data-scan-id="${id}">
+    const printArgs = isPreview && orderId > 0
+      ? `null, ${orderId}`
+      : `${id}`;
+    return `<tr class="wb-fbs-returns-row${isPreview ? " is-preview" : ""}" data-scan-id="${id}" data-order-id="${orderId || ""}">
       <td>${_wbFbsReturnsOrderStickerHtml(item)}</td>
       <td>
         <div class="wb-fbs-product">
@@ -18399,7 +18406,7 @@ function renderWbFbsReturnsTable() {
                   onclick="toggleWbFbsRowMenu(event, '${safeKey}')" aria-haspopup="menu">⋮</button>
           <div id="wbFbsRowMenu_${safeKey}" class="wb-fbs-row-menu" data-order-id="${safeKey}" role="menu">
             <button type="button" class="wb-fbs-row-menu-item${canPrint ? "" : " is-disabled"}" role="menuitem"
-                    ${canPrint ? `onclick="printWbFbsReturnsKiz(${id})"` : "disabled"}
+                    ${canPrint ? `onclick="printWbFbsReturnsKiz(${printArgs})"` : "disabled"}
                     ${canPrint ? "" : 'title="Нет КИЗ для печати"'}>
               Распечатать маркировку
             </button>
@@ -18415,6 +18422,7 @@ async function loadWbFbsReturnsScans() {
   const sid = _wbFbsReturnsSourceId();
   if (!sid) return;
   wbFbsReturnsState.loading = true;
+  wbFbsReturnsState.previewItem = null;
   const tbody = document.getElementById("wbFbsReturnsTbody");
   if (tbody && !wbFbsReturnsState.items.length) {
     tbody.innerHTML = `<tr><td colspan="5" class="wb-fbs-empty">Загрузка…</td></tr>`;
@@ -18435,7 +18443,33 @@ async function loadWbFbsReturnsScans() {
       const detail = typeof payload?.detail === "string" ? payload.detail : "Не удалось загрузить журнал";
       throw new Error(detail);
     }
-    wbFbsReturnsState.items = Array.isArray(payload.items) ? payload.items : [];
+    let items = Array.isArray(payload.items) ? payload.items : [];
+    const orderIdQuery = _wbFbsParseOrderIdQuery(search);
+    const hasExactOrder = orderIdQuery
+      ? items.some((row) => Number(row?.order_id) === orderIdQuery)
+      : false;
+    if (orderIdQuery && !hasExactOrder) {
+      if (tbody) {
+        tbody.innerHTML = `<tr><td colspan="5" class="wb-fbs-empty">Ищем заказ ${orderIdQuery} в WB…</td></tr>`;
+      }
+      const lookupRes = await fetch(
+        `/api/wb-fbs/returns/lookup?source_id=${sid}&order_id=${orderIdQuery}`
+      );
+      const lookupPayload = await lookupRes.json().catch(() => ({}));
+      if (lookupRes.ok && lookupPayload?.item) {
+        wbFbsReturnsState.previewItem = lookupPayload.item;
+        items = [lookupPayload.item, ...items];
+        const warn = String(lookupPayload.warning || "").trim();
+        if (warn) _wbFbsReturnsSetInfo(warn, "warn");
+        else _wbFbsReturnsSetInfo(`Заказ ${orderIdQuery} найден в WB (без записи в журнале)`, "ok");
+      } else if (!items.length) {
+        const detail = typeof lookupPayload?.detail === "string"
+          ? lookupPayload.detail
+          : `Заказ ${orderIdQuery} не найден`;
+        _wbFbsReturnsSetInfo(detail, "error");
+      }
+    }
+    wbFbsReturnsState.items = items;
     renderWbFbsReturnsTable();
   } catch (err) {
     _wbFbsReturnsSetInfo(err?.message || String(err));
@@ -18451,6 +18485,16 @@ function onWbFbsReturnsFilterChange() {
   loadWbFbsReturnsScans();
 }
 window.onWbFbsReturnsFilterChange = onWbFbsReturnsFilterChange;
+
+let _wbFbsReturnsSearchTimer = null;
+function onWbFbsReturnsSearchInput() {
+  if (_wbFbsReturnsSearchTimer) clearTimeout(_wbFbsReturnsSearchTimer);
+  _wbFbsReturnsSearchTimer = setTimeout(() => {
+    _wbFbsReturnsSearchTimer = null;
+    loadWbFbsReturnsScans();
+  }, 400);
+}
+window.onWbFbsReturnsSearchInput = onWbFbsReturnsSearchInput;
 
 async function syncWbFbsReturnsGoods() {
   if (wbFbsReturnsState.syncing) return;
@@ -18785,12 +18829,16 @@ window.addEventListener("load", function () {
 </body></html>`;
 }
 
-async function printWbFbsReturnsKiz(scanId) {
+async function printWbFbsReturnsKiz(scanId, orderId) {
   const sid = _wbFbsReturnsSourceId();
   const id = Number(scanId || 0);
-  if (!sid || !id) return;
+  const oid = Number(orderId || 0);
+  if (!sid || (!id && !oid)) return;
   try {
-    const res = await fetch(`/api/wb-fbs/returns/print?source_id=${sid}&scan_id=${id}`);
+    const params = new URLSearchParams({ source_id: String(sid) });
+    if (id > 0) params.set("scan_id", String(id));
+    else params.set("order_id", String(oid));
+    const res = await fetch(`/api/wb-fbs/returns/print?${params.toString()}`);
     const payload = await res.json().catch(() => ({}));
     if (!res.ok) {
       const detail = typeof payload?.detail === "string" ? payload.detail : "Не удалось подготовить печать";

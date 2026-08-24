@@ -23,6 +23,7 @@ _log = logging.getLogger(__name__)
 SCAN_RETURN = "return_sticker"
 SCAN_ASSEMBLY = "assembly_sticker"
 SCAN_KIZ = "kiz"
+SCAN_LOOKUP = "lookup"
 
 
 def ensure_wb_fbs_returns_tables(repo: ReviewRepository) -> None:
@@ -1157,6 +1158,101 @@ def list_return_scans(
         ).casefold()
         if q in blob:
             out.append(item)
+    return out
+
+
+def _goods_return_srid_hint(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    order_id: int,
+) -> str:
+    ensure_wb_fbs_returns_tables(repo)
+    with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql(
+                """
+                SELECT srid FROM wb_fbs_goods_returns
+                WHERE user_id = ? AND source_id = ? AND wb_order_id = ?
+                  AND srid <> ''
+                ORDER BY synced_at DESC
+                LIMIT 1
+                """
+            ),
+            (user_id, source_id, int(order_id)),
+        ).fetchone()
+    if not row:
+        return ""
+    return str(repo._row_to_dict(row).get("srid") or "").strip()
+
+
+def build_return_order_preview(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    order_id: int,
+    api_key: str = "",
+) -> dict[str, Any]:
+    """Virtual Returns row from order lookup — not saved to wb_fbs_return_scans."""
+    oid = int(order_id)
+    order_row = _resolve_order_row(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        order_id=oid,
+        api_key=api_key,
+    )
+    if not order_row:
+        return {
+            "found": False,
+            "order_id": oid,
+            "item": None,
+            "message": f"Заказ {oid} не найден в WB FBS",
+        }
+    product = _product_from_order(repo, user_id=user_id, order_row=order_row)
+    srid_hint = _goods_return_srid_hint(
+        repo, user_id=user_id, source_id=source_id, order_id=oid
+    )
+    kiz_codes = _kiz_codes_for_order(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        order_id=oid,
+        api_key=api_key,
+        order_row=order_row,
+        srid_hint=srid_hint,
+    )
+    kiz_code = kiz_codes[0] if kiz_codes else ""
+    part_a = str(order_row.get("sticker_part_a") or "").strip()
+    part_b = str(order_row.get("sticker_part_b") or "").strip()
+    item = {
+        "id": None,
+        "preview": True,
+        "scan_type": SCAN_LOOKUP,
+        "scanned_at": "",
+        "scan_raw": "",
+        "return_sticker_id": "",
+        "order_id": oid,
+        "assembly_sticker_barcode": str(order_row.get("sticker_barcode") or "").strip(),
+        "assembly_sticker_number": kiz_restore.sticker_number(part_a, part_b),
+        "kiz_code": kiz_code,
+        "matched_order_ids": [oid],
+        "gtin14": kiz_restore.extract_gtin14(kiz_code) if kiz_code else "",
+        **product,
+    }
+    out: dict[str, Any] = {
+        "found": True,
+        "order_id": oid,
+        "item": item,
+        "message": "",
+    }
+    if not kiz_code:
+        out["warning"] = (
+            f"Для заказа {oid} не найден КИЗ "
+            "(маркировка, «Вывод КИЗ» или WB meta)"
+        )
     return out
 
 

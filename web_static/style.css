@@ -9863,6 +9863,13 @@ button.wb-fbs-kiz-add:disabled {
   background: #dcfce7;
   color: #166534;
 }
+.wb-fbs-returns-status.is-lookup {
+  color: #0369a1;
+  background: #e0f2fe;
+}
+.wb-fbs-returns-row.is-preview {
+  background: #f8fafc;
+}
 .wb-fbs-returns-kiz-text {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;

@@ -250,6 +250,43 @@ class KizScanTests(unittest.TestCase):
         self.assertIn("warning", result["item"])
 
 
+class ReturnOrderPreviewTests(unittest.TestCase):
+    @patch("review_processor.wb_fbs_returns._kiz_codes_for_order", return_value=["010467012345678921PREV"])
+    @patch("review_processor.wb_fbs_returns._product_from_order", return_value={"product_name": "Товар", "product_article": "art-1"})
+    @patch("review_processor.wb_fbs_returns._goods_return_srid_hint", return_value="eI.test.1.0")
+    @patch("review_processor.wb_fbs_returns._resolve_order_row")
+    def test_build_return_order_preview(self, resolve_order, _srid, _prod, _kiz):
+        resolve_order.return_value = {
+            "order_id": 5525061048,
+            "sticker_part_a": "1",
+            "sticker_part_b": "9999",
+            "sticker_barcode": "qr1",
+        }
+        repo = MagicMock()
+        out = returns.build_return_order_preview(
+            repo,
+            user_id=1,
+            source_id=2,
+            order_id=5525061048,
+            api_key="k",
+        )
+        self.assertTrue(out["found"])
+        item = out["item"]
+        self.assertTrue(item["preview"])
+        self.assertIsNone(item["id"])
+        self.assertEqual(item["scan_type"], "lookup")
+        self.assertEqual(item["order_id"], 5525061048)
+        self.assertEqual(item["kiz_code"], "010467012345678921PREV")
+
+    @patch("review_processor.wb_fbs_returns._resolve_order_row", return_value=None)
+    def test_build_return_order_preview_not_found(self, _resolve):
+        repo = MagicMock()
+        out = returns.build_return_order_preview(
+            repo, user_id=1, source_id=2, order_id=999, api_key="k"
+        )
+        self.assertFalse(out["found"])
+
+
 class ExportCsvTests(unittest.TestCase):
     def test_export_return_scans_csv_has_bom(self):
         csv_text = returns.export_return_scans_csv(

@@ -10951,9 +10951,58 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             )
         return {"ok": True, "items": items}
 
+    @app.get("/api/wb-fbs/returns/lookup")
+    def wb_fbs_returns_lookup(
+        request: Request,
+        source_id: int,
+        order_id: int | None = None,
+        search: str | None = None,
+    ) -> dict[str, object]:
+        """Preview one order + KIZ for Returns search without saving a scan row."""
+        from . import wb_fbs_returns as returns_mod
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        oid = order_id
+        if oid is None:
+            oid = wb_fbs_mod.parse_order_id_query(search)
+        if oid is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Укажите номер заказа (не менее 6 цифр)",
+            )
+        src_full = repository.get_supply_source_with_key(
+            user_id=owner_id, source_id=int(source_id)
+        )
+        if not src_full:
+            raise HTTPException(status_code=400, detail="Источник не найден")
+        if not wb_fbs_mod.is_fbs_source_name(src_full.get("name")):
+            raise HTTPException(status_code=400, detail="Источник не является ФБС")
+        api_key = str(src_full.get("api_key") or "").strip()
+        result = returns_mod.build_return_order_preview(
+            repository,
+            user_id=owner_id,
+            source_id=int(source_id),
+            order_id=int(oid),
+            api_key=api_key,
+        )
+        if not result.get("found"):
+            raise HTTPException(
+                status_code=404,
+                detail=str(result.get("message") or "Заказ не найден"),
+            )
+        return result
+
     @app.get("/api/wb-fbs/returns/print")
     def wb_fbs_returns_print(
-        request: Request, source_id: int, scan_id: int
+        request: Request,
+        source_id: int,
+        scan_id: int | None = None,
+        order_id: int | None = None,
     ) -> dict[str, object]:
         from . import wb_fbs_returns as returns_mod
 
@@ -10961,14 +11010,45 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
-        if not source_id or not scan_id:
-            raise HTTPException(status_code=400, detail="Укажите source_id и scan_id")
-        item = returns_mod.get_return_scan_by_id(
-            repository,
-            user_id=owner_id,
-            source_id=source_id,
-            scan_id=scan_id,
-        )
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        item: dict[str, object] | None = None
+        if scan_id:
+            item = returns_mod.get_return_scan_by_id(
+                repository,
+                user_id=owner_id,
+                source_id=source_id,
+                scan_id=int(scan_id),
+            )
+            if not item:
+                raise HTTPException(status_code=404, detail="Запись не найдена")
+        elif order_id:
+            src_full = repository.get_supply_source_with_key(
+                user_id=owner_id, source_id=int(source_id)
+            )
+            if not src_full:
+                raise HTTPException(status_code=400, detail="Источник не найден")
+            if not wb_fbs_mod.is_fbs_source_name(src_full.get("name")):
+                raise HTTPException(status_code=400, detail="Источник не является ФБС")
+            api_key = str(src_full.get("api_key") or "").strip()
+            preview = returns_mod.build_return_order_preview(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                order_id=int(order_id),
+                api_key=api_key,
+            )
+            if not preview.get("found"):
+                raise HTTPException(
+                    status_code=404,
+                    detail=str(preview.get("message") or "Заказ не найден"),
+                )
+            raw_item = preview.get("item")
+            item = dict(raw_item) if isinstance(raw_item, dict) else None
+        else:
+            raise HTTPException(
+                status_code=400, detail="Укажите scan_id или order_id"
+            )
         if not item:
             raise HTTPException(status_code=404, detail="Запись не найдена")
         kiz_code = str(item.get("kiz_code") or "").strip()
