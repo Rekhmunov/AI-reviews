@@ -71,7 +71,7 @@ class ReturnScanDuplicateTests(unittest.TestCase):
     @patch("review_processor.wb_fbs_returns._insert_return_scan")
     @patch("review_processor.wb_fbs_returns._kiz_codes_for_order", return_value=[])
     @patch("review_processor.wb_fbs_returns._product_from_order", return_value={})
-    @patch("review_processor.wb_fbs_returns._load_order_row", return_value=None)
+    @patch("review_processor.wb_fbs_returns._resolve_order_row", return_value=None)
     @patch("review_processor.wb_fbs_returns._return_scan_duplicate")
     def test_return_sticker_duplicate(self, dup, _order, _prod, _kiz, _insert):
         dup.return_value = {
@@ -93,6 +93,51 @@ class ReturnScanDuplicateTests(unittest.TestCase):
         _insert.assert_not_called()
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"], "duplicate")
+
+
+class ReturnStickerKizLinkTests(unittest.TestCase):
+    @patch("review_processor.wb_fbs_returns._insert_return_scan")
+    @patch("review_processor.wb_fbs_returns._kiz_codes_for_order")
+    @patch("review_processor.wb_fbs_returns._product_from_order", return_value={"product_name": "Товар"})
+    @patch("review_processor.wb_fbs_returns._resolve_order_row")
+    @patch("review_processor.wb_fbs_returns._return_scan_duplicate", return_value=None)
+    def test_return_sticker_passes_srid_for_kiz_lookup(
+        self, _dup, resolve_order, _prod, kiz_lookup, insert
+    ):
+        resolve_order.return_value = {
+            "order_id": 5525061048,
+            "sticker_part_a": "1",
+            "sticker_part_b": "2345",
+            "sticker_barcode": "qr",
+        }
+        kiz_lookup.return_value = ["010467012345678921CIRC"]
+        insert.return_value = {
+            "id": 21,
+            "scan_type": "return_sticker",
+            "order_id": 5525061048,
+            "kiz_code": "010467012345678921CIRC",
+            "matched_order_ids_json": "[]",
+            "product_barcodes_json": "[]",
+        }
+        repo = MagicMock()
+        result = returns._process_return_sticker_scan(
+            repo,
+            user_id=1,
+            source_id=2,
+            api_key="k",
+            scan="99887766",
+            goods_row={
+                "sticker_id": "99887766",
+                "wb_order_id": 5525061048,
+                "srid": "eI.i0a39f75abc.1.0",
+            },
+        )
+        self.assertTrue(result["ok"])
+        kiz_lookup.assert_called_once()
+        kwargs = kiz_lookup.call_args.kwargs
+        self.assertEqual(kwargs["order_id"], 5525061048)
+        self.assertEqual(kwargs["srid_hint"], "eI.i0a39f75abc.1.0")
+        self.assertEqual(result["item"]["kiz_code"], "010467012345678921CIRC")
 
 
 class KizScanTests(unittest.TestCase):

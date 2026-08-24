@@ -2565,3 +2565,49 @@ def test_portal_labels_match_seller_cabinet() -> None:
     assert order_portal_status_label(wb_status="sold") == "Выкуплен"
     assert order_portal_status_label(wb_status="canceled_by_client") == "Отказ на ПВЗ"
     assert order_portal_status_label(wb_status="defect") == "Найдены дефекты"
+
+
+def test_load_kiz_codes_for_order_prefers_return_op() -> None:
+    repo = MagicMock()
+    repo._sql = lambda sql: sql
+    repo._row_to_dict = lambda row: dict(row)
+
+    class _Result:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def fetchall(self):
+            return self._payload
+
+    conn = MagicMock()
+    conn.execute = MagicMock(
+        return_value=_Result(
+            [
+                {
+                    "excise_short": "010467012345678921WITHDRAW",
+                    "operation_type": circ.OP_WITHDRAW,
+                    "srid": "eI.i0a39f75abc.1.0",
+                    "rid": "",
+                },
+                {
+                    "excise_short": "010467012345678921RETURN",
+                    "operation_type": circ.OP_RETURN,
+                    "srid": "eI.i0a39f75abc.1.0",
+                    "rid": "",
+                },
+            ]
+        )
+    )
+    repo._connect.return_value.__enter__ = MagicMock(return_value=conn)
+    repo._connect.return_value.__exit__ = MagicMock(return_value=False)
+
+    with patch.object(circ, "ensure_kiz_circulation_tables"):
+        codes = circ.load_kiz_codes_for_order(
+            repo,
+            user_id=1,
+            source_id=2,
+            order_id=5525061048,
+            order_row={"order_id": 5525061048, "rid": "eI.i0a39f75abc.0.0"},
+            prefer_return=True,
+        )
+    assert codes == ["010467012345678921RETURN"]

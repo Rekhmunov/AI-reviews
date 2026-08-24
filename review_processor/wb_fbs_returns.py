@@ -438,15 +438,21 @@ def _product_from_gtin(
     }
 
 
-def _load_order_row(
+def _resolve_order_row(
     repo: ReviewRepository,
     *,
     user_id: int,
     source_id: int,
     order_id: int,
+    api_key: str = "",
 ) -> dict[str, Any] | None:
-    row = wb.get_order_by_id(
-        repo, user_id=user_id, source_id=source_id, order_id=int(order_id)
+    """Local order row, else same remote lookup as supplies search / kiz-restore."""
+    row = kiz_restore.resolve_order_for_restore(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        order_id=int(order_id),
+        api_key=api_key,
     )
     return row if row else None
 
@@ -458,6 +464,8 @@ def _kiz_codes_for_order(
     source_id: int,
     order_id: int,
     api_key: str = "",
+    order_row: dict[str, Any] | None = None,
+    srid_hint: str = "",
 ) -> list[str]:
     return kiz_restore.load_kiz_for_order(
         repo,
@@ -465,6 +473,8 @@ def _kiz_codes_for_order(
         source_id=source_id,
         order_id=int(order_id),
         api_key=api_key,
+        order_row=order_row,
+        srid_hint=srid_hint,
     )
 
 
@@ -653,8 +663,15 @@ def _process_return_sticker_scan(
         order_id = int(goods_row.get("wb_order_id") or 0)
     except (TypeError, ValueError):
         order_id = 0
+    srid_hint = str(goods_row.get("srid") or "").strip()
     order_row = (
-        _load_order_row(repo, user_id=user_id, source_id=source_id, order_id=order_id)
+        _resolve_order_row(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            order_id=order_id,
+            api_key=api_key,
+        )
         if order_id > 0
         else None
     )
@@ -666,6 +683,8 @@ def _process_return_sticker_scan(
             source_id=source_id,
             order_id=order_id,
             api_key=api_key,
+            order_row=order_row,
+            srid_hint=srid_hint,
         )
         if order_id > 0
         else []
@@ -696,7 +715,10 @@ def _process_return_sticker_scan(
         },
     )
     if not kiz_code and order_id > 0:
-        item["warning"] = f"Для заказа {order_id} не найден сохранённый КИЗ"
+        item["warning"] = (
+            f"Для заказа {order_id} не найден КИЗ "
+            "(маркировка, WB meta или «Вывод КИЗ»)"
+        )
     return {"ok": True, "item": item}
 
 
@@ -713,6 +735,13 @@ def _process_assembly_sticker_scan(
         order_id = int(order_row.get("order_id"))
     except (TypeError, ValueError, KeyError):
         return {"ok": False, "error": "not_found", "message": "Некорректный заказ"}
+    resolved_order = _resolve_order_row(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        order_id=order_id,
+        api_key=api_key,
+    ) or order_row
     wb.persist_order_stickers_batch(
         repo,
         user_id=user_id,
@@ -720,22 +749,23 @@ def _process_assembly_sticker_scan(
         stickers={
             order_id: {
                 "sticker_barcode": kiz_restore.normalize_sticker_scan(scan),
-                "sticker_part_a": str(order_row.get("sticker_part_a") or "").strip(),
-                "sticker_part_b": str(order_row.get("sticker_part_b") or "").strip(),
+                "sticker_part_a": str(resolved_order.get("sticker_part_a") or "").strip(),
+                "sticker_part_b": str(resolved_order.get("sticker_part_b") or "").strip(),
             }
         },
     )
-    product = _product_from_order(repo, user_id=user_id, order_row=order_row)
+    product = _product_from_order(repo, user_id=user_id, order_row=resolved_order)
     kiz_codes = _kiz_codes_for_order(
         repo,
         user_id=user_id,
         source_id=source_id,
         order_id=order_id,
         api_key=api_key,
+        order_row=resolved_order,
     )
     kiz_code = kiz_codes[0] if kiz_codes else ""
-    part_a = str(order_row.get("sticker_part_a") or "").strip()
-    part_b = str(order_row.get("sticker_part_b") or "").strip()
+    part_a = str(resolved_order.get("sticker_part_a") or "").strip()
+    part_b = str(resolved_order.get("sticker_part_b") or "").strip()
     item = _insert_return_scan(
         repo,
         user_id=user_id,
@@ -771,7 +801,13 @@ def _process_kiz_scan(
     matched_ids = [int(x) for x in (db_hit.get("order_ids") or [])]
     order_id: int | None = matched_ids[0] if len(matched_ids) == 1 else None
     order_row = (
-        _load_order_row(repo, user_id=user_id, source_id=source_id, order_id=order_id)
+        _resolve_order_row(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            order_id=int(order_id),
+            api_key=api_key,
+        )
         if order_id
         else None
     )

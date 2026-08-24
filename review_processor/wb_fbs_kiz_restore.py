@@ -205,20 +205,41 @@ def load_kiz_for_order(
     source_id: int,
     order_id: int,
     api_key: str = "",
+    order_row: dict[str, Any] | None = None,
+    srid_hint: str = "",
 ) -> list[str]:
-    """Local ``kiz_codes_json`` first, then WB ``orders/meta`` sgtin."""
-    local = wb.get_order_by_id(
-        repo, user_id=user_id, source_id=source_id, order_id=int(order_id)
-    )
+    """Local ``kiz_codes_json``, then WB ``orders/meta`` sgtin, then «Вывод КИЗ»."""
+    oid = int(order_id)
+    local = order_row
+    if local is None:
+        local = wb.get_order_by_id(
+            repo, user_id=user_id, source_id=source_id, order_id=oid
+        )
     if local:
         codes = _kiz_codes_from_local_row(local)
         if codes:
             return codes
     key = str(api_key or "").strip()
-    if not key:
+    if key:
+        client = wb.WbFbsClient(key)
+        codes = _kiz_codes_from_wb_meta(client, oid)
+        if codes:
+            return codes
+    try:
+        from . import wb_kiz_circulation as kiz_circ
+
+        return kiz_circ.load_kiz_codes_for_order(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            order_id=oid,
+            order_row=local,
+            srid_hint=srid_hint,
+            prefer_return=True,
+        )
+    except Exception as exc:
+        _log.warning("kiz circulation lookup failed order=%s: %s", oid, exc)
         return []
-    client = wb.WbFbsClient(key)
-    return _kiz_codes_from_wb_meta(client, int(order_id))
 
 
 def kiz_datamatrix_png_base64(code: str, *, scale: int = 4) -> str:

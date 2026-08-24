@@ -772,6 +772,140 @@ def load_local_fbs_rid_keys(
     )
 
 
+def _order_rid_match_keys(
+    order_row: dict[str, Any] | None,
+    *,
+    srid_hint: str = "",
+) -> set[str]:
+    """Join keys for one FBS order (rid / orderUid / goods-return srid)."""
+    keys: set[str] = set()
+    sources: list[object] = []
+    if isinstance(order_row, dict):
+        sources.extend([order_row.get("rid"), order_row.get("order_uid")])
+        try:
+            raw = order_row.get("raw_json") or "{}"
+            payload = json.loads(raw) if isinstance(raw, str) else (raw or {})
+            if isinstance(payload, dict):
+                sources.extend(
+                    [
+                        payload.get("rid"),
+                        payload.get("orderUid"),
+                        payload.get("order_uid"),
+                    ]
+                )
+        except (TypeError, ValueError, json.JSONDecodeError):
+            pass
+    if str(srid_hint or "").strip():
+        sources.append(srid_hint)
+    for src in sources:
+        for key in _rid_match_keys(src):
+            if key:
+                keys.add(key)
+    return keys
+
+
+def _event_matches_order_keys(
+    event: dict[str, Any], order_keys: set[str]
+) -> bool:
+    if not order_keys:
+        return False
+    for raw in (event.get("srid"), event.get("rid")):
+        for key in _rid_match_keys(raw):
+            if key in order_keys:
+                return True
+    return False
+
+
+def load_kiz_codes_for_order(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    order_id: int,
+    order_row: dict[str, Any] | None = None,
+    srid_hint: str = "",
+    prefer_return: bool = True,
+) -> list[str]:
+    """КИЗ из журнала «Вывод КИЗ» (excise-report) для одного заказа.
+
+    Matches analytics ``srid`` / Marketplace ``rid`` the same way as circulation
+    events list (mid-token + full rid). Prefers op=return rows when
+  ``prefer_return`` (default) — typical for the «Возвраты» workflow.
+    """
+    from . import wb_fbs as wb_fbs_mod
+
+    oid = int(order_id)
+    if oid <= 0:
+        return []
+
+    row = order_row
+    if row is None:
+        row = wb_fbs_mod.get_order_by_id(
+            repo, user_id=user_id, source_id=source_id, order_id=oid
+        )
+    order_keys = _order_rid_match_keys(row, srid_hint=srid_hint)
+    if not order_keys:
+        return []
+
+    ensure_kiz_circulation_tables(repo)
+    mids = sorted({k for k in order_keys if k and "." not in k})
+    full_keys = sorted({k for k in order_keys if k and "." in k})
+    clauses = ["user_id = ?", "source_id = ?", "excise_short <> ''"]
+    params: list[Any] = [user_id, source_id]
+    match_parts: list[str] = []
+    if mids:
+        mid_ph = ", ".join("?" for _ in mids)
+        match_parts.append(f"LOWER(SPLIT_PART(srid, '.', 2)) IN ({mid_ph})")
+        match_parts.append(f"LOWER(SPLIT_PART(rid, '.', 2)) IN ({mid_ph})")
+        params.extend(mids * 2)
+    if full_keys:
+        full_ph = ", ".join("?" for _ in full_keys)
+        match_parts.append(f"LOWER(srid) IN ({full_ph})")
+        match_parts.append(f"LOWER(rid) IN ({full_ph})")
+        params.extend(full_keys * 2)
+    if not match_parts:
+        return []
+    clauses.append(f"({' OR '.join(match_parts)})")
+    order_sql = (
+        "ORDER BY operation_type DESC, fiscal_dt DESC NULLS LAST, id DESC"
+        if prefer_return
+        else "ORDER BY fiscal_dt DESC NULLS LAST, id DESC"
+    )
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT excise_short, operation_type, srid, rid
+                FROM wb_kiz_circulation_events
+                WHERE {' AND '.join(clauses)}
+                {order_sql}
+                LIMIT 100
+                """
+            ),
+            tuple(params),
+        ).fetchall()
+
+    return_codes: list[str] = []
+    other_codes: list[str] = []
+    seen: set[str] = set()
+    for raw_row in rows:
+        ev = repo._row_to_dict(raw_row)
+        if not _event_matches_order_keys(ev, order_keys):
+            continue
+        code = wb_fbs_mod._kiz_code_clean(ev.get("excise_short"))
+        if not code:
+            continue
+        key = code.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        if int(ev.get("operation_type") or 0) == OP_RETURN:
+            return_codes.append(code)
+        else:
+            other_codes.append(code)
+    return return_codes or other_codes
+
+
 def _rid_fold(value: object) -> str:
     """Casefold rid/srid for joins (WB mixes ``ebX`` / ``ebx``)."""
     return str(value or "").strip().casefold()
