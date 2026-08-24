@@ -824,6 +824,7 @@
               <div style="font-weight:600;font-size:15px">Каталог товаров</div>
               <div class="row" style="gap:8px">
                 <button type="button" class="secondary" onclick="exportProductsCsv()">Экспорт CSV</button>
+                <button type="button" class="secondary" onclick="openProductFillBarcodesModal()">Заполнить ШК из FBS</button>
                 <button type="button" class="secondary" onclick="openProductCategoriesModal()">Категории товаров</button>
                 <button type="button" onclick="openAddProductForm()">+ Добавить товар</button>
               </div>
@@ -934,6 +935,35 @@
                 </div>
               </div>
               <div id="productCategoriesModalInfo" class="small product-categories-modal-info"></div>
+            </div>
+          </div>
+          <div id="productFillBarcodesModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+               aria-labelledby="productFillBarcodesModalTitle"
+               onclick="if(event.target===this)closeProductFillBarcodesModal()">
+            <div class="modal-card product-fill-barcodes-modal">
+              <div class="product-fill-barcodes-modal-header">
+                <h3 id="productFillBarcodesModalTitle">Заполнить ШК из FBS</h3>
+                <button type="button" class="icon-btn secondary" onclick="closeProductFillBarcodesModal()" aria-label="Закрыть">✕</button>
+              </div>
+              <p class="product-fill-barcodes-modal-lead">
+                ШК подтягиваются из локальных заказов WB FBS (поле skus), как в разделе поставок.
+                Выберите товары — новые штрихкоды будут добавлены к уже сохранённым.
+              </p>
+              <div class="product-fill-barcodes-toolbar">
+                <label class="product-fill-barcodes-select-all">
+                  <input type="checkbox" id="productFillBarcodesSelectAll" onchange="toggleProductFillBarcodesSelectAll(this.checked)" />
+                  <span>Выбрать все с новыми ШК</span>
+                </label>
+                <input type="search" id="productFillBarcodesSearch" class="product-fill-barcodes-search"
+                       placeholder="Поиск по названию, артикулу, ШК…" autocomplete="off"
+                       oninput="renderProductFillBarcodesList()" />
+              </div>
+              <div id="productFillBarcodesList" class="product-fill-barcodes-list"></div>
+              <div class="product-fill-barcodes-modal-actions">
+                <button type="button" class="secondary" onclick="closeProductFillBarcodesModal()">Отмена</button>
+                <button type="button" id="productFillBarcodesSaveBtn" onclick="saveProductFillBarcodesModal()">Заполнить</button>
+              </div>
+              <div id="productFillBarcodesModalInfo" class="small product-fill-barcodes-modal-info"></div>
             </div>
           </div>
         </div>

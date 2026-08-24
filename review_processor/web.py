@@ -760,6 +760,10 @@ class FeedbackMaterialRequest(BaseModel):
     unit: str = Field(default="шт", max_length=32)
 
 
+class ProductFillBarcodesRequest(BaseModel):
+    product_ids: list[int] = Field(default_factory=list)
+
+
 class SupplyBalanceSaveRequest(BaseModel):
     """Legacy editable-matrix save (kept for compat; UI uses ledger endpoints)."""
     production_id: int
@@ -3669,6 +3673,27 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             ".gif": "image/gif",
         }.get(ext, "image/webp")
         return _FileResp(fpath, media_type=media)
+
+    @app.get("/api/products/fbs-barcodes-preview")
+    def product_fbs_barcodes_preview(request: Request) -> dict[str, object]:
+        _ensure_product_photos_table()
+        user = _require_settings_access(request)
+        items = repository.get_product_fbs_barcode_fill_preview(
+            user_id=_tenant_owner_id(user)
+        )
+        return {"items": items}
+
+    @app.post("/api/products/fill-barcodes-from-fbs")
+    def product_fill_barcodes_from_fbs(
+        request: Request, payload: ProductFillBarcodesRequest
+    ) -> dict[str, object]:
+        _ensure_product_photos_table()
+        user = _require_settings_access(request)
+        result = repository.fill_product_barcodes_from_fbs(
+            user_id=_tenant_owner_id(user),
+            product_ids=[int(x) for x in (payload.product_ids or []) if int(x) > 0],
+        )
+        return {"ok": True, **result}
 
     # ── Feedback materials (Настройки → Материалы) ───────────────────────────
 
