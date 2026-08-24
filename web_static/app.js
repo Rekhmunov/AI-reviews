@@ -18925,23 +18925,22 @@ window.processWbFbsReturnsScan = processWbFbsReturnsScan;
 
 const _fpPrintFaviconLink = '<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">';
 
-function _wbFbsReturnsKizLine(gtin14, serial) {
-  const gtin = String(gtin14 || "").trim();
-  const tail = String(serial || "").trim();
-  if (gtin && tail) return `${gtin} ${tail}`;
-  return gtin || tail;
+function _wbFbsReturnsKizHtml(gtin14, serial) {
+  const gtin = _wbFbsEsc(String(gtin14 || "").trim());
+  const tail = _wbFbsEsc(String(serial || "").trim());
+  if (!gtin && !tail) return "";
+  return `<div class="kiz-text">${gtin ? `<div class="kiz-gtin">${gtin}</div>` : ""}${
+    tail ? `<div class="kiz-tail">${tail}</div>` : ""
+  }</div>`;
 }
 
 function _wbFbsReturnsPrintHtml(meta, dmDataUrl) {
   const m = meta && typeof meta === "object" ? meta : { productName: meta };
   const safeName = _wbFbsEsc(m.productName || "");
   const sticker = _wbFbsEsc(m.stickerNumber || "");
-  const kizLine = _wbFbsEsc(_wbFbsReturnsKizLine(m.gtin14, m.serial));
+  const kizHtml = _wbFbsReturnsKizHtml(m.gtin14, m.serial);
   const stickerHtml = sticker
     ? `<div class="sticker">${sticker}</div>`
-    : "";
-  const kizHtml = kizLine
-    ? `<div class="kiz-line">${kizLine}</div>`
     : "";
   return `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><title>КИЗ</title>
 ${_fpPrintFaviconLink}
@@ -18971,19 +18970,28 @@ html, body { margin: 0; padding: 0; background: #fff; color: #000;
 }
 .dm-block {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 0.5mm;
-  transform: translateY(-0.8mm);
+  gap: 0.4mm;
+  transform: translateY(-0.4mm);
 }
 .dm {
-  width: 24mm; height: 24mm; object-fit: contain; display: block;
+  width: 26.5mm; height: 26.5mm; object-fit: contain; display: block;
 }
-.kiz-line {
+.kiz-text {
   width: 100%;
   max-width: 27mm;
-  font-size: 1.9mm; line-height: 1.1; font-weight: 600;
-  text-align: center; white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis;
+  text-align: center;
+}
+.kiz-gtin,
+.kiz-tail {
+  font-size: 1.85mm; line-height: 1.12; font-weight: 600;
   letter-spacing: 0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.kiz-gtin { white-space: nowrap; }
+.kiz-tail {
+  word-break: break-all;
+  white-space: normal;
 }
 .right {
   flex: 1 1 auto; min-width: 0; min-height: 0;
