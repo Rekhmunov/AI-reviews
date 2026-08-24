@@ -14281,6 +14281,38 @@ function renderSupplyStockReceiptList() {
 }
 
 let _sbReceiptScanHighlightTimer = null;
+let _sbReceiptScanBusy = false;
+
+function _sbSetReceiptScanInfo(text, tone) {
+  const el = document.getElementById("supplyStockReceiptScanInfo");
+  if (!el) return;
+  const msg = String(text || "").trim();
+  if (!msg) {
+    el.hidden = true;
+    el.textContent = "";
+    el.classList.remove("is-error", "is-ok", "is-warn");
+    return;
+  }
+  el.hidden = false;
+  el.textContent = msg;
+  el.classList.remove("is-error", "is-ok", "is-warn");
+  const t = tone === "ok" || tone === "warn" || tone === "error" ? tone : "error";
+  if (t === "ok") el.classList.add("is-ok");
+  else if (t === "warn") el.classList.add("is-warn");
+  else el.classList.add("is-error");
+}
+
+function _sbClearReceiptScanField(scanEl) {
+  if (!scanEl || _wbFbsKizRuLayoutModalOpen()) return;
+  scanEl.value = "";
+  setTimeout(() => {
+    try {
+      scanEl.focus();
+    } catch (_e) {
+      /* ignore */
+    }
+  }, 0);
+}
 
 function _sbBarcodeMatchKeys(value) {
   const out = new Set();
@@ -14373,34 +14405,51 @@ function _sbIncrementReceiptProductQty(product) {
 }
 
 function processSupplyStockReceiptScan() {
+  if (_sbReceiptScanBusy) return;
   const scanEl = document.getElementById("supplyStockReceiptScan");
-  const rawScan = String(scanEl?.value || "").trim();
+  const rawScan = String(scanEl?.value || "").replace(/[\r\n]+$/g, "").trim();
   if (!rawScan) {
-    _sbSetDocErr("supplyStockReceiptErr", "Отсканируйте штрихкод или маркировку");
+    _sbSetReceiptScanInfo("Отсканируйте штрихкод или маркировку", "error");
+    _sbClearReceiptScanField(scanEl);
     return;
   }
   if (_wbFbsKizHasCyrillic(rawScan)) {
     _wbFbsKizBlockRuLayout(scanEl);
     return;
   }
-  const scan = _wbFbsKizExtractGtin14(_wbFbsKizNormalizeMark(rawScan))
-    || String(_wbFbsKizNormalizeMark(rawScan) || "").includes("\u001D")
-    ? _wbFbsKizNormalizeMark(rawScan)
-    : _wbFbsKizNormalizeScan(rawScan);
-  const product = _sbFindReceiptProductByScan(scan);
-  if (!product) {
-    _sbSetDocErr("supplyStockReceiptErr", "Товар не найден в справочнике по ШК или GTIN");
-    return;
+  _sbReceiptScanBusy = true;
+  try {
+    const scan = _wbFbsKizExtractGtin14(_wbFbsKizNormalizeMark(rawScan))
+      || String(_wbFbsKizNormalizeMark(rawScan) || "").includes("\u001D")
+      ? _wbFbsKizNormalizeMark(rawScan)
+      : _wbFbsKizNormalizeScan(rawScan);
+    const product = _sbFindReceiptProductByScan(scan);
+    if (!product) {
+      _sbSetReceiptScanInfo("Товар не найден в справочнике по ШК или GTIN", "error");
+      return;
+    }
+    if (!_sbIncrementReceiptProductQty(product)) {
+      _sbSetReceiptScanInfo("Не удалось обновить количество в списке", "error");
+      return;
+    }
+    _sbSetReceiptScanInfo("");
+  } finally {
+    _sbReceiptScanBusy = false;
+    _sbClearReceiptScanField(scanEl);
   }
-  if (!_sbIncrementReceiptProductQty(product)) {
-    _sbSetDocErr("supplyStockReceiptErr", "Не удалось обновить количество в списке");
-    return;
-  }
-  _sbSetDocErr("supplyStockReceiptErr", "");
-  if (scanEl) scanEl.value = "";
-  scanEl?.focus();
 }
 window.processSupplyStockReceiptScan = processSupplyStockReceiptScan;
+
+function onSupplyStockReceiptScanInput(event) {
+  const input = event?.target;
+  if (!input) return;
+  if (_wbFbsKizRuLayoutModalOpen()) {
+    input.value = "";
+    return;
+  }
+  _sbSetReceiptScanInfo("");
+}
+window.onSupplyStockReceiptScanInput = onSupplyStockReceiptScanInput;
 
 function onSupplyStockReceiptScanKey(event) {
   if (!event || event.key !== "Enter") return;
@@ -14435,6 +14484,7 @@ function _sbCollectReceiptItemsFromList() {
 
 async function openSupplyStockReceiptModal() {
   _sbSetDocErr("supplyStockReceiptErr", "");
+  _sbSetReceiptScanInfo("");
   setModalVisibility("supplyStockReceiptModal", true);
   const dateEl = document.getElementById("supplyStockReceiptDate");
   const list = document.getElementById("supplyStockReceiptList");
@@ -14463,6 +14513,8 @@ function closeSupplyStockReceiptModal() {
     clearTimeout(_sbReceiptScanHighlightTimer);
     _sbReceiptScanHighlightTimer = null;
   }
+  _sbReceiptScanBusy = false;
+  _sbSetReceiptScanInfo("");
   setModalVisibility("supplyStockReceiptModal", false);
 }
 window.closeSupplyStockReceiptModal = closeSupplyStockReceiptModal;

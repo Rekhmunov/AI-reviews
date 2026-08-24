@@ -5142,13 +5142,14 @@
           <div class="sb-receipt-scan-field">
             <input id="supplyStockReceiptScan" class="sb-receipt-scan-input" type="text" autocomplete="off"
                    placeholder="Штрихкод или маркировка (КИЗ)"
-                   oninput="onWbFbsKizScanInputCheck(event)"
+                   oninput="onSupplyStockReceiptScanInput(event)"
                    onkeydown="onSupplyStockReceiptScanKey(event)" />
             <button type="button" class="sb-receipt-scan-clear" title="Очистить"
                     aria-label="Очистить поле сканирования"
                     onclick="clearWbFbsKizScanField('supplyStockReceiptScan')">✕</button>
           </div>
         </div>
+        <div id="supplyStockReceiptScanInfo" class="sb-receipt-scan-info wb-fbs-kiz-info" hidden></div>
       </div>
       <div class="sb-adj-list-wrap">
         <div class="sb-adj-list-head">
