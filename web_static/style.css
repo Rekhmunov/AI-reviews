@@ -9785,107 +9785,65 @@ button.wb-fbs-kiz-add:disabled {
   padding: 8px 16px;
 }
 
-/* WB FBS — Восстановление КИЗ */
-.wb-fbs-kiz-restore-modal {
-  height: auto;
-  max-height: calc(100vh - 40px);
-  width: min(720px, 100%);
-  max-width: min(720px, 100%);
+/* WB FBS — Возвраты */
+.wb-fbs-returns-modal {
+  /* Same footprint as Маркировка / Поставка */
 }
-.wb-fbs-kiz-restore-body {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding: 16px 24px 24px;
+.wb-fbs-returns-date-wrap {
+  position: relative;
 }
-.wb-fbs-kiz-restore-fields {
-  display: grid;
-  grid-template-columns: 1fr 200px;
-  gap: 16px;
-  align-items: end;
+.wb-fbs-returns-date-btn {
+  padding: 0 10px;
+  height: 34px;
+  min-height: 34px;
 }
-.wb-fbs-kiz-restore-field {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
+.wb-fbs-returns-col-status {
+  width: 108px;
+  white-space: nowrap;
 }
-.wb-fbs-kiz-restore-label {
-  font-size: 14px;
+.wb-fbs-returns-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
   font-weight: 600;
+  line-height: 1.2;
+}
+.wb-fbs-returns-status.is-return {
+  background: #fef3c7;
+  color: #92400e;
+}
+.wb-fbs-returns-status.is-assembly {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.wb-fbs-returns-status.is-kiz {
+  background: #dcfce7;
+  color: #166534;
+}
+.wb-fbs-returns-kiz-text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.35;
+  word-break: break-all;
   color: #334155;
 }
-.wb-fbs-kiz-restore-order-input {
-  width: 100%;
-  min-height: 40px;
-  padding: 8px 12px;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  font-size: 16px;
-  box-sizing: border-box;
+.wb-fbs-returns-scan-time {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #94a3b8;
 }
-.wb-fbs-kiz-restore-order-input:focus {
-  outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+.wb-fbs-returns-return-id {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 4px;
 }
-.wb-fbs-kiz-restore-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.wb-fbs-kiz-restore-actions button:not(.secondary) {
-  min-height: 40px;
-  padding: 8px 16px;
-}
-.wb-fbs-kiz-restore-info {
-  font-size: 14px;
-  line-height: 1.45;
-  color: #b91c1c;
-  padding: 12px 16px;
-  border-radius: 8px;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-}
-.wb-fbs-kiz-restore-info.is-ok {
-  color: #166534;
-  background: #f0fdf4;
-  border-color: #bbf7d0;
-}
-.wb-fbs-kiz-restore-info.is-warn {
-  color: #92400e;
-  background: #fffbeb;
-  border-color: #fcd34d;
-}
-.wb-fbs-kiz-restore-preview {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding: 16px;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  background: #f8fafc;
-}
-.wb-fbs-kiz-restore-dm {
-  width: 200px;
-  height: 200px;
-  object-fit: contain;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-}
-.wb-fbs-kiz-restore-meta {
-  font-size: 14px;
-  line-height: 1.45;
-  color: #475569;
-  text-align: center;
-  max-width: 100%;
-  word-break: break-word;
-}
-@media (max-width: 640px) {
-  .wb-fbs-kiz-restore-fields {
-    grid-template-columns: 1fr;
+@media (max-width: 900px) {
+  .wb-fbs-returns-col-status {
+    width: 88px;
   }
 }
 
