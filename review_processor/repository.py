@@ -30,6 +30,36 @@ def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _normalize_product_barcodes(raw: object) -> list[str]:
+    """Trim, dedupe, drop empty product barcodes (ШК)."""
+    items: list[object]
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        items = raw
+    elif isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return []
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            items = [part.strip() for part in text.split(",")]
+        else:
+            items = parsed if isinstance(parsed, list) else [parsed]
+    else:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        code = str(item or "").strip()
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        out.append(code)
+    return out
+
+
 def _normalize_subgroup_name(value: str) -> str:
     return " ".join(str(value or "").strip().lower().split())
 
@@ -7416,6 +7446,18 @@ class ReviewRepository:
         conn.execute(
             "ALTER TABLE product_photos ADD COLUMN IF NOT EXISTS skip_kiz_gtin_check INTEGER NOT NULL DEFAULT 0"
         )
+        conn.execute(
+            "ALTER TABLE product_photos ADD COLUMN IF NOT EXISTS barcodes_json TEXT NOT NULL DEFAULT '[]'"
+        )
+
+    def _product_photo_to_dict(self, row: Any) -> dict[str, Any]:
+        d = self._row_to_dict(row)
+        if not d:
+            return {}
+        d["skip_kiz_gtin_check"] = bool(int(d.get("skip_kiz_gtin_check") or 0))
+        d["barcodes"] = _normalize_product_barcodes(d.get("barcodes_json"))
+        d.pop("barcodes_json", None)
+        return d
 
     def list_product_photos(self, *, user_id: int) -> list[dict[str, Any]]:
         with self._connect() as conn:
@@ -7423,12 +7465,7 @@ class ReviewRepository:
                 self._sql("SELECT * FROM product_photos WHERE user_id = ? ORDER BY name ASC"),
                 (user_id,),
             ).fetchall()
-        out: list[dict[str, Any]] = []
-        for r in rows:
-            d = self._row_to_dict(r)
-            d["skip_kiz_gtin_check"] = bool(int(d.get("skip_kiz_gtin_check") or 0))
-            out.append(d)
-        return out
+        return [self._product_photo_to_dict(r) for r in rows]
 
     def add_product_photo(
         self, *, user_id: int, name: str, supplier_article: str,
@@ -7437,17 +7474,20 @@ class ReviewRepository:
         box_qty: int | None = None,
         product_category: str = "",
         skip_kiz_gtin_check: bool = False,
+        barcodes: list[str] | None = None,
     ) -> dict[str, Any]:
         now = _utc_now()
+        barcodes_json = json.dumps(_normalize_product_barcodes(barcodes), ensure_ascii=False)
         with self._connect() as conn:
             product_id = self._insert_and_get_id(
                 conn,
                 self._sql("""
                 INSERT INTO product_photos (
                     user_id, name, supplier_article, wb_nmid, ozon_sku, yandex_offer_id,
-                    box_qty, product_category, skip_kiz_gtin_check, photo_path, created_at, updated_at
+                    box_qty, product_category, skip_kiz_gtin_check, barcodes_json,
+                    photo_path, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """),
                 (
                     user_id,
@@ -7459,16 +7499,14 @@ class ReviewRepository:
                     box_qty,
                     str(product_category or "").strip(),
                     1 if skip_kiz_gtin_check else 0,
+                    barcodes_json,
                     photo_path,
                     now,
                     now,
                 ),
             )
             row = conn.execute(self._sql("SELECT * FROM product_photos WHERE id = ?"), (product_id,)).fetchone()
-        d = self._row_to_dict(row) if row else {}
-        if d:
-            d["skip_kiz_gtin_check"] = bool(int(d.get("skip_kiz_gtin_check") or 0))
-        return d
+        return self._product_photo_to_dict(row) if row else {}
 
     def update_product_photo(
         self, *, user_id: int, product_id: int, name: str, supplier_article: str,
@@ -7477,6 +7515,7 @@ class ReviewRepository:
         box_qty: int | None = None,
         product_category: str = "",
         skip_kiz_gtin_check: bool = False,
+        barcodes: list[str] | None = None,
     ) -> bool:
         now = _utc_now()
         sets = [
@@ -7501,6 +7540,9 @@ class ReviewRepository:
             1 if skip_kiz_gtin_check else 0,
             now,
         ]
+        if barcodes is not None:
+            sets.insert(-1, "barcodes_json=?")
+            params.insert(-1, json.dumps(_normalize_product_barcodes(barcodes), ensure_ascii=False))
         if photo_path is not None:
             sets.append("photo_path=?")
             params.append(photo_path)

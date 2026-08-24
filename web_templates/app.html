@@ -851,6 +851,11 @@
                   <input type="checkbox" id="productFormSkipKizGtinCheck" />
                   <span>Без проверки GTIN маркировки (не сверять с ШК)</span>
                 </label>
+                <div class="product-form-field product-form-barcodes" style="grid-column:1 / -1">
+                  <span>ШК (штрихкоды)</span>
+                  <div id="productFormBarcodesList" class="product-form-barcodes-list"></div>
+                  <button type="button" class="secondary product-form-barcodes-add" onclick="addProductBarcodeRow()">+ Добавить ШК</button>
+                </div>
               </div>
               <div class="row" style="gap:8px;align-items:center;margin-bottom:12px">
                 <label style="font-size:13px;color:#64748b">Фото (jpg/png/webp):</label>
@@ -877,6 +882,7 @@
                   <col data-col="6">
                   <col data-col="7">
                   <col data-col="8">
+                  <col data-col="9">
                 </colgroup>
                 <thead>
                   <tr>
@@ -888,7 +894,8 @@
                     <th data-col="5">Артикул ЯМ<div class="col-resize-handle"></div></th>
                     <th data-col="6">Кратность в коробе<div class="col-resize-handle"></div></th>
                     <th data-col="7">Категория товара<div class="col-resize-handle"></div></th>
-                    <th data-col="8">Действия</th>
+                    <th data-col="8">ШК<div class="col-resize-handle"></div></th>
+                    <th data-col="9">Действия</th>
                   </tr>
                 </thead>
                 <tbody id="productsTbody"></tbody>

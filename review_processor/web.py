@@ -3457,6 +3457,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="Неизвестная категория товара")
         return value
 
+    def _parse_product_barcodes(raw: object) -> list[str]:
+        from review_processor.repository import _normalize_product_barcodes
+
+        return _normalize_product_barcodes(raw)
+
     async def _save_product_photo_upload(photo: UploadFile) -> str:
         """Resize upload to WebP and store under product photos dir. Raises HTTPException on failure."""
         import io as _io
@@ -3556,6 +3561,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         box_qty: str = Form(""),
         product_category: str = Form(""),
         skip_kiz_gtin_check: str = Form(""),
+        barcodes: str = Form("[]"),
         photo: UploadFile | None = File(None),
     ) -> dict[str, object]:
         user = _require_settings_access(request)
@@ -3567,12 +3573,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         parsed_box_qty = _parse_product_box_qty(box_qty)
         parsed_category = _parse_product_category(product_category, owner_uid=owner_uid)
         skip_gtin = str(skip_kiz_gtin_check or "").strip().lower() in ("1", "true", "yes", "on")
+        parsed_barcodes = _parse_product_barcodes(barcodes)
         item = repository.add_product_photo(
             user_id=owner_uid, name=name.strip(), supplier_article=supplier_article.strip(),
             wb_nmid=wb_nmid.strip(), ozon_sku=ozon_sku.strip(),
             yandex_offer_id=yandex_offer_id.strip(), photo_path=photo_path,
             box_qty=parsed_box_qty, product_category=parsed_category,
             skip_kiz_gtin_check=skip_gtin,
+            barcodes=parsed_barcodes,
         )
         if item:
             item["photo_url"] = f"/api/products/photo/{item['id']}" if item.get("photo_path") else None
@@ -3590,6 +3598,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         box_qty: str = Form(""),
         product_category: str = Form(""),
         skip_kiz_gtin_check: str = Form(""),
+        barcodes: str = Form(""),
         photo: UploadFile | None = File(None),
     ) -> dict[str, object]:
         user = _require_settings_access(request)
@@ -3600,6 +3609,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         parsed_box_qty = _parse_product_box_qty(box_qty)
         parsed_category = _parse_product_category(product_category, owner_uid=owner_uid)
         skip_gtin = str(skip_kiz_gtin_check or "").strip().lower() in ("1", "true", "yes", "on")
+        parsed_barcodes = _parse_product_barcodes(barcodes) if str(barcodes or "").strip() else None
         ok = repository.update_product_photo(
             user_id=owner_uid, product_id=product_id, name=name.strip(),
             supplier_article=supplier_article.strip(), wb_nmid=wb_nmid.strip(),
@@ -3607,6 +3617,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             photo_path=new_photo_path,
             box_qty=parsed_box_qty, product_category=parsed_category,
             skip_kiz_gtin_check=skip_gtin,
+            barcodes=parsed_barcodes,
         )
         if not ok:
             raise HTTPException(status_code=404, detail="Товар не найден")
