@@ -18806,6 +18806,8 @@ async function processWbFbsReturnsScan() {
 }
 window.processWbFbsReturnsScan = processWbFbsReturnsScan;
 
+const _fpPrintFaviconLink = '<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">';
+
 function _wbFbsReturnsPrintHtml(meta, dmDataUrl) {
   const m = meta && typeof meta === "object" ? meta : { productName: meta };
   const safeName = _wbFbsEsc(m.productName || "");
@@ -18822,6 +18824,7 @@ function _wbFbsReturnsPrintHtml(meta, dmDataUrl) {
     ? `<div class="serial">${serial}</div>`
     : "";
   return `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><title>КИЗ</title>
+${_fpPrintFaviconLink}
 <style>
 @page { size: 58mm 40mm; margin: 0; }
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -19087,6 +19090,7 @@ function _wbFbsReturnsBarcodePrintHtml(barcode, labelText) {
   const digitsFontMm = 2.7;
   const centerX = PAGE_W / 2;
   return `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><title>ШК</title>
+${_fpPrintFaviconLink}
 <style>
 @page { size: 58mm 40mm; margin: 0; }
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -28943,6 +28947,7 @@ function _wbFbsSupplyQrPrintHtml(sid, qrDataUrl, qtyLabel, city) {
     .map((t) => `<div>${_wbFbsEsc(t)}</div>`)
     .join("");
   return `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><title>QR поставки ${_wbFbsEsc(sid)}</title>
+${_fpPrintFaviconLink}
 <style>
 @page { size: 58mm 40mm; margin: 0; }
 * { box-sizing: border-box; margin: 0; padding: 0; }
