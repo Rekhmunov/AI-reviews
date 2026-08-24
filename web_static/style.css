@@ -4915,6 +4915,28 @@ body.sst-col-resizing * {
   box-sizing: border-box;
 }
 
+.product-form-barcodes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.product-form-barcode-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.product-form-barcode-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.product-form-barcodes-add {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
 .products-table {
   width: 100%;
   table-layout: fixed;

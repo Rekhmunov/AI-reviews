@@ -12691,9 +12691,48 @@ function openAddProductForm(editItem = null) {
   loadProductCategories().then(() => _fillProductCategorySelect(category));
   const skipGtin = document.getElementById("productFormSkipKizGtinCheck");
   if (skipGtin) skipGtin.checked = !!editItem?.skip_kiz_gtin_check;
+  const barcodes = Array.isArray(editItem?.barcodes)
+    ? editItem.barcodes.map((x) => String(x || "").trim()).filter(Boolean)
+    : [];
+  _renderProductBarcodeRows(barcodes);
   document.getElementById("productFormPhoto").value = "";
   document.getElementById("productFormName").focus();
 }
+
+function _productBarcodeRowsFromDom() {
+  const list = document.getElementById("productFormBarcodesList");
+  if (!list) return [];
+  return Array.from(list.querySelectorAll(".product-form-barcode-row input")).map((input) =>
+    String(input.value || "").trim()
+  );
+}
+
+function _renderProductBarcodeRows(barcodes) {
+  const list = document.getElementById("productFormBarcodesList");
+  if (!list) return;
+  const rows = Array.isArray(barcodes) && barcodes.length ? barcodes : [""];
+  list.innerHTML = rows.map((code, idx) => `
+    <div class="product-form-barcode-row">
+      <input type="text" value="${esc(code || "")}" placeholder="Например, 4601234567890" autocomplete="off" inputmode="numeric" />
+      <button type="button" class="secondary danger" style="font-size:12px;padding:4px 8px;flex-shrink:0"
+              onclick="removeProductBarcodeRow(${idx})" title="Удалить">✕</button>
+    </div>`).join("");
+}
+
+function addProductBarcodeRow() {
+  const rows = _productBarcodeRowsFromDom();
+  rows.push("");
+  _renderProductBarcodeRows(rows);
+}
+window.addProductBarcodeRow = addProductBarcodeRow;
+
+function removeProductBarcodeRow(idx) {
+  const rows = _productBarcodeRowsFromDom();
+  if (idx < 0 || idx >= rows.length) return;
+  rows.splice(idx, 1);
+  _renderProductBarcodeRows(rows.length ? rows : [""]);
+}
+window.removeProductBarcodeRow = removeProductBarcodeRow;
 
 function closeAddProductForm() {
   document.getElementById("productAddForm")?.classList.add("hidden");
@@ -12829,9 +12868,9 @@ async function saveProductCategoriesModal() {
 window.saveProductCategoriesModal = saveProductCategoriesModal;
 
 // ── Products table column resizer ────────────────────────────────────────
-const PRODUCTS_COL_WIDTHS_KEY = "products_col_widths_v3";
-// photo, name, seller, wb, ozon, ym, box qty, category, actions
-const PRODUCTS_DEFAULT_WIDTHS = [7, 16, 12, 10, 10, 10, 10, 17, 8];
+const PRODUCTS_COL_WIDTHS_KEY = "products_col_widths_v4";
+// photo, name, seller, wb, ozon, ym, box qty, category, barcodes, actions
+const PRODUCTS_DEFAULT_WIDTHS = [7, 14, 10, 9, 9, 9, 9, 14, 12, 7];
 
 function initProductsColumnResizer() {
   const table = document.getElementById("productsTable");
@@ -12901,7 +12940,7 @@ async function loadProducts() {
     if (info) info.textContent = `Товаров: ${_productsCache.length}`;
     tbody.innerHTML = "";
     if (!_productsCache.length) {
-      tbody.innerHTML = '<tr><td colspan="9" class="small" style="color:#94a3b8;padding:16px">Нет товаров. Нажмите «+ Добавить товар»</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="10" class="small" style="color:#94a3b8;padding:16px">Нет товаров. Нажмите «+ Добавить товар»</td></tr>';
       initProductsColumnResizer();
       return;
     }
@@ -12911,6 +12950,10 @@ async function loadProducts() {
       const boxQtyText = (boxQty === null || boxQty === undefined || boxQty === "")
         ? "—"
         : String(boxQty);
+      const barcodes = Array.isArray(item.barcodes)
+        ? item.barcodes.map((x) => String(x || "").trim()).filter(Boolean)
+        : [];
+      const barcodesText = barcodes.length ? barcodes.join(", ") : "—";
       tr.innerHTML = `
         <td>${item.photo_url ? `<img src="${esc(item.photo_url)}" class="product-thumb" alt="" onerror="this.style.display='none'">` : '<div class="product-thumb-empty"></div>'}</td>
         <td>${esc(item.name || "")}</td>
@@ -12920,6 +12963,7 @@ async function loadProducts() {
         <td>${esc(item.yandex_offer_id || "—")}</td>
         <td>${esc(boxQtyText)}</td>
         <td title="${esc(item.product_category || "")}">${esc(item.product_category || "—")}</td>
+        <td title="${esc(barcodesText)}">${esc(barcodesText)}</td>
         <td>
           <button type="button" class="secondary" style="font-size:12px;padding:4px 8px" onclick="editProduct(${item.id})">✏</button>
           <button type="button" class="secondary danger" style="font-size:12px;padding:4px 8px" onclick="deleteProduct(${item.id})">✕</button>
@@ -12958,6 +13002,7 @@ async function exportProductsCsv() {
       "Артикул Яндекс Маркет (offerId)",
       "Кратность в коробе",
       "Категория товара",
+      "ШК",
       "Без проверки GTIN маркировки",
     ];
     const lines = [headers.map(_csvEscapeCell).join(";")];
@@ -12966,6 +13011,9 @@ async function exportProductsCsv() {
       const boxQtyText = (boxQty === null || boxQty === undefined || boxQty === "")
         ? ""
         : String(boxQty);
+      const barcodes = Array.isArray(item.barcodes)
+        ? item.barcodes.map((x) => String(x || "").trim()).filter(Boolean)
+        : [];
       lines.push([
         item.name || "",
         item.supplier_article || "",
@@ -12974,6 +13022,7 @@ async function exportProductsCsv() {
         item.yandex_offer_id || "",
         boxQtyText,
         item.product_category || "",
+        barcodes.join(", "),
         item.skip_kiz_gtin_check ? "да" : "нет",
       ].map(_csvEscapeCell).join(";"));
     }
@@ -13008,12 +13057,21 @@ async function saveProduct() {
   const boxQty = String(document.getElementById("productFormBoxQty")?.value || "").trim();
   const productCategory = String(document.getElementById("productFormCategory")?.value || "").trim();
   const skipKizGtinCheck = !!document.getElementById("productFormSkipKizGtinCheck")?.checked;
+  const barcodes = _productBarcodeRowsFromDom().filter(Boolean);
   const photoFile = document.getElementById("productFormPhoto")?.files?.[0];
   const info = document.getElementById("productFormInfo");
   if (!name) { if (info) info.textContent = "Введите наименование"; return; }
   if (boxQty !== "" && !/^\d+$/.test(boxQty)) {
     if (info) info.textContent = "Кратность в коробе должна быть целым числом";
     return;
+  }
+  const barcodeSeen = new Set();
+  for (const code of barcodes) {
+    if (barcodeSeen.has(code)) {
+      if (info) info.textContent = `Дублируется ШК: ${code}`;
+      return;
+    }
+    barcodeSeen.add(code);
   }
   if (productCategory && !_productCategoryNames().includes(productCategory)) {
     if (info) info.textContent = "Выберите категорию из списка";
@@ -13028,6 +13086,7 @@ async function saveProduct() {
   fd.append("box_qty", boxQty);
   fd.append("product_category", productCategory);
   fd.append("skip_kiz_gtin_check", skipKizGtinCheck ? "1" : "0");
+  fd.append("barcodes", JSON.stringify(barcodes));
   if (photoFile) fd.append("photo", photoFile);
   try {
     const url = editId ? `/api/products/${editId}` : "/api/products";
