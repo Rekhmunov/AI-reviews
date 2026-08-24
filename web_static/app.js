@@ -18599,7 +18599,36 @@ function onWbFbsReturnsSearchInput() {
 }
 window.onWbFbsReturnsSearchInput = onWbFbsReturnsSearchInput;
 
-async function syncWbFbsReturnsGoods() {
+const WB_FBS_RETURNS_AUTO_SYNC_PREFIX = "wbFbsReturnsAutoSync:";
+
+function _wbFbsReturnsMskDateKey() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Moscow",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function _wbFbsReturnsAutoSyncKey(sourceId) {
+  return `${WB_FBS_RETURNS_AUTO_SYNC_PREFIX}${Number(sourceId) || 0}`;
+}
+
+function _wbFbsReturnsShouldAutoSync(sourceId) {
+  const sid = Number(sourceId || 0);
+  if (!sid) return false;
+  return localStorage.getItem(_wbFbsReturnsAutoSyncKey(sid)) !== _wbFbsReturnsMskDateKey();
+}
+
+function _wbFbsReturnsMarkAutoSynced(sourceId) {
+  const sid = Number(sourceId || 0);
+  if (!sid) return;
+  localStorage.setItem(_wbFbsReturnsAutoSyncKey(sid), _wbFbsReturnsMskDateKey());
+}
+
+async function syncWbFbsReturnsGoods(options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const isAuto = !!opts.auto;
   if (wbFbsReturnsState.syncing) return;
   const sid = _wbFbsReturnsSourceId();
   if (!sid) {
@@ -18610,7 +18639,7 @@ async function syncWbFbsReturnsGoods() {
   const syncBtn = document.getElementById("wbFbsReturnsSyncBtn");
   const syncInfo = document.getElementById("wbFbsReturnsSyncInfo");
   if (syncBtn) syncBtn.disabled = true;
-  if (syncInfo) syncInfo.textContent = "Синхронизация WB…";
+  if (syncInfo) syncInfo.textContent = isAuto ? "Автосинхронизация WB…" : "Синхронизация WB…";
   try {
     const body = { source_id: sid };
     const df = document.getElementById("wbFbsReturnsDateFrom")?.value || "";
@@ -18645,10 +18674,12 @@ async function syncWbFbsReturnsGoods() {
       : "";
     const winLabel = windows > 1 ? ` · ${windows} периода` : "";
     if (syncInfo) syncInfo.textContent = `WB: ${detail}${winLabel}`;
-    _wbFbsReturnsSetInfo(
-      `Синхронизация возвратов WB: получено ${fetched}, ${detail}${range}${winLabel}`,
-      "ok"
-    );
+    if (!isAuto) {
+      _wbFbsReturnsSetInfo(
+        `Синхронизация возвратов WB: получено ${fetched}, ${detail}${range}${winLabel}`,
+        "ok",
+      );
+    }
   } catch (err) {
     if (syncInfo) syncInfo.textContent = "";
     _wbFbsReturnsSetInfo(err?.message || String(err));
@@ -18816,6 +18847,10 @@ function openWbFbsKizRestoreModal() {
   initWbFbsReturnsColumnResizer();
   initWbFbsReturnsInfiniteScroll();
   loadWbFbsReturnsScans();
+  if (_wbFbsReturnsShouldAutoSync(sid)) {
+    _wbFbsReturnsMarkAutoSynced(sid);
+    syncWbFbsReturnsGoods({ auto: true });
+  }
   setTimeout(() => scan?.focus(), 40);
 }
 window.openWbFbsKizRestoreModal = openWbFbsKizRestoreModal;

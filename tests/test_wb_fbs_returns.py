@@ -279,6 +279,27 @@ class ReturnCatalogFieldsTests(unittest.TestCase):
         self.assertEqual(item["barcode_label_name"], "Под этикетку")
 
 
+class GoodsReturnHttpErrorTests(unittest.TestCase):
+    def test_format_retry_hint_seconds(self):
+        hint = returns._format_wb_retry_hint("1800")
+        self.assertIn("30 мин", hint)
+
+    def test_format_retry_hint_unix_timestamp_msk(self):
+        # 2026-08-25 00:47:17 UTC = 03:47 MSK
+        hint = returns._format_wb_retry_hint("1787618837")
+        self.assertIn("МСК", hint)
+        self.assertIn("03:47", hint)
+
+    def test_format_goods_return_http_error_429(self):
+        err = returns.format_wb_goods_return_http_error(
+            code=429,
+            body='{"status":429}',
+            retry_after="900",
+        )
+        self.assertIn("Лимит WB", str(err))
+        self.assertIn("15 мин", str(err))
+
+
 class ListReturnScansTests(unittest.TestCase):
     def test_return_scans_search_sql_empty(self):
         clause, params = returns._return_scans_search_sql("")

@@ -12,6 +12,7 @@ import urllib.request
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
 from . import wb_fbs as wb
 from . import wb_fbs_kiz_restore as kiz_restore
@@ -118,6 +119,7 @@ def ensure_wb_fbs_returns_tables(repo: ReviewRepository) -> None:
 GOODS_RETURN_MAX_WINDOW_DAYS = 31
 GOODS_RETURN_DEFAULT_TOTAL_DAYS = 90
 GOODS_RETURN_CHUNK_DAYS = 30
+MSK = ZoneInfo("Europe/Moscow")
 
 
 def _digits_only(value: object) -> str:
@@ -159,6 +161,77 @@ def iter_goods_return_windows(
         cur = win_start - timedelta(days=1)
     windows.reverse()
     return windows
+
+
+def _http_header_get(headers: Any, *names: str) -> str:
+    if headers is None:
+        return ""
+    for name in names:
+        try:
+            val = headers.get(name)
+        except Exception:
+            val = None
+        if val is None and hasattr(headers, "get"):
+            try:
+                val = headers.get(name.lower())
+            except Exception:
+                val = None
+        if val is not None and str(val).strip():
+            return str(val).strip()
+    return ""
+
+
+def _format_wb_retry_hint(retry_after: str) -> str:
+    retry = str(retry_after or "").strip()
+    if not retry:
+        return ""
+    if retry.isdigit():
+        secs = int(retry)
+        if secs > 1_700_000_000:
+            dt = datetime.fromtimestamp(secs, tz=UTC).astimezone(MSK)
+            return f" Повторите после {dt.strftime('%H:%M')} МСК ({dt.strftime('%d.%m.%Y')})."
+        if secs >= 3600:
+            hours = secs // 3600
+            mins = (secs % 3600 + 59) // 60
+            if mins and hours < 24:
+                return f" Повторите примерно через {hours} ч {mins} мин."
+            return f" Повторите примерно через {hours} ч."
+        if secs >= 60:
+            return f" Повторите примерно через {(secs + 59) // 60} мин."
+        if secs > 0:
+            return f" Повторите примерно через {secs} сек."
+        return ""
+    try:
+        dt = datetime.fromisoformat(retry.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        msk = dt.astimezone(MSK)
+        return f" Повторите после {msk.strftime('%H:%M')} МСК ({msk.strftime('%d.%m.%Y')})."
+    except Exception:
+        return f" Повторите после: {retry}."
+
+
+def format_wb_goods_return_http_error(
+    *,
+    code: int,
+    body: str = "",
+    retry_after: str = "",
+    reason: str = "",
+) -> RuntimeError:
+    """Human-readable WB Analytics goods-return errors (esp. 429 rate limit)."""
+    if int(code) == 429:
+        msg = (
+            "Лимит WB на отчёт по возвратам: слишком много запросов к Analytics API. "
+            "Не нажимайте «Синхр. WB» часто — один ключ общий для всех операций FBS."
+        )
+        hint = _format_wb_retry_hint(retry_after)
+        if hint:
+            msg += hint
+        return RuntimeError(msg)
+    detail = (body or reason or "").strip()
+    if detail:
+        return RuntimeError(f"WB goods-return HTTP {code}: {detail[:500]}")
+    return RuntimeError(f"WB goods-return HTTP {code}")
 
 
 def _goods_return_values_from_row(
@@ -435,7 +508,19 @@ def fetch_goods_return_report(
             err = exc.read().decode("utf-8", errors="replace")[:500]
         except Exception:
             pass
-        raise RuntimeError(f"WB goods-return HTTP {exc.code}: {err or exc.reason}") from exc
+        retry_after = _http_header_get(
+            getattr(exc, "headers", None),
+            "X-RateLimit-Retry",
+            "x-ratelimit-retry",
+            "Retry-After",
+            "retry-after",
+        )
+        raise format_wb_goods_return_http_error(
+            code=int(exc.code),
+            body=err,
+            retry_after=retry_after,
+            reason=str(exc.reason or ""),
+        ) from exc
     if not payload:
         return []
     parsed = json.loads(payload.decode("utf-8"))
