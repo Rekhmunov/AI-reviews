@@ -4895,6 +4895,147 @@ body.sst-col-resizing * {
   min-height: 1.2em;
 }
 
+.product-fill-barcodes-modal {
+  width: min(720px, calc(100vw - 32px));
+  max-height: min(88vh, 880px);
+  display: flex;
+  flex-direction: column;
+}
+
+.product-fill-barcodes-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 24px 0;
+}
+
+.product-fill-barcodes-modal-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.product-fill-barcodes-modal-lead {
+  margin: 12px 24px 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #64748b;
+}
+
+.product-fill-barcodes-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 24px 12px;
+}
+
+.product-fill-barcodes-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #334155;
+  cursor: pointer;
+  user-select: none;
+}
+
+.product-fill-barcodes-search {
+  flex: 1 1 220px;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.product-fill-barcodes-list {
+  flex: 1;
+  min-height: 120px;
+  max-height: 420px;
+  overflow: auto;
+  border-top: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.product-fill-barcodes-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 24px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.product-fill-barcodes-row:last-child {
+  border-bottom: none;
+}
+
+.product-fill-barcodes-row.is-disabled {
+  opacity: 0.55;
+}
+
+.product-fill-barcodes-row input[type="checkbox"] {
+  margin-top: 4px;
+  flex-shrink: 0;
+}
+
+.product-fill-barcodes-meta {
+  min-width: 0;
+  flex: 1;
+}
+
+.product-fill-barcodes-name {
+  font-size: 15px;
+  font-weight: 500;
+  color: #0f172a;
+  line-height: 1.35;
+}
+
+.product-fill-barcodes-sub {
+  font-size: 13px;
+  color: #64748b;
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.product-fill-barcodes-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.product-fill-barcodes-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.product-fill-barcodes-tag.is-new {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.product-fill-barcodes-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px 24px;
+}
+
+.product-fill-barcodes-modal-info {
+  padding: 0 24px 16px;
+  min-height: 1.2em;
+  color: #64748b;
+}
+
 .product-form-field {
   display: flex;
   flex-direction: column;

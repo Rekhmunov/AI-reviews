@@ -60,6 +60,19 @@ def _normalize_product_barcodes(raw: object) -> list[str]:
     return out
 
 
+def _catalog_fbs_barcodes_for_product(
+    product: Mapping[str, Any], fbs_barcodes: list[str]
+) -> list[str]:
+    """ШК for catalog from FBS orders (WB order.skus), excluding seller article."""
+    article = str(product.get("supplier_article") or "").strip()
+    out: list[str] = []
+    for b in fbs_barcodes:
+        text = str(b or "").strip()
+        if text and text != article and text not in out:
+            out.append(text)
+    return out
+
+
 def _normalize_subgroup_name(value: str) -> str:
     return " ".join(str(value or "").strip().lower().split())
 
@@ -12372,6 +12385,87 @@ class ReviewRepository:
                     if b not in bucket:
                         bucket.append(b)
         return out
+
+    def set_product_barcodes(
+        self, *, user_id: int, product_id: int, barcodes: list[str]
+    ) -> bool:
+        now = _utc_now()
+        barcodes_json = json.dumps(
+            _normalize_product_barcodes(barcodes), ensure_ascii=False
+        )
+        with self._connect() as conn:
+            result = conn.execute(
+                self._sql(
+                    "UPDATE product_photos SET barcodes_json=?, updated_at=? "
+                    "WHERE user_id=? AND id=?"
+                ),
+                (barcodes_json, now, user_id, int(product_id)),
+            )
+        return bool(result.rowcount)
+
+    def get_product_fbs_barcode_fill_preview(
+        self, *, user_id: int
+    ) -> list[dict[str, Any]]:
+        """Preview catalog ШК fill from local WB FBS orders (skus_json)."""
+        fbs_map = self.get_wb_fbs_barcodes_by_product_id(user_id=user_id)
+        products = self.list_product_photos(user_id=user_id)
+        out: list[dict[str, Any]] = []
+        for p in products:
+            pid = int(p.get("id") or 0)
+            if pid <= 0:
+                continue
+            current = list(p.get("barcodes") or [])
+            fbs_derived = _catalog_fbs_barcodes_for_product(
+                p, fbs_map.get(pid) or []
+            )
+            merged = _normalize_product_barcodes(current + fbs_derived)
+            new_codes = [b for b in merged if b not in current]
+            out.append(
+                {
+                    "id": pid,
+                    "name": str(p.get("name") or ""),
+                    "supplier_article": str(p.get("supplier_article") or ""),
+                    "wb_nmid": str(p.get("wb_nmid") or ""),
+                    "current_barcodes": current,
+                    "fbs_barcodes": fbs_derived,
+                    "new_barcodes": new_codes,
+                    "merged_barcodes": merged,
+                    "has_fbs": bool(fbs_derived),
+                    "has_new": bool(new_codes),
+                }
+            )
+        return out
+
+    def fill_product_barcodes_from_fbs(
+        self, *, user_id: int, product_ids: list[int]
+    ) -> dict[str, Any]:
+        """Merge FBS-derived ШК into selected catalog products."""
+        wanted = {int(x) for x in product_ids if int(x) > 0}
+        if not wanted:
+            return {"updated": 0, "items": []}
+        preview = {
+            int(item["id"]): item
+            for item in self.get_product_fbs_barcode_fill_preview(user_id=user_id)
+        }
+        updated_items: list[dict[str, Any]] = []
+        for pid in sorted(wanted):
+            item = preview.get(pid)
+            if not item or not item.get("has_new"):
+                continue
+            if self.set_product_barcodes(
+                user_id=user_id,
+                product_id=pid,
+                barcodes=list(item.get("merged_barcodes") or []),
+            ):
+                updated_items.append(
+                    {
+                        "id": pid,
+                        "name": item.get("name") or "",
+                        "barcodes": list(item.get("merged_barcodes") or []),
+                        "added": list(item.get("new_barcodes") or []),
+                    }
+                )
+        return {"updated": len(updated_items), "items": updated_items}
 
     def count_supply_stock_movements(
         self, *, user_id: int, production_id: int

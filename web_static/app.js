@@ -12867,6 +12867,187 @@ async function saveProductCategoriesModal() {
 }
 window.saveProductCategoriesModal = saveProductCategoriesModal;
 
+// ── Fill product barcodes from WB FBS (skus_json) ─────────────────────────
+let _productFillBarcodesPreview = [];
+const _productFillBarcodesSelected = new Set();
+
+async function openProductFillBarcodesModal() {
+  const modal = document.getElementById("productFillBarcodesModal");
+  const list = document.getElementById("productFillBarcodesList");
+  const info = document.getElementById("productFillBarcodesModalInfo");
+  const search = document.getElementById("productFillBarcodesSearch");
+  const selectAll = document.getElementById("productFillBarcodesSelectAll");
+  if (!modal) return;
+  _productFillBarcodesSelected.clear();
+  if (search) search.value = "";
+  if (selectAll) selectAll.checked = false;
+  if (info) info.textContent = "Загрузка…";
+  modal.classList.remove("hidden");
+  if (list) list.innerHTML = `<div class="product-fill-barcodes-empty">Загрузка…</div>`;
+  try {
+    const res = await fetch("/api/products/fbs-barcodes-preview");
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Ошибка загрузки");
+    _productFillBarcodesPreview = Array.isArray(data.items) ? data.items : [];
+    for (const item of _productFillBarcodesPreview) {
+      if (item?.has_new) _productFillBarcodesSelected.add(Number(item.id));
+    }
+    renderProductFillBarcodesList();
+    _syncProductFillBarcodesSelectAll();
+    if (info) info.textContent = "";
+  } catch (e) {
+    if (list) {
+      list.innerHTML = `<div class="product-fill-barcodes-empty" style="color:#b91c1c;padding:16px 24px">${esc(String(e.message || e))}</div>`;
+    }
+    if (info) info.textContent = "";
+  }
+}
+window.openProductFillBarcodesModal = openProductFillBarcodesModal;
+
+function closeProductFillBarcodesModal() {
+  document.getElementById("productFillBarcodesModal")?.classList.add("hidden");
+}
+window.closeProductFillBarcodesModal = closeProductFillBarcodesModal;
+
+function _productFillBarcodesSearchNorm(raw) {
+  return String(raw || "").trim().toLowerCase();
+}
+
+function renderProductFillBarcodesList() {
+  const list = document.getElementById("productFillBarcodesList");
+  if (!list) return;
+  const q = _productFillBarcodesSearchNorm(
+    document.getElementById("productFillBarcodesSearch")?.value || ""
+  );
+  const rows = _productFillBarcodesPreview.filter((item) => {
+    if (!q) return true;
+    const blob = [
+      item?.name,
+      item?.supplier_article,
+      item?.wb_nmid,
+      ...(Array.isArray(item?.current_barcodes) ? item.current_barcodes : []),
+      ...(Array.isArray(item?.fbs_barcodes) ? item.fbs_barcodes : []),
+      ...(Array.isArray(item?.new_barcodes) ? item.new_barcodes : []),
+    ].map((x) => String(x || "")).join(" ").toLowerCase();
+    return blob.includes(q);
+  });
+  if (!rows.length) {
+    list.innerHTML = `<div class="product-fill-barcodes-empty" style="padding:16px 24px;color:#94a3b8">Нет товаров${q ? " по запросу" : ""}</div>`;
+    return;
+  }
+  list.innerHTML = rows.map((item) => {
+    const id = Number(item.id);
+    const canFill = !!item.has_new;
+    const checked = _productFillBarcodesSelected.has(id);
+    const article = String(item.supplier_article || "").trim();
+    const wb = String(item.wb_nmid || "").trim();
+    const metaParts = [];
+    if (article) metaParts.push(`Арт. ${article}`);
+    if (wb) metaParts.push(`WB ${wb}`);
+    const current = Array.isArray(item.current_barcodes) ? item.current_barcodes : [];
+    const fbs = Array.isArray(item.fbs_barcodes) ? item.fbs_barcodes : [];
+    const added = Array.isArray(item.new_barcodes) ? item.new_barcodes : [];
+    let statusText = "Нет новых ШК в FBS";
+    if (!item.has_fbs) statusText = "Нет ШК в заказах FBS";
+    else if (canFill) statusText = `Добавится: ${added.join(", ")}`;
+    const tags = [];
+    for (const b of current) {
+      tags.push(`<span class="product-fill-barcodes-tag">${esc(b)}</span>`);
+    }
+    for (const b of added) {
+      tags.push(`<span class="product-fill-barcodes-tag is-new">+ ${esc(b)}</span>`);
+    }
+    if (!current.length && !added.length && fbs.length) {
+      for (const b of fbs) {
+        tags.push(`<span class="product-fill-barcodes-tag">${esc(b)}</span>`);
+      }
+    }
+    return `<label class="product-fill-barcodes-row${canFill ? "" : " is-disabled"}">
+      <input type="checkbox" ${canFill ? "" : "disabled"} ${checked ? "checked" : ""}
+             onchange="onProductFillBarcodesToggle(${id}, this.checked)" />
+      <div class="product-fill-barcodes-meta">
+        <div class="product-fill-barcodes-name">${esc(item.name || "—")}</div>
+        <div class="product-fill-barcodes-sub">${esc(metaParts.join(" · ") || "—")} · ${esc(statusText)}</div>
+        ${tags.length ? `<div class="product-fill-barcodes-tags">${tags.join("")}</div>` : ""}
+      </div>
+    </label>`;
+  }).join("");
+}
+window.renderProductFillBarcodesList = renderProductFillBarcodesList;
+
+function onProductFillBarcodesToggle(id, checked) {
+  const pid = Number(id);
+  if (!Number.isFinite(pid) || pid <= 0) return;
+  if (checked) _productFillBarcodesSelected.add(pid);
+  else _productFillBarcodesSelected.delete(pid);
+  _syncProductFillBarcodesSelectAll();
+}
+window.onProductFillBarcodesToggle = onProductFillBarcodesToggle;
+
+function _syncProductFillBarcodesSelectAll() {
+  const selectAll = document.getElementById("productFillBarcodesSelectAll");
+  if (!selectAll) return;
+  const fillable = _productFillBarcodesPreview.filter((x) => x?.has_new);
+  if (!fillable.length) {
+    selectAll.checked = false;
+    selectAll.indeterminate = false;
+    return;
+  }
+  const selectedFillable = fillable.filter((x) => _productFillBarcodesSelected.has(Number(x.id))).length;
+  selectAll.checked = selectedFillable === fillable.length;
+  selectAll.indeterminate = selectedFillable > 0 && selectedFillable < fillable.length;
+}
+
+function toggleProductFillBarcodesSelectAll(checked) {
+  _productFillBarcodesSelected.clear();
+  if (checked) {
+    for (const item of _productFillBarcodesPreview) {
+      if (item?.has_new) _productFillBarcodesSelected.add(Number(item.id));
+    }
+  }
+  renderProductFillBarcodesList();
+  _syncProductFillBarcodesSelectAll();
+}
+window.toggleProductFillBarcodesSelectAll = toggleProductFillBarcodesSelectAll;
+
+async function saveProductFillBarcodesModal() {
+  const info = document.getElementById("productFillBarcodesModalInfo");
+  const btn = document.getElementById("productFillBarcodesSaveBtn");
+  const ids = Array.from(_productFillBarcodesSelected).filter((id) => {
+    const item = _productFillBarcodesPreview.find((x) => Number(x.id) === Number(id));
+    return item?.has_new;
+  });
+  if (!ids.length) {
+    if (info) info.textContent = "Выберите товары с новыми ШК";
+    return;
+  }
+  if (btn) btn.disabled = true;
+  if (info) info.textContent = "Заполнение…";
+  try {
+    const res = await fetch("/api/products/fill-barcodes-from-fbs", {
+      method: "POST",
+      headers: withCsrfHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ product_ids: ids }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Ошибка сохранения");
+    const updated = Number(data.updated || 0);
+    closeProductFillBarcodesModal();
+    await loadProducts();
+    const productsInfo = document.getElementById("productsInfo");
+    if (productsInfo) {
+      productsInfo.textContent = updated
+        ? `ШК заполнены для ${updated} товар(ов)`
+        : "Нет новых ШК для выбранных товаров";
+    }
+  } catch (e) {
+    if (info) info.textContent = e.message || "Ошибка сохранения";
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+window.saveProductFillBarcodesModal = saveProductFillBarcodesModal;
+
 // ── Products table column resizer ────────────────────────────────────────
 const PRODUCTS_COL_WIDTHS_KEY = "products_col_widths_v4";
 // photo, name, seller, wb, ozon, ym, box qty, category, barcodes, actions
