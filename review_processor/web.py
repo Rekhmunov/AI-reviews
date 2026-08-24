@@ -10852,7 +10852,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         date_from = str(body.get("date_from") or "").strip()
         date_to = str(body.get("date_to") or "").strip()
         if not date_from or not date_to:
-            date_from, date_to = returns_mod.default_sync_date_range(31)
+            date_from, date_to = returns_mod.default_sync_date_range(
+                returns_mod.GOODS_RETURN_DEFAULT_TOTAL_DAYS
+            )
         api_key = get_wb_analytics_api_key(repository, user_id=owner_id)
         if not api_key:
             raise HTTPException(

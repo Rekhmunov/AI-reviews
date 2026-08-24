@@ -4,9 +4,59 @@ from __future__ import annotations
 
 import json
 import unittest
+from datetime import date
 from unittest.mock import MagicMock, patch
 
 from review_processor import wb_fbs_returns as returns
+
+
+class GoodsReturnWindowTests(unittest.TestCase):
+    def test_iter_goods_return_windows_splits_90_days(self):
+        windows = returns.iter_goods_return_windows("2026-01-01", "2026-03-31")
+        self.assertEqual(len(windows), 3)
+        self.assertEqual(windows[0][0], "2026-01-01")
+        self.assertEqual(windows[-1][1], "2026-03-31")
+        for win_from, win_to in windows:
+            span = (
+                date.fromisoformat(win_to) - date.fromisoformat(win_from)
+            ).days + 1
+            self.assertLessEqual(span, returns.GOODS_RETURN_MAX_WINDOW_DAYS)
+
+    def test_iter_goods_return_windows_single_month(self):
+        windows = returns.iter_goods_return_windows("2026-08-01", "2026-08-20")
+        self.assertEqual(windows, [("2026-08-01", "2026-08-20")])
+
+
+class GoodsReturnUpsertTests(unittest.TestCase):
+    def test_upsert_skips_unchanged_srid(self):
+        repo = MagicMock()
+        repo._sql = lambda sql: sql
+        repo._row_to_dict = lambda row: dict(row)
+
+        class _Result:
+            def __init__(self, payload):
+                self._payload = payload
+
+            def fetchone(self):
+                return self._payload[0] if self._payload else None
+
+        raw = json.dumps({"orderId": 1, "srid": "s1", "status": "ok"})
+        values = (1, 2, 1, "st", "", "", None, "s1", "ok", "", "", "", "", raw, "now")
+        conn = MagicMock()
+        conn.execute = MagicMock(return_value=_Result([{"raw_json": raw}]))
+        outcome = returns._upsert_goods_return_row(
+            conn,
+            repo,
+            user_id=1,
+            source_id=2,
+            values=values,
+            raw_json=raw,
+            srid="s1",
+            order_id=1,
+            sticker_id="st",
+        )
+        self.assertEqual(outcome, "unchanged")
+        self.assertEqual(conn.execute.call_count, 1)
 
 
 class GoodsReturnMatchTests(unittest.TestCase):

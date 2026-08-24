@@ -100,13 +100,23 @@ def ensure_wb_fbs_returns_tables(repo: ReviewRepository) -> None:
                 "ON wb_fbs_return_scans(user_id, source_id, scanned_at DESC)"
             )
         )
-        conn.execute(
-            repo._sql(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_wb_fbs_return_scans_return_dedup "
-                "ON wb_fbs_return_scans(user_id, source_id, return_sticker_id) "
-                "WHERE scan_type = 'return_sticker' AND return_sticker_id <> ''"
+        try:
+            conn.execute(
+                repo._sql(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_wb_fbs_return_scans_return_dedup "
+                    "ON wb_fbs_return_scans(user_id, source_id, return_sticker_id) "
+                    "WHERE scan_type = 'return_sticker' AND return_sticker_id <> ''"
+                )
             )
-        )
+        except Exception as exc:
+            msg = str(exc).lower()
+            if "already exists" not in msg and "duplicate" not in msg:
+                raise
+
+
+GOODS_RETURN_MAX_WINDOW_DAYS = 31
+GOODS_RETURN_DEFAULT_TOTAL_DAYS = 90
+GOODS_RETURN_CHUNK_DAYS = 30
 
 
 def _digits_only(value: object) -> str:
@@ -122,6 +132,226 @@ def _parse_iso_date(value: object) -> str:
     if not text:
         return ""
     return text[:10] if len(text) >= 10 else text
+
+
+def _parse_sync_date(value: str) -> date:
+    return date.fromisoformat(_parse_iso_date(value))
+
+
+def iter_goods_return_windows(
+    date_from: str,
+    date_to: str,
+    *,
+    chunk_days: int = GOODS_RETURN_CHUNK_DAYS,
+) -> list[tuple[str, str]]:
+    """Split a range into non-overlapping WB windows (each ≤ 31 days)."""
+    start = _parse_sync_date(date_from)
+    end = _parse_sync_date(date_to)
+    if end < start:
+        start, end = end, start
+    max_chunk = min(max(1, int(chunk_days)), GOODS_RETURN_MAX_WINDOW_DAYS)
+    windows: list[tuple[str, str]] = []
+    cur = end
+    while cur >= start:
+        win_start = max(start, cur - timedelta(days=max_chunk - 1))
+        windows.append((win_start.isoformat(), cur.isoformat()))
+        cur = win_start - timedelta(days=1)
+    windows.reverse()
+    return windows
+
+
+def _goods_return_values_from_row(
+    row: dict[str, Any],
+    *,
+    user_id: int,
+    source_id: int,
+    synced_at: str,
+) -> tuple[tuple[Any, ...], str, str, int, str] | None:
+    try:
+        order_id = int(row.get("orderId") or 0)
+    except (TypeError, ValueError):
+        order_id = 0
+    sticker_id = str(row.get("stickerId") or "").strip()
+    srid = str(row.get("srid") or "").strip()
+    if not srid and not sticker_id and order_id <= 0:
+        return None
+    barcode = str(row.get("barcode") or "").strip()
+    shk_id = str(row.get("shkId") or "").strip()
+    try:
+        nm_id = int(row.get("nmId") or 0) or None
+    except (TypeError, ValueError):
+        nm_id = None
+    raw_json = json.dumps(row, ensure_ascii=False)
+    status = str(row.get("status") or "").strip()
+    reason = str(row.get("reason") or "").strip()
+    ready_dt = str(row.get("readyToReturnDt") or "").strip()
+    completed_dt = str(row.get("completedDt") or "").strip()
+    order_dt = str(row.get("orderDt") or "").strip()
+    values = (
+        user_id,
+        source_id,
+        order_id,
+        sticker_id,
+        barcode,
+        shk_id,
+        nm_id,
+        srid,
+        status,
+        reason,
+        ready_dt,
+        completed_dt,
+        order_dt,
+        raw_json,
+        synced_at,
+    )
+    return values, raw_json, srid, order_id, sticker_id
+
+
+def _upsert_goods_return_row(
+    conn,
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    values: tuple[Any, ...],
+    raw_json: str,
+    srid: str,
+    order_id: int,
+    sticker_id: str,
+) -> str:
+    """Insert or update one goods-return row. Returns inserted/updated/unchanged."""
+    if srid:
+        existing = conn.execute(
+            repo._sql(
+                """
+                SELECT raw_json FROM wb_fbs_goods_returns
+                WHERE user_id = ? AND source_id = ? AND srid = ?
+                LIMIT 1
+                """
+            ),
+            (user_id, source_id, srid),
+        ).fetchone()
+        if existing:
+            prev = repo._row_to_dict(existing)
+            if str(prev.get("raw_json") or "") == raw_json:
+                return "unchanged"
+            conn.execute(
+                repo._sql(
+                    """
+                    UPDATE wb_fbs_goods_returns SET
+                        wb_order_id = ?, sticker_id = ?, barcode = ?, shk_id = ?,
+                        nm_id = ?, status = ?, reason = ?,
+                        ready_to_return_dt = ?, completed_dt = ?, order_dt = ?,
+                        raw_json = ?, synced_at = ?
+                    WHERE user_id = ? AND source_id = ? AND srid = ?
+                    """
+                ),
+                (
+                    values[2],
+                    values[3],
+                    values[4],
+                    values[5],
+                    values[6],
+                    values[8],
+                    values[9],
+                    values[10],
+                    values[11],
+                    values[12],
+                    raw_json,
+                    values[14],
+                    user_id,
+                    source_id,
+                    srid,
+                ),
+            )
+            return "updated"
+        conn.execute(
+            repo._sql(
+                """
+                INSERT INTO wb_fbs_goods_returns (
+                    user_id, source_id, wb_order_id, sticker_id, barcode, shk_id,
+                    nm_id, srid, status, reason, ready_to_return_dt, completed_dt,
+                    order_dt, raw_json, synced_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """
+            ),
+            values,
+        )
+        return "inserted"
+
+    if order_id > 0 and sticker_id:
+        existing = conn.execute(
+            repo._sql(
+                """
+                SELECT raw_json FROM wb_fbs_goods_returns
+                WHERE user_id = ? AND source_id = ? AND wb_order_id = ?
+                  AND sticker_id = ? AND srid = ''
+                LIMIT 1
+                """
+            ),
+            (user_id, source_id, order_id, sticker_id),
+        ).fetchone()
+        if existing:
+            prev = repo._row_to_dict(existing)
+            if str(prev.get("raw_json") or "") == raw_json:
+                return "unchanged"
+        cur = conn.execute(
+            repo._sql(
+                """
+                UPDATE wb_fbs_goods_returns SET
+                    barcode = ?, shk_id = ?, nm_id = ?, status = ?, reason = ?,
+                    ready_to_return_dt = ?, completed_dt = ?, order_dt = ?,
+                    raw_json = ?, synced_at = ?
+                WHERE user_id = ? AND source_id = ? AND wb_order_id = ?
+                  AND sticker_id = ? AND srid = ''
+                """
+            ),
+            (
+                values[4],
+                values[5],
+                values[6],
+                values[8],
+                values[9],
+                values[10],
+                values[11],
+                values[12],
+                raw_json,
+                values[14],
+                user_id,
+                source_id,
+                order_id,
+                sticker_id,
+            ),
+        )
+        if getattr(cur, "rowcount", 0) == 0:
+            conn.execute(
+                repo._sql(
+                    """
+                    INSERT INTO wb_fbs_goods_returns (
+                        user_id, source_id, wb_order_id, sticker_id, barcode, shk_id,
+                        nm_id, srid, status, reason, ready_to_return_dt, completed_dt,
+                        order_dt, raw_json, synced_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """
+                ),
+                values,
+            )
+            return "inserted"
+        return "updated" if existing else "inserted"
+
+    conn.execute(
+        repo._sql(
+            """
+            INSERT INTO wb_fbs_goods_returns (
+                user_id, source_id, wb_order_id, sticker_id, barcode, shk_id,
+                nm_id, srid, status, reason, ready_to_return_dt, completed_dt,
+                order_dt, raw_json, synced_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """
+        ),
+        values,
+    )
+    return "inserted"
 
 
 def fetch_goods_return_report(
@@ -176,135 +406,68 @@ def sync_goods_returns(
     date_from: str,
     date_to: str,
 ) -> dict[str, Any]:
+    """Sync WB goods-return report; splits >31 days into 30-day API windows."""
     ensure_wb_fbs_returns_tables(repo)
-    rows = fetch_goods_return_report(
-        api_key=api_key, date_from=date_from, date_to=date_to
-    )
-    now = datetime.now(UTC).isoformat()
-    upserted = 0
-    with repo._connect() as conn:
-        for row in rows:
-            try:
-                order_id = int(row.get("orderId") or 0)
-            except (TypeError, ValueError):
-                order_id = 0
-            sticker_id = str(row.get("stickerId") or "").strip()
-            srid = str(row.get("srid") or "").strip()
-            if not srid and not sticker_id and order_id <= 0:
-                continue
-            barcode = str(row.get("barcode") or "").strip()
-            shk_id = str(row.get("shkId") or "").strip()
-            try:
-                nm_id = int(row.get("nmId") or 0) or None
-            except (TypeError, ValueError):
-                nm_id = None
-            raw_json = json.dumps(row, ensure_ascii=False)
-            status = str(row.get("status") or "").strip()
-            reason = str(row.get("reason") or "").strip()
-            ready_dt = str(row.get("readyToReturnDt") or "").strip()
-            completed_dt = str(row.get("completedDt") or "").strip()
-            order_dt = str(row.get("orderDt") or "").strip()
-            values = (
-                user_id,
-                source_id,
-                order_id,
-                sticker_id,
-                barcode,
-                shk_id,
-                nm_id,
-                srid,
-                status,
-                reason,
-                ready_dt,
-                completed_dt,
-                order_dt,
-                raw_json,
-                now,
-            )
-            if srid:
-                conn.execute(
-                    repo._sql(
-                        """
-                        INSERT INTO wb_fbs_goods_returns (
-                            user_id, source_id, wb_order_id, sticker_id, barcode, shk_id,
-                            nm_id, srid, status, reason, ready_to_return_dt, completed_dt,
-                            order_dt, raw_json, synced_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT (user_id, source_id, srid) WHERE srid <> ''
-                        DO UPDATE SET
-                            wb_order_id = EXCLUDED.wb_order_id,
-                            sticker_id = EXCLUDED.sticker_id,
-                            barcode = EXCLUDED.barcode,
-                            shk_id = EXCLUDED.shk_id,
-                            nm_id = EXCLUDED.nm_id,
-                            status = EXCLUDED.status,
-                            reason = EXCLUDED.reason,
-                            ready_to_return_dt = EXCLUDED.ready_to_return_dt,
-                            completed_dt = EXCLUDED.completed_dt,
-                            order_dt = EXCLUDED.order_dt,
-                            raw_json = EXCLUDED.raw_json,
-                            synced_at = EXCLUDED.synced_at
-                        """
-                    ),
-                    values,
+    windows = iter_goods_return_windows(date_from, date_to)
+    totals = {
+        "fetched": 0,
+        "inserted": 0,
+        "updated": 0,
+        "unchanged": 0,
+    }
+    window_stats: list[dict[str, Any]] = []
+    for win_from, win_to in windows:
+        rows = fetch_goods_return_report(
+            api_key=api_key, date_from=win_from, date_to=win_to
+        )
+        now = datetime.now(UTC).isoformat()
+        stats = {"fetched": len(rows), "inserted": 0, "updated": 0, "unchanged": 0}
+        with repo._connect() as conn:
+            for row in rows:
+                parsed = _goods_return_values_from_row(
+                    row,
+                    user_id=user_id,
+                    source_id=source_id,
+                    synced_at=now,
                 )
-            elif order_id > 0 and sticker_id:
-                cur = conn.execute(
-                    repo._sql(
-                        """
-                        UPDATE wb_fbs_goods_returns SET
-                            barcode = ?, shk_id = ?, nm_id = ?, status = ?, reason = ?,
-                            ready_to_return_dt = ?, completed_dt = ?, order_dt = ?,
-                            raw_json = ?, synced_at = ?
-                        WHERE user_id = ? AND source_id = ? AND wb_order_id = ?
-                          AND sticker_id = ? AND srid = ''
-                        """
-                    ),
-                    (
-                        barcode,
-                        shk_id,
-                        nm_id,
-                        status,
-                        reason,
-                        ready_dt,
-                        completed_dt,
-                        order_dt,
-                        raw_json,
-                        now,
-                        user_id,
-                        source_id,
-                        order_id,
-                        sticker_id,
-                    ),
+                if not parsed:
+                    continue
+                values, raw_json, srid, order_id, sticker_id = parsed
+                outcome = _upsert_goods_return_row(
+                    conn,
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    values=values,
+                    raw_json=raw_json,
+                    srid=srid,
+                    order_id=order_id,
+                    sticker_id=sticker_id,
                 )
-                if getattr(cur, "rowcount", 0) == 0:
-                    conn.execute(
-                        repo._sql(
-                            """
-                            INSERT INTO wb_fbs_goods_returns (
-                                user_id, source_id, wb_order_id, sticker_id, barcode, shk_id,
-                                nm_id, srid, status, reason, ready_to_return_dt, completed_dt,
-                                order_dt, raw_json, synced_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            """
-                        ),
-                        values,
-                    )
-            else:
-                conn.execute(
-                    repo._sql(
-                        """
-                        INSERT INTO wb_fbs_goods_returns (
-                            user_id, source_id, wb_order_id, sticker_id, barcode, shk_id,
-                            nm_id, srid, status, reason, ready_to_return_dt, completed_dt,
-                            order_dt, raw_json, synced_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """
-                    ),
-                    values,
-                )
-            upserted += 1
-    return {"ok": True, "synced": upserted, "date_from": date_from, "date_to": date_to}
+                stats[outcome] += 1
+        for key in ("fetched", "inserted", "updated", "unchanged"):
+            totals[key] += stats[key]
+        window_stats.append(
+            {
+                "date_from": win_from,
+                "date_to": win_to,
+                **stats,
+            }
+        )
+    synced = totals["inserted"] + totals["updated"]
+    overall_from = windows[0][0] if windows else _parse_iso_date(date_from)
+    overall_to = windows[-1][1] if windows else _parse_iso_date(date_to)
+    return {
+        "ok": True,
+        "synced": synced,
+        "inserted": totals["inserted"],
+        "updated": totals["updated"],
+        "unchanged": totals["unchanged"],
+        "fetched": totals["fetched"],
+        "windows": window_stats,
+        "date_from": overall_from,
+        "date_to": overall_to,
+    }
 
 
 def _goods_return_rows(repo: ReviewRepository, *, user_id: int, source_id: int) -> list[dict[str, Any]]:
@@ -984,7 +1147,9 @@ def export_return_scans_csv(items: list[dict[str, Any]]) -> str:
     return "\ufeff" + buf.getvalue()
 
 
-def default_sync_date_range(days: int = 31) -> tuple[str, str]:
+def default_sync_date_range(
+    days: int = GOODS_RETURN_DEFAULT_TOTAL_DAYS,
+) -> tuple[str, str]:
     end = date.today()
     start = end - timedelta(days=max(1, days) - 1)
     return start.isoformat(), end.isoformat()
@@ -999,7 +1164,7 @@ def sync_goods_returns_default(
     api_key = get_wb_analytics_api_key(repo, user_id=user_id)
     if not api_key:
         return {"ok": False, "error": "no_analytics_key", "message": "Не задан WB Analytics API ключ"}
-    date_from, date_to = default_sync_date_range(31)
+    date_from, date_to = default_sync_date_range(GOODS_RETURN_DEFAULT_TOTAL_DAYS)
     return sync_goods_returns(
         repo,
         user_id=user_id,

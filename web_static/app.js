@@ -18453,8 +18453,25 @@ async function syncWbFbsReturnsGoods() {
       throw new Error(detail);
     }
     const synced = Number(payload.synced || 0);
-    if (syncInfo) syncInfo.textContent = `WB: ${synced} записей`;
-    _wbFbsReturnsSetInfo(`Синхронизировано возвратов WB: ${synced}`, "ok");
+    const inserted = Number(payload.inserted || 0);
+    const updated = Number(payload.updated || 0);
+    const unchanged = Number(payload.unchanged || 0);
+    const fetched = Number(payload.fetched || synced);
+    const windows = Array.isArray(payload.windows) ? payload.windows.length : 0;
+    const parts = [];
+    if (inserted) parts.push(`+${inserted}`);
+    if (updated) parts.push(`обн. ${updated}`);
+    if (unchanged) parts.push(`без изм. ${unchanged}`);
+    const detail = parts.length ? parts.join(", ") : `${synced} записей`;
+    const range = payload.date_from && payload.date_to
+      ? ` · ${payload.date_from}–${payload.date_to}`
+      : "";
+    const winLabel = windows > 1 ? ` · ${windows} периода` : "";
+    if (syncInfo) syncInfo.textContent = `WB: ${detail}${winLabel}`;
+    _wbFbsReturnsSetInfo(
+      `Синхронизация возвратов WB: получено ${fetched}, ${detail}${range}${winLabel}`,
+      "ok"
+    );
   } catch (err) {
     if (syncInfo) syncInfo.textContent = "";
     _wbFbsReturnsSetInfo(err?.message || String(err));
