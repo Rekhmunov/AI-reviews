@@ -63,16 +63,13 @@ def _normalize_product_barcodes(raw: object) -> list[str]:
 def _catalog_fbs_barcodes_for_product(
     product: Mapping[str, Any], fbs_barcodes: list[str]
 ) -> list[str]:
-    """ШК for catalog from FBS orders — same rules as Остатки / поставки."""
+    """ШК for catalog from FBS orders (WB order.skus), excluding seller article."""
     article = str(product.get("supplier_article") or "").strip()
     out: list[str] = []
     for b in fbs_barcodes:
         text = str(b or "").strip()
         if text and text != article and text not in out:
             out.append(text)
-    ozon_sku = str(product.get("ozon_sku") or "").strip()
-    if ozon_sku and ozon_sku != article and ozon_sku not in out:
-        out.append(ozon_sku)
     return out
 
 

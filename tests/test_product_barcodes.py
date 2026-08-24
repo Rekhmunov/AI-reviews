@@ -100,12 +100,19 @@ class ProductBarcodesRepositoryTests(unittest.TestCase):
 
 
 class ProductFillBarcodesFromFbsTests(unittest.TestCase):
-    def test_catalog_fbs_barcodes_excludes_seller_article(self):
+    def test_catalog_fbs_barcodes_excludes_seller_article_and_ozon(self):
         product = {"supplier_article": "ART-1", "ozon_sku": "OZ-1"}
         got = _catalog_fbs_barcodes_for_product(
-            product, ["4601234567890", "ART-1", "4601234567890"]
+            product, ["4601234567890", "ART-1", "4609876543210"]
         )
-        self.assertEqual(got, ["4601234567890", "OZ-1"])
+        self.assertEqual(got, ["4601234567890", "4609876543210"])
+
+    def test_catalog_fbs_barcodes_keeps_all_distinct_from_fbs(self):
+        product = {"supplier_article": "ART-1", "ozon_sku": ""}
+        got = _catalog_fbs_barcodes_for_product(
+            product, ["111", "222", "111", "333"]
+        )
+        self.assertEqual(got, ["111", "222", "333"])
 
     def test_fill_preview_merges_without_duplicates(self):
         repo = ReviewRepository.__new__(ReviewRepository)
