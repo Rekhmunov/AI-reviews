@@ -1336,6 +1336,7 @@ class ReviewRepository:
                         or v.get("wb_fbs")
                         or v.get("wb_fbs_tsd")
                         or v.get("ozon")
+                        or v.get("ozon_fbs")
                     )
                 )
                 for v in sources.values()

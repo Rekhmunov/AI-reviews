@@ -120,7 +120,7 @@ const UI_REFRESH_MS = 60000;        // refresh chat list from DB every 60s (afte
 const CHANNEL_ICONS = { "Отзывы": "⭐", "Вопросы": "❓", "Чаты": "💬" };
 const ACTIVE_SECTION_STORAGE_KEY = "feedpilot_active_section";
 const ACTIVE_SETTINGS_TAB_STORAGE_KEY = "feedpilot_active_settings_tab";
-const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "stock-settings", "stock-work", "supplies-wb", "supplies-wb-fbs", "supplies-ozon", "supplies-balances", "supplies-poa", "supplies-certificates", "supplies-settings", "supply-planning", "salary", "salary-settings", "team", "profile"];
+const SECTION_IDS = ["reviews", "conversations", "chats", "analytics", "settings", "stock-settings", "stock-work", "supplies-wb", "supplies-wb-fbs", "supplies-ozon", "supplies-ozon-fbs", "supplies-balances", "supplies-poa", "supplies-certificates", "supplies-settings", "supply-planning", "salary", "salary-settings", "team", "profile"];
 const SETTINGS_TAB_IDS = ["sources", "rules", "templates", "recommendations", "products", "materials", "template-variables"];
 const APP_BOOT_HIDE_CLASS = "app-boot-hidden";
 const MOBILE_NAV_BREAKPOINT_PX = 900;
@@ -521,6 +521,7 @@ function getPermissions() {
     can_view_wb_fbs_supplies: _b("can_view_wb_fbs_supplies", false),
     can_view_wb_fbs_tsd: _b("can_view_wb_fbs_tsd", false),
     can_view_ozon_supplies: _b("can_view_ozon_supplies", _b("can_view_supplies", false)),
+    can_view_ozon_fbs_supplies: _b("can_view_ozon_fbs_supplies", false),
     can_view_feedback:  _b("can_view_feedback", true),
     can_view_reviews:   _b("can_view_reviews", true),
     can_view_questions: _b("can_view_questions", true),
@@ -561,6 +562,7 @@ function canViewSection(section) {
   if (section === "supplies-wb")  return permissions.can_view_wb_supplies || (permissions.can_view_supplies && isTenantOwner());
   if (section === "supplies-wb-fbs") return permissions.can_view_wb_fbs_supplies || (permissions.can_view_supplies && isTenantOwner());
   if (section === "supplies-ozon") return permissions.can_view_ozon_supplies || (permissions.can_view_supplies && isTenantOwner());
+  if (section === "supplies-ozon-fbs") return permissions.can_view_ozon_fbs_supplies || (permissions.can_view_supplies && isTenantOwner());
   if (section === "supplies-poa") return permissions.can_view_supplies;
   if (section === "supplies-certificates") return permissions.can_view_supplies;
   if (section === "supplies-settings") return permissions.can_view_settings || permissions.can_view_supplies;
@@ -752,6 +754,9 @@ function showSection(section, options = {}) {
   if (section === "supplies-wb-fbs") {
     initWbFbsSection();
   }
+  if (section === "supplies-ozon-fbs") {
+    initOzonFbsSection();
+  }
   if (section === "salary-settings") {
     showSalarySettingsTab("workers");
     toggleSalaryWorkerForm(false);
@@ -822,6 +827,7 @@ function sectionLabel(section) {
     "supplies-wb": "Поставки — ВБ",
     "supplies-wb-fbs": "Поставки — ВБ ФБС",
     "supplies-ozon": "Поставки — ОЗОН",
+    "supplies-ozon-fbs": "Поставки — ОЗОН ФБС",
     "supplies-balances": "Поставки — Остатки",
     "supply-planning": "Планирование поставок",
     "supplies-settings": "Поставки — Настройки",
@@ -2179,8 +2185,12 @@ function onSupplySourceMarketplaceChange() {
   const mp = document.getElementById("newSupplySourceMarketplace")?.value || "wb";
   const clientIdRow = document.getElementById("newSupplyOzonClientIdRow");
   const apiKeyPlaceholder = document.getElementById("newSupplySourceApiKey");
-  if (clientIdRow) clientIdRow.style.display = mp === "ozon" ? "" : "none";
-  if (apiKeyPlaceholder) apiKeyPlaceholder.placeholder = mp === "ozon" ? "API-ключ OZON (из личного кабинета продавца)" : "Токен WB Поставки";
+  if (clientIdRow) clientIdRow.style.display = (mp === "ozon" || mp === "ozon_fbs") ? "" : "none";
+  if (apiKeyPlaceholder) {
+    apiKeyPlaceholder.placeholder = (mp === "ozon" || mp === "ozon_fbs")
+      ? "API-ключ OZON (из личного кабинета продавца)"
+      : "Токен WB Поставки";
+  }
 }
 window.onSupplySourceMarketplaceChange = onSupplySourceMarketplaceChange;
 
@@ -2239,7 +2249,12 @@ function renderSupplySourcesTable() {
       : "—";
     const fullPreview = src.api_key_preview || "—";
     const shortPreview = fullPreview.length > 18 ? fullPreview.slice(0, 14) + "…" : fullPreview;
-    const mpLabel = (src.marketplace||"wb").toUpperCase() === "OZON" ? '<span style="color:#005bff;font-weight:600">OZON</span>' : '<span style="color:#8b4513;font-weight:600">WB</span>';
+    const mpRaw = (src.marketplace || "wb").toLowerCase();
+    const mpLabel = mpRaw === "ozon"
+      ? '<span style="color:#005bff;font-weight:600">OZON</span>'
+      : mpRaw === "ozon_fbs"
+        ? '<span style="color:#005bff;font-weight:600">OZON ФБС</span>'
+        : '<span style="color:#8b4513;font-weight:600">WB</span>';
     tr.innerHTML = `
       <td>${idx + 1}</td>
       <td>${mpLabel}</td>
@@ -2272,7 +2287,7 @@ async function createSupplySource() {
   const client_id = (cidEl?.value || "").trim();
   if (!name) { if (info) { info.textContent = "Введите название"; info.style.color = "#b91c1c"; } return; }
   if (!api_key) { if (info) { info.textContent = "Введите API-ключ"; info.style.color = "#b91c1c"; } return; }
-  if (marketplace === "ozon" && !client_id) { if (info) { info.textContent = "Введите Client-ID"; info.style.color = "#b91c1c"; } return; }
+  if ((marketplace === "ozon" || marketplace === "ozon_fbs") && !client_id) { if (info) { info.textContent = "Введите Client-ID"; info.style.color = "#b91c1c"; } return; }
   if (info) { info.textContent = "Сохранение..."; info.style.color = ""; }
   const res = await fetch("/api/supply-sources", {
     method: "POST",
@@ -11542,7 +11557,7 @@ function renderManagerSupplyPermissionsRows(supplySources, supplyPerms) {
   if (!tbody) return;
   tbody.innerHTML = "";
   if (!supplySources || !supplySources.length) {
-    tbody.innerHTML = '<tr><td colspan="8" style="color:#94a3b8;font-size:12px;text-align:center">Нет источников поставок</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="color:#94a3b8;font-size:12px;text-align:center">Нет источников поставок</td></tr>';
     return;
   }
   const sources = supplyPerms?.sources || {};
@@ -11572,6 +11587,8 @@ function renderManagerSupplyPermissionsRows(supplySources, supplyPerms) {
     const wbStyle = mp !== "wb" ? "opacity:0.2;cursor:default" : "";
     const ozonDisabled = mp !== "ozon" ? "disabled" : "";
     const ozonStyle = mp !== "ozon" ? "opacity:0.2;cursor:default" : "";
+    const ozonFbsDisabled = mp !== "ozon_fbs" ? "disabled" : "";
+    const ozonFbsStyle = mp !== "ozon_fbs" ? "opacity:0.2;cursor:default" : "";
     const settingsMerge = settingsCell ? settingsCell.replace("<td ", `<td style="${tdCt}" `) : "";
     const poaMerge = poaCell ? poaCell.replace("<td ", `<td style="${tdCt}" `) : "";
     const certsMerge = certsCell ? certsCell.replace("<td ", `<td style="${tdCt}" `) : "";
@@ -11585,6 +11602,8 @@ function renderManagerSupplyPermissionsRows(supplySources, supplyPerms) {
           ${srcPerms.wb_fbs_tsd ? "checked" : ""} ${wbDisabled} style="${wbStyle}" title="ТСД — сборка на складе" /></td>
       <td style="${tdCt}"><input type="checkbox" data-source-id="${sid}" data-col="ozon"
           ${srcPerms.ozon ? "checked" : ""} ${ozonDisabled} style="${ozonStyle}" /></td>
+      <td style="${tdCt}"><input type="checkbox" data-source-id="${sid}" data-col="ozon_fbs"
+          ${srcPerms.ozon_fbs ? "checked" : ""} ${ozonFbsDisabled} style="${ozonFbsStyle}" title="Поставки OZON ФБС" /></td>
       ${settingsMerge}${poaMerge}${certsMerge}
     `;
     tbody.appendChild(tr);
@@ -11597,7 +11616,7 @@ function collectManagerSupplyPermissionsFromModal() {
     const sid = cb.getAttribute("data-source-id");
     const col = cb.getAttribute("data-col");
     if (!sid || !col) return;
-    if (!sources[sid]) sources[sid] = { wb: false, wb_fbs: false, wb_fbs_tsd: false, ozon: false };
+    if (!sources[sid]) sources[sid] = { wb: false, wb_fbs: false, wb_fbs_tsd: false, ozon: false, ozon_fbs: false };
     sources[sid][col] = Boolean(cb.checked);
   });
   return {
@@ -11721,6 +11740,7 @@ function formatManagerPermissionsText(permissions, canSupplies, supplyPermission
     if (sv.wb_fbs) supplyParts.push("ВБ ФБС");
     if (sv.wb_fbs_tsd) supplyParts.push("ТСД");
     if (sv.ozon) supplyParts.push("ОЗОН");
+    if (sv.ozon_fbs) supplyParts.push("ОЗОН ФБС");
   }
   if (sp.can_supply_settings) supplyParts.push("Настройки");
   if (sp.can_supply_poa) supplyParts.push("Доверенности");
@@ -12155,7 +12175,7 @@ function applyManagerPermissionsSelection() {
   teamState.pendingCanSalaryProductions = salaryProductions;
   const hasAnySupply = supplyPerms.can_supply_settings || supplyPerms.can_supply_poa || supplyPerms.can_supply_certs ||
     supplyPerms.can_supply_planning || supplyPerms.can_supply_stock ||
-    Object.values(supplyPerms.sources || {}).some(s => s.wb || s.wb_fbs || s.wb_fbs_tsd || s.ozon);
+    Object.values(supplyPerms.sources || {}).some(s => s.wb || s.wb_fbs || s.wb_fbs_tsd || s.ozon || s.ozon_fbs);
   teamState.pendingCanSupplies = hasAnySupply;
   if (!permissions.length && !hasAnySupply && !canSalary && !canSalarySettings) {
     const info = document.getElementById("managerPermissionsInfo");
@@ -15390,6 +15410,11 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("section-supplies-ozon")?.classList.add("hidden");
     const navOzon = document.getElementById("nav-supplies-ozon");
     if (navOzon) navOzon.style.display = "none";
+  }
+  if (!permissions.can_view_ozon_fbs_supplies && !isTenantOwner()) {
+    document.getElementById("section-supplies-ozon-fbs")?.classList.add("hidden");
+    const navOzonFbs = document.getElementById("nav-supplies-ozon-fbs");
+    if (navOzonFbs) navOzonFbs.style.display = "none";
   }
   // Per-channel nav visibility: hide individual tabs the manager has no access to
   const channelMap = [

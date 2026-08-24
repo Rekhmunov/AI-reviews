@@ -2625,6 +2625,100 @@
         </div>
       </section>
 
+      <!-- ── Поставки: OZON FBS (seller postings; isolated from FBO) ── -->
+      <section id="section-supplies-ozon-fbs" class="hidden wb-fbs-section">
+        <div class="wb-fbs-title-row">
+          <h3 class="section-title no-margin">Поставки — ОЗОН ФБС</h3>
+          <select id="ozonFbsSourceSelect" class="wb-fbs-source-select" onchange="onOzonFbsSourceChange()" title="Источник"></select>
+        </div>
+        <div class="panel supplies-toolbar-panel wb-fbs-toolbar">
+          <div class="supplies-top-controls">
+            <div class="supplies-actions">
+              <button id="ozonFbsSyncBtn" type="button" onclick="syncOzonFbs()">Синхронизировать</button>
+              <button id="ozonFbsStopBtn" type="button" class="secondary icon-btn hidden" onclick="stopOzonFbsSync()" style="color:#b91c1c;border-color:#fca5a5" title="Остановить синхронизацию">🛑</button>
+              <button type="button" id="ozonFbsKizCirculationBtn" class="secondary ozon-fbs-stub-btn" disabled title="Скоро">Вывод КИЗ</button>
+              <button type="button" id="ozonFbsKizRestoreBtn" class="secondary ozon-fbs-stub-btn" disabled title="Скоро">Возвраты</button>
+              <button type="button" id="ozonFbsTsdBtn" class="secondary ozon-fbs-stub-btn" disabled title="Скоро">ТСД</button>
+            </div>
+            <div class="wb-fbs-toolbar-right">
+              <input id="ozonFbsSearchFilter" class="wb-fbs-search" type="search"
+                     placeholder="Поиск по отправлению, артикулу, ШК…"
+                     autocomplete="off" oninput="onOzonFbsSearchInput()" />
+            </div>
+          </div>
+          <div id="ozonFbsSyncInfo" class="wb-fbs-sync-info" hidden>
+            <div class="wb-fbs-sync-info-main">
+              <div id="ozonFbsSyncInfoText" class="wb-fbs-sync-info-text"></div>
+            </div>
+            <button type="button" id="ozonFbsSyncInfoClose" class="wb-fbs-sync-info-close"
+                    onclick="closeOzonFbsSyncInfo()" aria-label="Скрыть" title="Скрыть">✕</button>
+          </div>
+        </div>
+        <div class="wb-fbs-tabs-row">
+          <div class="wb-fbs-tabs" id="ozonFbsTabs" role="tablist">
+            <button type="button" class="wb-fbs-tab active" data-tab="awaiting_packaging" onclick="setOzonFbsTab('awaiting_packaging')">Ожидают сборки <span class="wb-fbs-tab-count" id="ozonFbsCountAwaitingPackaging">0</span></button>
+            <button type="button" class="wb-fbs-tab" data-tab="awaiting_deliver" onclick="setOzonFbsTab('awaiting_deliver')">Ожидают отгрузки <span class="wb-fbs-tab-count" id="ozonFbsCountAwaitingDeliver">0</span></button>
+            <button type="button" class="wb-fbs-tab" data-tab="delivering" onclick="setOzonFbsTab('delivering')">Доставляются <span class="wb-fbs-tab-count" id="ozonFbsCountDelivering">0</span></button>
+            <button type="button" class="wb-fbs-tab" data-tab="arbitration" onclick="setOzonFbsTab('arbitration')">Спорные <span class="wb-fbs-tab-count" id="ozonFbsCountArbitration">0</span></button>
+            <button type="button" class="wb-fbs-tab" data-tab="delivered" onclick="setOzonFbsTab('delivered')">Доставлены <span class="wb-fbs-tab-count" id="ozonFbsCountDelivered">0</span></button>
+            <button type="button" class="wb-fbs-tab" data-tab="cancelled" onclick="setOzonFbsTab('cancelled')">Отменены <span class="wb-fbs-tab-count" id="ozonFbsCountCancelled">0</span></button>
+          </div>
+        </div>
+        <div class="panel supplies-table-panel wb-fbs-table-panel">
+          <div class="supplies-table-wrap wb-fbs-table-wrap">
+            <table id="ozonFbsOrdersTable" class="supplies-main-table wb-fbs-table">
+              <colgroup id="ozonFbsColgroup">
+                <col data-col="0" class="wb-fbs-col-order" />
+                <col data-col="1" class="wb-fbs-col-product" />
+                <col data-col="2" class="wb-fbs-col-wh" />
+                <col data-fixed="1" class="wb-fbs-col-act" style="width:48px" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th data-col="0">Отправление</th>
+                  <th data-col="1">Товар</th>
+                  <th data-col="2">Склад</th>
+                  <th class="wb-fbs-th-act"></th>
+                </tr>
+              </thead>
+              <tbody id="ozonFbsOrdersTbody"></tbody>
+            </table>
+          </div>
+          <div class="supplies-footer wb-fbs-footer">
+            <span id="ozonFbsInfo" class="small supplies-total"></span>
+            <div class="supplies-pagination">
+              <button type="button" class="secondary" id="ozonFbsPrevBtn" onclick="ozonFbsChangePage(-1)">← Назад</button>
+              <span id="ozonFbsPageInfo" class="small"></span>
+              <button type="button" class="secondary" id="ozonFbsNextBtn" onclick="ozonFbsChangePage(1)">Вперёд →</button>
+              <select id="ozonFbsPageSizeSelect" class="wb-fbs-page-size" onchange="changeOzonFbsPageSize(this.value)">
+                <option value="30">30 / стр.</option>
+                <option value="50" selected>50 / стр.</option>
+                <option value="100">100 / стр.</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div id="ozonFbsDetailModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsDetailTitle"
+             onclick="if(event.target===this)closeOzonFbsDetailModal()">
+          <div class="modal-card wb-fbs-supply-detail-modal">
+            <div class="wb-fbs-sd-header">
+              <div class="wb-fbs-sd-title-row">
+                <h3 id="ozonFbsDetailTitle" class="wb-fbs-sd-title">Отправление</h3>
+                <button type="button" class="icon-btn secondary wb-fbs-sd-close" onclick="closeOzonFbsDetailModal()" aria-label="Закрыть">✕</button>
+              </div>
+              <div id="ozonFbsDetailMeta" class="wb-fbs-sd-meta"></div>
+              <div class="wb-fbs-sd-actions">
+                <button type="button" class="secondary" id="ozonFbsDetailShipBtn" onclick="ozonFbsShipCurrent()" hidden>Собрать (ship)</button>
+                <button type="button" class="secondary" id="ozonFbsDetailStickerBtn" onclick="ozonFbsPrintCurrentSticker()" hidden>Этикетка</button>
+              </div>
+            </div>
+            <div id="ozonFbsDetailBody" class="wb-fbs-sd-body small" style="padding:16px"></div>
+          </div>
+        </div>
+      </section>
+
       <!-- ── Поставки: Настройки ── -->
       <!-- ── Поставки: Сертификаты ── -->
       <section id="section-supplies-certificates" class="hidden">
@@ -3609,7 +3703,8 @@
               <div class="row">
                 <select id="newSupplySourceMarketplace" onchange="onSupplySourceMarketplaceChange()" style="height:36px">
                   <option value="wb">Wildberries (WB)</option>
-                  <option value="ozon">OZON</option>
+                  <option value="ozon">OZON (FBO)</option>
+                  <option value="ozon_fbs">OZON ФБС</option>
                 </select>
               </div>
               <div class="row">
@@ -4367,6 +4462,7 @@
                   <th>ВБ ФБС</th>
                   <th>ТСД</th>
                   <th>ОЗОН</th>
+                  <th>ОЗОН ФБС</th>
                   <th id="managerSupplySettingsHeader">Настройки</th>
                   <th id="managerSupplyPoaHeader">Доверенности</th>
                   <th>Сертификаты</th>
@@ -5025,6 +5121,7 @@
       can_view_wb_fbs_supplies: {{CAN_VIEW_WB_FBS_SUPPLIES}},
       can_view_wb_fbs_tsd: {{CAN_VIEW_WB_FBS_TSD}},
       can_view_ozon_supplies: {{CAN_VIEW_OZON_SUPPLIES}},
+      can_view_ozon_fbs_supplies: {{CAN_VIEW_OZON_FBS_SUPPLIES}},
       can_view_feedback: {{CAN_VIEW_FEEDBACK}},
       can_view_reviews: {{CAN_VIEW_REVIEWS}},
       can_view_questions: {{CAN_VIEW_QUESTIONS}},
@@ -5273,6 +5370,7 @@
     </div>
   </div>
 
+  <script src="/static/ozon_fbs.js?v=1"></script>
   <script src="/static/app.js?v=500"></script>
 </body>
 </html>

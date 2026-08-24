@@ -32,6 +32,7 @@ from .service import MarketplaceSyncError, ReviewAutomationService, _normalize_t
 from .models import ReviewInput
 from .stock_service import StockScheduler, sync_stock_source
 from . import wb_fbs as wb_fbs_mod
+from . import ozon_fbs as ozon_fbs_mod
 
 try:  # pragma: no cover - optional in sqlite-only environments
     import psycopg  # type: ignore
@@ -752,7 +753,7 @@ class ManagerSuppliesAccessRequest(BaseModel):
     can_supply_planning: bool = False
     can_supply_stock: bool = False
     stock_productions: list[str] = Field(default_factory=list)
-    supply_sources: dict = {}  # {source_id: {"wb": bool, "wb_fbs": bool, "wb_fbs_tsd": bool, "ozon": bool}}
+    supply_sources: dict = {}  # {source_id: {"wb": bool, "wb_fbs": bool, "wb_fbs_tsd": bool, "ozon": bool, "ozon_fbs": bool}}
 
 
 class FeedbackMaterialRequest(BaseModel):
@@ -4584,6 +4585,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 or any(v.get("wb_fbs") for v in _sp_sources.values())
                 or any(v.get("wb_fbs_tsd") for v in _sp_sources.values())
                 or any(v.get("ozon") for v in _sp_sources.values())
+                or any(v.get("ozon_fbs") for v in _sp_sources.values())
                 or bool(_supply_perms.get("can_supply_poa"))
                 or bool(_supply_perms.get("can_supply_settings"))
                 or bool(_supply_perms.get("can_supply_certs"))
@@ -8396,6 +8398,33 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except Exception:
             return datetime.now(UTC).date().isoformat()
 
+    def _can_view_ozon_fbs(user: dict[str, object]) -> bool:
+        """True if user may open Поставки → ОЗОН ФБС (owner or explicit ozon_fbs grant)."""
+        role = str(user.get("role") or ROLE_USER)
+        if role in ROLE_CAN_ACCESS_SETTINGS:
+            return True
+        if not bool(user.get("can_supplies")):
+            return False
+        perms = repository.get_manager_supply_permissions(manager_user_id=int(user["id"]))
+        sources = perms.get("sources") or {}
+        return any(
+            bool(v.get("ozon_fbs"))
+            for v in sources.values()
+            if isinstance(v, dict)
+        )
+
+    def _ozon_fbs_source_credentials(owner_id: int, source_id: int) -> tuple[dict[str, object], str, str]:
+        src_full = repository.get_supply_source_with_key(user_id=owner_id, source_id=source_id)
+        if not src_full:
+            raise HTTPException(status_code=400, detail="Источник не найден")
+        if not ozon_fbs_mod.is_ozon_fbs_marketplace(src_full.get("marketplace")):
+            raise HTTPException(status_code=400, detail="Источник не является OZON ФБС")
+        client_id = str(src_full.get("client_id") or "").strip()
+        api_key = str(src_full.get("api_key") or "").strip()
+        if not client_id or not api_key:
+            raise HTTPException(status_code=400, detail="У источника не задан Client-Id или Api-Key")
+        return src_full, client_id, api_key
+
     def _can_view_wb_fbs(user: dict[str, object]) -> bool:
         """True if user may open Поставки → ВБ ФБС (owner or explicit wb_fbs grant)."""
         role = str(user.get("role") or ROLE_USER)
@@ -11969,6 +11998,220 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return JSONResponse({"stickers": stickers, "box_ids": box_ids})
+
+    # ── OZON FBS endpoints (isolated from Ozon FBO and WB FBS) ───────────────
+
+    @app.get("/api/ozon-fbs/sources")
+    def list_ozon_fbs_sources(request: Request) -> list[dict[str, object]]:
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        repository._ensure_supply_tables()
+        ozon_fbs_mod.ensure_ozon_fbs_tables(repository)
+        role = str(user.get("role") or ROLE_USER)
+        allowed: set[str] | None = None
+        if role not in ROLE_CAN_ACCESS_SETTINGS:
+            perms = repository.get_manager_supply_permissions(manager_user_id=int(user["id"]))
+            allowed = {
+                str(sid)
+                for sid, sv in (perms.get("sources") or {}).items()
+                if isinstance(sv, dict) and sv.get("ozon_fbs")
+            }
+        out: list[dict[str, object]] = []
+        for s in repository.list_supply_sources(user_id=owner_id):
+            if not s.get("is_enabled"):
+                continue
+            if not ozon_fbs_mod.is_ozon_fbs_marketplace(s.get("marketplace")):
+                continue
+            sid = str(s.get("id"))
+            if allowed is not None and sid not in allowed:
+                continue
+            out.append({"id": s["id"], "name": s.get("name") or f"Источник {sid}"})
+        return out
+
+    @app.get("/api/ozon-fbs/postings")
+    def list_ozon_fbs_postings(
+        request: Request,
+        source_id: int | None = None,
+        tab: str | None = None,
+        search: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        ozon_fbs_mod.ensure_ozon_fbs_tables(repository)
+        return ozon_fbs_mod.list_postings(
+            repository,
+            user_id=owner_id,
+            source_id=source_id,
+            tab=tab or None,
+            search=search or None,
+            page=page,
+            page_size=page_size,
+        )
+
+    @app.get("/api/ozon-fbs/sync/status")
+    def get_ozon_fbs_sync_status(request: Request) -> dict[str, object]:
+        _require_user(request)
+        return ozon_fbs_mod.get_sync_state()
+
+    @app.post("/api/ozon-fbs/sync/stop")
+    def stop_ozon_fbs_sync(request: Request) -> dict[str, object]:
+        _require_user(request)
+        if ozon_fbs_mod.request_sync_stop():
+            return {"ok": True, "message": "Остановка синхронизации ОЗОН ФБС…"}
+        return {"ok": False, "message": "Синхронизация не запущена"}
+
+    @app.post("/api/ozon-fbs/sync")
+    def sync_ozon_fbs(request: Request, source_id: int | None = None) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        repository._ensure_supply_tables()
+        ozon_fbs_mod.ensure_ozon_fbs_tables(repository)
+        _ = source_id
+        jobs = ozon_fbs_mod.list_fbs_sync_jobs(repository, user_id=owner_id)
+        role = str(user.get("role") or ROLE_USER)
+        if role not in ROLE_CAN_ACCESS_SETTINGS:
+            perms = repository.get_manager_supply_permissions(manager_user_id=int(user["id"]))
+            allowed = {
+                str(sid)
+                for sid, sv in (perms.get("sources") or {}).items()
+                if isinstance(sv, dict) and sv.get("ozon_fbs")
+            }
+            jobs = [j for j in jobs if str(j.get("source_id")) in allowed]
+        if not jobs:
+            named = [
+                s
+                for s in repository.list_supply_sources(user_id=owner_id)
+                if ozon_fbs_mod.is_ozon_fbs_marketplace(s.get("marketplace"))
+                and s.get("is_enabled")
+            ]
+            if role not in ROLE_CAN_ACCESS_SETTINGS:
+                perms = repository.get_manager_supply_permissions(manager_user_id=int(user["id"]))
+                allowed = {
+                    str(sid)
+                    for sid, sv in (perms.get("sources") or {}).items()
+                    if isinstance(sv, dict) and sv.get("ozon_fbs")
+                }
+                named = [s for s in named if str(s.get("id")) in allowed]
+            if not named:
+                return {
+                    "ok": False,
+                    "message": "Нет источников OZON ФБС. Добавьте в Поставки → Настройки → Источники.",
+                }
+            return {"ok": False, "message": "У источников OZON ФБС не задан Client-Id или Api-Key"}
+        ok, message = ozon_fbs_mod.start_sync_thread(
+            repo=repository,
+            user_id=owner_id,
+            sources=jobs,
+        )
+        return {
+            "ok": ok,
+            "message": message,
+            "source_ids": [int(j["source_id"]) for j in jobs],
+            "sources_count": len(jobs),
+        }
+
+    @app.get("/api/ozon-fbs/postings/{posting_number}/detail")
+    def ozon_fbs_posting_detail(
+        request: Request,
+        posting_number: str,
+        source_id: int,
+    ) -> dict[str, object]:
+        from . import ozon_fbs_detail as oz_detail
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        row = oz_detail.get_posting_row(
+            repository,
+            user_id=owner_id,
+            source_id=int(source_id),
+            posting_number=str(posting_number),
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Отправление не найдено")
+        listed = ozon_fbs_mod.list_postings(
+            repository,
+            user_id=owner_id,
+            source_id=int(source_id),
+            tab=None,
+            search=str(posting_number),
+            page=1,
+            page_size=1,
+        )
+        items = listed.get("items") if isinstance(listed, dict) else []
+        if isinstance(items, list) and items:
+            row.update(items[0])
+        return oz_detail.posting_detail_payload(row)
+
+    @app.post("/api/ozon-fbs/postings/{posting_number}/ship")
+    def ozon_fbs_ship_posting(
+        request: Request,
+        posting_number: str,
+        source_id: int,
+    ) -> dict[str, object]:
+        from . import ozon_fbs_detail as oz_detail
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
+        try:
+            return oz_detail.ship_posting(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                posting_number=str(posting_number),
+                client_id=client_id,
+                api_key=api_key,
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/ozon-fbs/postings/stickers-print")
+    def ozon_fbs_stickers_print(
+        request: Request,
+        source_id: int,
+        posting_numbers: str,
+    ) -> Response:
+        from . import ozon_fbs_detail as oz_detail
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        nums = [p.strip() for p in str(posting_numbers or "").split(",") if p.strip()]
+        if not nums:
+            raise HTTPException(status_code=400, detail="Укажите posting_numbers")
+        _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
+        try:
+            pdf_bytes = oz_detail.print_package_labels(
+                client_id=client_id,
+                api_key=api_key,
+                posting_numbers=nums,
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="ozon_fbs_labels.pdf"'},
+        )
 
     # ── OZON Supplies endpoints (isolated from WB) ──────────────────────────
 
@@ -16833,6 +17076,10 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
         role in ROLE_CAN_ACCESS_SETTINGS
         or any(v.get("ozon") for v in _sp_sources.values() if isinstance(v, dict))
     )
+    can_view_ozon_fbs_supplies = (
+        role in ROLE_CAN_ACCESS_SETTINGS
+        or any(v.get("ozon_fbs") for v in _sp_sources.values() if isinstance(v, dict))
+    )
     can_view_supply_poa = (
         role in ROLE_CAN_ACCESS_SETTINGS
         or bool(_supply_perms.get("can_supply_poa"))
@@ -16863,6 +17110,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
         or can_view_wb_fbs_supplies
         or can_view_wb_fbs_tsd
         or can_view_ozon_supplies
+        or can_view_ozon_fbs_supplies
         or can_view_supply_poa
         or can_view_supply_settings
         or can_view_supply_certs
@@ -16936,12 +17184,14 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
     )
     _ozon_link = ('<a id="nav-supplies-ozon" class="nav-item" href="#" onclick="showSection(\'supplies-ozon\')"><span class="nav-item-icon">◉</span> ОЗОН</a>'
                   if can_view_ozon_supplies else "")
+    _ozon_fbs_link = ('<a id="nav-supplies-ozon-fbs" class="nav-item" href="#" onclick="showSection(\'supplies-ozon-fbs\')"><span class="nav-item-icon">◉</span> ОЗОН ФБС</a>'
+                      if can_view_ozon_fbs_supplies else "")
     _poa_link = ('<a id="nav-supplies-poa" class="nav-item" href="#" onclick="showSection(\'supplies-poa\')"><span class="nav-item-icon">☐</span> Доверенности</a>'
                  if can_view_supply_poa else "")
     _certs_link = ('<a id="nav-supplies-certificates" class="nav-item" href="#" onclick="showSection(\'supplies-certificates\')"><span class="nav-item-icon">✦</span> Сертификаты</a>'
                    if can_view_supply_certs else "")
     nav_supplies_wb = (
-        (_wb_link + _wb_fbs_link + _tsd_link + _ozon_link + _stock_link + _poa_link + _certs_link)
+        (_wb_link + _wb_fbs_link + _tsd_link + _ozon_link + _ozon_fbs_link + _stock_link + _poa_link + _certs_link)
         if can_view_supplies or can_supply_stock or can_view_wb_fbs_tsd
         else ""
     )
@@ -16973,6 +17223,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
             "CAN_VIEW_WB_FBS_SUPPLIES": "true" if can_view_wb_fbs_supplies else "false",
             "CAN_VIEW_WB_FBS_TSD": "true" if can_view_wb_fbs_tsd else "false",
             "CAN_VIEW_OZON_SUPPLIES": "true" if can_view_ozon_supplies else "false",
+            "CAN_VIEW_OZON_FBS_SUPPLIES": "true" if can_view_ozon_fbs_supplies else "false",
             "CAN_VIEW_FEEDBACK": "true" if can_view_feedback else "false",
             "CAN_VIEW_REVIEWS": "true" if can_view_reviews else "false",
             "CAN_VIEW_QUESTIONS": "true" if can_view_questions else "false",
