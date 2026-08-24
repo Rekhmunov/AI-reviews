@@ -18394,9 +18394,9 @@ function renderWbFbsReturnsTable() {
       : `<span class="wb-fbs-empty-inline">—</span>`;
     const safeKey = isPreview ? `preview_${orderId}` : `ret_${id}`;
     const canPrint = !!kizCode;
-    const catalogBarcodes = Array.isArray(item.catalog_barcodes)
-      ? item.catalog_barcodes.map((b) => String(b || "").trim()).filter(Boolean)
-      : [];
+    const catalogBarcodes = _wbFbsReturnsPrintableBarcodes(
+      Array.isArray(item.catalog_barcodes) ? item.catalog_barcodes : [],
+    );
     const canPrintBarcode = catalogBarcodes.length > 0;
     const printArgs = isPreview && orderId > 0
       ? `null, ${orderId}`
@@ -18948,6 +18948,12 @@ function _wbFbsReturnsCatalogBarcodes(item) {
     .filter(Boolean);
 }
 
+function _wbFbsReturnsPrintableBarcodes(barcodes) {
+  return (Array.isArray(barcodes) ? barcodes : [])
+    .map((b) => String(b || "").trim())
+    .filter((b) => b && !b.startsWith("0"));
+}
+
 function _wbFbsReturnsBarcodeLabelText(item) {
   const custom = String(item?.barcode_label_name || "").trim();
   if (custom) return custom;
@@ -19200,9 +19206,10 @@ function _wbFbsReturnsRenderBarcodeModalList() {
 }
 
 function openWbFbsReturnsBarcodeModal(barcodes, labelText, preferred) {
-  wbFbsReturnsBarcodeModalState.barcodes = barcodes.slice();
+  const printable = _wbFbsReturnsPrintableBarcodes(barcodes);
+  wbFbsReturnsBarcodeModalState.barcodes = printable;
   wbFbsReturnsBarcodeModalState.labelText = String(labelText || "");
-  wbFbsReturnsBarcodeModalState.selected = preferred || barcodes[0] || "";
+  wbFbsReturnsBarcodeModalState.selected = preferred || printable[0] || "";
   _wbFbsReturnsRenderBarcodeModalList();
   document.getElementById("wbFbsReturnsBarcodeModal")?.classList.remove("hidden");
 }
@@ -19222,7 +19229,7 @@ window.confirmWbFbsReturnsBarcodePrint = confirmWbFbsReturnsBarcodePrint;
 
 function openWbFbsReturnsBarcodePrint(scanId, orderId) {
   const item = _wbFbsReturnsFindItem(scanId, orderId);
-  const barcodes = _wbFbsReturnsCatalogBarcodes(item);
+  const barcodes = _wbFbsReturnsPrintableBarcodes(_wbFbsReturnsCatalogBarcodes(item));
   if (!barcodes.length) {
     _wbFbsReturnsSetInfo("У товара нет ШК в каталоге (Настройки → Товары)");
     return;
