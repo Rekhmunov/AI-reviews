@@ -18130,12 +18130,6 @@ function closeWbFbsKizCirculationModal() {
   document.getElementById("wbFbsKizCirculationModal")?.classList.add("hidden");
 }
 
-@media (max-width: 900px) {
-  .wb-fbs-returns-col-status {
-    min-width: 0;
-  }
-}
-
 const WB_FBS_RETURNS_COL_WIDTHS_PREFIX = "wb_fbs_returns_col_widths_v1";
 const WB_FBS_RETURNS_DEFAULT_WIDTHS = [18, 38, 32, 12]; // order, product, kiz, status
 let _wbFbsReturnsColResizerInited = false;
