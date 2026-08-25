@@ -4,11 +4,13 @@ from __future__ import annotations
 import unittest
 
 from review_processor.ozon_fbs import (
+    _barcodes_from_posting,
     compute_tab,
     is_fbs_source_name,
     is_ozon_fbo_source,
     is_ozon_fbs_marketplace,
     is_ozon_fbs_source,
+    resolve_product_barcodes,
     resolve_product_display_name,
     TAB_ARBITRATION,
     TAB_AWAITING_PACKAGING,
@@ -91,6 +93,33 @@ class OzonFbsMappingTests(unittest.TestCase):
             name_by_ozon_sku={},
         )
         self.assertEqual(name, "OFFER-9")
+
+    def test_barcodes_from_posting_skips_offer_and_sku(self) -> None:
+        codes = _barcodes_from_posting(
+            {"barcodes": {"upper_barcode": "PKG1", "lower_barcode": "PKG2"}},
+            [{"offer_id": "ART-1", "sku": 3722013683, "barcode": "4601234567890"}],
+        )
+        self.assertEqual(codes, ["4601234567890"])
+
+    def test_resolve_product_barcodes_from_settings(self) -> None:
+        codes = resolve_product_barcodes(
+            offer_id="OOO_Uzori_180x200x30",
+            sku="3722013683",
+            barcode_map={
+                "OOO_Uzori_180x200x30": ["460111", "460222"],
+            },
+            fallback=["OOO_Uzori_180x200x30", "3722013683"],
+        )
+        self.assertEqual(codes, ["460111", "460222"])
+
+    def test_resolve_product_barcodes_filters_offer_sku_fallback(self) -> None:
+        codes = resolve_product_barcodes(
+            offer_id="ART-1",
+            sku="999",
+            barcode_map={},
+            fallback=["ART-1", "999", "460999"],
+        )
+        self.assertEqual(codes, ["460999"])
 
 
 if __name__ == "__main__":

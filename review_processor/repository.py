@@ -7648,6 +7648,23 @@ class ReviewRepository:
                 result[sku.casefold()] = name
         return result
 
+    def get_product_barcodes_map(self, *, user_id: int) -> dict[str, list[str]]:
+        """Map supplier_article / ozon_sku / wb_nmid (+ casefold) → ШК list from Products."""
+        rows = self.list_product_photos(user_id=user_id)
+        result: dict[str, list[str]] = {}
+        for r in rows:
+            codes = _normalize_product_barcodes(r.get("barcodes"))
+            if not codes:
+                continue
+            for field in ("supplier_article", "ozon_sku", "wb_nmid"):
+                key = str(r.get(field) or "").strip()
+                if not key:
+                    continue
+                merged = _normalize_product_barcodes((result.get(key) or []) + codes)
+                result[key] = merged
+                result[key.casefold()] = merged
+        return result
+
     def get_product_photo_map(self, *, user_id: int) -> dict[str, str]:
         """Return {key: photo_url} for fast lookup. Keys are supplier_article, wb_nmid, ozon_sku."""
         rows = self.list_product_photos(user_id=user_id)

@@ -313,18 +313,67 @@ def _mandatory_mark(posting: dict[str, Any], products: list[dict[str, Any]]) -> 
 
 
 def _barcodes_from_posting(posting: dict[str, Any], products: list[dict[str, Any]]) -> list[str]:
+    """Product ШК from posting products only (never offer_id / sku / package QR)."""
+    del posting  # package upper/lower barcodes are not product ШК
     out: list[str] = []
-    barcodes = posting.get("barcodes")
-    if isinstance(barcodes, dict):
-        for key in ("upper_barcode", "lower_barcode"):
-            text = str(barcodes.get(key) or "").strip()
-            if text and text not in out:
-                out.append(text)
+    exclude: set[str] = set()
     for p in products:
         for key in ("sku", "offer_id"):
             text = str(p.get(key) or "").strip()
-            if text and text not in out:
+            if text:
+                exclude.add(text)
+                exclude.add(text.casefold())
+        for key in ("barcode", "bar_code"):
+            text = str(p.get(key) or "").strip()
+            if text and text not in out and text.casefold() not in exclude:
                 out.append(text)
+        raw = p.get("barcodes")
+        if isinstance(raw, list):
+            for item in raw:
+                text = str(item or "").strip()
+                if text and text not in out and text.casefold() not in exclude:
+                    out.append(text)
+        elif isinstance(raw, str):
+            text = raw.strip()
+            if text and text not in out and text.casefold() not in exclude:
+                out.append(text)
+    return out
+
+
+def resolve_product_barcodes(
+    *,
+    offer_id: str | None,
+    sku: str | None,
+    barcode_map: dict[str, list[str]],
+    fallback: list[str] | None = None,
+) -> list[str]:
+    """ШК from Feedback → Settings → Products; never show offer_id/sku as barcodes."""
+    article = str(offer_id or "").strip()
+    sku_key = str(sku or "").strip()
+    exclude = {x for x in (article, sku_key, article.casefold(), sku_key.casefold()) if x}
+    codes: list[str] = []
+    for key in (
+        article,
+        article.casefold() if article else "",
+        sku_key,
+        sku_key.casefold() if sku_key else "",
+    ):
+        if not key:
+            continue
+        found = barcode_map.get(key)
+        if found:
+            codes = list(found)
+            break
+    if not codes and fallback:
+        codes = [str(x or "").strip() for x in fallback if str(x or "").strip()]
+    out: list[str] = []
+    seen: set[str] = set()
+    for code in codes:
+        text = str(code or "").strip()
+        if not text or text in seen or text in exclude or text.casefold() in exclude:
+            continue
+        seen.add(text)
+        out.append(text)
     return out
 
 
@@ -566,6 +615,7 @@ def list_postings(
         ).fetchall()
     name_map = repo.get_product_name_by_article(user_id=user_id)
     ozon_sku_map = repo.get_product_name_by_ozon_sku(user_id=user_id)
+    barcode_map = repo.get_product_barcodes_map(user_id=user_id)
     photo_map = repo.get_product_photo_map(user_id=user_id)
     items: list[dict[str, Any]] = []
     for row in rows:
@@ -584,10 +634,17 @@ def list_postings(
         d["tab_label"] = TAB_LABELS.get(str(d.get("tab") or ""), str(d.get("tab") or ""))
         d["status_label"] = str(d.get("status") or "")
         try:
-            barcodes = json.loads(d.get("barcodes_json") or "[]")
+            stored_barcodes = json.loads(d.get("barcodes_json") or "[]")
         except json.JSONDecodeError:
-            barcodes = []
-        d["barcodes"] = barcodes if isinstance(barcodes, list) else []
+            stored_barcodes = []
+        if not isinstance(stored_barcodes, list):
+            stored_barcodes = []
+        d["barcodes"] = resolve_product_barcodes(
+            offer_id=article,
+            sku=sku,
+            barcode_map=barcode_map,
+            fallback=stored_barcodes,
+        )
         try:
             price = int(d.get("price") or 0)
         except (TypeError, ValueError):
