@@ -755,7 +755,7 @@ function showSection(section, options = {}) {
     initWbFbsSection();
   }
   if (section === "supplies-ozon-fbs") {
-    initOzonFbsSection();
+    if (typeof initOzonFbsSection === "function") initOzonFbsSection();
   }
   if (section === "salary-settings") {
     showSalarySettingsTab("workers");
@@ -15383,6 +15383,7 @@ async function saveProfile() {
 
 document.addEventListener("DOMContentLoaded", () => {
   document.body.classList.add(APP_BOOT_HIDE_CLASS);
+  try {
   const permissions = getPermissions();
   if (!permissions.can_view_analytics) {
     document.getElementById("section-analytics")?.classList.add("hidden");
@@ -15637,9 +15638,11 @@ document.addEventListener("DOMContentLoaded", () => {
   loadStockSources().then(() => loadStockReports()).catch(() => {});
   // Hook ozon client-id toggle
   document.getElementById("addStockMarketplace")?.addEventListener("change", toggleOzonClientIdRow);
-  requestAnimationFrame(() => {
-    document.body.classList.remove(APP_BOOT_HIDE_CLASS);
-  });
+  } finally {
+    requestAnimationFrame(() => {
+      document.body.classList.remove(APP_BOOT_HIDE_CLASS);
+    });
+  }
   // Start silent 60s UI refresh so chat list stays up-to-date
   // without requiring manual page reload
   startUiRefresh();
