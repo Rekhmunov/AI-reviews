@@ -3974,15 +3974,43 @@ def render_picking_list_pdf(
     return html_to_pdf_bytes(html_doc, basename="wb_fbs_picking_list")
 
 
-def render_stickers_print_html(payload: dict[str, Any]) -> str:
-    """Thermal 58×40 mm: article separator, then WB stickers for that article.
+def _ru_stickers_word(n: int) -> str:
+    n_abs = abs(int(n))
+    mod10 = n_abs % 10
+    mod100 = n_abs % 100
+    if mod10 == 1 and mod100 != 11:
+        return "стикер"
+    if 2 <= mod10 <= 4 and not (12 <= mod100 <= 14):
+        return "стикера"
+    return "стикеров"
 
-    Page numbers are continuous across separators + stickers, but rendered
-    only on article separators (for finding the sheet after printing).
+
+def render_stickers_print_html(payload: dict[str, Any]) -> str:
+    """Thermal 58×40 mm: cover, then article separator + WB stickers.
+
+    First label is a supply cover (name + sticker count without separators).
+    Page numbers are continuous across cover + separators + stickers, but
+    rendered only on article separators (for finding the sheet after printing).
     """
     groups = payload["groups"]
+    detail = payload.get("detail") or {}
+    supply_name = str(detail.get("name") or "").strip()
+    if not supply_name:
+        supply_name = str(detail.get("supply_id") or "Поставка").strip() or "Поставка"
+    sticker_count = sum(len(g.get("orders") or []) for g in groups)
     pages: list[str] = []
     page_no = 0
+    if groups:
+        page_no += 1
+        pages.append(
+            f"""
+            <section class="label cover">
+              <div class="cover-label">Поставка</div>
+              <div class="cover-name">{_esc(supply_name)}</div>
+              <div class="cover-qty">{sticker_count} {_ru_stickers_word(sticker_count)}</div>
+            </section>
+            """
+        )
     for g in groups:
         qty = int(g.get("qty") or 0)
         color = str(g.get("color") or "").strip()
@@ -4037,8 +4065,8 @@ def render_stickers_print_html(payload: dict[str, Any]) -> str:
 <head>
   <meta charset="utf-8" />
   <title>Стикеры поставки {_esc(payload.get("detail", {}).get("supply_id"))}</title>
-  <!-- feedpilot-stickers:20260809a -->
-  <meta name="feedpilot-build" content="picking-20260809a" />
+  <!-- feedpilot-stickers:20260825a -->
+  <meta name="feedpilot-build" content="stickers-20260825a" />
   <style>
     @page {{ size: 58mm 40mm; margin: 0; }}
     * {{ box-sizing: border-box; }}
@@ -4049,6 +4077,23 @@ def render_stickers_print_html(payload: dict[str, Any]) -> str:
       overflow: hidden; position: relative;
     }}
     .label:last-child {{ page-break-after: auto; }}
+    .label.cover {{
+      padding: 3mm; background: #fff;
+      border: 0.3mm solid #0f172a;
+      display: flex; flex-direction: column; justify-content: center;
+      align-items: center; text-align: center; gap: 1.5mm;
+    }}
+    .label.cover .cover-label {{
+      font-size: 9px; font-weight: 700; color: #64748b; letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }}
+    .label.cover .cover-name {{
+      font-size: 14px; font-weight: 800; line-height: 1.2;
+      max-height: 18mm; overflow: hidden; word-break: break-word;
+    }}
+    .label.cover .cover-qty {{
+      margin-top: 1mm; font-size: 16px; font-weight: 800;
+    }}
     .label.separator {{
       padding: 2.5mm 3mm; background: #fff;
       border: 0.3mm dashed #94a3b8;
@@ -4083,7 +4128,7 @@ def render_stickers_print_html(payload: dict[str, Any]) -> str:
 <body>
   <div class="toolbar no-print">
     <button onclick="window.print()">Печать</button>
-    <span style="margin-left:8px;color:#64748b;font-size:13px">58×40 мм · разделитель артикула, затем стикеры WB</span>
+    <span style="margin-left:8px;color:#64748b;font-size:13px">58×40 мм · общий стикер, разделитель артикула, затем стикеры WB</span>
   </div>
   {''.join(pages) if pages else '<p style="padding:12px">Нет стикеров для печати.</p>'}
   <script>window.addEventListener('load',function(){{ setTimeout(function(){{ window.print(); }}, 300); }});</script>
