@@ -9194,6 +9194,31 @@ button.wb-fbs-sd-portal-btn:focus-visible {
   background: #fef2f2;
   border-bottom: 1px solid #fecaca;
 }
+.wb-fbs-sd-new-warn {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 12px 24px;
+  font-size: 15px;
+  line-height: 1.4;
+  color: #7f1d1d;
+  background: #fee2e2;
+  border-top: 2px solid #dc2626;
+  border-bottom: 2px solid #dc2626;
+}
+.wb-fbs-sd-new-warn[hidden] {
+  display: none !important;
+}
+.wb-fbs-sd-new-warn strong {
+  font-size: 16px;
+  font-weight: 700;
+  color: #991b1b;
+}
+.wb-fbs-sd-new-warn span {
+  font-size: 14px;
+  color: #7f1d1d;
+}
 .wb-fbs-sd-table-wrap {
   flex: 1 1 auto;
   overflow: auto;

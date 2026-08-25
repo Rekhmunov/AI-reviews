@@ -25118,6 +25118,27 @@ function _wbFbsSupplyDetailResetSearch() {
   if (search) search.value = "";
 }
 
+function _wbFbsSupplyDetailHideNewWarn() {
+  const el = document.getElementById("wbFbsSupplyDetailNewWarn");
+  if (el) el.hidden = true;
+}
+
+function _wbFbsSupplyDetailUpdateNewWarn() {
+  const el = document.getElementById("wbFbsSupplyDetailNewWarn");
+  if (!el) return;
+  // Only when opening a supply from «На сборке».
+  if (wbFbsState.tab !== "assembly") {
+    el.hidden = true;
+    return;
+  }
+  const counts = wbFbsState.counts || {};
+  const newCount = Number(counts.new || 0);
+  const assemblyCount = Number(counts.assembly || 0);
+  // Tab «Новые» must be > 0; assembly must already have at least one order.
+  const show = newCount > 0 && assemblyCount > 0;
+  el.hidden = !show;
+}
+
 function closeWbFbsSupplyDetailModal() {
   // Nested modals first — abort supply close if operator keeps unsaved edits.
   // Marking close is async (awaits silent local autosave); chain the rest.
@@ -25148,6 +25169,7 @@ function closeWbFbsSupplyDetailModal() {
   _wbFbsClosePickingMenu();
   _wbFbsCloseStickersMenu();
   _wbFbsSupplyDetailResetSearch();
+  _wbFbsSupplyDetailHideNewWarn();
   closeWbFbsCreateTrbxModal();
   closeWbFbsCancelledOrdersModal();
   closeWbFbsStickersByCategoryModal();
@@ -25585,6 +25607,7 @@ async function openWbFbsSupplyDetailModal(supplyId) {
   if (title) title.textContent = "Загрузка…";
   if (wh) wh.textContent = "—";
   if (meta) meta.innerHTML = "";
+  _wbFbsSupplyDetailHideNewWarn();
   if (info) {
     info.hidden = true;
     info.textContent = "";
@@ -25599,10 +25622,12 @@ async function openWbFbsSupplyDetailModal(supplyId) {
     wbFbsDetailState.supply = data;
     renderWbFbsSupplyDetail(data);
     _wbFbsSupplyDetailSetActionsReady(true);
+    _wbFbsSupplyDetailUpdateNewWarn();
   } catch (e) {
     if (wbFbsDetailState.supplyId === sid) {
       _wbFbsSupplyDetailSetActionsReady(false);
     }
+    _wbFbsSupplyDetailHideNewWarn();
     if (info) {
       info.hidden = false;
       info.textContent = String(e.message || e);
