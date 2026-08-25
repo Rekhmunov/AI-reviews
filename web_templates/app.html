@@ -2831,6 +2831,9 @@
                             onclick="openOzonFbsStickersByCategoryModal()">Печать по категориям</button>
                   </div>
                 </div>
+                <button type="button" class="secondary" id="ozonFbsSupplyDetailShipmentsBtn"
+                        onclick="openOzonFbsShipmentsModal()"
+                        title="Отгрузки Ozon: ШК поставки и формирование">Перейти к отгрузкам</button>
                 <div class="wb-fbs-kiz-split" id="ozonFbsKizSplit" hidden>
                   <button type="button" class="secondary" id="ozonFbsSupplyDetailKizBtn" disabled
                           title="Скоро">Маркировка</button>
@@ -2881,6 +2884,40 @@
                   <tr><td colspan="4" class="wb-fbs-empty">Загрузка…</td></tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="ozonFbsShipmentsModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsShipmentsTitle"
+             onclick="if(event.target===this)closeOzonFbsShipmentsModal()">
+          <div class="modal-card wb-fbs-supply-detail-modal ozon-fbs-shipments-modal">
+            <div class="ozon-fbs-shipments-header">
+              <div class="wb-fbs-sd-title-row">
+                <div>
+                  <h3 id="ozonFbsShipmentsTitle" class="wb-fbs-sd-title">Отгрузки</h3>
+                  <p class="ozon-fbs-shipments-sub">Дата отгрузки — по часовому поясу склада</p>
+                </div>
+                <button type="button" class="icon-btn secondary wb-fbs-sd-close"
+                        onclick="closeOzonFbsShipmentsModal()" aria-label="Закрыть">✕</button>
+              </div>
+              <div class="ozon-fbs-shipments-filters">
+                <label class="ozon-fbs-shipments-field">
+                  <span>Дата</span>
+                  <input type="date" id="ozonFbsShipmentsDate" class="ozon-fbs-shipments-input"
+                         onchange="reloadOzonFbsShipments()" />
+                </label>
+                <label class="ozon-fbs-shipments-field ozon-fbs-shipments-field-grow">
+                  <span>Метод</span>
+                  <select id="ozonFbsShipmentsMethod" class="ozon-fbs-shipments-input"
+                          onchange="reloadOzonFbsShipments()">
+                    <option value="">Загрузка…</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+            <div id="ozonFbsShipmentsBody" class="ozon-fbs-shipments-body">
+              <div class="ozon-fbs-shipments-loading">Загрузка отгрузок…</div>
             </div>
           </div>
         </div>

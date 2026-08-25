@@ -52,6 +52,14 @@
     loading: false,
   };
 
+  const shipmentsState = {
+    supplyId: null,
+    sourceId: null,
+    data: null,
+    loading: false,
+    forming: false,
+  };
+
   function permissions() {
     return window.APP_PERMISSIONS || {};
   }
@@ -1771,6 +1779,292 @@
     }
   }
 
+  function todayIsoDate() {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
+  function closeShipmentsModal() {
+    document.getElementById("ozonFbsShipmentsModal")?.classList.add("hidden");
+    shipmentsState.forming = false;
+  }
+
+  function fillShipmentsMethods(methods, selectedId) {
+    const sel = document.getElementById("ozonFbsShipmentsMethod");
+    if (!sel) return;
+    const list = Array.isArray(methods) ? methods : [];
+    if (!list.length) {
+      sel.innerHTML = `<option value="">Нет активных методов</option>`;
+      return;
+    }
+    sel.innerHTML = list.map((m) => {
+      const id = String(m.id ?? "");
+      const name = esc(m.name || `Метод ${id}`);
+      const selected = String(selectedId ?? "") === id ? " selected" : "";
+      return `<option value="${esc(id)}"${selected}>${name}</option>`;
+    }).join("");
+  }
+
+  function renderShipmentsBarcode(data) {
+    const barcode = data?.barcode || null;
+    const whName = esc(data?.warehouse_name || "склада");
+    const help = esc(data?.barcode_help || "");
+    const text = String(barcode?.barcode_text || "").trim();
+    const b64 = String(barcode?.barcode_image_base64 || "").trim();
+    const ctype = String(barcode?.content_type || "image/png").trim() || "image/png";
+    const hasImg = Boolean(b64);
+    const visual = hasImg
+      ? `<img id="ozonFbsShipmentsBarcodeImg" src="data:${esc(ctype)};base64,${b64}" alt="Штрихкод поставки" />`
+      : (text
+        ? `<div class="ozon-fbs-shipments-barcode-empty">ШК: ${esc(text)}</div>`
+        : `<div class="ozon-fbs-shipments-barcode-empty">Штрихкод появится после формирования отгрузки</div>`);
+    const textHtml = text
+      ? `<div class="ozon-fbs-shipments-barcode-text">${esc(text)}</div>`
+      : "";
+    return `
+      <section class="ozon-fbs-shipments-barcode-card">
+        <div class="ozon-fbs-shipments-barcode-head">
+          <h4 class="ozon-fbs-shipments-barcode-title">Штрихкод для склада ${whName}</h4>
+          <div class="ozon-fbs-shipments-barcode-actions">
+            <button type="button" class="ozon-fbs-shipments-icon-btn" ${hasImg ? "" : "disabled"}
+                    onclick="ozonFbsShipmentsZoomBarcode()" title="Открыть" aria-label="Открыть штрихкод">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/>
+                <path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                <path d="M11 8v6M8 11h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+            </button>
+            <button type="button" class="ozon-fbs-shipments-icon-btn" ${hasImg || text ? "" : "disabled"}
+                    onclick="ozonFbsShipmentsDownloadBarcode()" title="Скачать" aria-label="Скачать штрихкод">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 4v10M8 10l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M5 19h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="ozon-fbs-shipments-barcode-grid">
+          <div class="ozon-fbs-shipments-barcode-visual">
+            ${visual}
+            ${textHtml}
+          </div>
+          <p class="ozon-fbs-shipments-barcode-help">${help}</p>
+        </div>
+      </section>`;
+  }
+
+  function renderShipmentsBlocks(data) {
+    const blocks = Array.isArray(data?.blocks) ? data.blocks : [];
+    if (!blocks.length) {
+      return `<div class="ozon-fbs-shipments-loading">Нет данных отгрузки на выбранную дату</div>`;
+    }
+    return blocks.map((block, bi) => {
+      const carriages = Array.isArray(block.carriages) ? block.carriages : [];
+      const carriageHtml = carriages.map((c) => {
+        const formed = Boolean(c.is_formed);
+        const statusCls = formed ? " is-formed" : "";
+        const count = Number(c.postings_count || 0);
+        const canForm = Boolean(c.can_form) && !shipmentsState.forming;
+        const formBtn = formed
+          ? ""
+          : `<button type="button" class="ozon-fbs-shipments-form-btn"
+                     ${canForm ? "" : "disabled"}
+                     onclick="ozonFbsShipmentsForm(${bi}, ${Number(c.index || 1)})">Сформировать</button>`;
+        const picking = block.assembly_list_availability !== false
+          ? `<button type="button" class="ozon-fbs-shipments-link"
+                     onclick="ozonFbsOpenPickingList()">Лист подбора</button>`
+          : "";
+        return `
+          <div class="ozon-fbs-shipments-carriage">
+            <span class="ozon-fbs-shipments-carriage-title">${esc(c.label || "Отгрузка")}</span>
+            <span class="ozon-fbs-shipments-carriage-count">${count} отправлений</span>
+            <span class="ozon-fbs-shipments-status${statusCls}">${esc(c.status_label || "Не сформирована")}</span>
+            <div class="ozon-fbs-shipments-carriage-actions">
+              ${formBtn}
+              ${picking}
+            </div>
+          </div>`;
+      }).join("");
+      return `
+        <section class="ozon-fbs-shipments-block">
+          <h4 class="ozon-fbs-shipments-block-title">${esc(block.day_label || "Ozon")}</h4>
+          <div class="ozon-fbs-shipments-meta">
+            <div class="ozon-fbs-shipments-meta-item">
+              <span class="ozon-fbs-shipments-meta-label">Склад</span>
+              <span class="ozon-fbs-shipments-meta-value">${esc(block.warehouse_name || data.warehouse_name || "—")}</span>
+            </div>
+            <div class="ozon-fbs-shipments-meta-item">
+              <span class="ozon-fbs-shipments-meta-label">Пункт</span>
+              <span class="ozon-fbs-shipments-meta-value">${esc(block.dropoff_point_type_label || "СЦ")}</span>
+            </div>
+            <div class="ozon-fbs-shipments-meta-item">
+              <span class="ozon-fbs-shipments-meta-label">Способ отгрузки</span>
+              <span class="ozon-fbs-shipments-meta-value">${esc(block.dropoff_point_type_label || "В пункт приема")}</span>
+            </div>
+            <div class="ozon-fbs-shipments-meta-item">
+              <span class="ozon-fbs-shipments-meta-label">Адрес</span>
+              <span class="ozon-fbs-shipments-meta-value">${esc(block.dropoff_address || "—")}</span>
+            </div>
+            <div class="ozon-fbs-shipments-meta-item">
+              <span class="ozon-fbs-shipments-meta-label">Собрано заказов</span>
+              <span class="ozon-fbs-shipments-meta-value">${esc(block.collected_label || "—")}</span>
+            </div>
+            <div class="ozon-fbs-shipments-meta-item">
+              <span class="ozon-fbs-shipments-meta-label">Приём отправлений</span>
+              <span class="ozon-fbs-shipments-meta-value">${esc(block.acceptance_label || "—")}</span>
+            </div>
+          </div>
+          ${carriageHtml}
+          <div class="ozon-fbs-shipments-hint">
+            <span class="ozon-fbs-shipments-hint-ico" aria-hidden="true">✓</span>
+            <span>${esc(block.hint || "")}</span>
+          </div>
+        </section>`;
+    }).join("");
+  }
+
+  function renderShipmentsView(data) {
+    const body = document.getElementById("ozonFbsShipmentsBody");
+    if (!body) return;
+    if (!data) {
+      body.innerHTML = `<div class="ozon-fbs-shipments-loading">Нет данных</div>`;
+      return;
+    }
+    if (data.ok === false && data.message) {
+      body.innerHTML = `<div class="ozon-fbs-shipments-error">${esc(data.message)}</div>`;
+      return;
+    }
+    body.innerHTML = `${renderShipmentsBarcode(data)}${renderShipmentsBlocks(data)}`;
+  }
+
+  async function loadShipments() {
+    const sid = shipmentsState.supplyId;
+    const sourceId = shipmentsState.sourceId;
+    const body = document.getElementById("ozonFbsShipmentsBody");
+    if (!sid || !sourceId) return;
+    const dateEl = document.getElementById("ozonFbsShipmentsDate");
+    const methodEl = document.getElementById("ozonFbsShipmentsMethod");
+    const day = String(dateEl?.value || todayIsoDate());
+    const methodId = String(methodEl?.value || "").trim();
+    shipmentsState.loading = true;
+    if (body) body.innerHTML = `<div class="ozon-fbs-shipments-loading">Загрузка отгрузок…</div>`;
+    try {
+      const qs = new URLSearchParams({
+        source_id: String(sourceId),
+        departure_date: day,
+      });
+      if (methodId) qs.set("delivery_method_id", methodId);
+      const res = await fetch(
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/shipments?${qs.toString()}`
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(detailText(data.detail) || "Не удалось загрузить отгрузки");
+      shipmentsState.data = data;
+      fillShipmentsMethods(data.delivery_methods, data.selected_delivery_method_id);
+      if (dateEl && data.departure_date) dateEl.value = String(data.departure_date).slice(0, 10);
+      renderShipmentsView(data);
+    } catch (e) {
+      if (body) {
+        body.innerHTML = `<div class="ozon-fbs-shipments-error">${esc(e.message || e)}</div>`;
+      }
+    } finally {
+      shipmentsState.loading = false;
+    }
+  }
+
+  async function openShipmentsModal() {
+    const sid = String(supplyDetailState.supplyId || "").trim();
+    const sourceId = supplyDetailState.sourceId || state.sourceId;
+    if (!sid || !sourceId) {
+      alert("Откройте поставку");
+      return;
+    }
+    shipmentsState.supplyId = sid;
+    shipmentsState.sourceId = sourceId;
+    shipmentsState.data = null;
+    const modal = document.getElementById("ozonFbsShipmentsModal");
+    const dateEl = document.getElementById("ozonFbsShipmentsDate");
+    const methodEl = document.getElementById("ozonFbsShipmentsMethod");
+    if (dateEl && !dateEl.value) dateEl.value = todayIsoDate();
+    if (methodEl) methodEl.innerHTML = `<option value="">Загрузка…</option>`;
+    if (modal) modal.classList.remove("hidden");
+    await loadShipments();
+  }
+
+  async function formShipmentsCarriage() {
+    const sid = shipmentsState.supplyId;
+    const sourceId = shipmentsState.sourceId;
+    if (!sid || !sourceId || shipmentsState.forming) return;
+    const dateEl = document.getElementById("ozonFbsShipmentsDate");
+    const methodEl = document.getElementById("ozonFbsShipmentsMethod");
+    const day = String(dateEl?.value || todayIsoDate());
+    const methodId = String(methodEl?.value || "").trim();
+    if (!methodId) {
+      alert("Выберите метод доставки");
+      return;
+    }
+    shipmentsState.forming = true;
+    renderShipmentsView(shipmentsState.data);
+    try {
+      const res = await fetch(
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/shipments/form`,
+        {
+          method: "POST",
+          headers: jsonHeaders(),
+          body: JSON.stringify({
+            source_id: Number(sourceId),
+            departure_date: day,
+            delivery_method_id: Number(methodId),
+          }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(detailText(data.detail) || "Ошибка формирования");
+      shipmentsState.data = data;
+      fillShipmentsMethods(data.delivery_methods, data.selected_delivery_method_id);
+      renderShipmentsView(data);
+      if (data.message) showSyncInfo(String(data.message));
+    } catch (e) {
+      alert(e.message || String(e));
+      renderShipmentsView(shipmentsState.data);
+    } finally {
+      shipmentsState.forming = false;
+      renderShipmentsView(shipmentsState.data);
+    }
+  }
+
+  function shipmentsZoomBarcode() {
+    const img = document.getElementById("ozonFbsShipmentsBarcodeImg");
+    if (!img?.src) return;
+    window.open(img.src, "_blank", "noopener,noreferrer");
+  }
+
+  function shipmentsDownloadBarcode() {
+    const barcode = shipmentsState.data?.barcode || {};
+    const b64 = String(barcode.barcode_image_base64 || "").trim();
+    const text = String(barcode.barcode_text || "").trim();
+    if (b64) {
+      const ctype = String(barcode.content_type || "image/png");
+      const a = document.createElement("a");
+      a.href = `data:${ctype};base64,${b64}`;
+      a.download = `ozon-shipment-barcode-${text || "label"}.png`;
+      a.click();
+      return;
+    }
+    if (text) {
+      const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `ozon-shipment-barcode-${text}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  }
+
   window.initOzonFbsSection = initSection;
   window.setOzonFbsTab = setTab;
   window.onOzonFbsSourceChange = onSourceChange;
@@ -1812,4 +2106,10 @@
   window.closeOzonFbsStickersByCategoryModal = closeStickersByCategoryModal;
   window.confirmOzonFbsStickersByCategory = confirmStickersByCategory;
   window.onOzonFbsStickersCategoryToggle = onStickersCategoryToggle;
+  window.openOzonFbsShipmentsModal = openShipmentsModal;
+  window.closeOzonFbsShipmentsModal = closeShipmentsModal;
+  window.reloadOzonFbsShipments = loadShipments;
+  window.ozonFbsShipmentsForm = formShipmentsCarriage;
+  window.ozonFbsShipmentsZoomBarcode = shipmentsZoomBarcode;
+  window.ozonFbsShipmentsDownloadBarcode = shipmentsDownloadBarcode;
 })();
