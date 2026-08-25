@@ -10286,7 +10286,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         sid = str(supply_id or "").strip()
         if not sid or not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
-        api_key = _wb_fbs_source_key(owner_id, int(source_id))
+        src_full = repository.get_supply_source_with_key(
+            user_id=owner_id, source_id=int(source_id)
+        )
+        if not src_full or not src_full.get("api_key"):
+            raise HTTPException(status_code=400, detail="Источник не найден")
+        if not wb_fbs_mod.is_fbs_source_name(src_full.get("name")):
+            raise HTTPException(status_code=400, detail="Источник не является ФБС")
+        api_key = str(src_full["api_key"])
+        source_name = str(src_full.get("name") or "").strip()
         selected_ids: list[int] = []
         for part in str(order_ids or "").replace(";", ",").split(","):
             part = part.strip()
@@ -10308,6 +10316,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             )
             if selected_ids and not (payload.get("groups") or []):
                 raise ValueError("Нет стикеров для выбранных товаров")
+            payload["source_name"] = source_name
             html_doc = wb_detail.render_stickers_print_html(payload)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -10319,7 +10328,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             headers={
                 "Cache-Control": "no-store, no-cache, must-revalidate",
                 "Pragma": "no-cache",
-                "X-Feedpilot-Build": "picking-20260809a",
+                "X-Feedpilot-Build": "stickers-20260825b",
             },
         )
 

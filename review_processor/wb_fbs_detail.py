@@ -3988,15 +3988,20 @@ def _ru_stickers_word(n: int) -> str:
 def render_stickers_print_html(payload: dict[str, Any]) -> str:
     """Thermal 58×40 mm: cover, then article separator + WB stickers.
 
-    First label is a supply cover (name + sticker count without separators).
-    Page numbers are continuous across cover + separators + stickers, but
-    rendered only on article separators (for finding the sheet after printing).
+    First label is a supply cover (name, WB FBS source, sticker count without
+    separators). Page numbers are continuous across cover + separators +
+    stickers, but rendered only on article separators (for finding the sheet
+    after printing).
     """
     groups = payload["groups"]
     detail = payload.get("detail") or {}
     supply_name = str(detail.get("name") or "").strip()
     if not supply_name:
         supply_name = str(detail.get("supply_id") or "Поставка").strip() or "Поставка"
+    source_name = str(payload.get("source_name") or "").strip()
+    source_line = (
+        f'<div class="cover-source">{_esc(source_name)}</div>' if source_name else ""
+    )
     sticker_count = sum(len(g.get("orders") or []) for g in groups)
     pages: list[str] = []
     page_no = 0
@@ -4007,6 +4012,7 @@ def render_stickers_print_html(payload: dict[str, Any]) -> str:
             <section class="label cover">
               <div class="cover-label">Поставка</div>
               <div class="cover-name">{_esc(supply_name)}</div>
+              {source_line}
               <div class="cover-qty">{sticker_count} {_ru_stickers_word(sticker_count)}</div>
             </section>
             """
@@ -4065,8 +4071,8 @@ def render_stickers_print_html(payload: dict[str, Any]) -> str:
 <head>
   <meta charset="utf-8" />
   <title>Стикеры поставки {_esc(payload.get("detail", {}).get("supply_id"))}</title>
-  <!-- feedpilot-stickers:20260825a -->
-  <meta name="feedpilot-build" content="stickers-20260825a" />
+  <!-- feedpilot-stickers:20260825b -->
+  <meta name="feedpilot-build" content="stickers-20260825b" />
   <style>
     @page {{ size: 58mm 40mm; margin: 0; }}
     * {{ box-sizing: border-box; }}
@@ -4089,7 +4095,11 @@ def render_stickers_print_html(payload: dict[str, Any]) -> str:
     }}
     .label.cover .cover-name {{
       font-size: 14px; font-weight: 800; line-height: 1.2;
-      max-height: 18mm; overflow: hidden; word-break: break-word;
+      max-height: 14mm; overflow: hidden; word-break: break-word;
+    }}
+    .label.cover .cover-source {{
+      font-size: 10px; font-weight: 700; line-height: 1.2; color: #334155;
+      max-height: 8mm; overflow: hidden; word-break: break-word;
     }}
     .label.cover .cover-qty {{
       margin-top: 1mm; font-size: 16px; font-weight: 800;
