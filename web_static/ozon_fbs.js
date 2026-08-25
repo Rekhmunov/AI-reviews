@@ -352,6 +352,8 @@
                onclick="openOzonFbsSupplyDetailModal('${esc(sid)}')"
                onkeydown="if(event.key==='Enter')openOzonFbsSupplyDetailModal('${esc(sid)}')">${esc(s.name || ("Поставка " + sid))}</div>
           ${createdMeta}
+          <div class="ozon-fbs-mobile-supply-id" title="ID поставки">${esc(sid)}</div>
+          <div class="ozon-fbs-mobile-meta">${esc(s.warehouse_label || "—")}</div>
         </td>
         <td><div class="wb-fbs-supply-qr" title="${esc(sid)}">${esc(sid || "—")}</div></td>
         <td>
@@ -410,6 +412,7 @@
         <div class="wb-fbs-order-id">${formatOzonPostingNumberHtml(pnRaw)}</div>
         <div class="wb-fbs-order-meta">от ${esc(fmtDate(created))}</div>
         ${badges.length ? `<div class="wb-fbs-badges">${badges.join("")}</div>` : ""}
+        ${whLabel && whLabel !== "—" ? `<div class="ozon-fbs-mobile-wh">${esc(whLabel)}${whId ? " · ID " + esc(whId) : ""}</div>` : ""}
       </td>
       <td>
         <div class="wb-fbs-product">

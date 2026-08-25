@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=235" />
+  <link rel="stylesheet" href="/static/style.css?v=238" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2854,13 +2854,13 @@
                     </svg>
                   </button>
                 </div>
-                <button type="button" class="secondary" id="ozonFbsSupplyDetailPickVerifyBtn" disabled
+                <button type="button" class="secondary ozon-fbs-stub-btn" id="ozonFbsSupplyDetailPickVerifyBtn" disabled
                         title="Скоро">Проверка ШК</button>
-                <button type="button" class="secondary" id="ozonFbsSupplyDetailTrbxBtn" disabled
+                <button type="button" class="secondary ozon-fbs-stub-btn" id="ozonFbsSupplyDetailTrbxBtn" disabled
                         title="Скоро">Грузоместа</button>
-                <button type="button" class="secondary" id="ozonFbsSupplyDetailCancelledBtn" disabled
+                <button type="button" class="secondary ozon-fbs-stub-btn" id="ozonFbsSupplyDetailCancelledBtn" disabled
                         title="Скоро">Отмененные заказы</button>
-                <button type="button" class="secondary wb-fbs-sd-portal-btn" id="ozonFbsSupplyDetailPortalBtn" disabled
+                <button type="button" class="secondary wb-fbs-sd-portal-btn ozon-fbs-stub-btn" id="ozonFbsSupplyDetailPortalBtn" disabled
                         title="Скоро">
                   <span>Портал Ozon</span>
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -2924,12 +2924,12 @@
         <div id="ozonFbsStickersCategoryModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
              aria-labelledby="ozonFbsStickersCategoryTitle"
              onclick="if(event.target===this)closeOzonFbsStickersByCategoryModal()">
-          <div class="modal-card" style="max-width:520px;width:92%">
+          <div class="modal-card ozon-fbs-stickers-cat-modal">
             <div class="wb-fbs-collect-mgt-header">
               <h3 id="ozonFbsStickersCategoryTitle" class="wb-fbs-collect-mgt-title">Печать по категориям</h3>
               <button type="button" class="icon-btn secondary" onclick="closeOzonFbsStickersByCategoryModal()" aria-label="Закрыть">✕</button>
             </div>
-            <div id="ozonFbsStickersCategoryBody" class="wb-fbs-collect-mgt-body" style="max-height:50vh;overflow:auto"></div>
+            <div id="ozonFbsStickersCategoryBody" class="wb-fbs-collect-mgt-body ozon-fbs-stickers-cat-body"></div>
             <div class="wb-fbs-collect-mgt-footer">
               <button type="button" class="secondary" onclick="closeOzonFbsStickersByCategoryModal()">Отмена</button>
               <button type="button" class="ozon-fbs-ship-all-btn" onclick="confirmOzonFbsStickersByCategory()">Печать</button>
@@ -5607,7 +5607,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=14"></script>
+  <script src="/static/ozon_fbs.js?v=15"></script>
   <script src="/static/app.js?v=503"></script>
 </body>
 </html>
