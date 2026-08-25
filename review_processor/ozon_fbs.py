@@ -64,6 +64,7 @@ _ozon_fbs_sync_state: dict[str, object] = {
     "message": "",
     "errors": [],
     "sources": [],
+    "pallet_summary": [],
     "cancel_requested": False,
 }
 
@@ -735,9 +736,153 @@ def sync_ozon_fbs_source(
     }
 
 
+def _as_positive_int(value: object) -> int | None:
+    if value is None or str(value).strip() == "":
+        return None
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
+
+
+def compute_ozon_fbs_pallet_summary(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    sources: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Pallets + boxes per Ozon FBS source from «Ожидают сборки» + «Ожидают отгрузки».
+
+    Same formula as WB FBS:
+    ``boxes = Σ (qty / box_qty)``
+    ``pallets = Σ (qty / box_qty / boxes_per_pallet)``
+    Products without ``box_qty`` are skipped; without category ``boxes_per_pallet``
+    they still count toward boxes.
+    """
+    # Reuse WB formatters so labels stay identical in the UI.
+    from .wb_fbs import format_boxes_ru, format_pallets_ru
+
+    ensure_ozon_fbs_tables(repo)
+    if not sources:
+        return []
+
+    products = repo.list_product_photos(user_id=user_id)
+    categories = repo.list_product_categories(user_id=user_id, seed_defaults=True)
+    cat_boxes: dict[str, int] = {}
+    for cat in categories:
+        name = str(cat.get("name") or "").strip()
+        bpp = _as_positive_int(cat.get("boxes_per_pallet"))
+        if name and bpp is not None:
+            cat_boxes[name] = bpp
+
+    # article / ozon_sku / casefold → (box_qty, boxes_per_pallet | None)
+    product_meta: dict[str, tuple[int, int | None]] = {}
+    for prod in products:
+        box_qty = _as_positive_int(prod.get("box_qty"))
+        if box_qty is None:
+            continue
+        cat_name = str(prod.get("product_category") or "").strip()
+        bpp = cat_boxes.get(cat_name)
+        meta = (box_qty, bpp)
+        for raw_key in (
+            prod.get("supplier_article"),
+            prod.get("ozon_sku"),
+            prod.get("wb_nmid"),
+            prod.get("yandex_offer_id"),
+        ):
+            key = str(raw_key or "").strip()
+            if not key:
+                continue
+            product_meta[key] = meta
+            product_meta[key.casefold()] = meta
+
+    source_names: dict[int, str] = {}
+    source_ids: list[int] = []
+    for src in sources:
+        try:
+            sid = int(src.get("source_id") if "source_id" in src else src.get("id"))
+        except (TypeError, ValueError):
+            continue
+        source_ids.append(sid)
+        source_names[sid] = str(
+            src.get("name") or f"Источник {sid}"
+        ).strip() or f"Источник {sid}"
+
+    if not source_ids:
+        return []
+
+    placeholders = ", ".join("?" for _ in source_ids)
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT source_id, offer_id, sku, COALESCE(SUM(quantity), 0) AS qty
+                FROM ozon_fbs_postings
+                WHERE user_id = ?
+                  AND tab IN (?, ?)
+                  AND source_id IN ({placeholders})
+                GROUP BY source_id, offer_id, sku
+                """
+            ),
+            tuple(
+                [
+                    user_id,
+                    TAB_AWAITING_PACKAGING,
+                    TAB_AWAITING_DELIVER,
+                    *source_ids,
+                ]
+            ),
+        ).fetchall()
+
+    totals_pallets: dict[int, float] = {sid: 0.0 for sid in source_ids}
+    totals_boxes: dict[int, float] = {sid: 0.0 for sid in source_ids}
+    for row in rows:
+        d = repo._row_to_dict(row)
+        try:
+            sid = int(d.get("source_id"))
+            qty = int(d.get("qty") or 0)
+        except (TypeError, ValueError):
+            continue
+        if sid not in totals_pallets or qty <= 0:
+            continue
+        offer_id = str(d.get("offer_id") or "").strip()
+        sku = str(d.get("sku") or "").strip()
+        meta = None
+        for key in (offer_id, sku, offer_id.casefold(), sku.casefold()):
+            if key and key in product_meta:
+                meta = product_meta[key]
+                break
+        if not meta:
+            continue
+        box_qty, bpp = meta
+        boxes = float(qty) / float(box_qty)
+        totals_boxes[sid] += boxes
+        if bpp is not None:
+            totals_pallets[sid] += boxes / float(bpp)
+
+    summary: list[dict[str, Any]] = []
+    for sid in source_ids:
+        pallets = round(float(totals_pallets.get(sid) or 0.0) + 1e-12, 2)
+        boxes = round(float(totals_boxes.get(sid) or 0.0) + 1e-12, 2)
+        pallets_label = format_pallets_ru(pallets)
+        boxes_label = format_boxes_ru(boxes)
+        summary.append(
+            {
+                "source_id": sid,
+                "name": source_names.get(sid) or f"Источник {sid}",
+                "pallets": pallets,
+                "boxes": boxes,
+                "boxes_label": boxes_label,
+                "pallets_label": f"{pallets_label} ({boxes_label})",
+            }
+        )
+    return summary
+
+
 def get_sync_state() -> dict[str, object]:
     with _ozon_fbs_sync_lock:
-        return dict(_ozon_fbs_sync_state)
+        return _copy_sync_state()
 
 
 def request_sync_stop() -> bool:
@@ -749,8 +894,18 @@ def request_sync_stop() -> bool:
 
 
 def _copy_sync_state() -> dict[str, object]:
-    with _ozon_fbs_sync_lock:
-        return dict(_ozon_fbs_sync_state)
+    """Snapshot sync state for API (deep-copy mutable lists)."""
+    st = dict(_ozon_fbs_sync_state)
+    st["errors"] = list(_ozon_fbs_sync_state.get("errors") or [])
+    st["sources"] = [
+        dict(x) if isinstance(x, dict) else x
+        for x in (_ozon_fbs_sync_state.get("sources") or [])
+    ]
+    st["pallet_summary"] = [
+        dict(x) if isinstance(x, dict) else x
+        for x in (_ozon_fbs_sync_state.get("pallet_summary") or [])
+    ]
+    return st
 
 
 def start_sync_thread(
@@ -803,17 +958,22 @@ def start_sync_thread(
                 "message": f"Запуск… источников: {len(jobs)}",
                 "errors": [],
                 "sources": source_rows,
+                "pallet_summary": [],
                 "cancel_requested": False,
             }
         )
 
     def _run() -> None:
         errors: list[str] = []
+        synced_sources = 0
+        total_postings = 0
+        stopped = False
         try:
             for idx, job in enumerate(jobs):
                 with _ozon_fbs_sync_lock:
                     if _ozon_fbs_sync_state.get("cancel_requested"):
                         _ozon_fbs_sync_state["message"] = "Остановка…"
+                        stopped = True
                         break
                     row = _ozon_fbs_sync_state["sources"][idx]
                     row["status"] = "running"
@@ -842,13 +1002,19 @@ def start_sync_thread(
                     )
                     with _ozon_fbs_sync_lock:
                         row = _ozon_fbs_sync_state["sources"][idx]
-                        row["status"] = "done" if not result.get("stopped") else "stopped"
+                        was_stopped = bool(result.get("stopped"))
+                        row["status"] = "stopped" if was_stopped else "done"
                         row["postings"] = int(result.get("postings") or 0)
                         row["message"] = (
-                            f"Готово: {row['postings']} отправлений"
-                            if not result.get("stopped")
-                            else "Остановлено"
+                            "Остановлено"
+                            if was_stopped
+                            else f"Готово: {row['postings']} отправлений"
                         )
+                        if was_stopped:
+                            stopped = True
+                        else:
+                            synced_sources += 1
+                            total_postings += int(row["postings"] or 0)
                         for err in result.get("errors") or []:
                             if isinstance(err, str) and err:
                                 errors.append(f"{job['name']}: {err}")
@@ -863,15 +1029,34 @@ def start_sync_thread(
                 with _ozon_fbs_sync_lock:
                     _ozon_fbs_sync_state["synced"] = idx + 1
         finally:
+            pallet_summary: list[dict[str, Any]] = []
+            if synced_sources > 0:
+                try:
+                    pallet_summary = compute_ozon_fbs_pallet_summary(
+                        repo, user_id=user_id, sources=jobs
+                    )
+                except Exception:
+                    _log.exception(
+                        "ozon_fbs pallet summary failed user=%s", user_id
+                    )
+                    pallet_summary = []
+
             with _ozon_fbs_sync_lock:
                 _ozon_fbs_sync_state["in_progress"] = False
                 _ozon_fbs_sync_state["errors"] = errors
-                if _ozon_fbs_sync_state.get("cancel_requested"):
-                    _ozon_fbs_sync_state["message"] = "Синхронизация остановлена"
+                _ozon_fbs_sync_state["pallet_summary"] = pallet_summary
+                stats_part = (
+                    f"Источников: {synced_sources}/{len(jobs)} | "
+                    f"Отправлений: {total_postings}"
+                )
+                if stopped or _ozon_fbs_sync_state.get("cancel_requested"):
+                    _ozon_fbs_sync_state["message"] = f"Остановлено. {stats_part}"
                 elif errors:
-                    _ozon_fbs_sync_state["message"] = "Синхронизация завершена с ошибками"
+                    _ozon_fbs_sync_state["message"] = (
+                        f"Готово с ошибками. {stats_part}"
+                    )
                 else:
-                    _ozon_fbs_sync_state["message"] = "Синхронизация завершена"
+                    _ozon_fbs_sync_state["message"] = f"Готово. {stats_part}"
 
     threading.Thread(target=_run, name="ozon-fbs-sync", daemon=True).start()
     return True, f"Синхронизация запущена ({len(jobs)} источников)"

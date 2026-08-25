@@ -1301,14 +1301,66 @@
 
   function closeSyncInfo() {
     const box = document.getElementById("ozonFbsSyncInfo");
-    if (box) box.hidden = true;
+    if (!box) return;
+    box.hidden = true;
+    box.classList.remove("is-ok", "is-error");
+    const textEl = document.getElementById("ozonFbsSyncInfoText");
+    const palletsEl = document.getElementById("ozonFbsSyncInfoPallets");
+    if (textEl) textEl.textContent = "";
+    if (palletsEl) {
+      palletsEl.innerHTML = "";
+      palletsEl.hidden = true;
+    }
   }
 
-  function showSyncInfo(text) {
-    const box = document.getElementById("ozonFbsSyncInfo");
-    const txt = document.getElementById("ozonFbsSyncInfoText");
-    if (txt) txt.textContent = text || "";
-    if (box) box.hidden = !text;
+  /** Mirror WB FBS sync banner: green/red + per-source rows + pallet/box lines. */
+  function showSyncInfo(text, kind = "", palletSummary = null, sourceRows = null) {
+    const info = document.getElementById("ozonFbsSyncInfo");
+    if (!info) return;
+    const msg = String(text || "").trim();
+    const textEl = document.getElementById("ozonFbsSyncInfoText");
+    const palletsEl = document.getElementById("ozonFbsSyncInfoPallets");
+    const rowsSrc = Array.isArray(sourceRows) ? sourceRows : [];
+
+    if (textEl) {
+      if (rowsSrc.length) {
+        textEl.innerHTML = rowsSrc.map((row) => {
+          const name = esc(row?.name || `Источник ${row?.source_id || ""}`);
+          const line = esc(row?.message || "");
+          const st = String(row?.status || "");
+          let cls = "wb-fbs-sync-info-source-row";
+          if (st === "error") cls += " is-error";
+          else if (st === "done") cls += " is-ok";
+          else if (st === "stopped") cls += " is-stopped";
+          return `<div class="${cls}"><span class="wb-fbs-sync-info-source-name">${name}</span>: ${line}</div>`;
+        }).join("");
+      } else {
+        textEl.textContent = msg;
+      }
+    }
+
+    const rows = Array.isArray(palletSummary) ? palletSummary : [];
+    if (palletsEl) {
+      if (rows.length && (kind === "ok" || /готово/i.test(msg))) {
+        palletsEl.innerHTML = rows.map((row) => {
+          const name = esc(row?.name || `Источник ${row?.source_id || ""}`);
+          const label = esc(
+            row?.pallets_label
+            || `${Number(row?.pallets || 0).toFixed(2).replace(".", ",")} паллета`
+          );
+          return `<div class="wb-fbs-sync-info-pallet-row">${name} — ${label}</div>`;
+        }).join("");
+        palletsEl.hidden = false;
+      } else {
+        palletsEl.innerHTML = "";
+        palletsEl.hidden = true;
+      }
+    }
+
+    info.hidden = !(msg || rowsSrc.length);
+    info.classList.toggle("is-error", kind === "error");
+    info.classList.toggle("is-ok", kind === "ok");
+    info.style.color = "";
   }
 
   function setSyncUi(running) {
@@ -1321,14 +1373,34 @@
   async function pollSyncStatus() {
     try {
       const res = await fetch("/api/ozon-fbs/sync/status");
-      const data = await res.json();
-      const running = Boolean(data.in_progress);
+      const st = await res.json();
+      const running = Boolean(st.in_progress);
       setSyncUi(running);
-      if (data.message) showSyncInfo(String(data.message));
+      const msg = String(st.message || "");
+      const errs = (st.errors || [])
+        .map((e) => String(e || "").trim())
+        .filter((e) => e)
+        .slice(0, 2)
+        .join("; ");
+      const text = `${msg}${errs ? " · " + errs : ""}`.trim();
+      let kind = "";
+      if (!running) {
+        if ((st.errors || []).length || /ошибк/i.test(msg)) kind = "error";
+        else if (/готово/i.test(msg) || /остановлено/i.test(msg)) kind = "ok";
+      }
+      const pallets = (!running && Array.isArray(st.pallet_summary))
+        ? st.pallet_summary
+        : null;
+      const sourceRows = (running && Array.isArray(st.sources) && st.sources.length)
+        ? st.sources
+        : null;
+      if (sourceRows) showSyncInfo(text, kind, null, sourceRows);
+      else if (text) showSyncInfo(text, kind, pallets);
       if (running) {
         state.syncPollTimer = setTimeout(pollSyncStatus, 1500);
       } else {
         clearTimeout(state.syncPollTimer);
+        state.syncPollTimer = null;
         await loadPostings(false);
       }
     } catch (e) {
@@ -1347,14 +1419,14 @@
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        showSyncInfo(data.message || data.detail || "Ошибка синхронизации");
+        showSyncInfo(data.message || data.detail || "Ошибка синхронизации", "error");
         setSyncUi(false);
         return;
       }
       showSyncInfo(data.message || "Синхронизация запущена");
       pollSyncStatus();
     } catch (e) {
-      showSyncInfo("Ошибка сети");
+      showSyncInfo("Ошибка сети", "error");
       setSyncUi(false);
     }
   }
