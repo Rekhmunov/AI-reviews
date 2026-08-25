@@ -148,8 +148,109 @@
     }
   }
 
+  const COL_WIDTHS_PREFIX = "ozon_fbs_col_widths_v1";
+  const DEFAULT_WIDTHS = [28, 52, 20]; // posting, product, warehouse
+  let colResizerInited = false;
+
+  function colWidthsKey() {
+    const email = String(document.querySelector(".sidebar-user-email")?.textContent || "")
+      .trim()
+      .toLowerCase();
+    return email ? `${COL_WIDTHS_PREFIX}:${email}` : COL_WIDTHS_PREFIX;
+  }
+
+  function applyColWidths(widths) {
+    const cols = Array.from(document.querySelectorAll("#ozonFbsColgroup col")).filter(
+      (c) => !c.dataset.fixed
+    );
+    cols.forEach((col, i) => {
+      if (widths[i] !== undefined) col.style.width = `${widths[i]}%`;
+    });
+  }
+
+  function getColWidths() {
+    const cols = Array.from(document.querySelectorAll("#ozonFbsColgroup col")).filter(
+      (c) => !c.dataset.fixed
+    );
+    return cols.map((col, i) => parseFloat(col.style.width) || DEFAULT_WIDTHS[i] || 10);
+  }
+
+  function initColumnResizer() {
+    const table = document.getElementById("ozonFbsOrdersTable");
+    if (!table) return;
+
+    let widths = DEFAULT_WIDTHS.slice();
+    try {
+      const saved = JSON.parse(localStorage.getItem(colWidthsKey()) || "null");
+      if (Array.isArray(saved) && saved.length === widths.length) widths = saved;
+      else if (Array.isArray(saved)) localStorage.removeItem(colWidthsKey());
+    } catch (_) {
+      /* ignore */
+    }
+    applyColWidths(widths);
+
+    if (colResizerInited) return;
+    colResizerInited = true;
+
+    let startX = 0;
+    let colIdx = 0;
+    let startWidths = [];
+    let activeHandle = null;
+
+    function onMouseMove(e) {
+      const tableEl = document.getElementById("ozonFbsOrdersTable");
+      if (!tableEl) return;
+      const tableW = tableEl.offsetWidth || 1;
+      const deltaPct = ((e.clientX - startX) / tableW) * 100;
+      const newWidths = startWidths.slice();
+      const minPct = 8;
+      const nextIdx = colIdx < newWidths.length - 1 ? colIdx + 1 : colIdx - 1;
+      let newCur = Math.max(minPct, startWidths[colIdx] + deltaPct);
+      let newNext = Math.max(minPct, startWidths[nextIdx] - deltaPct);
+      if (newNext < minPct) {
+        newCur = startWidths[colIdx] + (startWidths[nextIdx] - minPct);
+        newNext = minPct;
+      }
+      newWidths[colIdx] = Math.round(newCur * 10) / 10;
+      newWidths[nextIdx] = Math.round(newNext * 10) / 10;
+      applyColWidths(newWidths);
+    }
+
+    function onMouseUp() {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      if (activeHandle) activeHandle.classList.remove("dragging");
+      activeHandle = null;
+      try {
+        localStorage.setItem(colWidthsKey(), JSON.stringify(getColWidths()));
+      } catch (_) {
+        /* ignore */
+      }
+    }
+
+    table.addEventListener("mousedown", (e) => {
+      const handle = e.target?.closest?.(".col-resize-handle");
+      if (!handle) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const th = handle.parentElement;
+      colIdx = parseInt(th.getAttribute("data-col") || "0", 10);
+      startX = e.clientX;
+      startWidths = getColWidths();
+      activeHandle = handle;
+      document.addEventListener("mousemove", onMouseMove);
+      document.addEventListener("mouseup", onMouseUp);
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      handle.classList.add("dragging");
+    });
+  }
+
   async function initSection() {
     if (!canView()) return;
+    initColumnResizer();
     await loadSources();
     await loadPostings(true);
   }
