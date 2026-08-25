@@ -8417,7 +8417,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         src_full = repository.get_supply_source_with_key(user_id=owner_id, source_id=source_id)
         if not src_full:
             raise HTTPException(status_code=400, detail="Источник не найден")
-        if not ozon_fbs_mod.is_ozon_fbs_marketplace(src_full.get("marketplace")):
+        if not ozon_fbs_mod.is_ozon_fbs_source(src_full):
             raise HTTPException(status_code=400, detail="Источник не является OZON ФБС")
         client_id = str(src_full.get("client_id") or "").strip()
         api_key = str(src_full.get("api_key") or "").strip()
@@ -12022,7 +12022,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         for s in repository.list_supply_sources(user_id=owner_id):
             if not s.get("is_enabled"):
                 continue
-            if not ozon_fbs_mod.is_ozon_fbs_marketplace(s.get("marketplace")):
+            if not ozon_fbs_mod.is_ozon_fbs_source(s):
                 continue
             sid = str(s.get("id"))
             if allowed is not None and sid not in allowed:
@@ -12089,7 +12089,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             named = [
                 s
                 for s in repository.list_supply_sources(user_id=owner_id)
-                if ozon_fbs_mod.is_ozon_fbs_marketplace(s.get("marketplace"))
+                if ozon_fbs_mod.is_ozon_fbs_source(s)
                 and s.get("is_enabled")
             ]
             if role not in ROLE_CAN_ACCESS_SETTINGS:
@@ -12103,7 +12103,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if not named:
                 return {
                     "ok": False,
-                    "message": "Нет источников OZON ФБС. Добавьте в Поставки → Настройки → Источники.",
+                    "message": "Нет источников OZON ФБС. Добавьте источник OZON с «ФБС» в названии (Поставки → Настройки → Источники).",
                 }
             return {"ok": False, "message": "У источников OZON ФБС не задан Client-Id или Api-Key"}
         ok, message = ozon_fbs_mod.start_sync_thread(
@@ -13972,9 +13972,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if _ozon_sync_state.get("in_progress"):
                 return {"ok": False, "message": "Синхронизация уже запущена"}
 
-        # Get OZON sources only
-        sources = [s for s in repository.list_supply_sources(user_id=owner_id)
-                   if (s.get("marketplace") or "wb").lower() == "ozon" and s.get("is_enabled")]
+        # Get OZON FBO sources only (exclude FBS by name and legacy marketplace=ozon_fbs)
+        sources = [
+            s
+            for s in repository.list_supply_sources(user_id=owner_id)
+            if s.get("is_enabled") and ozon_fbs_mod.is_ozon_fbo_source(s)
+        ]
         if not sources:
             return {"ok": False, "message": "Нет активных источников OZON"}
 
@@ -14510,7 +14513,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         sources = [
             s
             for s in repository.list_supply_sources(user_id=owner_id)
-            if (s.get("marketplace") or "wb").lower() == "ozon" and s.get("is_enabled")
+            if s.get("is_enabled")
+            and str(s.get("marketplace") or "").strip().lower() in {"ozon", "ozon_fbs"}
         ]
         if not sources:
             raise HTTPException(status_code=400, detail="Нет активных источников OZON")
@@ -14895,7 +14899,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         owner_id = _supply_owner_id(user)
         if source_id:
             src_full = repository.get_supply_source_with_key(user_id=owner_id, source_id=source_id)
-            if not src_full or (src_full.get("marketplace") or "").lower() != "ozon":
+            if not src_full or str(src_full.get("marketplace") or "").strip().lower() not in {
+                "ozon",
+                "ozon_fbs",
+            }:
                 raise HTTPException(status_code=400, detail="Источник OZON не найден")
             api_key = str(src_full.get("api_key") or "").strip()
             client_id = str(src_full.get("client_id") or "").strip()
@@ -16756,9 +16763,15 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         sources = repository.list_supply_sources(user_id=owner_id)
         if payload.source_id:
             sources = [s for s in sources if s["id"] == payload.source_id]
-        # WB sync: only process WB sources (marketplace == 'wb' or null/empty)
-        active_sources = [s for s in sources if s.get("is_enabled")
-                          and (s.get("marketplace") or "wb").lower() == "wb"]
+        # WB FBO sync: marketplace=wb without «ФБС»/FBS in the name
+        # (FBS cabinets are handled by the ВБ ФБС module).
+        active_sources = [
+            s
+            for s in sources
+            if s.get("is_enabled")
+            and (s.get("marketplace") or "wb").lower() == "wb"
+            and not wb_fbs_mod.is_fbs_source_name(s.get("name"))
+        ]
         if not active_sources:
             return {"ok": True, "synced": 0, "message": "Нет активных источников"}
 

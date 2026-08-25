@@ -1,6 +1,10 @@
 """Ozon FBS postings — isolated from Ozon FBO (supply-order) and WB FBS.
 
-Uses api-seller.ozon.ru with Client-Id + Api-Key from supply_sources (marketplace=ozon_fbs).
+Uses api-seller.ozon.ru with Client-Id + Api-Key from supply_sources.
+
+Source rule (same idea as WB FBS):
+- marketplace=ozon and name contains «ФБС»/FBS, OR
+- marketplace=ozon_fbs (legacy value kept for compatibility).
 """
 from __future__ import annotations
 
@@ -9,7 +13,7 @@ import logging
 import threading
 import time
 from datetime import UTC, datetime, timedelta
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -64,8 +68,37 @@ _ozon_fbs_sync_state: dict[str, object] = {
 }
 
 
+def is_fbs_source_name(name: object) -> bool:
+    """True when supply source name is meant for FBS (contains ФБС/FBS)."""
+    text = str(name or "").strip().lower()
+    return "фбс" in text or "fbs" in text
+
+
 def is_ozon_fbs_marketplace(marketplace: object) -> bool:
+    """Legacy marketplace value used before name-based FBS detection."""
     return str(marketplace or "").strip().lower() == "ozon_fbs"
+
+
+def is_ozon_fbs_source(source: Mapping[str, Any] | None) -> bool:
+    """True for Ozon FBS cabinets: ozon+ФБС in name, or legacy marketplace=ozon_fbs."""
+    if not source:
+        return False
+    mp = str(source.get("marketplace") or "").strip().lower()
+    if mp == "ozon_fbs":
+        return True
+    if mp == "ozon" and is_fbs_source_name(source.get("name")):
+        return True
+    return False
+
+
+def is_ozon_fbo_source(source: Mapping[str, Any] | None) -> bool:
+    """True for Ozon FBO cabinets: marketplace=ozon without ФБС/FBS in the name."""
+    if not source:
+        return False
+    mp = str(source.get("marketplace") or "").strip().lower()
+    if mp != "ozon":
+        return False
+    return not is_fbs_source_name(source.get("name"))
 
 
 def compute_tab(status: object) -> str:
@@ -755,11 +788,12 @@ def start_sync_thread(
 
 
 def list_fbs_sync_jobs(repo: ReviewRepository, *, user_id: int) -> list[dict[str, Any]]:
+    """Build sync jobs for enabled Ozon FBS sources (name ФБС or legacy ozon_fbs)."""
     jobs: list[dict[str, Any]] = []
     for s in repo.list_supply_sources(user_id=user_id):
         if not s.get("is_enabled"):
             continue
-        if not is_ozon_fbs_marketplace(s.get("marketplace")):
+        if not is_ozon_fbs_source(s):
             continue
         src_full = repo.get_supply_source_with_key(user_id=user_id, source_id=int(s["id"]))
         if not src_full:

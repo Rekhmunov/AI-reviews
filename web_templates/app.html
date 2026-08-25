@@ -3702,13 +3702,12 @@
             <div id="addSupplySourceForm" class="source-form hidden" style="margin-top:12px">
               <div class="row">
                 <select id="newSupplySourceMarketplace" onchange="onSupplySourceMarketplaceChange()" style="height:36px">
-                  <option value="wb">Wildberries (WB)</option>
-                  <option value="ozon">OZON (FBO)</option>
-                  <option value="ozon_fbs">OZON ФБС</option>
+                  <option value="wb">ВБ</option>
+                  <option value="ozon">ОЗОН</option>
                 </select>
               </div>
               <div class="row">
-                <input id="newSupplySourceName" type="text" placeholder="Название источника (например, ИП Иванов)" />
+                <input id="newSupplySourceName" type="text" placeholder="Название (для ФБС укажите «ФБС» в имени)" />
               </div>
               <div id="newSupplyOzonClientIdRow" class="row" style="display:none">
                 <input id="newSupplySourceClientId" type="text" placeholder="Client-ID (OZON)" autocomplete="off" />
@@ -5371,6 +5370,6 @@
   </div>
 
   <script src="/static/ozon_fbs.js?v=1"></script>
-  <script src="/static/app.js?v=500"></script>
+  <script src="/static/app.js?v=501"></script>
 </body>
 </html>

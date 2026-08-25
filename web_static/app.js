@@ -2185,9 +2185,9 @@ function onSupplySourceMarketplaceChange() {
   const mp = document.getElementById("newSupplySourceMarketplace")?.value || "wb";
   const clientIdRow = document.getElementById("newSupplyOzonClientIdRow");
   const apiKeyPlaceholder = document.getElementById("newSupplySourceApiKey");
-  if (clientIdRow) clientIdRow.style.display = (mp === "ozon" || mp === "ozon_fbs") ? "" : "none";
+  if (clientIdRow) clientIdRow.style.display = mp === "ozon" ? "" : "none";
   if (apiKeyPlaceholder) {
-    apiKeyPlaceholder.placeholder = (mp === "ozon" || mp === "ozon_fbs")
+    apiKeyPlaceholder.placeholder = mp === "ozon"
       ? "API-ключ OZON (из личного кабинета продавца)"
       : "Токен WB Поставки";
   }
@@ -2250,11 +2250,9 @@ function renderSupplySourcesTable() {
     const fullPreview = src.api_key_preview || "—";
     const shortPreview = fullPreview.length > 18 ? fullPreview.slice(0, 14) + "…" : fullPreview;
     const mpRaw = (src.marketplace || "wb").toLowerCase();
-    const mpLabel = mpRaw === "ozon"
-      ? '<span style="color:#005bff;font-weight:600">OZON</span>'
-      : mpRaw === "ozon_fbs"
-        ? '<span style="color:#005bff;font-weight:600">OZON ФБС</span>'
-        : '<span style="color:#8b4513;font-weight:600">WB</span>';
+    const mpLabel = (mpRaw === "ozon" || mpRaw === "ozon_fbs")
+      ? '<span style="color:#005bff;font-weight:600">ОЗОН</span>'
+      : '<span style="color:#8b4513;font-weight:600">ВБ</span>';
     tr.innerHTML = `
       <td>${idx + 1}</td>
       <td>${mpLabel}</td>
@@ -2287,7 +2285,7 @@ async function createSupplySource() {
   const client_id = (cidEl?.value || "").trim();
   if (!name) { if (info) { info.textContent = "Введите название"; info.style.color = "#b91c1c"; } return; }
   if (!api_key) { if (info) { info.textContent = "Введите API-ключ"; info.style.color = "#b91c1c"; } return; }
-  if ((marketplace === "ozon" || marketplace === "ozon_fbs") && !client_id) { if (info) { info.textContent = "Введите Client-ID"; info.style.color = "#b91c1c"; } return; }
+  if (marketplace === "ozon" && !client_id) { if (info) { info.textContent = "Введите Client-ID"; info.style.color = "#b91c1c"; } return; }
   if (info) { info.textContent = "Сохранение..."; info.style.color = ""; }
   const res = await fetch("/api/supply-sources", {
     method: "POST",
@@ -11583,12 +11581,14 @@ function renderManagerSupplyPermissionsRows(supplySources, supplyPerms) {
     }
     const tdSt = "padding:10px 12px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b";
     const tdCt = tdSt + ";text-align:center";
-    const wbDisabled = mp !== "wb" ? "disabled" : "";
-    const wbStyle = mp !== "wb" ? "opacity:0.2;cursor:default" : "";
-    const ozonDisabled = mp !== "ozon" ? "disabled" : "";
-    const ozonStyle = mp !== "ozon" ? "opacity:0.2;cursor:default" : "";
-    const ozonFbsDisabled = mp !== "ozon_fbs" ? "disabled" : "";
-    const ozonFbsStyle = mp !== "ozon_fbs" ? "opacity:0.2;cursor:default" : "";
+    const isWb = mp === "wb";
+    const isOzon = mp === "ozon" || mp === "ozon_fbs";
+    const wbDisabled = !isWb ? "disabled" : "";
+    const wbStyle = !isWb ? "opacity:0.2;cursor:default" : "";
+    const ozonDisabled = !isOzon ? "disabled" : "";
+    const ozonStyle = !isOzon ? "opacity:0.2;cursor:default" : "";
+    const ozonFbsDisabled = !isOzon ? "disabled" : "";
+    const ozonFbsStyle = !isOzon ? "opacity:0.2;cursor:default" : "";
     const settingsMerge = settingsCell ? settingsCell.replace("<td ", `<td style="${tdCt}" `) : "";
     const poaMerge = poaCell ? poaCell.replace("<td ", `<td style="${tdCt}" `) : "";
     const certsMerge = certsCell ? certsCell.replace("<td ", `<td style="${tdCt}" `) : "";
