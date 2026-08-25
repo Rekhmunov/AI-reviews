@@ -249,25 +249,28 @@ class OzonFbsClient:
             filt["warehouse_id"] = int(warehouse_id)
         if status:
             filt["status"] = str(status)
-        return self.post_json(
-            "/v1/delivery-method/list",
-            {
-                "filter": filt,
-                "limit": min(max(int(limit), 1), 50),
-                "offset": max(int(offset), 0),
-            },
-        )
+        body = {
+            "filter": filt,
+            "limit": min(max(int(limit), 1), 50),
+            "offset": max(int(offset), 0),
+        }
+        # v1 deprecated (Apr 2026); v2 needs the same Seller API role but works on new keys.
+        try:
+            return self.post_json("/v2/delivery-method/list", body)
+        except RuntimeError:
+            return self.post_json("/v1/delivery-method/list", body)
 
     def carriage_delivery_list(
         self, *, delivery_method_id: int, departure_date: str
     ) -> dict[str, Any]:
-        return self.post_json(
-            "/v1/carriage/delivery/list",
-            {
-                "delivery_method_id": int(delivery_method_id),
-                "departure_date": str(departure_date),
-            },
-        )
+        body = {
+            "delivery_method_id": int(delivery_method_id),
+            "departure_date": str(departure_date),
+        }
+        try:
+            return self.post_json("/v2/carriage/delivery/list", body)
+        except RuntimeError:
+            return self.post_json("/v1/carriage/delivery/list", body)
 
     def fbs_act_create(
         self,

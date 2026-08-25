@@ -8,8 +8,11 @@ from unittest.mock import MagicMock
 
 from review_processor.ozon_fbs_shipments import (
     _carriage_status_label,
+    _carriage_delivery_blocks,
     _collected_label,
+    _delivery_method_rows,
     _departure_iso,
+    _friendly_ozon_api_error,
     _normalize_block,
     build_shipments_view,
     pick_default_delivery_method,
@@ -26,6 +29,37 @@ class OzonFbsShipmentsHelpersTests(unittest.TestCase):
         self.assertEqual(_carriage_status_label("formed"), "Сформирована")
         self.assertEqual(_carriage_status_label("Не сформирована"), "Не сформирована")
         self.assertEqual(_carriage_status_label("Сформирована"), "Сформирована")
+
+    def test_delivery_method_rows_v2(self) -> None:
+        rows, has_next = _delivery_method_rows(
+            {
+                "result": {
+                    "delivery_methods": [
+                        {"delivery_method_id": 5, "name": "Метод 5"},
+                    ],
+                    "has_next": False,
+                }
+            }
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertFalse(has_next)
+
+    def test_carriage_blocks_v2_nested(self) -> None:
+        blocks = _carriage_delivery_blocks(
+            {
+                "result": {
+                    "delivery_methods": [
+                        {"warehouse_name": "Склад", "carriages": []},
+                    ]
+                }
+            }
+        )
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(blocks[0]["warehouse_name"], "Склад")
+
+    def test_friendly_role_error(self) -> None:
+        err = _friendly_ozon_api_error(RuntimeError("Ozon HTTP 403: role missing"))
+        self.assertIn("API-ключ Ozon", str(err))
 
     def test_collected_label(self) -> None:
         self.assertEqual(

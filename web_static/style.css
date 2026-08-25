@@ -8098,27 +8098,17 @@ button.ozon-fbs-ship-all-btn:disabled {
   cursor: not-allowed;
 }
 
-/* Ozon FBS — «Отгрузки» modal (Seller-like) */
-.ozon-fbs-shipments-modal {
-  background: #f5f7fa;
-}
-.ozon-fbs-shipments-header {
-  padding: 20px 24px 16px;
-  border-bottom: 1px solid #e2e8f0;
-  background: #fff;
-  flex: 0 0 auto;
-}
+/* Ozon FBS — «Отгрузки» modal (aligned with wb-fbs supply detail) */
 .ozon-fbs-shipments-sub {
-  margin: 4px 0 0;
+  margin: 0 0 12px;
   font-size: 14px;
   line-height: 1.4;
   color: #64748b;
 }
-.ozon-fbs-shipments-filters {
+.wb-fbs-sd-header .ozon-fbs-shipments-filters {
   display: flex;
   flex-wrap: wrap;
   gap: 12px 16px;
-  margin-top: 16px;
 }
 .ozon-fbs-shipments-field {
   display: flex;
@@ -8149,25 +8139,27 @@ button.ozon-fbs-ship-all-btn:disabled {
   border-color: #005bff;
 }
 .ozon-fbs-shipments-body {
-  flex: 1 1 auto;
-  overflow: auto;
   padding: 16px 24px 24px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+  background: #f8fafc;
 }
-.ozon-fbs-shipments-loading,
-.ozon-fbs-shipments-error {
+.ozon-fbs-shipments-loading {
   padding: 24px 16px;
   text-align: left;
   font-size: 14px;
   color: #475569;
 }
 .ozon-fbs-shipments-error {
-  color: #b91c1c;
+  margin: 0;
+  padding: 16px 20px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #991b1b;
   background: #fef2f2;
   border: 1px solid #fecaca;
-  border-radius: 8px;
+  border-radius: 12px;
 }
 .ozon-fbs-shipments-barcode-card,
 .ozon-fbs-shipments-block {

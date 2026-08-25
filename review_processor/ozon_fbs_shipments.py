@@ -1,8 +1,8 @@
 """Ozon FBS «Отгрузки» (carriage / act) — Seller API wrappers for the supply modal.
 
 Key Seller API methods (docs.ozon.ru):
-- ``POST /v1/delivery-method/list`` — методы доставки склада
-- ``POST /v1/carriage/delivery/list`` — карточка отгрузки на дату + метод
+- ``POST /v2/delivery-method/list`` (fallback ``/v1/…``) — методы доставки склада
+- ``POST /v2/carriage/delivery/list`` (fallback ``/v1/…``) — карточка отгрузки на дату + метод
 - ``POST /v2/posting/fbs/act/create`` — кнопка «Сформировать»
 - ``POST /v2/posting/fbs/act/check-status`` — статус формирования документов
 - ``POST /v2/posting/fbs/act/get-barcode`` — изображение ШК поставки
@@ -21,6 +21,55 @@ from . import ozon_fbs_supplies as oz_sup
 from .repository import ReviewRepository
 
 _log = logging.getLogger(__name__)
+
+_OZON_ROLE_HINT = (
+    "Проверьте API-ключ Ozon: в личном кабинете Seller → Настройки → "
+    "Seller API → ключ должен иметь права на FBS-отгрузки (Posting / Delivery). "
+    "При необходимости создайте новый ключ с полными правами Admin."
+)
+
+
+def _friendly_ozon_api_error(exc: Exception) -> RuntimeError:
+    text = str(exc or "")
+    low = text.casefold()
+    if "403" in low or "required role" in low:
+        return RuntimeError(f"{_OZON_ROLE_HINT} ({text})")
+    return RuntimeError(text)
+
+
+def _delivery_method_rows(data: dict[str, Any]) -> tuple[list[dict[str, Any]], bool]:
+    """Normalize v1/v2 delivery-method/list payloads."""
+    result = data.get("result")
+    if isinstance(result, list):
+        rows = [x for x in result if isinstance(x, dict)]
+        return rows, bool(data.get("has_next"))
+    if isinstance(result, dict):
+        nested = result.get("delivery_methods") or result.get("methods") or []
+        if isinstance(nested, list):
+            rows = [x for x in nested if isinstance(x, dict)]
+            has_next = bool(result.get("has_next") or data.get("has_next"))
+            return rows, has_next
+    return [], False
+
+
+def _carriage_delivery_blocks(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Normalize v1/v2 carriage/delivery/list payloads into v1-like blocks."""
+    result = data.get("result")
+    if isinstance(result, list):
+        return [b for b in result if isinstance(b, dict)]
+    if isinstance(result, dict):
+        blocks: list[dict[str, Any]] = []
+        nested = result.get("delivery_methods")
+        if isinstance(nested, list):
+            for item in nested:
+                if isinstance(item, dict):
+                    blocks.append(item)
+        if blocks:
+            return blocks
+        if isinstance(result.get("carriages"), list):
+            return [result]
+    return []
+
 
 PREFERRED_METHOD_HINTS = (
     "доставка на озон самостоятельно",
@@ -80,16 +129,21 @@ def list_delivery_methods(
     methods: list[dict[str, Any]] = []
     offset = 0
     for _ in range(20):
-        data = client.delivery_method_list(
-            warehouse_id=warehouse_id, status="ACTIVE", limit=50, offset=offset
-        )
-        batch = data.get("result") if isinstance(data.get("result"), list) else []
+        try:
+            data = client.delivery_method_list(
+                warehouse_id=warehouse_id, status="ACTIVE", limit=50, offset=offset
+            )
+        except RuntimeError as exc:
+            raise _friendly_ozon_api_error(exc) from exc
+        batch, has_next = _delivery_method_rows(data)
         for raw in batch:
             if not isinstance(raw, dict):
                 continue
             try:
-                mid = int(raw.get("id"))
+                mid = int(raw.get("id") or raw.get("delivery_method_id") or 0)
             except (TypeError, ValueError):
+                continue
+            if mid <= 0:
                 continue
             methods.append(
                 {
@@ -100,7 +154,7 @@ def list_delivery_methods(
                     "cutoff": str(raw.get("cutoff") or ""),
                 }
             )
-        if not data.get("has_next") or not batch:
+        if not has_next or not batch:
             break
         offset += len(batch)
     methods.sort(key=lambda m: (-_method_score(str(m.get("name") or "")), str(m.get("name") or "")))
@@ -371,10 +425,9 @@ def build_shipments_view(
             delivery_method_id=mid, departure_date=dep_iso
         )
     except Exception as exc:
-        raise RuntimeError(f"Не удалось получить отгрузки Ozon: {exc}") from exc
+        raise _friendly_ozon_api_error(exc) from exc
 
-    result = raw.get("result") if isinstance(raw.get("result"), list) else []
-    blocks = [_normalize_block(b) for b in result if isinstance(b, dict)]
+    blocks = [_normalize_block(b) for b in _carriage_delivery_blocks(raw)]
     if not blocks:
         blocks = [
             _normalize_block(

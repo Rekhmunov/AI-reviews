@@ -1016,8 +1016,13 @@
   function printOnePostingStickerFromDetail(postingNumber) {
     closeOzonFbsRowMenus();
     const pn = String(postingNumber || "").trim();
-    if (!pn || !supplyDetailReady()) return;
-    openStickersPrint([pn]);
+    const sourceId = supplyDetailState.sourceId || state.sourceId;
+    if (!pn || !sourceId) return;
+    const url =
+      `/api/ozon-fbs/postings/stickers-print?source_id=${sourceId}` +
+      `&posting_numbers=${encodeURIComponent(pn)}`;
+    const win = window.open(url, "_blank");
+    if (!win) alert("Разрешите всплывающие окна для стикера");
   }
 
   function renderSupplyDetail(data) {
@@ -2044,7 +2049,7 @@
           ? ""
           : `<button type="button" class="ozon-fbs-shipments-form-btn"
                      ${canForm ? "" : "disabled"}
-                     onclick="ozonFbsShipmentsForm(${bi}, ${Number(c.index || 1)})">Сформировать</button>`;
+                     onclick="ozonFbsShipmentsForm()">Сформировать</button>`;
         const picking = block.assembly_list_availability !== false
           ? `<button type="button" class="ozon-fbs-shipments-link"
                      onclick="ozonFbsOpenPickingList()">Лист подбора</button>`
