@@ -5,9 +5,10 @@ We compose a printable A4 PDF from official stickers + local catalog names
 (same pattern as other supply PDFs in the app).
 
 Print speed: short in-process caches reuse modal detail, sticker PNG map,
-and Content color/brand so picking-list + stickers do not re-hit WB for the
-same supply within a short TTL. No WB write calls; stickers always come from
-the official stickers endpoint (or its fresh cache).
+and Content color/brand so repeat sticker downloads stay cheap. Print entry
+points (picking list / stickers) always re-verify WB ``order-ids`` against
+local assembly links and do **not** reuse the modal detail cache — an
+incomplete WB snapshot right after collect-mgt must never under-print.
 """
 from __future__ import annotations
 
