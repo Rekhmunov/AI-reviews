@@ -12192,7 +12192,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.post("/api/ozon-fbs/ship-all")
     def ozon_fbs_ship_all(request: Request, source_id: int) -> dict[str, object]:
-        """Assemble all «Ожидают сборки» via Ozon ``/v4/posting/fbs/ship`` → awaiting_deliver."""
+        """Legacy: ship all without local supply plan (prefer /ship-all/execute)."""
         from . import ozon_fbs_detail as oz_detail
 
         user = _require_user(request)
@@ -12212,6 +12212,183 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             )
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/ozon-fbs/ship-all/preview")
+    def ozon_fbs_ship_all_preview(request: Request, source_id: int) -> dict[str, object]:
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _ozon_fbs_source_credentials(owner_id, int(source_id))
+        return oz_sup.preview_ship_all_collect(
+            repository, user_id=owner_id, source_id=int(source_id)
+        )
+
+    @app.post("/api/ozon-fbs/ship-all/execute")
+    async def ozon_fbs_ship_all_execute(request: Request) -> dict[str, object]:
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        source_id = int(body.get("source_id") or 0)
+        decisions = body.get("decisions") if isinstance(body.get("decisions"), list) else []
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, source_id)
+        try:
+            return oz_sup.execute_ship_all_collect(
+                repository,
+                user_id=owner_id,
+                source_id=source_id,
+                client_id=client_id,
+                api_key=api_key,
+                decisions=decisions,
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/ozon-fbs/supplies")
+    def ozon_fbs_list_supplies(
+        request: Request, source_id: int, tab: str = "awaiting_deliver"
+    ) -> dict[str, object]:
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _ozon_fbs_source_credentials(owner_id, int(source_id))
+        if str(tab or "") != "awaiting_deliver":
+            return {"items": [], "total": 0}
+        return oz_sup.list_awaiting_deliver_supplies(
+            repository, user_id=owner_id, source_id=int(source_id)
+        )
+
+    @app.get("/api/ozon-fbs/supplies/{supply_id}/detail")
+    def ozon_fbs_supply_detail(
+        request: Request, supply_id: str, source_id: int
+    ) -> dict[str, object]:
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _ozon_fbs_source_credentials(owner_id, int(source_id))
+        try:
+            return oz_sup.get_supply_detail(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                supply_id=str(supply_id),
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.get("/api/ozon-fbs/supplies/{supply_id}/picking-list")
+    def ozon_fbs_supply_picking_list(
+        request: Request, supply_id: str, source_id: int
+    ) -> Response:
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _ozon_fbs_source_credentials(owner_id, int(source_id))
+        try:
+            detail = oz_sup.get_supply_detail(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                supply_id=str(supply_id),
+            )
+            html_doc = oz_sup.render_picking_list_html(detail)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return Response(content=html_doc, media_type="text/html; charset=utf-8")
+
+    @app.get("/api/ozon-fbs/supplies/{supply_id}/sticker-groups")
+    def ozon_fbs_supply_sticker_groups(
+        request: Request, supply_id: str, source_id: int
+    ) -> dict[str, object]:
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _ozon_fbs_source_credentials(owner_id, int(source_id))
+        try:
+            detail = oz_sup.get_supply_detail(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                supply_id=str(supply_id),
+            )
+            return oz_sup.list_sticker_groups(detail)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/ozon-fbs/supplies/{supply_id}/stickers-print")
+    def ozon_fbs_supply_stickers_print(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+        order_ids: str = "",
+    ) -> Response:
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        src_full, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
+        selected = [
+            p.strip()
+            for p in str(order_ids or "").replace(";", ",").split(",")
+            if p.strip()
+        ]
+        try:
+            html_doc = oz_sup.build_stickers_print(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                supply_id=str(supply_id),
+                client_id=client_id,
+                api_key=api_key,
+                source_name=str(src_full.get("name") or ""),
+                posting_numbers_filter=selected or None,
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return Response(
+            content=html_doc,
+            media_type="text/html; charset=utf-8",
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.get("/api/ozon-fbs/postings/stickers-print")
     def ozon_fbs_stickers_print(

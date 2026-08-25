@@ -7,4 +7,5 @@ xlrd
 psycopg[binary]
 Pillow
 pylibdmtx
+pymupdf
 setuptools

@@ -2669,9 +2669,41 @@
           </div>
           <button type="button" id="ozonFbsShipAllBtn" class="ozon-fbs-ship-all-btn"
                   onclick="ozonFbsShipAll()"
-                  title="Собрать все отправления в «Ожидают сборки» (Ozon /v4/posting/fbs/ship)">
+                  title="Собрать все отправления в «Ожидают сборки» и создать локальную поставку">
             Собрать все заказы
           </button>
+        </div>
+
+        <div id="ozonFbsCollectModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsCollectTitle"
+             onclick="if(event.target===this)closeOzonFbsCollectModal()">
+          <div class="modal-card wb-fbs-collect-mgt-modal">
+            <div class="wb-fbs-collect-mgt-header">
+              <h3 id="ozonFbsCollectTitle" class="wb-fbs-collect-mgt-title">Собрать все заказы</h3>
+              <button type="button" class="icon-btn secondary" onclick="closeOzonFbsCollectModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <p id="ozonFbsCollectLead" class="wb-fbs-collect-mgt-lead"></p>
+            <div id="ozonFbsCollectBody" class="wb-fbs-collect-mgt-body"></div>
+            <div id="ozonFbsCollectErr" class="wb-fbs-collect-mgt-err" hidden></div>
+            <div class="wb-fbs-collect-mgt-footer">
+              <button type="button" class="secondary" onclick="closeOzonFbsCollectModal()">Отмена</button>
+              <button type="button" id="ozonFbsCollectConfirmBtn" class="ozon-fbs-ship-all-btn" onclick="confirmOzonFbsCollect()">Собрать</button>
+            </div>
+          </div>
+        </div>
+        <div id="ozonFbsCollectResultModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsCollectResultTitle"
+             onclick="if(event.target===this)closeOzonFbsCollectResultModal()">
+          <div class="modal-card wb-fbs-collect-mgt-result-modal">
+            <div class="wb-fbs-collect-mgt-header">
+              <h3 id="ozonFbsCollectResultTitle" class="wb-fbs-collect-mgt-title">Результат</h3>
+              <button type="button" class="icon-btn secondary" onclick="closeOzonFbsCollectResultModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <div id="ozonFbsCollectResultBody" class="wb-fbs-collect-mgt-result-body"></div>
+            <div class="wb-fbs-collect-mgt-footer">
+              <button type="button" class="secondary" onclick="closeOzonFbsCollectResultModal()">Закрыть</button>
+            </div>
+          </div>
         </div>
         <div class="panel supplies-table-panel wb-fbs-table-panel">
           <div class="supplies-table-wrap wb-fbs-table-wrap">
@@ -2704,6 +2736,98 @@
                 <option value="50" selected>50 / стр.</option>
                 <option value="100">100 / стр.</option>
               </select>
+            </div>
+          </div>
+        </div>
+
+        <div id="ozonFbsSupplyDetailModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsSupplyDetailTitle"
+             onclick="if(event.target===this)closeOzonFbsSupplyDetailModal()">
+          <div class="modal-card wb-fbs-supply-detail-modal">
+            <div class="wb-fbs-sd-header">
+              <div class="wb-fbs-sd-title-row">
+                <h3 id="ozonFbsSupplyDetailTitle" class="wb-fbs-sd-title">Поставка</h3>
+                <button type="button" class="icon-btn secondary wb-fbs-sd-close" onclick="closeOzonFbsSupplyDetailModal()" aria-label="Закрыть">✕</button>
+              </div>
+              <div id="ozonFbsSupplyDetailWarehouse" class="wb-fbs-sd-warehouse">—</div>
+              <div class="wb-fbs-sd-meta-row">
+                <div id="ozonFbsSupplyDetailMeta" class="wb-fbs-sd-meta"></div>
+                <input id="ozonFbsSupplyDetailSearchFilter" class="wb-fbs-kiz-search" type="search"
+                       placeholder="🔍 Поиск..." autocomplete="off"
+                       title="Поиск по отправлению, названию товара и ШК"
+                       oninput="renderOzonFbsSupplyDetail()" />
+              </div>
+              <div class="wb-fbs-sd-actions">
+                <div class="wb-fbs-picking-split" id="ozonFbsPickingSplit">
+                  <button type="button" class="secondary" id="ozonFbsSupplyDetailPickingBtn"
+                          onclick="ozonFbsOpenPickingList()">Лист подбора</button>
+                  <button type="button" class="secondary wb-fbs-picking-caret"
+                          id="ozonFbsSupplyDetailPickingMenuBtn"
+                          onclick="toggleOzonFbsPickingMenu(event)"
+                          aria-label="Другие варианты листа подбора"
+                          aria-haspopup="menu"
+                          aria-expanded="false"
+                          title="Другие варианты (скоро)">
+                    <svg width="12" height="8" viewBox="0 0 12 8" fill="none" aria-hidden="true">
+                      <path d="M1 1.5L6 6.5L11 1.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </button>
+                  <div id="ozonFbsPickingMenu" class="wb-fbs-picking-menu" role="menu" hidden></div>
+                </div>
+                <div class="wb-fbs-picking-split" id="ozonFbsStickersSplit">
+                  <button type="button" class="secondary" id="ozonFbsSupplyDetailStickersBtn"
+                          onclick="ozonFbsOpenStickersPrint()" title="Этикетка отправления Ozon">Стикеры</button>
+                  <button type="button" class="secondary wb-fbs-picking-caret"
+                          id="ozonFbsSupplyDetailStickersMenuBtn"
+                          onclick="toggleOzonFbsStickersMenu(event)"
+                          aria-label="Другие варианты печати стикеров"
+                          aria-haspopup="menu"
+                          aria-expanded="false"
+                          aria-controls="ozonFbsStickersMenu"
+                          title="Другие варианты">
+                    <svg width="12" height="8" viewBox="0 0 12 8" fill="none" aria-hidden="true">
+                      <path d="M1 1.5L6 6.5L11 1.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </button>
+                  <div id="ozonFbsStickersMenu" class="wb-fbs-picking-menu" role="menu" hidden>
+                    <button type="button" class="wb-fbs-picking-menu-item" role="menuitem"
+                            onclick="openOzonFbsStickersByCategoryModal()">Печать по категориям</button>
+                  </div>
+                </div>
+                <button type="button" class="secondary" disabled title="Скоро">—</button>
+                <button type="button" class="secondary" disabled title="Скоро">—</button>
+                <button type="button" class="secondary" disabled title="Скоро">—</button>
+              </div>
+            </div>
+            <div id="ozonFbsSupplyDetailBody" class="wb-fbs-sd-body">
+              <div class="supplies-table-wrap">
+                <table class="supplies-main-table wb-fbs-table">
+                  <thead>
+                    <tr>
+                      <th>Отправление</th>
+                      <th>Товар</th>
+                      <th>Склад</th>
+                    </tr>
+                  </thead>
+                  <tbody id="ozonFbsSupplyDetailTbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="ozonFbsStickersCategoryModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsStickersCategoryTitle"
+             onclick="if(event.target===this)closeOzonFbsStickersByCategoryModal()">
+          <div class="modal-card" style="max-width:520px;width:92%">
+            <div class="wb-fbs-collect-mgt-header">
+              <h3 id="ozonFbsStickersCategoryTitle" class="wb-fbs-collect-mgt-title">Печать по категориям</h3>
+              <button type="button" class="icon-btn secondary" onclick="closeOzonFbsStickersByCategoryModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <div id="ozonFbsStickersCategoryBody" class="wb-fbs-collect-mgt-body" style="max-height:50vh;overflow:auto"></div>
+            <div class="wb-fbs-collect-mgt-footer">
+              <button type="button" class="secondary" onclick="closeOzonFbsStickersByCategoryModal()">Отмена</button>
+              <button type="button" class="ozon-fbs-ship-all-btn" onclick="confirmOzonFbsStickersByCategory()">Печать</button>
             </div>
           </div>
         </div>
@@ -5378,7 +5502,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=5"></script>
+  <script src="/static/ozon_fbs.js?v=7"></script>
   <script src="/static/app.js?v=501"></script>
 </body>
 </html>

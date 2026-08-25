@@ -1,5 +1,6 @@
 /**
  * OZON FBS section — isolated from WB FBS and Ozon FBO.
+ * Local supplies on «Ожидают отгрузки» mirror WB FBS collect rules (Feedpilot-only).
  */
 (function () {
   "use strict";
@@ -29,9 +30,26 @@
     detailPosting: null,
     detailPayload: null,
     shipAllBusy: false,
+    viewMode: "orders", // orders | supplies
   };
 
-  const COLSPAN = 4;
+  const collectState = {
+    preview: null,
+    sourceId: null,
+    busy: false,
+  };
+
+  const supplyDetailState = {
+    supplyId: null,
+    sourceId: null,
+    supply: null,
+  };
+
+  const stickersCategoryState = {
+    groups: [],
+    selected: new Set(),
+    loading: false,
+  };
 
   function permissions() {
     return window.APP_PERMISSIONS || {};
@@ -46,6 +64,16 @@
     const d = document.createElement("div");
     d.textContent = String(s ?? "");
     return d.innerHTML;
+  }
+
+  function detailText(detail) {
+    if (detail == null) return "";
+    if (typeof detail === "string") return detail;
+    if (Array.isArray(detail)) {
+      return detail.map((x) => (typeof x === "string" ? x : (x?.msg || JSON.stringify(x)))).join("; ");
+    }
+    if (typeof detail === "object" && detail.msg) return String(detail.msg);
+    try { return JSON.stringify(detail); } catch (_) { return String(detail); }
   }
 
   function fmtDate(iso) {
@@ -75,6 +103,14 @@
     const csrf = typeof window.getCsrfToken === "function" ? window.getCsrfToken() : "";
     if (csrf) h["X-CSRF-Token"] = csrf;
     return h;
+  }
+
+  function isSuppliesTab() {
+    return state.tab === "awaiting_deliver";
+  }
+
+  function colspan() {
+    return isSuppliesTab() ? 6 : 4;
   }
 
   async function loadSources() {
@@ -118,16 +154,17 @@
     const btn = document.getElementById("ozonFbsShipAllBtn");
     if (!btn) return;
     const n = Number(state.counts.awaiting_packaging || 0);
-    btn.disabled = !state.sourceId || n <= 0 || Boolean(state.shipAllBusy);
+    btn.disabled = !state.sourceId || n <= 0 || Boolean(state.shipAllBusy) || Boolean(collectState.busy);
     btn.title = n > 0
-      ? `Собрать все отправления в «Ожидают сборки» (${n}) через Ozon /v4/posting/fbs/ship`
+      ? `Собрать все отправления в «Ожидают сборки» (${n}) и создать локальную поставку`
       : "Нет отправлений в «Ожидают сборки»";
   }
 
   function syncSelectAll() {
     const selAll = document.getElementById("ozonFbsSelectAll");
     if (!selAll) return;
-    const ids = state.items.map((x) => String(x.posting_number || "").trim()).filter(Boolean);
+    const key = isSuppliesTab() ? "supply_id" : "posting_number";
+    const ids = state.items.map((x) => String(x[key] || "").trim()).filter(Boolean);
     const allOnPage = ids.length > 0 && ids.every((id) => state.selected.has(id));
     const someOnPage = ids.some((id) => state.selected.has(id));
     selAll.checked = allOnPage;
@@ -136,10 +173,10 @@
 
   function onCheckboxChange() {
     document.querySelectorAll("#ozonFbsOrdersTable .wb-fbs-row-cb").forEach((cb) => {
-      const pn = String(cb.dataset.posting || "").trim();
-      if (!pn) return;
-      if (cb.checked) state.selected.add(pn);
-      else state.selected.delete(pn);
+      const id = String(cb.dataset.supplyId || cb.dataset.posting || "").trim();
+      if (!id) return;
+      if (cb.checked) state.selected.add(id);
+      else state.selected.delete(id);
     });
     syncSelectAll();
   }
@@ -147,13 +184,107 @@
   function toggleSelectAll(checked) {
     document.querySelectorAll("#ozonFbsOrdersTable .wb-fbs-row-cb").forEach((cb) => {
       cb.checked = !!checked;
-      const pn = String(cb.dataset.posting || "").trim();
-      if (!pn) return;
-      if (checked) state.selected.add(pn);
-      else state.selected.delete(pn);
+      const id = String(cb.dataset.supplyId || cb.dataset.posting || "").trim();
+      if (!id) return;
+      if (checked) state.selected.add(id);
+      else state.selected.delete(id);
     });
     const selAll = document.getElementById("ozonFbsSelectAll");
     if (selAll) selAll.indeterminate = false;
+  }
+
+  function syncTableMode() {
+    const supplies = isSuppliesTab();
+    const nextMode = supplies ? "supplies" : "orders";
+    const modeChanged = state.viewMode !== nextMode;
+    state.viewMode = nextMode;
+    const table = document.getElementById("ozonFbsOrdersTable");
+    const colgroup = document.getElementById("ozonFbsColgroup");
+    const thead = table?.querySelector("thead tr");
+    const search = document.getElementById("ozonFbsSearchFilter");
+    if (table) {
+      table.classList.toggle("wb-fbs-table--supplies", supplies);
+      table.classList.toggle("wb-fbs-table--assembly", supplies);
+    }
+    if (search) {
+      search.placeholder = supplies
+        ? "Поиск по поставке, складу…"
+        : "Поиск по отправлению, артикулу, ШК…";
+    }
+    if (!colgroup || !thead) return;
+    if (!modeChanged && colgroup.children.length) return;
+    if (supplies) {
+      colgroup.innerHTML = `
+        <col data-fixed="1" class="wb-fbs-col-check" style="width:40px" />
+        <col data-col="0" class="wb-fbs-col-supply" style="width:28%" />
+        <col data-col="1" class="wb-fbs-col-qr" style="width:18%" />
+        <col data-col="2" class="wb-fbs-col-orders" style="width:14%" />
+        <col data-col="3" class="wb-fbs-col-status" style="width:16%" />
+        <col data-col="4" class="wb-fbs-col-wh" style="width:24%" />
+      `;
+      thead.innerHTML = `
+        <th class="wb-fbs-th-check"><input type="checkbox" id="ozonFbsSelectAll" onchange="toggleSelectAllOzonFbs(this.checked)" title="Выбрать все на странице" /></th>
+        <th data-col="0">Поставка</th>
+        <th data-col="1">ID поставки</th>
+        <th data-col="2">Заказы</th>
+        <th data-col="3">Этап сборки</th>
+        <th data-col="4">Склад</th>
+      `;
+    } else {
+      colgroup.innerHTML = `
+        <col data-fixed="1" class="wb-fbs-col-check" style="width:40px" />
+        <col data-col="0" class="wb-fbs-col-order" />
+        <col data-col="1" class="wb-fbs-col-product" />
+        <col data-col="2" class="wb-fbs-col-wh" />
+      `;
+      thead.innerHTML = `
+        <th class="wb-fbs-th-check"><input type="checkbox" id="ozonFbsSelectAll" onchange="toggleSelectAllOzonFbs(this.checked)" title="Выбрать все на странице" /></th>
+        <th data-col="0">Отправление<span class="col-resize-handle"></span></th>
+        <th data-col="1">Товар<span class="col-resize-handle"></span></th>
+        <th data-col="2">Склад<span class="col-resize-handle"></span></th>
+      `;
+      initColumnResizer();
+    }
+  }
+
+  function renderSuppliesTable(items) {
+    const tbody = document.getElementById("ozonFbsOrdersTbody");
+    if (!tbody) return;
+    state.items = Array.isArray(items) ? items : [];
+    if (!state.items.length) {
+      tbody.innerHTML = `<tr><td colspan="${colspan()}" class="wb-fbs-empty">Нет локальных поставок. Соберите заказы синей кнопкой на вкладке «Ожидают сборки».</td></tr>`;
+      syncSelectAll();
+      return;
+    }
+    tbody.innerHTML = state.items.map((s) => {
+      const sid = String(s.supply_id || "").trim();
+      const checked = state.selected.has(sid) ? "checked" : "";
+      const created = s.created_at || "";
+      const createdMeta = created
+        ? `<div class="wb-fbs-order-meta">от ${esc(fmtDate(created))}</div>`
+        : "";
+      const ordersCount = Number(s.order_count || 0);
+      const status = String(s.status_label || "Сборка заказов");
+      return `<tr>
+        <td><input type="checkbox" class="wb-fbs-row-cb" data-supply-id="${esc(sid)}" ${checked} onchange="onOzonFbsCheckboxChange()" /></td>
+        <td>
+          <div class="wb-fbs-supply-name is-link" role="button" tabindex="0"
+               onclick="openOzonFbsSupplyDetailModal('${esc(sid)}')"
+               onkeydown="if(event.key==='Enter')openOzonFbsSupplyDetailModal('${esc(sid)}')">${esc(s.name || ("Поставка " + sid))}</div>
+          ${createdMeta}
+        </td>
+        <td><div class="wb-fbs-supply-qr" title="${esc(sid)}">${esc(sid || "—")}</div></td>
+        <td>
+          <div class="wb-fbs-supply-orders">${esc(ordersCount)}</div>
+          <div class="wb-fbs-order-meta">отправлений</div>
+        </td>
+        <td><span class="wb-fbs-supply-status is-assembly">${esc(status)}</span></td>
+        <td>
+          <div class="wb-fbs-wh-name" title="${esc(s.warehouse_label || "")}">${esc(s.warehouse_label || "—")}</div>
+        </td>
+      </tr>`;
+    }).join("");
+    syncSelectAll();
   }
 
   function renderTable(items) {
@@ -161,7 +292,7 @@
     if (!tbody) return;
     state.items = Array.isArray(items) ? items : [];
     if (!state.items.length) {
-      tbody.innerHTML = `<tr><td colspan="${COLSPAN}" class="wb-fbs-empty">Нет отправлений в этой вкладке</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="${colspan()}" class="wb-fbs-empty">Нет отправлений в этой вкладке</td></tr>`;
       syncSelectAll();
       return;
     }
@@ -221,44 +352,77 @@
   async function loadPostings(resetPage) {
     if (!canView()) return;
     if (resetPage) state.page = 1;
+    syncTableMode();
     const tbody = document.getElementById("ozonFbsOrdersTbody");
-    if (tbody) tbody.innerHTML = `<tr><td colspan="${COLSPAN}" class="wb-fbs-empty">Загрузка…</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="${colspan()}" class="wb-fbs-empty">Загрузка…</td></tr>`;
     if (!state.sourceId) {
-      if (tbody) tbody.innerHTML = `<tr><td colspan="${COLSPAN}" class="wb-fbs-empty">Добавьте источник OZON ФБС в настройках</td></tr>`;
+      if (tbody) tbody.innerHTML = `<tr><td colspan="${colspan()}" class="wb-fbs-empty">Добавьте источник OZON ФБС в настройках</td></tr>`;
       return;
     }
+
+    const suppliesMode = isSuppliesTab();
     const params = new URLSearchParams({
       source_id: String(state.sourceId),
       tab: state.tab,
       page: String(state.page),
       page_size: String(state.pageSize),
     });
-    if (state.search) params.set("search", state.search);
+    if (state.search && !suppliesMode) params.set("search", state.search);
+
     try {
-      const res = await fetch(`/api/ozon-fbs/postings?${params}`);
+      const url = suppliesMode
+        ? `/api/ozon-fbs/supplies?${params}`
+        : `/api/ozon-fbs/postings?${params}`;
+      const res = await fetch(url);
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Ошибка загрузки");
-      state.total = Number(data.total || 0);
+      if (!res.ok) throw new Error(detailText(data.detail) || "Ошибка загрузки");
+
+      let items = data.items || [];
+      if (suppliesMode && state.search) {
+        const q = state.search.toLowerCase();
+        items = items.filter((s) => {
+          const hay = [
+            s.name, s.supply_id, s.warehouse_label,
+            ...(Array.isArray(s.posting_numbers) ? s.posting_numbers : []),
+          ].map((x) => String(x || "").toLowerCase()).join(" ");
+          return hay.includes(q);
+        });
+      }
+
+      state.total = suppliesMode ? items.length : Number(data.total || 0);
       updateTabCounts(data.counts || {});
-      renderTable(data.items || []);
+      if (suppliesMode) renderSuppliesTable(items);
+      else renderTable(items);
+
       const info = document.getElementById("ozonFbsInfo");
-      if (info) info.textContent = `Всего: ${state.total}`;
+      if (info) {
+        info.textContent = suppliesMode
+          ? `Поставок: ${state.total}`
+          : `Всего: ${state.total}`;
+      }
       const pageInfo = document.getElementById("ozonFbsPageInfo");
-      const maxPage = Math.max(1, Math.ceil(state.total / state.pageSize) || 1);
-      if (pageInfo) pageInfo.textContent = `Стр. ${state.page} / ${maxPage}`;
-      const prev = document.getElementById("ozonFbsPrevBtn");
-      const next = document.getElementById("ozonFbsNextBtn");
-      if (prev) prev.disabled = state.page <= 1;
-      if (next) next.disabled = state.page >= maxPage;
+      const pager = document.querySelector("#section-ozon-fbs .supplies-pagination");
+      if (suppliesMode) {
+        if (pageInfo) pageInfo.textContent = "";
+        if (pager) pager.style.display = "none";
+      } else {
+        if (pager) pager.style.display = "";
+        const maxPage = Math.max(1, Math.ceil(state.total / state.pageSize) || 1);
+        if (pageInfo) pageInfo.textContent = `Стр. ${state.page} / ${maxPage}`;
+        const prev = document.getElementById("ozonFbsPrevBtn");
+        const next = document.getElementById("ozonFbsNextBtn");
+        if (prev) prev.disabled = state.page <= 1;
+        if (next) next.disabled = state.page >= maxPage;
+      }
     } catch (e) {
       if (tbody) {
-        tbody.innerHTML = `<tr><td colspan="${COLSPAN}" class="wb-fbs-empty" style="color:#b91c1c">${esc(e.message)}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="${colspan()}" class="wb-fbs-empty" style="color:#b91c1c">${esc(e.message)}</td></tr>`;
       }
     }
   }
 
   const COL_WIDTHS_PREFIX = "ozon_fbs_col_widths_v2";
-  const DEFAULT_WIDTHS = [24, 56, 20]; // order, product, warehouse — same as WB FBS
+  const DEFAULT_WIDTHS = [24, 56, 20];
   let colResizerInited = false;
 
   function colWidthsKey() {
@@ -286,7 +450,7 @@
 
   function initColumnResizer() {
     const table = document.getElementById("ozonFbsOrdersTable");
-    if (!table) return;
+    if (!table || isSuppliesTab()) return;
 
     let widths = DEFAULT_WIDTHS.slice();
     try {
@@ -308,7 +472,7 @@
 
     function onMouseMove(e) {
       const tableEl = document.getElementById("ozonFbsOrdersTable");
-      if (!tableEl) return;
+      if (!tableEl || isSuppliesTab()) return;
       const tableW = tableEl.offsetWidth || 1;
       const deltaPct = ((e.clientX - startX) / tableW) * 100;
       const newWidths = startWidths.slice();
@@ -340,6 +504,7 @@
     }
 
     table.addEventListener("mousedown", (e) => {
+      if (isSuppliesTab()) return;
       const handle = e.target?.closest?.(".col-resize-handle");
       if (!handle) return;
       e.preventDefault();
@@ -357,54 +522,638 @@
     });
   }
 
+  /* ── Collect (ship-all + local supplies) ── */
+
+  function closeCollectModal() {
+    if (collectState.busy) return;
+    document.getElementById("ozonFbsCollectModal")?.classList.add("hidden");
+    collectState.preview = null;
+    collectState.sourceId = null;
+    const err = document.getElementById("ozonFbsCollectErr");
+    if (err) {
+      err.hidden = true;
+      err.textContent = "";
+    }
+  }
+
+  function closeCollectResultModal() {
+    document.getElementById("ozonFbsCollectResultModal")?.classList.add("hidden");
+  }
+
+  function showCollectResult(data) {
+    const modal = document.getElementById("ozonFbsCollectResultModal");
+    const title = document.getElementById("ozonFbsCollectResultTitle");
+    const body = document.getElementById("ozonFbsCollectResultBody");
+    if (!modal || !body) {
+      alert(data?.message || "Готово");
+      return;
+    }
+    const ok = !!data?.ok;
+    if (title) title.textContent = ok ? "Готово" : "Есть проблемы";
+    const errors = Array.isArray(data?.errors) ? data.errors : [];
+    const groupLines = Array.isArray(data?.group_lines) ? data.group_lines : [];
+    const created = Array.isArray(data?.created_supplies) ? data.created_supplies : [];
+    let html = `<p class="${ok ? "wb-fbs-collect-mgt-result-ok" : "wb-fbs-collect-mgt-result-err"}">${esc(data?.message || "")}</p>`;
+    if (groupLines.length) {
+      html += "<ul>" + groupLines.map((g) => `<li>${esc(g)}</li>`).join("") + "</ul>";
+    }
+    if (created.length) {
+      html += "<p>Созданы поставки:</p><ul>" + created.map((s) =>
+        `<li>${esc(s.name || s.supply_id || "")}</li>`
+      ).join("") + "</ul>";
+    }
+    if (errors.length) {
+      html += `<p class="wb-fbs-collect-mgt-result-err">Ошибки:</p><ul class="wb-fbs-collect-mgt-result-err">` +
+        errors.map((e) => {
+          if (typeof e === "string") return `<li>${esc(e)}</li>`;
+          return `<li>${esc(e.posting_number || "")}: ${esc(e.error || "")}</li>`;
+        }).join("") + "</ul>";
+    }
+    body.innerHTML = html;
+    modal.classList.remove("hidden");
+  }
+
+  function renderCollectModal(preview) {
+    const body = document.getElementById("ozonFbsCollectBody");
+    const lead = document.getElementById("ozonFbsCollectLead");
+    const err = document.getElementById("ozonFbsCollectErr");
+    if (err) {
+      err.hidden = true;
+      err.textContent = "";
+    }
+    const groups = Array.isArray(preview?.groups) ? preview.groups : [];
+    const existing = new Set(
+      (Array.isArray(preview?.existing_names) ? preview.existing_names : [])
+        .map((x) => String(x || "").trim()).filter(Boolean)
+    );
+    if (lead) {
+      lead.textContent = `Отправлений в «Ожидают сборки»: ${preview?.posting_count || preview?.mgt_count || 0}.`;
+    }
+    if (!body) return;
+    body.innerHTML = groups.map((g, idx) => {
+      const gkey = String(g.group_key || `g${idx}`);
+      const mode = String(g.mode || "create");
+      const label = String(g.label || "Склад");
+      const count = Number(g.order_count || 0);
+      let inner = "";
+      if (mode === "create") {
+        const name = String(g.suggested_name || "");
+        const conflict = existing.has(name.trim());
+        inner = `
+          <div class="wb-fbs-collect-mgt-field">
+            <label for="ozonFbsCollectName_${esc(gkey)}">Название новой поставки</label>
+            <input type="text" id="ozonFbsCollectName_${esc(gkey)}" data-group-key="${esc(gkey)}"
+                   value="${esc(name)}" autocomplete="off"
+                   oninput="ozonFbsCollectNameInput(this)" />
+            <p class="wb-fbs-collect-mgt-warn" id="ozonFbsCollectWarn_${esc(gkey)}" ${conflict ? "" : "hidden"}>
+              Поставка с таким названием уже есть — измените название.
+            </p>
+          </div>`;
+      } else if (mode === "choose") {
+        const supplies = Array.isArray(g.compatible_supplies) ? g.compatible_supplies : [];
+        inner = `
+          <div class="wb-fbs-collect-mgt-field">
+            <label>Выберите поставку</label>
+            <div class="wb-fbs-collect-mgt-supplies">
+              ${supplies.map((s, si) => {
+                const sid = String(s.supply_id || "");
+                const sname = String(s.name || sid);
+                const meta = [
+                  s.is_empty ? "пустая" : "открытая",
+                  `${Number(s.orders_count || 0)} отпр.`,
+                ].filter(Boolean).join(" · ");
+                return `
+                  <label class="wb-fbs-collect-mgt-supply">
+                    <input type="radio" name="ozonFbsCollectSupply_${esc(gkey)}" value="${esc(sid)}" ${si === 0 ? "checked" : ""} />
+                    <span>
+                      <span class="wb-fbs-collect-mgt-supply-name">${esc(sname)}</span>
+                      <span class="wb-fbs-collect-mgt-supply-meta">${esc(meta)}</span>
+                    </span>
+                  </label>`;
+              }).join("")}
+            </div>
+          </div>`;
+      } else {
+        const sid = String(g.default_supply_id || "");
+        const match = (Array.isArray(g.compatible_supplies) ? g.compatible_supplies : [])
+          .find((s) => String(s.supply_id || "") === sid);
+        const sname = match ? String(match.name || sid) : sid;
+        inner = `<div class="wb-fbs-collect-mgt-auto">Будет добавлено в поставку «${esc(sname)}».</div>`;
+      }
+      return `
+        <section class="wb-fbs-collect-mgt-group" data-group-key="${esc(gkey)}" data-mode="${esc(mode)}">
+          <h4 class="wb-fbs-collect-mgt-group-title">${esc(label)}</h4>
+          <p class="wb-fbs-collect-mgt-group-meta">${count} отпр.</p>
+          ${inner}
+        </section>`;
+    }).join("");
+  }
+
+  function collectNameInput(input) {
+    if (!input) return;
+    const preview = collectState.preview;
+    const existing = new Set(
+      (Array.isArray(preview?.existing_names) ? preview.existing_names : [])
+        .map((x) => String(x || "").trim()).filter(Boolean)
+    );
+    const gkey = String(input.dataset.groupKey || input.id.replace(/^ozonFbsCollectName_/, ""));
+    const warn = document.getElementById(`ozonFbsCollectWarn_${gkey}`);
+    if (!warn) return;
+    const name = String(input.value || "").trim();
+    warn.hidden = !(name && existing.has(name));
+  }
+
+  function collectDecisions() {
+    const preview = collectState.preview;
+    const groups = Array.isArray(preview?.groups) ? preview.groups : [];
+    const decisions = [];
+    const errors = [];
+    const existing = new Set(
+      (Array.isArray(preview?.existing_names) ? preview.existing_names : [])
+        .map((x) => String(x || "").trim()).filter(Boolean)
+    );
+    const usedNames = new Set();
+    for (const g of groups) {
+      const gkey = String(g.group_key || "");
+      const mode = String(g.mode || "create");
+      const label = g.label || "Склад";
+      if (mode === "create") {
+        const input = document.getElementById(`ozonFbsCollectName_${gkey}`);
+        const name = String(input?.value || g.suggested_name || "").trim();
+        if (!name) {
+          errors.push(`${label}: укажите название поставки`);
+          continue;
+        }
+        if (existing.has(name) || usedNames.has(name)) {
+          errors.push(`${label}: поставка «${name}» уже есть — измените название`);
+          continue;
+        }
+        usedNames.add(name);
+        decisions.push({ group_key: gkey, action: "create", name });
+      } else if (mode === "choose") {
+        const checked = document.querySelector(`input[name="ozonFbsCollectSupply_${gkey}"]:checked`);
+        const supplyId = String(checked?.value || "").trim();
+        if (!supplyId) {
+          errors.push(`${label}: выберите поставку`);
+          continue;
+        }
+        decisions.push({ group_key: gkey, action: "choose", supply_id: supplyId });
+      } else {
+        decisions.push({
+          group_key: gkey,
+          action: "add",
+          supply_id: String(g.default_supply_id || ""),
+        });
+      }
+    }
+    return { decisions, errors };
+  }
+
+  async function executeCollect(decisions, sourceId) {
+    const sid = Number(sourceId || collectState.sourceId || state.sourceId || 0);
+    if (!sid) throw new Error("Выберите источник");
+    const res = await fetch("/api/ozon-fbs/ship-all/execute", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ source_id: sid, decisions }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(detailText(data.detail) || "Ошибка сборки");
+    return data;
+  }
+
   async function shipAll() {
-    if (!state.sourceId || state.shipAllBusy) return;
+    if (!state.sourceId || state.shipAllBusy || collectState.busy) return;
     const n = Number(state.counts.awaiting_packaging || 0);
     if (n <= 0) {
       alert("Нет отправлений в «Ожидают сборки»");
       return;
     }
-    const okConfirm = window.confirm(
-      `Собрать все заказы (${n})?\n\nКаждое отправление будет собрано через Ozon API /v4/posting/fbs/ship и перейдёт во вкладку «Ожидают отгрузки».`
-    );
-    if (!okConfirm) return;
-    state.shipAllBusy = true;
-    syncShipAllButton();
     const btn = document.getElementById("ozonFbsShipAllBtn");
-    if (btn) btn.textContent = "Сборка…";
-    showSyncInfo("Сборка отправлений…");
+    const confirmBtn = document.getElementById("ozonFbsCollectConfirmBtn");
+    collectState.busy = true;
+    state.shipAllBusy = true;
+    collectState.sourceId = state.sourceId;
+    syncShipAllButton();
+    if (btn) btn.textContent = "Подготовка…";
     try {
-      const res = await fetch(`/api/ozon-fbs/ship-all?source_id=${state.sourceId}`, {
-        method: "POST",
-        headers: jsonHeaders(),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.detail || "Ошибка сборки");
-      const msg = String(data.message || "Готово");
-      showSyncInfo(msg);
-      if (data.failed && Array.isArray(data.errors) && data.errors.length) {
-        const lines = data.errors
-          .slice(0, 12)
-          .map((e) => `${e.posting_number}: ${e.error}`)
-          .join("\n");
-        alert(`${msg}\n\n${lines}${data.errors.length > 12 ? "\n…" : ""}`);
-      } else {
-        alert(msg);
+      const res = await fetch(`/api/ozon-fbs/ship-all/preview?source_id=${encodeURIComponent(state.sourceId)}`);
+      const preview = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(detailText(preview.detail) || "Не удалось подготовить сборку");
+      if (!(preview.posting_count || preview.mgt_count)) {
+        alert("Нет отправлений в «Ожидают сборки»");
+        await loadPostings(false);
+        return;
       }
-      await loadPostings(false);
+      collectState.preview = preview;
+      if (!preview.needs_modal) {
+        if (btn) btn.textContent = "Сборка…";
+        showSyncInfo("Сборка отправлений и создание поставок…");
+        const decisions = (preview.groups || []).map((g) => ({
+          group_key: String(g.group_key || ""),
+          action: "add",
+          supply_id: String(g.default_supply_id || ""),
+        }));
+        const data = await executeCollect(decisions, state.sourceId);
+        collectState.busy = false;
+        state.shipAllBusy = false;
+        closeCollectModal();
+        showCollectResult(data);
+        showSyncInfo(data.message || "Готово");
+        if (data.goto_awaiting_deliver) setTab("awaiting_deliver");
+        else await loadPostings(true);
+        return;
+      }
+      renderCollectModal(preview);
+      document.getElementById("ozonFbsCollectModal")?.classList.remove("hidden");
+      if (confirmBtn) confirmBtn.disabled = false;
     } catch (e) {
-      const err = e.message || "Ошибка";
+      collectState.sourceId = null;
+      const err = e.message || String(e);
       showSyncInfo(err);
       alert(err);
     } finally {
+      collectState.busy = false;
       state.shipAllBusy = false;
       if (btn) btn.textContent = "Собрать все заказы";
       syncShipAllButton();
     }
   }
 
+  async function confirmCollect() {
+    if (collectState.busy) return;
+    if (!collectState.preview) return;
+    const errEl = document.getElementById("ozonFbsCollectErr");
+    const confirmBtn = document.getElementById("ozonFbsCollectConfirmBtn");
+    const sourceId = collectState.sourceId || state.sourceId;
+    const { decisions, errors } = collectDecisions();
+    if (errors.length) {
+      if (errEl) {
+        errEl.hidden = false;
+        errEl.textContent = errors.join("\n");
+      }
+      return;
+    }
+    collectState.busy = true;
+    state.shipAllBusy = true;
+    if (confirmBtn) confirmBtn.disabled = true;
+    syncShipAllButton();
+    showSyncInfo("Сборка отправлений и создание поставок…");
+    try {
+      const data = await executeCollect(decisions, sourceId);
+      closeCollectModal();
+      showCollectResult(data);
+      showSyncInfo(data.message || "Готово");
+      if (data.goto_awaiting_deliver) setTab("awaiting_deliver");
+      else await loadPostings(true);
+    } catch (e) {
+      const msg = e.message || String(e);
+      if (errEl) {
+        errEl.hidden = false;
+        errEl.textContent = msg;
+      } else {
+        alert(msg);
+      }
+    } finally {
+      collectState.busy = false;
+      state.shipAllBusy = false;
+      if (confirmBtn) confirmBtn.disabled = false;
+      syncShipAllButton();
+    }
+  }
+
+  /* ── Supply detail modal ── */
+
+  function closeSupplyDetailModal() {
+    document.getElementById("ozonFbsSupplyDetailModal")?.classList.add("hidden");
+    closePickingMenu();
+    closeStickersMenu();
+    supplyDetailState.supplyId = null;
+    supplyDetailState.sourceId = null;
+    supplyDetailState.supply = null;
+  }
+
+  function supplyDetailReady() {
+    return Boolean(supplyDetailState.supplyId && supplyDetailState.sourceId);
+  }
+
+  function renderSupplyDetail(data) {
+    const supply = data || supplyDetailState.supply;
+    if (!supply) return;
+    if (data) supplyDetailState.supply = data;
+    const title = document.getElementById("ozonFbsSupplyDetailTitle");
+    const wh = document.getElementById("ozonFbsSupplyDetailWarehouse");
+    const meta = document.getElementById("ozonFbsSupplyDetailMeta");
+    const tbody = document.getElementById("ozonFbsSupplyDetailTbody");
+    const sid = String(supply.supply_id || "").trim();
+    if (title) title.textContent = supply.name || (`Поставка ${sid}`);
+    if (wh) wh.textContent = String(supply.warehouse_label || "—").trim() || "—";
+    if (meta) {
+      meta.innerHTML = [
+        `<span class="wb-fbs-sd-chip">Отправлений ${esc(supply.order_count || 0)}</span>`,
+        sid ? `<span class="wb-fbs-sd-chip">ID ${esc(sid)}</span>` : "",
+      ].filter(Boolean).join("");
+    }
+    const allOrders = Array.isArray(supply.orders) ? supply.orders : [];
+    const searchQ = String(document.getElementById("ozonFbsSupplyDetailSearchFilter")?.value || "").trim().toLowerCase();
+    const orders = searchQ
+      ? allOrders.filter((o) => {
+          const hay = [
+            o.posting_number, o.offer_id, o.sku, o.product_name, o.warehouse_label,
+            ...(Array.isArray(o.barcodes) ? o.barcodes : []),
+          ].map((x) => String(x || "").toLowerCase()).join(" ");
+          return hay.includes(searchQ);
+        })
+      : allOrders;
+    if (!tbody) return;
+    if (!allOrders.length) {
+      tbody.innerHTML = `<tr><td colspan="3" class="wb-fbs-empty">В поставке нет отправлений</td></tr>`;
+      return;
+    }
+    if (!orders.length) {
+      tbody.innerHTML = `<tr><td colspan="3" class="wb-fbs-empty">Нет отправлений по выбранному фильтру</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = orders.map((o) => {
+      const pn = String(o.posting_number || "").trim();
+      const photo = o.product_photo
+        ? `<img class="wb-fbs-product-photo" src="${esc(o.product_photo)}" alt="" width="72" height="72" loading="lazy">`
+        : `<span class="wb-fbs-product-ph" aria-hidden="true"></span>`;
+      const barcodes = Array.isArray(o.barcodes) ? o.barcodes : [];
+      const barcodeHtml = barcodes.length
+        ? `<div class="wb-fbs-barcodes" title="Штрихкод товара">${barcodes.map((b) =>
+            `<div class="wb-fbs-barcode">${esc(b)}</div>`
+          ).join("")}</div>`
+        : "";
+      const offer = String(o.offer_id || "").trim();
+      const sku = String(o.sku || "").trim();
+      const pname = o.product_name || offer || "—";
+      const created = o.created_at_ozon || o.in_process_at || "";
+      return `<tr>
+        <td>
+          <div class="wb-fbs-sd-order-id">${esc(pn)}</div>
+          <div class="wb-fbs-order-meta">от ${esc(fmtDate(created))}</div>
+        </td>
+        <td>
+          <div class="wb-fbs-product">
+            ${photo}
+            <div class="wb-fbs-product-text">
+              <div class="wb-fbs-product-name" title="${esc(pname)}">${esc(pname)}</div>
+              <div class="wb-fbs-product-sub">Арт. ${esc(offer || "—")}${sku ? " · SKU " + esc(sku) : ""}</div>
+              ${barcodeHtml}
+            </div>
+          </div>
+        </td>
+        <td>
+          <div class="wb-fbs-wh-name">${esc(o.warehouse_label || o.warehouse_name || "—")}</div>
+        </td>
+      </tr>`;
+    }).join("");
+  }
+
+  async function openSupplyDetailModal(supplyId) {
+    const sid = String(supplyId || "").trim();
+    if (!sid || !state.sourceId) return;
+    supplyDetailState.supplyId = sid;
+    supplyDetailState.sourceId = state.sourceId;
+    const modal = document.getElementById("ozonFbsSupplyDetailModal");
+    const title = document.getElementById("ozonFbsSupplyDetailTitle");
+    const tbody = document.getElementById("ozonFbsSupplyDetailTbody");
+    if (title) title.textContent = "Загрузка…";
+    if (tbody) tbody.innerHTML = `<tr><td colspan="3" class="wb-fbs-empty">Загрузка…</td></tr>`;
+    if (modal) modal.classList.remove("hidden");
+    try {
+      const res = await fetch(
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/detail?source_id=${state.sourceId}`
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(detailText(data.detail) || "Не найдено");
+      renderSupplyDetail(data);
+    } catch (e) {
+      if (title) title.textContent = "Ошибка";
+      if (tbody) {
+        tbody.innerHTML = `<tr><td colspan="3" class="wb-fbs-empty" style="color:#b91c1c">${esc(e.message)}</td></tr>`;
+      }
+    }
+  }
+
+  async function openPrintHtml(url, popupBlockedMsg) {
+    const res = await fetch(url, { credentials: "same-origin" });
+    if (!res.ok) {
+      let detail = "";
+      try {
+        const data = await res.json();
+        detail = detailText(data.detail);
+      } catch (_) {
+        detail = await res.text().catch(() => "");
+      }
+      throw new Error(detail || `Ошибка печати (${res.status})`);
+    }
+    const html = await res.text();
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const blobUrl = URL.createObjectURL(blob);
+    const win = window.open(blobUrl, "_blank");
+    if (!win) {
+      URL.revokeObjectURL(blobUrl);
+      throw new Error(popupBlockedMsg || "Разрешите всплывающие окна");
+    }
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+  }
+
+  function closePickingMenu() {
+    const menu = document.getElementById("ozonFbsPickingMenu");
+    const caret = document.getElementById("ozonFbsSupplyDetailPickingMenuBtn");
+    if (menu) menu.hidden = true;
+    if (caret) caret.setAttribute("aria-expanded", "false");
+  }
+
+  function togglePickingMenu(event) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    if (!supplyDetailReady()) return;
+    closeStickersMenu();
+    const menu = document.getElementById("ozonFbsPickingMenu");
+    const caret = document.getElementById("ozonFbsSupplyDetailPickingMenuBtn");
+    if (!menu || !caret) return;
+    // Empty menu for now (no links) — still toggle for parity with WB caret UX.
+    const willOpen = menu.hidden;
+    menu.hidden = !willOpen;
+    caret.setAttribute("aria-expanded", willOpen ? "true" : "false");
+  }
+
+  function openPickingList() {
+    const sid = String(supplyDetailState.supplyId || "").trim();
+    const sourceId = supplyDetailState.sourceId || state.sourceId;
+    if (!sid || !sourceId || !supplyDetailReady()) return;
+    closePickingMenu();
+    const btn = document.getElementById("ozonFbsSupplyDetailPickingBtn");
+    const caret = document.getElementById("ozonFbsSupplyDetailPickingMenuBtn");
+    if (btn) btn.disabled = true;
+    if (caret) caret.disabled = true;
+    const url =
+      `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/picking-list` +
+      `?source_id=${sourceId}`;
+    openPrintHtml(url, "Разрешите всплывающие окна для листа подбора")
+      .catch((e) => alert(String(e.message || e)))
+      .finally(() => {
+        if (!supplyDetailReady()) return;
+        if (btn) btn.disabled = false;
+        if (caret) caret.disabled = false;
+      });
+  }
+
+  function closeStickersMenu() {
+    const menu = document.getElementById("ozonFbsStickersMenu");
+    const caret = document.getElementById("ozonFbsSupplyDetailStickersMenuBtn");
+    if (menu) menu.hidden = true;
+    if (caret) caret.setAttribute("aria-expanded", "false");
+  }
+
+  function toggleStickersMenu(event) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    if (!supplyDetailReady()) return;
+    closePickingMenu();
+    const menu = document.getElementById("ozonFbsStickersMenu");
+    const caret = document.getElementById("ozonFbsSupplyDetailStickersMenuBtn");
+    if (!menu || !caret) return;
+    const willOpen = menu.hidden;
+    menu.hidden = !willOpen;
+    caret.setAttribute("aria-expanded", willOpen ? "true" : "false");
+  }
+
+  function openStickersPrint(postingNumbers) {
+    const sid = String(supplyDetailState.supplyId || "").trim();
+    const sourceId = supplyDetailState.sourceId || state.sourceId;
+    if (!sid || !sourceId || !supplyDetailReady()) return;
+    closeStickersMenu();
+    const btn = document.getElementById("ozonFbsSupplyDetailStickersBtn");
+    const caret = document.getElementById("ozonFbsSupplyDetailStickersMenuBtn");
+    if (btn) btn.disabled = true;
+    if (caret) caret.disabled = true;
+    const ids = Array.isArray(postingNumbers)
+      ? postingNumbers.map((x) => String(x || "").trim()).filter(Boolean)
+      : [];
+    let url =
+      `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/stickers-print` +
+      `?source_id=${sourceId}`;
+    if (ids.length) url += `&order_ids=${encodeURIComponent(ids.join(","))}`;
+    openPrintHtml(url, "Разрешите всплывающие окна для стикеров")
+      .catch((e) => alert(String(e.message || e)))
+      .finally(() => {
+        if (!supplyDetailReady()) return;
+        if (btn) btn.disabled = false;
+        if (caret) caret.disabled = false;
+      });
+  }
+
+  function closeStickersByCategoryModal() {
+    document.getElementById("ozonFbsStickersCategoryModal")?.classList.add("hidden");
+    stickersCategoryState.groups = [];
+    stickersCategoryState.selected = new Set();
+    stickersCategoryState.loading = false;
+  }
+
+  function renderStickersByCategory() {
+    const body = document.getElementById("ozonFbsStickersCategoryBody");
+    if (!body) return;
+    const groups = stickersCategoryState.groups || [];
+    if (stickersCategoryState.loading) {
+      body.innerHTML = `<div class="wb-fbs-empty">Загрузка…</div>`;
+      return;
+    }
+    if (!groups.length) {
+      body.innerHTML = `<div class="wb-fbs-empty">Нет товаров для печати</div>`;
+      return;
+    }
+    body.innerHTML = groups.map((g, idx) => {
+      const key = String(g.group_key || "");
+      const checked = stickersCategoryState.selected.has(key) ? "checked" : "";
+      const name = String(g.product_name || g.article || "—");
+      const qty = Number(g.qty || 0);
+      return `<label class="wb-fbs-collect-mgt-supply" style="display:flex;gap:12px;align-items:flex-start;padding:8px 0">
+        <input type="checkbox" data-group-key="${esc(key)}" ${checked}
+               onchange="onOzonFbsStickersCategoryToggle('${esc(key)}', this.checked)" />
+        <span>
+          <span class="wb-fbs-collect-mgt-supply-name">${esc(name)} — ${esc(qty)} шт.</span>
+          <span class="wb-fbs-collect-mgt-supply-meta">Арт. ${esc(g.article || "—")}</span>
+        </span>
+      </label>`;
+    }).join("");
+  }
+
+  function onStickersCategoryToggle(key, checked) {
+    const k = String(key || "");
+    if (!k) return;
+    if (checked) stickersCategoryState.selected.add(k);
+    else stickersCategoryState.selected.delete(k);
+  }
+
+  async function openStickersByCategoryModal() {
+    closeStickersMenu();
+    const sid = String(supplyDetailState.supplyId || "").trim();
+    const sourceId = supplyDetailState.sourceId || state.sourceId;
+    if (!sid || !sourceId) return;
+    stickersCategoryState.loading = true;
+    stickersCategoryState.groups = [];
+    stickersCategoryState.selected = new Set();
+    document.getElementById("ozonFbsStickersCategoryModal")?.classList.remove("hidden");
+    renderStickersByCategory();
+    try {
+      const res = await fetch(
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/sticker-groups?source_id=${sourceId}`
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(detailText(data.detail) || "Ошибка");
+      stickersCategoryState.groups = Array.isArray(data.groups) ? data.groups : [];
+      stickersCategoryState.selected = new Set(
+        stickersCategoryState.groups.map((g) => String(g.group_key || "")).filter(Boolean)
+      );
+    } catch (e) {
+      alert(e.message || String(e));
+      closeStickersByCategoryModal();
+      return;
+    } finally {
+      stickersCategoryState.loading = false;
+      renderStickersByCategory();
+    }
+  }
+
+  function confirmStickersByCategory() {
+    const selected = stickersCategoryState.selected;
+    const nums = [];
+    for (const g of stickersCategoryState.groups || []) {
+      if (!selected.has(String(g.group_key || ""))) continue;
+      const ids = Array.isArray(g.posting_numbers)
+        ? g.posting_numbers
+        : (Array.isArray(g.order_ids) ? g.order_ids : []);
+      for (const id of ids) {
+        const pn = String(id || "").trim();
+        if (pn) nums.push(pn);
+      }
+    }
+    if (!nums.length) {
+      alert("Выберите хотя бы одну категорию");
+      return;
+    }
+    closeStickersByCategoryModal();
+    openStickersPrint(nums);
+  }
+
+  document.addEventListener("click", (e) => {
+    const t = e.target;
+    if (!(t instanceof Element)) return;
+    if (!t.closest("#ozonFbsPickingSplit")) closePickingMenu();
+    if (!t.closest("#ozonFbsStickersSplit")) closeStickersMenu();
+  });
+
   async function initSection() {
     if (!canView()) return;
+    syncTableMode();
     initColumnResizer();
     await loadSources();
     await loadPostings(true);
@@ -601,4 +1350,21 @@
   window.ozonFbsPrintCurrentSticker = printCurrentSticker;
   window.onOzonFbsCheckboxChange = onCheckboxChange;
   window.toggleSelectAllOzonFbs = toggleSelectAll;
+
+  window.closeOzonFbsCollectModal = closeCollectModal;
+  window.closeOzonFbsCollectResultModal = closeCollectResultModal;
+  window.confirmOzonFbsCollect = confirmCollect;
+  window.ozonFbsCollectNameInput = collectNameInput;
+
+  window.openOzonFbsSupplyDetailModal = openSupplyDetailModal;
+  window.closeOzonFbsSupplyDetailModal = closeSupplyDetailModal;
+  window.renderOzonFbsSupplyDetail = () => renderSupplyDetail();
+  window.ozonFbsOpenPickingList = openPickingList;
+  window.toggleOzonFbsPickingMenu = togglePickingMenu;
+  window.ozonFbsOpenStickersPrint = () => openStickersPrint();
+  window.toggleOzonFbsStickersMenu = toggleStickersMenu;
+  window.openOzonFbsStickersByCategoryModal = openStickersByCategoryModal;
+  window.closeOzonFbsStickersByCategoryModal = closeStickersByCategoryModal;
+  window.confirmOzonFbsStickersByCategory = confirmStickersByCategory;
+  window.onOzonFbsStickersCategoryToggle = onStickersCategoryToggle;
 })();
