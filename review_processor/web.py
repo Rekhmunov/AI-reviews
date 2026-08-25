@@ -12415,6 +12415,79 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+    @app.get("/api/ozon-fbs/supplies/{supply_id}/shipments")
+    def ozon_fbs_supply_shipments(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+        departure_date: str | None = None,
+        delivery_method_id: int | None = None,
+    ) -> dict[str, object]:
+        """Ozon Seller «Отгрузки» snapshot for local supply (carriage/delivery/list)."""
+        from . import ozon_fbs as ozon_fbs_mod
+        from . import ozon_fbs_shipments as oz_ship
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
+        client = ozon_fbs_mod.OzonFbsClient(client_id=client_id, api_key=api_key)
+        try:
+            return oz_ship.get_supply_shipments(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                supply_id=str(supply_id),
+                client=client,
+                departure_date=departure_date,
+                delivery_method_id=delivery_method_id,
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/ozon-fbs/supplies/{supply_id}/shipments/form")
+    async def ozon_fbs_supply_shipments_form(
+        request: Request, supply_id: str
+    ) -> dict[str, object]:
+        """«Сформировать» → POST /v2/posting/fbs/act/create."""
+        from . import ozon_fbs as ozon_fbs_mod
+        from . import ozon_fbs_shipments as oz_ship
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        try:
+            source_id = int(body.get("source_id") or 0)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Укажите source_id") from exc
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, source_id)
+        client = ozon_fbs_mod.OzonFbsClient(client_id=client_id, api_key=api_key)
+        try:
+            return oz_ship.form_shipment(
+                repository,
+                user_id=owner_id,
+                source_id=source_id,
+                supply_id=str(supply_id),
+                client=client,
+                departure_date=body.get("departure_date"),
+                delivery_method_id=body.get("delivery_method_id"),
+                containers_count=body.get("containers_count"),
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.get("/api/ozon-fbs/supplies/{supply_id}/picking-list")
     def ozon_fbs_supply_picking_list(
         request: Request, supply_id: str, source_id: int

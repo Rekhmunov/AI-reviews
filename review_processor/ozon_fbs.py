@@ -236,6 +236,66 @@ class OzonFbsClient:
             {"posting_number": [str(p) for p in posting_numbers if str(p).strip()]},
         )
 
+    def delivery_method_list(
+        self,
+        *,
+        warehouse_id: int | None = None,
+        status: str = "ACTIVE",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        filt: dict[str, Any] = {}
+        if warehouse_id is not None:
+            filt["warehouse_id"] = int(warehouse_id)
+        if status:
+            filt["status"] = str(status)
+        return self.post_json(
+            "/v1/delivery-method/list",
+            {
+                "filter": filt,
+                "limit": min(max(int(limit), 1), 50),
+                "offset": max(int(offset), 0),
+            },
+        )
+
+    def carriage_delivery_list(
+        self, *, delivery_method_id: int, departure_date: str
+    ) -> dict[str, Any]:
+        return self.post_json(
+            "/v1/carriage/delivery/list",
+            {
+                "delivery_method_id": int(delivery_method_id),
+                "departure_date": str(departure_date),
+            },
+        )
+
+    def fbs_act_create(
+        self,
+        *,
+        delivery_method_id: int,
+        departure_date: str | None = None,
+        containers_count: int | None = None,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {"delivery_method_id": int(delivery_method_id)}
+        if departure_date:
+            body["departure_date"] = str(departure_date)
+        if containers_count is not None:
+            body["containers_count"] = int(containers_count)
+        return self.post_json("/v2/posting/fbs/act/create", body)
+
+    def fbs_act_check_status(self, *, act_id: int) -> dict[str, Any]:
+        return self.post_json("/v2/posting/fbs/act/check-status", {"id": int(act_id)})
+
+    def fbs_act_get_barcode(self, *, carriage_id: int) -> dict[str, Any]:
+        return self.post_json(
+            "/v2/posting/fbs/act/get-barcode", {"id": int(carriage_id)}
+        )
+
+    def fbs_act_get_barcode_text(self, *, carriage_id: int) -> dict[str, Any]:
+        return self.post_json(
+            "/v2/posting/fbs/act/get-barcode/text", {"id": int(carriage_id)}
+        )
+
 
 def ensure_ozon_fbs_tables(repo: ReviewRepository) -> None:
     with repo._connect() as conn:
