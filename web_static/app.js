@@ -25808,6 +25808,47 @@ function toggleWbFbsPickingMenu(event) {
 }
 window.toggleWbFbsPickingMenu = toggleWbFbsPickingMenu;
 
+function _wbFbsPrintErrorDetail(data, fallback) {
+  const raw = data && data.detail !== undefined ? data.detail : fallback;
+  if (typeof raw === "string" && raw.trim()) return raw.trim();
+  if (Array.isArray(raw)) {
+    return raw
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (item && typeof item.msg === "string") return item.msg;
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  return String(fallback || "Ошибка печати");
+}
+
+async function _wbFbsOpenPrintHtml(url, popupBlockedMsg) {
+  const res = await fetch(url, { credentials: "same-origin" });
+  const contentType = String(res.headers.get("content-type") || "").toLowerCase();
+  if (!res.ok) {
+    let detail = `Ошибка ${res.status}`;
+    if (contentType.includes("application/json")) {
+      const data = await res.json().catch(() => ({}));
+      detail = _wbFbsPrintErrorDetail(data, detail);
+    } else {
+      const text = await res.text().catch(() => "");
+      if (text && text.length < 500 && !text.trim().startsWith("<")) detail = text.trim();
+    }
+    throw new Error(detail);
+  }
+  const html = await res.text();
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const blobUrl = URL.createObjectURL(blob);
+  const win = window.open(blobUrl, "_blank");
+  if (!win) {
+    URL.revokeObjectURL(blobUrl);
+    throw new Error(popupBlockedMsg || "Разрешите всплывающие окна");
+  }
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+}
+
 function wbFbsOpenPickingList(variant) {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId || !_wbFbsSupplyDetailActionsReady()) return;
@@ -25819,17 +25860,16 @@ function wbFbsOpenPickingList(variant) {
   const caret = document.getElementById("wbFbsSupplyDetailPickingMenuBtn");
   if (btn) btn.disabled = true;
   if (caret) caret.disabled = true;
-  // HTML print page (browser CSS). LibreOffice PDF breaks the layout.
   const url =
     `/api/wb-fbs/supplies/${encodeURIComponent(sid)}/picking-list` +
     `?source_id=${wbFbsState.sourceId}&variant=${encodeURIComponent(mode)}`;
-  const win = window.open(url, "_blank");
-  if (!win) alert("Разрешите всплывающие окна для листа подбора");
-  setTimeout(() => {
-    if (!_wbFbsSupplyDetailActionsReady()) return;
-    if (btn) btn.disabled = false;
-    if (caret) caret.disabled = false;
-  }, 1500);
+  _wbFbsOpenPrintHtml(url, "Разрешите всплывающие окна для листа подбора")
+    .catch((e) => alert(String(e.message || e)))
+    .finally(() => {
+      if (!_wbFbsSupplyDetailActionsReady()) return;
+      if (btn) btn.disabled = false;
+      if (caret) caret.disabled = false;
+    });
 }
 window.wbFbsOpenPickingList = wbFbsOpenPickingList;
 
@@ -25871,13 +25911,13 @@ function wbFbsOpenStickersPrint(orderIds) {
     `/api/wb-fbs/supplies/${encodeURIComponent(sid)}/stickers-print` +
     `?source_id=${wbFbsState.sourceId}`;
   if (ids.length) url += `&order_ids=${encodeURIComponent(ids.join(","))}`;
-  const win = window.open(url, "_blank");
-  if (!win) alert("Разрешите всплывающие окна для стикеров");
-  setTimeout(() => {
-    if (!_wbFbsSupplyDetailActionsReady()) return;
-    if (btn) btn.disabled = false;
-    if (caret) caret.disabled = false;
-  }, 1500);
+  _wbFbsOpenPrintHtml(url, "Разрешите всплывающие окна для стикеров")
+    .catch((e) => alert(String(e.message || e)))
+    .finally(() => {
+      if (!_wbFbsSupplyDetailActionsReady()) return;
+      if (btn) btn.disabled = false;
+      if (caret) caret.disabled = false;
+    });
 }
 window.wbFbsOpenStickersPrint = wbFbsOpenStickersPrint;
 

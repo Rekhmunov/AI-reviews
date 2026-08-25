@@ -1557,6 +1557,108 @@ def _fetch_stickers_map(
     return result
 
 
+def _assembly_order_ids_for_supply(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+) -> list[int]:
+    """Order ids linked to a supply in local ``wb_fbs_orders`` (assembly truth).
+
+    Prefer this over ``order_ids_json`` when checking print readiness: after a bulk
+    collect-mgt WB ``order-ids`` may lag and rewrite ``order_ids_json`` incomplete
+    while every successfully added row already has ``supply_id`` set.
+    """
+    wb.ensure_wb_fbs_tables(repo)
+    sid = str(supply_id or "").strip()
+    if not sid:
+        return []
+    ids: list[int] = []
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                """
+                SELECT order_id FROM wb_fbs_orders
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                ORDER BY order_id ASC
+                """
+            ),
+            (user_id, source_id, sid),
+        ).fetchall()
+    for row in rows:
+        try:
+            ids.append(int(row["order_id"]))
+        except (TypeError, ValueError):
+            continue
+    return ids
+
+
+def print_order_ids_mismatch_message(*, wb_count: int, assembly_count: int) -> str:
+    """User-facing block reason when WB supply composition ≠ local assembly."""
+    return (
+        "Количество заказов в листе подбора / стикерах не совпадает с заказами "
+        f"на сборке (Wildberries: {int(wb_count)}, на сборке: {int(assembly_count)}). "
+        "Печать заблокирована. Выполните синхронизацию и сбор МГТ, затем снова "
+        "откройте поставку."
+    )
+
+
+def ensure_supply_ready_for_print(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    api_key: str,
+    supply_id: str,
+) -> list[int]:
+    """Require WB ``order-ids`` to match local assembly links before print.
+
+    Returns the WB id list (portal order) when sets match. Raises ``ValueError``
+    when WB is unreachable or the sets differ — callers must not print.
+    """
+    sid = str(supply_id or "").strip()
+    if not sid:
+        raise ValueError("Укажите supply_id")
+    if not api_key:
+        raise ValueError("Нет API-ключа источника")
+
+    client = wb.WbFbsClient(api_key)
+    try:
+        wb_ids = [int(x) for x in (client.get_supply_order_ids(sid) or [])]
+    except Exception as exc:
+        raise ValueError(
+            "Не удалось получить состав поставки с Wildberries для сверки печати. "
+            "Повторите синхронизацию и сбор МГТ, затем снова откройте поставку. "
+            f"({exc})"
+        ) from exc
+    time.sleep(0.21)
+
+    local_ids = _assembly_order_ids_for_supply(
+        repo, user_id=user_id, source_id=source_id, supply_id=sid
+    )
+    wb_set = set(wb_ids)
+    local_set = set(local_ids)
+    if wb_set == local_set:
+        return wb_ids
+
+    _log.warning(
+        "print blocked supply=%s source=%s wb=%s assembly=%s missing_on_wb=%s extra_on_wb=%s",
+        sid,
+        source_id,
+        len(wb_set),
+        len(local_set),
+        len(local_set - wb_set),
+        len(wb_set - local_set),
+    )
+    raise ValueError(
+        print_order_ids_mismatch_message(
+            wb_count=len(wb_set),
+            assembly_count=len(local_set),
+        )
+    )
+
+
 def _local_order_ids_for_supply(
     repo: ReviewRepository,
     *,
@@ -2809,26 +2911,31 @@ def _detail_from_local(
     api_key: str,
     supply_id: str,
     refresh_order_ids: bool = True,
+    order_ids: list[int] | None = None,
 ) -> dict[str, Any]:
     """Assemble print detail from local DB; optionally one live order-ids check.
 
     Skips get_supply + boxes (not needed for picking list / sticker HTML).
+    Pass ``order_ids`` to reuse a list already verified by
+    ``ensure_supply_ready_for_print`` (avoids a second WB round-trip).
     """
     sid = str(supply_id or "").strip()
     if not sid:
         raise ValueError("Не указан ID поставки")
 
-    order_ids: list[int] = []
-    if refresh_order_ids:
+    resolved_ids: list[int] = []
+    if order_ids is not None:
+        resolved_ids = [int(x) for x in order_ids]
+    elif refresh_order_ids:
         client = wb.WbFbsClient(api_key)
         try:
-            order_ids = client.get_supply_order_ids(sid)
+            resolved_ids = client.get_supply_order_ids(sid)
         except Exception as exc:
             _log.warning("print order-ids %s: %s", sid, exc)
-            order_ids = []
+            resolved_ids = []
         time.sleep(0.21)
-    if not order_ids:
-        order_ids = _local_order_ids_for_supply(
+    if not resolved_ids:
+        resolved_ids = _local_order_ids_for_supply(
             repo, user_id=user_id, source_id=source_id, supply_id=sid
         )
 
@@ -2856,7 +2963,7 @@ def _detail_from_local(
             boxes_count = int(local.get("boxes_count") or 0) if local.get("boxes_count") else 0
 
     orders = _load_local_orders(
-        repo, user_id=user_id, source_id=source_id, order_ids=order_ids
+        repo, user_id=user_id, source_id=source_id, order_ids=resolved_ids
     )
     warehouse_label = ""
     for o in orders:
@@ -2929,30 +3036,39 @@ def get_supply_detail_for_print(
     supply_id: str,
     refresh_order_ids: bool = True,
 ) -> dict[str, Any]:
-    """Detail for print: modal cache → local (+ optional order-ids) → full detail."""
-    cached = _cache_get_detail(
-        user_id=user_id, source_id=source_id, supply_id=supply_id
+    """Detail for print: verify WB↔assembly composition, then local (+ order-ids).
+
+    Does **not** reuse the modal detail cache: a stale incomplete WB ``order-ids``
+    snapshot (right after collect-mgt) would otherwise freeze for ``_DETAIL_TTL_SEC``
+    and under-print picking lists / stickers.
+    """
+    sid = str(supply_id or "").strip()
+    verified_ids = ensure_supply_ready_for_print(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        api_key=api_key,
+        supply_id=sid,
     )
-    if cached and cached.get("orders") is not None:
-        return cached
     try:
         return _detail_from_local(
             repo,
             user_id=user_id,
             source_id=source_id,
             api_key=api_key,
-            supply_id=supply_id,
-            refresh_order_ids=refresh_order_ids,
+            supply_id=sid,
+            refresh_order_ids=False,
+            order_ids=verified_ids,
         )
+    except ValueError:
+        raise
     except Exception as exc:
-        _log.warning("print local detail fallback %s: %s", supply_id, exc)
-        return get_supply_detail(
-            repo,
-            user_id=user_id,
-            source_id=source_id,
-            api_key=api_key,
-            supply_id=supply_id,
-        )
+        _log.warning("print local detail failed %s: %s", supply_id, exc)
+        raise ValueError(
+            "Не удалось подготовить данные для печати. "
+            "Повторите синхронизацию и сбор МГТ, затем снова откройте поставку. "
+            f"({exc})"
+        ) from exc
 
 
 def _refresh_product_names(

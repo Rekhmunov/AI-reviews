@@ -5645,16 +5645,21 @@ def execute_collect_mgt(
             try:
                 oids = client.get_supply_order_ids(supply_id)
                 live_supply = client.get_supply(supply_id)
-                if oids:
-                    refresh_ids = oids
-                else:
-                    prev = _local_supply_order_ids(
-                        repo,
-                        user_id=user_id,
-                        source_id=source_id,
-                        supply_id=supply_id,
+                prev = _local_supply_order_ids(
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    supply_id=supply_id,
+                )
+                # Union: WB order-ids can lag right after bulk add; never shrink
+                # local supply membership below what we just successfully added.
+                refresh_ids = list(
+                    dict.fromkeys(
+                        [int(x) for x in (oids or [])]
+                        + [int(x) for x in prev]
+                        + [int(x) for x in group_added_ids]
                     )
-                    refresh_ids = sorted(set(prev) | set(group_added_ids))
+                )
                 upsert_supply(
                     repo,
                     user_id=user_id,
@@ -5666,6 +5671,16 @@ def execute_collect_mgt(
                 warnings.append(
                     f"{label}: заказы добавлены на WB, локальный кэш поставки — {exc}"
                 )
+            try:
+                from . import wb_fbs_detail as wb_detail
+
+                wb_detail.invalidate_supply_detail_cache(
+                    user_id=user_id,
+                    source_id=source_id,
+                    supply_id=str(supply_id),
+                )
+            except Exception:
+                pass
 
         added_total += added
         added_ids.extend(group_added_ids)
