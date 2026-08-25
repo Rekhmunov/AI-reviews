@@ -506,6 +506,31 @@ def _postings_filter_sql(
     return " AND ".join(clauses), params
 
 
+def resolve_product_display_name(
+    *,
+    offer_id: str | None,
+    sku: str | None,
+    name_by_article: dict[str, str],
+    name_by_ozon_sku: dict[str, str],
+) -> str:
+    """Name from Feedback → Settings → Products (same priority as WB FBS New).
+
+    Lookup: supplier article (offer_id), then Ozon SKU. Falls back to offer_id,
+    never to marketplace title — matches WB FBS ``list_orders``.
+    """
+    article = str(offer_id or "").strip()
+    sku_key = str(sku or "").strip()
+    name = (
+        name_by_article.get(article)
+        or (name_by_article.get(article.casefold()) if article else "")
+        or name_by_ozon_sku.get(sku_key)
+        or (name_by_ozon_sku.get(sku_key.casefold()) if sku_key else "")
+        or article
+        or "—"
+    )
+    return str(name or "—").strip() or "—"
+
+
 def list_postings(
     repo: ReviewRepository,
     *,
@@ -540,13 +565,21 @@ def list_postings(
             tuple(params + [safe_size, offset]),
         ).fetchall()
     name_map = repo.get_product_name_by_article(user_id=user_id)
+    ozon_sku_map = repo.get_product_name_by_ozon_sku(user_id=user_id)
     photo_map = repo.get_product_photo_map(user_id=user_id)
     items: list[dict[str, Any]] = []
     for row in rows:
         d = repo._row_to_dict(row)
         article = str(d.get("offer_id") or "").strip()
         sku = str(d.get("sku") or "").strip()
-        d["product_name_display"] = name_map.get(article) or d.get("product_name") or article or "—"
+        display_name = resolve_product_display_name(
+            offer_id=article,
+            sku=sku,
+            name_by_article=name_map,
+            name_by_ozon_sku=ozon_sku_map,
+        )
+        d["product_name"] = display_name
+        d["product_name_display"] = display_name
         d["product_photo"] = photo_map.get(article) or photo_map.get(sku) or ""
         d["tab_label"] = TAB_LABELS.get(str(d.get("tab") or ""), str(d.get("tab") or ""))
         d["status_label"] = str(d.get("status") or "")

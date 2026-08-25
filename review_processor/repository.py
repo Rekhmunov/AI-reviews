@@ -7637,7 +7637,7 @@ class ReviewRepository:
         return result
 
     def get_product_name_by_ozon_sku(self, *, user_id: int) -> dict[str, str]:
-        """Return {ozon_sku: name} for fast lookup in OZON supply goods."""
+        """Return {ozon_sku: name} (+ casefold) from Feedback → Settings → Products."""
         rows = self.list_product_photos(user_id=user_id)
         result: dict[str, str] = {}
         for r in rows:
@@ -7645,6 +7645,7 @@ class ReviewRepository:
             name = str(r.get("name") or "").strip()
             if sku and name:
                 result[sku] = name
+                result[sku.casefold()] = name
         return result
 
     def get_product_photo_map(self, *, user_id: int) -> dict[str, str]:

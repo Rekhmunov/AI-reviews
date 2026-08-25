@@ -9,6 +9,7 @@ from review_processor.ozon_fbs import (
     is_ozon_fbo_source,
     is_ozon_fbs_marketplace,
     is_ozon_fbs_source,
+    resolve_product_display_name,
     TAB_ARBITRATION,
     TAB_AWAITING_PACKAGING,
     TAB_CANCELLED,
@@ -53,6 +54,43 @@ class OzonFbsMappingTests(unittest.TestCase):
         self.assertEqual(compute_tab("cancelled"), TAB_CANCELLED)
         self.assertEqual(compute_tab("arbitration"), TAB_ARBITRATION)
         self.assertEqual(compute_tab("client_arbitration"), TAB_ARBITRATION)
+
+    def test_resolve_product_name_from_settings_article(self) -> None:
+        name = resolve_product_display_name(
+            offer_id="Art-1",
+            sku="999",
+            name_by_article={"Art-1": "Название из настроек"},
+            name_by_ozon_sku={"999": "По SKU"},
+        )
+        self.assertEqual(name, "Название из настроек")
+
+    def test_resolve_product_name_casefold_article(self) -> None:
+        name = resolve_product_display_name(
+            offer_id="art-1",
+            sku="",
+            name_by_article={"art-1": "Имя"},
+            name_by_ozon_sku={},
+        )
+        self.assertEqual(name, "Имя")
+
+    def test_resolve_product_name_by_ozon_sku(self) -> None:
+        name = resolve_product_display_name(
+            offer_id="unknown",
+            sku="770011",
+            name_by_article={},
+            name_by_ozon_sku={"770011": "Товар SKU"},
+        )
+        self.assertEqual(name, "Товар SKU")
+
+    def test_resolve_product_name_falls_back_to_offer_not_marketplace_title(self) -> None:
+        # Marketplace title must not win when Settings has no match (WB FBS New behaviour).
+        name = resolve_product_display_name(
+            offer_id="OFFER-9",
+            sku="1",
+            name_by_article={},
+            name_by_ozon_sku={},
+        )
+        self.assertEqual(name, "OFFER-9")
 
 
 if __name__ == "__main__":
