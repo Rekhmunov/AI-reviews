@@ -8380,6 +8380,15 @@ button.ozon-fbs-ship-all-btn:disabled {
   flex: 0 0 auto;
   margin-top: 1px;
 }
+.ozon-fbs-stickers-cat-modal {
+  max-width: 520px;
+  width: min(520px, 92vw);
+  padding: 24px;
+}
+.ozon-fbs-stickers-cat-body {
+  max-height: 50vh;
+  overflow: auto;
+}
 @media (max-width: 720px) {
   .ozon-fbs-shipments-barcode-grid,
   .ozon-fbs-shipments-meta {
@@ -12406,4 +12415,386 @@ button.wb-fbs-kiz-add:disabled {
 }
 #wbFbsSupplyDetailPickVerifyBtn[hidden] {
   display: none !important;
+}
+
+/* ── OZON FBS: mobile layout (section + modals) ─────────────────────────── */
+.ozon-fbs-mobile-wh,
+.ozon-fbs-mobile-supply-id,
+.ozon-fbs-mobile-meta {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  #section-supplies-ozon-fbs {
+    gap: 8px;
+  }
+
+  #section-supplies-ozon-fbs .wb-fbs-title-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  #section-supplies-ozon-fbs .section-title {
+    font-size: 18px;
+    line-height: 1.3;
+  }
+
+  #section-supplies-ozon-fbs .supplies-toolbar-panel {
+    padding: 12px;
+  }
+
+  #section-supplies-ozon-fbs .supplies-top-controls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  #section-supplies-ozon-fbs .supplies-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    width: 100%;
+  }
+
+  #section-supplies-ozon-fbs .supplies-actions > #ozonFbsSyncBtn {
+    flex: 1 1 100%;
+    min-height: 44px;
+    font-size: 15px;
+  }
+
+  #section-supplies-ozon-fbs .supplies-actions > #ozonFbsStopBtn.icon-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  #section-supplies-ozon-fbs .ozon-fbs-stub-btn {
+    display: none !important;
+  }
+
+  #section-supplies-ozon-fbs .wb-fbs-toolbar-right {
+    width: 100%;
+  }
+
+  #section-supplies-ozon-fbs .wb-fbs-search {
+    width: 100%;
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  #section-supplies-ozon-fbs .wb-fbs-sync-info {
+    font-size: 14px;
+    padding: 12px;
+  }
+
+  #section-supplies-ozon-fbs .wb-fbs-sync-info-text {
+    font-size: 14px;
+  }
+
+  #section-supplies-ozon-fbs .wb-fbs-table-panel {
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+  }
+
+  #section-supplies-ozon-fbs .wb-fbs-table-wrap {
+    max-height: calc(100dvh - 300px);
+    -webkit-overflow-scrolling: touch;
+  }
+
+  #section-supplies-ozon-fbs:has(#ozonFbsBottomBar:not(.hidden)) .wb-fbs-table-panel {
+    padding-bottom: 96px;
+  }
+
+  #section-supplies-ozon-fbs .col-resize-handle {
+    display: none;
+  }
+
+  #section-supplies-ozon-fbs .wb-fbs-table:not(.wb-fbs-table--supplies) th:nth-child(4),
+  #section-supplies-ozon-fbs .wb-fbs-table:not(.wb-fbs-table--supplies) td:nth-child(4) {
+    display: none;
+  }
+
+  #section-supplies-ozon-fbs .wb-fbs-table--supplies th:nth-child(3),
+  #section-supplies-ozon-fbs .wb-fbs-table--supplies td:nth-child(3),
+  #section-supplies-ozon-fbs .wb-fbs-table--supplies th:nth-child(6),
+  #section-supplies-ozon-fbs .wb-fbs-table--supplies td:nth-child(6) {
+    display: none;
+  }
+
+  #section-supplies-ozon-fbs .wb-fbs-product-photo,
+  #section-supplies-ozon-fbs .wb-fbs-product img,
+  #section-supplies-ozon-fbs .wb-fbs-product-ph {
+    width: 72px !important;
+    height: 72px !important;
+    max-width: 72px !important;
+    max-height: 72px !important;
+    min-width: 72px;
+    min-height: 72px;
+    flex: 0 0 72px;
+  }
+
+  #section-supplies-ozon-fbs .wb-fbs-product-name {
+    font-size: 15px;
+  }
+
+  #section-supplies-ozon-fbs .wb-fbs-product-sub,
+  #section-supplies-ozon-fbs .wb-fbs-barcode {
+    font-size: 13px;
+  }
+
+  #section-supplies-ozon-fbs .wb-fbs-order-id .ozon-fbs-posting-tail,
+  #section-supplies-ozon-fbs .wb-fbs-sd-order-id .ozon-fbs-posting-tail {
+    font-size: 20px;
+  }
+
+  .ozon-fbs-mobile-wh,
+  .ozon-fbs-mobile-supply-id,
+  .ozon-fbs-mobile-meta {
+    display: block;
+    margin-top: 4px;
+    font-size: 12px;
+    color: #64748b;
+    line-height: 1.35;
+    word-break: break-word;
+  }
+
+  #section-supplies-ozon-fbs .wb-fbs-th-check,
+  #section-supplies-ozon-fbs .wb-fbs-table td:first-child,
+  #section-supplies-ozon-fbs .wb-fbs-sd-col-check {
+    width: 44px;
+    min-width: 44px;
+  }
+
+  #section-supplies-ozon-fbs .wb-fbs-row-cb,
+  #section-supplies-ozon-fbs .wb-fbs-sd-cb {
+    width: 20px;
+    height: 20px;
+  }
+
+  #section-supplies-ozon-fbs .wb-fbs-row-menu-btn {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+  }
+
+  #section-supplies-ozon-fbs .wb-fbs-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 12px;
+  }
+
+  #section-supplies-ozon-fbs .supplies-pagination {
+    width: 100%;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  #section-supplies-ozon-fbs .supplies-pagination button {
+    min-height: 44px;
+    flex: 1 1 auto;
+    padding: 8px 12px;
+  }
+
+  #section-supplies-ozon-fbs .wb-fbs-page-size {
+    min-height: 44px;
+    margin-left: 0;
+    flex: 1 1 auto;
+  }
+
+  #section-supplies-ozon-fbs .wb-fbs-bottom-bar {
+    flex-direction: column;
+    align-items: stretch;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    padding: 12px;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  #section-supplies-ozon-fbs .wb-fbs-bottom-actions {
+    width: 100%;
+    margin-left: 0;
+    gap: 8px;
+  }
+
+  #section-supplies-ozon-fbs .wb-fbs-bottom-group {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  #section-supplies-ozon-fbs .wb-fbs-bottom-primary,
+  #section-supplies-ozon-fbs .wb-fbs-bottom-actions .secondary:not(.wb-fbs-bottom-close) {
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+  }
+
+  #section-supplies-ozon-fbs .wb-fbs-bottom-close {
+    min-width: 44px;
+    min-height: 44px;
+    align-self: flex-end;
+  }
+
+  /* OZON modals */
+  #ozonFbsSupplyDetailModal .wb-fbs-supply-detail-modal,
+  #ozonFbsShipmentsModal .wb-fbs-supply-detail-modal {
+    width: 100%;
+    max-width: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+  }
+
+  #ozonFbsDetailModal .modal-card {
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100dvh - 24px);
+    margin: 12px;
+    padding: 0;
+    border-radius: 12px;
+  }
+
+  #ozonFbsSupplyDetailModal .wb-fbs-sd-header {
+    padding: 16px;
+  }
+
+  #ozonFbsSupplyDetailModal .wb-fbs-sd-title {
+    font-size: 20px;
+  }
+
+  #ozonFbsSupplyDetailModal .wb-fbs-sd-meta-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  #ozonFbsSupplyDetailModal .wb-fbs-sd-meta-row .wb-fbs-kiz-search {
+    width: 100%;
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  #ozonFbsSupplyDetailModal .wb-fbs-sd-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    width: 100%;
+  }
+
+  #ozonFbsSupplyDetailModal .wb-fbs-sd-actions .ozon-fbs-stub-btn,
+  #ozonFbsSupplyDetailModal .wb-fbs-sd-actions #ozonFbsKizSplit {
+    display: none !important;
+  }
+
+  #ozonFbsSupplyDetailModal .wb-fbs-picking-split {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    grid-column: 1 / -1;
+  }
+
+  #ozonFbsSupplyDetailModal .wb-fbs-picking-split > .secondary:first-child {
+    flex: 1 1 auto;
+    min-height: 44px;
+  }
+
+  #ozonFbsSupplyDetailModal .wb-fbs-picking-caret {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  #ozonFbsSupplyDetailModal #ozonFbsSupplyDetailShipmentsBtn {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-height: 44px;
+  }
+
+  #ozonFbsSupplyDetailModal .wb-fbs-sd-table-wrap {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  #ozonFbsSupplyDetailModal .wb-fbs-sd-table .wb-fbs-product-photo,
+  #ozonFbsSupplyDetailModal .wb-fbs-sd-table .wb-fbs-product img,
+  #ozonFbsSupplyDetailModal .wb-fbs-sd-table .wb-fbs-product-ph {
+    width: 56px !important;
+    height: 56px !important;
+    max-width: 56px !important;
+    max-height: 56px !important;
+    min-width: 56px;
+    min-height: 56px;
+    flex: 0 0 56px;
+  }
+
+  #ozonFbsShipmentsModal .ozon-fbs-shipments-filters {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  #ozonFbsShipmentsModal .ozon-fbs-shipments-field {
+    width: 100%;
+  }
+
+  #ozonFbsShipmentsModal .ozon-fbs-shipments-input {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  #ozonFbsShipmentsModal .ozon-fbs-shipments-form-btn,
+  #ozonFbsShipmentsModal .ozon-fbs-shipments-link {
+    min-height: 44px;
+    padding: 10px 16px;
+  }
+
+  #ozonFbsCollectModal .wb-fbs-collect-mgt-modal,
+  #ozonFbsCollectResultModal .wb-fbs-collect-mgt-result-modal,
+  #ozonFbsSelectionSupplyModal .wb-fbs-collect-mgt-modal,
+  #ozonFbsStickersCategoryModal .ozon-fbs-stickers-cat-modal {
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100dvh - 24px);
+    padding: 16px;
+    border-radius: 12px;
+  }
+
+  #ozonFbsStickersCategoryModal #ozonFbsStickersCategoryBody {
+    max-height: 50vh;
+    overflow: auto;
+  }
+
+  #ozonFbsCollectModal .wb-fbs-collect-mgt-footer,
+  #ozonFbsCollectResultModal .wb-fbs-collect-mgt-footer,
+  #ozonFbsSelectionSupplyModal .wb-fbs-collect-mgt-footer,
+  #ozonFbsStickersCategoryModal .wb-fbs-collect-mgt-footer {
+    flex-direction: column-reverse;
+    gap: 8px;
+    margin-top: 16px;
+    padding-top: 12px;
+  }
+
+  #ozonFbsCollectModal .wb-fbs-collect-mgt-footer button,
+  #ozonFbsCollectResultModal .wb-fbs-collect-mgt-footer button,
+  #ozonFbsSelectionSupplyModal .wb-fbs-collect-mgt-footer button,
+  #ozonFbsStickersCategoryModal .wb-fbs-collect-mgt-footer button {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  #ozonFbsDetailModal .wb-fbs-sd-header {
+    padding: 16px;
+  }
+
+  #ozonFbsDetailModal .wb-fbs-sd-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  #ozonFbsDetailModal .wb-fbs-sd-actions button {
+    width: 100%;
+    min-height: 44px;
+  }
 }
