@@ -2740,6 +2740,42 @@
           </div>
         </div>
 
+        <div id="ozonFbsBottomBar" class="wb-fbs-bottom-bar hidden">
+          <span id="ozonFbsSelectedLabel" class="wb-fbs-selected-label">Выбрано 0 отправлений</span>
+          <div class="wb-fbs-bottom-actions">
+            <div id="ozonFbsBottomPackagingActions" class="wb-fbs-bottom-group">
+              <button type="button" class="wb-fbs-bottom-primary" onclick="openOzonFbsNewSupplyFromSelection()">
+                <span class="wb-fbs-ico-plus" aria-hidden="true">+</span>
+                Новая поставка
+              </button>
+              <button type="button" id="ozonFbsAddToSupplyBtn" class="secondary wb-fbs-bottom-add-existing hidden"
+                      onclick="openOzonFbsAddToExistingSupply()">
+                Добавить к существующей
+              </button>
+            </div>
+            <button type="button" class="icon-btn secondary wb-fbs-bottom-close" onclick="clearOzonFbsSelection()" title="Сбросить выбор">✕</button>
+          </div>
+        </div>
+
+        <div id="ozonFbsSelectionSupplyModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsSelectionSupplyTitle"
+             onclick="if(event.target===this)closeOzonFbsSelectionSupplyModal()">
+          <div class="modal-card wb-fbs-collect-mgt-modal">
+            <div class="wb-fbs-collect-mgt-header">
+              <h3 id="ozonFbsSelectionSupplyTitle" class="wb-fbs-collect-mgt-title">Новая поставка</h3>
+              <button type="button" class="icon-btn secondary" onclick="closeOzonFbsSelectionSupplyModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <p id="ozonFbsSelectionSupplyLead" class="wb-fbs-collect-mgt-lead"></p>
+            <div id="ozonFbsSelectionSupplyBody" class="wb-fbs-collect-mgt-body"></div>
+            <div id="ozonFbsSelectionSupplyErr" class="wb-fbs-collect-mgt-err" hidden></div>
+            <div class="wb-fbs-collect-mgt-footer">
+              <button type="button" class="secondary" onclick="closeOzonFbsSelectionSupplyModal()">Отмена</button>
+              <button type="button" id="ozonFbsSelectionSupplyConfirmBtn" class="ozon-fbs-ship-all-btn"
+                      onclick="confirmOzonFbsSelectionSupply()">Создать</button>
+            </div>
+          </div>
+        </div>
+
         <div id="ozonFbsSupplyDetailModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
              aria-labelledby="ozonFbsSupplyDetailTitle"
              onclick="if(event.target===this)closeOzonFbsSupplyDetailModal()">
@@ -5502,7 +5538,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=8"></script>
+  <script src="/static/ozon_fbs.js?v=9"></script>
   <script src="/static/app.js?v=501"></script>
 </body>
 </html>

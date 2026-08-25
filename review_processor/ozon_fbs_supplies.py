@@ -519,6 +519,402 @@ def execute_ship_all_collect(
     }
 
 
+def _load_postings_by_numbers(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_numbers: list[str],
+) -> list[dict[str, Any]]:
+    ensure_ozon_fbs_supply_schema(repo)
+    wanted = [str(x).strip() for x in posting_numbers if str(x).strip()]
+    if not wanted:
+        return []
+    placeholders = ", ".join("?" for _ in wanted)
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT * FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ?
+                  AND posting_number IN ({placeholders})
+                """
+            ),
+            (user_id, source_id, *wanted),
+        ).fetchall()
+    by_num = {str(repo._row_to_dict(r).get("posting_number") or ""): repo._row_to_dict(r) for r in rows}
+    # Preserve request order.
+    return [by_num[n] for n in wanted if n in by_num]
+
+
+def _selection_mix_errors(rows: list[dict[str, Any]]) -> list[str]:
+    """Ozon FBS: one supply = one warehouse (same idea as WB warehouse rule)."""
+    if not rows:
+        return ["Не выбраны отправления"]
+    warehouses: set[object] = set()
+    for o in rows:
+        wh = o.get("warehouse_id")
+        if wh is None or str(wh).strip() == "":
+            warehouses.add(None)
+            continue
+        try:
+            warehouses.add(int(wh))
+        except (TypeError, ValueError):
+            warehouses.add(None)
+    if None in warehouses and len(warehouses) > 1:
+        return [
+            "У части отправлений не указан склад, а у других указан. "
+            "В одну поставку можно добавить только отправления одного склада."
+        ]
+    if len(warehouses) > 1:
+        return [
+            "Выбраны отправления с разных складов Ozon. "
+            "В одну локальную поставку можно объединить только один склад."
+        ]
+    return []
+
+
+def _selection_traits(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    if not rows:
+        return {"warehouse_id": None, "warehouse_name": ""}
+    wh = rows[0].get("warehouse_id")
+    try:
+        wh_id = int(wh) if wh is not None and str(wh).strip() != "" else None
+    except (TypeError, ValueError):
+        wh_id = None
+    return {
+        "warehouse_id": wh_id,
+        "warehouse_name": str(rows[0].get("warehouse_name") or "").strip(),
+    }
+
+
+def _compatible_supplies_for_warehouse(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    warehouse_id: object,
+) -> list[dict[str, Any]]:
+    open_supplies = list_open_supplies(repo, user_id=user_id, source_id=source_id)
+    out: list[dict[str, Any]] = []
+    for s in open_supplies:
+        sw = s.get("warehouse_id")
+        if s.get("is_empty"):
+            out.append(
+                {
+                    "supply_id": s.get("supply_id"),
+                    "name": s.get("name") or s.get("supply_id"),
+                    "is_empty": True,
+                    "orders_count": int(s.get("order_count") or 0),
+                    "warehouse_id": sw,
+                    "warehouse_name": s.get("warehouse_name") or "",
+                }
+            )
+            continue
+        if warehouse_id is None and sw is None:
+            match = True
+        elif warehouse_id is not None and sw is not None:
+            try:
+                match = int(sw) == int(warehouse_id)
+            except (TypeError, ValueError):
+                match = False
+        else:
+            match = False
+        if match:
+            out.append(
+                {
+                    "supply_id": s.get("supply_id"),
+                    "name": s.get("name") or s.get("supply_id"),
+                    "is_empty": False,
+                    "orders_count": int(s.get("order_count") or 0),
+                    "warehouse_id": sw,
+                    "warehouse_name": s.get("warehouse_name") or "",
+                }
+            )
+    return out
+
+
+def preview_selection_supply(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_numbers: list[str],
+) -> dict[str, Any]:
+    """Validate selected «Ожидают сборки» postings + compatible open supplies."""
+    ensure_ozon_fbs_supply_schema(repo)
+    wanted = [str(x).strip() for x in posting_numbers if str(x).strip()]
+    rows = _load_postings_by_numbers(
+        repo, user_id=user_id, source_id=source_id, posting_numbers=wanted
+    )
+    found = {str(r.get("posting_number") or "").strip() for r in rows}
+    errors: list[str] = []
+    missing = [n for n in wanted if n not in found]
+    if missing:
+        errors.append(
+            "Не найдены отправления: "
+            + ", ".join(missing[:10])
+            + ("…" if len(missing) > 10 else "")
+        )
+    usable: list[dict[str, Any]] = []
+    for r in rows:
+        pn = str(r.get("posting_number") or "").strip()
+        tab = str(r.get("tab") or "")
+        if tab != oz.TAB_AWAITING_PACKAGING:
+            errors.append(
+                f"Отправление {pn} не во вкладке «Ожидают сборки» "
+                f"(сейчас: {tab or '—'})"
+            )
+            continue
+        if str(r.get("supply_id") or "").strip():
+            errors.append(f"Отправление {pn} уже в локальной поставке")
+            continue
+        usable.append(r)
+    mix = _selection_mix_errors(usable) if usable else (
+        ["Нет подходящих отправлений"] if not errors else []
+    )
+    errors.extend(mix)
+    seen: set[str] = set()
+    uniq: list[str] = []
+    for e in errors:
+        if e in seen:
+            continue
+        seen.add(e)
+        uniq.append(e)
+
+    traits = _selection_traits(usable) if usable and not mix else {
+        "warehouse_id": None,
+        "warehouse_name": "",
+    }
+    open_supplies = list_open_supplies(repo, user_id=user_id, source_id=source_id)
+    existing_names = sorted(
+        {
+            str(s.get("name") or "").strip()
+            for s in open_supplies
+            if str(s.get("name") or "").strip()
+        }
+    )
+    compatible: list[dict[str, Any]] = []
+    if usable and not mix:
+        compatible = _compatible_supplies_for_warehouse(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            warehouse_id=traits.get("warehouse_id"),
+        )
+    suggested = _unique_supply_name(default_supply_name(), set(existing_names))
+    return {
+        "ok": not uniq,
+        "errors": uniq,
+        "posting_numbers": [
+            str(r.get("posting_number") or "").strip() for r in usable
+        ],
+        "order_count": len(usable),
+        "traits": traits,
+        "suggested_name": suggested,
+        "name_conflict": False,
+        "existing_names": existing_names,
+        "compatible_supplies": compatible,
+        "has_open_supplies": bool(open_supplies),
+    }
+
+
+def _ship_selected_postings(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    client_id: str,
+    api_key: str,
+    posting_numbers: list[str],
+) -> tuple[list[str], list[dict[str, str]]]:
+    client = oz.OzonFbsClient(client_id, api_key)
+    shipped: list[str] = []
+    errors: list[dict[str, str]] = []
+    for pn in posting_numbers:
+        try:
+            oz_detail.ship_posting(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                posting_number=pn,
+                client_id=client_id,
+                api_key=api_key,
+                client=client,
+            )
+            shipped.append(pn)
+        except Exception as exc:
+            errors.append({"posting_number": pn, "error": str(exc)})
+    return shipped, errors
+
+
+def create_supply_from_selection(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    client_id: str,
+    api_key: str,
+    posting_numbers: list[str],
+    name: str,
+) -> dict[str, Any]:
+    preview = preview_selection_supply(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        posting_numbers=posting_numbers,
+    )
+    if not preview.get("ok"):
+        return {
+            "ok": False,
+            "added": 0,
+            "errors": list(preview.get("errors") or []),
+            "message": "Нельзя создать поставку из выбранных отправлений",
+            "goto_awaiting_deliver": False,
+        }
+    nums = list(preview.get("posting_numbers") or [])
+    traits = preview.get("traits") or {}
+    open_names = set(preview.get("existing_names") or [])
+    supply_name = _unique_supply_name(
+        str(name or "").strip() or str(preview.get("suggested_name") or ""),
+        open_names,
+    )
+    shipped, ship_errors = _ship_selected_postings(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        client_id=client_id,
+        api_key=api_key,
+        posting_numbers=nums,
+    )
+    if not shipped:
+        return {
+            "ok": False,
+            "added": 0,
+            "errors": [
+                f"{e['posting_number']}: {e['error']}" for e in ship_errors
+            ],
+            "message": "Не удалось собрать отправления",
+            "goto_awaiting_deliver": False,
+        }
+    sid = _create_local_supply(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        name=supply_name,
+        warehouse_id=traits.get("warehouse_id"),
+        warehouse_name=str(traits.get("warehouse_name") or ""),
+        posting_numbers=shipped,
+    )
+    err_lines = [f"{e['posting_number']}: {e['error']}" for e in ship_errors]
+    ok = not ship_errors
+    return {
+        "ok": ok,
+        "added": len(shipped),
+        "supply_id": sid,
+        "name": supply_name,
+        "created_supplies": [{"supply_id": sid, "name": supply_name}],
+        "errors": err_lines,
+        "message": (
+            f"Создана поставка «{supply_name}»: {len(shipped)} отпр."
+            + (f", ошибок {len(ship_errors)}" if ship_errors else "")
+        ),
+        "goto_awaiting_deliver": True,
+    }
+
+
+def add_selection_to_supply(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    client_id: str,
+    api_key: str,
+    posting_numbers: list[str],
+    supply_id: str,
+) -> dict[str, Any]:
+    preview = preview_selection_supply(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        posting_numbers=posting_numbers,
+    )
+    if not preview.get("ok"):
+        return {
+            "ok": False,
+            "added": 0,
+            "errors": list(preview.get("errors") or []),
+            "message": "Нельзя добавить выбранные отправления в поставку",
+            "goto_awaiting_deliver": False,
+        }
+    sid = str(supply_id or "").strip()
+    compatible_ids = {
+        str(s.get("supply_id") or "").strip()
+        for s in (preview.get("compatible_supplies") or [])
+    }
+    if sid not in compatible_ids:
+        return {
+            "ok": False,
+            "added": 0,
+            "errors": ["Выбранная поставка не совместима со складом отправлений"],
+            "message": "Поставка не подходит",
+            "goto_awaiting_deliver": False,
+        }
+    nums = list(preview.get("posting_numbers") or [])
+    shipped, ship_errors = _ship_selected_postings(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        client_id=client_id,
+        api_key=api_key,
+        posting_numbers=nums,
+    )
+    if not shipped:
+        return {
+            "ok": False,
+            "added": 0,
+            "errors": [
+                f"{e['posting_number']}: {e['error']}" for e in ship_errors
+            ],
+            "message": "Не удалось собрать отправления",
+            "goto_awaiting_deliver": False,
+        }
+    _add_postings_to_supply(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=sid,
+        posting_numbers=shipped,
+    )
+    sname = next(
+        (
+            str(s.get("name") or sid)
+            for s in (preview.get("compatible_supplies") or [])
+            if str(s.get("supply_id")) == sid
+        ),
+        sid,
+    )
+    err_lines = [f"{e['posting_number']}: {e['error']}" for e in ship_errors]
+    return {
+        "ok": not ship_errors,
+        "added": len(shipped),
+        "supply_id": sid,
+        "name": sname,
+        "errors": err_lines,
+        "message": (
+            f"Добавлено в «{sname}»: {len(shipped)} отпр."
+            + (f", ошибок {len(ship_errors)}" if ship_errors else "")
+        ),
+        "goto_awaiting_deliver": True,
+    }
+
+
+def count_open_supplies(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> int:
+    return len(list_open_supplies(repo, user_id=user_id, source_id=source_id))
+
+
 def _load_orphan_awaiting_deliver_rows(
     repo: ReviewRepository, *, user_id: int, source_id: int
 ) -> list[dict[str, Any]]:

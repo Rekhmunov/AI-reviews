@@ -237,6 +237,77 @@ class OzonFbsLocalSuppliesTests(unittest.TestCase):
         create.assert_not_called()
         self.assertEqual(add.call_args.kwargs["supply_id"], "OZ-EXISTING")
 
+    def test_selection_preview_rejects_mixed_warehouses(self) -> None:
+        from review_processor.ozon_fbs_supplies import preview_selection_supply
+
+        repo = MagicMock()
+        rows = [
+            {
+                "posting_number": "A-1",
+                "tab": "awaiting_packaging",
+                "supply_id": "",
+                "warehouse_id": 10,
+                "warehouse_name": "A",
+            },
+            {
+                "posting_number": "B-1",
+                "tab": "awaiting_packaging",
+                "supply_id": "",
+                "warehouse_id": 20,
+                "warehouse_name": "B",
+            },
+        ]
+        with patch(
+            "review_processor.ozon_fbs_supplies.ensure_ozon_fbs_supply_schema"
+        ), patch(
+            "review_processor.ozon_fbs_supplies._load_postings_by_numbers",
+            return_value=rows,
+        ), patch(
+            "review_processor.ozon_fbs_supplies.list_open_supplies",
+            return_value=[],
+        ):
+            preview = preview_selection_supply(
+                repo, user_id=1, source_id=17, posting_numbers=["A-1", "B-1"]
+            )
+        self.assertFalse(preview["ok"])
+        self.assertTrue(any("склад" in e.lower() for e in preview["errors"]))
+
+    def test_selection_preview_ok_same_warehouse(self) -> None:
+        from review_processor.ozon_fbs_supplies import preview_selection_supply
+
+        repo = MagicMock()
+        rows = [
+            {
+                "posting_number": "A-1",
+                "tab": "awaiting_packaging",
+                "supply_id": "",
+                "warehouse_id": 10,
+                "warehouse_name": "A",
+            },
+            {
+                "posting_number": "A-2",
+                "tab": "awaiting_packaging",
+                "supply_id": "",
+                "warehouse_id": 10,
+                "warehouse_name": "A",
+            },
+        ]
+        with patch(
+            "review_processor.ozon_fbs_supplies.ensure_ozon_fbs_supply_schema"
+        ), patch(
+            "review_processor.ozon_fbs_supplies._load_postings_by_numbers",
+            return_value=rows,
+        ), patch(
+            "review_processor.ozon_fbs_supplies.list_open_supplies",
+            return_value=[],
+        ):
+            preview = preview_selection_supply(
+                repo, user_id=1, source_id=17, posting_numbers=["A-1", "A-2"]
+            )
+        self.assertTrue(preview["ok"])
+        self.assertEqual(preview["order_count"], 2)
+        self.assertEqual(preview["traits"]["warehouse_id"], 10)
+
 
 if __name__ == "__main__":
     unittest.main()

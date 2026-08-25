@@ -12048,12 +12048,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         page: int = 1,
         page_size: int = 50,
     ) -> dict[str, object]:
+        from . import ozon_fbs_supplies as oz_sup
+
         user = _require_user(request)
         if not _can_view_ozon_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
         ozon_fbs_mod.ensure_ozon_fbs_tables(repository)
-        return ozon_fbs_mod.list_postings(
+        payload = ozon_fbs_mod.list_postings(
             repository,
             user_id=owner_id,
             source_id=source_id,
@@ -12062,6 +12064,118 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             page=page,
             page_size=page_size,
         )
+        counts = dict(payload.get("counts") or {})
+        if source_id:
+            try:
+                counts["open_supplies"] = oz_sup.count_open_supplies(
+                    repository, user_id=owner_id, source_id=int(source_id)
+                )
+            except Exception:
+                counts["open_supplies"] = 0
+        else:
+            counts["open_supplies"] = 0
+        payload["counts"] = counts
+        return payload
+
+    @app.post("/api/ozon-fbs/selection/preview")
+    async def ozon_fbs_selection_preview(request: Request) -> dict[str, object]:
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        source_id = int(body.get("source_id") or 0)
+        posting_numbers = body.get("posting_numbers")
+        if not isinstance(posting_numbers, list):
+            posting_numbers = []
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _ozon_fbs_source_credentials(owner_id, source_id)
+        return oz_sup.preview_selection_supply(
+            repository,
+            user_id=owner_id,
+            source_id=source_id,
+            posting_numbers=[str(x) for x in posting_numbers],
+        )
+
+    @app.post("/api/ozon-fbs/selection/create-supply")
+    async def ozon_fbs_selection_create_supply(request: Request) -> dict[str, object]:
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        source_id = int(body.get("source_id") or 0)
+        posting_numbers = body.get("posting_numbers")
+        if not isinstance(posting_numbers, list):
+            posting_numbers = []
+        name = str(body.get("name") or "").strip()
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, source_id)
+        try:
+            return oz_sup.create_supply_from_selection(
+                repository,
+                user_id=owner_id,
+                source_id=source_id,
+                client_id=client_id,
+                api_key=api_key,
+                posting_numbers=[str(x) for x in posting_numbers],
+                name=name,
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/ozon-fbs/selection/add-to-supply")
+    async def ozon_fbs_selection_add_to_supply(request: Request) -> dict[str, object]:
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        source_id = int(body.get("source_id") or 0)
+        supply_id = str(body.get("supply_id") or "").strip()
+        posting_numbers = body.get("posting_numbers")
+        if not isinstance(posting_numbers, list):
+            posting_numbers = []
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        if not supply_id:
+            raise HTTPException(status_code=400, detail="Укажите supply_id")
+        _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, source_id)
+        try:
+            return oz_sup.add_selection_to_supply(
+                repository,
+                user_id=owner_id,
+                source_id=source_id,
+                client_id=client_id,
+                api_key=api_key,
+                posting_numbers=[str(x) for x in posting_numbers],
+                supply_id=supply_id,
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get("/api/ozon-fbs/sync/status")
     def get_ozon_fbs_sync_status(request: Request) -> dict[str, object]:
