@@ -2664,9 +2664,9 @@
             <button type="button" class="wb-fbs-tab active" data-tab="awaiting_packaging" onclick="setOzonFbsTab('awaiting_packaging')">Ожидают сборки <span class="wb-fbs-tab-count" id="ozonFbsCountAwaitingPackaging">0</span></button>
             <button type="button" class="wb-fbs-tab" data-tab="awaiting_deliver" onclick="setOzonFbsTab('awaiting_deliver')">Ожидают отгрузки <span class="wb-fbs-tab-count" id="ozonFbsCountAwaitingDeliver">0</span></button>
             <button type="button" class="wb-fbs-tab" data-tab="delivering" onclick="setOzonFbsTab('delivering')">Доставляются <span class="wb-fbs-tab-count" id="ozonFbsCountDelivering">0</span></button>
-            <button type="button" class="wb-fbs-tab" data-tab="arbitration" onclick="setOzonFbsTab('arbitration')">Спорные <span class="wb-fbs-tab-count" id="ozonFbsCountArbitration">0</span></button>
-            <button type="button" class="wb-fbs-tab" data-tab="delivered" onclick="setOzonFbsTab('delivered')">Доставлены <span class="wb-fbs-tab-count" id="ozonFbsCountDelivered">0</span></button>
-            <button type="button" class="wb-fbs-tab" data-tab="cancelled" onclick="setOzonFbsTab('cancelled')">Отменены <span class="wb-fbs-tab-count" id="ozonFbsCountCancelled">0</span></button>
+            <button type="button" class="wb-fbs-tab" data-tab="arbitration" onclick="setOzonFbsTab('arbitration')" hidden style="display:none">Спорные <span class="wb-fbs-tab-count" id="ozonFbsCountArbitration">0</span></button>
+            <button type="button" class="wb-fbs-tab" data-tab="delivered" onclick="setOzonFbsTab('delivered')" hidden style="display:none">Доставлены <span class="wb-fbs-tab-count" id="ozonFbsCountDelivered">0</span></button>
+            <button type="button" class="wb-fbs-tab" data-tab="cancelled" onclick="setOzonFbsTab('cancelled')" hidden style="display:none">Отменены <span class="wb-fbs-tab-count" id="ozonFbsCountCancelled">0</span></button>
           </div>
           <button type="button" id="ozonFbsShipAllBtn" class="ozon-fbs-ship-all-btn"
                   onclick="ozonFbsShipAll()"

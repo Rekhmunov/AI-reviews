@@ -14,6 +14,9 @@
     cancelled: "ozonFbsCountCancelled",
   };
 
+  /** Hidden in UI for now (sync still tracks counts). */
+  const OZON_FBS_HIDDEN_TABS = new Set(["arbitration", "delivered", "cancelled"]);
+
   const state = {
     sources: [],
     sourceId: null,
@@ -1274,7 +1277,8 @@
   }
 
   function setTab(tab) {
-    state.tab = String(tab || "awaiting_packaging");
+    const next = String(tab || "awaiting_packaging");
+    state.tab = OZON_FBS_HIDDEN_TABS.has(next) ? "awaiting_packaging" : next;
     state.selected.clear();
     document.querySelectorAll("#ozonFbsTabs .wb-fbs-tab").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.tab === state.tab);
