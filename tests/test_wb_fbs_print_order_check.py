@@ -27,7 +27,9 @@ class WbFbsPrintOrderCheckTests(unittest.TestCase):
         ) as client_cls, patch(
             "review_processor.wb_fbs_detail._assembly_order_ids_for_supply",
             return_value=[10, 20, 30],
-        ), patch("review_processor.wb_fbs_detail.time.sleep"):
+        ), patch("review_processor.wb_fbs_detail.time.sleep"), patch(
+            "review_processor.wb_fbs_detail._log"
+        ) as log:
             client_cls.return_value.get_supply_order_ids.return_value = [30, 10, 20]
             out = ensure_supply_ready_for_print(
                 repo,
@@ -35,8 +37,13 @@ class WbFbsPrintOrderCheckTests(unittest.TestCase):
                 source_id=13,
                 api_key="key",
                 supply_id="WB-GI-1",
+                kind="picking_list",
             )
         self.assertEqual(out, [30, 10, 20])
+        log.info.assert_called()
+        info_msg = log.info.call_args[0][0]
+        self.assertIn("print ok", info_msg)
+        self.assertIn("picking_list", log.info.call_args[0])
 
     def test_ensure_blocks_when_wb_lags_behind_assembly(self):
         repo = MagicMock()
@@ -45,7 +52,9 @@ class WbFbsPrintOrderCheckTests(unittest.TestCase):
         ) as client_cls, patch(
             "review_processor.wb_fbs_detail._assembly_order_ids_for_supply",
             return_value=list(range(1, 261)),
-        ), patch("review_processor.wb_fbs_detail.time.sleep"):
+        ), patch("review_processor.wb_fbs_detail.time.sleep"), patch(
+            "review_processor.wb_fbs_detail._log"
+        ) as log:
             client_cls.return_value.get_supply_order_ids.return_value = list(range(1, 187))
             with self.assertRaises(ValueError) as ctx:
                 ensure_supply_ready_for_print(
@@ -54,11 +63,15 @@ class WbFbsPrintOrderCheckTests(unittest.TestCase):
                     source_id=13,
                     api_key="key",
                     supply_id="WB-GI-269260516",
+                    kind="stickers",
                 )
         msg = str(ctx.exception)
         self.assertIn("186", msg)
         self.assertIn("260", msg)
         self.assertIn("Печать заблокирована", msg)
+        warn_msg = log.warning.call_args[0][0]
+        self.assertIn("print blocked", warn_msg)
+        self.assertIn("stickers", log.warning.call_args[0])
 
     def test_ensure_blocks_when_wb_unreachable(self):
         repo = MagicMock()

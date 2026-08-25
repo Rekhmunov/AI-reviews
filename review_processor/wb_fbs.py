@@ -5642,6 +5642,8 @@ def execute_collect_mgt(
 
         added = len(group_added_ids)
         if added:
+            wb_oids_count = 0
+            prev: list[int] = []
             try:
                 oids = client.get_supply_order_ids(supply_id)
                 live_supply = client.get_supply(supply_id)
@@ -5660,6 +5662,7 @@ def execute_collect_mgt(
                         + [int(x) for x in group_added_ids]
                     )
                 )
+                wb_oids_count = len({int(x) for x in (oids or [])})
                 upsert_supply(
                     repo,
                     user_id=user_id,
@@ -5671,6 +5674,7 @@ def execute_collect_mgt(
                 warnings.append(
                     f"{label}: заказы добавлены на WB, локальный кэш поставки — {exc}"
                 )
+            local_n = len(set(int(x) for x in group_added_ids) | set(int(x) for x in prev))
             try:
                 from . import wb_fbs_detail as wb_detail
 
@@ -5679,8 +5683,41 @@ def execute_collect_mgt(
                     source_id=source_id,
                     supply_id=str(supply_id),
                 )
-            except Exception:
-                pass
+                local_n = len(
+                    wb_detail._assembly_order_ids_for_supply(
+                        repo,
+                        user_id=user_id,
+                        source_id=source_id,
+                        supply_id=str(supply_id),
+                    )
+                )
+            except Exception as exc:
+                _log.debug(
+                    "collect-mgt local count/invalidate supply=%s: %s",
+                    supply_id,
+                    exc,
+                )
+            _log.info(
+                "collect-mgt supply=%s source=%s group=%s added=%s planned=%s "
+                "wb_order_ids=%s local_assembly=%s",
+                supply_id,
+                source_id,
+                group_key,
+                added,
+                len(live_ids),
+                wb_oids_count,
+                local_n,
+            )
+            if local_n and wb_oids_count < local_n:
+                _log.warning(
+                    "collect-mgt wb lag supply=%s source=%s wb=%s local=%s "
+                    "missing_on_wb=%s",
+                    supply_id,
+                    source_id,
+                    wb_oids_count,
+                    local_n,
+                    local_n - wb_oids_count,
+                )
 
         added_total += added
         added_ids.extend(group_added_ids)
@@ -5726,6 +5763,14 @@ def execute_collect_mgt(
         message += f" Пропущено (отмена/не new): {len(skipped_cancelled)}."
     if warnings:
         message += f" Предупреждений: {len(warnings)}."
+    _log.info(
+        "collect-mgt done source=%s added=%s planned=%s created_supplies=%s ok=%s",
+        source_id,
+        added_total,
+        planned_live_total,
+        len(created_supplies),
+        ok,
+    )
     return {
         "ok": ok,
         "message": message,

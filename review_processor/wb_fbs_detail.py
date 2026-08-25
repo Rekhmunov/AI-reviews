@@ -1612,22 +1612,32 @@ def ensure_supply_ready_for_print(
     source_id: int,
     api_key: str,
     supply_id: str,
+    kind: str = "print",
 ) -> list[int]:
     """Require WB ``order-ids`` to match local assembly links before print.
 
     Returns the WB id list (portal order) when sets match. Raises ``ValueError``
     when WB is unreachable or the sets differ — callers must not print.
+    ``kind`` is only for diagnostics (picking_list / stickers / sticker_groups).
     """
     sid = str(supply_id or "").strip()
     if not sid:
         raise ValueError("Укажите supply_id")
     if not api_key:
         raise ValueError("Нет API-ключа источника")
+    kind_label = str(kind or "print").strip() or "print"
 
     client = wb.WbFbsClient(api_key)
     try:
         wb_ids = [int(x) for x in (client.get_supply_order_ids(sid) or [])]
     except Exception as exc:
+        _log.warning(
+            "print check failed supply=%s source=%s kind=%s err=%s",
+            sid,
+            source_id,
+            kind_label,
+            exc,
+        )
         raise ValueError(
             "Не удалось получить состав поставки с Wildberries для сверки печати. "
             "Повторите синхронизацию и сбор МГТ, затем снова откройте поставку. "
@@ -1641,12 +1651,22 @@ def ensure_supply_ready_for_print(
     wb_set = set(wb_ids)
     local_set = set(local_ids)
     if wb_set == local_set:
+        _log.info(
+            "print ok supply=%s source=%s kind=%s wb=%s assembly=%s",
+            sid,
+            source_id,
+            kind_label,
+            len(wb_set),
+            len(local_set),
+        )
         return wb_ids
 
     _log.warning(
-        "print blocked supply=%s source=%s wb=%s assembly=%s missing_on_wb=%s extra_on_wb=%s",
+        "print blocked supply=%s source=%s kind=%s wb=%s assembly=%s "
+        "missing_on_wb=%s extra_on_wb=%s",
         sid,
         source_id,
+        kind_label,
         len(wb_set),
         len(local_set),
         len(local_set - wb_set),
@@ -1761,6 +1781,37 @@ def get_supply_detail(
         _log.warning("detail order-ids %s: %s", sid, exc)
         order_ids = []
     time.sleep(0.21)
+
+    wb_id_set: set[int] = set()
+    for x in order_ids or []:
+        try:
+            wb_id_set.add(int(x))
+        except (TypeError, ValueError):
+            continue
+    local_assembly_ids = _assembly_order_ids_for_supply(
+        repo, user_id=user_id, source_id=source_id, supply_id=sid
+    )
+    local_set = set(local_assembly_ids)
+    if wb_id_set == local_set:
+        _log.info(
+            "detail supply=%s source=%s wb=%s assembly=%s",
+            sid,
+            source_id,
+            len(wb_id_set),
+            len(local_set),
+        )
+    else:
+        _log.warning(
+            "detail supply=%s source=%s wb=%s assembly=%s "
+            "missing_on_wb=%s extra_on_wb=%s",
+            sid,
+            source_id,
+            len(wb_id_set),
+            len(local_set),
+            len(local_set - wb_id_set),
+            len(wb_id_set - local_set),
+        )
+
     boxes: list[dict[str, Any]] = []
     try:
         boxes = client.get_supply_boxes(sid)
@@ -3041,6 +3092,7 @@ def get_supply_detail_for_print(
     api_key: str,
     supply_id: str,
     refresh_order_ids: bool = True,
+    kind: str = "print",
 ) -> dict[str, Any]:
     """Detail for print: verify WB↔assembly composition, then local (+ order-ids).
 
@@ -3055,6 +3107,7 @@ def get_supply_detail_for_print(
         source_id=source_id,
         api_key=api_key,
         supply_id=sid,
+        kind=kind,
     )
     try:
         return _detail_from_local(
@@ -3119,6 +3172,7 @@ def list_sticker_print_groups(
         api_key=api_key,
         supply_id=supply_id,
         refresh_order_ids=True,
+        kind="sticker_groups",
     )
     orders = list(detail.get("orders") or [])
     _refresh_product_names(repo, user_id=user_id, orders=orders)
@@ -3202,6 +3256,9 @@ def build_article_groups_for_print(
     ``order_ids_filter`` limits stickers/picking to selected orders only.
     """
     picking = mode == "picking_list"
+    print_kind = "picking_list" if picking else (
+        "stickers_selected" if order_ids_filter is not None else "stickers"
+    )
     detail = get_supply_detail_for_print(
         repo,
         user_id=user_id,
@@ -3210,6 +3267,7 @@ def build_article_groups_for_print(
         supply_id=supply_id,
         # Need WB supply orderIds sequence so article groups match portal order.
         refresh_order_ids=True,
+        kind=print_kind,
     )
     # Detail cache may be from modal open — refresh product names for print.
     _refresh_product_names(repo, user_id=user_id, orders=detail.get("orders") or [])
