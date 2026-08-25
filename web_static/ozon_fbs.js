@@ -892,6 +892,7 @@
   /* ── Supply detail modal ── */
 
   function closeSupplyDetailModal() {
+    closeOzonFbsRowMenus();
     document.getElementById("ozonFbsSupplyDetailModal")?.classList.add("hidden");
     closePickingMenu();
     closeStickersMenu();
@@ -937,6 +938,86 @@
     });
     const selAll = document.getElementById("ozonFbsSupplyDetailSelectAll");
     if (selAll) selAll.indeterminate = false;
+  }
+
+  function _ozonFbsPostingMenuKey(postingNumber) {
+    const pn = String(postingNumber || "").trim();
+    if (!pn) return "x";
+    return pn.replace(/[^a-zA-Z0-9_-]/g, "_");
+  }
+
+  function _ozonFbsRestoreRowMenu(menu) {
+    if (!menu) return;
+    menu.classList.remove("open");
+    menu.style.top = "";
+    menu.style.left = "";
+    const wrapId = menu.dataset.wrapId;
+    const wrap = wrapId ? document.getElementById(wrapId) : null;
+    if (wrap && menu.parentElement !== wrap) wrap.appendChild(menu);
+  }
+
+  function closeOzonFbsRowMenus(exceptKey = null) {
+    document.querySelectorAll(
+      ".wb-fbs-row-menu.open[id^='ozonFbsRowMenu_'], "
+      + ".wb-fbs-row-menu[data-ported='1'][id^='ozonFbsRowMenu_']"
+    ).forEach((menu) => {
+      const key = String(menu.id || "").replace(/^ozonFbsRowMenu_/, "");
+      if (exceptKey != null && key === String(exceptKey) && menu.classList.contains("open")) {
+        return;
+      }
+      menu.dataset.ported = "";
+      _ozonFbsRestoreRowMenu(menu);
+    });
+  }
+
+  function _ozonFbsPositionRowMenu(menu, anchorEl) {
+    const rect = anchorEl.getBoundingClientRect();
+    const menuW = Math.max(menu.offsetWidth || 220, 220);
+    const menuH = menu.offsetHeight || 96;
+    let left = rect.right - menuW;
+    if (left < 8) left = 8;
+    if (left + menuW > window.innerWidth - 8) left = Math.max(8, window.innerWidth - menuW - 8);
+    let top = rect.bottom + 4;
+    if (top + menuH > window.innerHeight - 8) {
+      top = Math.max(8, rect.top - menuH - 4);
+    }
+    menu.style.top = `${Math.round(top)}px`;
+    menu.style.left = `${Math.round(left)}px`;
+  }
+
+  function toggleOzonFbsRowMenu(event, menuKey) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    const key = String(menuKey || "").trim();
+    const btn = event?.currentTarget || event?.target?.closest?.(".wb-fbs-row-menu-btn");
+    const menu = document.getElementById(`ozonFbsRowMenu_${key}`);
+    if (!menu || !btn) return;
+    const willOpen = !menu.classList.contains("open");
+    closeOzonFbsRowMenus(willOpen ? key : null);
+    if (!willOpen) {
+      menu.dataset.ported = "";
+      _ozonFbsRestoreRowMenu(menu);
+      return;
+    }
+    const wrap = menu.closest(".wb-fbs-row-menu-wrap") || menu.parentElement;
+    if (wrap) {
+      if (!wrap.id) wrap.id = `ozonFbsRowMenuWrap_${key}`;
+      menu.dataset.wrapId = wrap.id;
+    }
+    document.body.appendChild(menu);
+    menu.dataset.ported = "1";
+    menu.classList.add("open");
+    _ozonFbsPositionRowMenu(menu, btn);
+    requestAnimationFrame(() => _ozonFbsPositionRowMenu(menu, btn));
+  }
+
+  function printOnePostingStickerFromDetail(postingNumber) {
+    closeOzonFbsRowMenus();
+    const pn = String(postingNumber || "").trim();
+    if (!pn || !supplyDetailReady()) return;
+    openStickersPrint([pn]);
   }
 
   function renderSupplyDetail(data) {
@@ -1000,6 +1081,7 @@
       const ago = agoLabel(created);
       const badges = [];
       if (ago) badges.push(`<span class="wb-fbs-badge time">${esc(ago)}</span>`);
+      const menuKey = _ozonFbsPostingMenuKey(pn);
       return `<tr class="wb-fbs-sd-click-row">
         <td><input type="checkbox" class="wb-fbs-sd-cb" data-posting="${esc(pn)}" ${checked}
                    onchange="onOzonFbsSupplyDetailCheckboxChange()" /></td>
@@ -1018,7 +1100,18 @@
             </div>
           </div>
         </td>
-        <td class="wb-fbs-sd-col-act"></td>
+        <td class="wb-fbs-sd-col-act">
+          <div class="wb-fbs-row-menu-wrap" id="ozonFbsRowMenuWrap_${menuKey}">
+            <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
+                    onclick="toggleOzonFbsRowMenu(event, '${menuKey}')" aria-haspopup="menu">⋮</button>
+            <div id="ozonFbsRowMenu_${menuKey}" class="wb-fbs-row-menu" data-posting="${esc(pn)}" role="menu">
+              <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
+                      onclick="ozonFbsPrintOnePostingStickerFromDetail(${JSON.stringify(pn)})">
+                Напечатать стикер
+              </button>
+            </div>
+          </div>
+        </td>
       </tr>`;
     }).join("");
     syncSupplyDetailSelectAll();
@@ -1265,6 +1358,9 @@
     if (!(t instanceof Element)) return;
     if (!t.closest("#ozonFbsPickingSplit")) closePickingMenu();
     if (!t.closest("#ozonFbsStickersSplit")) closeStickersMenu();
+    if (!t.closest(".wb-fbs-row-menu-wrap") && !t.closest("[id^='ozonFbsRowMenu_'].wb-fbs-row-menu")) {
+      closeOzonFbsRowMenus();
+    }
   });
 
   async function initSection() {
@@ -2182,10 +2278,16 @@
   window.closeOzonFbsStickersByCategoryModal = closeStickersByCategoryModal;
   window.confirmOzonFbsStickersByCategory = confirmStickersByCategory;
   window.onOzonFbsStickersCategoryToggle = onStickersCategoryToggle;
+<<<<<<< HEAD
   window.openOzonFbsShipmentsModal = openShipmentsModal;
   window.closeOzonFbsShipmentsModal = closeShipmentsModal;
   window.reloadOzonFbsShipments = loadShipments;
   window.ozonFbsShipmentsForm = formShipmentsCarriage;
   window.ozonFbsShipmentsZoomBarcode = shipmentsZoomBarcode;
   window.ozonFbsShipmentsDownloadBarcode = shipmentsDownloadBarcode;
+=======
+  window.toggleOzonFbsRowMenu = toggleOzonFbsRowMenu;
+  window.closeOzonFbsRowMenus = closeOzonFbsRowMenus;
+  window.ozonFbsPrintOnePostingStickerFromDetail = printOnePostingStickerFromDetail;
+>>>>>>> origin/cursor/ozon-fbs-supply-row-menu-7b47
 })();
