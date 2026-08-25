@@ -8286,6 +8286,10 @@ button.wb-fbs-bottom-add-existing.hidden {
     width: 100%;
     margin: 0 4px;
   }
+  button.ozon-fbs-ship-all-btn {
+    width: 100%;
+    margin: 0 4px;
+  }
 }
 .wb-fbs-tab {
   appearance: none;
