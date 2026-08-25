@@ -78,6 +78,36 @@
     return d.innerHTML;
   }
 
+  /** Ozon sticker: middle 4 digits in ORDER-XXXX-PKG are largest on the label. */
+  function formatOzonPostingNumberHtml(postingNumber) {
+    const s = String(postingNumber || "").trim();
+    if (!s) return "—";
+    const parts = s.split("-");
+    if (parts.length >= 3 && /^\d{4}$/.test(parts[1])) {
+      const head = `${esc(parts[0])}-`;
+      const tail = `-${parts.slice(2).map((p) => esc(p)).join("-")}`;
+      return `${head}<span class="ozon-fbs-posting-tail">${esc(parts[1])}</span>${tail}`;
+    }
+    let seen = 0;
+    let cut = -1;
+    for (let i = s.length - 1; i >= 0; i -= 1) {
+      if (/\d/.test(s[i])) {
+        seen += 1;
+        if (seen === 4) {
+          cut = i;
+          break;
+        }
+      }
+    }
+    if (cut >= 0) {
+      return `${esc(s.slice(0, cut))}<span class="ozon-fbs-posting-tail">${esc(s.slice(cut))}</span>`;
+    }
+    if (s.length > 4) {
+      return `${esc(s.slice(0, -4))}<span class="ozon-fbs-posting-tail">${esc(s.slice(-4))}</span>`;
+    }
+    return `<span class="ozon-fbs-posting-tail">${esc(s)}</span>`;
+  }
+
   function detailText(detail) {
     if (detail == null) return "";
     if (typeof detail === "string") return detail;
@@ -377,7 +407,7 @@
       return `<tr data-posting="${pn}">
       <td><input type="checkbox" class="wb-fbs-row-cb" data-posting="${pn}" ${checked} onchange="onOzonFbsCheckboxChange()" /></td>
       <td>
-        <div class="wb-fbs-order-id">${pn}</div>
+        <div class="wb-fbs-order-id">${formatOzonPostingNumberHtml(pnRaw)}</div>
         <div class="wb-fbs-order-meta">от ${esc(fmtDate(created))}</div>
         ${badges.length ? `<div class="wb-fbs-badges">${badges.join("")}</div>` : ""}
       </td>
@@ -633,7 +663,7 @@
       html += `<p class="wb-fbs-collect-mgt-result-err">Ошибки:</p><ul class="wb-fbs-collect-mgt-result-err">` +
         errors.map((e) => {
           if (typeof e === "string") return `<li>${esc(e)}</li>`;
-          return `<li>${esc(e.posting_number || "")}: ${esc(e.error || "")}</li>`;
+          return `<li>${formatOzonPostingNumberHtml(e.posting_number || "")}: ${esc(e.error || "")}</li>`;
         }).join("") + "</ul>";
     }
     body.innerHTML = html;
@@ -1091,7 +1121,7 @@
         <td><input type="checkbox" class="wb-fbs-sd-cb" data-posting="${esc(pn)}" ${checked}
                    onchange="onOzonFbsSupplyDetailCheckboxChange()" /></td>
         <td>
-          <div class="wb-fbs-sd-order-id">${esc(pn)}</div>
+          <div class="wb-fbs-sd-order-id">${formatOzonPostingNumberHtml(pn)}</div>
           <div class="wb-fbs-order-meta">от ${esc(fmtDate(created))}</div>
           ${badges.length ? `<div class="wb-fbs-badges">${badges.join("")}</div>` : ""}
         </td>
@@ -1560,7 +1590,7 @@
     const title = document.getElementById("ozonFbsDetailTitle");
     const meta = document.getElementById("ozonFbsDetailMeta");
     const body = document.getElementById("ozonFbsDetailBody");
-    if (title) title.textContent = `Отправление ${postingNumber}`;
+    if (title) title.innerHTML = `Отправление ${formatOzonPostingNumberHtml(postingNumber)}`;
     if (meta) meta.textContent = "Загрузка…";
     if (body) body.textContent = "";
     if (modal) modal.classList.remove("hidden");
