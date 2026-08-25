@@ -2672,6 +2672,7 @@
           <div class="supplies-table-wrap wb-fbs-table-wrap">
             <table id="ozonFbsOrdersTable" class="supplies-main-table wb-fbs-table">
               <colgroup id="ozonFbsColgroup">
+                <col data-fixed="1" class="wb-fbs-col-check" style="width:40px" />
                 <col data-col="0" class="wb-fbs-col-order" />
                 <col data-col="1" class="wb-fbs-col-product" />
                 <col data-col="2" class="wb-fbs-col-wh" />
@@ -2679,9 +2680,10 @@
               </colgroup>
               <thead>
                 <tr>
-                  <th data-col="0">Отправление<span class="col-resize-handle" title="Потяните, чтобы изменить ширину"></span></th>
-                  <th data-col="1">Товар<span class="col-resize-handle" title="Потяните, чтобы изменить ширину"></span></th>
-                  <th data-col="2">Склад<span class="col-resize-handle" title="Потяните, чтобы изменить ширину"></span></th>
+                  <th class="wb-fbs-th-check"><input type="checkbox" id="ozonFbsSelectAll" onchange="toggleSelectAllOzonFbs(this.checked)" title="Выбрать все на странице" /></th>
+                  <th data-col="0">Отправление<span class="col-resize-handle"></span></th>
+                  <th data-col="1">Товар<span class="col-resize-handle"></span></th>
+                  <th data-col="2">Склад<span class="col-resize-handle"></span></th>
                   <th class="wb-fbs-th-act"></th>
                 </tr>
               </thead>
@@ -5373,7 +5375,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=2"></script>
+  <script src="/static/ozon_fbs.js?v=3"></script>
   <script src="/static/app.js?v=501"></script>
 </body>
 </html>
