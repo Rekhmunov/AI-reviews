@@ -77,5 +77,57 @@ class WbFbsPrintOrderCheckTests(unittest.TestCase):
         self.assertIn("синхронизацию", str(ctx.exception).lower())
 
 
+    def test_ensure_passes_when_both_empty(self):
+        repo = MagicMock()
+        with patch(
+            "review_processor.wb_fbs_detail.wb.WbFbsClient"
+        ) as client_cls, patch(
+            "review_processor.wb_fbs_detail._assembly_order_ids_for_supply",
+            return_value=[],
+        ), patch("review_processor.wb_fbs_detail.time.sleep"):
+            client_cls.return_value.get_supply_order_ids.return_value = []
+            out = ensure_supply_ready_for_print(
+                repo,
+                user_id=1,
+                source_id=13,
+                api_key="key",
+                supply_id="WB-GI-EMPTY",
+            )
+        self.assertEqual(out, [])
+
+    def test_detail_from_local_keeps_explicit_empty_ids(self):
+        """Verified empty list must not fall back to order_ids_json."""
+        from review_processor.wb_fbs_detail import _detail_from_local
+
+        repo = MagicMock()
+        conn = MagicMock()
+        conn.__enter__ = MagicMock(return_value=conn)
+        conn.__exit__ = MagicMock(return_value=False)
+        conn.execute.return_value.fetchone.return_value = None
+        repo._connect.return_value = conn
+        with patch(
+            "review_processor.wb_fbs_detail._local_order_ids_for_supply"
+        ) as local_fallback, patch(
+            "review_processor.wb_fbs_detail._load_local_orders",
+            return_value=[],
+        ), patch(
+            "review_processor.wb_fbs_detail.wb.ensure_wb_fbs_tables"
+        ), patch(
+            "review_processor.wb_fbs_detail._cache_put_detail"
+        ):
+            detail = _detail_from_local(
+                repo,
+                user_id=1,
+                source_id=13,
+                api_key="key",
+                supply_id="WB-GI-EMPTY",
+                refresh_order_ids=False,
+                order_ids=[],
+            )
+            local_fallback.assert_not_called()
+        self.assertEqual(detail["order_count"], 0)
+        self.assertEqual(detail["orders"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

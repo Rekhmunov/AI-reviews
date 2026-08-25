@@ -2926,6 +2926,7 @@ def _detail_from_local(
 
     resolved_ids: list[int] = []
     if order_ids is not None:
+        # Explicit list from ensure_supply_ready_for_print — keep even if empty.
         resolved_ids = [int(x) for x in order_ids]
     elif refresh_order_ids:
         client = wb.WbFbsClient(api_key)
@@ -2935,7 +2936,11 @@ def _detail_from_local(
             _log.warning("print order-ids %s: %s", sid, exc)
             resolved_ids = []
         time.sleep(0.21)
-    if not resolved_ids:
+        if not resolved_ids:
+            resolved_ids = _local_order_ids_for_supply(
+                repo, user_id=user_id, source_id=source_id, supply_id=sid
+            )
+    else:
         resolved_ids = _local_order_ids_for_supply(
             repo, user_id=user_id, source_id=source_id, supply_id=sid
         )
