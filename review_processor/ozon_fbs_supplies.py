@@ -1274,7 +1274,13 @@ def render_picking_list_html(detail: dict[str, Any]) -> str:
 
 
 def _pdf_pages_to_png_b64(pdf_bytes: bytes) -> list[str]:
-    import pymupdf
+    try:
+        import pymupdf
+    except ImportError as exc:
+        raise RuntimeError(
+            "Для печати стикеров Ozon нужен пакет pymupdf "
+            "(pip install pymupdf). Сейчас он не установлен на сервере."
+        ) from exc
 
     doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     out: list[str] = []
@@ -1300,6 +1306,9 @@ def _fetch_label_images(
         try:
             pdf = client.package_label_pdf(batch)
             pages = _pdf_pages_to_png_b64(pdf)
+        except RuntimeError:
+            # Missing pymupdf / hard config errors — fail the whole print.
+            raise
         except Exception as exc:
             _log.warning("ozon package-label batch failed (%s): %s", len(batch), exc)
             # Fallback: one-by-one so one bad posting does not drop the batch.
@@ -1307,6 +1316,8 @@ def _fetch_label_images(
                 try:
                     pdf_one = client.package_label_pdf([pn])
                     result[pn] = _pdf_pages_to_png_b64(pdf_one)
+                except RuntimeError:
+                    raise
                 except Exception as exc_one:
                     _log.warning("ozon package-label %s: %s", pn, exc_one)
                     result[pn] = []

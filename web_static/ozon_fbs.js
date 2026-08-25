@@ -43,6 +43,7 @@
     supplyId: null,
     sourceId: null,
     supply: null,
+    selected: new Set(),
   };
 
   const stickersCategoryState = {
@@ -886,10 +887,45 @@
     supplyDetailState.supplyId = null;
     supplyDetailState.sourceId = null;
     supplyDetailState.supply = null;
+    supplyDetailState.selected = new Set();
   }
 
   function supplyDetailReady() {
     return Boolean(supplyDetailState.supplyId && supplyDetailState.sourceId);
+  }
+
+  function onSupplyDetailCheckboxChange() {
+    document.querySelectorAll("#ozonFbsSupplyDetailTbody .wb-fbs-sd-cb").forEach((cb) => {
+      const pn = String(cb.dataset.posting || "").trim();
+      if (!pn) return;
+      if (cb.checked) supplyDetailState.selected.add(pn);
+      else supplyDetailState.selected.delete(pn);
+    });
+    syncSupplyDetailSelectAll();
+  }
+
+  function syncSupplyDetailSelectAll() {
+    const selAll = document.getElementById("ozonFbsSupplyDetailSelectAll");
+    if (!selAll) return;
+    const ids = Array.from(
+      document.querySelectorAll("#ozonFbsSupplyDetailTbody .wb-fbs-sd-cb")
+    ).map((cb) => String(cb.dataset.posting || "").trim()).filter(Boolean);
+    const allOn = ids.length > 0 && ids.every((id) => supplyDetailState.selected.has(id));
+    const someOn = ids.some((id) => supplyDetailState.selected.has(id));
+    selAll.checked = allOn;
+    selAll.indeterminate = !allOn && someOn;
+  }
+
+  function toggleSelectAllSupplyDetail(checked) {
+    document.querySelectorAll("#ozonFbsSupplyDetailTbody .wb-fbs-sd-cb").forEach((cb) => {
+      cb.checked = !!checked;
+      const pn = String(cb.dataset.posting || "").trim();
+      if (!pn) return;
+      if (checked) supplyDetailState.selected.add(pn);
+      else supplyDetailState.selected.delete(pn);
+    });
+    const selAll = document.getElementById("ozonFbsSupplyDetailSelectAll");
+    if (selAll) selAll.indeterminate = false;
   }
 
   function renderSupplyDetail(data) {
@@ -922,15 +958,21 @@
       : allOrders;
     if (!tbody) return;
     if (!allOrders.length) {
-      tbody.innerHTML = `<tr><td colspan="3" class="wb-fbs-empty">В поставке нет отправлений</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">В поставке нет отправлений</td></tr>`;
       return;
     }
     if (!orders.length) {
-      tbody.innerHTML = `<tr><td colspan="3" class="wb-fbs-empty">Нет отправлений по выбранному фильтру</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">Нет отправлений по выбранному фильтру</td></tr>`;
+      const selAllEmpty = document.getElementById("ozonFbsSupplyDetailSelectAll");
+      if (selAllEmpty) {
+        selAllEmpty.checked = false;
+        selAllEmpty.indeterminate = false;
+      }
       return;
     }
     tbody.innerHTML = orders.map((o) => {
       const pn = String(o.posting_number || "").trim();
+      const checked = supplyDetailState.selected.has(pn) ? "checked" : "";
       const photo = o.product_photo
         ? `<img class="wb-fbs-product-photo" src="${esc(o.product_photo)}" alt="" width="72" height="72" loading="lazy">`
         : `<span class="wb-fbs-product-ph" aria-hidden="true"></span>`;
@@ -944,10 +986,16 @@
       const sku = String(o.sku || "").trim();
       const pname = o.product_name || offer || "—";
       const created = o.created_at_ozon || o.in_process_at || "";
-      return `<tr>
+      const ago = agoLabel(created);
+      const badges = [];
+      if (ago) badges.push(`<span class="wb-fbs-badge time">${esc(ago)}</span>`);
+      return `<tr class="wb-fbs-sd-click-row">
+        <td><input type="checkbox" class="wb-fbs-sd-cb" data-posting="${esc(pn)}" ${checked}
+                   onchange="onOzonFbsSupplyDetailCheckboxChange()" /></td>
         <td>
           <div class="wb-fbs-sd-order-id">${esc(pn)}</div>
           <div class="wb-fbs-order-meta">от ${esc(fmtDate(created))}</div>
+          ${badges.length ? `<div class="wb-fbs-badges">${badges.join("")}</div>` : ""}
         </td>
         <td>
           <div class="wb-fbs-product">
@@ -959,11 +1007,10 @@
             </div>
           </div>
         </td>
-        <td>
-          <div class="wb-fbs-wh-name">${esc(o.warehouse_label || o.warehouse_name || "—")}</div>
-        </td>
+        <td class="wb-fbs-sd-col-act"></td>
       </tr>`;
     }).join("");
+    syncSupplyDetailSelectAll();
   }
 
   async function openSupplyDetailModal(supplyId) {
@@ -971,11 +1018,14 @@
     if (!sid || !state.sourceId) return;
     supplyDetailState.supplyId = sid;
     supplyDetailState.sourceId = state.sourceId;
+    supplyDetailState.selected = new Set();
     const modal = document.getElementById("ozonFbsSupplyDetailModal");
     const title = document.getElementById("ozonFbsSupplyDetailTitle");
     const tbody = document.getElementById("ozonFbsSupplyDetailTbody");
+    const search = document.getElementById("ozonFbsSupplyDetailSearchFilter");
+    if (search) search.value = "";
     if (title) title.textContent = "Загрузка…";
-    if (tbody) tbody.innerHTML = `<tr><td colspan="3" class="wb-fbs-empty">Загрузка…</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">Загрузка…</td></tr>`;
     if (modal) modal.classList.remove("hidden");
     try {
       const res = await fetch(
@@ -987,7 +1037,7 @@
     } catch (e) {
       if (title) title.textContent = "Ошибка";
       if (tbody) {
-        tbody.innerHTML = `<tr><td colspan="3" class="wb-fbs-empty" style="color:#b91c1c">${esc(e.message)}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty" style="color:#b91c1c">${esc(e.message)}</td></tr>`;
       }
     }
   }
@@ -1752,6 +1802,8 @@
   window.openOzonFbsSupplyDetailModal = openSupplyDetailModal;
   window.closeOzonFbsSupplyDetailModal = closeSupplyDetailModal;
   window.renderOzonFbsSupplyDetail = () => renderSupplyDetail();
+  window.onOzonFbsSupplyDetailCheckboxChange = onSupplyDetailCheckboxChange;
+  window.toggleSelectAllOzonFbsSupplyDetail = toggleSelectAllSupplyDetail;
   window.ozonFbsOpenPickingList = openPickingList;
   window.toggleOzonFbsPickingMenu = togglePickingMenu;
   window.ozonFbsOpenStickersPrint = () => openStickersPrint();

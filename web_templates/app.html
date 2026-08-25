@@ -2803,6 +2803,7 @@
                           aria-label="Другие варианты листа подбора"
                           aria-haspopup="menu"
                           aria-expanded="false"
+                          aria-controls="ozonFbsPickingMenu"
                           title="Другие варианты (скоро)">
                     <svg width="12" height="8" viewBox="0 0 12 8" fill="none" aria-hidden="true">
                       <path d="M1 1.5L6 6.5L11 1.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
@@ -2830,24 +2831,56 @@
                             onclick="openOzonFbsStickersByCategoryModal()">Печать по категориям</button>
                   </div>
                 </div>
-                <button type="button" class="secondary" disabled title="Скоро">—</button>
-                <button type="button" class="secondary" disabled title="Скоро">—</button>
-                <button type="button" class="secondary" disabled title="Скоро">—</button>
+                <div class="wb-fbs-kiz-split" id="ozonFbsKizSplit" hidden>
+                  <button type="button" class="secondary" id="ozonFbsSupplyDetailKizBtn" disabled
+                          title="Скоро">Маркировка</button>
+                  <button type="button" class="secondary wb-fbs-kiz-refresh" disabled
+                          id="ozonFbsSupplyDetailKizRefreshBtn"
+                          aria-label="Обновить статусы маркировки"
+                          title="Скоро">
+                    <svg class="wb-fbs-kiz-refresh-ico" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                      <path d="M3 3v5h5"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                      <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                      <path d="M16 16h5v5"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </button>
+                </div>
+                <button type="button" class="secondary" id="ozonFbsSupplyDetailPickVerifyBtn" disabled
+                        title="Скоро">Проверка ШК</button>
+                <button type="button" class="secondary" id="ozonFbsSupplyDetailTrbxBtn" disabled
+                        title="Скоро">Грузоместа</button>
+                <button type="button" class="secondary" id="ozonFbsSupplyDetailCancelledBtn" disabled
+                        title="Скоро">Отмененные заказы</button>
+                <button type="button" class="secondary wb-fbs-sd-portal-btn" id="ozonFbsSupplyDetailPortalBtn" disabled
+                        title="Скоро">
+                  <span>Портал Ozon</span>
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M3.5 8h9M8.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </button>
               </div>
             </div>
-            <div id="ozonFbsSupplyDetailBody" class="wb-fbs-sd-body">
-              <div class="supplies-table-wrap">
-                <table class="supplies-main-table wb-fbs-table">
-                  <thead>
-                    <tr>
-                      <th>Отправление</th>
-                      <th>Товар</th>
-                      <th>Склад</th>
-                    </tr>
-                  </thead>
-                  <tbody id="ozonFbsSupplyDetailTbody"></tbody>
-                </table>
-              </div>
+            <div id="ozonFbsSupplyDetailInfo" class="wb-fbs-sd-info" hidden></div>
+            <div class="wb-fbs-sd-table-wrap">
+              <table class="wb-fbs-sd-table">
+                <thead>
+                  <tr>
+                    <th class="wb-fbs-sd-col-check"><input type="checkbox" id="ozonFbsSupplyDetailSelectAll"
+                          onchange="toggleSelectAllOzonFbsSupplyDetail(this.checked)" /></th>
+                    <th>Отправление</th>
+                    <th>Товар</th>
+                    <th class="wb-fbs-sd-col-act"></th>
+                  </tr>
+                </thead>
+                <tbody id="ozonFbsSupplyDetailTbody">
+                  <tr><td colspan="4" class="wb-fbs-empty">Загрузка…</td></tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -5538,7 +5571,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=9"></script>
+  <script src="/static/ozon_fbs.js?v=10"></script>
   <script src="/static/app.js?v=501"></script>
 </body>
 </html>
