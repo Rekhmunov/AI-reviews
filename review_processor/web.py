@@ -12190,6 +12190,29 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.post("/api/ozon-fbs/ship-all")
+    def ozon_fbs_ship_all(request: Request, source_id: int) -> dict[str, object]:
+        """Assemble all «Ожидают сборки» via Ozon ``/v4/posting/fbs/ship`` → awaiting_deliver."""
+        from . import ozon_fbs_detail as oz_detail
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
+        try:
+            return oz_detail.ship_all_awaiting_packaging(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                client_id=client_id,
+                api_key=api_key,
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.get("/api/ozon-fbs/postings/stickers-print")
     def ozon_fbs_stickers_print(
         request: Request,

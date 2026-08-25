@@ -28,6 +28,7 @@
     syncPollTimer: null,
     detailPosting: null,
     detailPayload: null,
+    shipAllBusy: false,
   };
 
   const COLSPAN = 4;
@@ -110,6 +111,17 @@
       const el = document.getElementById(TAB_COUNT_IDS[tab]);
       if (el) el.textContent = String(state.counts[tab] || 0);
     });
+    syncShipAllButton();
+  }
+
+  function syncShipAllButton() {
+    const btn = document.getElementById("ozonFbsShipAllBtn");
+    if (!btn) return;
+    const n = Number(state.counts.awaiting_packaging || 0);
+    btn.disabled = !state.sourceId || n <= 0 || Boolean(state.shipAllBusy);
+    btn.title = n > 0
+      ? `Собрать все отправления в «Ожидают сборки» (${n}) через Ozon /v4/posting/fbs/ship`
+      : "Нет отправлений в «Ожидают сборки»";
   }
 
   function syncSelectAll() {
@@ -345,11 +357,58 @@
     });
   }
 
+  async function shipAll() {
+    if (!state.sourceId || state.shipAllBusy) return;
+    const n = Number(state.counts.awaiting_packaging || 0);
+    if (n <= 0) {
+      alert("Нет отправлений в «Ожидают сборки»");
+      return;
+    }
+    const okConfirm = window.confirm(
+      `Собрать все заказы (${n})?\n\nКаждое отправление будет собрано через Ozon API /v4/posting/fbs/ship и перейдёт во вкладку «Ожидают отгрузки».`
+    );
+    if (!okConfirm) return;
+    state.shipAllBusy = true;
+    syncShipAllButton();
+    const btn = document.getElementById("ozonFbsShipAllBtn");
+    if (btn) btn.textContent = "Сборка…";
+    showSyncInfo("Сборка отправлений…");
+    try {
+      const res = await fetch(`/api/ozon-fbs/ship-all?source_id=${state.sourceId}`, {
+        method: "POST",
+        headers: jsonHeaders(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || "Ошибка сборки");
+      const msg = String(data.message || "Готово");
+      showSyncInfo(msg);
+      if (data.failed && Array.isArray(data.errors) && data.errors.length) {
+        const lines = data.errors
+          .slice(0, 12)
+          .map((e) => `${e.posting_number}: ${e.error}`)
+          .join("\n");
+        alert(`${msg}\n\n${lines}${data.errors.length > 12 ? "\n…" : ""}`);
+      } else {
+        alert(msg);
+      }
+      await loadPostings(false);
+    } catch (e) {
+      const err = e.message || "Ошибка";
+      showSyncInfo(err);
+      alert(err);
+    } finally {
+      state.shipAllBusy = false;
+      if (btn) btn.textContent = "Собрать все заказы";
+      syncShipAllButton();
+    }
+  }
+
   async function initSection() {
     if (!canView()) return;
     initColumnResizer();
     await loadSources();
     await loadPostings(true);
+    syncShipAllButton();
   }
 
   function setTab(tab) {
@@ -538,6 +597,7 @@
   window.openOzonFbsDetail = openDetail;
   window.closeOzonFbsDetailModal = closeDetailModal;
   window.ozonFbsShipCurrent = shipCurrent;
+  window.ozonFbsShipAll = shipAll;
   window.ozonFbsPrintCurrentSticker = printCurrentSticker;
   window.onOzonFbsCheckboxChange = onCheckboxChange;
   window.toggleSelectAllOzonFbs = toggleSelectAll;

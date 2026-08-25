@@ -64,21 +64,22 @@ def ship_posting(
     posting_number: str,
     client_id: str,
     api_key: str,
+    client: oz.OzonFbsClient | None = None,
 ) -> dict[str, Any]:
     row = get_posting_row(
         repo, user_id=user_id, source_id=source_id, posting_number=posting_number
     )
     if not row:
         raise RuntimeError("Отправление не найдено локально — синхронизируйте и повторите")
-    client = oz.OzonFbsClient(client_id, api_key)
+    api = client or oz.OzonFbsClient(client_id, api_key)
     try:
-        remote = client.get_posting(str(posting_number))
+        remote = api.get_posting(str(posting_number))
     except Exception:
         remote = {}
     packages = build_ship_packages(remote if remote else row)
-    result = client.ship_posting(str(posting_number), packages)
+    result = api.ship_posting(str(posting_number), packages)
     try:
-        refreshed = client.get_posting(str(posting_number))
+        refreshed = api.get_posting(str(posting_number))
         oz.upsert_posting(
             repo,
             user_id=user_id,
@@ -86,8 +87,114 @@ def ship_posting(
             posting=refreshed,
         )
     except Exception:
-        pass
+        # Fallback: mark locally as awaiting_deliver if Ozon accepted ship.
+        with repo._connect() as conn:
+            conn.execute(
+                repo._sql(
+                    """
+                    UPDATE ozon_fbs_postings
+                    SET status = ?, tab = ?, synced_at = CURRENT_TIMESTAMP
+                    WHERE user_id = ? AND source_id = ? AND posting_number = ?
+                    """
+                ),
+                (
+                    oz.TAB_AWAITING_DELIVER,
+                    oz.TAB_AWAITING_DELIVER,
+                    user_id,
+                    source_id,
+                    str(posting_number),
+                ),
+            )
     return {"ok": True, "result": result}
+
+
+def list_awaiting_packaging_numbers(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+) -> list[str]:
+    oz.ensure_ozon_fbs_tables(repo)
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                """
+                SELECT posting_number FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ? AND tab = ?
+                ORDER BY created_at_ozon DESC NULLS LAST, posting_number DESC
+                """
+            ),
+            (user_id, source_id, oz.TAB_AWAITING_PACKAGING),
+        ).fetchall()
+    out: list[str] = []
+    for row in rows:
+        pn = str(row["posting_number"] if hasattr(row, "keys") else row[0] or "").strip()
+        if pn:
+            out.append(pn)
+    return out
+
+
+def ship_all_awaiting_packaging(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    client_id: str,
+    api_key: str,
+) -> dict[str, Any]:
+    """Ship every local «Ожидают сборки» posting via Ozon ``/v4/posting/fbs/ship``.
+
+    Moves successful postings to ``awaiting_deliver`` (Ожидают отгрузки).
+    """
+    numbers = list_awaiting_packaging_numbers(
+        repo, user_id=user_id, source_id=source_id
+    )
+    if not numbers:
+        return {
+            "ok": True,
+            "total": 0,
+            "shipped": 0,
+            "failed": 0,
+            "errors": [],
+            "message": "Нет отправлений в «Ожидают сборки»",
+        }
+    client = oz.OzonFbsClient(client_id, api_key)
+    shipped: list[str] = []
+    errors: list[dict[str, str]] = []
+    for pn in numbers:
+        try:
+            ship_posting(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                posting_number=pn,
+                client_id=client_id,
+                api_key=api_key,
+                client=client,
+            )
+            shipped.append(pn)
+        except Exception as exc:
+            errors.append({"posting_number": pn, "error": str(exc)})
+    shipped_n = len(shipped)
+    failed_n = len(errors)
+    if shipped_n and not failed_n:
+        message = f"Собрано {shipped_n} отправлений → «Ожидают отгрузки»"
+        ok = True
+    elif shipped_n and failed_n:
+        message = f"Собрано {shipped_n}, ошибок {failed_n}"
+        ok = False
+    else:
+        message = f"Не удалось собрать отправления ({failed_n})"
+        ok = False
+    return {
+        "ok": ok,
+        "total": len(numbers),
+        "shipped": shipped_n,
+        "failed": failed_n,
+        "shipped_numbers": shipped,
+        "errors": errors,
+        "message": message,
+    }
 
 
 def posting_detail_payload(row: dict[str, Any]) -> dict[str, Any]:

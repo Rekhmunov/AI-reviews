@@ -8058,6 +8058,45 @@ button.wb-fbs-collect-mgt-btn:disabled {
 button.wb-fbs-collect-mgt-btn.hidden {
   display: none !important;
 }
+button.ozon-fbs-ship-all-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 8px 16px;
+  margin: 0 4px 0 0;
+  border-radius: 8px;
+  border: 1px solid #005bff;
+  background: #005bff;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: none;
+}
+button.ozon-fbs-ship-all-btn:hover {
+  background: #0047cc;
+  border-color: #0047cc;
+  color: #fff;
+}
+button.ozon-fbs-ship-all-btn:active {
+  background: #0039a6;
+  border-color: #0039a6;
+  color: #fff;
+}
+button.ozon-fbs-ship-all-btn:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+button.ozon-fbs-ship-all-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 .wb-fbs-collect-mgt-modal,
 .wb-fbs-collect-mgt-result-modal {
   width: min(720px, 96vw);

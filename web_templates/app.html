@@ -2667,6 +2667,11 @@
             <button type="button" class="wb-fbs-tab" data-tab="delivered" onclick="setOzonFbsTab('delivered')">Доставлены <span class="wb-fbs-tab-count" id="ozonFbsCountDelivered">0</span></button>
             <button type="button" class="wb-fbs-tab" data-tab="cancelled" onclick="setOzonFbsTab('cancelled')">Отменены <span class="wb-fbs-tab-count" id="ozonFbsCountCancelled">0</span></button>
           </div>
+          <button type="button" id="ozonFbsShipAllBtn" class="ozon-fbs-ship-all-btn"
+                  onclick="ozonFbsShipAll()"
+                  title="Собрать все отправления в «Ожидают сборки» (Ozon /v4/posting/fbs/ship)">
+            Собрать все заказы
+          </button>
         </div>
         <div class="panel supplies-table-panel wb-fbs-table-panel">
           <div class="supplies-table-wrap wb-fbs-table-wrap">
@@ -5373,7 +5378,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=4"></script>
+  <script src="/static/ozon_fbs.js?v=5"></script>
   <script src="/static/app.js?v=501"></script>
 </body>
 </html>
