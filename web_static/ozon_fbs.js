@@ -2278,16 +2278,13 @@
   window.closeOzonFbsStickersByCategoryModal = closeStickersByCategoryModal;
   window.confirmOzonFbsStickersByCategory = confirmStickersByCategory;
   window.onOzonFbsStickersCategoryToggle = onStickersCategoryToggle;
-<<<<<<< HEAD
   window.openOzonFbsShipmentsModal = openShipmentsModal;
   window.closeOzonFbsShipmentsModal = closeShipmentsModal;
   window.reloadOzonFbsShipments = loadShipments;
   window.ozonFbsShipmentsForm = formShipmentsCarriage;
   window.ozonFbsShipmentsZoomBarcode = shipmentsZoomBarcode;
   window.ozonFbsShipmentsDownloadBarcode = shipmentsDownloadBarcode;
-=======
   window.toggleOzonFbsRowMenu = toggleOzonFbsRowMenu;
   window.closeOzonFbsRowMenus = closeOzonFbsRowMenus;
   window.ozonFbsPrintOnePostingStickerFromDetail = printOnePostingStickerFromDetail;
->>>>>>> origin/cursor/ozon-fbs-supply-row-menu-7b47
 })();
