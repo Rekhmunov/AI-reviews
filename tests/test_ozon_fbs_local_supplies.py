@@ -155,6 +155,88 @@ class OzonFbsLocalSuppliesTests(unittest.TestCase):
         ship.assert_called_once()
         create.assert_called_once()
 
+    def test_adopt_orphans_creates_supply(self) -> None:
+        from review_processor.ozon_fbs_supplies import adopt_orphan_awaiting_deliver_postings
+
+        repo = MagicMock()
+        orphans = [
+            {
+                "posting_number": "O-1",
+                "warehouse_id": 10,
+                "warehouse_name": "Склад А",
+            },
+            {
+                "posting_number": "O-2",
+                "warehouse_id": 10,
+                "warehouse_name": "Склад А",
+            },
+        ]
+        with patch(
+            "review_processor.ozon_fbs_supplies.ensure_ozon_fbs_supply_schema"
+        ), patch(
+            "review_processor.ozon_fbs_supplies._load_orphan_awaiting_deliver_rows",
+            return_value=orphans,
+        ), patch(
+            "review_processor.ozon_fbs_supplies.list_open_supplies",
+            return_value=[],
+        ), patch(
+            "review_processor.ozon_fbs_supplies._create_local_supply",
+            return_value="OZ-FBS-ORPHAN",
+        ) as create:
+            out = adopt_orphan_awaiting_deliver_postings(
+                repo, user_id=1, source_id=17
+            )
+        self.assertEqual(out["adopted"], 2)
+        self.assertEqual(out["created_supplies"][0]["supply_id"], "OZ-FBS-ORPHAN")
+        create.assert_called_once()
+        args = create.call_args
+        self.assertEqual(
+            sorted(args.kwargs["posting_numbers"]),
+            ["O-1", "O-2"],
+        )
+
+    def test_adopt_orphans_adds_to_existing_warehouse_supply(self) -> None:
+        from review_processor.ozon_fbs_supplies import adopt_orphan_awaiting_deliver_postings
+
+        repo = MagicMock()
+        orphans = [
+            {
+                "posting_number": "O-9",
+                "warehouse_id": 10,
+                "warehouse_name": "Склад А",
+            },
+        ]
+        open_supplies = [
+            {
+                "supply_id": "OZ-EXISTING",
+                "name": "Поставка от 25.08.2026",
+                "warehouse_id": 10,
+                "is_empty": False,
+                "order_count": 5,
+                "posting_numbers": ["X-1"],
+            }
+        ]
+        with patch(
+            "review_processor.ozon_fbs_supplies.ensure_ozon_fbs_supply_schema"
+        ), patch(
+            "review_processor.ozon_fbs_supplies._load_orphan_awaiting_deliver_rows",
+            return_value=orphans,
+        ), patch(
+            "review_processor.ozon_fbs_supplies.list_open_supplies",
+            return_value=open_supplies,
+        ), patch(
+            "review_processor.ozon_fbs_supplies._add_postings_to_supply"
+        ) as add, patch(
+            "review_processor.ozon_fbs_supplies._create_local_supply"
+        ) as create:
+            out = adopt_orphan_awaiting_deliver_postings(
+                repo, user_id=1, source_id=17
+            )
+        self.assertEqual(out["adopted"], 1)
+        add.assert_called_once()
+        create.assert_not_called()
+        self.assertEqual(add.call_args.kwargs["supply_id"], "OZ-EXISTING")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -519,11 +519,165 @@ def execute_ship_all_collect(
     }
 
 
+def _load_orphan_awaiting_deliver_rows(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> list[dict[str, Any]]:
+    """Postings already on Ozon «Ожидают отгрузки» but without a local supply.
+
+    Typical after legacy ``POST /ship-all`` (ship without creating Feedpilot supply).
+    """
+    ensure_ozon_fbs_supply_schema(repo)
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                """
+                SELECT * FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ? AND tab = ?
+                  AND COALESCE(supply_id, '') = ''
+                ORDER BY created_at_ozon DESC NULLS LAST, posting_number DESC
+                """
+            ),
+            (user_id, source_id, oz.TAB_AWAITING_DELIVER),
+        ).fetchall()
+    return [repo._row_to_dict(r) for r in rows]
+
+
+def adopt_orphan_awaiting_deliver_postings(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> dict[str, Any]:
+    """Wrap orphan awaiting_deliver postings into local supplies (WB-like rules).
+
+    - Same warehouse as an open non-empty supply → add there
+    - Else create ``Поставка от ДД.ММ.ГГГГ`` (+ uniqueness)
+    Does not call Ozon API — postings are already shipped.
+    """
+    ensure_ozon_fbs_supply_schema(repo)
+    rows = _load_orphan_awaiting_deliver_rows(
+        repo, user_id=user_id, source_id=source_id
+    )
+    if not rows:
+        return {"ok": True, "adopted": 0, "created_supplies": [], "group_lines": []}
+
+    buckets: dict[Any, list[dict[str, Any]]] = {}
+    for row in rows:
+        wh = row.get("warehouse_id")
+        buckets.setdefault(wh, []).append(row)
+
+    open_supplies = list_open_supplies(repo, user_id=user_id, source_id=source_id)
+    open_names = {
+        str(s.get("name") or "").strip()
+        for s in open_supplies
+        if str(s.get("name") or "").strip()
+    }
+    created: list[dict[str, str]] = []
+    group_lines: list[str] = []
+    adopted = 0
+
+    for warehouse_id in sorted(buckets.keys(), key=lambda x: (x is None, str(x))):
+        bucket = buckets[warehouse_id]
+        posting_numbers = [
+            str(r.get("posting_number") or "").strip()
+            for r in bucket
+            if str(r.get("posting_number") or "").strip()
+        ]
+        if not posting_numbers:
+            continue
+        wh_name = str(bucket[0].get("warehouse_name") or "").strip() if bucket else ""
+
+        matching = []
+        for s in open_supplies:
+            if s.get("is_empty"):
+                continue
+            sw = s.get("warehouse_id")
+            if warehouse_id is None and sw is None:
+                matching.append(s)
+            elif (
+                warehouse_id is not None
+                and sw is not None
+                and int(sw) == int(warehouse_id)
+            ):
+                matching.append(s)
+
+        if len(matching) == 1:
+            sid = str(matching[0].get("supply_id") or "").strip()
+            _add_postings_to_supply(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                supply_id=sid,
+                posting_numbers=posting_numbers,
+            )
+            # Keep in-memory open list in sync for later buckets.
+            matching[0]["posting_numbers"] = list(matching[0].get("posting_numbers") or []) + [
+                n for n in posting_numbers if n not in (matching[0].get("posting_numbers") or [])
+            ]
+            matching[0]["order_count"] = len(matching[0]["posting_numbers"])
+            matching[0]["is_empty"] = False
+            sname = str(matching[0].get("name") or sid)
+            group_lines.append(f"{sname}: +{len(posting_numbers)} отпр. (осиротевшие)")
+            adopted += len(posting_numbers)
+            continue
+
+        if len(matching) > 1:
+            # Prefer the newest open supply for this warehouse.
+            sid = str(matching[0].get("supply_id") or "").strip()
+            _add_postings_to_supply(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                supply_id=sid,
+                posting_numbers=posting_numbers,
+            )
+            sname = str(matching[0].get("name") or sid)
+            group_lines.append(f"{sname}: +{len(posting_numbers)} отпр. (осиротевшие)")
+            adopted += len(posting_numbers)
+            continue
+
+        name = _unique_supply_name(default_supply_name(), open_names)
+        sid = _create_local_supply(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            name=name,
+            warehouse_id=warehouse_id,
+            warehouse_name=wh_name,
+            posting_numbers=posting_numbers,
+        )
+        open_names.add(name)
+        open_supplies.append(
+            {
+                "supply_id": sid,
+                "name": name,
+                "warehouse_id": warehouse_id,
+                "warehouse_name": wh_name,
+                "is_empty": False,
+                "order_count": len(posting_numbers),
+                "posting_numbers": list(posting_numbers),
+            }
+        )
+        created.append({"supply_id": sid, "name": name})
+        group_lines.append(f"{name}: {len(posting_numbers)} отпр. (осиротевшие)")
+        adopted += len(posting_numbers)
+
+    return {
+        "ok": True,
+        "adopted": adopted,
+        "created_supplies": created,
+        "group_lines": group_lines,
+    }
+
+
 def list_awaiting_deliver_supplies(
     repo: ReviewRepository, *, user_id: int, source_id: int
 ) -> dict[str, Any]:
-    """Supplies shown on «Ожидают отгрузки»."""
+    """Supplies shown on «Ожидают отгрузки».
+
+    Auto-adopts orphan postings (shipped before local supplies existed).
+    """
     ensure_ozon_fbs_supply_schema(repo)
+    adopt_info = adopt_orphan_awaiting_deliver_postings(
+        repo, user_id=user_id, source_id=source_id
+    )
     with repo._connect() as conn:
         rows = conn.execute(
             repo._sql(
@@ -561,6 +715,8 @@ def list_awaiting_deliver_supplies(
         "items": items,
         "total": len(items),
         "counts": oz._tab_counts(repo, user_id=user_id, source_id=source_id),
+        "adopted_orphans": int(adopt_info.get("adopted") or 0),
+        "adopt_created_supplies": adopt_info.get("created_supplies") or [],
     }
 
 

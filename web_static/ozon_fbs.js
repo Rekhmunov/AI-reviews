@@ -391,8 +391,23 @@
 
       state.total = suppliesMode ? items.length : Number(data.total || 0);
       updateTabCounts(data.counts || {});
-      if (suppliesMode) renderSuppliesTable(items);
-      else renderTable(items);
+      if (suppliesMode) {
+        const adopted = Number(data.adopted_orphans || 0);
+        if (adopted > 0) {
+          const created = Array.isArray(data.adopt_created_supplies)
+            ? data.adopt_created_supplies
+            : [];
+          const names = created.map((s) => s.name || s.supply_id).filter(Boolean);
+          showSyncInfo(
+            names.length
+              ? `Оформлено ${adopted} отпр. без поставки → ${names.join(", ")}`
+              : `Оформлено ${adopted} отправлений без поставки в локальные поставки`
+          );
+        }
+        renderSuppliesTable(items);
+      } else {
+        renderTable(items);
+      }
 
       const info = document.getElementById("ozonFbsInfo");
       if (info) {
