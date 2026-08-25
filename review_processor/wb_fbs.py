@@ -5643,6 +5643,7 @@ def execute_collect_mgt(
         added = len(group_added_ids)
         if added:
             wb_oids_count = 0
+            wb_oids_ok = False
             prev: list[int] = []
             try:
                 oids = client.get_supply_order_ids(supply_id)
@@ -5662,7 +5663,14 @@ def execute_collect_mgt(
                         + [int(x) for x in group_added_ids]
                     )
                 )
-                wb_oids_count = len({int(x) for x in (oids or [])})
+                wb_id_set: set[int] = set()
+                for x in oids or []:
+                    try:
+                        wb_id_set.add(int(x))
+                    except (TypeError, ValueError):
+                        continue
+                wb_oids_count = len(wb_id_set)
+                wb_oids_ok = True
                 upsert_supply(
                     repo,
                     user_id=user_id,
@@ -5705,10 +5713,10 @@ def execute_collect_mgt(
                 group_key,
                 added,
                 len(live_ids),
-                wb_oids_count,
+                wb_oids_count if wb_oids_ok else "n/a",
                 local_n,
             )
-            if local_n and wb_oids_count < local_n:
+            if wb_oids_ok and local_n and wb_oids_count < local_n:
                 _log.warning(
                     "collect-mgt wb lag supply=%s source=%s wb=%s local=%s "
                     "missing_on_wb=%s",
