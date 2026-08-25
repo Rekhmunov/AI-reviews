@@ -78,16 +78,27 @@
     return d.innerHTML;
   }
 
-  /** Ozon sticker: middle 4 digits in ORDER-XXXX-PKG are largest on the label. */
+  /** Ozon sticker: large 4 digits before «-0210-1» block (e.g. 2363 in 0101152363-0210-1). */
   function formatOzonPostingNumberHtml(postingNumber) {
     const s = String(postingNumber || "").trim();
     if (!s) return "—";
     const parts = s.split("-");
-    if (parts.length >= 3 && /^\d{4}$/.test(parts[1])) {
-      const head = `${esc(parts[0])}-`;
-      const tail = `-${parts.slice(2).map((p) => esc(p)).join("-")}`;
-      return `${head}<span class="ozon-fbs-posting-tail">${esc(parts[1])}</span>${tail}`;
+    const hi = (text) => `<span class="ozon-fbs-posting-tail">${esc(text)}</span>`;
+
+    if (parts.length >= 2) {
+      const head = String(parts[0] || "");
+      const tail = parts.length > 1 ? `-${parts.slice(1).map((p) => esc(p)).join("-")}` : "";
+      // Order + suffix glued in first segment (0101152363-0210-1 → 2363 on sticker).
+      if (head.length > 8 && /^\d+$/.test(head)) {
+        return `${esc(head.slice(0, -4))}${hi(head.slice(-4))}${tail}`;
+      }
+      // Explicit 4-digit segment after order (33720345-0046-1, 010115-2363-0210-1).
+      if (/^\d{4}$/.test(parts[1])) {
+        const after = parts.length > 2 ? `-${parts.slice(2).map((p) => esc(p)).join("-")}` : "";
+        return `${esc(parts[0])}-${hi(parts[1])}${after}`;
+      }
     }
+
     let seen = 0;
     let cut = -1;
     for (let i = s.length - 1; i >= 0; i -= 1) {
@@ -100,12 +111,12 @@
       }
     }
     if (cut >= 0) {
-      return `${esc(s.slice(0, cut))}<span class="ozon-fbs-posting-tail">${esc(s.slice(cut))}</span>`;
+      return `${esc(s.slice(0, cut))}${hi(s.slice(cut))}`;
     }
     if (s.length > 4) {
-      return `${esc(s.slice(0, -4))}<span class="ozon-fbs-posting-tail">${esc(s.slice(-4))}</span>`;
+      return `${esc(s.slice(0, -4))}${hi(s.slice(-4))}`;
     }
-    return `<span class="ozon-fbs-posting-tail">${esc(s)}</span>`;
+    return hi(s);
   }
 
   function detailText(detail) {
