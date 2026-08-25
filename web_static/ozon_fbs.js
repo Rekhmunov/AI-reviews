@@ -30,7 +30,7 @@
     detailPayload: null,
   };
 
-  const COLSPAN = 5;
+  const COLSPAN = 4;
 
   function permissions() {
     return window.APP_PERMISSIONS || {};
@@ -180,8 +180,8 @@
       const whId = row.warehouse_id != null && String(row.warehouse_id).trim()
         ? String(row.warehouse_id).trim()
         : "";
-      return `<tr data-posting="${pn}" onclick="openOzonFbsDetail('${pn}')">
-      <td><input type="checkbox" class="wb-fbs-row-cb" data-posting="${pn}" ${checked} onclick="event.stopPropagation()" onchange="onOzonFbsCheckboxChange()" /></td>
+      return `<tr data-posting="${pn}">
+      <td><input type="checkbox" class="wb-fbs-row-cb" data-posting="${pn}" ${checked} onchange="onOzonFbsCheckboxChange()" /></td>
       <td>
         <div class="wb-fbs-order-id">${pn}</div>
         <div class="wb-fbs-order-meta">от ${esc(fmtDate(created))}</div>
@@ -200,10 +200,6 @@
       <td>
         <div class="wb-fbs-wh-name" title="${esc(whLabel)}">${esc(whLabel)}</div>
         <div class="wb-fbs-order-meta">${whId ? "ID " + esc(whId) : ""}</div>
-      </td>
-      <td>
-        <button type="button" class="icon-btn secondary" title="Открыть"
-                onclick="event.stopPropagation();openOzonFbsDetail('${pn}')">⋯</button>
       </td>
     </tr>`;
     }).join("");
