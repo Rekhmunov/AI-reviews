@@ -239,4 +239,4 @@ def print_package_labels(
     if not nums:
         raise RuntimeError("Не указаны отправления для печати")
     client = oz.OzonFbsClient(client_id, api_key)
-    return client.package_label_pdf(nums)
+    return oz.fetch_merged_package_label_pdf(client, nums)

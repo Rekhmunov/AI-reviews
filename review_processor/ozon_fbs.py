@@ -236,6 +236,62 @@ class OzonFbsClient:
             {"posting_number": [str(p) for p in posting_numbers if str(p).strip()]},
         )
 
+
+_OZON_LABEL_BATCH = 20
+
+
+def fetch_merged_package_label_pdf(
+    client: OzonFbsClient, posting_numbers: list[str]
+) -> bytes:
+    """Fetch Ozon package labels (≤20 per API call) and merge into one PDF."""
+    nums = [str(p).strip() for p in posting_numbers if str(p).strip()]
+    if not nums:
+        raise RuntimeError("Не указаны отправления для печати")
+    if len(nums) == 1:
+        return client.package_label_pdf(nums)
+    try:
+        import pymupdf
+    except ImportError as exc:
+        raise RuntimeError(
+            "Для печати стикеров Ozon нужен пакет pymupdf "
+            "(pip install pymupdf). Сейчас он не установлен на сервере."
+        ) from exc
+
+    merged = pymupdf.open()
+    errors: list[str] = []
+    try:
+        for i in range(0, len(nums), _OZON_LABEL_BATCH):
+            batch = nums[i : i + _OZON_LABEL_BATCH]
+            try:
+                pdf_bytes = client.package_label_pdf(batch)
+                src = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+                merged.insert_pdf(src)
+                src.close()
+            except Exception as exc:
+                if isinstance(exc, ImportError) or "pymupdf" in str(exc).casefold():
+                    raise
+                for pn in batch:
+                    try:
+                        pdf_one = client.package_label_pdf([pn])
+                        src = pymupdf.open(stream=pdf_one, filetype="pdf")
+                        merged.insert_pdf(src)
+                        src.close()
+                    except Exception as exc_one:
+                        if isinstance(exc_one, ImportError) or "pymupdf" in str(exc_one).casefold():
+                            raise
+                        err_text = str(exc_one).strip() or "ошибка Ozon"
+                        errors.append(f"{pn}: {err_text}")
+        if merged.page_count == 0:
+            if errors:
+                raise RuntimeError(errors[0])
+            raise RuntimeError(
+                "Не удалось получить этикетки Ozon. "
+                "Проверьте, что отправления собраны и этикетки доступны."
+            )
+        return merged.tobytes()
+    finally:
+        merged.close()
+
     def delivery_method_list(
         self,
         *,

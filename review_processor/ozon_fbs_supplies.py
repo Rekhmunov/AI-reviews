@@ -1273,6 +1273,38 @@ def render_picking_list_html(detail: dict[str, Any]) -> str:
 </body></html>"""
 
 
+_OZON_LABEL_BATCH = 20
+_PRINTABLE_LABEL_TABS = frozenset(
+    {
+        oz.TAB_AWAITING_PACKAGING,
+        oz.TAB_AWAITING_DELIVER,
+        oz.TAB_DELIVERING,
+    }
+)
+
+
+def _is_pymupdf_setup_error(exc: BaseException) -> bool:
+    if isinstance(exc, ImportError):
+        return True
+    return "pymupdf" in str(exc).casefold()
+
+
+def _fetch_label_pages_for_posting(
+    client: oz.OzonFbsClient, posting_number: str
+) -> list[str]:
+    pn = str(posting_number or "").strip()
+    if not pn:
+        return []
+    try:
+        pdf = client.package_label_pdf([pn])
+        return _pdf_pages_to_png_b64(pdf)
+    except Exception as exc:
+        if _is_pymupdf_setup_error(exc):
+            raise
+        _log.warning("ozon package-label %s: %s", pn, exc)
+        return []
+
+
 def _pdf_pages_to_png_b64(pdf_bytes: bytes) -> list[str]:
     try:
         import pymupdf
@@ -1298,29 +1330,19 @@ def _fetch_label_images(
 ) -> dict[str, list[str]]:
     """Rasterize Ozon «Этикетка отправления» PDF pages (batch ≤20)."""
     result: dict[str, list[str]] = {pn: [] for pn in posting_numbers}
-    batch_size = 20
-    for i in range(0, len(posting_numbers), batch_size):
-        batch = posting_numbers[i : i + batch_size]
+    for i in range(0, len(posting_numbers), _OZON_LABEL_BATCH):
+        batch = posting_numbers[i : i + _OZON_LABEL_BATCH]
         if not batch:
             continue
         try:
             pdf = client.package_label_pdf(batch)
             pages = _pdf_pages_to_png_b64(pdf)
-        except RuntimeError:
-            # Missing pymupdf / hard config errors — fail the whole print.
-            raise
         except Exception as exc:
+            if _is_pymupdf_setup_error(exc):
+                raise
             _log.warning("ozon package-label batch failed (%s): %s", len(batch), exc)
-            # Fallback: one-by-one so one bad posting does not drop the batch.
             for pn in batch:
-                try:
-                    pdf_one = client.package_label_pdf([pn])
-                    result[pn] = _pdf_pages_to_png_b64(pdf_one)
-                except RuntimeError:
-                    raise
-                except Exception as exc_one:
-                    _log.warning("ozon package-label %s: %s", pn, exc_one)
-                    result[pn] = []
+                result[pn] = _fetch_label_pages_for_posting(client, pn)
             continue
         # Ozon returns pages in request order; typically 1 page per posting.
         if len(pages) == len(batch):
@@ -1521,13 +1543,32 @@ def build_stickers_print(
         detail = dict(detail)
         detail["orders"] = orders
         detail["order_count"] = len(orders)
+    orders = [
+        o
+        for o in orders
+        if str(o.get("tab") or "") in _PRINTABLE_LABEL_TABS
+    ]
     nums = [
         str(o.get("posting_number") or "").strip()
         for o in orders
         if str(o.get("posting_number") or "").strip()
     ]
+    if not nums:
+        raise RuntimeError(
+            "Нет отправлений для печати этикеток. "
+            "Этикетки доступны после сборки (ship) отправлений."
+        )
     client = oz.OzonFbsClient(client_id, api_key)
     images = _fetch_label_images(client, nums)
+    got = sum(len(pages) for pages in images.values())
+    if got == 0:
+        raise RuntimeError(
+            "Ozon не вернул этикетки. Подождите 1–2 минуты после сборки и повторите, "
+            "или проверьте статус отправлений в личном кабинете Ozon."
+        )
+    detail = dict(detail)
+    detail["orders"] = orders
+    detail["order_count"] = len(orders)
     return render_stickers_print_html(
         detail,
         source_name=source_name,
