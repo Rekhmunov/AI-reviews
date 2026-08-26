@@ -134,6 +134,24 @@ class OzonFbsStickerLookupTests(unittest.TestCase):
         self.assertEqual(out["posting"]["kiz_codes"], ["010460"])
         self.assertTrue(out["posting"]["pick_verified"])
 
+    def test_find_by_sticker_barcode(self) -> None:
+        repo = MagicMock()
+        conn = MagicMock()
+        repo._connect.return_value.__enter__.return_value = conn
+        conn.execute.return_value.fetchall.return_value = [
+            {
+                "posting_number": "PN-1",
+                "sticker_barcode": "!uKEtQZVx",
+                "sticker_part_a": "",
+                "sticker_part_b": "",
+            }
+        ]
+        repo._row_to_dict = lambda r: dict(r)
+        found = find_postings_by_sticker_scan(
+            repo, user_id=1, source_id=2, scan="!uKEtQZVx"
+        )
+        self.assertEqual(found["row"]["posting_number"], "PN-1")
+
     def test_find_by_posting_number_partial(self) -> None:
         repo = MagicMock()
         conn = MagicMock()
