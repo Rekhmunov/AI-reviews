@@ -2781,6 +2781,8 @@
     localAutosaveChain: Promise.resolve(),
     localAutosaveSeqByPosting: {},
     localAutosaveInflight: 0,
+    statusRefreshing: false,
+    statusRefreshGen: 0,
   };
 
   const ozonFbsPickState = {
@@ -2822,7 +2824,93 @@
   }
 
   function _ozonFbsNormalizeMark(value) {
-    return String(value || "").replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, "");
+    if (typeof _wbFbsKizNormalizeMark === "function") {
+      return _wbFbsKizNormalizeMark(value);
+    }
+    return String(value || "")
+      .replace(/\u2194/g, "\u001D")
+      .replace(/\r?\n/g, "")
+      .replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, "");
+  }
+
+  function _ozonFbsKizNormalizeCodesList(codes) {
+    const seen = new Set();
+    const out = [];
+    for (const c of Array.isArray(codes) ? codes : []) {
+      const n = _ozonFbsNormalizeMark(c);
+      if (!n || seen.has(n)) continue;
+      seen.add(n);
+      out.push(n);
+    }
+    return out;
+  }
+
+  function _ozonFbsKizModalIsOpen() {
+    const modal = document.getElementById("ozonFbsKizModal");
+    return !!(modal && !modal.classList.contains("hidden"));
+  }
+
+  function _ozonFbsKizStickerHtml(row) {
+    const partA = String(row?.sticker_part_a || "").trim();
+    const partB = String(row?.sticker_part_b || "").trim();
+    const bc = String(row?.sticker_barcode || "").trim();
+    let head = partA;
+    let tail = partB;
+    if ((!head || !tail) && bc) {
+      if (bc.length > 4) {
+        head = bc.slice(0, -4);
+        tail = bc.slice(-4);
+      } else {
+        head = "";
+        tail = bc;
+      }
+    }
+    if (!head && !tail) {
+      return `<div class="wb-fbs-kiz-sticker">—</div>`;
+    }
+    if (!tail) {
+      return `<div class="wb-fbs-kiz-sticker">${esc(head)}</div>`;
+    }
+    return `<div class="wb-fbs-kiz-sticker">` +
+      (head ? `<span class="wb-fbs-kiz-sticker-head">${esc(head)}</span>` : "") +
+      `<span class="wb-fbs-kiz-sticker-tail">${esc(tail)}</span>` +
+      `</div>`;
+  }
+
+  function _ozonFbsKizRowIsEmpty(row) {
+    const codes = Array.isArray(row?.kiz_codes) ? row.kiz_codes : [];
+    return !codes.some((c) => String(c || "").trim());
+  }
+
+  function _ozonFbsKizValidateMarkForOrder(mark, row) {
+    if (typeof _wbFbsKizValidateMarkForOrder === "function") {
+      return _wbFbsKizValidateMarkForOrder(mark, row);
+    }
+    const raw = _ozonFbsNormalizeMark(mark);
+    if (!raw) return { ok: false, error: "Пустой код маркировки" };
+    return { ok: true };
+  }
+
+  function _ozonFbsKizMergeStatusIntoDetail(orders) {
+    const supply = supplyDetailState.supply;
+    if (!supply || !Array.isArray(supply.orders) || !Array.isArray(orders)) return;
+    const byPn = new Map();
+    orders.forEach((row) => {
+      const pn = String(row?.posting_number || "").trim();
+      if (pn) byPn.set(pn, row);
+    });
+    supply.orders.forEach((o) => {
+      const pn = String(o?.posting_number || "").trim();
+      const upd = byPn.get(pn);
+      if (!upd) return;
+      o.kiz_required = !!upd.kiz_required;
+      if (Array.isArray(upd.kiz_codes)) o.kiz_codes = upd.kiz_codes.slice();
+      o.kiz_status = String(upd.kiz_status || o.kiz_status || "empty");
+      if (upd.cancel_reason_label) {
+        o.cancel_reason_label = String(upd.cancel_reason_label || "").trim();
+      }
+      if (upd.cancelled) o.cancelled = true;
+    });
   }
 
   function _ozonFbsSupplyActionsReady() {
@@ -2878,9 +2966,10 @@
   function _ozonFbsKizSplitSetTone(tone) {
     const split = document.getElementById("ozonFbsKizSplit");
     if (!split) return;
-    split.classList.remove("is-ok", "is-warn", "is-error");
-    const t = String(tone || "").trim();
-    if (t) split.classList.add(`is-${t === "warn" ? "warn" : t}`);
+    split.classList.remove("is-ok", "is-error");
+    const t = String(tone || "").trim().toLowerCase();
+    if (t === "ok") split.classList.add("is-ok");
+    else if (t === "error") split.classList.add("is-error");
   }
 
   function _ozonFbsKizSetFiltersReady(ready) {
@@ -2944,11 +3033,23 @@
     for (const r of ozonFbsKizState.rows) {
       const pn = String(r.posting_number || "").trim();
       if (!pn) continue;
-      map[pn] = (Array.isArray(r.kiz_codes) ? r.kiz_codes : [])
-        .map((c) => _ozonFbsNormalizeMark(c))
-        .filter(Boolean);
+      map[pn] = _ozonFbsKizNormalizeCodesList(r.kiz_codes);
     }
     ozonFbsKizState.baselineByPosting = map;
+  }
+
+  function _ozonFbsKizFindBySticker(scan) {
+    const raw = _ozonFbsNormalizeScan(scan);
+    if (!raw) return { row: null, ambiguous: false };
+    const rawKey = raw.toLocaleLowerCase("en-US");
+    const byBarcode = [];
+    for (const row of ozonFbsKizState.rows) {
+      const bc = _ozonFbsNormalizeScan(row.sticker_barcode);
+      if (bc && bc.toLocaleLowerCase("en-US") === rawKey) byBarcode.push(row);
+    }
+    if (byBarcode.length === 1) return { row: byBarcode[0], ambiguous: false };
+    if (byBarcode.length > 1) return { row: null, ambiguous: true, matches: byBarcode };
+    return _ozonFbsKizFindByPosting(scan);
   }
 
   function _ozonFbsKizFindByPosting(scan) {
@@ -3014,74 +3115,201 @@
     const showFilled = !!document.getElementById("ozonFbsKizFilterFilled")?.checked;
     const showEmpty = !!document.getElementById("ozonFbsKizFilterEmpty")?.checked;
     const showErrors = !!document.getElementById("ozonFbsKizFilterErrors")?.checked;
+    const showCancelled = !!document.getElementById("ozonFbsKizFilterCancelled")?.checked;
+    const pending = String(ozonFbsKizState.pendingPosting || "").trim();
     const rows = (ozonFbsKizState.rows || []).filter((r) => {
-      if (showFilled && !_ozonFbsKizRowFilled(r)) return false;
-      if (showEmpty && _ozonFbsKizRowFilled(r)) return false;
+      if (showFilled && _ozonFbsKizRowIsEmpty(r)) return false;
+      if (showEmpty && !_ozonFbsKizRowIsEmpty(r)) return false;
       if (showErrors && !_ozonFbsKizRowHasError(r)) return false;
+      if (showCancelled && !String(r?.cancel_reason_label || "").trim()) return false;
       if (!q) return true;
       const hay = [
         r.posting_number, r.offer_id, r.product_name, r.sku,
+        r.sticker_barcode, r.sticker_part_a, r.sticker_part_b,
         ...(Array.isArray(r.barcodes) ? r.barcodes : []),
       ].map((x) => String(x || "").toLowerCase()).join(" ");
       return hay.includes(q);
     });
     if (!rows.length) {
       tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">${
-        ozonFbsKizState.rows?.length ? "Нет строк по фильтру" : "Нет отправлений с маркировкой"
+        ozonFbsKizState.rows?.length ? "Нет строк по выбранным фильтрам" : "Нет отправлений с маркировкой"
       }</td></tr>`;
       _ozonFbsKizUpdateScanCounter();
       return;
     }
     tbody.innerHTML = rows.map((r) => {
       const pn = String(r.posting_number || "");
-      const codes = Array.isArray(r.kiz_codes) ? r.kiz_codes : [""];
+      const safePn = esc(pn);
+      const menuKey = _ozonFbsPostingMenuKey(pn);
+      const codes = Array.isArray(r.kiz_codes) && r.kiz_codes.length ? r.kiz_codes : [""];
       const err = String(ozonFbsKizState.errors[pn] || "").trim();
-      const inputs = codes.map((code, ci) => {
-        const cls = err ? " is-error" : "";
-        return `<div class="wb-fbs-kiz-code-row">
-          <input class="wb-fbs-kiz-code-input${cls}" type="text" autocomplete="off"
-                 data-posting="${esc(pn)}" data-idx="${ci}"
-                 value="${esc(code || "")}"
-                 oninput="onOzonFbsKizCodeInput('${esc(pn)}', ${ci}, this.value)" />
-        </div>`;
-      }).join("");
       const photo = r.product_photo
         ? `<img class="wb-fbs-product-photo" src="${esc(r.product_photo)}" alt="" width="56" height="56" loading="lazy">`
         : `<span class="wb-fbs-product-ph" aria-hidden="true"></span>`;
-      const clearBtn = codes.some((c) => String(c || "").trim()) || err
-        ? `<button type="button" class="wb-fbs-kiz-remove" title="Сбросить КИЗ"
-                   onclick="clearOzonFbsKizRow('${esc(pn)}')">×</button>`
+      const barcodes = Array.isArray(r.barcodes) ? r.barcodes : [];
+      const barcodeHtml = barcodes.length
+        ? `<div class="wb-fbs-kiz-barcodes" title="Штрихкод товара">${barcodes.map((b) =>
+            `<div class="wb-fbs-kiz-barcode">${esc(b)}</div>`
+          ).join("")}</div>`
         : "";
-      return `<tr class="wb-fbs-kiz-row" data-posting="${esc(pn)}">
+      const canRemoveRow = codes.length > 1;
+      const codeHtml = codes.map((code, idx) => {
+        const clearTitle = canRemoveRow ? "Удалить строку КИЗ" : "Очистить маркировку";
+        return `
+        <div class="wb-fbs-kiz-code-block">
+          <div class="wb-fbs-kiz-code-row">
+            <span class="wb-fbs-kiz-code-idx">${idx + 1}</span>
+            <input id="ozonFbsKizCode_${menuKey}_${idx}"
+                   class="wb-fbs-kiz-code-input${err && String(code || "").trim() ? " is-error" : ""}" type="text"
+                   data-posting="${safePn}" data-idx="${idx}"
+                   autocomplete="off"
+                   oninput="onOzonFbsKizCodeInput('${safePn}', event)"
+                   onblur="onOzonFbsKizCodeBlur('${safePn}', event)"
+                   onkeydown="onOzonFbsKizCodeKey('${safePn}', event)" />
+            <button type="button" class="wb-fbs-kiz-remove" title="${clearTitle}"
+                    aria-label="${clearTitle}"
+                    onclick="removeOzonFbsKizCode('${safePn}', ${idx})">×</button>
+          </div>
+          ${err && String(code || "").trim() ? `<div class="wb-fbs-kiz-code-status is-error">${esc(err)}</div>` : ""}
+        </div>`;
+      }).join("");
+      const stickerHtml = _ozonFbsKizStickerHtml(r);
+      const menuIcon = typeof _wbFbsQrMenuIconHtml === "function" ? _wbFbsQrMenuIconHtml() : "";
+      return `<tr class="wb-fbs-kiz-row${pending === pn ? " is-active" : ""}" data-posting="${safePn}">
         <td>
           <div class="wb-fbs-kiz-order-id">${formatOzonPostingNumberHtml(pn)}</div>
+          <div class="wb-fbs-kiz-order-sticker">${stickerHtml}</div>
           ${Number(r.quantity) > 1 ? `<div class="wb-fbs-order-meta">${esc(r.quantity)} шт.</div>` : ""}
         </td>
         <td>
           <div class="wb-fbs-product">
             ${photo}
             <div class="wb-fbs-product-text">
-              <div class="wb-fbs-product-name">${esc(r.product_name || r.offer_id || "—")}</div>
+              <div class="wb-fbs-product-name" title="${esc(r.product_name || r.offer_id || "")}">${esc(r.product_name || r.offer_id || "—")}</div>
               <div class="wb-fbs-product-sub">Арт. ${esc(r.offer_id || "—")}</div>
+              ${barcodeHtml}
               ${cancelBadgeHtml(r)}
             </div>
           </div>
         </td>
-        <td>${inputs}${err ? `<div class="wb-fbs-kiz-code-status is-error">${esc(err)}</div>` : ""}</td>
-        <td class="wb-fbs-kiz-col-act">${clearBtn}</td>
+        <td>
+          <div class="wb-fbs-kiz-codes">${codeHtml}</div>
+          <button type="button" class="wb-fbs-kiz-add" onclick="addOzonFbsKizCode('${safePn}')">+ Добавить КИЗ</button>
+        </td>
+        <td>
+          <div class="wb-fbs-row-menu-wrap">
+            <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
+                    onclick="toggleOzonFbsRowMenu(event, '${menuKey}')" aria-haspopup="menu">⋮</button>
+            <div id="ozonFbsRowMenu_${menuKey}" class="wb-fbs-row-menu" data-order-id="${menuKey}" role="menu">
+              <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
+                      onclick="ozonFbsPrintOnePostingStickerFromDetail(event, '${safePn}')">
+                ${menuIcon}
+                Напечатать стикер
+              </button>
+            </div>
+          </div>
+        </td>
       </tr>`;
     }).join("");
+    tbody.querySelectorAll(".wb-fbs-kiz-code-input").forEach((input) => {
+      const pn = String(input.dataset.posting || "");
+      const idx = Number(input.dataset.idx);
+      const row = ozonFbsKizState.rows.find((r) => String(r.posting_number) === pn);
+      if (!row || !Number.isFinite(idx)) return;
+      const rowCodes = Array.isArray(row.kiz_codes) ? row.kiz_codes : [];
+      input.value = String(rowCodes[idx] ?? "");
+    });
     _ozonFbsKizUpdateScanCounter();
   }
 
-  function onOzonFbsKizCodeInput(postingNumber, codeIdx, value) {
+  function onOzonFbsKizCodeInput(postingNumber, event) {
+    const pn = String(postingNumber || "");
+    const input = event?.target;
+    if (input && typeof _wbFbsKizHasCyrillic === "function") {
+      if (typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen()) {
+        input.value = "";
+        return;
+      }
+      if (_wbFbsKizHasCyrillic(input.value)) {
+        const idx = Number(input.dataset.idx);
+        const row = ozonFbsKizState.rows.find((r) => String(r.posting_number) === pn);
+        if (row && Array.isArray(row.kiz_codes) && Number.isFinite(idx) && idx >= 0) {
+          row.kiz_codes[idx] = "";
+        }
+        if (ozonFbsKizState.errors[pn]) delete ozonFbsKizState.errors[pn];
+        if (typeof _wbFbsKizBlockRuLayout === "function") _wbFbsKizBlockRuLayout(input);
+        _ozonFbsKizUpdateScanCounter();
+        return;
+      }
+    }
+    if (ozonFbsKizState.errors[pn]) delete ozonFbsKizState.errors[pn];
+    _ozonFbsKizCollectFromDom();
+    const row = ozonFbsKizState.rows.find((r) => String(r.posting_number) === pn);
+    if (row) {
+      const codes = _ozonFbsKizNormalizeCodesList(row.kiz_codes);
+      if (!codes.length) {
+        delete ozonFbsKizState.errors[pn];
+        if (String(row.kiz_status || "") === "error") row.kiz_status = "empty";
+      } else {
+        row.kiz_status = "pending";
+      }
+    }
+    _ozonFbsKizUpdateScanCounter();
+  }
+
+  function onOzonFbsKizCodeBlur(postingNumber, _event) {
+    const pn = String(postingNumber || "").trim();
+    if (!pn || !_ozonFbsKizModalIsOpen()) return;
+    _ozonFbsKizCollectFromDom();
+    _ozonFbsKizScheduleLocalAutosave(pn, false);
+  }
+
+  function onOzonFbsKizCodeKey(postingNumber, event) {
+    if (!event || event.key !== "Enter") return;
+    event.preventDefault();
+    const pn = String(postingNumber || "").trim();
+    if (!pn) return;
+    _ozonFbsKizCollectFromDom();
+    _ozonFbsKizScheduleLocalAutosave(pn, false);
+    const sticker = document.getElementById("ozonFbsKizStickerScan");
+    if (sticker) {
+      sticker.focus();
+      sticker.select?.();
+    }
+  }
+
+  function addOzonFbsKizCode(postingNumber) {
+    _ozonFbsKizCollectFromDom();
     const pn = String(postingNumber || "");
     const row = ozonFbsKizState.rows.find((r) => String(r.posting_number) === pn);
     if (!row) return;
     if (!Array.isArray(row.kiz_codes)) row.kiz_codes = [""];
-    row.kiz_codes[codeIdx] = value;
-    row.kiz_status = "pending";
+    row.kiz_codes.push("");
+    renderOzonFbsKizTable({ skipCollect: true });
+    const inputs = document.querySelectorAll(`.wb-fbs-kiz-code-input[data-posting="${pn}"]`);
+    const last = inputs[inputs.length - 1];
+    if (last) last.focus();
+  }
+
+  function removeOzonFbsKizCode(postingNumber, idx) {
+    _ozonFbsKizCollectFromDom();
+    const pn = String(postingNumber || "");
+    const removeIdx = Number(idx);
+    const row = ozonFbsKizState.rows.find((r) => String(r.posting_number) === pn);
+    if (!row || !Number.isFinite(removeIdx)) return;
+    if (!Array.isArray(row.kiz_codes)) row.kiz_codes = [""];
+    if (row.kiz_codes.length <= 1) {
+      row.kiz_codes = [""];
+    } else {
+      row.kiz_codes.splice(removeIdx, 1);
+      if (!row.kiz_codes.length) row.kiz_codes = [""];
+    }
     delete ozonFbsKizState.errors[pn];
+    if (!_ozonFbsKizNormalizeCodesList(row.kiz_codes).length) {
+      row.kiz_status = "empty";
+    }
+    renderOzonFbsKizTable({ skipCollect: true });
+    _ozonFbsKizScheduleLocalAutosave(pn, !_ozonFbsKizNormalizeCodesList(row.kiz_codes).length);
   }
 
   function clearOzonFbsKizRow(postingNumber) {
@@ -3163,24 +3391,36 @@
   function onOzonFbsKizStickerScanKey(event) {
     if (!event || event.key !== "Enter") return;
     event.preventDefault();
+    if (typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen()) return;
     const input = event.target;
     if (input?.disabled || input?.readOnly || !ozonFbsKizState.rowsReady) return;
-    const raw = String(input?.value || "").replace(/\s+/g, "").trim();
-    if (!raw) return;
+    const rawTyped = String(input?.value || "").replace(/\s+/g, "").trim();
+    if (!rawTyped) return;
+    if (typeof _wbFbsKizHasCyrillic === "function" && _wbFbsKizHasCyrillic(rawTyped)) {
+      if (typeof _wbFbsKizBlockRuLayout === "function") _wbFbsKizBlockRuLayout(input);
+      return;
+    }
     _ozonFbsKizCollectFromDom();
-    const found = _ozonFbsKizFindByPosting(raw);
+    const found = _ozonFbsKizFindBySticker(rawTyped);
     if (found.ambiguous) {
-      _ozonFbsKizSetInfo("Код этикетки совпадает у нескольких отправлений — отсканируйте QR ещё раз.");
+      const ids = (found.matches || []).map((r) => r.posting_number).slice(0, 5).join(", ");
+      _ozonFbsKizSetInfo(
+        `Код этикетки совпадает у нескольких отправлений (${ids}${
+          (found.matches || []).length > 5 ? "…" : ""
+        }). Отсканируйте QR ещё раз.`
+      );
       if (input) input.select();
       return;
     }
     if (!found.row) {
-      _ozonFbsKizSetInfo(`Отправление «${raw}» не найдено среди товаров с маркировкой.`);
+      _ozonFbsKizSetInfo(
+        `Отправление «${rawTyped}» не найдено среди товаров с маркировкой.`
+      );
       if (input) input.select();
       return;
     }
     ozonFbsKizState.pendingPosting = String(found.row.posting_number || "");
-    _ozonFbsPersistStickerScan(ozonFbsKizState.pendingPosting, raw);
+    _ozonFbsPersistStickerScan(ozonFbsKizState.pendingPosting, rawTyped);
     _ozonFbsKizSetInfo("");
     if (input) input.value = "";
     const meta = document.getElementById("ozonFbsKizScanPromptMeta");
@@ -3205,33 +3445,72 @@
   function onOzonFbsKizMarkScanKey(event) {
     if (!event || event.key !== "Enter") return;
     event.preventDefault();
+    if (typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen()) return;
     const pn = String(ozonFbsKizState.pendingPosting || "");
-    const raw = _ozonFbsNormalizeMark(String(event.target?.value || ""));
-    if (!pn || !raw) return;
+    const input = event.target;
+    const rawTyped = String(input?.value || "");
+    if (!pn || !String(rawTyped || "").replace(/\s+/g, "")) return;
+    if (typeof _wbFbsKizHasCyrillic === "function" && _wbFbsKizHasCyrillic(rawTyped)) {
+      if (typeof _wbFbsKizBlockRuLayout === "function") _wbFbsKizBlockRuLayout(input);
+      return;
+    }
+    const mark = _ozonFbsNormalizeMark(rawTyped);
+    if (!mark) return;
+    _ozonFbsKizCollectFromDom();
     const row = ozonFbsKizState.rows.find((r) => String(r.posting_number) === pn);
     if (!row) {
       cancelOzonFbsKizMarkScan();
       return;
     }
-    const dup = _ozonFbsKizFindExistingMark(raw);
-    if (dup && String(dup.posting_number) !== pn) {
-      _ozonFbsKizSetInfo(`Этот КИЗ уже просканирован в отправление ${dup.posting_number}`);
-      event.target?.select();
+    const check = _ozonFbsKizValidateMarkForOrder(mark, row);
+    if (!check.ok) {
+      _ozonFbsKizSetInfo(check.error || "Маркировка не подходит к ШК товара в отправлении");
+      if (input) input.select();
       return;
     }
-    if (!Array.isArray(row.kiz_codes)) row.kiz_codes = [""];
-    let slot = row.kiz_codes.findIndex((c) => !String(c || "").trim());
-    if (slot < 0) {
-      row.kiz_codes.push("");
-      slot = row.kiz_codes.length - 1;
+    const dup = _ozonFbsKizFindExistingMark(mark);
+    if (dup) {
+      const dupPn = String(dup.posting_number || "");
+      _ozonFbsKizSetInfo(
+        dupPn === pn
+          ? `Этот КИЗ уже просканирован в отправление ${pn} — повторно не добавляем`
+          : `Этот КИЗ уже просканирован в отправление ${dupPn} — в ${pn} не добавляем`
+      );
+      if (input) input.select();
+      return;
     }
-    row.kiz_codes[slot] = raw;
+    if (!Array.isArray(row.kiz_codes) || !row.kiz_codes.length) row.kiz_codes = [""];
+    let placedIdx = -1;
+    for (let i = 0; i < row.kiz_codes.length; i += 1) {
+      if (!String(row.kiz_codes[i] || "").trim()) {
+        row.kiz_codes[i] = mark;
+        placedIdx = i;
+        break;
+      }
+    }
+    const addedSlot = placedIdx < 0;
+    if (addedSlot) {
+      row.kiz_codes.push(mark);
+      placedIdx = row.kiz_codes.length - 1;
+    }
     row.kiz_status = "pending";
     delete ozonFbsKizState.errors[pn];
+    const emptyFilter = document.getElementById("ozonFbsKizFilterEmpty");
+    const emptyFilterWasOn = !!emptyFilter?.checked;
+    if (emptyFilter) emptyFilter.checked = false;
     cancelOzonFbsKizMarkScan();
-    renderOzonFbsKizTable();
-    _ozonFbsKizScheduleLocalAutosave(pn, false);
+    const domKey = _ozonFbsPostingMenuKey(pn);
+    if (emptyFilterWasOn || addedSlot) {
+      renderOzonFbsKizTable({ skipCollect: true });
+    } else {
+      const codeInput = document.getElementById(`ozonFbsKizCode_${domKey}_${placedIdx}`);
+      if (codeInput) codeInput.value = mark;
+      _ozonFbsKizUpdateScanCounter();
+    }
     _ozonFbsKizSetInfo(`КИЗ сохранён локально для ${pn}`, true);
+    _ozonFbsKizScheduleLocalAutosave(pn, false);
+    const rowEl = document.querySelector(`#ozonFbsKizTbody tr[data-posting="${pn}"]`);
+    if (rowEl) rowEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
 
   async function openOzonFbsKizModal() {
@@ -3356,20 +3635,67 @@
     }
   }
 
-  async function refreshOzonFbsMarkingStatus(silent) {
+  async function refreshOzonFbsMarkingStatus(eventOrSilent) {
+    const silent = eventOrSilent === true;
+    if (eventOrSilent && eventOrSilent !== true) {
+      eventOrSilent.preventDefault();
+      eventOrSilent.stopPropagation();
+    }
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
-    if (!sid || !sourceId) return;
+    if (!sid || !sourceId || !_ozonFbsSupplyActionsReady() || ozonFbsKizState.statusRefreshing) {
+      return;
+    }
+    const refreshBtn = document.getElementById("ozonFbsSupplyDetailKizRefreshBtn");
+    const kizBtn = document.getElementById("ozonFbsSupplyDetailKizBtn");
+    const refreshGen = Number(ozonFbsKizState.statusRefreshGen || 0) + 1;
+    ozonFbsKizState.statusRefreshGen = refreshGen;
+    ozonFbsKizState.statusRefreshing = true;
+    if (refreshBtn) {
+      refreshBtn.disabled = true;
+      refreshBtn.classList.add("is-spinning");
+    }
+    if (kizBtn) kizBtn.disabled = true;
     try {
       const params = new URLSearchParams({ source_id: String(sourceId) });
       const res = await fetch(
         `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/marking/status?${params}`
       );
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      if (!res.ok || data.ok === false) {
+        throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      }
+      if (supplyDetailState.supplyId !== sid) return;
+      if (ozonFbsKizState.statusRefreshGen !== refreshGen) return;
+      _ozonFbsKizMergeStatusIntoDetail(data.orders || []);
+      const info = document.getElementById("ozonFbsSupplyDetailInfo");
+      if (info) {
+        info.hidden = true;
+        info.textContent = "";
+      }
+      if (supplyDetailState.supply) renderSupplyDetail();
       _ozonFbsKizSplitSetTone(data.status || "");
     } catch (e) {
-      if (!silent) _ozonFbsKizSetInfo(String(e.message || e));
+      if (
+        supplyDetailState.supplyId === sid
+        && ozonFbsKizState.statusRefreshGen === refreshGen
+      ) {
+        if (!silent) _ozonFbsKizSetInfo(String(e.message || e));
+        const info = document.getElementById("ozonFbsSupplyDetailInfo");
+        if (info && !silent) {
+          info.hidden = false;
+          info.textContent = String(e.message || e);
+        }
+      }
+    } finally {
+      if (ozonFbsKizState.statusRefreshGen === refreshGen) {
+        ozonFbsKizState.statusRefreshing = false;
+        if (refreshBtn) {
+          refreshBtn.disabled = false;
+          refreshBtn.classList.remove("is-spinning");
+        }
+        if (kizBtn) kizBtn.disabled = false;
+      }
     }
   }
 
@@ -3982,6 +4308,10 @@
   window.saveOzonFbsKizModal = saveOzonFbsKizModal;
   window.renderOzonFbsKizTable = renderOzonFbsKizTable;
   window.onOzonFbsKizCodeInput = onOzonFbsKizCodeInput;
+  window.onOzonFbsKizCodeBlur = onOzonFbsKizCodeBlur;
+  window.onOzonFbsKizCodeKey = onOzonFbsKizCodeKey;
+  window.addOzonFbsKizCode = addOzonFbsKizCode;
+  window.removeOzonFbsKizCode = removeOzonFbsKizCode;
   window.onOzonFbsKizFilterFilledChange = onOzonFbsKizFilterFilledChange;
   window.onOzonFbsKizFilterEmptyChange = onOzonFbsKizFilterEmptyChange;
   window.onOzonFbsKizStickerScanKey = onOzonFbsKizStickerScanKey;

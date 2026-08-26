@@ -2998,6 +2998,10 @@
                   <input type="checkbox" id="ozonFbsKizFilterErrors" onchange="renderOzonFbsKizTable()" />
                   С ошибками
                 </label>
+                <label class="wb-fbs-kiz-check" id="ozonFbsKizFilterCancelledLabel">
+                  <input type="checkbox" id="ozonFbsKizFilterCancelled" onchange="renderOzonFbsKizTable()" />
+                  Отмененные
+                </label>
                 <input id="ozonFbsKizSearchFilter" class="wb-fbs-kiz-search" type="search"
                        placeholder="🔍 Поиск по отправлению, артикулу, ШК..."
                        autocomplete="off" oninput="renderOzonFbsKizTable()" />
@@ -5872,7 +5876,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=29"></script>
+  <script src="/static/ozon_fbs.js?v=30"></script>
   <script src="/static/app.js?v=507"></script>
 </body>
 </html>

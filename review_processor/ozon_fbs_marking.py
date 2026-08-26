@@ -10,9 +10,15 @@ from . import ozon_fbs as oz
 from . import ozon_fbs_detail as oz_detail
 from . import ozon_fbs_supplies as oz_sup
 from . import wb_fbs as wb
+from . import wb_fbs_kiz_restore as kiz_restore
 from .repository import ReviewRepository
 
 _log = logging.getLogger(__name__)
+
+
+def _normalize_mark_code(value: object) -> str:
+    """Parity with WB FBS: ↔ → GS (\\u001D), then trim edges without stripping GS."""
+    return wb._kiz_code_clean(kiz_restore.normalize_kiz_mark(value))
 
 
 def _parse_codes(raw: object) -> list[str]:
@@ -25,7 +31,7 @@ def _parse_codes(raw: object) -> list[str]:
             parsed = []
     if not isinstance(parsed, list):
         return []
-    return [wb._kiz_code_clean(x) for x in parsed if wb._kiz_code_clean(x)]
+    return [_normalize_mark_code(x) for x in parsed if _normalize_mark_code(x)]
 
 
 def load_marking_map(
@@ -81,7 +87,7 @@ def update_posting_marking_codes(
 ) -> dict[str, Any]:
     oz.ensure_ozon_fbs_tables(repo)
     pn = str(posting_number or "").strip()
-    clean = [wb._kiz_code_clean(x) for x in (codes or []) if wb._kiz_code_clean(x)]
+    clean = [_normalize_mark_code(x) for x in (codes or []) if _normalize_mark_code(x)]
     payload = json.dumps(clean, ensure_ascii=False)
     saved_at = datetime.now(UTC)
     expected = wb._normalize_kiz_saved_at(expected_saved_at)
@@ -356,9 +362,9 @@ def save_marking(
             )
             continue
         codes = [
-            wb._kiz_code_clean(x)
+            _normalize_mark_code(x)
             for x in (raw.get("kiz_codes") or [])
-            if wb._kiz_code_clean(x)
+            if _normalize_mark_code(x)
         ]
         seen: set[str] = set()
         uniq: list[str] = []
@@ -459,27 +465,57 @@ def check_supply_marking_status(
         api_key=api_key,
         refresh_from_ozon=True,
     )
-    required = [o for o in (detail.get("orders") or []) if o.get("kiz_required")]
+    orders = [o for o in (detail.get("orders") or []) if isinstance(o, dict)]
+    posting_numbers = [
+        str(o.get("posting_number") or "").strip()
+        for o in orders
+        if str(o.get("posting_number") or "").strip()
+    ]
+    local = load_marking_map(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        posting_numbers=posting_numbers,
+    )
+    required = [o for o in orders if o.get("kiz_required")]
     done = 0
     pending = 0
     empty = 0
-    for o in required:
+    status_rows: list[dict[str, Any]] = []
+    for o in orders:
+        pn = str(o.get("posting_number") or "").strip()
+        if not pn:
+            continue
+        cancelled = bool(o.get("cancelled"))
+        kiz_required = bool(o.get("kiz_required"))
+        loc = local.get(pn) or {}
+        codes = list(loc.get("codes") or [])
         st = str(o.get("kiz_status") or "empty")
-        if st == "ok":
-            done += 1
-        elif st == "empty":
-            empty += 1
-        else:
-            pending += 1
+        if kiz_required:
+            if st == "ok":
+                done += 1
+            elif st == "empty":
+                empty += 1
+            else:
+                pending += 1
+        status_rows.append(
+            {
+                "posting_number": pn,
+                "kiz_required": kiz_required,
+                "kiz_codes": codes,
+                "kiz_status": st if kiz_required else "empty",
+                "cancelled": cancelled,
+                "cancel_reason_label": str(o.get("cancel_reason_label") or ""),
+            }
+        )
     total = len(required)
+    # Green only when every non-cancelled required posting has all КИЗ filled.
     if total == 0:
         tone = ""
     elif done == total:
         tone = "ok"
-    elif empty == total:
-        tone = ""
     else:
-        tone = "warn"
+        tone = ""
     return {
         "ok": True,
         "required": total,
@@ -487,4 +523,5 @@ def check_supply_marking_status(
         "pending": pending,
         "empty": empty,
         "status": tone,
+        "orders": status_rows,
     }
