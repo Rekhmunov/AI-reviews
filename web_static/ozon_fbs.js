@@ -166,7 +166,36 @@
   }
 
   function isSuppliesTab() {
-    return state.tab === "awaiting_deliver";
+    return state.tab === "awaiting_deliver" || state.tab === "delivering";
+  }
+
+  function isDeliveringSuppliesTab() {
+    return state.tab === "delivering";
+  }
+
+  function isSupplyDetailReadOnly() {
+    return Boolean(supplyDetailState.supply?.read_only) || isDeliveringSuppliesTab();
+  }
+
+  function syncSupplyDetailReadOnlyMode(readOnly) {
+    const modal = document.getElementById("ozonFbsSupplyDetailModal");
+    const actions = modal?.querySelector(".wb-fbs-sd-actions");
+    const checkTh = modal?.querySelector(".wb-fbs-sd-col-check");
+    const actTh = modal?.querySelector(".wb-fbs-sd-col-act");
+    if (modal) modal.classList.toggle("wb-fbs-sd--readonly", !!readOnly);
+    if (actions) actions.hidden = !!readOnly;
+    if (checkTh) checkTh.hidden = !!readOnly;
+    if (actTh) actTh.hidden = !!readOnly;
+    const info = document.getElementById("ozonFbsSupplyDetailInfo");
+    if (info) {
+      if (readOnly) {
+        info.hidden = false;
+        info.textContent = "Только просмотр — отправления уже в доставке.";
+      } else {
+        info.hidden = true;
+        info.textContent = "";
+      }
+    }
   }
 
   function colspan() {
@@ -350,7 +379,10 @@
     if (!tbody) return;
     state.items = Array.isArray(items) ? items : [];
     if (!state.items.length) {
-      tbody.innerHTML = `<tr><td colspan="${colspan()}" class="wb-fbs-empty">Нет локальных поставок. Соберите заказы синей кнопкой на вкладке «Ожидают сборки».</td></tr>`;
+      const emptyMsg = isDeliveringSuppliesTab()
+        ? "Нет отправлений в доставке."
+        : "Нет локальных поставок. Соберите заказы синей кнопкой на вкладке «Ожидают сборки».";
+      tbody.innerHTML = `<tr><td colspan="${colspan()}" class="wb-fbs-empty">${esc(emptyMsg)}</td></tr>`;
       syncSelectAll();
       return;
     }
@@ -501,11 +533,14 @@
             ? data.adopt_created_supplies
             : [];
           const names = created.map((s) => s.name || s.supply_id).filter(Boolean);
-          showSyncInfo(
-            names.length
+          const adoptMsg = isDeliveringSuppliesTab()
+            ? (names.length
+              ? `Оформлено ${adopted} отпр. без поставки → «${names.join("», «")}»`
+              : `Оформлено ${adopted} отправлений без поставки в «Без локальной поставки»`)
+            : (names.length
               ? `Оформлено ${adopted} отпр. без поставки → ${names.join(", ")}`
-              : `Оформлено ${adopted} отправлений без поставки в локальные поставки`
-          );
+              : `Оформлено ${adopted} отправлений без поставки в локальные поставки`);
+          showSyncInfo(adoptMsg);
         }
         renderSuppliesTable(items);
       } else {
@@ -945,6 +980,7 @@
   function closeSupplyDetailModal() {
     closeOzonFbsRowMenus();
     document.getElementById("ozonFbsSupplyDetailModal")?.classList.add("hidden");
+    syncSupplyDetailReadOnlyMode(false);
     closePickingMenu();
     closeStickersMenu();
     supplyDetailState.supplyId = null;
@@ -1086,6 +1122,9 @@
     const supply = data || supplyDetailState.supply;
     if (!supply) return;
     if (data) supplyDetailState.supply = data;
+    const readOnly = isSupplyDetailReadOnly();
+    syncSupplyDetailReadOnlyMode(readOnly);
+    const detailColspan = readOnly ? 2 : 4;
     const title = document.getElementById("ozonFbsSupplyDetailTitle");
     const wh = document.getElementById("ozonFbsSupplyDetailWarehouse");
     const meta = document.getElementById("ozonFbsSupplyDetailMeta");
@@ -1101,13 +1140,17 @@
     }
     const allOrders = Array.isArray(supply.orders) ? supply.orders : [];
     const kizSplit = document.getElementById("ozonFbsKizSplit");
-    if (kizSplit) {
-      const needsKiz = allOrders.some((o) => o && o.kiz_required);
-      kizSplit.hidden = !needsKiz;
-      if (!needsKiz) _ozonFbsKizSplitSetTone("");
-      else refreshOzonFbsMarkingStatus(true).catch(() => {});
+    if (!readOnly) {
+      if (kizSplit) {
+        const needsKiz = allOrders.some((o) => o && o.kiz_required);
+        kizSplit.hidden = !needsKiz;
+        if (!needsKiz) _ozonFbsKizSplitSetTone("");
+        else refreshOzonFbsMarkingStatus(true).catch(() => {});
+      }
+      _ozonFbsSyncPickVerifyBtn(allOrders);
+    } else if (kizSplit) {
+      kizSplit.hidden = true;
     }
-    _ozonFbsSyncPickVerifyBtn(allOrders);
     const searchQ = String(document.getElementById("ozonFbsSupplyDetailSearchFilter")?.value || "").trim().toLowerCase();
     const orders = searchQ
       ? allOrders.filter((o) => {
@@ -1120,11 +1163,11 @@
       : allOrders;
     if (!tbody) return;
     if (!allOrders.length) {
-      tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">В поставке нет отправлений</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="${detailColspan}" class="wb-fbs-empty">В поставке нет отправлений</td></tr>`;
       return;
     }
     if (!orders.length) {
-      tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">Нет отправлений по выбранному фильтру</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="${detailColspan}" class="wb-fbs-empty">Нет отправлений по выбранному фильтру</td></tr>`;
       const selAllEmpty = document.getElementById("ozonFbsSupplyDetailSelectAll");
       if (selAllEmpty) {
         selAllEmpty.checked = false;
@@ -1154,9 +1197,26 @@
       const cancelLabel = String(o.cancel_reason_label || "").trim();
       const rowCls = cancelLabel ? "wb-fbs-sd-click-row is-cancelled" : "wb-fbs-sd-click-row";
       const menuKey = _ozonFbsPostingMenuKey(pn);
+      const checkCell = readOnly
+        ? ""
+        : `<td><input type="checkbox" class="wb-fbs-sd-cb" data-posting="${esc(pn)}" ${checked}
+                   onchange="onOzonFbsSupplyDetailCheckboxChange()" /></td>`;
+      const actCell = readOnly
+        ? ""
+        : `<td class="wb-fbs-sd-col-act">
+          <div class="wb-fbs-row-menu-wrap" id="ozonFbsRowMenuWrap_${menuKey}">
+            <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
+                    onclick="toggleOzonFbsRowMenu(event, '${menuKey}')" aria-haspopup="menu">⋮</button>
+            <div id="ozonFbsRowMenu_${menuKey}" class="wb-fbs-row-menu" data-posting="${esc(pn)}" role="menu">
+              <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
+                      onclick="ozonFbsPrintOnePostingStickerFromDetail(${JSON.stringify(pn)})">
+                Напечатать стикер
+              </button>
+            </div>
+          </div>
+        </td>`;
       return `<tr class="${rowCls}">
-        <td><input type="checkbox" class="wb-fbs-sd-cb" data-posting="${esc(pn)}" ${checked}
-                   onchange="onOzonFbsSupplyDetailCheckboxChange()" /></td>
+        ${checkCell}
         <td>
           <div class="wb-fbs-sd-order-id">${formatOzonPostingNumberHtml(pn)}</div>
           <div class="wb-fbs-order-meta">от ${esc(fmtDate(created))}</div>
@@ -1174,21 +1234,10 @@
             </div>
           </div>
         </td>
-        <td class="wb-fbs-sd-col-act">
-          <div class="wb-fbs-row-menu-wrap" id="ozonFbsRowMenuWrap_${menuKey}">
-            <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
-                    onclick="toggleOzonFbsRowMenu(event, '${menuKey}')" aria-haspopup="menu">⋮</button>
-            <div id="ozonFbsRowMenu_${menuKey}" class="wb-fbs-row-menu" data-posting="${esc(pn)}" role="menu">
-              <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
-                      onclick="ozonFbsPrintOnePostingStickerFromDetail(${JSON.stringify(pn)})">
-                Напечатать стикер
-              </button>
-            </div>
-          </div>
-        </td>
+        ${actCell}
       </tr>`;
     }).join("");
-    syncSupplyDetailSelectAll();
+    if (!readOnly) syncSupplyDetailSelectAll();
   }
 
   async function openSupplyDetailModal(supplyId) {
@@ -1203,11 +1252,15 @@
     const search = document.getElementById("ozonFbsSupplyDetailSearchFilter");
     if (search) search.value = "";
     if (title) title.textContent = "Загрузка…";
-    if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">Загрузка…</td></tr>`;
+    const readOnly = isDeliveringSuppliesTab();
+    syncSupplyDetailReadOnlyMode(readOnly);
+    const detailColspan = readOnly ? 2 : 4;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="${detailColspan}" class="wb-fbs-empty">Загрузка…</td></tr>`;
     if (modal) modal.classList.remove("hidden");
     try {
+      const tabParam = readOnly ? "&posting_tab=delivering" : "";
       const res = await fetch(
-        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/detail?source_id=${state.sourceId}`
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/detail?source_id=${state.sourceId}${tabParam}`
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(detailText(data.detail) || "Не найдено");
@@ -1215,7 +1268,7 @@
     } catch (e) {
       if (title) title.textContent = "Ошибка";
       if (tbody) {
-        tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty" style="color:#b91c1c">${esc(e.message)}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="${detailColspan}" class="wb-fbs-empty" style="color:#b91c1c">${esc(e.message)}</td></tr>`;
       }
     }
   }

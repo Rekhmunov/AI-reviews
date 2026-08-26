@@ -24,6 +24,12 @@ from .repository import ReviewRepository
 _log = logging.getLogger(__name__)
 
 SUPPLY_ID_PREFIX = "OZ-FBS"
+ORPHAN_DELIVERING_SUPPLY_NAME = "Без локальной поставки"
+
+_TAB_SUPPLY_STATUS_LABEL: dict[str, str] = {
+    oz.TAB_AWAITING_DELIVER: "Сборка заказов",
+    oz.TAB_DELIVERING: "Доставляется",
+}
 
 
 def ensure_ozon_fbs_supply_schema(repo: ReviewRepository) -> None:
@@ -270,6 +276,7 @@ def _create_local_supply(
     warehouse_id: object,
     warehouse_name: str,
     posting_numbers: list[str],
+    force_tab: str | None = oz.TAB_AWAITING_DELIVER,
 ) -> str:
     ensure_ozon_fbs_supply_schema(repo)
     sid = _new_supply_id(source_id)
@@ -300,24 +307,37 @@ def _create_local_supply(
         )
         if nums:
             placeholders = ", ".join("?" for _ in nums)
-            conn.execute(
-                repo._sql(
-                    f"""
-                    UPDATE ozon_fbs_postings
-                    SET supply_id = ?, tab = ?, status = ?
-                    WHERE user_id = ? AND source_id = ?
-                      AND posting_number IN ({placeholders})
-                    """
-                ),
-                (
-                    sid,
-                    oz.TAB_AWAITING_DELIVER,
-                    oz.TAB_AWAITING_DELIVER,
-                    user_id,
-                    source_id,
-                    *nums,
-                ),
-            )
+            if force_tab:
+                conn.execute(
+                    repo._sql(
+                        f"""
+                        UPDATE ozon_fbs_postings
+                        SET supply_id = ?, tab = ?, status = ?
+                        WHERE user_id = ? AND source_id = ?
+                          AND posting_number IN ({placeholders})
+                        """
+                    ),
+                    (
+                        sid,
+                        str(force_tab),
+                        str(force_tab),
+                        user_id,
+                        source_id,
+                        *nums,
+                    ),
+                )
+            else:
+                conn.execute(
+                    repo._sql(
+                        f"""
+                        UPDATE ozon_fbs_postings
+                        SET supply_id = ?
+                        WHERE user_id = ? AND source_id = ?
+                          AND posting_number IN ({placeholders})
+                        """
+                    ),
+                    (sid, user_id, source_id, *nums),
+                )
     return sid
 
 
@@ -384,6 +404,66 @@ def _add_postings_to_supply(
                 source_id,
                 *nums,
             ),
+        )
+
+
+def _link_postings_to_supply_only(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    posting_numbers: list[str],
+) -> None:
+    """Attach postings to a supply without changing their Ozon tab/status."""
+    ensure_ozon_fbs_supply_schema(repo)
+    sid = str(supply_id or "").strip()
+    nums = [str(x).strip() for x in posting_numbers if str(x).strip()]
+    if not sid or not nums:
+        return
+    with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql(
+                """
+                SELECT posting_numbers_json FROM ozon_fbs_supplies
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                """
+            ),
+            (user_id, source_id, sid),
+        ).fetchone()
+        if not row:
+            raise RuntimeError(f"Поставка {sid} не найдена")
+        raw = row["posting_numbers_json"] if hasattr(row, "keys") else row[0]
+        existing = [
+            str(x).strip()
+            for x in _parse_json_list(raw)
+            if str(x).strip()
+        ]
+        merged = existing[:]
+        for n in nums:
+            if n not in merged:
+                merged.append(n)
+        conn.execute(
+            repo._sql(
+                """
+                UPDATE ozon_fbs_supplies
+                SET posting_numbers_json = ?, updated_at = NOW()
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                """
+            ),
+            (json.dumps(merged, ensure_ascii=False), user_id, source_id, sid),
+        )
+        placeholders = ", ".join("?" for _ in nums)
+        conn.execute(
+            repo._sql(
+                f"""
+                UPDATE ozon_fbs_postings
+                SET supply_id = ?
+                WHERE user_id = ? AND source_id = ?
+                  AND posting_number IN ({placeholders})
+                """
+            ),
+            (sid, user_id, source_id, *nums),
         )
 
 
@@ -917,13 +997,9 @@ def count_open_supplies(
     return len(list_open_supplies(repo, user_id=user_id, source_id=source_id))
 
 
-def _load_orphan_awaiting_deliver_rows(
-    repo: ReviewRepository, *, user_id: int, source_id: int
+def _load_orphan_tab_rows(
+    repo: ReviewRepository, *, user_id: int, source_id: int, tab: str
 ) -> list[dict[str, Any]]:
-    """Postings already on Ozon «Ожидают отгрузки» but without a local supply.
-
-    Typical after legacy ``POST /ship-all`` (ship without creating Feedpilot supply).
-    """
     ensure_ozon_fbs_supply_schema(repo)
     with repo._connect() as conn:
         rows = conn.execute(
@@ -935,9 +1011,21 @@ def _load_orphan_awaiting_deliver_rows(
                 ORDER BY created_at_ozon DESC NULLS LAST, posting_number DESC
                 """
             ),
-            (user_id, source_id, oz.TAB_AWAITING_DELIVER),
+            (user_id, source_id, str(tab)),
         ).fetchall()
     return [repo._row_to_dict(r) for r in rows]
+
+
+def _load_orphan_awaiting_deliver_rows(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> list[dict[str, Any]]:
+    """Postings already on Ozon «Ожидают отгрузки» but without a local supply.
+
+    Typical after legacy ``POST /ship-all`` (ship without creating Feedpilot supply).
+    """
+    return _load_orphan_tab_rows(
+        repo, user_id=user_id, source_id=source_id, tab=oz.TAB_AWAITING_DELIVER
+    )
 
 
 def adopt_orphan_awaiting_deliver_postings(
@@ -1065,6 +1153,211 @@ def adopt_orphan_awaiting_deliver_postings(
     }
 
 
+    return {
+        "ok": True,
+        "adopted": adopted,
+        "created_supplies": created,
+        "group_lines": group_lines,
+    }
+
+
+def _find_supply_by_name(
+    repo: ReviewRepository, *, user_id: int, source_id: int, name: str
+) -> dict[str, Any] | None:
+    ensure_ozon_fbs_supply_schema(repo)
+    target = str(name or "").strip()
+    if not target:
+        return None
+    with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql(
+                """
+                SELECT * FROM ozon_fbs_supplies
+                WHERE user_id = ? AND source_id = ? AND name = ?
+                  AND COALESCE(done, FALSE) = FALSE
+                ORDER BY created_at DESC
+                LIMIT 1
+                """
+            ),
+            (user_id, source_id, target),
+        ).fetchone()
+    return repo._row_to_dict(row) if row else None
+
+
+def adopt_orphan_delivering_postings(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> dict[str, Any]:
+    """Wrap orphan delivering postings into «Без локальной поставки»."""
+    ensure_ozon_fbs_supply_schema(repo)
+    rows = _load_orphan_tab_rows(
+        repo, user_id=user_id, source_id=source_id, tab=oz.TAB_DELIVERING
+    )
+    if not rows:
+        return {"ok": True, "adopted": 0, "created_supplies": [], "group_lines": []}
+
+    posting_numbers = [
+        str(r.get("posting_number") or "").strip()
+        for r in rows
+        if str(r.get("posting_number") or "").strip()
+    ]
+    if not posting_numbers:
+        return {"ok": True, "adopted": 0, "created_supplies": [], "group_lines": []}
+
+    wh_name = str(rows[0].get("warehouse_name") or "").strip()
+    wh_id = rows[0].get("warehouse_id")
+    existing = _find_supply_by_name(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        name=ORPHAN_DELIVERING_SUPPLY_NAME,
+    )
+    created: list[dict[str, str]] = []
+    if existing:
+        sid = str(existing.get("supply_id") or "").strip()
+        _link_postings_to_supply_only(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=sid,
+            posting_numbers=posting_numbers,
+        )
+        group_line = (
+            f"{ORPHAN_DELIVERING_SUPPLY_NAME}: +{len(posting_numbers)} отпр. (осиротевшие)"
+        )
+    else:
+        open_names = {
+            str(s.get("name") or "").strip()
+            for s in list_open_supplies(repo, user_id=user_id, source_id=source_id)
+            if str(s.get("name") or "").strip()
+        }
+        name = _unique_supply_name(ORPHAN_DELIVERING_SUPPLY_NAME, open_names)
+        sid = _create_local_supply(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            name=name,
+            warehouse_id=wh_id,
+            warehouse_name=wh_name,
+            posting_numbers=posting_numbers,
+            force_tab=None,
+        )
+        created.append({"supply_id": sid, "name": name})
+        group_line = f"{name}: {len(posting_numbers)} отпр. (осиротевшие)"
+
+    return {
+        "ok": True,
+        "adopted": len(posting_numbers),
+        "created_supplies": created,
+        "group_lines": [group_line],
+    }
+
+
+def _build_supply_items_for_tab(
+    repo: ReviewRepository, *, user_id: int, source_id: int, tab: str
+) -> list[dict[str, Any]]:
+    """Supply cards grouped by ``ozon_fbs_postings.supply_id`` for the given tab."""
+    ensure_ozon_fbs_supply_schema(repo)
+    tab_key = str(tab or "").strip()
+    if not tab_key:
+        return []
+    with repo._connect() as conn:
+        groups = conn.execute(
+            repo._sql(
+                """
+                SELECT supply_id,
+                       COUNT(*) AS order_count,
+                       MAX(warehouse_name) AS warehouse_name,
+                       MAX(warehouse_id) AS warehouse_id,
+                       MAX(created_at_ozon) AS last_posting_at
+                FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ? AND tab = ?
+                  AND COALESCE(supply_id, '') != ''
+                GROUP BY supply_id
+                ORDER BY last_posting_at DESC NULLS LAST, supply_id DESC
+                """
+            ),
+            (user_id, source_id, tab_key),
+        ).fetchall()
+
+    if not groups:
+        return []
+
+    supply_ids = [
+        str(g["supply_id"] if hasattr(g, "keys") else g[0]).strip()
+        for g in groups
+        if str(g["supply_id"] if hasattr(g, "keys") else g[0]).strip()
+    ]
+    meta: dict[str, dict[str, Any]] = {}
+    if supply_ids:
+        placeholders = ", ".join("?" for _ in supply_ids)
+        with repo._connect() as conn:
+            rows = conn.execute(
+                repo._sql(
+                    f"""
+                    SELECT supply_id, name, warehouse_name, warehouse_id, created_at
+                    FROM ozon_fbs_supplies
+                    WHERE user_id = ? AND source_id = ?
+                      AND supply_id IN ({placeholders})
+                    """
+                ),
+                (user_id, source_id, *supply_ids),
+            ).fetchall()
+        for row in rows:
+            d = repo._row_to_dict(row)
+            sid = str(d.get("supply_id") or "").strip()
+            if sid:
+                meta[sid] = d
+
+    status_label = _TAB_SUPPLY_STATUS_LABEL.get(tab_key, tab_key)
+    items: list[dict[str, Any]] = []
+    for g in groups:
+        d = repo._row_to_dict(g)
+        sid = str(d.get("supply_id") or "").strip()
+        if not sid:
+            continue
+        try:
+            order_count = int(d.get("order_count") or 0)
+        except (TypeError, ValueError):
+            order_count = 0
+        if order_count <= 0:
+            continue
+        sm = meta.get(sid) or {}
+        items.append(
+            {
+                "supply_id": sid,
+                "name": sm.get("name") or sid,
+                "order_count": order_count,
+                "warehouse_label": sm.get("warehouse_name")
+                or d.get("warehouse_name")
+                or "—",
+                "warehouse_id": sm.get("warehouse_id") if sm else d.get("warehouse_id"),
+                "status_label": status_label,
+                "created_at": sm.get("created_at") or d.get("last_posting_at"),
+            }
+        )
+    return items
+
+
+def _list_supplies_tab_response(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    tab: str,
+    adopt_info: dict[str, Any],
+) -> dict[str, Any]:
+    items = _build_supply_items_for_tab(
+        repo, user_id=user_id, source_id=source_id, tab=tab
+    )
+    return {
+        "items": items,
+        "total": len(items),
+        "counts": oz._tab_counts(repo, user_id=user_id, source_id=source_id),
+        "adopted_orphans": int(adopt_info.get("adopted") or 0),
+        "adopt_created_supplies": adopt_info.get("created_supplies") or [],
+    }
+
+
 def list_awaiting_deliver_supplies(
     repo: ReviewRepository, *, user_id: int, source_id: int
 ) -> dict[str, Any]:
@@ -1076,46 +1369,30 @@ def list_awaiting_deliver_supplies(
     adopt_info = adopt_orphan_awaiting_deliver_postings(
         repo, user_id=user_id, source_id=source_id
     )
-    with repo._connect() as conn:
-        rows = conn.execute(
-            repo._sql(
-                """
-                SELECT * FROM ozon_fbs_supplies
-                WHERE user_id = ? AND source_id = ? AND COALESCE(done, FALSE) = FALSE
-                ORDER BY created_at DESC
-                """
-            ),
-            (user_id, source_id),
-        ).fetchall()
-    items: list[dict[str, Any]] = []
-    for row in rows:
-        d = repo._row_to_dict(row)
-        nums = [
-            str(x).strip()
-            for x in _parse_json_list(d.get("posting_numbers_json"))
-            if str(x).strip()
-        ]
-        if not nums:
-            continue
-        items.append(
-            {
-                "supply_id": d.get("supply_id"),
-                "name": d.get("name") or d.get("supply_id"),
-                "order_count": len(nums),
-                "posting_numbers": nums,
-                "warehouse_label": d.get("warehouse_name") or "—",
-                "warehouse_id": d.get("warehouse_id"),
-                "status_label": "Сборка заказов",
-                "created_at": d.get("created_at"),
-            }
-        )
-    return {
-        "items": items,
-        "total": len(items),
-        "counts": oz._tab_counts(repo, user_id=user_id, source_id=source_id),
-        "adopted_orphans": int(adopt_info.get("adopted") or 0),
-        "adopt_created_supplies": adopt_info.get("created_supplies") or [],
-    }
+    return _list_supplies_tab_response(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        tab=oz.TAB_AWAITING_DELIVER,
+        adopt_info=adopt_info,
+    )
+
+
+def list_delivering_supplies(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> dict[str, Any]:
+    """Supplies shown on «Доставляются» (read-only drill-down in UI)."""
+    ensure_ozon_fbs_supply_schema(repo)
+    adopt_info = adopt_orphan_delivering_postings(
+        repo, user_id=user_id, source_id=source_id
+    )
+    return _list_supplies_tab_response(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        tab=oz.TAB_DELIVERING,
+        adopt_info=adopt_info,
+    )
 
 
 def get_supply(
@@ -1146,6 +1423,39 @@ def get_supply(
     d["posting_numbers"] = nums
     d["order_count"] = len(nums)
     return d
+
+
+def _assembly_posting_numbers_for_supply_tab(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    tab: str,
+) -> list[str]:
+    """Posting numbers for a supply limited to one Ozon tab."""
+    ensure_ozon_fbs_supply_schema(repo)
+    sid = str(supply_id or "").strip()
+    tab_key = str(tab or "").strip()
+    if not sid or not tab_key:
+        return []
+    nums: list[str] = []
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                """
+                SELECT posting_number FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ? AND supply_id = ? AND tab = ?
+                ORDER BY posting_number ASC
+                """
+            ),
+            (user_id, source_id, sid, tab_key),
+        ).fetchall()
+    for row in rows:
+        pn = str(row["posting_number"] if hasattr(row, "keys") else row[0]).strip()
+        if pn:
+            nums.append(pn)
+    return nums
 
 
 def _assembly_posting_numbers_for_supply(
@@ -1285,15 +1595,24 @@ def get_supply_detail(
     source_id: int,
     supply_id: str,
     posting_numbers: list[str] | None = None,
+    posting_tab: str | None = None,
 ) -> dict[str, Any]:
     supply = get_supply(repo, user_id=user_id, source_id=source_id, supply_id=supply_id)
     if not supply:
         raise RuntimeError("Поставка не найдена")
-    nums = (
-        [str(x).strip() for x in posting_numbers if str(x).strip()]
-        if posting_numbers is not None
-        else list(supply.get("posting_numbers") or [])
-    )
+    tab_filter = str(posting_tab or "").strip() or None
+    if posting_numbers is not None:
+        nums = [str(x).strip() for x in posting_numbers if str(x).strip()]
+    elif tab_filter:
+        nums = _assembly_posting_numbers_for_supply_tab(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=str(supply_id),
+            tab=tab_filter,
+        )
+    else:
+        nums = list(supply.get("posting_numbers") or [])
     name_map = repo.get_product_name_by_article(user_id=user_id)
     ozon_sku_map = repo.get_product_name_by_ozon_sku(user_id=user_id)
     barcode_map = repo.get_product_barcodes_map(user_id=user_id)
@@ -1363,6 +1682,8 @@ def get_supply_detail(
         "order_count": len(orders),
         "orders": orders,
         "source_id": source_id,
+        "read_only": tab_filter == oz.TAB_DELIVERING,
+        "posting_tab": tab_filter,
     }
 
 

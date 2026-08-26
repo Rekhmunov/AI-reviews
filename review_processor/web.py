@@ -12377,6 +12377,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     def ozon_fbs_list_supplies(
         request: Request, source_id: int, tab: str = "awaiting_deliver"
     ) -> dict[str, object]:
+        from . import ozon_fbs as ozon_fbs_mod
         from . import ozon_fbs_supplies as oz_sup
 
         user = _require_user(request)
@@ -12386,15 +12387,29 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id")
         _ozon_fbs_source_credentials(owner_id, int(source_id))
-        if str(tab or "") != "awaiting_deliver":
-            return {"items": [], "total": 0}
-        return oz_sup.list_awaiting_deliver_supplies(
-            repository, user_id=owner_id, source_id=int(source_id)
-        )
+        tab_key = str(tab or "").strip()
+        if tab_key == "awaiting_deliver":
+            return oz_sup.list_awaiting_deliver_supplies(
+                repository, user_id=owner_id, source_id=int(source_id)
+            )
+        if tab_key == "delivering":
+            return oz_sup.list_delivering_supplies(
+                repository, user_id=owner_id, source_id=int(source_id)
+            )
+        return {
+            "items": [],
+            "total": 0,
+            "counts": ozon_fbs_mod._tab_counts(
+                repository, user_id=owner_id, source_id=int(source_id)
+            ),
+        }
 
     @app.get("/api/ozon-fbs/supplies/{supply_id}/detail")
     def ozon_fbs_supply_detail(
-        request: Request, supply_id: str, source_id: int
+        request: Request,
+        supply_id: str,
+        source_id: int,
+        posting_tab: str | None = None,
     ) -> dict[str, object]:
         from . import ozon_fbs_supplies as oz_sup
 
@@ -12411,6 +12426,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 user_id=owner_id,
                 source_id=int(source_id),
                 supply_id=str(supply_id),
+                posting_tab=str(posting_tab or "").strip() or None,
             )
         except RuntimeError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc

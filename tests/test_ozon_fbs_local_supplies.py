@@ -309,5 +309,120 @@ class OzonFbsLocalSuppliesTests(unittest.TestCase):
         self.assertEqual(preview["traits"]["warehouse_id"], 10)
 
 
+class OzonFbsDeliveringSuppliesTests(unittest.TestCase):
+    def test_adopt_orphan_delivering_creates_named_supply(self) -> None:
+        from review_processor.ozon_fbs_supplies import (
+            ORPHAN_DELIVERING_SUPPLY_NAME,
+            adopt_orphan_delivering_postings,
+        )
+
+        repo = MagicMock()
+        orphans = [
+            {
+                "posting_number": "D-1",
+                "warehouse_id": 10,
+                "warehouse_name": "Склад А",
+            },
+        ]
+        with patch(
+            "review_processor.ozon_fbs_supplies.ensure_ozon_fbs_supply_schema"
+        ), patch(
+            "review_processor.ozon_fbs_supplies._load_orphan_tab_rows",
+            return_value=orphans,
+        ), patch(
+            "review_processor.ozon_fbs_supplies.list_open_supplies",
+            return_value=[],
+        ), patch(
+            "review_processor.ozon_fbs_supplies._find_supply_by_name",
+            return_value=None,
+        ), patch(
+            "review_processor.ozon_fbs_supplies._create_local_supply",
+            return_value="OZ-FBS-DEL",
+        ) as create:
+            out = adopt_orphan_delivering_postings(
+                repo, user_id=1, source_id=17
+            )
+        self.assertEqual(out["adopted"], 1)
+        self.assertEqual(out["created_supplies"][0]["supply_id"], "OZ-FBS-DEL")
+        create.assert_called_once()
+        self.assertEqual(create.call_args.kwargs["name"], ORPHAN_DELIVERING_SUPPLY_NAME)
+        self.assertIsNone(create.call_args.kwargs["force_tab"])
+
+    def test_adopt_orphan_delivering_links_to_existing_supply(self) -> None:
+        from review_processor.ozon_fbs_supplies import adopt_orphan_delivering_postings
+
+        repo = MagicMock()
+        orphans = [{"posting_number": "D-2", "warehouse_id": 10, "warehouse_name": "A"}]
+        existing = {"supply_id": "OZ-EXIST", "name": "Без локальной поставки"}
+        with patch(
+            "review_processor.ozon_fbs_supplies.ensure_ozon_fbs_supply_schema"
+        ), patch(
+            "review_processor.ozon_fbs_supplies._load_orphan_tab_rows",
+            return_value=orphans,
+        ), patch(
+            "review_processor.ozon_fbs_supplies._find_supply_by_name",
+            return_value=existing,
+        ), patch(
+            "review_processor.ozon_fbs_supplies._link_postings_to_supply_only"
+        ) as link, patch(
+            "review_processor.ozon_fbs_supplies._create_local_supply"
+        ) as create:
+            out = adopt_orphan_delivering_postings(
+                repo, user_id=1, source_id=17
+            )
+        self.assertEqual(out["adopted"], 1)
+        link.assert_called_once()
+        create.assert_not_called()
+        self.assertEqual(link.call_args.kwargs["supply_id"], "OZ-EXIST")
+
+    def test_get_supply_detail_delivering_read_only(self) -> None:
+        from review_processor import ozon_fbs as oz
+        from review_processor.ozon_fbs_supplies import get_supply_detail
+
+        repo = MagicMock()
+        repo.get_product_name_by_article.return_value = {}
+        repo.get_product_name_by_ozon_sku.return_value = {}
+        repo.get_product_barcodes_map.return_value = {}
+        repo.get_product_photo_map.return_value = {}
+        supply_row = {
+            "supply_id": "OZ-1",
+            "name": "Без локальной поставки",
+            "warehouse_name": "Склад",
+            "posting_numbers": ["P-1"],
+        }
+        posting_row = {
+            "posting_number": "P-1",
+            "offer_id": "art",
+            "sku": "",
+            "warehouse_name": "Склад",
+            "barcodes_json": "[]",
+            "marking_codes_json": "[]",
+            "tab": oz.TAB_DELIVERING,
+        }
+        with patch(
+            "review_processor.ozon_fbs_supplies.ensure_ozon_fbs_supply_schema"
+        ), patch(
+            "review_processor.ozon_fbs_supplies.get_supply",
+            return_value=supply_row,
+        ), patch(
+            "review_processor.ozon_fbs_supplies._assembly_posting_numbers_for_supply_tab",
+            return_value=["P-1"],
+        ), patch.object(repo, "_connect") as conn_ctx:
+            conn = MagicMock()
+            conn_ctx.return_value.__enter__.return_value = conn
+            conn.execute.return_value.fetchall.return_value = [posting_row]
+            repo._row_to_dict.side_effect = lambda r: r
+            detail = get_supply_detail(
+                repo,
+                user_id=1,
+                source_id=17,
+                supply_id="OZ-1",
+                posting_tab=oz.TAB_DELIVERING,
+            )
+        self.assertTrue(detail["read_only"])
+        self.assertEqual(detail["posting_tab"], oz.TAB_DELIVERING)
+        self.assertEqual(detail["order_count"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
