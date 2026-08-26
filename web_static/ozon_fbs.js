@@ -2449,18 +2449,25 @@
     shipmentsState.forming = false;
   }
 
-  function fillShipmentsMethods(methods, selectedId) {
+  function fillShipmentsMethods(methods, selectedId, selectedName) {
     const sel = document.getElementById("ozonFbsShipmentsMethod");
     if (!sel) return;
-    const list = Array.isArray(methods) ? methods : [];
+    let list = Array.isArray(methods) ? methods.slice() : [];
+    if (!list.length && selectedId) {
+      list = [{
+        id: selectedId,
+        name: String(selectedName || `Метод ${selectedId}`),
+      }];
+    }
     if (!list.length) {
       sel.innerHTML = `<option value="">Нет активных методов</option>`;
       return;
     }
+    const selectedKey = String(selectedId ?? "");
     sel.innerHTML = list.map((m) => {
       const id = String(m.id ?? "");
       const name = esc(m.name || `Метод ${id}`);
-      const selected = String(selectedId ?? "") === id ? " selected" : "";
+      const selected = selectedKey === id ? " selected" : "";
       return `<option value="${esc(id)}"${selected}>${name}</option>`;
     }).join("");
   }
@@ -2468,11 +2475,11 @@
   function renderShipmentsBarcode(data) {
     const barcode = data?.barcode || null;
     const whName = esc(data?.warehouse_name || "склада");
-    const help = esc(data?.barcode_help || "");
     const text = String(barcode?.barcode_text || "").trim();
     const b64 = String(barcode?.barcode_image_base64 || "").trim();
     const ctype = String(barcode?.content_type || "image/png").trim() || "image/png";
     const hasImg = Boolean(b64);
+    const canPrint = Boolean(hasImg || text);
     const visual = hasImg
       ? `<img id="ozonFbsShipmentsBarcodeImg" src="data:${esc(ctype)};base64,${b64}" alt="Штрихкод поставки" />`
       : (text
@@ -2486,15 +2493,15 @@
         <div class="ozon-fbs-shipments-barcode-head">
           <h4 class="ozon-fbs-shipments-barcode-title">Штрихкод для склада ${whName}</h4>
           <div class="ozon-fbs-shipments-barcode-actions">
-            <button type="button" class="ozon-fbs-shipments-icon-btn" ${hasImg ? "" : "disabled"}
-                    onclick="ozonFbsShipmentsZoomBarcode()" title="Открыть" aria-label="Открыть штрихкод">
+            <button type="button" class="ozon-fbs-shipments-icon-btn" ${canPrint ? "" : "disabled"}
+                    onclick="ozonFbsShipmentsPrintBarcode()" title="Печать" aria-label="Печать штрихкода">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/>
-                <path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                <path d="M11 8v6M8 11h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                <path d="M7 9V4h10v5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M7 17H5a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <rect x="7" y="13" width="10" height="7" rx="1" stroke="currentColor" stroke-width="2"/>
               </svg>
             </button>
-            <button type="button" class="ozon-fbs-shipments-icon-btn" ${hasImg || text ? "" : "disabled"}
+            <button type="button" class="ozon-fbs-shipments-icon-btn" ${canPrint ? "" : "disabled"}
                     onclick="ozonFbsShipmentsDownloadBarcode()" title="Скачать" aria-label="Скачать штрихкод">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M12 4v10M8 10l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -2508,7 +2515,6 @@
             ${visual}
             ${textHtml}
           </div>
-          <p class="ozon-fbs-shipments-barcode-help">${help}</p>
         </div>
       </section>`;
   }
@@ -2620,7 +2626,11 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(detailText(data.detail) || "Не удалось загрузить отгрузки");
       shipmentsState.data = data;
-      fillShipmentsMethods(data.delivery_methods, data.selected_delivery_method_id);
+      fillShipmentsMethods(
+        data.delivery_methods,
+        data.selected_delivery_method_id,
+        data.selected_delivery_method_name
+      );
       if (dateEl && data.departure_date) dateEl.value = String(data.departure_date).slice(0, 10);
       renderShipmentsView(data);
     } catch (e) {
@@ -2681,7 +2691,11 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(detailText(data.detail) || "Ошибка формирования");
       shipmentsState.data = data;
-      fillShipmentsMethods(data.delivery_methods, data.selected_delivery_method_id);
+      fillShipmentsMethods(
+        data.delivery_methods,
+        data.selected_delivery_method_id,
+        data.selected_delivery_method_name
+      );
       renderShipmentsView(data);
       if (data.message) showSyncInfo(String(data.message));
     } catch (e) {
@@ -2693,10 +2707,26 @@
     }
   }
 
-  function shipmentsZoomBarcode() {
-    const img = document.getElementById("ozonFbsShipmentsBarcodeImg");
-    if (!img?.src) return;
-    window.open(img.src, "_blank", "noopener,noreferrer");
+  function shipmentsPrintBarcode() {
+    const sid = shipmentsState.supplyId;
+    const sourceId = shipmentsState.sourceId;
+    if (!sid || !sourceId) return;
+    const dateEl = document.getElementById("ozonFbsShipmentsDate");
+    const methodEl = document.getElementById("ozonFbsShipmentsMethod");
+    const day = String(dateEl?.value || todayIsoDate());
+    const methodId = String(methodEl?.value || shipmentsState.data?.selected_delivery_method_id || "").trim();
+    const barcode = shipmentsState.data?.barcode || {};
+    const carriageId = String(barcode.carriage_id || "").trim();
+    const qs = new URLSearchParams({
+      source_id: String(sourceId),
+      departure_date: day,
+    });
+    if (methodId) qs.set("delivery_method_id", methodId);
+    if (carriageId) qs.set("carriage_id", carriageId);
+    const url =
+      `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/shipments/barcode-print?${qs.toString()}`;
+    openPrintHtml(url, "Разрешите всплывающие окна для печати штрихкода")
+      .catch((e) => alert(String(e.message || e)));
   }
 
   function shipmentsDownloadBarcode() {
@@ -3756,7 +3786,7 @@
   window.closeOzonFbsShipmentsModal = closeShipmentsModal;
   window.reloadOzonFbsShipments = loadShipments;
   window.ozonFbsShipmentsForm = formShipmentsCarriage;
-  window.ozonFbsShipmentsZoomBarcode = shipmentsZoomBarcode;
+  window.ozonFbsShipmentsPrintBarcode = shipmentsPrintBarcode;
   window.ozonFbsShipmentsDownloadBarcode = shipmentsDownloadBarcode;
   window.toggleOzonFbsRowMenu = toggleOzonFbsRowMenu;
   window.closeOzonFbsRowMenus = closeOzonFbsRowMenus;

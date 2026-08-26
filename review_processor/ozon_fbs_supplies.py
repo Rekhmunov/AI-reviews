@@ -1677,14 +1677,14 @@ def get_supply_detail_for_print(
     )
 
 
-def delivery_method_id_for_supply(
+def delivery_method_for_supply(
     repo: ReviewRepository,
     *,
     user_id: int,
     source_id: int,
     supply_id: str,
-) -> int | None:
-    """Resolve Ozon delivery_method.id from the first posting linked to the supply."""
+) -> dict[str, Any] | None:
+    """Resolve Ozon delivery method {id, name} from the first posting in supply."""
     ensure_ozon_fbs_supply_schema(repo)
     sid = str(supply_id or "").strip()
     if not sid:
@@ -1714,13 +1714,40 @@ def delivery_method_id_for_supply(
     if not isinstance(posting, dict):
         return None
     dm = posting.get("delivery_method")
-    if isinstance(dm, dict) and dm.get("id") is not None:
+    if isinstance(dm, dict):
         try:
-            mid = int(dm["id"])
-            return mid if mid > 0 else None
+            mid = int(dm.get("id") or dm.get("delivery_method_id") or 0)
         except (TypeError, ValueError):
-            return None
+            mid = 0
+        name = str(
+            dm.get("name")
+            or dm.get("delivery_method_name")
+            or posting.get("tpl_provider_name")
+            or ""
+        ).strip()
+        if mid > 0:
+            return {"id": mid, "name": name or f"Метод {mid}"}
     return None
+
+
+def delivery_method_id_for_supply(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+) -> int | None:
+    """Resolve Ozon delivery_method.id from the first posting linked to the supply."""
+    info = delivery_method_for_supply(
+        repo, user_id=user_id, source_id=source_id, supply_id=supply_id
+    )
+    if not info:
+        return None
+    try:
+        mid = int(info.get("id") or 0)
+        return mid if mid > 0 else None
+    except (TypeError, ValueError):
+        return None
 
 
 def refresh_supply_postings_from_ozon(

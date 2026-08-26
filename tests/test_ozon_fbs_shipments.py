@@ -7,6 +7,7 @@ from datetime import date
 from unittest.mock import MagicMock
 
 from review_processor.ozon_fbs_shipments import (
+    _block_matches_departure,
     _carriage_status_label,
     _carriage_delivery_blocks,
     _carriage_departure_date,
@@ -14,9 +15,11 @@ from review_processor.ozon_fbs_shipments import (
     _delivery_method_rows,
     _departure_iso,
     _friendly_ozon_api_error,
+    _merge_delivery_methods,
     _normalize_block,
     build_shipments_view,
     pick_default_delivery_method,
+    render_shipment_barcode_print_html,
 )
 
 
@@ -97,11 +100,38 @@ class OzonFbsShipmentsHelpersTests(unittest.TestCase):
     def test_pick_self_delivery_method(self) -> None:
         methods = [
             {"id": 1, "name": "Курьер Ozon"},
-            {"id": 2, "name": "Доставка на ОЗОН самостоятельно"},
+            {"id": 2, "name": "Доставка Ozon самостоятельно, Кинешма"},
             {"id": 3, "name": "ПВЗ"},
         ]
         picked = pick_default_delivery_method(methods)
         self.assertEqual(picked["id"], 2)
+
+    def test_merge_delivery_methods_from_posting_fallback(self) -> None:
+        methods = _merge_delivery_methods(
+            [],
+            {"id": 102, "name": "Доставка Ozon самостоятельно, Кинешма"},
+        )
+        self.assertEqual(len(methods), 1)
+        self.assertEqual(methods[0]["id"], 102)
+
+    def test_block_matches_departure_filters_other_days(self) -> None:
+        day = date(2026, 8, 26)
+        self.assertTrue(
+            _block_matches_departure({"departure_date": "2026-08-26T00:00:00Z"}, day)
+        )
+        self.assertFalse(
+            _block_matches_departure({"departure_date": "2026-08-25T00:00:00Z"}, day)
+        )
+
+    def test_render_barcode_print_html_58x40(self) -> None:
+        html = render_shipment_barcode_print_html(
+            supply_name="Поставка 1",
+            warehouse_name="Кинешма",
+            barcode_text="123",
+            barcode_image_base64="abc",
+        )
+        self.assertIn("58mm 40mm", html)
+        self.assertIn("abc", html)
 
     def test_normalize_empty_carriages_draft(self) -> None:
         block = _normalize_block(
@@ -195,10 +225,14 @@ class OzonFbsShipmentsHelpersTests(unittest.TestCase):
             warehouse_id=1,
             warehouse_name="Склад А",
             departure=date(2026, 8, 25),
-            fallback_delivery_method_id=102,
+            fallback_delivery_method={
+                "id": 102,
+                "name": "Доставка Ozon самостоятельно, Кинешма",
+            },
         )
         self.assertTrue(view["ok"])
         self.assertEqual(view["selected_delivery_method_id"], 102)
+        self.assertEqual(len(view["delivery_methods"]), 1)
         client.carriage_delivery_list.assert_called_once()
 
 

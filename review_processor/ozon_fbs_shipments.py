@@ -48,12 +48,78 @@ def _delivery_method_rows(data: dict[str, Any]) -> tuple[list[dict[str, Any]], b
         rows = [x for x in result if isinstance(x, dict)]
         return rows, bool(data.get("has_next"))
     if isinstance(result, dict):
-        nested = result.get("delivery_methods") or result.get("methods") or []
+        nested = (
+            result.get("delivery_methods")
+            or result.get("methods")
+            or result.get("items")
+            or []
+        )
         if isinstance(nested, list):
             rows = [x for x in nested if isinstance(x, dict)]
             has_next = bool(result.get("has_next") or data.get("has_next"))
             return rows, has_next
     return [], False
+
+
+def _parse_delivery_method_row(raw: dict[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    try:
+        mid = int(raw.get("id") or raw.get("delivery_method_id") or 0)
+    except (TypeError, ValueError):
+        return None
+    if mid <= 0:
+        return None
+    name = str(
+        raw.get("name")
+        or raw.get("delivery_method_name")
+        or raw.get("method_name")
+        or ""
+    ).strip()
+    status = str(raw.get("status") or "").strip().upper()
+    if status == "DISABLED":
+        return None
+    return {
+        "id": mid,
+        "name": name or f"Метод {mid}",
+        "warehouse_id": raw.get("warehouse_id"),
+        "status": status,
+        "cutoff": str(raw.get("cutoff") or ""),
+    }
+
+
+def _merge_delivery_methods(
+    methods: list[dict[str, Any]], extra: dict[str, Any] | None
+) -> list[dict[str, Any]]:
+    if not extra:
+        return methods
+    try:
+        mid = int(extra.get("id") or 0)
+    except (TypeError, ValueError):
+        return methods
+    if mid <= 0:
+        return methods
+    for m in methods:
+        try:
+            if int(m.get("id") or 0) == mid:
+                if not str(m.get("name") or "").strip() and extra.get("name"):
+                    m["name"] = str(extra.get("name") or "")
+                return methods
+        except (TypeError, ValueError):
+            continue
+    methods.append(
+        {
+            "id": mid,
+            "name": str(extra.get("name") or f"Метод {mid}"),
+            "warehouse_id": extra.get("warehouse_id"),
+            "status": str(extra.get("status") or ""),
+            "cutoff": str(extra.get("cutoff") or ""),
+        }
+    )
+    methods.sort(
+        key=lambda m: (-_method_score(str(m.get("name") or "")), str(m.get("name") or ""))
+    )
+    return methods
 
 
 def _carriage_delivery_blocks(data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -78,14 +144,35 @@ def _carriage_delivery_blocks(data: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
+def _block_departure_date(block: dict[str, Any]) -> date | None:
+    dep = str(block.get("departure_date") or "").strip()
+    if not dep:
+        return None
+    try:
+        if "T" in dep:
+            return datetime.fromisoformat(dep.replace("Z", "+00:00")).date()
+        return date.fromisoformat(dep[:10])
+    except ValueError:
+        return None
+
+
+def _block_matches_departure(block: dict[str, Any], departure: date) -> bool:
+    block_day = _block_departure_date(block)
+    if block_day is None:
+        return True
+    return block_day == departure
+
+
 def _carriage_departure_date(day: date) -> str:
     """Date-only filter for ``POST /v2/carriage/delivery/list``."""
     return day.isoformat()
 
 
 PREFERRED_METHOD_HINTS = (
+    "доставка ozon самостоятельно",
+    "доставка на ozon самостоятельно",
     "доставка на озон самостоятельно",
-    "на озон самостоятельно",
+    "на ozon самостоятельно",
     "самостоятельно",
 )
 
@@ -139,6 +226,7 @@ def list_delivery_methods(
     client: oz.OzonFbsClient, *, warehouse_id: int | None
 ) -> list[dict[str, Any]]:
     methods: list[dict[str, Any]] = []
+    seen: set[int] = set()
     offset = 0
     for _ in range(20):
         try:
@@ -149,27 +237,32 @@ def list_delivery_methods(
             raise _friendly_ozon_api_error(exc) from exc
         batch, has_next = _delivery_method_rows(data)
         for raw in batch:
-            if not isinstance(raw, dict):
+            parsed = _parse_delivery_method_row(raw)
+            if not parsed:
                 continue
-            try:
-                mid = int(raw.get("id") or raw.get("delivery_method_id") or 0)
-            except (TypeError, ValueError):
+            mid = int(parsed["id"])
+            if mid in seen:
                 continue
-            if mid <= 0:
-                continue
-            methods.append(
-                {
-                    "id": mid,
-                    "name": str(raw.get("name") or f"Метод {mid}").strip(),
-                    "warehouse_id": raw.get("warehouse_id"),
-                    "status": str(raw.get("status") or ""),
-                    "cutoff": str(raw.get("cutoff") or ""),
-                }
-            )
+            seen.add(mid)
+            methods.append(parsed)
         if not has_next or not batch:
             break
         offset += len(batch)
-    methods.sort(key=lambda m: (-_method_score(str(m.get("name") or "")), str(m.get("name") or "")))
+    methods.sort(
+        key=lambda m: (-_method_score(str(m.get("name") or "")), str(m.get("name") or ""))
+    )
+    return methods
+
+
+def list_delivery_methods_for_warehouse(
+    client: oz.OzonFbsClient, *, warehouse_id: int | None
+) -> list[dict[str, Any]]:
+    """Merge methods for warehouse-specific and global lists."""
+    methods = list_delivery_methods(client, warehouse_id=warehouse_id)
+    if warehouse_id is not None:
+        global_methods = list_delivery_methods(client, warehouse_id=None)
+        for m in global_methods:
+            methods = _merge_delivery_methods(methods, m)
     return methods
 
 
@@ -415,13 +508,16 @@ def build_shipments_view(
     warehouse_name: str,
     departure: date,
     delivery_method_id: int | None = None,
-    fallback_delivery_method_id: int | None = None,
+    fallback_delivery_method: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    methods = list_delivery_methods(client, warehouse_id=warehouse_id)
-    if not methods and warehouse_id is not None:
-        # Fallback: some cabinets return methods only without warehouse filter.
-        methods = list_delivery_methods(client, warehouse_id=None)
-    preferred = delivery_method_id if delivery_method_id is not None else fallback_delivery_method_id
+    methods = list_delivery_methods_for_warehouse(client, warehouse_id=warehouse_id)
+    methods = _merge_delivery_methods(methods, fallback_delivery_method)
+    preferred = delivery_method_id
+    if preferred is None and fallback_delivery_method:
+        try:
+            preferred = int(fallback_delivery_method.get("id") or 0) or None
+        except (TypeError, ValueError):
+            preferred = None
     selected = pick_default_delivery_method(methods, preferred_id=preferred)
     if not selected and preferred is not None:
         try:
@@ -429,13 +525,17 @@ def build_shipments_view(
         except (TypeError, ValueError):
             pref_id = 0
         if pref_id > 0:
-            selected = {"id": pref_id, "name": f"Метод доставки {pref_id}"}
+            fb_name = ""
+            if isinstance(fallback_delivery_method, dict):
+                fb_name = str(fallback_delivery_method.get("name") or "").strip()
+            selected = {"id": pref_id, "name": fb_name or f"Метод доставки {pref_id}"}
+            methods = _merge_delivery_methods(methods, selected)
     if not selected:
         return {
             "ok": False,
             "message": "Не найден активный метод доставки Ozon для склада поставки",
             "departure_date": departure.isoformat(),
-            "delivery_methods": [],
+            "delivery_methods": methods,
             "selected_delivery_method_id": None,
             "blocks": [],
             "barcode": None,
@@ -451,7 +551,20 @@ def build_shipments_view(
     except Exception as exc:
         raise _friendly_ozon_api_error(exc) from exc
 
-    blocks = [_normalize_block(b) for b in _carriage_delivery_blocks(raw)]
+    raw_blocks = [
+        b
+        for b in _carriage_delivery_blocks(raw)
+        if _block_matches_departure(b, departure)
+    ]
+    blocks = [_normalize_block(b) for b in raw_blocks]
+    if blocks:
+        block_method = {
+            "id": blocks[0].get("delivery_method_id") or mid,
+            "name": blocks[0].get("delivery_method_name") or selected.get("name"),
+        }
+        methods = _merge_delivery_methods(methods, block_method)
+        selected = pick_default_delivery_method(methods, preferred_id=mid) or selected
+        mid = int(selected["id"])
     if not blocks:
         blocks = [
             _normalize_block(
@@ -460,11 +573,12 @@ def build_shipments_view(
                     "delivery_method_name": selected.get("name"),
                     "warehouse_id": warehouse_id,
                     "warehouse_name": warehouse_name,
+                    "departure_date": dep_carriage,
                     "carriages": [],
-                "carriage_postings_count": 0,
-                "mandatory_packaged_count": 0,
-                "mandatory_postings_count": 0,
-              }
+                    "carriage_postings_count": 0,
+                    "mandatory_packaged_count": 0,
+                    "mandatory_postings_count": 0,
+                }
             )
         ]
 
@@ -480,7 +594,9 @@ def build_shipments_view(
             except Exception as exc:
                 _log.warning("barcode fetch skipped: %s", exc)
                 barcode = None
-            if barcode and (barcode.get("barcode_text") or barcode.get("barcode_image_base64")):
+            if barcode and (
+                barcode.get("barcode_text") or barcode.get("barcode_image_base64")
+            ):
                 break
         if barcode and (barcode.get("barcode_text") or barcode.get("barcode_image_base64")):
             break
@@ -497,12 +613,6 @@ def build_shipments_view(
         "warehouse_name": warehouse_name or "",
         "blocks": blocks,
         "barcode": barcode,
-        "barcode_help": (
-            "Штрихкод нужен, чтобы передать заказы курьеру или получить пропуск "
-            "на территорию сортировочного центра. Если вы сдаёте заказы на СЦ "
-            "поштучно, формировать отгрузку и печатать штрихкод не нужно. "
-            "После передачи отгрузка останется в статусе «Сформирована»."
-        ),
     }
 
 
@@ -540,7 +650,7 @@ def get_supply_shipments(
         warehouse_name=warehouse_name,
         departure=day,
         delivery_method_id=pref,
-        fallback_delivery_method_id=oz_sup.delivery_method_id_for_supply(
+        fallback_delivery_method=oz_sup.delivery_method_for_supply(
             repo,
             user_id=user_id,
             source_id=source_id,
@@ -643,3 +753,111 @@ def form_shipment(
     )
     refreshed["ok"] = True
     return refreshed
+
+
+def render_shipment_barcode_print_html(
+    *,
+    supply_name: str,
+    warehouse_name: str,
+    barcode_text: str,
+    barcode_image_base64: str,
+    content_type: str = "image/png",
+) -> str:
+    from .ozon_fbs_supplies import _esc
+
+    title = _esc(supply_name or "Поставка")
+    wh = _esc(warehouse_name or "")
+    text = _esc(barcode_text or "")
+    b64 = str(barcode_image_base64 or "").strip()
+    ctype = _esc(content_type or "image/png")
+    if b64:
+        body = f"""
+        <section class="label barcode">
+          <img src="data:{ctype};base64,{b64}" alt="ШК поставки" />
+        </section>"""
+    elif text:
+        body = f"""
+        <section class="label barcode text-only">
+          <div class="code">{text}</div>
+        </section>"""
+    else:
+        body = '<p style="padding:12px">Нет штрихкода для печати.</p>'
+    return f"""<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"/>
+<title>ШК поставки {title}</title>
+<style>
+  @page {{ size: 58mm 40mm; margin: 0; }}
+  * {{ box-sizing: border-box; }}
+  html, body {{ margin: 0; padding: 0; }}
+  body {{ font-family: Arial, sans-serif; color: #0f172a; }}
+  .label {{
+    width: 58mm; height: 40mm; page-break-after: always;
+    overflow: hidden; position: relative;
+  }}
+  .label.barcode {{
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 2mm;
+  }}
+  .label.barcode img {{
+    width: 56mm; max-height: 34mm; object-fit: contain;
+  }}
+  .label.barcode.text-only .code {{
+    font-size: 14px; font-weight: 800; letter-spacing: 0.04em; text-align: center;
+    word-break: break-all; padding: 2mm;
+  }}
+  .toolbar {{ padding: 8px 12px; }}
+  @media print {{ .toolbar {{ display: none !important; }} }}
+</style></head><body>
+  <div class="toolbar"><button onclick="window.print()">Печать</button>
+    <span style="margin-left:8px;color:#64748b;font-size:13px">58×40 · ШК поставки Ozon{f" · {wh}" if wh else ""}</span>
+  </div>
+  {body}
+  <script>window.addEventListener('load',function(){{ setTimeout(function(){{ window.print(); }}, 300); }});</script>
+</body></html>"""
+
+
+def build_shipment_barcode_print(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    client: oz.OzonFbsClient,
+    departure_date: object = None,
+    delivery_method_id: object = None,
+    carriage_id: object = None,
+) -> str:
+    view = get_supply_shipments(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=supply_id,
+        client=client,
+        departure_date=departure_date,
+        delivery_method_id=delivery_method_id,
+    )
+    barcode = view.get("barcode") if isinstance(view.get("barcode"), dict) else None
+    cid = None
+    if carriage_id is not None and str(carriage_id).strip() != "":
+        try:
+            cid = int(carriage_id)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("Некорректный carriage_id") from exc
+    if cid and cid > 0:
+        try:
+            fetched = fetch_carriage_barcode(client, carriage_id=cid)
+            if fetched.get("barcode_text") or fetched.get("barcode_image_base64"):
+                barcode = fetched
+        except Exception as exc:
+            _log.warning("barcode print fetch id=%s: %s", cid, exc)
+    if not barcode or not (
+        barcode.get("barcode_text") or barcode.get("barcode_image_base64")
+    ):
+        raise RuntimeError("Штрихкод появится после формирования отгрузки")
+    return render_shipment_barcode_print_html(
+        supply_name=str(view.get("supply_name") or supply_id),
+        warehouse_name=str(view.get("warehouse_name") or ""),
+        barcode_text=str(barcode.get("barcode_text") or ""),
+        barcode_image_base64=str(barcode.get("barcode_image_base64") or ""),
+        content_type=str(barcode.get("content_type") or "image/png"),
+    )
