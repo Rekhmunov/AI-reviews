@@ -2799,28 +2799,157 @@
   };
 
   function _ozonFbsNormalizeScan(value) {
+    if (typeof _wbFbsKizNormalizeScan === "function") {
+      return _wbFbsKizNormalizeScan(value);
+    }
     return String(value || "").replace(/\s+/g, "").trim();
   }
 
-  async function _ozonFbsPersistStickerScan(postingNumber, scanRaw) {
+  function _ozonFbsStickerScanKey(value) {
+    if (typeof _wbFbsKizScanKey === "function") {
+      return _wbFbsKizScanKey(value);
+    }
+    return _ozonFbsNormalizeScan(value).toLocaleLowerCase("en-US");
+  }
+
+  function _ozonFbsStickerPartsFromPostingNumber(postingNumber) {
     const pn = String(postingNumber || "").trim();
+    if (!pn) return { part_a: "", part_b: "" };
+    const idx = pn.indexOf("-");
+    if (idx < 0) return { part_a: pn, part_b: "" };
+    return {
+      part_a: pn.slice(0, idx).trim(),
+      part_b: pn.slice(idx + 1).trim(),
+    };
+  }
+
+  function _ozonFbsStickerNumberFromRow(row) {
+    const partA = _ozonFbsNormalizeScan(row?.sticker_part_a);
+    const partB = _ozonFbsNormalizeScan(row?.sticker_part_b);
+    if (partA && partB) return `${partA}${partB}`;
+    if (partA || partB) return partA || partB;
+    return _ozonFbsNormalizeScan(row?.posting_number);
+  }
+
+  /**
+   * Ozon FBS sticker match — parity with WB `_wbFbsKizFindBySticker` / backend lookup.
+   * Supports Ozon package-label QR (`upper_barcode`), posting_number, part_a/part_b.
+   */
+  function _ozonFbsFindByStickerInRows(scan, rows) {
+    const raw = _ozonFbsNormalizeScan(scan);
+    if (!raw) return { row: null, ambiguous: false };
+    const rawKey = _ozonFbsStickerScanKey(raw);
+    const rawLower = raw.toLowerCase();
+    const list = Array.isArray(rows) ? rows : [];
+
+    const byBarcode = [];
+    for (const row of list) {
+      const bc = _ozonFbsNormalizeScan(row?.sticker_barcode);
+      if (bc && _ozonFbsStickerScanKey(bc) === rawKey) byBarcode.push(row);
+    }
+    if (byBarcode.length === 1) return { row: byBarcode[0], ambiguous: false };
+    if (byBarcode.length > 1) return { row: null, ambiguous: true, matches: byBarcode };
+
+    const byPnExact = [];
+    for (const row of list) {
+      const pn = String(row?.posting_number || "").trim();
+      if (pn && pn.toLowerCase() === rawLower) byPnExact.push(row);
+    }
+    if (byPnExact.length === 1) return { row: byPnExact[0], ambiguous: false };
+    if (byPnExact.length > 1) return { row: null, ambiguous: true, matches: byPnExact };
+
+    const digits = raw.replace(/\D+/g, "");
+    const matches = [];
+    for (const row of list) {
+      const pn = String(row?.posting_number || "").trim();
+      const pnLower = pn.toLowerCase();
+      if (pnLower && (pnLower === rawLower || rawLower.includes(pnLower) || pnLower.includes(rawLower))) {
+        matches.push(row);
+        continue;
+      }
+      const full = _ozonFbsStickerNumberFromRow(row);
+      const partA = _ozonFbsNormalizeScan(row?.sticker_part_a);
+      const partB = _ozonFbsNormalizeScan(row?.sticker_part_b);
+      if (
+        (full && (_ozonFbsStickerScanKey(full) === rawKey || digits === full.replace(/\D+/g, ""))) ||
+        (partA && partB && digits === `${partA}${partB}`.replace(/\D+/g, "")) ||
+        (
+          partB
+          && (_ozonFbsStickerScanKey(partB) === rawKey || digits === partB.replace(/\D+/g, ""))
+        ) ||
+        (pn && digits.length >= 4 && pn.replace(/\D+/g, "").endsWith(digits.slice(-4)))
+      ) {
+        matches.push(row);
+      }
+    }
+    if (matches.length === 1) return { row: matches[0], ambiguous: false };
+    if (matches.length > 1) {
+      const exact = matches.find((r) => {
+        const pn = String(r?.posting_number || "").trim().toLowerCase();
+        return pn && (pn === rawLower || pn.includes(rawLower) || rawLower.includes(pn));
+      });
+      if (exact) return { row: exact, ambiguous: false };
+      return { row: null, ambiguous: true, matches };
+    }
+    return { row: null, ambiguous: false };
+  }
+
+  function _ozonFbsApplyStickerScanToRow(row, scanRaw) {
+    if (!row) return;
+    const raw = _ozonFbsNormalizeScan(scanRaw);
+    if (!raw) return;
+    const pn = String(row.posting_number || "").trim();
+    const rawLower = raw.toLowerCase();
+    const pnLower = pn.toLowerCase();
+    let partA = String(row.sticker_part_a || "").trim();
+    let partB = String(row.sticker_part_b || "").trim();
+    if (!partA && !partB && pn) {
+      const parts = _ozonFbsStickerPartsFromPostingNumber(pn);
+      partA = parts.part_a;
+      partB = parts.part_b;
+    }
+    let barcode = String(row.sticker_barcode || "").trim();
+    if (rawLower === pnLower || (pnLower && rawLower.includes(pnLower))) {
+      if (!barcode) barcode = raw;
+    } else {
+      barcode = raw;
+    }
+    row.sticker_barcode = barcode;
+    if (partA) row.sticker_part_a = partA;
+    if (partB) row.sticker_part_b = partB;
+  }
+
+  async function _ozonFbsPersistStickerForRow(row, scanRaw) {
+    const pn = String(row?.posting_number || "").trim();
     const raw = _ozonFbsNormalizeScan(scanRaw);
     const sourceId = supplyDetailState.sourceId || state.sourceId;
     if (!pn || !raw || !sourceId) return;
+    _ozonFbsApplyStickerScanToRow(row, raw);
     try {
       await fetch("/api/ozon-fbs/postings/persist-sticker", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...jsonHeaders() },
         body: JSON.stringify({
           source_id: sourceId,
           posting_number: pn,
-          sticker_barcode: raw,
+          sticker_barcode: String(row.sticker_barcode || raw).trim(),
+          sticker_part_a: String(row.sticker_part_a || "").trim(),
+          sticker_part_b: String(row.sticker_part_b || "").trim(),
           supply_id: String(supplyDetailState.supplyId || "").trim() || undefined,
         }),
       });
     } catch (_) {
       /* local bind is best-effort */
     }
+  }
+
+  async function _ozonFbsPersistStickerScan(postingNumber, scanRaw) {
+    const pn = String(postingNumber || "").trim();
+    const row =
+      ozonFbsKizState.rows.find((r) => String(r.posting_number) === pn)
+      || ozonFbsPickState.rows.find((r) => String(r.posting_number) === pn)
+      || { posting_number: pn };
+    await _ozonFbsPersistStickerForRow(row, scanRaw);
   }
 
   function _ozonFbsNormalizeMark(value) {
@@ -3039,45 +3168,11 @@
   }
 
   function _ozonFbsKizFindBySticker(scan) {
-    const raw = _ozonFbsNormalizeScan(scan);
-    if (!raw) return { row: null, ambiguous: false };
-    const rawKey = raw.toLocaleLowerCase("en-US");
-    const byBarcode = [];
-    for (const row of ozonFbsKizState.rows) {
-      const bc = _ozonFbsNormalizeScan(row.sticker_barcode);
-      if (bc && bc.toLocaleLowerCase("en-US") === rawKey) byBarcode.push(row);
-    }
-    if (byBarcode.length === 1) return { row: byBarcode[0], ambiguous: false };
-    if (byBarcode.length > 1) return { row: null, ambiguous: true, matches: byBarcode };
-    return _ozonFbsKizFindByPosting(scan);
+    return _ozonFbsFindByStickerInRows(scan, ozonFbsKizState.rows);
   }
 
   function _ozonFbsKizFindByPosting(scan) {
-    const raw = _ozonFbsNormalizeScan(scan);
-    if (!raw) return { row: null, ambiguous: false };
-    const rawLower = raw.toLowerCase();
-    const matches = [];
-    for (const row of ozonFbsKizState.rows) {
-      const pn = String(row.posting_number || "").trim();
-      if (!pn) continue;
-      const pnLower = pn.toLowerCase();
-      if (pnLower === rawLower || rawLower.includes(pnLower) || pnLower.includes(rawLower)) {
-        matches.push(row);
-      }
-    }
-    if (matches.length === 1) return { row: matches[0], ambiguous: false };
-    if (matches.length > 1) return { row: null, ambiguous: true, matches };
-    const digits = raw.replace(/\D+/g, "");
-    if (digits.length >= 4) {
-      const tail = digits.slice(-4);
-      const byTail = ozonFbsKizState.rows.filter((r) => {
-        const pn = String(r.posting_number || "").replace(/\D+/g, "");
-        return pn.endsWith(tail);
-      });
-      if (byTail.length === 1) return { row: byTail[0], ambiguous: false };
-      if (byTail.length > 1) return { row: null, ambiguous: true, matches: byTail };
-    }
-    return { row: null, ambiguous: false };
+    return _ozonFbsFindByStickerInRows(scan, ozonFbsKizState.rows);
   }
 
   function _ozonFbsKizFindExistingMark(mark) {
@@ -3420,7 +3515,7 @@
       return;
     }
     ozonFbsKizState.pendingPosting = String(found.row.posting_number || "");
-    _ozonFbsPersistStickerScan(ozonFbsKizState.pendingPosting, rawTyped);
+    void _ozonFbsPersistStickerForRow(found.row, rawTyped);
     _ozonFbsKizSetInfo("");
     if (input) input.value = "";
     const meta = document.getElementById("ozonFbsKizScanPromptMeta");
@@ -3746,8 +3841,12 @@
     return { ok: true, barcode: normalized };
   }
 
+  function _ozonFbsPickFindBySticker(scan) {
+    return _ozonFbsFindByStickerInRows(scan, ozonFbsPickState.rows);
+  }
+
   function _ozonFbsPickFindByPosting(scan) {
-    return _ozonFbsKizFindByPosting(scan);
+    return _ozonFbsPickFindBySticker(scan);
   }
 
   function _ozonFbsPickUpdateScanCounter() {
@@ -3803,6 +3902,7 @@
     const showFilled = !!document.getElementById("ozonFbsPickFilterFilled")?.checked;
     const showEmpty = !!document.getElementById("ozonFbsPickFilterEmpty")?.checked;
     const showErrors = !!document.getElementById("ozonFbsPickFilterErrors")?.checked;
+    const pending = String(ozonFbsPickState.pendingPosting || "").trim();
     const rows = (ozonFbsPickState.rows || []).filter((r) => {
       const verified = !!r.pick_verified && !!String(r.pick_barcode || "").trim();
       const pn = String(r.posting_number || "");
@@ -3826,17 +3926,30 @@
     }
     tbody.innerHTML = rows.map((r) => {
       const pn = String(r.posting_number || "");
+      const safePn = esc(pn);
+      const stickerHtml = _ozonFbsKizStickerHtml(r);
       const photo = r.product_photo
         ? `<img class="wb-fbs-product-photo" src="${esc(r.product_photo)}" alt="" width="56" height="56" loading="lazy">`
         : `<span class="wb-fbs-product-ph" aria-hidden="true"></span>`;
-      return `<tr class="wb-fbs-kiz-row" data-posting="${esc(pn)}">
-        <td><div class="wb-fbs-kiz-order-id">${formatOzonPostingNumberHtml(pn)}</div></td>
+      const barcodes = Array.isArray(r.barcodes) ? r.barcodes : [];
+      const barcodeHtml = barcodes.length
+        ? `<div class="wb-fbs-kiz-barcodes" title="Штрихкод товара">${barcodes.map((b) =>
+            `<div class="wb-fbs-kiz-barcode">${esc(b)}</div>`
+          ).join("")}</div>`
+        : "";
+      return `<tr class="wb-fbs-kiz-row${pending === pn ? " is-active" : ""}" data-posting="${safePn}">
+        <td>
+          <div class="wb-fbs-kiz-order-id">${formatOzonPostingNumberHtml(pn)}</div>
+          <div class="wb-fbs-kiz-order-sticker">${stickerHtml}</div>
+        </td>
         <td>
           <div class="wb-fbs-product">
             ${photo}
             <div class="wb-fbs-product-text">
-              <div class="wb-fbs-product-name">${esc(r.product_name || r.offer_id || "—")}</div>
+              <div class="wb-fbs-product-name" title="${esc(r.product_name || r.offer_id || "")}">${esc(r.product_name || r.offer_id || "—")}</div>
               <div class="wb-fbs-product-sub">Арт. ${esc(r.offer_id || "—")}</div>
+              ${barcodeHtml}
+              ${cancelBadgeHtml(r)}
             </div>
           </div>
         </td>
@@ -3935,23 +4048,37 @@
   function onOzonFbsPickStickerScanKey(event) {
     if (!event || event.key !== "Enter") return;
     event.preventDefault();
+    if (typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen()) return;
     const input = event.target;
     if (input?.disabled || input?.readOnly || !ozonFbsPickState.rowsReady) return;
-    const raw = String(input?.value || "").replace(/\s+/g, "").trim();
-    if (!raw) return;
-    const found = _ozonFbsPickFindByPosting(raw);
+    const rawTyped = String(input?.value || "").replace(/\s+/g, "").trim();
+    if (!rawTyped) return;
+    if (typeof _wbFbsKizHasCyrillic === "function" && _wbFbsKizHasCyrillic(rawTyped)) {
+      if (typeof _wbFbsKizBlockRuLayout === "function") _wbFbsKizBlockRuLayout(input);
+      return;
+    }
+    const scan = _ozonFbsNormalizeScan(rawTyped);
+    if (!scan) return;
+    const found = _ozonFbsPickFindBySticker(scan);
     if (found.ambiguous) {
-      _ozonFbsPickSetInfo("Код этикетки совпадает у нескольких отправлений.");
+      const ids = (found.matches || []).map((r) => r.posting_number).slice(0, 5).join(", ");
+      _ozonFbsPickSetInfo(
+        `Код стикера совпадает у нескольких отправлений (${ids}${
+          (found.matches || []).length > 5 ? "…" : ""
+        }). Отсканируйте QR ещё раз.`
+      );
       if (input) input.select();
       return;
     }
     if (!found.row) {
-      _ozonFbsPickSetInfo(`Отправление «${raw}» не найдено среди товаров без маркировки.`);
+      _ozonFbsPickSetInfo(
+        `Отправление «${scan}» не найдено среди товаров без маркировки. Возможно, это товар с КИЗ.`
+      );
       if (input) input.select();
       return;
     }
     ozonFbsPickState.pendingPosting = String(found.row.posting_number || "");
-    _ozonFbsPersistStickerScan(ozonFbsPickState.pendingPosting, raw);
+    _ozonFbsPersistStickerForRow(found.row, scan);
     _ozonFbsPickSetInfo("");
     if (input) input.value = "";
     const meta = document.getElementById("ozonFbsPickScanPromptMeta");
@@ -3976,9 +4103,17 @@
   function onOzonFbsPickSkuScanKey(event) {
     if (!event || event.key !== "Enter") return;
     event.preventDefault();
+    if (typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen()) return;
     const pn = String(ozonFbsPickState.pendingPosting || "");
-    const raw = String(event.target?.value || "").trim();
-    if (!pn || !raw) return;
+    const input = event.target;
+    const rawTyped = String(input?.value || "");
+    if (!pn || !String(rawTyped || "").replace(/\s+/g, "")) return;
+    if (typeof _wbFbsKizHasCyrillic === "function" && _wbFbsKizHasCyrillic(rawTyped)) {
+      if (typeof _wbFbsKizBlockRuLayout === "function") _wbFbsKizBlockRuLayout(input);
+      return;
+    }
+    const raw = _ozonFbsNormalizeScan(rawTyped);
+    if (!raw) return;
     const row = ozonFbsPickState.rows.find((r) => String(r.posting_number) === pn);
     if (!row) {
       cancelOzonFbsPickSkuScan();
@@ -3990,15 +4125,20 @@
       cancelOzonFbsPickSkuScan();
       renderOzonFbsPickVerifyTable();
       _ozonFbsPickSetInfo(check.error || "Ошибка проверки ШК");
+      if (input) input.select();
       return;
     }
     row.pick_verified = true;
     row.pick_barcode = check.barcode;
     delete ozonFbsPickState.errors[pn];
+    const emptyFilter = document.getElementById("ozonFbsPickFilterEmpty");
+    if (emptyFilter) emptyFilter.checked = false;
     cancelOzonFbsPickSkuScan();
     renderOzonFbsPickVerifyTable();
     _ozonFbsPickScheduleLocalAutosave(pn, false);
     _ozonFbsPickSetInfo(`ШК проверен локально для ${pn}`, true);
+    const rowEl = document.querySelector(`#ozonFbsPickTbody tr[data-posting="${pn}"]`);
+    if (rowEl) rowEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
 
   async function openOzonFbsPickVerifyModal() {

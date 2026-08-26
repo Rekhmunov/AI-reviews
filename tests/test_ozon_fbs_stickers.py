@@ -134,23 +134,46 @@ class OzonFbsStickerLookupTests(unittest.TestCase):
         self.assertEqual(out["posting"]["kiz_codes"], ["010460"])
         self.assertTrue(out["posting"]["pick_verified"])
 
-    def test_find_by_sticker_barcode(self) -> None:
+    def test_find_by_posting_number_partial(self) -> None:
         repo = MagicMock()
         conn = MagicMock()
         repo._connect.return_value.__enter__.return_value = conn
         conn.execute.return_value.fetchall.return_value = [
             {
-                "posting_number": "PN-1",
-                "sticker_barcode": "!uKEtQZVx",
-                "sticker_part_a": "",
-                "sticker_part_b": "",
+                "posting_number": "0123604587-1235-1",
+                "sticker_barcode": "",
+                "sticker_part_a": "0123604587",
+                "sticker_part_b": "1235-1",
             }
         ]
         repo._row_to_dict = lambda r: dict(r)
         found = find_postings_by_sticker_scan(
-            repo, user_id=1, source_id=2, scan="!uKEtQZVx"
+            repo, user_id=1, source_id=2, scan="0123604587-1235-1"
         )
-        self.assertEqual(found["row"]["posting_number"], "PN-1")
+        self.assertEqual(found["row"]["posting_number"], "0123604587-1235-1")
+
+    def test_find_by_sticker_part_b_suffix(self) -> None:
+        repo = MagicMock()
+        conn = MagicMock()
+        repo._connect.return_value.__enter__.return_value = conn
+        # part_b exact query returns empty; fuzzy via ILIKE tail
+        conn.execute.return_value.fetchall.side_effect = [
+            [],  # barcode
+            [],  # exact pn
+            [
+                {
+                    "posting_number": "0123604587-1235-1",
+                    "sticker_barcode": "",
+                    "sticker_part_a": "0123604587",
+                    "sticker_part_b": "1235-1",
+                }
+            ],
+        ]
+        repo._row_to_dict = lambda r: dict(r)
+        found = find_postings_by_sticker_scan(
+            repo, user_id=1, source_id=2, scan="1235-1"
+        )
+        self.assertEqual(found["row"]["posting_number"], "0123604587-1235-1")
 
 
 if __name__ == "__main__":
