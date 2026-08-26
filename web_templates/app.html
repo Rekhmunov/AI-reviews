@@ -2645,6 +2645,11 @@
               <button type="button" id="ozonFbsTsdBtn" class="secondary ozon-fbs-stub-btn" disabled title="Скоро">ТСД</button>
             </div>
             <div class="wb-fbs-toolbar-right">
+              <button type="button" id="ozonFbsStickerLookupBtn" class="secondary"
+                      onclick="openOzonFbsStickerLookupModal()"
+                      title="Найти отправление по стикеру или номеру">
+                Поиск по стикеру
+              </button>
               <input id="ozonFbsSearchFilter" class="wb-fbs-search" type="search"
                      placeholder="Поиск по отправлению, артикулу, ШК…"
                      autocomplete="off" oninput="onOzonFbsSearchInput()" />
@@ -2706,6 +2711,52 @@
             </div>
           </div>
         </div>
+
+        <div id="ozonFbsStickerLookupModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsStickerLookupTitle"
+             onclick="if(event.target===this)closeOzonFbsStickerLookupModal()">
+          <div class="modal-card wb-fbs-kiz-modal" style="max-width:720px">
+            <div class="wb-fbs-kiz-header">
+              <div class="wb-fbs-kiz-header-main">
+                <h3 id="ozonFbsStickerLookupTitle" class="wb-fbs-kiz-title">Поиск по стикеру</h3>
+                <p class="wb-fbs-kiz-sub">Сканируйте этикетку отправления или введите номер. Показываются локальные КИЗ и проверка ШК.</p>
+              </div>
+              <button type="button" class="icon-btn secondary" onclick="closeOzonFbsStickerLookupModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <div class="wb-fbs-kiz-scan-bar">
+              <label class="wb-fbs-kiz-scan-label" for="ozonFbsStickerLookupScan">Сканирование</label>
+              <div class="wb-fbs-kiz-scan-field">
+                <input id="ozonFbsStickerLookupScan" class="wb-fbs-kiz-scan-input" type="text" autocomplete="off"
+                       placeholder="Стикер или номер отправления"
+                       onkeydown="onOzonFbsStickerLookupScanKey(event)" />
+                <button type="button" class="wb-fbs-kiz-scan-clear" title="Очистить"
+                        onclick="document.getElementById('ozonFbsStickerLookupScan').value=''">✕</button>
+              </div>
+            </div>
+            <div id="ozonFbsStickerLookupInfo" class="wb-fbs-kiz-info" aria-live="polite"></div>
+            <div id="ozonFbsStickerLookupResult" class="wb-fbs-collect-mgt-body" hidden></div>
+            <h4 class="wb-fbs-kiz-sub" style="margin:16px 0 8px">Журнал сканов</h4>
+            <div class="wb-fbs-table-wrap" style="max-height:240px;overflow:auto">
+              <table class="supplies-main-table wb-fbs-table">
+                <thead>
+                  <tr>
+                    <th>Время</th>
+                    <th>Тип</th>
+                    <th>Отправление</th>
+                    <th>Скан</th>
+                  </tr>
+                </thead>
+                <tbody id="ozonFbsStickerLookupJournalTbody">
+                  <tr><td colspan="4" class="wb-fbs-empty">Загрузка…</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="wb-fbs-collect-mgt-footer" style="margin-top:16px">
+              <button type="button" class="secondary" onclick="closeOzonFbsStickerLookupModal()">Закрыть</button>
+            </div>
+          </div>
+        </div>
+
         <div class="panel supplies-table-panel wb-fbs-table-panel">
           <div class="supplies-table-wrap wb-fbs-table-wrap">
             <table id="ozonFbsOrdersTable" class="supplies-main-table wb-fbs-table">
@@ -5821,7 +5872,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=28"></script>
+  <script src="/static/ozon_fbs.js?v=29"></script>
   <script src="/static/app.js?v=507"></script>
 </body>
 </html>

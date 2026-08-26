@@ -383,6 +383,18 @@ def save_pick_verify(
             )
             continue
         ok_n += 1
+        if verified and barcode:
+            from . import ozon_fbs_scans as oz_scans
+
+            oz_scans.record_posting_scan(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                scan_type=oz_scans.SCAN_PICK,
+                scan_raw=barcode,
+                posting_number=pn,
+                pick_barcode=barcode,
+            )
         results.append(
             {
                 "posting_number": pn,

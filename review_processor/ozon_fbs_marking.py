@@ -411,6 +411,17 @@ def save_marking(
         local_saved_at = str(local_res.get("saved_at") or "")
         if local_ok:
             ok_n += 1
+            from . import ozon_fbs_scans as oz_scans
+
+            oz_scans.record_posting_scan(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                scan_type=oz_scans.SCAN_KIZ,
+                scan_raw=uniq[0] if uniq else "",
+                posting_number=pn,
+                kiz_code=uniq[0] if uniq else "",
+            )
         else:
             err_n += 1
         results.append(

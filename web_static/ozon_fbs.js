@@ -2813,6 +2813,7 @@
           source_id: sourceId,
           posting_number: pn,
           sticker_barcode: raw,
+          supply_id: String(supplyDetailState.supplyId || "").trim() || undefined,
         }),
       });
     } catch (_) {
@@ -3800,6 +3801,148 @@
   window.confirmOzonFbsSelectionSupply = confirmSelectionSupply;
   window.closeOzonFbsSelectionSupplyModal = closeSelectionSupplyModal;
   window.ozonFbsSelectionSupplyNameInput = selectionSupplyNameInput;
+
+  async function loadOzonFbsPostingScansJournal() {
+    const tbody = document.getElementById("ozonFbsStickerLookupJournalTbody");
+    const sourceId = state.sourceId;
+    if (!tbody || !sourceId) return;
+    try {
+      const res = await fetch(
+        `/api/ozon-fbs/postings/scans?source_id=${encodeURIComponent(sourceId)}&limit=80`
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      const items = Array.isArray(data.items) ? data.items : [];
+      if (!items.length) {
+        tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">Журнал пуст</td></tr>`;
+        return;
+      }
+      const typeLabel = (t) => {
+        const k = String(t || "").trim();
+        if (k === "assembly_sticker") return "Стикер";
+        if (k === "kiz") return "КИЗ";
+        if (k === "pick_barcode") return "ШК";
+        if (k === "lookup") return "Поиск";
+        return k || "—";
+      };
+      tbody.innerHTML = items.map((it) => {
+        const at = String(it.scanned_at || "").replace("T", " ").slice(0, 19);
+        const pn = String(it.posting_number || "—");
+        const raw = String(it.scan_raw || it.sticker_barcode || it.kiz_code || it.pick_barcode || "—");
+        return `<tr>
+          <td class="small">${esc(at)}</td>
+          <td>${esc(typeLabel(it.scan_type))}</td>
+          <td>${formatOzonPostingNumberHtml(pn)}</td>
+          <td class="small">${esc(raw.length > 48 ? `${raw.slice(0, 48)}…` : raw)}</td>
+        </tr>`;
+      }).join("");
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty" style="color:#b91c1c">${esc(e.message)}</td></tr>`;
+    }
+  }
+
+  function _ozonFbsStickerLookupSetInfo(text, ok) {
+    const el = document.getElementById("ozonFbsStickerLookupInfo");
+    if (!el) return;
+    el.textContent = String(text || "");
+    el.classList.remove("is-ok", "is-error");
+    if (text && ok) el.classList.add("is-ok");
+    if (text && !ok) el.classList.add("is-error");
+  }
+
+  function _ozonFbsRenderStickerLookupResult(posting) {
+    const box = document.getElementById("ozonFbsStickerLookupResult");
+    if (!box) return;
+    if (!posting) {
+      box.hidden = true;
+      box.innerHTML = "";
+      return;
+    }
+    const pn = String(posting.posting_number || "");
+    const kiz = Array.isArray(posting.kiz_codes) ? posting.kiz_codes.filter(Boolean) : [];
+    const pickOk = posting.pick_verified && posting.pick_barcode;
+    box.hidden = false;
+    box.innerHTML = `
+      <div class="wb-fbs-product" style="margin-bottom:12px">
+        <div class="wb-fbs-product-text">
+          <div class="wb-fbs-kiz-order-id">${formatOzonPostingNumberHtml(pn)}</div>
+          <div class="wb-fbs-product-name">${esc(posting.product_name || posting.offer_id || "—")}</div>
+          <div class="wb-fbs-product-sub">Арт. ${esc(posting.offer_id || "—")} · заказ ${esc(posting.order_number || posting.order_id || "—")}</div>
+        </div>
+      </div>
+      <div class="small"><strong>Стикер:</strong> ${esc(posting.sticker_barcode || "—")}</div>
+      <div class="small"><strong>КИЗ:</strong> ${kiz.length ? esc(kiz.join(", ")) : "не сохранён"}</div>
+      <div class="small"><strong>ШК:</strong> ${pickOk ? esc(posting.pick_barcode) : "не проверен"}</div>
+      ${posting.supply_id ? `<div class="small"><strong>Поставка:</strong> ${esc(posting.supply_id)}</div>` : ""}
+    `;
+  }
+
+  async function runOzonFbsStickerLookup(scanRaw) {
+    const sourceId = state.sourceId;
+    const raw = _ozonFbsNormalizeScan(scanRaw);
+    if (!sourceId || !raw) return;
+    _ozonFbsStickerLookupSetInfo("Поиск…");
+    _ozonFbsRenderStickerLookupResult(null);
+    try {
+      const params = new URLSearchParams({ source_id: String(sourceId), scan: raw });
+      const res = await fetch(`/api/ozon-fbs/postings/lookup?${params}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      if (data.ambiguous) {
+        const cnt = Array.isArray(data.matches) ? data.matches.length : 0;
+        _ozonFbsStickerLookupSetInfo(
+          `Найдено несколько отправлений (${cnt}). Уточните скан.`,
+          false
+        );
+        return;
+      }
+      if (!data.found || !data.posting) {
+        _ozonFbsStickerLookupSetInfo(`Отправление не найдено: «${raw}»`, false);
+        await loadOzonFbsPostingScansJournal();
+        return;
+      }
+      _ozonFbsRenderStickerLookupResult(data.posting);
+      _ozonFbsStickerLookupSetInfo("Найдено", true);
+      await loadOzonFbsPostingScansJournal();
+    } catch (e) {
+      _ozonFbsStickerLookupSetInfo(String(e.message || e), false);
+    }
+  }
+
+  function onOzonFbsStickerLookupScanKey(event) {
+    if (!event || event.key !== "Enter") return;
+    event.preventDefault();
+    const raw = String(event.target?.value || "").trim();
+    if (!raw) return;
+    runOzonFbsStickerLookup(raw);
+    if (event.target) event.target.select();
+  }
+
+  function openOzonFbsStickerLookupModal() {
+    if (!state.sourceId) {
+      alert("Выберите источник Ozon FBS");
+      return;
+    }
+    if (typeof setModalVisibility === "function") setModalVisibility("ozonFbsStickerLookupModal", true);
+    else document.getElementById("ozonFbsStickerLookupModal")?.classList.remove("hidden");
+    _ozonFbsStickerLookupSetInfo("");
+    _ozonFbsRenderStickerLookupResult(null);
+    loadOzonFbsPostingScansJournal();
+    const scan = document.getElementById("ozonFbsStickerLookupScan");
+    if (scan) {
+      scan.value = "";
+      setTimeout(() => scan.focus(), 40);
+    }
+  }
+
+  function closeOzonFbsStickerLookupModal() {
+    if (typeof setModalVisibility === "function") setModalVisibility("ozonFbsStickerLookupModal", false);
+    else document.getElementById("ozonFbsStickerLookupModal")?.classList.add("hidden");
+  }
+
+  window.openOzonFbsStickerLookupModal = openOzonFbsStickerLookupModal;
+  window.closeOzonFbsStickerLookupModal = closeOzonFbsStickerLookupModal;
+  window.onOzonFbsStickerLookupScanKey = onOzonFbsStickerLookupScanKey;
 
   window.closeOzonFbsCollectModal = closeCollectModal;
   window.closeOzonFbsCollectResultModal = closeCollectResultModal;

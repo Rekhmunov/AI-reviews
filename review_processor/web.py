@@ -12130,7 +12130,42 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             },
             set_scanned_at=True,
         )
+        from . import ozon_fbs_scans as oz_scans
+
+        oz_scans.record_posting_scan(
+            repository,
+            user_id=owner_id,
+            source_id=int(source_id),
+            scan_type=oz_scans.SCAN_ASSEMBLY,
+            scan_raw=str(body.get("sticker_barcode") or ""),
+            posting_number=posting_number,
+            supply_id=str(body.get("supply_id") or "").strip() or None,
+        )
         return {"ok": True, "updated": updated, "posting_number": posting_number}
+
+    @app.get("/api/ozon-fbs/postings/scans")
+    def ozon_fbs_posting_scans_list(
+        request: Request,
+        source_id: int,
+        limit: int = 100,
+        scan_type: str | None = None,
+    ) -> dict[str, object]:
+        """Recent Ozon FBS scan journal (marking / pick / lookup)."""
+        from . import ozon_fbs_scans as oz_scans
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        owner_id = _supply_owner_id(user)
+        return oz_scans.list_posting_scans(
+            repository,
+            user_id=owner_id,
+            source_id=int(source_id),
+            limit=limit,
+            scan_type=scan_type,
+        )
 
     @app.post("/api/ozon-fbs/selection/preview")
     async def ozon_fbs_selection_preview(request: Request) -> dict[str, object]:
