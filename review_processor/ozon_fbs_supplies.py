@@ -150,6 +150,75 @@ def list_open_supplies(
     return out
 
 
+def _supply_ids_with_tab(
+    repo: ReviewRepository, *, user_id: int, source_id: int, tab: str
+) -> set[str]:
+    """Distinct local supply ids that have postings on the given Ozon tab."""
+    ensure_ozon_fbs_supply_schema(repo)
+    tab_key = str(tab or "").strip()
+    if not tab_key:
+        return set()
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                """
+                SELECT DISTINCT supply_id FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ? AND tab = ?
+                  AND COALESCE(supply_id, '') != ''
+                """
+            ),
+            (user_id, source_id, tab_key),
+        ).fetchall()
+    out: set[str] = set()
+    for row in rows:
+        sid = str(row["supply_id"] if hasattr(row, "keys") else row[0]).strip()
+        if sid:
+            out.add(sid)
+    return out
+
+
+def list_collect_target_supplies(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> list[dict[str, Any]]:
+    """Open supplies eligible for collect/selection → «Ожидают отгрузки».
+
+    «Доставляются» supplies are excluded — orders land there only after sync.
+    Empty supplies tied to delivering-only postings are excluded as well.
+    """
+    open_supplies = list_open_supplies(repo, user_id=user_id, source_id=source_id)
+    awaiting_ids = _supply_ids_with_tab(
+        repo, user_id=user_id, source_id=source_id, tab=oz.TAB_AWAITING_DELIVER
+    )
+    delivering_ids = _supply_ids_with_tab(
+        repo, user_id=user_id, source_id=source_id, tab=oz.TAB_DELIVERING
+    )
+    eligible: list[dict[str, Any]] = []
+    for s in open_supplies:
+        sid = str(s.get("supply_id") or "").strip()
+        if not sid:
+            continue
+        if sid in awaiting_ids:
+            eligible.append(s)
+        elif s.get("is_empty") and sid not in delivering_ids:
+            eligible.append(s)
+    return eligible
+
+
+def _is_collect_target_supply(
+    repo: ReviewRepository, *, user_id: int, source_id: int, supply_id: str
+) -> bool:
+    sid = str(supply_id or "").strip()
+    if not sid:
+        return False
+    return sid in {
+        str(s.get("supply_id") or "").strip()
+        for s in list_collect_target_supplies(
+            repo, user_id=user_id, source_id=source_id
+        )
+        if str(s.get("supply_id") or "").strip()
+    }
+
+
 def _load_awaiting_packaging_rows(
     repo: ReviewRepository, *, user_id: int, source_id: int
 ) -> list[dict[str, Any]]:
@@ -180,10 +249,13 @@ def preview_ship_all_collect(
         wh = row.get("warehouse_id")
         buckets.setdefault(wh, []).append(row)
 
-    open_supplies = list_open_supplies(repo, user_id=user_id, source_id=source_id)
+    all_open = list_open_supplies(repo, user_id=user_id, source_id=source_id)
+    open_supplies = list_collect_target_supplies(
+        repo, user_id=user_id, source_id=source_id
+    )
     existing_names = {
         str(s.get("name") or "").strip()
-        for s in open_supplies
+        for s in all_open
         if str(s.get("name") or "").strip()
     }
     reserved = set(existing_names)
@@ -211,7 +283,6 @@ def preview_ship_all_collect(
                 and int(sw) == int(warehouse_id)
             ):
                 matching.append(s)
-        candidates = list(matching) + list(empties_pool)
         base = default_supply_name()
         suggested = _unique_supply_name(base, reserved)
         reserved.add(suggested)
@@ -219,6 +290,24 @@ def preview_ship_all_collect(
         label = wh_name or (
             f"склад {warehouse_id}" if warehouse_id is not None else "склад —"
         )
+        if len(matching) >= 2:
+            mode = "choose"
+            candidates = list(matching)
+            default_supply_id = str(matching[0].get("supply_id") or "")
+        elif len(matching) == 1:
+            mode = "add_one"
+            candidates = list(matching)
+            default_supply_id = str(matching[0].get("supply_id") or "")
+        elif empties_pool:
+            chosen_empty = empties_pool[0]
+            mode = "add_one"
+            candidates = [chosen_empty]
+            default_supply_id = str(chosen_empty.get("supply_id") or "")
+            empties_pool = empties_pool[1:]
+        else:
+            mode = "create"
+            candidates = []
+            default_supply_id = ""
         compatible = [
             {
                 "supply_id": s.get("supply_id"),
@@ -229,17 +318,6 @@ def preview_ship_all_collect(
             }
             for s in candidates
         ]
-        if not candidates:
-            mode = "create"
-            default_supply_id = ""
-        elif len(candidates) == 1:
-            mode = "add_one"
-            default_supply_id = str(candidates[0].get("supply_id") or "")
-            if candidates[0].get("is_empty"):
-                empties_pool = [s for s in empties_pool if s is not candidates[0]]
-        else:
-            mode = "choose"
-            default_supply_id = str(candidates[0].get("supply_id") or "")
         groups.append(
             {
                 "group_key": group_key,
@@ -559,6 +637,12 @@ def execute_ship_all_collect(
                 ).strip()
                 if not sid:
                     raise RuntimeError("Не выбрана поставка")
+                if not _is_collect_target_supply(
+                    repo, user_id=user_id, source_id=source_id, supply_id=sid
+                ):
+                    raise RuntimeError(
+                        "Поставка «Доставляются» недоступна для ручного сбора"
+                    )
                 _add_postings_to_supply(
                     repo,
                     user_id=user_id,
@@ -677,7 +761,9 @@ def _compatible_supplies_for_warehouse(
     source_id: int,
     warehouse_id: object,
 ) -> list[dict[str, Any]]:
-    open_supplies = list_open_supplies(repo, user_id=user_id, source_id=source_id)
+    open_supplies = list_collect_target_supplies(
+        repo, user_id=user_id, source_id=source_id
+    )
     out: list[dict[str, Any]] = []
     for s in open_supplies:
         sw = s.get("warehouse_id")
@@ -768,11 +854,14 @@ def preview_selection_supply(
         "warehouse_id": None,
         "warehouse_name": "",
     }
-    open_supplies = list_open_supplies(repo, user_id=user_id, source_id=source_id)
+    all_open = list_open_supplies(repo, user_id=user_id, source_id=source_id)
+    collect_targets = list_collect_target_supplies(
+        repo, user_id=user_id, source_id=source_id
+    )
     existing_names = sorted(
         {
             str(s.get("name") or "").strip()
-            for s in open_supplies
+            for s in all_open
             if str(s.get("name") or "").strip()
         }
     )
@@ -797,7 +886,7 @@ def preview_selection_supply(
         "name_conflict": False,
         "existing_names": existing_names,
         "compatible_supplies": compatible,
-        "has_open_supplies": bool(open_supplies),
+        "has_open_supplies": bool(collect_targets),
     }
 
 

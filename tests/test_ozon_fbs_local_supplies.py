@@ -12,6 +12,7 @@ from review_processor.ozon_fbs_supplies import (
     _unique_supply_name,
     preview_ship_all_collect,
     execute_ship_all_collect,
+    list_collect_target_supplies,
 )
 
 
@@ -100,12 +101,150 @@ class OzonFbsLocalSuppliesTests(unittest.TestCase):
         ), patch(
             "review_processor.ozon_fbs_supplies.list_open_supplies",
             return_value=open_supplies,
+        ), patch(
+            "review_processor.ozon_fbs_supplies._supply_ids_with_tab",
+            side_effect=lambda _repo, *, user_id, source_id, tab: (
+                {"OZ-FBS-2-1"} if tab == "awaiting_deliver" else set()
+            ),
         ):
             preview = preview_ship_all_collect(repo, user_id=1, source_id=2)
 
         self.assertFalse(preview["needs_modal"])
         self.assertEqual(preview["groups"][0]["mode"], "add_one")
         self.assertEqual(preview["groups"][0]["default_supply_id"], "OZ-FBS-2-1")
+
+    def test_preview_ignores_delivering_supply_when_one_awaiting(self) -> None:
+        repo = MagicMock()
+        rows = [
+            {
+                "posting_number": "A-1",
+                "warehouse_id": 10,
+                "warehouse_name": "Склад А",
+            },
+        ]
+        open_supplies = [
+            {
+                "supply_id": "OZ-FBS-AD",
+                "name": "Поставка от 20.08.2026",
+                "warehouse_id": 10,
+                "warehouse_name": "Склад А",
+                "is_empty": False,
+                "order_count": 2,
+                "posting_numbers": ["X-1", "X-2"],
+            },
+            {
+                "supply_id": "OZ-FBS-DL",
+                "name": "Без локальной поставки",
+                "warehouse_id": 10,
+                "warehouse_name": "Склад А",
+                "is_empty": False,
+                "order_count": 1,
+                "posting_numbers": ["D-1"],
+            },
+        ]
+        with patch(
+            "review_processor.ozon_fbs_supplies.ensure_ozon_fbs_supply_schema"
+        ), patch(
+            "review_processor.ozon_fbs_supplies._load_awaiting_packaging_rows",
+            return_value=rows,
+        ), patch(
+            "review_processor.ozon_fbs_supplies.list_open_supplies",
+            return_value=open_supplies,
+        ), patch(
+            "review_processor.ozon_fbs_supplies._supply_ids_with_tab",
+            side_effect=lambda _repo, *, user_id, source_id, tab: (
+                {"OZ-FBS-AD"} if tab == "awaiting_deliver" else {"OZ-FBS-DL"}
+            ),
+        ):
+            preview = preview_ship_all_collect(repo, user_id=1, source_id=2)
+
+        self.assertFalse(preview["needs_modal"])
+        self.assertEqual(preview["groups"][0]["mode"], "add_one")
+        self.assertEqual(preview["groups"][0]["default_supply_id"], "OZ-FBS-AD")
+
+    def test_preview_choose_only_for_two_awaiting_supplies(self) -> None:
+        repo = MagicMock()
+        rows = [
+            {
+                "posting_number": "A-1",
+                "warehouse_id": 10,
+                "warehouse_name": "Склад А",
+            },
+        ]
+        open_supplies = [
+            {
+                "supply_id": "OZ-FBS-1",
+                "name": "Поставка 1",
+                "warehouse_id": 10,
+                "warehouse_name": "Склад А",
+                "is_empty": False,
+                "order_count": 1,
+                "posting_numbers": ["X-1"],
+            },
+            {
+                "supply_id": "OZ-FBS-2",
+                "name": "Поставка 2",
+                "warehouse_id": 10,
+                "warehouse_name": "Склад А",
+                "is_empty": False,
+                "order_count": 1,
+                "posting_numbers": ["X-2"],
+            },
+        ]
+        with patch(
+            "review_processor.ozon_fbs_supplies.ensure_ozon_fbs_supply_schema"
+        ), patch(
+            "review_processor.ozon_fbs_supplies._load_awaiting_packaging_rows",
+            return_value=rows,
+        ), patch(
+            "review_processor.ozon_fbs_supplies.list_open_supplies",
+            return_value=open_supplies,
+        ), patch(
+            "review_processor.ozon_fbs_supplies._supply_ids_with_tab",
+            side_effect=lambda _repo, *, user_id, source_id, tab: (
+                {"OZ-FBS-1", "OZ-FBS-2"} if tab == "awaiting_deliver" else set()
+            ),
+        ):
+            preview = preview_ship_all_collect(repo, user_id=1, source_id=2)
+
+        self.assertTrue(preview["needs_modal"])
+        self.assertEqual(preview["groups"][0]["mode"], "choose")
+        self.assertEqual(len(preview["groups"][0]["compatible_supplies"]), 2)
+
+    def test_list_collect_target_supplies_excludes_delivering_only(self) -> None:
+        repo = MagicMock()
+        open_supplies = [
+            {
+                "supply_id": "AD",
+                "name": "Awaiting",
+                "is_empty": False,
+                "order_count": 1,
+            },
+            {
+                "supply_id": "DL",
+                "name": "Delivering",
+                "is_empty": False,
+                "order_count": 1,
+            },
+            {
+                "supply_id": "EM",
+                "name": "Empty",
+                "is_empty": True,
+                "order_count": 0,
+            },
+        ]
+        with patch(
+            "review_processor.ozon_fbs_supplies.list_open_supplies",
+            return_value=open_supplies,
+        ), patch(
+            "review_processor.ozon_fbs_supplies._supply_ids_with_tab",
+            side_effect=lambda _repo, *, user_id, source_id, tab: (
+                {"AD"} if tab == "awaiting_deliver" else {"DL"}
+            ),
+        ):
+            out = list_collect_target_supplies(repo, user_id=1, source_id=2)
+        ids = {s["supply_id"] for s in out}
+        self.assertEqual(ids, {"AD", "EM"})
 
     def test_execute_create_calls_ship_and_local_supply(self) -> None:
         repo = MagicMock()
