@@ -24989,7 +24989,10 @@ function _wbFbsRestoreRowMenu(menu) {
 }
 
 function _wbFbsCloseRowMenus(exceptId = null) {
-  document.querySelectorAll(".wb-fbs-row-menu.open, .wb-fbs-row-menu[data-ported='1']").forEach((menu) => {
+  document.querySelectorAll(
+    ".wb-fbs-row-menu.open[id^='wbFbsRowMenu_'], "
+    + ".wb-fbs-row-menu[data-ported='1'][id^='wbFbsRowMenu_']"
+  ).forEach((menu) => {
     if (exceptId != null && menu.dataset.orderId === String(exceptId) && menu.classList.contains("open")) {
       return;
     }
@@ -30699,7 +30702,7 @@ document.addEventListener("keydown", (event) => {
   }
 });
 document.addEventListener("scroll", (event) => {
-  if (!document.querySelector(".wb-fbs-row-menu.open")) return;
+  if (!document.querySelector(".wb-fbs-row-menu.open[id^='wbFbsRowMenu_']")) return;
   // Close on table/page scroll so the fixed menu does not float away from its row.
   if (event.target === document || event.target === document.documentElement || event.target === document.body
       || event.target?.closest?.(".wb-fbs-table-wrap")) {

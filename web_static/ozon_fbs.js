@@ -1100,16 +1100,73 @@
     requestAnimationFrame(() => _ozonFbsPositionRowMenu(menu, btn));
   }
 
-  function printOnePostingStickerFromDetail(postingNumber) {
+  async function openPrintPdf(url, popupBlockedMsg) {
+    const res = await fetch(url, { credentials: "same-origin" });
+    if (!res.ok) {
+      let detail = "";
+      try {
+        const data = await res.json();
+        detail = detailText(data.detail);
+      } catch (_) {
+        detail = await res.text().catch(() => "");
+      }
+      throw new Error(detail || `Ошибка печати (${res.status})`);
+    }
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const win = window.open(blobUrl, "_blank");
+    if (!win) {
+      URL.revokeObjectURL(blobUrl);
+      throw new Error(popupBlockedMsg || "Разрешите всплывающие окна");
+    }
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+  }
+
+  function printOnePostingStickerFromDetail(event, postingNumber) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
     closeOzonFbsRowMenus();
     const pn = String(postingNumber || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
-    if (!pn || !sourceId) return;
+    if (!pn || !sourceId) {
+      alert("Не удалось определить отправление или источник OZON ФБС");
+      return;
+    }
     const url =
       `/api/ozon-fbs/postings/stickers-print?source_id=${sourceId}` +
       `&posting_numbers=${encodeURIComponent(pn)}`;
-    const win = window.open(url, "_blank");
-    if (!win) alert("Разрешите всплывающие окна для стикера");
+    const popup = window.open("about:blank", "_blank");
+    if (!popup) {
+      alert("Разрешите всплывающие окна для стикера");
+      return;
+    }
+    fetch(url, { credentials: "same-origin" })
+      .then(async (res) => {
+        if (!res.ok) {
+          let detail = "";
+          try {
+            const data = await res.json();
+            detail = detailText(data.detail);
+          } catch (_) {
+            detail = await res.text().catch(() => "");
+          }
+          throw new Error(detail || `Ошибка печати (${res.status})`);
+        }
+        return res.blob();
+      })
+      .then((blob) => {
+        popup.location.href = URL.createObjectURL(blob);
+      })
+      .catch((e) => {
+        try {
+          popup.close();
+        } catch (_) {
+          /* ignore */
+        }
+        alert(String(e.message || e));
+      });
   }
 
   function cancelBadgeHtml(row) {
@@ -1209,7 +1266,7 @@
                     onclick="toggleOzonFbsRowMenu(event, '${menuKey}')" aria-haspopup="menu">⋮</button>
             <div id="ozonFbsRowMenu_${menuKey}" class="wb-fbs-row-menu" data-posting="${esc(pn)}" role="menu">
               <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
-                      onclick="ozonFbsPrintOnePostingStickerFromDetail(${JSON.stringify(pn)})">
+                      onclick="ozonFbsPrintOnePostingStickerFromDetail(event, ${JSON.stringify(pn)})">
                 Напечатать стикер
               </button>
             </div>
