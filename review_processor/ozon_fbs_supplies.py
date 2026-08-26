@@ -1296,6 +1296,7 @@ def refresh_supply_postings_from_ozon(
         try:
             remote = client.get_posting(pn)
             if isinstance(remote, dict):
+                remote = oz.enrich_posting_marking_flags(client, remote)
                 oz.upsert_posting(
                     repo,
                     user_id=user_id,

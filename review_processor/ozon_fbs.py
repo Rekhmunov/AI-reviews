@@ -435,6 +435,41 @@ class OzonFbsClient:
             {"posting_number": str(posting_number)},
         )
 
+    def product_exemplar_create_or_get_v5(
+        self, posting_number: str, products: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        return self.post_json(
+            "/v5/fbs/posting/product/exemplar/create-or-get",
+            {
+                "posting_number": str(posting_number),
+                "products": products,
+            },
+        )
+
+    def mandatory_mark_is_required(
+        self, posting_number: str, skus: list[int]
+    ) -> list[dict[str, Any]]:
+        """POST /v2/posting/fbs/product/mandatory-mark/is-required per SKU."""
+        clean = []
+        for sku in skus:
+            try:
+                clean.append(int(sku))
+            except (TypeError, ValueError):
+                continue
+        if not clean:
+            return []
+        data = self.post_json(
+            "/v2/posting/fbs/product/mandatory-mark/is-required",
+            {
+                "posting_number": str(posting_number),
+                "sku": clean,
+            },
+        )
+        result = data.get("result")
+        if isinstance(result, list):
+            return [x for x in result if isinstance(x, dict)]
+        return []
+
 
 _OZON_LABEL_BATCH = 20
 
@@ -588,24 +623,100 @@ def _mandatory_mark_sku_ids(posting: dict[str, Any]) -> set[str]:
                 text = str(x or "").strip()
                 if text:
                     ids.add(text)
-    optional = posting.get("optional")
-    if isinstance(optional, dict):
-        arr = optional.get("products_with_possible_mandatory_mark")
-        if isinstance(arr, list):
-            for item in arr:
-                if isinstance(item, dict):
-                    for key in ("sku", "product_id", "id"):
-                        val = item.get(key)
-                        if val is not None:
-                            text = str(val).strip()
-                            if text:
-                                ids.add(text)
-                                break
-                else:
-                    text = str(item or "").strip()
-                    if text:
-                        ids.add(text)
     return ids
+
+
+def _merge_products_requiring_mandatory_mark(
+    posting: dict[str, Any], required_ids: set[str]
+) -> dict[str, Any]:
+    if not required_ids:
+        return posting
+    out = dict(posting)
+    req = out.get("requirements")
+    if not isinstance(req, dict):
+        req = {}
+        out["requirements"] = req
+    existing = req.get("products_requiring_mandatory_mark")
+    merged: list[str] = []
+    if isinstance(existing, list):
+        merged = [str(x).strip() for x in existing if str(x).strip()]
+    for pid in sorted(required_ids):
+        if pid not in merged:
+            merged.append(pid)
+    req["products_requiring_mandatory_mark"] = merged
+    return out
+
+
+def enrich_posting_marking_flags(
+    client: OzonFbsClient,
+    posting: dict[str, Any],
+) -> dict[str, Any]:
+    """Augment posting with marking requirements when get/list omit them."""
+    if not isinstance(posting, dict):
+        return posting
+    products = _products_from_posting(posting)
+    if _mandatory_mark(posting, products):
+        return posting
+    pn = str(posting.get("posting_number") or "").strip()
+    if not pn:
+        return posting
+    sku_ints: list[int] = []
+    payload_products: list[dict[str, Any]] = []
+    for p in products:
+        if bool(p.get("is_marketplace_buyout")):
+            continue
+        product_id = p.get("sku") or p.get("product_id")
+        try:
+            pid = int(product_id)
+        except (TypeError, ValueError):
+            continue
+        sku_ints.append(pid)
+        try:
+            qty = int(p.get("quantity") or 1)
+        except (TypeError, ValueError):
+            qty = 1
+        payload_products.append({"product_id": pid, "quantity": max(qty, 1)})
+    if not sku_ints:
+        return posting
+
+    required_ids: set[str] = set()
+    is_required_checked = False
+    try:
+        for item in client.mandatory_mark_is_required(pn, sku_ints):
+            is_required_checked = True
+            if not item.get("is_required"):
+                continue
+            sku_val = item.get("sku")
+            if sku_val is not None:
+                text = str(sku_val).strip()
+                if text:
+                    required_ids.add(text)
+    except RuntimeError:
+        pass
+    if required_ids:
+        return _merge_products_requiring_mandatory_mark(posting, required_ids)
+    if is_required_checked:
+        return posting
+
+    if not payload_products:
+        return posting
+    try:
+        resp = client.product_exemplar_create_or_get(pn, payload_products)
+    except RuntimeError:
+        try:
+            resp = client.product_exemplar_create_or_get_v5(pn, payload_products)
+        except RuntimeError:
+            return posting
+    for item in resp.get("products") or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("is_mandatory_mark_needed"):
+            pid = item.get("product_id")
+            if pid is not None:
+                text = str(pid).strip()
+                if text:
+                    required_ids.add(text)
+    return _merge_products_requiring_mandatory_mark(posting, required_ids)
 
 
 def posting_requires_marking(row: dict[str, Any]) -> bool:
@@ -707,11 +818,6 @@ def _mandatory_mark(posting: dict[str, Any], products: list[dict[str, Any]]) -> 
     if isinstance(req, dict):
         marks = req.get("products_requiring_mandatory_mark")
         if isinstance(marks, list) and marks:
-            return True
-    optional = posting.get("optional")
-    if isinstance(optional, dict):
-        possible = optional.get("products_with_possible_mandatory_mark")
-        if isinstance(possible, list) and possible:
             return True
     required_skus = _mandatory_mark_sku_ids(posting)
     for p in products:
