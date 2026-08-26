@@ -221,6 +221,11 @@ def build_marking_payload(
                 "kiz_status": status,
                 "cancel_reason_label": str(o.get("cancel_reason_label") or ""),
                 "cancelled": bool(o.get("cancelled")),
+                "order_id": o.get("order_id"),
+                "order_number": str(o.get("order_number") or "").strip(),
+                "sticker_barcode": str(o.get("sticker_barcode") or "").strip(),
+                "sticker_part_a": str(o.get("sticker_part_a") or "").strip(),
+                "sticker_part_b": str(o.get("sticker_part_b") or "").strip(),
             }
         )
     return {

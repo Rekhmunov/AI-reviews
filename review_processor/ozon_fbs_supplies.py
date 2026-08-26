@@ -1887,6 +1887,8 @@ def get_supply_detail(
                     d["kiz_status"] = "empty"
             else:
                 d["kiz_status"] = "empty"
+            sticker = oz.posting_sticker_payload_from_row(d)
+            d.update(sticker)
             orders.append(d)
     return {
         "supply_id": supply.get("supply_id"),

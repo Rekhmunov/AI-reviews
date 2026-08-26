@@ -2800,6 +2800,26 @@
     return String(value || "").replace(/\s+/g, "").trim();
   }
 
+  async function _ozonFbsPersistStickerScan(postingNumber, scanRaw) {
+    const pn = String(postingNumber || "").trim();
+    const raw = _ozonFbsNormalizeScan(scanRaw);
+    const sourceId = supplyDetailState.sourceId || state.sourceId;
+    if (!pn || !raw || !sourceId) return;
+    try {
+      await fetch("/api/ozon-fbs/postings/persist-sticker", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source_id: sourceId,
+          posting_number: pn,
+          sticker_barcode: raw,
+        }),
+      });
+    } catch (_) {
+      /* local bind is best-effort */
+    }
+  }
+
   function _ozonFbsNormalizeMark(value) {
     return String(value || "").replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, "");
   }
@@ -3159,6 +3179,7 @@
       return;
     }
     ozonFbsKizState.pendingPosting = String(found.row.posting_number || "");
+    _ozonFbsPersistStickerScan(ozonFbsKizState.pendingPosting, raw);
     _ozonFbsKizSetInfo("");
     if (input) input.value = "";
     const meta = document.getElementById("ozonFbsKizScanPromptMeta");
@@ -3603,6 +3624,7 @@
       return;
     }
     ozonFbsPickState.pendingPosting = String(found.row.posting_number || "");
+    _ozonFbsPersistStickerScan(ozonFbsPickState.pendingPosting, raw);
     _ozonFbsPickSetInfo("");
     if (input) input.value = "";
     const meta = document.getElementById("ozonFbsPickScanPromptMeta");

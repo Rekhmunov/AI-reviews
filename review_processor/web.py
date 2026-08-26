@@ -12077,6 +12077,61 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         payload["counts"] = counts
         return payload
 
+    @app.get("/api/ozon-fbs/postings/lookup")
+    def ozon_fbs_posting_lookup(
+        request: Request,
+        source_id: int,
+        scan: str,
+    ) -> dict[str, object]:
+        """Find posting by sticker scan / posting_number with local marking + pick state."""
+        from . import ozon_fbs_stickers as oz_stickers
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        if not source_id or not str(scan or "").strip():
+            raise HTTPException(status_code=400, detail="Укажите source_id и scan")
+        owner_id = _supply_owner_id(user)
+        return oz_stickers.lookup_posting_by_scan(
+            repository,
+            user_id=owner_id,
+            source_id=int(source_id),
+            scan=str(scan).strip(),
+        )
+
+    @app.post("/api/ozon-fbs/postings/persist-sticker")
+    async def ozon_fbs_posting_persist_sticker(request: Request) -> dict[str, object]:
+        """Bind scanned sticker QR to posting_number in local DB (Маркировка / Проверка ШК)."""
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        try:
+            body = await request.json()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Некорректный JSON") from exc
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="Некорректный JSON")
+        source_id = body.get("source_id")
+        posting_number = str(body.get("posting_number") or "").strip()
+        if not source_id or not posting_number:
+            raise HTTPException(status_code=400, detail="Укажите source_id и posting_number")
+        owner_id = _supply_owner_id(user)
+        updated = ozon_fbs_mod.persist_posting_stickers_batch(
+            repository,
+            user_id=owner_id,
+            source_id=int(source_id),
+            stickers={
+                posting_number: {
+                    "posting_number": posting_number,
+                    "sticker_barcode": body.get("sticker_barcode"),
+                    "sticker_part_a": body.get("sticker_part_a"),
+                    "sticker_part_b": body.get("sticker_part_b"),
+                }
+            },
+            set_scanned_at=True,
+        )
+        return {"ok": True, "updated": updated, "posting_number": posting_number}
+
     @app.post("/api/ozon-fbs/selection/preview")
     async def ozon_fbs_selection_preview(request: Request) -> dict[str, object]:
         from . import ozon_fbs_supplies as oz_sup

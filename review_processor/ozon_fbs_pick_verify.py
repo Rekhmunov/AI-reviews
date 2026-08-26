@@ -243,6 +243,11 @@ def build_pick_verify_payload(
                 else "",
                 "pick_verified_at": str(local.get("pick_verified_at") or ""),
                 "cancel_reason_label": str(o.get("cancel_reason_label") or ""),
+                "order_id": o.get("order_id"),
+                "order_number": str(o.get("order_number") or "").strip(),
+                "sticker_barcode": str(o.get("sticker_barcode") or "").strip(),
+                "sticker_part_a": str(o.get("sticker_part_a") or "").strip(),
+                "sticker_part_b": str(o.get("sticker_part_b") or "").strip(),
             }
         )
     return {

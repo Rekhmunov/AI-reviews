@@ -577,11 +577,240 @@ def ensure_ozon_fbs_tables(repo: ReviewRepository) -> None:
             "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS pick_verified BOOLEAN NOT NULL DEFAULT FALSE",
             "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS pick_barcode TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS pick_verified_at TIMESTAMPTZ",
+            "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS sticker_barcode TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS sticker_part_a TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS sticker_part_b TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS sticker_scanned_at TIMESTAMPTZ",
         ):
             try:
                 conn.execute(ddl)
             except Exception:
                 pass
+        for idx_sql in (
+            repo._sql(
+                "CREATE INDEX IF NOT EXISTS idx_ozon_fbs_postings_sticker_barcode "
+                "ON ozon_fbs_postings(user_id, source_id, sticker_barcode) "
+                "WHERE sticker_barcode <> ''"
+            ),
+            repo._sql(
+                "CREATE INDEX IF NOT EXISTS idx_ozon_fbs_postings_sticker_part_b "
+                "ON ozon_fbs_postings(user_id, source_id, sticker_part_b) "
+                "WHERE sticker_part_b <> ''"
+            ),
+            repo._sql(
+                "CREATE INDEX IF NOT EXISTS idx_ozon_fbs_postings_posting_number "
+                "ON ozon_fbs_postings(user_id, source_id, posting_number)"
+            ),
+        ):
+            try:
+                conn.execute(idx_sql)
+            except Exception:
+                pass
+
+
+def sticker_parts_from_posting_number(posting_number: object) -> tuple[str, str]:
+    """Split Ozon posting_number into sticker-style parts (order segment + suffix)."""
+    pn = str(posting_number or "").strip()
+    if not pn or "-" not in pn:
+        return pn, ""
+    head, tail = pn.split("-", 1)
+    return str(head or "").strip(), str(tail or "").strip()
+
+
+def sticker_fields_from_posting(posting: dict[str, Any]) -> dict[str, str]:
+    """Derive sticker binding fields from Ozon posting payload (non-destructive hints)."""
+    pn = str(posting.get("posting_number") or "").strip()
+    part_a, part_b = sticker_parts_from_posting_number(pn)
+    barcode = ""
+    barcodes = posting.get("barcodes")
+    if isinstance(barcodes, dict):
+        barcode = str(
+            barcodes.get("upper_barcode") or barcodes.get("lower_barcode") or ""
+        ).strip()
+    return {
+        "sticker_barcode": barcode,
+        "sticker_part_a": part_a,
+        "sticker_part_b": part_b,
+    }
+
+
+def posting_sticker_payload_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Sticker + order linkage fields for API payloads."""
+    pn = str(row.get("posting_number") or "").strip()
+    part_a = str(row.get("sticker_part_a") or "").strip()
+    part_b = str(row.get("sticker_part_b") or "").strip()
+    if not part_a and pn:
+        part_a, part_b = sticker_parts_from_posting_number(pn)
+    return {
+        "posting_number": pn,
+        "order_id": row.get("order_id"),
+        "order_number": str(row.get("order_number") or "").strip(),
+        "sticker_barcode": str(row.get("sticker_barcode") or "").strip(),
+        "sticker_part_a": part_a,
+        "sticker_part_b": part_b,
+    }
+
+
+def load_posting_sticker_map(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_numbers: list[str],
+) -> dict[str, dict[str, Any]]:
+    nums = [str(x).strip() for x in posting_numbers if str(x).strip()]
+    if not nums:
+        return {}
+    ensure_ozon_fbs_tables(repo)
+    placeholders = ", ".join("?" for _ in nums)
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT posting_number, order_id, order_number,
+                       sticker_barcode, sticker_part_a, sticker_part_b
+                FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ?
+                  AND posting_number IN ({placeholders})
+                """
+            ),
+            (user_id, source_id, *nums),
+        ).fetchall()
+    out: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        d = repo._row_to_dict(row)
+        pn = str(d.get("posting_number") or "").strip()
+        if pn:
+            out[pn] = posting_sticker_payload_from_row(d)
+    return out
+
+
+def persist_posting_stickers_batch(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    stickers: dict[str, dict[str, Any]],
+    only_if_empty: bool = False,
+    set_scanned_at: bool = False,
+) -> int:
+    """Persist sticker scan / Ozon label binding on ``ozon_fbs_postings`` by posting_number."""
+    if not stickers:
+        return 0
+    ensure_ozon_fbs_tables(repo)
+    updated = 0
+    scanned_at_sql = "NOW()" if set_scanned_at else "sticker_scanned_at"
+    with repo._connect() as conn:
+        for pn_raw, st in stickers.items():
+            if not isinstance(st, dict):
+                continue
+            pn = str(pn_raw or st.get("posting_number") or "").strip()
+            if not pn:
+                continue
+            barcode = str(
+                st.get("sticker_barcode") or st.get("barcode") or ""
+            ).strip()
+            part_a = str(st.get("sticker_part_a") or st.get("partA") or "").strip()
+            part_b = str(st.get("sticker_part_b") or st.get("partB") or "").strip()
+            if not part_a and not part_b:
+                hint_a, hint_b = sticker_parts_from_posting_number(pn)
+                if not part_a:
+                    part_a = hint_a
+                if not part_b:
+                    part_b = hint_b
+            if not (barcode or part_a or part_b):
+                continue
+            if only_if_empty:
+                cur = conn.execute(
+                    repo._sql(
+                        """
+                        UPDATE ozon_fbs_postings
+                        SET sticker_barcode = CASE
+                                WHEN sticker_barcode = '' AND ? <> '' THEN ?
+                                ELSE sticker_barcode
+                            END,
+                            sticker_part_a = CASE
+                                WHEN sticker_part_a = '' AND ? <> '' THEN ?
+                                ELSE sticker_part_a
+                            END,
+                            sticker_part_b = CASE
+                                WHEN sticker_part_b = '' AND ? <> '' THEN ?
+                                ELSE sticker_part_b
+                            END
+                        WHERE user_id = ? AND source_id = ? AND posting_number = ?
+                        """
+                    ),
+                    (
+                        barcode,
+                        barcode,
+                        part_a,
+                        part_a,
+                        part_b,
+                        part_b,
+                        int(user_id),
+                        int(source_id),
+                        pn,
+                    ),
+                )
+            else:
+                cur = conn.execute(
+                    repo._sql(
+                        f"""
+                        UPDATE ozon_fbs_postings
+                        SET sticker_barcode = CASE
+                                WHEN ? <> '' THEN ?
+                                ELSE sticker_barcode
+                            END,
+                            sticker_part_a = CASE
+                                WHEN ? <> '' THEN ?
+                                ELSE sticker_part_a
+                            END,
+                            sticker_part_b = CASE
+                                WHEN ? <> '' THEN ?
+                                ELSE sticker_part_b
+                            END,
+                            sticker_scanned_at = {scanned_at_sql}
+                        WHERE user_id = ? AND source_id = ? AND posting_number = ?
+                        """
+                    ),
+                    (
+                        barcode,
+                        barcode,
+                        part_a,
+                        part_a,
+                        part_b,
+                        part_b,
+                        int(user_id),
+                        int(source_id),
+                        pn,
+                    ),
+                )
+            try:
+                updated += int(cur.rowcount or 0)
+            except (TypeError, ValueError, AttributeError):
+                pass
+    return updated
+
+
+def apply_posting_sticker_hints(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting: dict[str, Any],
+) -> None:
+    """Fill empty sticker fields from Ozon get/list payload (package barcodes + posting_number)."""
+    pn = str(posting.get("posting_number") or "").strip()
+    if not pn:
+        return
+    hints = sticker_fields_from_posting(posting)
+    persist_posting_stickers_batch(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        stickers={pn: hints},
+        only_if_empty=True,
+    )
 
 
 def _posting_payload_from_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -1026,6 +1255,9 @@ def upsert_posting(
                 _utc_now(),
             ),
         )
+    apply_posting_sticker_hints(
+        repo, user_id=user_id, source_id=source_id, posting=posting
+    )
 
 
 def _tab_counts(repo: ReviewRepository, *, user_id: int, source_id: int | None) -> dict[str, int]:
