@@ -1278,6 +1278,36 @@ def get_supply_detail_for_print(
     )
 
 
+def refresh_supply_postings_from_ozon(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_numbers: list[str],
+    client_id: str,
+    api_key: str,
+) -> None:
+    """Live ``get_posting`` refresh so marking flags match Ozon (list sync is often stale)."""
+    nums = [str(x).strip() for x in posting_numbers if str(x).strip()]
+    if not nums or not str(client_id or "").strip() or not str(api_key or "").strip():
+        return
+    client = oz.OzonFbsClient(str(client_id).strip(), str(api_key).strip())
+    for i, pn in enumerate(nums):
+        try:
+            remote = client.get_posting(pn)
+            if isinstance(remote, dict):
+                oz.upsert_posting(
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    posting=remote,
+                )
+        except Exception as exc:
+            _log.warning("ozon supply detail refresh %s: %s", pn, exc)
+        if i + 1 < len(nums):
+            time.sleep(0.05)
+
+
 def get_supply_detail(
     repo: ReviewRepository,
     *,
@@ -1285,6 +1315,9 @@ def get_supply_detail(
     source_id: int,
     supply_id: str,
     posting_numbers: list[str] | None = None,
+    client_id: str | None = None,
+    api_key: str | None = None,
+    refresh_from_ozon: bool = True,
 ) -> dict[str, Any]:
     supply = get_supply(repo, user_id=user_id, source_id=source_id, supply_id=supply_id)
     if not supply:
@@ -1294,6 +1327,15 @@ def get_supply_detail(
         if posting_numbers is not None
         else list(supply.get("posting_numbers") or [])
     )
+    if refresh_from_ozon and nums and client_id and api_key:
+        refresh_supply_postings_from_ozon(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            posting_numbers=nums,
+            client_id=str(client_id),
+            api_key=str(api_key),
+        )
     name_map = repo.get_product_name_by_article(user_id=user_id)
     ozon_sku_map = repo.get_product_name_by_ozon_sku(user_id=user_id)
     barcode_map = repo.get_product_barcodes_map(user_id=user_id)

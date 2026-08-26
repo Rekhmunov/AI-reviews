@@ -12404,13 +12404,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         owner_id = _supply_owner_id(user)
         if not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id")
-        _ozon_fbs_source_credentials(owner_id, int(source_id))
+        _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
         try:
             return oz_sup.get_supply_detail(
                 repository,
                 user_id=owner_id,
                 source_id=int(source_id),
                 supply_id=str(supply_id),
+                client_id=client_id,
+                api_key=api_key,
             )
         except RuntimeError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
