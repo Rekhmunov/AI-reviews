@@ -1100,6 +1100,28 @@
     requestAnimationFrame(() => _ozonFbsPositionRowMenu(menu, btn));
   }
 
+  async function openPrintPdf(url, popupBlockedMsg) {
+    const res = await fetch(url, { credentials: "same-origin" });
+    if (!res.ok) {
+      let detail = "";
+      try {
+        const data = await res.json();
+        detail = detailText(data.detail);
+      } catch (_) {
+        detail = await res.text().catch(() => "");
+      }
+      throw new Error(detail || `Ошибка печати (${res.status})`);
+    }
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const win = window.open(blobUrl, "_blank");
+    if (!win) {
+      URL.revokeObjectURL(blobUrl);
+      throw new Error(popupBlockedMsg || "Разрешите всплывающие окна");
+    }
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+  }
+
   function printOnePostingStickerFromDetail(event, postingNumber) {
     if (event) {
       event.preventDefault();
@@ -1112,41 +1134,16 @@
       alert("Не удалось определить отправление или источник OZON ФБС");
       return;
     }
+    // Same HTML print flow as the supply «Стикеры» button (reliable in browsers).
+    if (supplyDetailReady()) {
+      openStickersPrint([pn]);
+      return;
+    }
     const url =
       `/api/ozon-fbs/postings/stickers-print?source_id=${sourceId}` +
       `&posting_numbers=${encodeURIComponent(pn)}`;
-    const popup = window.open("about:blank", "_blank");
-    if (!popup) {
-      alert("Разрешите всплывающие окна для стикера");
-      return;
-    }
-    fetch(url, { credentials: "same-origin" })
-      .then(async (res) => {
-        if (!res.ok) {
-          let detail = "";
-          try {
-            const data = await res.json();
-            detail = detailText(data.detail);
-          } catch (_) {
-            detail = await res.text().catch(() => "");
-          }
-          throw new Error(detail || `Ошибка печати (${res.status})`);
-        }
-        return res.blob();
-      })
-      .then((blob) => {
-        const blobUrl = URL.createObjectURL(blob);
-        popup.location.href = blobUrl;
-        setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
-      })
-      .catch((e) => {
-        try {
-          popup.close();
-        } catch (_) {
-          /* ignore */
-        }
-        alert(String(e.message || e));
-      });
+    openPrintPdf(url, "Разрешите всплывающие окна для стикера")
+      .catch((e) => alert(String(e.message || e)));
   }
 
   function cancelBadgeHtml(row) {
@@ -1156,6 +1153,7 @@
   }
 
   function renderSupplyDetail(data) {
+    closeOzonFbsRowMenus();
     const supply = data || supplyDetailState.supply;
     if (!supply) return;
     if (data) supplyDetailState.supply = data;
@@ -1246,7 +1244,7 @@
                     onclick="toggleOzonFbsRowMenu(event, '${menuKey}')" aria-haspopup="menu">⋮</button>
             <div id="ozonFbsRowMenu_${menuKey}" class="wb-fbs-row-menu" data-posting="${esc(pn)}" role="menu">
               <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
-                      onclick="ozonFbsPrintOnePostingStickerFromDetail(event, ${JSON.stringify(pn)})">
+                      data-ozon-action="print-sticker" data-posting="${esc(pn)}">
                 Напечатать стикер
               </button>
             </div>
@@ -1793,12 +1791,32 @@
     openStickersPrint(nums);
   }
 
+  document.addEventListener(
+    "click",
+    (e) => {
+      const t = e.target;
+      if (!(t instanceof Element)) return;
+      const stickerBtn = t.closest("[data-ozon-action='print-sticker']");
+      if (stickerBtn && stickerBtn.closest("[id^='ozonFbsRowMenu_']")) {
+        const pn =
+          String(stickerBtn.getAttribute("data-posting") || "").trim() ||
+          String(stickerBtn.closest("[data-posting]")?.getAttribute("data-posting") || "").trim();
+        if (pn) printOnePostingStickerFromDetail(e, pn);
+        return;
+      }
+    },
+    true
+  );
+
   document.addEventListener("click", (e) => {
     const t = e.target;
     if (!(t instanceof Element)) return;
     if (!t.closest("#ozonFbsPickingSplit")) closePickingMenu();
     if (!t.closest("#ozonFbsStickersSplit")) closeStickersMenu();
-    if (!t.closest(".wb-fbs-row-menu-wrap") && !t.closest("[id^='ozonFbsRowMenu_'].wb-fbs-row-menu")) {
+    if (
+      !t.closest(".wb-fbs-row-menu-wrap") &&
+      !t.closest(".wb-fbs-row-menu[id^='ozonFbsRowMenu_']")
+    ) {
       closeOzonFbsRowMenus();
     }
   });
