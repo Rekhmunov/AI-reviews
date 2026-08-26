@@ -3900,8 +3900,14 @@ _wb_fbs_sync_state: dict[str, object] = {
     "source_ids": [],
     "sources": [],  # per-cabinet progress rows for UI
     "pallet_summary": [],
+    "pallet_summary_error": "",
 }
 _wb_fbs_sync_lock = threading.Lock()
+
+_PALLET_SUMMARY_ERROR = (
+    "Не удалось рассчитать паллеты после синхронизации. "
+    "Проверьте кратность короба и категории товаров (Настройки → Товары)."
+)
 
 # Cap parallel cabinets so one tenant cannot spawn unbounded WB/DB workers.
 _WB_FBS_SYNC_MAX_WORKERS = 8
@@ -3916,6 +3922,9 @@ def _copy_sync_state() -> dict[str, object]:
         dict(x) if isinstance(x, dict) else x
         for x in (_wb_fbs_sync_state.get("pallet_summary") or [])
     ]
+    st["pallet_summary_error"] = str(
+        _wb_fbs_sync_state.get("pallet_summary_error") or ""
+    ).strip()
     st["sources"] = [
         dict(x) if isinstance(x, dict) else x
         for x in (_wb_fbs_sync_state.get("sources") or [])
@@ -4238,6 +4247,7 @@ def start_sync_thread(
                 "source_ids": [j["source_id"] for j in jobs],
                 "sources": source_rows,
                 "pallet_summary": [],
+                "pallet_summary_error": "",
             }
         )
 
@@ -4252,6 +4262,7 @@ def start_sync_thread(
         scope_failures = 0
         stopped = False
         synced_sources = 0
+        pallet_summary_error = ""
         results_lock = threading.Lock()
 
         def _sync_one(job: dict[str, Any]) -> dict[str, Any]:
@@ -4450,19 +4461,25 @@ def start_sync_thread(
                     pallet_summary = compute_wb_fbs_pallet_summary(
                         repo, user_id=user_id, sources=jobs
                     )
-                except Exception:
+                except Exception as exc:
                     _log.exception(
                         "wb_fbs pallet summary failed user=%s", user_id
                     )
                     pallet_summary = []
+                    pallet_summary_error = _PALLET_SUMMARY_ERROR
+                    detail = str(exc).strip()
+                    if detail and detail not in pallet_summary_error:
+                        pallet_summary_error = f"{_PALLET_SUMMARY_ERROR} ({detail})"
 
             with _wb_fbs_sync_lock:
                 _wb_fbs_sync_state["synced"] = total_orders
                 _wb_fbs_sync_state["pallet_summary"] = pallet_summary
+                _wb_fbs_sync_state["pallet_summary_error"] = pallet_summary_error
                 if synced_sources == 0 and scope_failures == len(jobs):
                     _wb_fbs_sync_state["errors"] = []
                     _wb_fbs_sync_state["message"] = SCOPE_ERROR_MESSAGE
                     _wb_fbs_sync_state["pallet_summary"] = []
+                    _wb_fbs_sync_state["pallet_summary_error"] = ""
                 else:
                     _wb_fbs_sync_state["errors"] = all_errors[:8]
                     stats_part = (
@@ -4488,6 +4505,7 @@ def start_sync_thread(
                     _wb_fbs_sync_state["errors"] = [str(exc)]
                     _wb_fbs_sync_state["message"] = f"Ошибка: {exc}"
                 _wb_fbs_sync_state["pallet_summary"] = []
+                _wb_fbs_sync_state["pallet_summary_error"] = ""
         finally:
             with _wb_fbs_sync_lock:
                 _wb_fbs_sync_state["in_progress"] = False

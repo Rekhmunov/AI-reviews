@@ -21,6 +21,7 @@ def _reset_sync_state() -> None:
                 "source_ids": [],
                 "sources": [],
                 "pallet_summary": [],
+                "pallet_summary_error": "",
             }
         )
 
@@ -79,6 +80,36 @@ def test_parallel_sync_runs_sources_concurrently_and_exposes_rows():
         assert rows[2]["orders"] == 12
         assert set(started) == {1, 2}
         repo.mark_wb_fbs_synced.assert_called_once()
+
+
+def test_sync_reports_pallet_summary_error_when_compute_fails():
+    _reset_sync_state()
+    repo = MagicMock()
+    repo.get_wb_fbs_auto_sync_settings.return_value = {"lookback_days": 3}
+    repo.mark_wb_fbs_synced = MagicMock()
+
+    sources = [{"source_id": 1, "api_key": "k1", "name": "Кабинет А FBS"}]
+
+    def fake_sync(repo, *, user_id, source_id, api_key, stop_requested, progress, lookback_days):
+        return {"orders": 5, "supplies": 1, "errors": [], "stopped": False}
+
+    with patch.object(wb_fbs, "sync_wb_fbs_source", side_effect=fake_sync), patch.object(
+        wb_fbs, "compute_wb_fbs_pallet_summary", side_effect=RuntimeError("db locked")
+    ):
+        ok, _msg = wb_fbs.start_sync_thread(repo=repo, user_id=7, sources=sources)
+        assert ok is True
+
+        deadline = time.time() + 3.0
+        while time.time() < deadline:
+            st = wb_fbs.get_sync_state()
+            if not st.get("in_progress"):
+                break
+            time.sleep(0.02)
+
+    st = wb_fbs.get_sync_state()
+    assert st.get("in_progress") is False
+    assert "Не удалось рассчитать паллеты" in str(st.get("pallet_summary_error") or "")
+    assert st.get("pallet_summary") == []
 
 
 def test_get_sync_state_deep_copies_sources():

@@ -7961,6 +7961,20 @@ tr.dnd-over td {
   font-weight: 500;
 }
 .wb-fbs-sync-info-pallets[hidden] { display: none !important; }
+.wb-fbs-sync-info-pallet-error {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+  font-size: 14px;
+  line-height: 1.35;
+}
+.wb-fbs-sync-info-summary {
+  font-weight: 600;
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
 .wb-fbs-sync-info-close {
   flex: 0 0 auto;
   width: 32px;

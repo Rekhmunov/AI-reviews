@@ -65,8 +65,14 @@ _ozon_fbs_sync_state: dict[str, object] = {
     "errors": [],
     "sources": [],
     "pallet_summary": [],
+    "pallet_summary_error": "",
     "cancel_requested": False,
 }
+
+_PALLET_SUMMARY_ERROR = (
+    "Не удалось рассчитать паллеты после синхронизации. "
+    "Проверьте кратность короба и категории товаров (Настройки → Товары)."
+)
 
 
 def is_fbs_source_name(name: object) -> bool:
@@ -1024,6 +1030,9 @@ def _copy_sync_state() -> dict[str, object]:
         dict(x) if isinstance(x, dict) else x
         for x in (_ozon_fbs_sync_state.get("pallet_summary") or [])
     ]
+    st["pallet_summary_error"] = str(
+        _ozon_fbs_sync_state.get("pallet_summary_error") or ""
+    ).strip()
     return st
 
 
@@ -1078,6 +1087,7 @@ def start_sync_thread(
                 "errors": [],
                 "sources": source_rows,
                 "pallet_summary": [],
+                "pallet_summary_error": "",
                 "cancel_requested": False,
             }
         )
@@ -1087,6 +1097,7 @@ def start_sync_thread(
         synced_sources = 0
         total_postings = 0
         stopped = False
+        pallet_summary_error = ""
         try:
             for idx, job in enumerate(jobs):
                 with _ozon_fbs_sync_lock:
@@ -1154,16 +1165,21 @@ def start_sync_thread(
                     pallet_summary = compute_ozon_fbs_pallet_summary(
                         repo, user_id=user_id, sources=jobs
                     )
-                except Exception:
+                except Exception as exc:
                     _log.exception(
                         "ozon_fbs pallet summary failed user=%s", user_id
                     )
                     pallet_summary = []
+                    pallet_summary_error = _PALLET_SUMMARY_ERROR
+                    detail = str(exc).strip()
+                    if detail and detail not in pallet_summary_error:
+                        pallet_summary_error = f"{_PALLET_SUMMARY_ERROR} ({detail})"
 
             with _ozon_fbs_sync_lock:
                 _ozon_fbs_sync_state["in_progress"] = False
                 _ozon_fbs_sync_state["errors"] = errors
                 _ozon_fbs_sync_state["pallet_summary"] = pallet_summary
+                _ozon_fbs_sync_state["pallet_summary_error"] = pallet_summary_error
                 stats_part = (
                     f"Источников: {synced_sources}/{len(jobs)} | "
                     f"Отправлений: {total_postings}"

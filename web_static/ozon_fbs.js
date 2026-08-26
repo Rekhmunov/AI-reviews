@@ -1471,7 +1471,26 @@
   }
 
   /** Mirror WB FBS sync banner: green/red + per-source rows + pallet/box lines. */
-  function showSyncInfo(text, kind = "", palletSummary = null, sourceRows = null) {
+  function syncSourceRows(st, msg) {
+    const sources = Array.isArray(st?.sources) ? st.sources : [];
+    if (!sources.length) return null;
+    if (st?.in_progress) return sources;
+    const hasIssues = (st?.errors || []).length || /ошибк/i.test(String(msg || ""));
+    if (!hasIssues) return null;
+    const bad = sources.filter((row) => {
+      const status = String(row?.status || "");
+      return status === "error" || status === "stopped";
+    });
+    return bad.length ? bad : null;
+  }
+
+  function showSyncInfo(
+    text,
+    kind = "",
+    palletSummary = null,
+    sourceRows = null,
+    palletSummaryError = "",
+  ) {
     const info = document.getElementById("ozonFbsSyncInfo");
     if (!info) return;
     const msg = String(text || "").trim();
@@ -1481,7 +1500,7 @@
 
     if (textEl) {
       if (rowsSrc.length) {
-        textEl.innerHTML = rowsSrc.map((row) => {
+        const rowsHtml = rowsSrc.map((row) => {
           const name = esc(row?.name || `Источник ${row?.source_id || ""}`);
           const line = esc(row?.message || "");
           const st = String(row?.status || "");
@@ -1491,22 +1510,41 @@
           else if (st === "stopped") cls += " is-stopped";
           return `<div class="${cls}"><span class="wb-fbs-sync-info-source-name">${name}</span>: ${line}</div>`;
         }).join("");
+        const showSummary = msg && /готово|остановлено/i.test(msg);
+        if (showSummary) {
+          textEl.innerHTML = `<div class="wb-fbs-sync-info-summary">${esc(msg)}</div>${rowsHtml}`;
+        } else {
+          textEl.innerHTML = rowsHtml;
+        }
       } else {
         textEl.textContent = msg;
       }
     }
 
     const rows = Array.isArray(palletSummary) ? palletSummary : [];
+    const palletErr = String(palletSummaryError || "").trim();
+    const canShowPallets = kind === "ok" || /готово/i.test(msg) || /остановлено/i.test(msg);
     if (palletsEl) {
-      if (rows.length && (kind === "ok" || /готово/i.test(msg))) {
-        palletsEl.innerHTML = rows.map((row) => {
-          const name = esc(row?.name || `Источник ${row?.source_id || ""}`);
-          const label = esc(
-            row?.pallets_label
-            || `${Number(row?.pallets || 0).toFixed(2).replace(".", ",")} паллета`
-          );
-          return `<div class="wb-fbs-sync-info-pallet-row">${name} — ${label}</div>`;
-        }).join("");
+      const parts = [];
+      if (palletErr && canShowPallets) {
+        parts.push(
+          `<div class="wb-fbs-sync-info-pallet-error" role="alert">${esc(palletErr)}</div>`
+        );
+      }
+      if (rows.length && canShowPallets) {
+        parts.push(
+          ...rows.map((row) => {
+            const name = esc(row?.name || `Источник ${row?.source_id || ""}`);
+            const label = esc(
+              row?.pallets_label
+              || `${Number(row?.pallets || 0).toFixed(2).replace(".", ",")} паллета`
+            );
+            return `<div class="wb-fbs-sync-info-pallet-row">${name} — ${label}</div>`;
+          })
+        );
+      }
+      if (parts.length) {
+        palletsEl.innerHTML = parts.join("");
         palletsEl.hidden = false;
       } else {
         palletsEl.innerHTML = "";
@@ -1514,7 +1552,7 @@
       }
     }
 
-    info.hidden = !(msg || rowsSrc.length);
+    info.hidden = !(msg || rowsSrc.length || (palletErr && canShowPallets));
     info.classList.toggle("is-error", kind === "error");
     info.classList.toggle("is-ok", kind === "ok");
     info.style.color = "";
@@ -1548,11 +1586,10 @@
       const pallets = (!running && Array.isArray(st.pallet_summary))
         ? st.pallet_summary
         : null;
-      const sourceRows = (running && Array.isArray(st.sources) && st.sources.length)
-        ? st.sources
-        : null;
-      if (sourceRows) showSyncInfo(text, kind, null, sourceRows);
-      else if (text) showSyncInfo(text, kind, pallets);
+      const palletErr = !running ? String(st.pallet_summary_error || "").trim() : "";
+      const sourceRows = syncSourceRows(st, msg);
+      if (running && sourceRows) showSyncInfo(text, kind, null, sourceRows);
+      else showSyncInfo(text, kind, pallets, sourceRows, palletErr);
       if (running) {
         state.syncPollTimer = setTimeout(pollSyncStatus, 1500);
       } else {

@@ -24889,7 +24889,26 @@ function closeWbFbsSyncInfo() {
 }
 window.closeWbFbsSyncInfo = closeWbFbsSyncInfo;
 
-function _wbFbsSetSyncInfo(text, kind = "", palletSummary = null, sourceRows = null) {
+function _wbFbsSyncSourceRows(st, msg) {
+  const sources = Array.isArray(st?.sources) ? st.sources : [];
+  if (!sources.length) return null;
+  if (st?.in_progress) return sources;
+  const hasIssues = (st?.errors || []).length || /ошибк/i.test(String(msg || ""));
+  if (!hasIssues) return null;
+  const bad = sources.filter((row) => {
+    const status = String(row?.status || "");
+    return status === "error" || status === "stopped";
+  });
+  return bad.length ? bad : null;
+}
+
+function _wbFbsSetSyncInfo(
+  text,
+  kind = "",
+  palletSummary = null,
+  sourceRows = null,
+  palletSummaryError = "",
+) {
   const info = document.getElementById("wbFbsSyncInfo");
   if (!info) return;
   const msg = String(text || "").trim();
@@ -24899,7 +24918,7 @@ function _wbFbsSetSyncInfo(text, kind = "", palletSummary = null, sourceRows = n
 
   if (textEl) {
     if (rowsSrc.length) {
-      textEl.innerHTML = rowsSrc.map((row) => {
+      const rowsHtml = rowsSrc.map((row) => {
         const name = _wbFbsEsc(row?.name || `Источник ${row?.source_id || ""}`);
         const line = _wbFbsEsc(row?.message || "");
         const st = String(row?.status || "");
@@ -24909,6 +24928,12 @@ function _wbFbsSetSyncInfo(text, kind = "", palletSummary = null, sourceRows = n
         else if (st === "stopped") cls += " is-stopped";
         return `<div class="${cls}"><span class="wb-fbs-sync-info-source-name">${name}</span>: ${line}</div>`;
       }).join("");
+      const showSummary = msg && /готово|остановлено/i.test(msg);
+      if (showSummary) {
+        textEl.innerHTML = `<div class="wb-fbs-sync-info-summary">${_wbFbsEsc(msg)}</div>${rowsHtml}`;
+      } else {
+        textEl.innerHTML = rowsHtml;
+      }
     } else {
       textEl.textContent = msg;
     }
@@ -24917,16 +24942,29 @@ function _wbFbsSetSyncInfo(text, kind = "", palletSummary = null, sourceRows = n
   }
 
   const rows = Array.isArray(palletSummary) ? palletSummary : [];
+  const palletErr = String(palletSummaryError || "").trim();
+  const canShowPallets = kind === "ok" || /готово/i.test(msg) || /остановлено/i.test(msg);
   if (palletsEl) {
-    if (rows.length && (kind === "ok" || /готово/i.test(msg))) {
-      palletsEl.innerHTML = rows.map((row) => {
-        const name = _wbFbsEsc(row?.name || `Источник ${row?.source_id || ""}`);
-        const label = _wbFbsEsc(
-          row?.pallets_label
-          || `${Number(row?.pallets || 0).toFixed(2).replace(".", ",")} паллета`
-        );
-        return `<div class="wb-fbs-sync-info-pallet-row">${name} — ${label}</div>`;
-      }).join("");
+    const parts = [];
+    if (palletErr && canShowPallets) {
+      parts.push(
+        `<div class="wb-fbs-sync-info-pallet-error" role="alert">${_wbFbsEsc(palletErr)}</div>`
+      );
+    }
+    if (rows.length && canShowPallets) {
+      parts.push(
+        ...rows.map((row) => {
+          const name = _wbFbsEsc(row?.name || `Источник ${row?.source_id || ""}`);
+          const label = _wbFbsEsc(
+            row?.pallets_label
+            || `${Number(row?.pallets || 0).toFixed(2).replace(".", ",")} паллета`
+          );
+          return `<div class="wb-fbs-sync-info-pallet-row">${name} — ${label}</div>`;
+        })
+      );
+    }
+    if (parts.length) {
+      palletsEl.innerHTML = parts.join("");
       palletsEl.hidden = false;
     } else {
       palletsEl.innerHTML = "";
@@ -24934,7 +24972,7 @@ function _wbFbsSetSyncInfo(text, kind = "", palletSummary = null, sourceRows = n
     }
   }
 
-  info.hidden = !(msg || rowsSrc.length);
+  info.hidden = !(msg || rowsSrc.length || (palletErr && canShowPallets));
   info.classList.toggle("is-error", kind === "error");
   info.classList.toggle("is-ok", kind === "ok");
   info.style.color = "";
@@ -31182,12 +31220,13 @@ function _wbFbsPollSync() {
       const pallets = (!st.in_progress && Array.isArray(st.pallet_summary))
         ? st.pallet_summary
         : null;
-      const sourceRows = (st.in_progress && Array.isArray(st.sources) && st.sources.length)
-        ? st.sources
-        : null;
-      // While running: one line per cabinet. When finished: summary + pallets.
-      if (sourceRows) _wbFbsSetSyncInfo(text, kind, null, sourceRows);
-      else _wbFbsSetSyncInfo(text, kind, pallets);
+      const palletErr = !st.in_progress ? String(st.pallet_summary_error || "").trim() : "";
+      const sourceRows = _wbFbsSyncSourceRows(st, msg);
+      if (st.in_progress && sourceRows) {
+        _wbFbsSetSyncInfo(text, kind, null, sourceRows);
+      } else {
+        _wbFbsSetSyncInfo(text, kind, pallets, sourceRows, palletErr);
+      }
       if (!st.in_progress) {
         clearInterval(wbFbsState.pollTimer);
         wbFbsState.pollTimer = null;
