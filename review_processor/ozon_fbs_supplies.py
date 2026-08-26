@@ -1677,6 +1677,7 @@ def get_supply_detail_for_print(
     )
 
 
+
 def delivery_method_for_supply(
     repo: ReviewRepository,
     *,

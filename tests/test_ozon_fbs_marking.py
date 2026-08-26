@@ -31,22 +31,82 @@ def test_posting_requires_marking_false() -> None:
     assert oz.posting_requires_marking(row) is False
 
 
-def test_posting_requires_marking_from_optional_possible_mark() -> None:
+def test_posting_requires_marking_from_requirements_sku() -> None:
     row = {
         "is_mandatory_mark": False,
         "raw_json": (
-            '{"optional":{"products_with_possible_mandatory_mark":[{"sku":3722013683}]},'
-            '"products":[{"sku":3722013683,"quantity":1}]}'
+            '{"requirements":{"products_requiring_mandatory_mark":["555"]},'
+            '"products":[{"sku":555,"quantity":1}]}'
         ),
     }
     assert oz.posting_requires_marking(row) is True
 
 
-def test_posting_requires_marking_mandatory_mark_list() -> None:
+def test_enrich_posting_marking_from_is_required() -> None:
+    posting = {
+        "posting_number": "0123604587-1235-1",
+        "products": [{"sku": 3722013683, "quantity": 1, "offer_id": "ART"}],
+    }
+    client = MagicMock()
+    client.mandatory_mark_is_required.return_value = [
+        {"sku": 3722013683, "is_required": True}
+    ]
+    out = oz.enrich_posting_marking_flags(client, posting)
+    req = out.get("requirements") or {}
+    assert "3722013683" in (req.get("products_requiring_mandatory_mark") or [])
+    client.product_exemplar_create_or_get.assert_not_called()
+    assert oz.posting_requires_marking(
+        {"is_mandatory_mark": False, "raw_json": __import__("json").dumps(out)}
+    )
+
+
+def test_enrich_posting_marking_is_required_false_skips_marking() -> None:
+    posting = {
+        "posting_number": "0114598183-0259-1",
+        "products": [{"sku": 752040595, "quantity": 1}],
+    }
+    client = MagicMock()
+    client.mandatory_mark_is_required.return_value = [
+        {"sku": 752040595, "is_required": False}
+    ]
+    out = oz.enrich_posting_marking_flags(client, posting)
+    client.product_exemplar_create_or_get.assert_not_called()
+    assert oz.posting_requires_marking(
+        {"is_mandatory_mark": False, "raw_json": __import__("json").dumps(out)}
+    ) is False
+
+
+def test_enrich_posting_marking_from_exemplar_fallback() -> None:
+    posting = {
+        "posting_number": "38972162-0286-1",
+        "products": [{"sku": 3722013683, "quantity": 1, "offer_id": "ART"}],
+    }
+    client = MagicMock()
+    client.mandatory_mark_is_required.side_effect = RuntimeError("403")
+    client.product_exemplar_create_or_get.return_value = {
+        "products": [{"product_id": 3722013683, "is_mandatory_mark_needed": True}]
+    }
+    out = oz.enrich_posting_marking_flags(client, posting)
+    req = out.get("requirements") or {}
+    assert "3722013683" in (req.get("products_requiring_mandatory_mark") or [])
+
+
+def test_posting_requires_marking_mandatory_mark_array() -> None:
     row = {
         "is_mandatory_mark": False,
         "raw_json": (
-            '{"products":[{"sku":123,"quantity":1,"mandatory_mark":["010460..."]}]}'
+            '{"products":[{"sku":777,"quantity":1,"mandatory_mark":["010460"]}]}'
+        ),
+    }
+    assert oz.posting_requires_marking(row) is True
+
+
+def test_posting_requires_marking_from_products_json() -> None:
+    row = {
+        "is_mandatory_mark": False,
+        "raw_json": "{}",
+        "products_json": (
+            '[{"sku":888,"quantity":1,"mandatory_mark":true}]'
         ),
     }
     assert oz.posting_requires_marking(row) is True
@@ -62,26 +122,6 @@ def test_marking_quantity_from_requirements_sku() -> None:
         ),
     }
     assert oz.posting_marking_quantity(row) == 2
-
-
-def test_enrich_posting_marking_from_exemplar() -> None:
-    from unittest.mock import MagicMock
-
-    posting = {
-        "posting_number": "38972162-0286-1",
-        "products": [{"sku": 3722013683, "quantity": 1, "offer_id": "ART"}],
-    }
-    client = MagicMock()
-    client.product_exemplar_create_or_get.return_value = {
-        "products": [{"product_id": 3722013683, "is_mandatory_mark_needed": True}]
-    }
-    out = oz.enrich_posting_marking_flags(client, posting)
-    req = out.get("requirements") or {}
-    assert "3722013683" in (req.get("products_requiring_mandatory_mark") or [])
-    assert oz.posting_requires_marking({"is_mandatory_mark": False, "raw_json": __import__("json").dumps(out)})
-
-
-def test_marking_quantity_from_products() -> None:
     row = {
         "is_mandatory_mark": False,
         "quantity": 1,
