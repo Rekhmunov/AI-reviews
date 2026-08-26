@@ -1100,28 +1100,6 @@
     requestAnimationFrame(() => _ozonFbsPositionRowMenu(menu, btn));
   }
 
-  async function openPrintPdf(url, popupBlockedMsg) {
-    const res = await fetch(url, { credentials: "same-origin" });
-    if (!res.ok) {
-      let detail = "";
-      try {
-        const data = await res.json();
-        detail = detailText(data.detail);
-      } catch (_) {
-        detail = await res.text().catch(() => "");
-      }
-      throw new Error(detail || `Ошибка печати (${res.status})`);
-    }
-    const blob = await res.blob();
-    const blobUrl = URL.createObjectURL(blob);
-    const win = window.open(blobUrl, "_blank");
-    if (!win) {
-      URL.revokeObjectURL(blobUrl);
-      throw new Error(popupBlockedMsg || "Разрешите всплывающие окна");
-    }
-    setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
-  }
-
   function printOnePostingStickerFromDetail(event, postingNumber) {
     if (event) {
       event.preventDefault();
@@ -1157,7 +1135,9 @@
         return res.blob();
       })
       .then((blob) => {
-        popup.location.href = URL.createObjectURL(blob);
+        const blobUrl = URL.createObjectURL(blob);
+        popup.location.href = blobUrl;
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
       })
       .catch((e) => {
         try {
@@ -1622,46 +1602,140 @@
       });
   }
 
+  function _ozonFbsStickersCategorySetInfo(text, kind) {
+    const el = document.getElementById("ozonFbsStickersCategoryInfo");
+    if (!el) return;
+    const msg = String(text || "").trim();
+    if (!msg) {
+      el.hidden = true;
+      el.textContent = "";
+      el.classList.remove("is-error", "is-ok");
+      return;
+    }
+    el.hidden = false;
+    el.textContent = msg;
+    el.classList.toggle("is-error", kind === "error");
+    el.classList.toggle("is-ok", kind === "ok");
+  }
+
+  function _ozonFbsStickersCategoryWord(n) {
+    const abs = Math.abs(Number(n) || 0) % 100;
+    const last = abs % 10;
+    if (abs > 10 && abs < 20) return "категорий";
+    if (last === 1) return "категория";
+    if (last >= 2 && last <= 4) return "категории";
+    return "категорий";
+  }
+
+  function _ozonFbsStickersCategorySyncUi() {
+    const selected = stickersCategoryState.selected;
+    const selectedCount = selected.size;
+    let postingsTotal = 0;
+    for (const g of stickersCategoryState.groups || []) {
+      if (!selected.has(String(g.group_key || ""))) continue;
+      const fromPostings = Array.isArray(g.posting_numbers)
+        ? g.posting_numbers.length
+        : (Array.isArray(g.order_ids) ? g.order_ids.length : 0);
+      const qty = Number(g.qty);
+      postingsTotal += Number.isFinite(qty) && qty > 0 ? qty : fromPostings;
+    }
+    const selEl = document.getElementById("ozonFbsStickersCategorySelected");
+    if (selEl) {
+      selEl.textContent =
+        `Выбрано: ${selectedCount} ${_ozonFbsStickersCategoryWord(selectedCount)}, ` +
+        `Отправлений: ${postingsTotal} шт.`;
+    }
+    const printBtn = document.getElementById("ozonFbsStickersCategoryPrintBtn");
+    if (printBtn) printBtn.disabled = selectedCount <= 0 || stickersCategoryState.loading;
+    document.querySelectorAll("#ozonFbsStickersCategoryList .wb-fbs-stickers-cat-row").forEach((row) => {
+      const key = String(row.dataset.groupKey || "");
+      const checked = selected.has(key);
+      row.classList.toggle("is-checked", checked);
+      const cb = row.querySelector('input[type="checkbox"]');
+      if (cb) cb.checked = checked;
+      const fillBtn = row.querySelector(".wb-fbs-stickers-cat-fill");
+      if (fillBtn) fillBtn.hidden = !checked;
+    });
+  }
+
+  function _ozonFbsStickersCategoryRender() {
+    const box = document.getElementById("ozonFbsStickersCategoryList");
+    if (!box) return;
+    const groups = stickersCategoryState.groups || [];
+    if (!groups.length) {
+      box.innerHTML = `<div class="wb-fbs-empty">${stickersCategoryState.loading ? "Загрузка…" : "Нет товаров для печати"}</div>`;
+      _ozonFbsStickersCategorySyncUi();
+      return;
+    }
+    box.innerHTML = groups.map((g, idx) => {
+      const key = esc(String(g.group_key || ""));
+      const name = esc(String(g.product_name || "—"));
+      const qty = Number(g.qty || 0);
+      return `<div class="wb-fbs-stickers-cat-row" data-group-key="${key}" data-index="${idx}">
+        <input type="checkbox" id="ozonFbsStickersCatCb_${idx}"
+               onchange="onOzonFbsStickersCategoryToggleAt(${idx}, this.checked)" />
+        <label for="ozonFbsStickersCatCb_${idx}">
+          <span class="wb-fbs-stickers-cat-name">${name} — ${qty} шт.</span>
+        </label>
+        <button type="button" class="wb-fbs-stickers-cat-fill" hidden
+                title="Выделить все ниже"
+                aria-label="Выделить все ниже"
+                onclick="ozonFbsStickersCategoryFillDownAt(${idx})">
+          <svg width="14" height="14" viewBox="0 0 12 8" fill="none" aria-hidden="true">
+            <path d="M1 1.5L6 6.5L11 1.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>`;
+    }).join("");
+    _ozonFbsStickersCategorySyncUi();
+  }
+
+  function onOzonFbsStickersCategoryToggleAt(index, checked) {
+    const g = (stickersCategoryState.groups || [])[Number(index)];
+    const key = String((g && g.group_key) || "");
+    if (!key) return;
+    if (checked) stickersCategoryState.selected.add(key);
+    else stickersCategoryState.selected.delete(key);
+    _ozonFbsStickersCategorySyncUi();
+  }
+
+  function ozonFbsStickersCategorySelectAll() {
+    stickersCategoryState.selected = new Set(
+      (stickersCategoryState.groups || []).map((g) => String(g.group_key || "")).filter(Boolean)
+    );
+    _ozonFbsStickersCategorySyncUi();
+  }
+
+  function ozonFbsStickersCategoryClearAll() {
+    stickersCategoryState.selected.clear();
+    _ozonFbsStickersCategorySyncUi();
+  }
+
+  function ozonFbsStickersCategoryFillDownAt(index) {
+    const groups = stickersCategoryState.groups || [];
+    const start = Number(index);
+    if (!Number.isFinite(start) || start < 0 || start >= groups.length) return;
+    for (let i = start; i < groups.length; i += 1) {
+      const gk = String(groups[i].group_key || "");
+      if (gk) stickersCategoryState.selected.add(gk);
+    }
+    _ozonFbsStickersCategorySyncUi();
+  }
+
   function closeStickersByCategoryModal() {
-    document.getElementById("ozonFbsStickersCategoryModal")?.classList.add("hidden");
+    if (typeof setModalVisibility === "function") {
+      setModalVisibility("ozonFbsStickersCategoryModal", false);
+    } else {
+      document.getElementById("ozonFbsStickersCategoryModal")?.classList.add("hidden");
+    }
     stickersCategoryState.groups = [];
     stickersCategoryState.selected = new Set();
     stickersCategoryState.loading = false;
-  }
-
-  function renderStickersByCategory() {
-    const body = document.getElementById("ozonFbsStickersCategoryBody");
-    if (!body) return;
-    const groups = stickersCategoryState.groups || [];
-    if (stickersCategoryState.loading) {
-      body.innerHTML = `<div class="wb-fbs-empty">Загрузка…</div>`;
-      return;
-    }
-    if (!groups.length) {
-      body.innerHTML = `<div class="wb-fbs-empty">Нет товаров для печати</div>`;
-      return;
-    }
-    body.innerHTML = groups.map((g, idx) => {
-      const key = String(g.group_key || "");
-      const checked = stickersCategoryState.selected.has(key) ? "checked" : "";
-      const name = String(g.product_name || g.article || "—");
-      const qty = Number(g.qty || 0);
-      return `<label class="wb-fbs-collect-mgt-supply" style="display:flex;gap:12px;align-items:flex-start;padding:8px 0">
-        <input type="checkbox" data-group-key="${esc(key)}" ${checked}
-               onchange="onOzonFbsStickersCategoryToggle('${esc(key)}', this.checked)" />
-        <span>
-          <span class="wb-fbs-collect-mgt-supply-name">${esc(name)} — ${esc(qty)} шт.</span>
-          <span class="wb-fbs-collect-mgt-supply-meta">Арт. ${esc(g.article || "—")}</span>
-        </span>
-      </label>`;
-    }).join("");
-  }
-
-  function onStickersCategoryToggle(key, checked) {
-    const k = String(key || "");
-    if (!k) return;
-    if (checked) stickersCategoryState.selected.add(k);
-    else stickersCategoryState.selected.delete(k);
+    _ozonFbsStickersCategorySetInfo("");
+    const box = document.getElementById("ozonFbsStickersCategoryList");
+    if (box) box.innerHTML = "";
+    const printBtn = document.getElementById("ozonFbsStickersCategoryPrintBtn");
+    if (printBtn) printBtn.disabled = true;
   }
 
   async function openStickersByCategoryModal() {
@@ -1669,32 +1743,39 @@
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
     if (!sid || !sourceId) return;
-    stickersCategoryState.loading = true;
+    if (!document.getElementById("ozonFbsStickersCategoryModal")) return;
+    if (typeof setModalVisibility === "function") {
+      setModalVisibility("ozonFbsStickersCategoryModal", true);
+    } else {
+      document.getElementById("ozonFbsStickersCategoryModal")?.classList.remove("hidden");
+    }
     stickersCategoryState.groups = [];
     stickersCategoryState.selected = new Set();
-    document.getElementById("ozonFbsStickersCategoryModal")?.classList.remove("hidden");
-    renderStickersByCategory();
+    stickersCategoryState.loading = true;
+    _ozonFbsStickersCategorySetInfo("");
+    _ozonFbsStickersCategoryRender();
     try {
       const res = await fetch(
         `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/sticker-groups?source_id=${sourceId}`
       );
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(detailText(data.detail) || "Ошибка");
+      if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
       stickersCategoryState.groups = Array.isArray(data.groups) ? data.groups : [];
-      stickersCategoryState.selected = new Set(
-        stickersCategoryState.groups.map((g) => String(g.group_key || "")).filter(Boolean)
-      );
+      if (!stickersCategoryState.groups.length) {
+        _ozonFbsStickersCategorySetInfo("В поставке нет товаров для печати", "error");
+      } else {
+        _ozonFbsStickersCategorySetInfo("");
+      }
     } catch (e) {
-      alert(e.message || String(e));
-      closeStickersByCategoryModal();
-      return;
+      _ozonFbsStickersCategorySetInfo(String(e.message || e), "error");
     } finally {
       stickersCategoryState.loading = false;
-      renderStickersByCategory();
+      _ozonFbsStickersCategoryRender();
     }
   }
 
-  function confirmStickersByCategory() {
+  function ozonFbsPrintStickersByCategory() {
+    if (stickersCategoryState.loading) return;
     const selected = stickersCategoryState.selected;
     const nums = [];
     for (const g of stickersCategoryState.groups || []) {
@@ -1707,10 +1788,7 @@
         if (pn) nums.push(pn);
       }
     }
-    if (!nums.length) {
-      alert("Выберите хотя бы одну категорию");
-      return;
-    }
+    if (!nums.length) return;
     closeStickersByCategoryModal();
     openStickersPrint(nums);
   }
@@ -1722,6 +1800,14 @@
     if (!t.closest("#ozonFbsStickersSplit")) closeStickersMenu();
     if (!t.closest(".wb-fbs-row-menu-wrap") && !t.closest("[id^='ozonFbsRowMenu_'].wb-fbs-row-menu")) {
       closeOzonFbsRowMenus();
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    const stickersCat = document.getElementById("ozonFbsStickersCategoryModal");
+    if (stickersCat && !stickersCat.classList.contains("hidden")) {
+      closeStickersByCategoryModal();
     }
   });
 
@@ -3661,8 +3747,11 @@
   window.toggleOzonFbsStickersMenu = toggleStickersMenu;
   window.openOzonFbsStickersByCategoryModal = openStickersByCategoryModal;
   window.closeOzonFbsStickersByCategoryModal = closeStickersByCategoryModal;
-  window.confirmOzonFbsStickersByCategory = confirmStickersByCategory;
-  window.onOzonFbsStickersCategoryToggle = onStickersCategoryToggle;
+  window.ozonFbsPrintStickersByCategory = ozonFbsPrintStickersByCategory;
+  window.onOzonFbsStickersCategoryToggleAt = onOzonFbsStickersCategoryToggleAt;
+  window.ozonFbsStickersCategorySelectAll = ozonFbsStickersCategorySelectAll;
+  window.ozonFbsStickersCategoryClearAll = ozonFbsStickersCategoryClearAll;
+  window.ozonFbsStickersCategoryFillDownAt = ozonFbsStickersCategoryFillDownAt;
   window.openOzonFbsShipmentsModal = openShipmentsModal;
   window.closeOzonFbsShipmentsModal = closeShipmentsModal;
   window.reloadOzonFbsShipments = loadShipments;

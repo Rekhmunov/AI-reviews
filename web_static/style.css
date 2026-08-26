@@ -8394,15 +8394,6 @@ button.ozon-fbs-ship-all-btn:disabled {
   flex: 0 0 auto;
   margin-top: 1px;
 }
-.ozon-fbs-stickers-cat-modal {
-  max-width: 520px;
-  width: min(520px, 92vw);
-  padding: 24px;
-}
-.ozon-fbs-stickers-cat-body {
-  max-height: 50vh;
-  overflow: auto;
-}
 @media (max-width: 720px) {
   .ozon-fbs-shipments-barcode-grid,
   .ozon-fbs-shipments-meta {
@@ -13077,8 +13068,7 @@ button.wb-fbs-kiz-add:disabled {
 
   #ozonFbsCollectModal .wb-fbs-collect-mgt-modal,
   #ozonFbsCollectResultModal .wb-fbs-collect-mgt-result-modal,
-  #ozonFbsSelectionSupplyModal .wb-fbs-collect-mgt-modal,
-  #ozonFbsStickersCategoryModal .ozon-fbs-stickers-cat-modal {
+  #ozonFbsSelectionSupplyModal .wb-fbs-collect-mgt-modal {
     width: 100%;
     max-width: 100%;
     max-height: calc(100dvh - 24px);
@@ -13086,15 +13076,9 @@ button.wb-fbs-kiz-add:disabled {
     border-radius: 12px;
   }
 
-  #ozonFbsStickersCategoryModal #ozonFbsStickersCategoryBody {
-    max-height: 50vh;
-    overflow: auto;
-  }
-
   #ozonFbsCollectModal .wb-fbs-collect-mgt-footer,
   #ozonFbsCollectResultModal .wb-fbs-collect-mgt-footer,
-  #ozonFbsSelectionSupplyModal .wb-fbs-collect-mgt-footer,
-  #ozonFbsStickersCategoryModal .wb-fbs-collect-mgt-footer {
+  #ozonFbsSelectionSupplyModal .wb-fbs-collect-mgt-footer {
     flex-direction: column-reverse;
     gap: 8px;
     margin-top: 16px;
@@ -13103,8 +13087,7 @@ button.wb-fbs-kiz-add:disabled {
 
   #ozonFbsCollectModal .wb-fbs-collect-mgt-footer button,
   #ozonFbsCollectResultModal .wb-fbs-collect-mgt-footer button,
-  #ozonFbsSelectionSupplyModal .wb-fbs-collect-mgt-footer button,
-  #ozonFbsStickersCategoryModal .wb-fbs-collect-mgt-footer button {
+  #ozonFbsSelectionSupplyModal .wb-fbs-collect-mgt-footer button {
     width: 100%;
     min-height: 44px;
   }
