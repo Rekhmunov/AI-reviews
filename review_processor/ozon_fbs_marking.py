@@ -1,4 +1,4 @@
-"""Ozon FBS Chestny ZNAK marking (exemplar API) for supply modal."""
+"""Ozon FBS Chestny ZNAK marking — local draft storage for supply modal."""
 from __future__ import annotations
 
 import json
@@ -134,13 +134,11 @@ def update_posting_marking_codes(
     }
 
 
-def _marking_status(*, codes: list[str], ozon_synced: bool, required_qty: int) -> str:
+def _marking_status(*, codes: list[str], required_qty: int) -> str:
     filled = [c for c in codes if c]
     if not filled:
         return "empty"
-    if len(filled) < max(required_qty, 1):
-        return "pending"
-    if ozon_synced:
+    if len(filled) >= max(required_qty, 1):
         return "ok"
     return "pending"
 
@@ -198,11 +196,7 @@ def build_marking_payload(
             codes = [""] * max(req_qty, 1)
         while len(codes) < req_qty:
             codes.append("")
-        status = _marking_status(
-            codes=codes,
-            ozon_synced=bool(loc.get("ozon_synced")),
-            required_qty=req_qty,
-        )
+        status = _marking_status(codes=codes, required_qty=req_qty)
         rows.append(
             {
                 "posting_number": pn,
@@ -323,12 +317,10 @@ def save_marking(
     *,
     user_id: int,
     source_id: int,
-    client_id: str,
-    api_key: str,
     items: list[dict[str, Any]],
     allowed_posting_numbers: set[str] | None = None,
 ) -> dict[str, Any]:
-    client = oz.OzonFbsClient(client_id, api_key)
+    """Save marking codes locally only. Never calls Ozon."""
     results: list[dict[str, Any]] = []
     ok_n = 0
     err_n = 0
@@ -345,8 +337,6 @@ def save_marking(
                 {
                     "posting_number": pn,
                     "ok": False,
-                    "local_ok": False,
-                    "ozon_ok": False,
                     "kiz_codes": [],
                     "error": "Отправление не входит в эту поставку",
                 }
@@ -365,7 +355,6 @@ def save_marking(
             seen.add(c)
             uniq.append(c)
         clear = bool(raw.get("clear"))
-        local_only = bool(raw.get("local_only"))
         if not uniq and not clear:
             skipped_n += 1
             continue
@@ -387,8 +376,6 @@ def save_marking(
                 {
                     "posting_number": pn,
                     "ok": False,
-                    "local_ok": False,
-                    "ozon_ok": False,
                     "conflict": True,
                     "kiz_codes": list(local_res.get("codes") or []),
                     "kiz_saved_at": str(local_res.get("saved_at") or ""),
@@ -402,8 +389,6 @@ def save_marking(
                 {
                     "posting_number": pn,
                     "ok": False,
-                    "local_ok": False,
-                    "ozon_ok": False,
                     "kiz_codes": uniq,
                     "error": "Отправление не найдено локально",
                 }
@@ -411,57 +396,16 @@ def save_marking(
             continue
         local_ok = bool(local_res.get("ok"))
         local_saved_at = str(local_res.get("saved_at") or "")
-        if local_only or not uniq:
-            ok_n += 1 if local_ok else 0
-            if not local_ok:
-                err_n += 1
-            results.append(
-                {
-                    "posting_number": pn,
-                    "ok": local_ok,
-                    "local_ok": local_ok,
-                    "ozon_ok": False,
-                    "kiz_codes": uniq,
-                    "kiz_saved_at": local_saved_at,
-                }
-            )
-            continue
-        ozon_ok = False
-        ozon_err = ""
-        try:
-            row = oz_detail.get_posting_row(
-                repo, user_id=user_id, source_id=source_id, posting_number=pn
-            )
-            posting = _posting_dict_from_row(row or {})
-            if not posting and row:
-                posting = dict(row)
-            push_marking_to_ozon(client, posting_number=pn, posting=posting, codes=uniq)
-            ozon_ok = True
-            update_posting_marking_codes(
-                repo,
-                user_id=user_id,
-                source_id=source_id,
-                posting_number=pn,
-                codes=uniq,
-                ozon_synced=True,
-                force=True,
-            )
-        except Exception as exc:
-            ozon_err = str(exc).strip() or "Ozon API error"
-            _log.warning("ozon marking save %s: %s", pn, exc)
-        if ozon_ok:
+        if local_ok:
             ok_n += 1
         else:
             err_n += 1
         results.append(
             {
                 "posting_number": pn,
-                "ok": local_ok and ozon_ok,
-                "local_ok": local_ok,
-                "ozon_ok": ozon_ok,
+                "ok": local_ok,
                 "kiz_codes": uniq,
                 "kiz_saved_at": local_saved_at,
-                "error": ozon_err,
             }
         )
     return {

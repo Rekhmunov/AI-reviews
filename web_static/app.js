@@ -26857,6 +26857,7 @@ function _wbFbsKizIsGsKeyEvent(event) {
 function _wbFbsKizIsGsPreserveTarget(el) {
   if (!el || el.disabled || el.readOnly) return false;
   if (el.id === "wbFbsKizMarkScan") return true;
+  if (el.id === "ozonFbsKizMarkScan") return true;
   if (el.id === "wbFbsKizRestoreScan") return true;
   if (el.id === "supplyStockReceiptScan") return true;
   return !!(el.classList && el.classList.contains("wb-fbs-kiz-code-input"));

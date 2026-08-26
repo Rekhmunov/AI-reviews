@@ -12521,7 +12521,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         items = body.get("items") if isinstance(body, dict) else None
         if not isinstance(items, list) or not items:
             raise HTTPException(status_code=400, detail="Укажите items[]")
-        _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
         supply = oz_sup.get_supply(
             repository, user_id=owner_id, source_id=int(source_id), supply_id=sid
         )
@@ -12537,11 +12536,94 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 repository,
                 user_id=owner_id,
                 source_id=int(source_id),
-                client_id=client_id,
-                api_key=api_key,
                 items=items,
                 allowed_posting_numbers=allowed,
             )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/ozon-fbs/supplies/{supply_id}/pick-verify")
+    def ozon_fbs_supply_pick_verify_list(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+    ) -> dict[str, object]:
+        """Postings without КИЗ: local EAN pick-check payload (owner only)."""
+        from . import ozon_fbs_pick_verify as oz_pick
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        if not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Проверка ШК доступна только главному пользователю",
+            )
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid or not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        try:
+            return oz_pick.build_pick_verify_payload(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                supply_id=sid,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.put("/api/ozon-fbs/supplies/{supply_id}/pick-verify")
+    async def ozon_fbs_supply_pick_verify_save(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+    ) -> dict[str, object]:
+        """Save local ШК pick-check for Ozon FBS (no Ozon API). Owner only."""
+        from . import ozon_fbs_pick_verify as oz_pick
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        if not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Проверка ШК доступна только главному пользователю",
+            )
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid or not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        try:
+            body = await request.json()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Некорректный JSON") from exc
+        items = body.get("items") if isinstance(body, dict) else None
+        if not isinstance(items, list):
+            raise HTTPException(status_code=400, detail="Укажите items[]")
+        supply = oz_sup.get_supply(
+            repository, user_id=owner_id, source_id=int(source_id), supply_id=sid
+        )
+        if not supply:
+            raise HTTPException(status_code=404, detail="Поставка не найдена")
+        allowed = {
+            str(x).strip()
+            for x in (supply.get("posting_numbers") or [])
+            if str(x).strip()
+        }
+        try:
+            return oz_pick.save_pick_verify(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                items=items,
+                allowed_posting_numbers=allowed,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 

@@ -1343,12 +1343,11 @@ def get_supply_detail(
                     parsed_codes = []
                 if not isinstance(parsed_codes, list):
                     parsed_codes = []
-                synced = bool(d.get("marking_ozon_synced"))
                 codes_clean = [
                     wb._kiz_code_clean(x) for x in parsed_codes if wb._kiz_code_clean(x)
                 ]
                 req_qty = int(d["kiz_quantity"] or 1)
-                if synced and len(codes_clean) >= req_qty:
+                if len(codes_clean) >= req_qty:
                     d["kiz_status"] = "ok"
                 elif codes_clean:
                     d["kiz_status"] = "pending"

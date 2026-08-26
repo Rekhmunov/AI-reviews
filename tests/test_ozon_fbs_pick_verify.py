@@ -1,0 +1,134 @@
+"""Tests for Ozon FBS local pick-verify (ШК check without КИЗ)."""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock, patch
+
+from review_processor.ozon_fbs_pick_verify import (
+    build_pick_verify_payload,
+    save_pick_verify,
+    update_posting_pick_verify,
+)
+
+
+def test_build_pick_verify_payload_plain_only() -> None:
+    detail = {
+        "supply_id": "OZ-1",
+        "orders": [
+            {
+                "posting_number": "P-1",
+                "kiz_required": False,
+                "product_name": "Plain",
+                "offer_id": "A1",
+                "barcodes": ["4601234567890"],
+            },
+            {
+                "posting_number": "P-2",
+                "kiz_required": True,
+                "product_name": "Marked",
+            },
+            {
+                "posting_number": "P-3",
+                "kiz_required": False,
+                "cancelled": True,
+                "cancel_reason_label": "Отмена",
+            },
+        ],
+    }
+    with (
+        patch(
+            "review_processor.ozon_fbs_pick_verify.oz_sup.get_supply_detail",
+            return_value=detail,
+        ),
+        patch(
+            "review_processor.ozon_fbs_pick_verify.load_posting_pick_map",
+            return_value={"P-1": {"pick_verified": False, "pick_barcode": "", "pick_verified_at": ""}},
+        ),
+    ):
+        payload = build_pick_verify_payload(
+            MagicMock(), user_id=1, source_id=2, supply_id="OZ-1"
+        )
+    assert payload["plain_count"] == 1
+    assert payload["rows"][0]["posting_number"] == "P-1"
+
+
+def test_save_pick_verify_validates_barcode() -> None:
+    with (
+        patch(
+            "review_processor.ozon_fbs_pick_verify.load_posting_barcodes_map",
+            return_value={"P-1": ["4601234567890"]},
+        ),
+        patch(
+            "review_processor.ozon_fbs_pick_verify.update_posting_pick_verify",
+            return_value={
+                "ok": True,
+                "conflict": False,
+                "verified": True,
+                "barcode": "4601234567890",
+                "verified_at": "2026-01-01T00:00:00+00:00",
+            },
+        ) as upd,
+    ):
+        out = save_pick_verify(
+            MagicMock(),
+            user_id=1,
+            source_id=2,
+            items=[
+                {
+                    "posting_number": "P-1",
+                    "pick_verified": True,
+                    "pick_barcode": "4601234567890",
+                }
+            ],
+            allowed_posting_numbers={"P-1"},
+        )
+    assert out["ok"] is True
+    assert out["saved"] == 1
+    upd.assert_called_once()
+
+
+def test_save_pick_verify_rejects_bad_barcode() -> None:
+    with patch(
+        "review_processor.ozon_fbs_pick_verify.load_posting_barcodes_map",
+        return_value={"P-1": ["4601234567890"]},
+    ):
+        out = save_pick_verify(
+            MagicMock(),
+            user_id=1,
+            source_id=2,
+            items=[
+                {
+                    "posting_number": "P-1",
+                    "pick_verified": True,
+                    "pick_barcode": "9999999999999",
+                }
+            ],
+            allowed_posting_numbers={"P-1"},
+        )
+    assert out["ok"] is False
+    assert out["errors"] == 1
+
+
+def test_update_posting_pick_verify_conflict() -> None:
+    repo = MagicMock()
+    conn = MagicMock()
+    repo._connect.return_value.__enter__ = MagicMock(return_value=conn)
+    repo._connect.return_value.__exit__ = MagicMock(return_value=False)
+    repo._sql.side_effect = lambda s: s
+    repo._row_to_dict.return_value = {
+        "pick_verified": True,
+        "pick_barcode": "4601234567890",
+        "pick_verified_at": "2026-01-01T00:00:00+00:00",
+    }
+    conn.execute.return_value.fetchone.return_value = {"pick_verified": True}
+    with patch("review_processor.ozon_fbs_pick_verify.oz.ensure_ozon_fbs_tables"):
+        res = update_posting_pick_verify(
+            repo,
+            user_id=1,
+            source_id=2,
+            posting_number="P-1",
+            verified=True,
+            barcode="1111111111111",
+            expected_verified_at="2026-01-02T00:00:00+00:00",
+        )
+    assert res["conflict"] is True

@@ -533,6 +533,9 @@ def ensure_ozon_fbs_tables(repo: ReviewRepository) -> None:
             "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS marking_codes_json TEXT NOT NULL DEFAULT '[]'",
             "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS marking_saved_at TIMESTAMPTZ",
             "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS marking_ozon_synced BOOLEAN NOT NULL DEFAULT FALSE",
+            "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS pick_verified BOOLEAN NOT NULL DEFAULT FALSE",
+            "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS pick_barcode TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS pick_verified_at TIMESTAMPTZ",
         ):
             try:
                 conn.execute(ddl)
