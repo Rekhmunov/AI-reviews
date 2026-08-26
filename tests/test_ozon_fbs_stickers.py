@@ -8,6 +8,20 @@ from review_processor import ozon_fbs as oz
 from review_processor import ozon_fbs_supplies as oz_sup
 
 
+class OzonFbsClientStructureTests(unittest.TestCase):
+    def test_client_exposes_shipments_api_methods(self) -> None:
+        client = oz.OzonFbsClient("cid", "key")
+        for name in (
+            "delivery_method_list",
+            "carriage_delivery_list",
+            "fbs_act_create",
+            "fbs_act_check_status",
+            "fbs_act_get_barcode",
+            "fbs_act_get_barcode_text",
+        ):
+            self.assertTrue(hasattr(client, name), name)
+
+
 class OzonFbsLabelFetchTests(unittest.TestCase):
     def test_batch_ozon_error_falls_back_to_one_by_one(self) -> None:
         client = MagicMock()
