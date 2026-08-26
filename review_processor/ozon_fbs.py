@@ -391,6 +391,50 @@ class OzonFbsClient:
             "/v2/posting/fbs/act/get-barcode/text", {"id": int(carriage_id)}
         )
 
+    def product_exemplar_create_or_get(
+        self, posting_number: str, products: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        return self.post_json(
+            "/v6/fbs/posting/product/exemplar/create-or-get",
+            {
+                "posting_number": str(posting_number),
+                "products": products,
+            },
+        )
+
+    def product_exemplar_set(
+        self,
+        posting_number: str,
+        *,
+        multi_box_qty: int = 1,
+        products: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return self.post_json(
+            "/v6/fbs/posting/product/exemplar/set",
+            {
+                "posting_number": str(posting_number),
+                "multi_box_qty": max(int(multi_box_qty), 1),
+                "products": products,
+            },
+        )
+
+    def product_exemplar_validate(
+        self, posting_number: str, products: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        return self.post_json(
+            "/v5/fbs/posting/product/exemplar/validate",
+            {
+                "posting_number": str(posting_number),
+                "products": products,
+            },
+        )
+
+    def product_exemplar_status(self, posting_number: str) -> dict[str, Any]:
+        return self.post_json(
+            "/v4/fbs/posting/product/exemplar/status",
+            {"posting_number": str(posting_number)},
+        )
+
 
 _OZON_LABEL_BATCH = 20
 
@@ -485,6 +529,94 @@ def ensure_ozon_fbs_tables(repo: ReviewRepository) -> None:
                 "ON ozon_fbs_postings(user_id, source_id, tab, created_at_ozon DESC)"
             )
         )
+        for ddl in (
+            "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS marking_codes_json TEXT NOT NULL DEFAULT '[]'",
+            "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS marking_saved_at TIMESTAMPTZ",
+            "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS marking_ozon_synced BOOLEAN NOT NULL DEFAULT FALSE",
+        ):
+            try:
+                conn.execute(ddl)
+            except Exception:
+                pass
+
+
+def posting_requires_marking(row: dict[str, Any]) -> bool:
+    """True when Ozon posting or any line item requires Chestny ZNAK marking."""
+    if bool(row.get("is_mandatory_mark")):
+        return True
+    raw_text = str(row.get("raw_json") or "").strip()
+    if not raw_text:
+        return False
+    try:
+        raw = json.loads(raw_text)
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(raw, dict):
+        return False
+    products = _products_from_posting(raw)
+    return _mandatory_mark(raw, products)
+
+
+def marked_products_for_posting(posting: dict[str, Any]) -> list[dict[str, Any]]:
+    """Product lines that need mandatory_mark codes (sku + qty)."""
+    if not isinstance(posting, dict):
+        return []
+    products = _products_from_posting(posting)
+    out: list[dict[str, Any]] = []
+    for p in products:
+        if bool(p.get("is_marketplace_buyout")):
+            continue
+        if not bool(p.get("mandatory_mark")):
+            continue
+        product_id = p.get("sku") or p.get("product_id")
+        try:
+            pid = int(product_id)
+        except (TypeError, ValueError):
+            continue
+        try:
+            qty = int(p.get("quantity") or 1)
+        except (TypeError, ValueError):
+            qty = 1
+        out.append({"product_id": pid, "quantity": max(qty, 1), "offer_id": p.get("offer_id")})
+    if out:
+        return out
+    if _mandatory_mark(posting, products):
+        for p in products:
+            if bool(p.get("is_marketplace_buyout")):
+                continue
+            product_id = p.get("sku") or p.get("product_id")
+            try:
+                pid = int(product_id)
+            except (TypeError, ValueError):
+                continue
+            try:
+                qty = int(p.get("quantity") or 1)
+            except (TypeError, ValueError):
+                qty = 1
+            out.append({"product_id": pid, "quantity": max(qty, 1), "offer_id": p.get("offer_id")})
+    return out
+
+
+def posting_marking_quantity(row: dict[str, Any]) -> int:
+    """How many KIZ codes the posting needs (sum of marked product qty)."""
+    raw_text = str(row.get("raw_json") or "").strip()
+    posting: dict[str, Any] = {}
+    if raw_text:
+        try:
+            parsed = json.loads(raw_text)
+            if isinstance(parsed, dict):
+                posting = parsed
+        except json.JSONDecodeError:
+            posting = {}
+    marked = marked_products_for_posting(posting)
+    if marked:
+        return sum(int(p.get("quantity") or 1) for p in marked)
+    if posting_requires_marking(row):
+        try:
+            return max(int(row.get("quantity") or 1), 1)
+        except (TypeError, ValueError):
+            return 1
+    return 0
 
 
 def _parse_dt(value: object) -> str | None:

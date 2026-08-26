@@ -2836,12 +2836,13 @@
                         onclick="openOzonFbsShipmentsModal()"
                         title="Отгрузки Ozon: ШК поставки и формирование">Перейти к отгрузкам</button>
                 <div class="wb-fbs-kiz-split" id="ozonFbsKizSplit" hidden>
-                  <button type="button" class="secondary" id="ozonFbsSupplyDetailKizBtn" disabled
-                          title="Скоро">Маркировка</button>
-                  <button type="button" class="secondary wb-fbs-kiz-refresh" disabled
-                          id="ozonFbsSupplyDetailKizRefreshBtn"
+                  <button type="button" class="secondary" id="ozonFbsSupplyDetailKizBtn"
+                          onclick="openOzonFbsKizModal()"
+                          title="Указать коды маркировки «Честный знак» для отправлений Ozon">Маркировка</button>
+                  <button type="button" class="secondary wb-fbs-kiz-refresh" id="ozonFbsSupplyDetailKizRefreshBtn"
+                          onclick="refreshOzonFbsMarkingStatus()"
                           aria-label="Обновить статусы маркировки"
-                          title="Скоро">
+                          title="Обновить статусы маркировки">
                     <svg class="wb-fbs-kiz-refresh-ico" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                       <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"
                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -2916,6 +2917,43 @@
                 </thead>
                 <tbody id="ozonFbsCancelledOrdersTbody">
                   <tr><td colspan="2" class="wb-fbs-empty">Загрузка…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="ozonFbsKizModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsKizTitle"
+             onclick="if(event.target===this)closeOzonFbsKizModal()">
+          <div class="modal-card wb-fbs-kiz-modal">
+            <div class="wb-fbs-kiz-header">
+              <div class="wb-fbs-kiz-header-main">
+                <h3 id="ozonFbsKizTitle" class="wb-fbs-kiz-title">Маркировка</h3>
+                <p class="wb-fbs-kiz-sub">Код Data Matrix «Честный знак» для отправлений Ozon FBS (exemplar API). Сохранение передаёт коды в Ozon.</p>
+              </div>
+              <div class="wb-fbs-kiz-header-actions">
+                <button type="button" id="ozonFbsKizSaveBtn" onclick="saveOzonFbsKizModal()">Сохранить</button>
+                <button type="button" class="icon-btn secondary" onclick="closeOzonFbsKizModal()" aria-label="Закрыть">✕</button>
+              </div>
+            </div>
+            <div class="wb-fbs-kiz-toolbar">
+              <input id="ozonFbsKizSearchFilter" class="wb-fbs-kiz-search" type="search"
+                     placeholder="🔍 Поиск по отправлению, артикулу, ШК..."
+                     autocomplete="off" oninput="renderOzonFbsKizTable()" />
+            </div>
+            <div id="ozonFbsKizInfo" class="wb-fbs-kiz-info" hidden></div>
+            <div class="wb-fbs-kiz-table-wrap">
+              <table class="wb-fbs-kiz-table">
+                <thead>
+                  <tr>
+                    <th class="wb-fbs-kiz-col-order">Отправление</th>
+                    <th class="wb-fbs-kiz-col-product">Товар</th>
+                    <th class="wb-fbs-kiz-col-kiz">КИЗ</th>
+                  </tr>
+                </thead>
+                <tbody id="ozonFbsKizTbody">
+                  <tr><td colspan="3" class="wb-fbs-empty">Загрузка…</td></tr>
                 </tbody>
               </table>
             </div>
@@ -5640,7 +5678,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=18"></script>
+  <script src="/static/ozon_fbs.js?v=19"></script>
   <script src="/static/app.js?v=504"></script>
 </body>
 </html>

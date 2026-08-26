@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 
 from . import ozon_fbs as oz
 from . import ozon_fbs_detail as oz_detail
+from . import wb_fbs as wb
 from .repository import ReviewRepository
 
 _log = logging.getLogger(__name__)
@@ -1193,6 +1194,28 @@ def get_supply_detail(
             cancel_label = oz.cancel_reason_label_from_row(d)
             d["cancel_reason_label"] = cancel_label
             d["cancelled"] = bool(cancel_label)
+            d["kiz_required"] = oz.posting_requires_marking(d) and not d["cancelled"]
+            d["kiz_quantity"] = oz.posting_marking_quantity(d) if d["kiz_required"] else 0
+            if d["kiz_required"]:
+                try:
+                    parsed_codes = json.loads(str(d.get("marking_codes_json") or "[]"))
+                except json.JSONDecodeError:
+                    parsed_codes = []
+                if not isinstance(parsed_codes, list):
+                    parsed_codes = []
+                synced = bool(d.get("marking_ozon_synced"))
+                codes_clean = [
+                    wb._kiz_code_clean(x) for x in parsed_codes if wb._kiz_code_clean(x)
+                ]
+                req_qty = int(d["kiz_quantity"] or 1)
+                if synced and len(codes_clean) >= req_qty:
+                    d["kiz_status"] = "ok"
+                elif codes_clean:
+                    d["kiz_status"] = "pending"
+                else:
+                    d["kiz_status"] = "empty"
+            else:
+                d["kiz_status"] = "empty"
             orders.append(d)
     return {
         "supply_id": supply.get("supply_id"),
