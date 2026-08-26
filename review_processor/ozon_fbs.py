@@ -8,6 +8,7 @@ Source rule (same idea as WB FBS):
 """
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import threading
@@ -336,33 +337,29 @@ class OzonFbsClient:
         limit: int = 50,
         offset: int = 0,
     ) -> dict[str, Any]:
+        del status  # v2 rejects string status filters; v1 is obsolete (Apr 2026).
         filt: dict[str, Any] = {}
         if warehouse_id is not None:
             filt["warehouse_id"] = int(warehouse_id)
-        if status:
-            filt["status"] = str(status)
         body = {
             "filter": filt,
             "limit": min(max(int(limit), 1), 50),
             "offset": max(int(offset), 0),
         }
-        # v1 deprecated (Apr 2026); v2 needs the same Seller API role but works on new keys.
-        try:
-            return self.post_json("/v2/delivery-method/list", body)
-        except RuntimeError:
-            return self.post_json("/v1/delivery-method/list", body)
+        return self.post_json("/v2/delivery-method/list", body)
 
     def carriage_delivery_list(
-        self, *, delivery_method_id: int, departure_date: str
+        self, *, delivery_method_id: int, departure_date: str, limit: int = 100
     ) -> dict[str, Any]:
+        dep = str(departure_date or "").strip()
+        if "T" in dep:
+            dep = dep.split("T", 1)[0]
         body = {
             "delivery_method_id": int(delivery_method_id),
-            "departure_date": str(departure_date),
+            "departure_date": dep,
+            "limit": min(max(int(limit), 1), 1000),
         }
-        try:
-            return self.post_json("/v2/carriage/delivery/list", body)
-        except RuntimeError:
-            return self.post_json("/v1/carriage/delivery/list", body)
+        return self.post_json("/v2/carriage/delivery/list", body)
 
     def fbs_act_create(
         self,
@@ -382,9 +379,19 @@ class OzonFbsClient:
         return self.post_json("/v2/posting/fbs/act/check-status", {"id": int(act_id)})
 
     def fbs_act_get_barcode(self, *, carriage_id: int) -> dict[str, Any]:
-        return self.post_json(
+        raw = self.post_bytes(
             "/v2/posting/fbs/act/get-barcode", {"id": int(carriage_id)}
         )
+        try:
+            data = json.loads(raw.decode("utf-8"))
+            if isinstance(data, dict):
+                return data
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            pass
+        return {
+            "file_content": base64.b64encode(raw).decode("ascii"),
+            "content_type": "image/png",
+        }
 
     def fbs_act_get_barcode_text(self, *, carriage_id: int) -> dict[str, Any]:
         return self.post_json(
@@ -431,8 +438,19 @@ class OzonFbsClient:
 
     def product_exemplar_status(self, posting_number: str) -> dict[str, Any]:
         return self.post_json(
-            "/v4/fbs/posting/product/exemplar/status",
+            "/v5/fbs/posting/product/exemplar/status",
             {"posting_number": str(posting_number)},
+        )
+
+    def product_exemplar_create_or_get_v5(
+        self, posting_number: str, products: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        return self.post_json(
+            "/v5/fbs/posting/product/exemplar/create-or-get",
+            {
+                "posting_number": str(posting_number),
+                "products": products,
+            },
         )
 
 
@@ -543,21 +561,144 @@ def ensure_ozon_fbs_tables(repo: ReviewRepository) -> None:
                 pass
 
 
+def _posting_payload_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Rebuild Ozon posting dict from DB row (raw_json + products_json fallback)."""
+    posting: dict[str, Any] = {}
+    raw_text = str(row.get("raw_json") or "").strip()
+    if raw_text:
+        try:
+            parsed = json.loads(raw_text)
+            if isinstance(parsed, dict):
+                posting = parsed
+        except json.JSONDecodeError:
+            pass
+    if not _products_from_posting(posting):
+        try:
+            pj = json.loads(str(row.get("products_json") or "[]"))
+        except json.JSONDecodeError:
+            pj = []
+        if isinstance(pj, list):
+            products = [p for p in pj if isinstance(p, dict)]
+            if products:
+                posting = dict(posting)
+                posting["products"] = products
+    return posting
+
+
+def _product_has_mandatory_mark_flag(product: dict[str, Any]) -> bool:
+    """Ozon v3: ``mandatory_mark`` may be bool or a non-empty list of codes."""
+    mm = product.get("mandatory_mark")
+    if isinstance(mm, list):
+        return bool(mm)
+    if isinstance(mm, str):
+        return bool(mm.strip())
+    return bool(mm)
+
+
+def _mandatory_mark_sku_ids(posting: dict[str, Any]) -> set[str]:
+    """SKU/product_id values that Ozon marks as requiring Chestny ZNAK."""
+    ids: set[str] = set()
+    req = posting.get("requirements")
+    if isinstance(req, dict):
+        arr = req.get("products_requiring_mandatory_mark")
+        if isinstance(arr, list):
+            for x in arr:
+                text = str(x or "").strip()
+                if text:
+                    ids.add(text)
+    optional = posting.get("optional")
+    if isinstance(optional, dict):
+        arr = optional.get("products_with_possible_mandatory_mark")
+        if isinstance(arr, list):
+            for item in arr:
+                if isinstance(item, dict):
+                    for key in ("sku", "product_id", "id"):
+                        val = item.get(key)
+                        if val is not None:
+                            text = str(val).strip()
+                            if text:
+                                ids.add(text)
+                                break
+                else:
+                    text = str(item or "").strip()
+                    if text:
+                        ids.add(text)
+    return ids
+
+
+def enrich_posting_marking_flags(
+    client: OzonFbsClient,
+    posting: dict[str, Any],
+) -> dict[str, Any]:
+    """Augment posting with marking requirements from exemplar create-or-get when get/list omit them."""
+    if not isinstance(posting, dict):
+        return posting
+    products = _products_from_posting(posting)
+    if _mandatory_mark(posting, products):
+        return posting
+    pn = str(posting.get("posting_number") or "").strip()
+    if not pn:
+        return posting
+    payload_products: list[dict[str, Any]] = []
+    for p in products:
+        if bool(p.get("is_marketplace_buyout")):
+            continue
+        product_id = p.get("sku") or p.get("product_id")
+        try:
+            pid = int(product_id)
+        except (TypeError, ValueError):
+            continue
+        try:
+            qty = int(p.get("quantity") or 1)
+        except (TypeError, ValueError):
+            qty = 1
+        payload_products.append({"product_id": pid, "quantity": max(qty, 1)})
+    if not payload_products:
+        return posting
+    try:
+        resp = client.product_exemplar_create_or_get(pn, payload_products)
+    except RuntimeError:
+        try:
+            resp = client.product_exemplar_create_or_get_v5(pn, payload_products)
+        except RuntimeError:
+            return posting
+    required_ids: set[str] = set()
+    for item in resp.get("products") or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("is_mandatory_mark_needed"):
+            pid = item.get("product_id")
+            if pid is not None:
+                text = str(pid).strip()
+                if text:
+                    required_ids.add(text)
+    if not required_ids:
+        return posting
+    out = dict(posting)
+    req = out.get("requirements")
+    if not isinstance(req, dict):
+        req = {}
+        out["requirements"] = req
+    existing = req.get("products_requiring_mandatory_mark")
+    merged: list[str] = []
+    if isinstance(existing, list):
+        merged = [str(x).strip() for x in existing if str(x).strip()]
+    for pid in sorted(required_ids):
+        if pid not in merged:
+            merged.append(pid)
+    req["products_requiring_mandatory_mark"] = merged
+    return out
+
+
 def posting_requires_marking(row: dict[str, Any]) -> bool:
     """True when Ozon posting or any line item requires Chestny ZNAK marking."""
     if bool(row.get("is_mandatory_mark")):
         return True
-    raw_text = str(row.get("raw_json") or "").strip()
-    if not raw_text:
+    posting = _posting_payload_from_row(row)
+    if not posting:
         return False
-    try:
-        raw = json.loads(raw_text)
-    except json.JSONDecodeError:
-        return False
-    if not isinstance(raw, dict):
-        return False
-    products = _products_from_posting(raw)
-    return _mandatory_mark(raw, products)
+    products = _products_from_posting(posting)
+    return _mandatory_mark(posting, products)
 
 
 def marked_products_for_posting(posting: dict[str, Any]) -> list[dict[str, Any]]:
@@ -565,11 +706,17 @@ def marked_products_for_posting(posting: dict[str, Any]) -> list[dict[str, Any]]
     if not isinstance(posting, dict):
         return []
     products = _products_from_posting(posting)
+    required_skus = _mandatory_mark_sku_ids(posting)
     out: list[dict[str, Any]] = []
     for p in products:
         if bool(p.get("is_marketplace_buyout")):
             continue
-        if not bool(p.get("mandatory_mark")):
+        sku = p.get("sku") or p.get("product_id")
+        sku_str = str(sku).strip() if sku is not None else ""
+        needs = _product_has_mandatory_mark_flag(p)
+        if not needs and required_skus and sku_str in required_skus:
+            needs = True
+        if not needs:
             continue
         product_id = p.get("sku") or p.get("product_id")
         try:
@@ -602,15 +749,7 @@ def marked_products_for_posting(posting: dict[str, Any]) -> list[dict[str, Any]]
 
 def posting_marking_quantity(row: dict[str, Any]) -> int:
     """How many KIZ codes the posting needs (sum of marked product qty)."""
-    raw_text = str(row.get("raw_json") or "").strip()
-    posting: dict[str, Any] = {}
-    if raw_text:
-        try:
-            parsed = json.loads(raw_text)
-            if isinstance(parsed, dict):
-                posting = parsed
-        except json.JSONDecodeError:
-            posting = {}
+    posting = _posting_payload_from_row(row)
     marked = marked_products_for_posting(posting)
     if marked:
         return sum(int(p.get("quantity") or 1) for p in marked)
@@ -651,10 +790,19 @@ def _mandatory_mark(posting: dict[str, Any], products: list[dict[str, Any]]) -> 
         marks = req.get("products_requiring_mandatory_mark")
         if isinstance(marks, list) and marks:
             return True
+    optional = posting.get("optional")
+    if isinstance(optional, dict):
+        possible = optional.get("products_with_possible_mandatory_mark")
+        if isinstance(possible, list) and possible:
+            return True
+    required_skus = _mandatory_mark_sku_ids(posting)
     for p in products:
         if bool(p.get("is_marketplace_buyout")):
             continue
-        if bool(p.get("mandatory_mark")):
+        if _product_has_mandatory_mark_flag(p):
+            return True
+        sku = p.get("sku") or p.get("product_id")
+        if sku is not None and str(sku).strip() in required_skus:
             return True
     return False
 

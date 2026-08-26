@@ -160,9 +160,17 @@ def build_marking_payload(
     user_id: int,
     source_id: int,
     supply_id: str,
+    client_id: str | None = None,
+    api_key: str | None = None,
 ) -> dict[str, Any]:
     detail = oz_sup.get_supply_detail(
-        repo, user_id=user_id, source_id=source_id, supply_id=supply_id
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=supply_id,
+        client_id=client_id,
+        api_key=api_key,
+        refresh_from_ozon=True,
     )
     orders = [
         o
@@ -423,9 +431,17 @@ def check_supply_marking_status(
     user_id: int,
     source_id: int,
     supply_id: str,
+    client_id: str | None = None,
+    api_key: str | None = None,
 ) -> dict[str, Any]:
     detail = oz_sup.get_supply_detail(
-        repo, user_id=user_id, source_id=source_id, supply_id=supply_id
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=supply_id,
+        client_id=client_id,
+        api_key=api_key,
+        refresh_from_ozon=True,
     )
     required = [o for o in (detail.get("orders") or []) if o.get("kiz_required")]
     done = 0

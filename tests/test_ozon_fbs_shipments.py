@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 from review_processor.ozon_fbs_shipments import (
     _carriage_status_label,
     _carriage_delivery_blocks,
+    _carriage_departure_date,
     _collected_label,
     _delivery_method_rows,
     _departure_iso,
@@ -22,6 +23,30 @@ from review_processor.ozon_fbs_shipments import (
 class OzonFbsShipmentsHelpersTests(unittest.TestCase):
     def test_departure_iso(self) -> None:
         self.assertEqual(_departure_iso(date(2026, 8, 25)), "2026-08-25T00:00:00.000Z")
+        self.assertEqual(_carriage_departure_date(date(2026, 8, 25)), "2026-08-25")
+
+    def test_delivery_method_rows_v2_top_level(self) -> None:
+        rows, has_next = _delivery_method_rows(
+            {
+                "delivery_methods": [
+                    {"delivery_method_id": 5, "name": "Метод 5"},
+                ],
+                "has_next": False,
+            }
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertFalse(has_next)
+
+    def test_carriage_blocks_v2_methods(self) -> None:
+        blocks = _carriage_delivery_blocks(
+            {
+                "methods": [
+                    {"warehouse_name": "Склад", "carriages": []},
+                ]
+            }
+        )
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(blocks[0]["warehouse_name"], "Склад")
 
     def test_status_labels(self) -> None:
         self.assertEqual(_carriage_status_label(""), "Не сформирована")
@@ -147,7 +172,34 @@ class OzonFbsShipmentsHelpersTests(unittest.TestCase):
         client.carriage_delivery_list.assert_called_once()
         args = client.carriage_delivery_list.call_args.kwargs
         self.assertEqual(args["delivery_method_id"], 22)
-        self.assertEqual(args["departure_date"], "2026-08-25T00:00:00.000Z")
+        self.assertEqual(args["departure_date"], "2026-08-25")
+
+    def test_build_shipments_view_uses_fallback_delivery_method(self) -> None:
+        client = MagicMock()
+        client.delivery_method_list.return_value = {
+            "delivery_methods": [],
+            "has_next": False,
+        }
+        client.carriage_delivery_list.return_value = {
+            "methods": [
+                {
+                    "delivery_method_id": 102,
+                    "delivery_method_name": "Доставка на ОЗОН самостоятельно",
+                    "warehouse_name": "Склад А",
+                    "carriages": [],
+                }
+            ]
+        }
+        view = build_shipments_view(
+            client=client,
+            warehouse_id=1,
+            warehouse_name="Склад А",
+            departure=date(2026, 8, 25),
+            fallback_delivery_method_id=102,
+        )
+        self.assertTrue(view["ok"])
+        self.assertEqual(view["selected_delivery_method_id"], 102)
+        client.carriage_delivery_list.assert_called_once()
 
 
 if __name__ == "__main__":

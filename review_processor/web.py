@@ -12419,14 +12419,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         owner_id = _supply_owner_id(user)
         if not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id")
-        _ozon_fbs_source_credentials(owner_id, int(source_id))
+        _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
+        tab_key = str(posting_tab or "").strip() or None
         try:
             return oz_sup.get_supply_detail(
                 repository,
                 user_id=owner_id,
                 source_id=int(source_id),
                 supply_id=str(supply_id),
-                posting_tab=str(posting_tab or "").strip() or None,
+                posting_tab=tab_key,
+                client_id=client_id,
+                api_key=api_key,
+                refresh_from_ozon=tab_key != "delivering",
             )
         except RuntimeError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -12477,13 +12481,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         sid = str(supply_id or "").strip()
         if not sid or not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
-        _ozon_fbs_source_credentials(owner_id, int(source_id))
+        _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
         try:
             return oz_mark.build_marking_payload(
                 repository,
                 user_id=owner_id,
                 source_id=int(source_id),
                 supply_id=sid,
+                client_id=client_id,
+                api_key=api_key,
             )
         except RuntimeError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -12503,13 +12509,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         sid = str(supply_id or "").strip()
         if not sid or not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
-        _ozon_fbs_source_credentials(owner_id, int(source_id))
+        _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
         try:
             return oz_mark.check_supply_marking_status(
                 repository,
                 user_id=owner_id,
                 source_id=int(source_id),
                 supply_id=sid,
+                client_id=client_id,
+                api_key=api_key,
             )
         except RuntimeError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc

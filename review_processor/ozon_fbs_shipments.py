@@ -38,7 +38,11 @@ def _friendly_ozon_api_error(exc: Exception) -> RuntimeError:
 
 
 def _delivery_method_rows(data: dict[str, Any]) -> tuple[list[dict[str, Any]], bool]:
-    """Normalize v1/v2 delivery-method/list payloads."""
+    """Normalize v2 delivery-method/list payloads."""
+    top = data.get("delivery_methods")
+    if isinstance(top, list):
+        rows = [x for x in top if isinstance(x, dict)]
+        return rows, bool(data.get("has_next"))
     result = data.get("result")
     if isinstance(result, list):
         rows = [x for x in result if isinstance(x, dict)]
@@ -53,7 +57,10 @@ def _delivery_method_rows(data: dict[str, Any]) -> tuple[list[dict[str, Any]], b
 
 
 def _carriage_delivery_blocks(data: dict[str, Any]) -> list[dict[str, Any]]:
-    """Normalize v1/v2 carriage/delivery/list payloads into v1-like blocks."""
+    """Normalize v2 carriage/delivery/list payloads into v1-like blocks."""
+    top = data.get("methods")
+    if isinstance(top, list):
+        return [b for b in top if isinstance(b, dict)]
     result = data.get("result")
     if isinstance(result, list):
         return [b for b in result if isinstance(b, dict)]
@@ -69,6 +76,11 @@ def _carriage_delivery_blocks(data: dict[str, Any]) -> list[dict[str, Any]]:
         if isinstance(result.get("carriages"), list):
             return [result]
     return []
+
+
+def _carriage_departure_date(day: date) -> str:
+    """Date-only filter for ``POST /v2/carriage/delivery/list``."""
+    return day.isoformat()
 
 
 PREFERRED_METHOD_HINTS = (
@@ -304,6 +316,8 @@ def _normalize_block(block: dict[str, Any]) -> dict[str, Any]:
         cid = c.get("id") if c.get("id") is not None else c.get("carriage_id")
         try:
             carriage_id = int(cid) if cid is not None and str(cid).strip() != "" else None
+            if carriage_id is not None and carriage_id <= 0:
+                carriage_id = None
         except (TypeError, ValueError):
             carriage_id = None
         status = c.get("status")
@@ -401,12 +415,21 @@ def build_shipments_view(
     warehouse_name: str,
     departure: date,
     delivery_method_id: int | None = None,
+    fallback_delivery_method_id: int | None = None,
 ) -> dict[str, Any]:
     methods = list_delivery_methods(client, warehouse_id=warehouse_id)
     if not methods and warehouse_id is not None:
         # Fallback: some cabinets return methods only without warehouse filter.
         methods = list_delivery_methods(client, warehouse_id=None)
-    selected = pick_default_delivery_method(methods, preferred_id=delivery_method_id)
+    preferred = delivery_method_id if delivery_method_id is not None else fallback_delivery_method_id
+    selected = pick_default_delivery_method(methods, preferred_id=preferred)
+    if not selected and preferred is not None:
+        try:
+            pref_id = int(preferred)
+        except (TypeError, ValueError):
+            pref_id = 0
+        if pref_id > 0:
+            selected = {"id": pref_id, "name": f"Метод доставки {pref_id}"}
     if not selected:
         return {
             "ok": False,
@@ -419,10 +442,11 @@ def build_shipments_view(
         }
 
     dep_iso = _departure_iso(departure)
+    dep_carriage = _carriage_departure_date(departure)
     mid = int(selected["id"])
     try:
         raw = client.carriage_delivery_list(
-            delivery_method_id=mid, departure_date=dep_iso
+            delivery_method_id=mid, departure_date=dep_carriage
         )
     except Exception as exc:
         raise _friendly_ozon_api_error(exc) from exc
@@ -516,6 +540,12 @@ def get_supply_shipments(
         warehouse_name=warehouse_name,
         departure=day,
         delivery_method_id=pref,
+        fallback_delivery_method_id=oz_sup.delivery_method_id_for_supply(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=str(supply_id),
+        ),
     )
     view["supply_id"] = supply.get("supply_id")
     view["supply_name"] = supply.get("name") or supply.get("supply_id")

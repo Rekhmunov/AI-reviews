@@ -1588,6 +1588,83 @@ def get_supply_detail_for_print(
     )
 
 
+def delivery_method_id_for_supply(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+) -> int | None:
+    """Resolve Ozon delivery_method.id from the first posting linked to the supply."""
+    ensure_ozon_fbs_supply_schema(repo)
+    sid = str(supply_id or "").strip()
+    if not sid:
+        return None
+    nums = _assembly_posting_numbers_for_supply(
+        repo, user_id=user_id, source_id=source_id, supply_id=sid
+    )
+    if not nums:
+        return None
+    with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql(
+                """
+                SELECT raw_json FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ? AND posting_number = ?
+                """
+            ),
+            (user_id, source_id, nums[0]),
+        ).fetchone()
+    if not row:
+        return None
+    raw = row["raw_json"] if hasattr(row, "keys") else row[0]
+    try:
+        posting = json.loads(str(raw or "{}"))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(posting, dict):
+        return None
+    dm = posting.get("delivery_method")
+    if isinstance(dm, dict) and dm.get("id") is not None:
+        try:
+            mid = int(dm["id"])
+            return mid if mid > 0 else None
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def refresh_supply_postings_from_ozon(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_numbers: list[str],
+    client_id: str,
+    api_key: str,
+) -> None:
+    """Live Ozon refresh so marking flags match Seller API (list sync is often stale)."""
+    nums = [str(x).strip() for x in posting_numbers if str(x).strip()]
+    if not nums or not str(client_id or "").strip() or not str(api_key or "").strip():
+        return
+    client = oz.OzonFbsClient(str(client_id).strip(), str(api_key).strip())
+    for i, pn in enumerate(nums):
+        try:
+            remote = client.get_posting(pn)
+            if isinstance(remote, dict):
+                remote = oz.enrich_posting_marking_flags(client, remote)
+                oz.upsert_posting(
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    posting=remote,
+                )
+        except Exception as exc:
+            _log.warning("ozon supply detail refresh %s: %s", pn, exc)
+        if i + 1 < len(nums):
+            time.sleep(0.05)
+
+
 def get_supply_detail(
     repo: ReviewRepository,
     *,
@@ -1596,6 +1673,9 @@ def get_supply_detail(
     supply_id: str,
     posting_numbers: list[str] | None = None,
     posting_tab: str | None = None,
+    client_id: str | None = None,
+    api_key: str | None = None,
+    refresh_from_ozon: bool = True,
 ) -> dict[str, Any]:
     supply = get_supply(repo, user_id=user_id, source_id=source_id, supply_id=supply_id)
     if not supply:
@@ -1613,6 +1693,22 @@ def get_supply_detail(
         )
     else:
         nums = list(supply.get("posting_numbers") or [])
+    read_only = tab_filter == oz.TAB_DELIVERING
+    if (
+        refresh_from_ozon
+        and not read_only
+        and nums
+        and client_id
+        and api_key
+    ):
+        refresh_supply_postings_from_ozon(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            posting_numbers=nums,
+            client_id=str(client_id),
+            api_key=str(api_key),
+        )
     name_map = repo.get_product_name_by_article(user_id=user_id)
     ozon_sku_map = repo.get_product_name_by_ozon_sku(user_id=user_id)
     barcode_map = repo.get_product_barcodes_map(user_id=user_id)
@@ -1682,7 +1778,7 @@ def get_supply_detail(
         "order_count": len(orders),
         "orders": orders,
         "source_id": source_id,
-        "read_only": tab_filter == oz.TAB_DELIVERING,
+        "read_only": read_only,
         "posting_tab": tab_filter,
     }
 
