@@ -9421,9 +9421,8 @@ button.wb-fbs-select-all-link:disabled {
 .wb-fbs-kiz-split[hidden] {
   display: none !important;
 }
-.wb-fbs-picking-split > #wbFbsSupplyDetailPickingBtn,
-.wb-fbs-picking-split > #wbFbsSupplyDetailStickersBtn,
-.wb-fbs-kiz-split > #wbFbsSupplyDetailKizBtn {
+.wb-fbs-picking-split > button.secondary:not(.wb-fbs-picking-caret),
+.wb-fbs-kiz-split > button.secondary:not(.wb-fbs-kiz-refresh) {
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
   margin-right: 0;
