@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=239" />
+  <link rel="stylesheet" href="/static/style.css?v=240" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2858,8 +2858,9 @@
                         title="Скоро">Проверка ШК</button>
                 <button type="button" class="secondary ozon-fbs-stub-btn" id="ozonFbsSupplyDetailTrbxBtn" disabled
                         title="Скоро">Грузоместа</button>
-                <button type="button" class="secondary ozon-fbs-stub-btn" id="ozonFbsSupplyDetailCancelledBtn" disabled
-                        title="Скоро">Отмененные заказы</button>
+                <button type="button" class="secondary" id="ozonFbsSupplyDetailCancelledBtn"
+                        onclick="openOzonFbsCancelledOrdersModal()"
+                        title="Проверить отменённые отправления в поставке">Отмененные заказы</button>
                 <button type="button" class="secondary wb-fbs-sd-portal-btn ozon-fbs-stub-btn" id="ozonFbsSupplyDetailPortalBtn" disabled
                         title="Скоро">
                   <span>Портал Ozon</span>
@@ -2883,6 +2884,38 @@
                 </thead>
                 <tbody id="ozonFbsSupplyDetailTbody">
                   <tr><td colspan="4" class="wb-fbs-empty">Загрузка…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="ozonFbsCancelledOrdersModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsCancelledOrdersTitle"
+             onclick="if(event.target===this)closeOzonFbsCancelledOrdersModal()">
+          <div class="modal-card wb-fbs-kiz-modal wb-fbs-cancelled-modal">
+            <div class="wb-fbs-kiz-header">
+              <div class="wb-fbs-kiz-header-main">
+                <h3 id="ozonFbsCancelledOrdersTitle" class="wb-fbs-kiz-title">Отмененные заказы</h3>
+                <p class="wb-fbs-kiz-sub">Проверка статусов на Ozon: отправления, отменённые покупателем или системой, но всё ещё числящиеся в поставке</p>
+              </div>
+              <div class="wb-fbs-kiz-header-actions">
+                <button type="button" class="secondary" id="ozonFbsCancelledOrdersRefreshBtn"
+                        onclick="refreshOzonFbsCancelledOrders()">Перезапустить проверку</button>
+                <button type="button" class="icon-btn secondary" onclick="closeOzonFbsCancelledOrdersModal()" aria-label="Закрыть">✕</button>
+              </div>
+            </div>
+            <div id="ozonFbsCancelledOrdersInfo" class="wb-fbs-kiz-info" hidden></div>
+            <div class="wb-fbs-kiz-table-wrap">
+              <table class="wb-fbs-kiz-table">
+                <thead>
+                  <tr>
+                    <th class="wb-fbs-kiz-col-order">Отправление</th>
+                    <th class="wb-fbs-kiz-col-product">Товар</th>
+                  </tr>
+                </thead>
+                <tbody id="ozonFbsCancelledOrdersTbody">
+                  <tr><td colspan="2" class="wb-fbs-empty">Загрузка…</td></tr>
                 </tbody>
               </table>
             </div>
@@ -5607,7 +5640,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=17"></script>
+  <script src="/static/ozon_fbs.js?v=18"></script>
   <script src="/static/app.js?v=504"></script>
 </body>
 </html>

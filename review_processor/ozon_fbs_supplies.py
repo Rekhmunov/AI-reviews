@@ -1190,6 +1190,9 @@ def get_supply_detail(
             )
             d["product_photo"] = photo_map.get(article) or photo_map.get(sku) or ""
             d["warehouse_label"] = d.get("warehouse_name") or "—"
+            cancel_label = oz.cancel_reason_label_from_row(d)
+            d["cancel_reason_label"] = cancel_label
+            d["cancelled"] = bool(cancel_label)
             orders.append(d)
     return {
         "supply_id": supply.get("supply_id"),
@@ -1198,6 +1201,143 @@ def get_supply_detail(
         "order_count": len(orders),
         "orders": orders,
         "source_id": source_id,
+    }
+
+
+def _fmt_posting_date(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "—"
+    if "T" in text:
+        return text.split("T", 1)[0]
+    return text[:10] if len(text) >= 10 else text
+
+
+def _posting_row_payload(row: dict[str, Any]) -> dict[str, Any]:
+    pn = str(row.get("posting_number") or "").strip()
+    created = row.get("created_at_ozon") or row.get("in_process_at")
+    return {
+        "posting_number": pn,
+        "created_date": _fmt_posting_date(created),
+        "product_name": str(row.get("product_name") or row.get("offer_id") or ""),
+        "product_photo": str(row.get("product_photo") or ""),
+        "offer_id": str(row.get("offer_id") or ""),
+        "sku": row.get("sku"),
+        "barcodes": list(row.get("barcodes") or []),
+        "status": str(row.get("status") or ""),
+        "tab": str(row.get("tab") or ""),
+        "cancelled": True,
+        "cancel_reason_label": str(row.get("cancel_reason_label") or "Отменено"),
+    }
+
+
+def list_supply_cancelled_postings(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    client_id: str,
+    api_key: str,
+) -> dict[str, Any]:
+    """Live Ozon get_posting check for cancelled postings still in a local supply."""
+    sid = str(supply_id or "").strip()
+    if not sid:
+        raise ValueError("Укажите supply_id")
+    if not client_id or not api_key:
+        raise ValueError("Нет API-ключей источника Ozon")
+
+    supply = get_supply(repo, user_id=user_id, source_id=source_id, supply_id=sid)
+    if not supply:
+        raise RuntimeError("Поставка не найдена")
+    posting_numbers = [
+        str(x).strip()
+        for x in (supply.get("posting_numbers") or [])
+        if str(x).strip()
+    ]
+    if not posting_numbers:
+        return {
+            "ok": True,
+            "supply_id": sid,
+            "source_id": int(source_id),
+            "posting_count": 0,
+            "cancelled_count": 0,
+            "rows": [],
+        }
+
+    detail = get_supply_detail(
+        repo, user_id=user_id, source_id=source_id, supply_id=sid
+    )
+    local_by_pn: dict[str, dict[str, Any]] = {}
+    for o in detail.get("orders") or []:
+        if not isinstance(o, dict):
+            continue
+        pn = str(o.get("posting_number") or "").strip()
+        if pn:
+            local_by_pn[pn] = o
+
+    client = oz.OzonFbsClient(client_id, api_key)
+    refreshed: dict[str, dict[str, Any]] = {}
+    fetch_errors: list[str] = []
+    for pn in posting_numbers:
+        try:
+            remote = client.get_posting(pn)
+            if isinstance(remote, dict):
+                refreshed[pn] = remote
+                try:
+                    oz.upsert_posting(
+                        repo,
+                        user_id=user_id,
+                        source_id=source_id,
+                        posting=remote,
+                    )
+                except Exception as exc:
+                    _log.debug("cancelled persist %s: %s", pn, exc)
+        except Exception as exc:
+            fetch_errors.append(f"{pn}: {exc}")
+            _log.warning("ozon cancelled check get_posting %s: %s", pn, exc)
+        if len(posting_numbers) > 1:
+            time.sleep(0.05)
+
+    if fetch_errors and len(refreshed) == 0 and not local_by_pn:
+        raise RuntimeError(
+            "Не удалось проверить статусы отправлений на Ozon: "
+            + "; ".join(fetch_errors[:3])
+        )
+
+    rows: list[dict[str, Any]] = []
+    for pn in posting_numbers:
+        remote = refreshed.get(pn) or {}
+        local = dict(local_by_pn.get(pn) or {})
+        if remote:
+            label = oz.cancel_reason_label_from_posting(remote)
+            status = str(remote.get("status") or "").strip().lower()
+            tab = oz.compute_tab(status)
+            cancelled = oz.is_cancelled_posting(status=status, tab=tab)
+        else:
+            label = oz.cancel_reason_label_from_row(local)
+            cancelled = bool(label) or oz.is_cancelled_posting(
+                status=local.get("status"), tab=local.get("tab")
+            )
+            if cancelled and not label:
+                label = "Отменено"
+        if not cancelled:
+            continue
+        if remote:
+            local["status"] = str(remote.get("status") or local.get("status") or "")
+            local["tab"] = oz.compute_tab(local.get("status"))
+        local["cancel_reason_label"] = label or "Отменено"
+        local["cancelled"] = True
+        rows.append(_posting_row_payload(local))
+
+    return {
+        "ok": True,
+        "supply_id": sid,
+        "source_id": int(source_id),
+        "posting_count": len(posting_numbers),
+        "cancelled_count": len(rows),
+        "rows": rows,
+        "warnings": fetch_errors[:5] if fetch_errors else [],
     }
 
 

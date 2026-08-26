@@ -8870,6 +8870,9 @@ button.wb-fbs-select-all-link:disabled {
   background: #f0fdf4;
   color: #166534;
 }
+.wb-fbs-sd-table tbody tr.is-cancelled td {
+  background: #fef2f2;
+}
 .wb-fbs-barcode {
   font-size: 22px;
   font-weight: 700;

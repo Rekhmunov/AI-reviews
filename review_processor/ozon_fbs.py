@@ -125,6 +125,92 @@ def compute_tab(status: object) -> str:
     return TAB_AWAITING_PACKAGING
 
 
+_CANCELLED_STATUSES = frozenset(
+    {
+        TAB_CANCELLED,
+        "cancelled_from_split_pending",
+    }
+)
+
+_CANCEL_REASON_ID_LABELS: dict[int, str] = {
+    352: "Товара нет в наличии",
+    400: "Остался только бракованный товар",
+    401: "Отмена из арбитража",
+    402: "Другая причина",
+    665: "Покупатель не забрал заказ",
+    666: "Нет доставки в регион",
+    667: "Заказ утерян службой доставки",
+}
+
+_CANCELLATION_TYPE_LABELS: dict[str, str] = {
+    "client": "Отмена покупателем",
+    "seller": "Отмена продавцом",
+    "ozon": "Отмена Ozon",
+    "customer": "Отмена покупателем",
+    "buyer": "Отмена покупателем",
+}
+
+
+def is_cancelled_posting(*, status: object = "", tab: object = "") -> bool:
+    s = str(status or "").strip().lower()
+    t = str(tab or "").strip().lower()
+    if t == TAB_CANCELLED:
+        return True
+    return s in _CANCELLED_STATUSES
+
+
+def cancel_reason_label_from_posting(posting: dict[str, Any]) -> str:
+    """Human-readable cancel reason from Ozon posting payload."""
+    if not isinstance(posting, dict):
+        return ""
+    status = str(posting.get("status") or "").strip().lower()
+    if not is_cancelled_posting(status=status, tab=compute_tab(status)):
+        return ""
+    cancellation = posting.get("cancellation")
+    if isinstance(cancellation, dict):
+        for key in ("cancel_reason", "cancel_reason_message", "reason"):
+            text = str(cancellation.get(key) or "").strip()
+            if text:
+                return text
+        try:
+            rid = int(cancellation.get("cancel_reason_id") or 0)
+        except (TypeError, ValueError):
+            rid = 0
+        if rid in _CANCEL_REASON_ID_LABELS:
+            return _CANCEL_REASON_ID_LABELS[rid]
+        ctype = str(
+            cancellation.get("cancellation_type")
+            or cancellation.get("cancel_type")
+            or ""
+        ).strip().lower()
+        if ctype in _CANCELLATION_TYPE_LABELS:
+            return _CANCELLATION_TYPE_LABELS[ctype]
+    if status == "cancelled_from_split_pending":
+        return "Отменено при разделении"
+    return "Отменено"
+
+
+def cancel_reason_label_from_row(row: dict[str, Any]) -> str:
+    """Cancel label from local DB row (status/tab + optional raw_json)."""
+    if not isinstance(row, dict):
+        return ""
+    status = str(row.get("status") or "").strip().lower()
+    tab = str(row.get("tab") or "").strip().lower()
+    if not is_cancelled_posting(status=status, tab=tab):
+        return ""
+    raw_text = str(row.get("raw_json") or "").strip()
+    if raw_text:
+        try:
+            raw = json.loads(raw_text)
+        except json.JSONDecodeError:
+            raw = None
+        if isinstance(raw, dict):
+            label = cancel_reason_label_from_posting(raw)
+            if label:
+                return label
+    return "Отменено"
+
+
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
 

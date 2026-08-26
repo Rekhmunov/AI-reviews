@@ -12415,6 +12415,37 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+    @app.get("/api/ozon-fbs/supplies/{supply_id}/cancelled")
+    def ozon_fbs_supply_cancelled_postings(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+    ) -> dict[str, object]:
+        """Live check for cancelled postings still present in the local supply."""
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid or not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
+        try:
+            return oz_sup.list_supply_cancelled_postings(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                supply_id=sid,
+                client_id=client_id,
+                api_key=api_key,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.get("/api/ozon-fbs/supplies/{supply_id}/shipments")
     def ozon_fbs_supply_shipments(
         request: Request,

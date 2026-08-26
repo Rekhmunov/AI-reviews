@@ -49,6 +49,13 @@
     selected: new Set(),
   };
 
+  const ozonFbsCancelledState = {
+    rows: [],
+    loading: false,
+    lastError: "",
+    refreshGen: 0,
+  };
+
   const stickersCategoryState = {
     groups: [],
     selected: new Set(),
@@ -1069,6 +1076,12 @@
     if (!win) alert("Разрешите всплывающие окна для стикера");
   }
 
+  function cancelBadgeHtml(row) {
+    const label = String(row?.cancel_reason_label || "").trim();
+    if (!label) return "";
+    return `<div class="wb-fbs-cancel-reason" title="${esc(label)}">${esc(label)}</div>`;
+  }
+
   function renderSupplyDetail(data) {
     const supply = data || supplyDetailState.supply;
     if (!supply) return;
@@ -1130,8 +1143,10 @@
       const ago = agoLabel(created);
       const badges = [];
       if (ago) badges.push(`<span class="wb-fbs-badge time">${esc(ago)}</span>`);
+      const cancelLabel = String(o.cancel_reason_label || "").trim();
+      const rowCls = cancelLabel ? "wb-fbs-sd-click-row is-cancelled" : "wb-fbs-sd-click-row";
       const menuKey = _ozonFbsPostingMenuKey(pn);
-      return `<tr class="wb-fbs-sd-click-row">
+      return `<tr class="${rowCls}">
         <td><input type="checkbox" class="wb-fbs-sd-cb" data-posting="${esc(pn)}" ${checked}
                    onchange="onOzonFbsSupplyDetailCheckboxChange()" /></td>
         <td>
@@ -1146,6 +1161,7 @@
               <div class="wb-fbs-product-name" title="${esc(pname)}">${esc(pname)}</div>
               <div class="wb-fbs-product-sub">Арт. ${esc(offer || "—")}${sku ? " · SKU " + esc(sku) : ""}</div>
               ${barcodeHtml}
+              ${cancelBadgeHtml(o)}
             </div>
           </div>
         </td>
@@ -1192,6 +1208,169 @@
       if (tbody) {
         tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty" style="color:#b91c1c">${esc(e.message)}</td></tr>`;
       }
+    }
+  }
+
+  function _ozonFbsCancelledSetInfo(text, kind) {
+    const el = document.getElementById("ozonFbsCancelledOrdersInfo");
+    if (!el) return;
+    const msg = String(text || "").trim();
+    el.hidden = !msg;
+    el.textContent = msg;
+    el.classList.toggle("is-ok", !!msg && kind === "ok");
+  }
+
+  function _ozonFbsCancelledMergeIntoDetail(rows) {
+    const supply = supplyDetailState.supply;
+    if (!supply || !Array.isArray(supply.orders) || !Array.isArray(rows)) return;
+    const byPn = new Map();
+    rows.forEach((row) => {
+      const pn = String(row?.posting_number || "").trim();
+      if (pn) byPn.set(pn, row);
+    });
+    if (!byPn.size) return;
+    let changed = false;
+    supply.orders.forEach((o) => {
+      const pn = String(o?.posting_number || "").trim();
+      const upd = byPn.get(pn);
+      if (!upd) return;
+      const label = String(upd.cancel_reason_label || "").trim();
+      if (label) {
+        o.cancel_reason_label = label;
+        o.cancelled = true;
+        changed = true;
+      }
+      if (upd.status) o.status = String(upd.status);
+      if (upd.tab) o.tab = String(upd.tab);
+    });
+    if (changed) renderSupplyDetail(supply);
+  }
+
+  function renderOzonFbsCancelledOrdersTable() {
+    const tbody = document.getElementById("ozonFbsCancelledOrdersTbody");
+    if (!tbody) return;
+    const rows = Array.isArray(ozonFbsCancelledState.rows) ? ozonFbsCancelledState.rows : [];
+    if (!rows.length) {
+      let emptyMsg = "Отменённых отправлений в поставке нет";
+      if (ozonFbsCancelledState.loading) emptyMsg = "Проверяем статусы на Ozon…";
+      else if (ozonFbsCancelledState.lastError) emptyMsg = "Не удалось проверить статусы";
+      tbody.innerHTML = `<tr><td colspan="2" class="wb-fbs-empty">${esc(emptyMsg)}</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = rows.map((r) => {
+      const pn = String(r.posting_number || "").trim();
+      const photo = r.product_photo
+        ? `<img class="wb-fbs-product-photo" src="${esc(r.product_photo)}" alt="" width="56" height="56" loading="lazy">`
+        : `<span class="wb-fbs-product-ph" aria-hidden="true"></span>`;
+      const offerArt = [r.offer_id ? `Арт. ${r.offer_id}` : "", r.sku ? `SKU ${r.sku}` : ""]
+        .filter(Boolean)
+        .join(" · ");
+      const barcodes = Array.isArray(r.barcodes) ? r.barcodes : [];
+      const barcodeHtml = barcodes.length
+        ? `<div class="wb-fbs-kiz-barcodes" title="Штрихкод товара">${barcodes.map((b) =>
+            `<div class="wb-fbs-kiz-barcode">${esc(b)}</div>`
+          ).join("")}</div>`
+        : "";
+      return `<tr class="wb-fbs-kiz-row" data-posting="${esc(pn)}">
+        <td>
+          <div class="wb-fbs-kiz-order-id">${formatOzonPostingNumberHtml(pn)}</div>
+          <div class="wb-fbs-kiz-order-date">от ${esc(r.created_date || "—")}</div>
+        </td>
+        <td>
+          <div class="wb-fbs-product">
+            ${photo}
+            <div class="wb-fbs-product-text">
+              <div class="wb-fbs-product-name" title="${esc(r.product_name || r.offer_id || "")}">${esc(r.product_name || r.offer_id || "—")}</div>
+              <div class="wb-fbs-product-sub">${esc(offerArt || "—")}</div>
+              ${barcodeHtml}
+              ${cancelBadgeHtml(r)}
+            </div>
+          </div>
+        </td>
+      </tr>`;
+    }).join("");
+  }
+
+  async function refreshOzonFbsCancelledOrders() {
+    const sid = String(supplyDetailState.supplyId || "").trim();
+    const sourceId = supplyDetailState.sourceId || state.sourceId;
+    if (!sid || !sourceId || ozonFbsCancelledState.loading) return;
+    const refreshGen = Number(ozonFbsCancelledState.refreshGen || 0) + 1;
+    ozonFbsCancelledState.refreshGen = refreshGen;
+    ozonFbsCancelledState.loading = true;
+    ozonFbsCancelledState.lastError = "";
+    const btn = document.getElementById("ozonFbsCancelledOrdersRefreshBtn");
+    if (btn) btn.disabled = true;
+    _ozonFbsCancelledSetInfo("");
+    if (!ozonFbsCancelledState.rows.length) {
+      renderOzonFbsCancelledOrdersTable();
+    }
+    try {
+      const params = new URLSearchParams({ source_id: String(sourceId) });
+      const res = await fetch(
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/cancelled?${params}`
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      }
+      if (ozonFbsCancelledState.refreshGen !== refreshGen) return;
+      ozonFbsCancelledState.lastError = "";
+      ozonFbsCancelledState.rows = Array.isArray(data.rows) ? data.rows : [];
+      renderOzonFbsCancelledOrdersTable();
+      _ozonFbsCancelledMergeIntoDetail(ozonFbsCancelledState.rows);
+      const warnings = Array.isArray(data.warnings) ? data.warnings : [];
+      if (warnings.length) {
+        _ozonFbsCancelledSetInfo(
+          `Часть отправлений проверена по локальным данным (${warnings.length})`,
+          "ok"
+        );
+      }
+    } catch (e) {
+      if (ozonFbsCancelledState.refreshGen !== refreshGen) return;
+      const msg = String(e.message || e);
+      ozonFbsCancelledState.lastError = msg;
+      if (!ozonFbsCancelledState.rows.length) renderOzonFbsCancelledOrdersTable();
+      _ozonFbsCancelledSetInfo(msg);
+    } finally {
+      if (ozonFbsCancelledState.refreshGen === refreshGen) {
+        ozonFbsCancelledState.loading = false;
+        if (btn) btn.disabled = false;
+        if (!ozonFbsCancelledState.rows.length) renderOzonFbsCancelledOrdersTable();
+      }
+    }
+  }
+
+  function openOzonFbsCancelledOrdersModal() {
+    const sid = String(supplyDetailState.supplyId || "").trim();
+    const sourceId = supplyDetailState.sourceId || state.sourceId;
+    if (!sid || !sourceId) return;
+    if (typeof setModalVisibility === "function") {
+      setModalVisibility("ozonFbsCancelledOrdersModal", true);
+    } else {
+      document.getElementById("ozonFbsCancelledOrdersModal")?.classList.remove("hidden");
+    }
+    ozonFbsCancelledState.rows = [];
+    ozonFbsCancelledState.lastError = "";
+    ozonFbsCancelledState.loading = true;
+    _ozonFbsCancelledSetInfo("");
+    renderOzonFbsCancelledOrdersTable();
+    ozonFbsCancelledState.loading = false;
+    refreshOzonFbsCancelledOrders().catch(() => {});
+  }
+
+  function closeOzonFbsCancelledOrdersModal() {
+    ozonFbsCancelledState.refreshGen = Number(ozonFbsCancelledState.refreshGen || 0) + 1;
+    ozonFbsCancelledState.loading = false;
+    ozonFbsCancelledState.lastError = "";
+    ozonFbsCancelledState.rows = [];
+    const btn = document.getElementById("ozonFbsCancelledOrdersRefreshBtn");
+    if (btn) btn.disabled = false;
+    _ozonFbsCancelledSetInfo("");
+    if (typeof setModalVisibility === "function") {
+      setModalVisibility("ozonFbsCancelledOrdersModal", false);
+    } else {
+      document.getElementById("ozonFbsCancelledOrdersModal")?.classList.add("hidden");
     }
   }
 
@@ -2373,4 +2552,7 @@
   window.toggleOzonFbsRowMenu = toggleOzonFbsRowMenu;
   window.closeOzonFbsRowMenus = closeOzonFbsRowMenus;
   window.ozonFbsPrintOnePostingStickerFromDetail = printOnePostingStickerFromDetail;
+  window.openOzonFbsCancelledOrdersModal = openOzonFbsCancelledOrdersModal;
+  window.closeOzonFbsCancelledOrdersModal = closeOzonFbsCancelledOrdersModal;
+  window.refreshOzonFbsCancelledOrders = refreshOzonFbsCancelledOrders;
 })();
