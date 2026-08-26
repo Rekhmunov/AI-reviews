@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 from . import ozon_fbs as oz
-from . import ozon_fbs_detail as oz_detail
 from . import ozon_fbs_supplies as oz_sup
 from . import wb_fbs as wb
 from . import wb_fbs_kiz_restore as kiz_restore
