@@ -11,6 +11,7 @@ import json
 import logging
 import secrets
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -1146,13 +1147,152 @@ def get_supply(
     return d
 
 
+def _assembly_posting_numbers_for_supply(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+) -> list[str]:
+    """Posting numbers linked to a supply in ``ozon_fbs_postings`` (assembly truth)."""
+    ensure_ozon_fbs_supply_schema(repo)
+    sid = str(supply_id or "").strip()
+    if not sid:
+        return []
+    nums: list[str] = []
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                """
+                SELECT posting_number FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                ORDER BY posting_number ASC
+                """
+            ),
+            (user_id, source_id, sid),
+        ).fetchall()
+    for row in rows:
+        pn = str(row["posting_number"] if hasattr(row, "keys") else row[0]).strip()
+        if pn:
+            nums.append(pn)
+    return nums
+
+
+def print_posting_numbers_mismatch_message(
+    *, supply_count: int, assembly_count: int
+) -> str:
+    """User-facing block reason when supply JSON composition ≠ assembly links."""
+    return (
+        "Количество заказов в листе подбора / стикерах не совпадает с заказами "
+        f"на сборке (в поставке: {int(supply_count)}, на сборке: {int(assembly_count)}). "
+        "Печать заблокирована. Выполните синхронизацию и сбор заказов, затем снова "
+        "откройте поставку."
+    )
+
+
+def ensure_supply_ready_for_print(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    kind: str = "print",
+) -> list[str]:
+    """Require supply JSON posting list to match assembly links before print.
+
+    Returns posting numbers in supply-record order when sets match.
+    Raises ``ValueError`` when sets differ — callers must not print.
+    """
+    sid = str(supply_id or "").strip()
+    if not sid:
+        raise ValueError("Укажите supply_id")
+    kind_label = str(kind or "print").strip() or "print"
+
+    supply = get_supply(repo, user_id=user_id, source_id=source_id, supply_id=sid)
+    if not supply:
+        raise ValueError("Поставка не найдена")
+    supply_nums = [
+        str(x).strip()
+        for x in (supply.get("posting_numbers") or [])
+        if str(x).strip()
+    ]
+    assembly_nums = _assembly_posting_numbers_for_supply(
+        repo, user_id=user_id, source_id=source_id, supply_id=sid
+    )
+    supply_set = set(supply_nums)
+    assembly_set = set(assembly_nums)
+    if supply_set == assembly_set:
+        _log.info(
+            "ozon print ok supply=%s source=%s kind=%s supply=%s assembly=%s",
+            sid,
+            source_id,
+            kind_label,
+            len(supply_set),
+            len(assembly_set),
+        )
+        return supply_nums
+
+    _log.warning(
+        "ozon print blocked supply=%s source=%s kind=%s supply=%s assembly=%s "
+        "missing_on_supply=%s extra_on_supply=%s",
+        sid,
+        source_id,
+        kind_label,
+        len(supply_set),
+        len(assembly_set),
+        len(assembly_set - supply_set),
+        len(supply_set - assembly_set),
+    )
+    raise ValueError(
+        print_posting_numbers_mismatch_message(
+            supply_count=len(supply_set),
+            assembly_count=len(assembly_set),
+        )
+    )
+
+
+def get_supply_detail_for_print(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    kind: str = "print",
+) -> dict[str, Any]:
+    """Detail for print: verify supply↔assembly composition, then load orders."""
+    sid = str(supply_id or "").strip()
+    verified = ensure_supply_ready_for_print(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=sid,
+        kind=kind,
+    )
+    return get_supply_detail(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=sid,
+        posting_numbers=verified,
+    )
+
+
 def get_supply_detail(
-    repo: ReviewRepository, *, user_id: int, source_id: int, supply_id: str
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    posting_numbers: list[str] | None = None,
 ) -> dict[str, Any]:
     supply = get_supply(repo, user_id=user_id, source_id=source_id, supply_id=supply_id)
     if not supply:
         raise RuntimeError("Поставка не найдена")
-    nums = list(supply.get("posting_numbers") or [])
+    nums = (
+        [str(x).strip() for x in posting_numbers if str(x).strip()]
+        if posting_numbers is not None
+        else list(supply.get("posting_numbers") or [])
+    )
     name_map = repo.get_product_name_by_article(user_id=user_id)
     ozon_sku_map = repo.get_product_name_by_ozon_sku(user_id=user_id)
     barcode_map = repo.get_product_barcodes_map(user_id=user_id)
@@ -1372,6 +1512,7 @@ def render_stickers_print_html(
     source_name: str,
     label_images: dict[str, list[str]],
     order_ids_filter: list[str] | None = None,
+    missing_posting_numbers: list[str] | None = None,
 ) -> str:
     orders = list(detail.get("orders") or [])
     if order_ids_filter is not None:
@@ -1449,6 +1590,22 @@ def render_stickers_print_html(
                     </section>
                     """
                 )
+    missing = [
+        str(x).strip()
+        for x in (missing_posting_numbers or [])
+        if str(x).strip()
+    ]
+    warn_html = ""
+    if missing:
+        preview = ", ".join(missing[:8])
+        if len(missing) > 8:
+            preview += f" … (+{len(missing) - 8})"
+        warn_html = (
+            f'<div class="warn-banner" role="alert">'
+            f"Не загружено {len(missing)} этик.: {_esc(preview)}. "
+            f"Дождитесь 1–2 мин после сборки и повторите печать стикеров."
+            f"</div>"
+        )
     return f"""<!doctype html>
 <html lang="ru"><head><meta charset="utf-8"/>
 <title>Стикеры {_esc(supply_name)}</title>
@@ -1490,14 +1647,28 @@ def render_stickers_print_html(
     font-size: 10px; color: #b91c1c; gap: 4px;
   }}
   .toolbar {{ padding: 8px 12px; }}
-  @media print {{ .toolbar {{ display: none !important; }} }}
+  .warn-banner {{
+    margin: 0 12px 8px; padding: 8px 12px; border: 1px solid #fecaca;
+    background: #fef2f2; color: #991b1b; font-size: 13px; line-height: 1.35;
+    border-radius: 8px;
+  }}
+  @media print {{ .toolbar, .warn-banner {{ display: none !important; }} }}
 </style></head><body>
   <div class="toolbar"><button onclick="window.print()">Печать</button>
     <span style="margin-left:8px;color:#64748b;font-size:13px">58×40 · Этикетка отправления Ozon</span>
   </div>
+  {warn_html}
   {''.join(pages) if pages else '<p style="padding:12px">Нет стикеров для печати.</p>'}
   <script>window.addEventListener('load',function(){{ setTimeout(function(){{ window.print(); }}, 300); }});</script>
 </body></html>"""
+
+
+@dataclass
+class StickersPrintResult:
+    html: str
+    expected_count: int
+    loaded_count: int
+    missing_posting_numbers: list[str]
 
 
 def list_sticker_groups(detail: dict[str, Any]) -> dict[str, Any]:
@@ -1532,9 +1703,17 @@ def build_stickers_print(
     api_key: str,
     source_name: str = "",
     posting_numbers_filter: list[str] | None = None,
-) -> str:
-    detail = get_supply_detail(
-        repo, user_id=user_id, source_id=source_id, supply_id=supply_id
+) -> StickersPrintResult:
+    detail = get_supply_detail_for_print(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=supply_id,
+        kind=(
+            "stickers_selected"
+            if posting_numbers_filter is not None
+            else "stickers"
+        ),
     )
     orders = list(detail.get("orders") or [])
     if posting_numbers_filter is not None:
@@ -1560,18 +1739,30 @@ def build_stickers_print(
         )
     client = oz.OzonFbsClient(client_id, api_key)
     images = _fetch_label_images(client, nums)
-    got = sum(len(pages) for pages in images.values())
-    if got == 0:
-        raise RuntimeError(
-            "Ozon не вернул этикетки. Подождите 1–2 минуты после сборки и повторите, "
-            "или проверьте статус отправлений в личном кабинете Ozon."
+    missing = [pn for pn in nums if not (images.get(pn) or [])]
+    loaded = sum(1 for pn in nums if (images.get(pn) or []))
+    if missing:
+        _log.warning(
+            "ozon stickers partial supply=%s source=%s expected=%s loaded=%s missing=%s",
+            supply_id,
+            source_id,
+            len(nums),
+            loaded,
+            len(missing),
         )
     detail = dict(detail)
     detail["orders"] = orders
     detail["order_count"] = len(orders)
-    return render_stickers_print_html(
+    html = render_stickers_print_html(
         detail,
         source_name=source_name,
         label_images=images,
         order_ids_filter=posting_numbers_filter,
+        missing_posting_numbers=missing,
+    )
+    return StickersPrintResult(
+        html=html,
+        expected_count=len(nums),
+        loaded_count=loaded,
+        missing_posting_numbers=missing,
     )

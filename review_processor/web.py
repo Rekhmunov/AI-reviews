@@ -12502,13 +12502,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="Укажите source_id")
         _ozon_fbs_source_credentials(owner_id, int(source_id))
         try:
-            detail = oz_sup.get_supply_detail(
+            detail = oz_sup.get_supply_detail_for_print(
                 repository,
                 user_id=owner_id,
                 source_id=int(source_id),
                 supply_id=str(supply_id),
+                kind="picking_list",
             )
             html_doc = oz_sup.render_picking_list_html(detail)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return Response(content=html_doc, media_type="text/html; charset=utf-8")
@@ -12527,13 +12530,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="Укажите source_id")
         _ozon_fbs_source_credentials(owner_id, int(source_id))
         try:
-            detail = oz_sup.get_supply_detail(
+            detail = oz_sup.get_supply_detail_for_print(
                 repository,
                 user_id=owner_id,
                 source_id=int(source_id),
                 supply_id=str(supply_id),
+                kind="sticker_groups",
             )
             return oz_sup.list_sticker_groups(detail)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -12559,7 +12565,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if p.strip()
         ]
         try:
-            html_doc = oz_sup.build_stickers_print(
+            result = oz_sup.build_stickers_print(
                 repository,
                 user_id=owner_id,
                 source_id=int(source_id),
@@ -12569,12 +12575,24 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 source_name=str(src_full.get("name") or ""),
                 posting_numbers_filter=selected or None,
             )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        headers = {
+            "Cache-Control": "no-store",
+            "X-Feedpilot-Stickers-Expected": str(result.expected_count),
+            "X-Feedpilot-Stickers-Loaded": str(result.loaded_count),
+            "X-Feedpilot-Stickers-Missing-Count": str(len(result.missing_posting_numbers)),
+        }
+        if result.missing_posting_numbers:
+            headers["X-Feedpilot-Stickers-Missing"] = ",".join(
+                result.missing_posting_numbers[:50]
+            )
         return Response(
-            content=html_doc,
+            content=result.html,
             media_type="text/html; charset=utf-8",
-            headers={"Cache-Control": "no-store"},
+            headers=headers,
         )
 
     @app.get("/api/ozon-fbs/postings/stickers-print")

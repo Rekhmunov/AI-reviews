@@ -1216,6 +1216,21 @@
       throw new Error(popupBlockedMsg || "Разрешите всплывающие окна");
     }
     setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+    const missingCount = Number(res.headers.get("X-Feedpilot-Stickers-Missing-Count") || 0);
+    if (missingCount > 0) {
+      const expected = res.headers.get("X-Feedpilot-Stickers-Expected") || "?";
+      const loaded = res.headers.get("X-Feedpilot-Stickers-Loaded") || "?";
+      const missingRaw = String(res.headers.get("X-Feedpilot-Stickers-Missing") || "").trim();
+      const preview = missingRaw
+        ? missingRaw.split(",").slice(0, 5).join(", ")
+        : "";
+      const suffix = missingCount > 5 ? ` … (+${missingCount - 5})` : "";
+      alert(
+        `Загружено ${loaded} из ${expected} этикеток.\n`
+        + `Не загружено: ${missingCount}. Повторите печать стикеров через 1–2 мин.\n`
+        + (preview ? `Отправления: ${preview}${suffix}` : "")
+      );
+    }
   }
 
   function closePickingMenu() {
