@@ -572,6 +572,63 @@ class GoodsReturnSourceFilterTests(unittest.TestCase):
         self.assertEqual(key, "settings-token")
         self.assertEqual(src, "settings")
 
+    def test_goods_return_report_trusted_for_source_key(self):
+        self.assertTrue(returns.goods_return_report_trusted("source"))
+        self.assertFalse(returns.goods_return_report_trusted("settings"))
+        self.assertFalse(returns.goods_return_report_trusted(""))
+
+    def test_goods_return_row_trusted_accepts_without_local_order(self):
+        matchers = {"order_ids": set(), "nm_ids": set(), "barcodes": set()}
+        self.assertTrue(
+            returns._goods_return_row_matches_source(
+                order_id=0,
+                srid="abchex123",
+                nm_id=100,
+                matchers=matchers,
+                srid_to_order={},
+                trust_report=True,
+            )
+        )
+
+    @patch("review_processor.wb_fbs_returns._purge_foreign_goods_returns_in_range", return_value=0)
+    @patch("review_processor.wb_fbs_returns.fetch_goods_return_report")
+    @patch("review_processor.wb_fbs_returns.ensure_wb_fbs_returns_tables")
+    @patch("review_processor.wb_fbs_returns._load_source_goods_return_matchers")
+    def test_sync_goods_returns_trusted_source_stores_unmatched_rows(
+        self,
+        load_matchers,
+        _ensure,
+        fetch_report,
+        _purge,
+    ):
+        load_matchers.return_value = {"order_ids": set(), "nm_ids": set(), "barcodes": set()}
+        fetch_report.return_value = [
+            {"orderId": 0, "nmId": 555, "srid": "hexsrid", "stickerId": "999"},
+        ]
+        repo = MagicMock()
+        repo._sql = lambda sql: sql
+        conn = MagicMock()
+        repo._connect.return_value.__enter__ = MagicMock(return_value=conn)
+        repo._connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        with patch(
+            "review_processor.wb_fbs_returns._upsert_goods_return_row",
+            return_value="inserted",
+        ) as upsert:
+            out = returns.sync_goods_returns(
+                repo,
+                user_id=1,
+                source_id=10,
+                api_key="source-key",
+                date_from="2026-08-01",
+                date_to="2026-08-10",
+                api_key_source="source",
+            )
+
+        self.assertEqual(out["skipped_foreign"], 0)
+        self.assertTrue(out["report_trusted"])
+        self.assertEqual(upsert.call_count, 1)
+
     @patch("review_processor.wb_fbs_returns._purge_foreign_goods_returns_in_range", return_value=0)
     @patch("review_processor.wb_fbs_returns.fetch_goods_return_report")
     @patch("review_processor.wb_fbs_returns.ensure_wb_fbs_returns_tables")

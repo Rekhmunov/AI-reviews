@@ -140,6 +140,29 @@ def resolve_goods_return_api_key(
     return "", ""
 
 
+def goods_return_report_trusted(api_key_source: str) -> bool:
+    """When the report is fetched with the source token, WB scopes it to that seller."""
+    return str(api_key_source or "").strip() == "source"
+
+
+def _goods_return_row_has_identity(
+    *,
+    order_id: int,
+    srid: str,
+    sticker_id: str = "",
+    nm_id: int | None = None,
+) -> bool:
+    if order_id > 0:
+        return True
+    if str(srid or "").strip():
+        return True
+    if str(sticker_id or "").strip():
+        return True
+    if nm_id and int(nm_id) > 0:
+        return True
+    return False
+
+
 def _confirm_order_ids_on_marketplace(
     marketplace_api_key: str,
     order_ids: list[int],
@@ -638,17 +661,28 @@ def _goods_return_row_matches_source(
     srid: str,
     nm_id: int | None,
     barcode: str = "",
+    sticker_id: str = "",
     matchers: dict[str, set[int] | set[str]],
     srid_to_order: dict[str, int],
     confirmed_order_ids: set[int] | None = None,
+    trust_report: bool = False,
 ) -> bool:
     """True when a goods-return row belongs to the selected FBS source."""
+    if trust_report:
+        return _goods_return_row_has_identity(
+            order_id=order_id,
+            srid=srid,
+            sticker_id=sticker_id,
+            nm_id=nm_id,
+        )
+
     if order_id > 0:
         if order_id in matchers["order_ids"]:
             return True
         if confirmed_order_ids and order_id in confirmed_order_ids:
             return True
         return False
+
     srid_key = str(srid or "").strip()
     if srid_key:
         mapped = int(srid_to_order.get(srid_key) or 0)
@@ -672,6 +706,7 @@ def _goods_return_api_row_matches_source(
     matchers: dict[str, set[int] | set[str]],
     srid_to_order: dict[str, int],
     confirmed_order_ids: set[int] | None = None,
+    trust_report: bool = False,
 ) -> bool:
     try:
         order_id = int(row.get("orderId") or 0)
@@ -683,14 +718,17 @@ def _goods_return_api_row_matches_source(
     except (TypeError, ValueError):
         nm_id = None
     barcode = str(row.get("barcode") or "").strip()
+    sticker_id = str(row.get("stickerId") or "").strip()
     return _goods_return_row_matches_source(
         order_id=order_id,
         srid=srid,
         nm_id=nm_id,
         barcode=barcode,
+        sticker_id=sticker_id,
         matchers=matchers,
         srid_to_order=srid_to_order,
         confirmed_order_ids=confirmed_order_ids,
+        trust_report=trust_report,
     )
 
 
@@ -699,7 +737,27 @@ def _stored_goods_return_matches_source(
     *,
     matchers: dict[str, set[int] | set[str]],
     srid_to_order: dict[str, int],
+    confirmed_order_ids: set[int] | None = None,
+    trust_report: bool = False,
+    fetched_srids: set[str] | None = None,
+    fetched_stickers: set[str] | None = None,
+    fetched_order_ids: set[int] | None = None,
 ) -> bool:
+    if trust_report and fetched_srids is not None:
+        srid = str(row.get("srid") or "").strip()
+        sticker = str(row.get("sticker_id") or "").strip()
+        try:
+            order_id = int(row.get("wb_order_id") or 0)
+        except (TypeError, ValueError):
+            order_id = 0
+        if srid and srid in fetched_srids:
+            return True
+        if sticker and sticker in (fetched_stickers or set()):
+            return True
+        if order_id > 0 and order_id in (fetched_order_ids or set()):
+            return True
+        return False
+
     try:
         order_id = int(row.get("wb_order_id") or 0)
     except (TypeError, ValueError):
@@ -711,13 +769,17 @@ def _stored_goods_return_matches_source(
     except (TypeError, ValueError):
         nm_id = None
     barcode = str(row.get("barcode") or "").strip()
+    sticker_id = str(row.get("sticker_id") or "").strip()
     return _goods_return_row_matches_source(
         order_id=order_id,
         srid=srid,
         nm_id=nm_id,
         barcode=barcode,
+        sticker_id=sticker_id,
         matchers=matchers,
         srid_to_order=srid_to_order,
+        confirmed_order_ids=confirmed_order_ids,
+        trust_report=trust_report,
     )
 
 
@@ -730,6 +792,11 @@ def _purge_foreign_goods_returns_in_range(
     date_to: str,
     matchers: dict[str, set[int]],
     srid_to_order: dict[str, int],
+    confirmed_order_ids: set[int] | None = None,
+    trust_report: bool = False,
+    fetched_srids: set[str] | None = None,
+    fetched_stickers: set[str] | None = None,
+    fetched_order_ids: set[int] | None = None,
 ) -> int:
     """Remove cached rows stored under source_id that do not belong to it."""
     rows = list_goods_returns(
@@ -762,6 +829,11 @@ def _purge_foreign_goods_returns_in_range(
             row,
             matchers=matchers,
             srid_to_order=srid_to_order,
+            confirmed_order_ids=confirmed_order_ids,
+            trust_report=trust_report,
+            fetched_srids=fetched_srids,
+            fetched_stickers=fetched_stickers,
+            fetched_order_ids=fetched_order_ids,
         ):
             continue
         try:
@@ -804,6 +876,7 @@ def sync_goods_returns(
     from this source cache for the requested date range.
     """
     ensure_wb_fbs_returns_tables(repo)
+    trust_report = goods_return_report_trusted(api_key_source)
     matchers = _load_source_goods_return_matchers(
         repo, user_id=user_id, source_id=source_id
     )
@@ -819,11 +892,27 @@ def sync_goods_returns(
     window_stats: list[dict[str, Any]] = []
     srid_to_order: dict[str, int] = {}
     confirmed_order_ids: set[int] = set()
+    fetched_srids: set[str] = set()
+    fetched_stickers: set[str] = set()
+    fetched_order_ids: set[int] = set()
     mp_key = str(marketplace_api_key or "").strip()
     for win_from, win_to in windows:
         rows = fetch_goods_return_report(
             api_key=api_key, date_from=win_from, date_to=win_to
         )
+        for row in rows:
+            srid = str(row.get("srid") or "").strip()
+            if srid:
+                fetched_srids.add(srid)
+            sticker = str(row.get("stickerId") or "").strip()
+            if sticker:
+                fetched_stickers.add(sticker)
+            try:
+                oid = int(row.get("orderId") or 0)
+            except (TypeError, ValueError):
+                oid = 0
+            if oid > 0:
+                fetched_order_ids.add(oid)
         window_order_ids = sorted(
             {
                 int(row.get("orderId") or 0)
@@ -883,6 +972,7 @@ def sync_goods_returns(
                     matchers=matchers,
                     srid_to_order=srid_to_order,
                     confirmed_order_ids=confirmed_order_ids,
+                    trust_report=trust_report,
                 ):
                     stats["skipped_foreign"] += 1
                     continue
@@ -926,6 +1016,11 @@ def sync_goods_returns(
         date_to=overall_to,
         matchers=matchers,
         srid_to_order=srid_to_order,
+        confirmed_order_ids=confirmed_order_ids,
+        trust_report=trust_report,
+        fetched_srids=fetched_srids if trust_report else None,
+        fetched_stickers=fetched_stickers if trust_report else None,
+        fetched_order_ids=fetched_order_ids if trust_report else None,
     )
     synced = totals["inserted"] + totals["updated"]
     warning = ""
@@ -936,16 +1031,21 @@ def sync_goods_returns(
                 "Отчёт загружен глобальным ключом из Настроек, а не ключом источника. "
                 "При нескольких кабинетах WB у каждого источника должен быть свой API-ключ."
             )
-        elif not has_local_orders and not confirmed_order_ids:
+        elif not has_local_orders and not confirmed_order_ids and not trust_report:
             warning = (
                 "Для этого источника нет заказов в базе FeedPilot — "
                 "сначала синхронизируйте ВБ ФБС, затем повторите «Синхр. WB»"
             )
-        elif totals["skipped_foreign"] > 0:
+        elif totals["skipped_foreign"] > 0 and not trust_report:
             warning = (
                 "Все строки отчёта WB не сопоставились с заказами этого источника. "
                 "Проверьте, что выбран нужный источник и заказы синхронизированы "
                 "(включая архив)."
+            )
+        elif totals["skipped_foreign"] > 0 and trust_report:
+            warning = (
+                f"Пропущено {totals['skipped_foreign']} строк без идентификатора "
+                "(нет srid, stickerId, orderId, nmId)."
             )
     return {
         "ok": True,
@@ -958,6 +1058,7 @@ def sync_goods_returns(
         "purged_foreign": totals["purged_foreign"],
         "warning": warning,
         "api_key_source": str(api_key_source or "").strip() or None,
+        "report_trusted": trust_report,
         "windows": window_stats,
         "date_from": overall_from,
         "date_to": overall_to,
