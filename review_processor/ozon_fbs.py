@@ -126,6 +126,59 @@ def compute_tab(status: object) -> str:
     return TAB_AWAITING_PACKAGING
 
 
+# Operational pipeline only (not cancelled / arbitration).
+_PIPELINE_STATUS_RANK: dict[str, int] = {
+    TAB_AWAITING_PACKAGING: 10,
+    TAB_AWAITING_DELIVER: 20,
+    TAB_DELIVERING: 30,
+    TAB_DELIVERED: 40,
+}
+
+
+def pipeline_status_rank(*, status: object = "", tab: object = "") -> int | None:
+    """Rank for packaging→deliver→delivering→delivered. None = non-pipeline."""
+    if is_cancelled_posting(status=status, tab=tab):
+        return None
+    t = str(tab or "").strip().lower()
+    if not t:
+        t = compute_tab(status)
+    if t == TAB_ARBITRATION or str(status or "").strip().lower() in _ARBITRATION_STATUSES:
+        return None
+    return _PIPELINE_STATUS_RANK.get(t)
+
+
+def resolve_upsert_status(
+    *,
+    local_status: object = "",
+    local_tab: object = "",
+    remote_status: object = "",
+) -> tuple[str, str]:
+    """Pick status/tab for upsert; never regress packaging←deliver mid-sync race.
+
+    Concurrent sync can still hold an ``awaiting_packaging`` page fetched before
+    ship; applying it after local ship would bounce rows back to «Ожидают сборки».
+    Cancelled / arbitration from Ozon always win.
+    """
+    new_status = str(remote_status or "").strip().lower()
+    new_tab = compute_tab(new_status)
+    if is_cancelled_posting(status=new_status, tab=new_tab):
+        return new_status or TAB_CANCELLED, TAB_CANCELLED
+    if new_tab == TAB_ARBITRATION or new_status in _ARBITRATION_STATUSES:
+        return new_status or TAB_ARBITRATION, TAB_ARBITRATION
+
+    old_status = str(local_status or "").strip().lower()
+    old_tab = str(local_tab or "").strip().lower() or compute_tab(old_status)
+    old_rank = pipeline_status_rank(status=old_status, tab=old_tab)
+    new_rank = pipeline_status_rank(status=new_status, tab=new_tab)
+    if (
+        old_rank is not None
+        and new_rank is not None
+        and new_rank < old_rank
+    ):
+        return old_status or old_tab, old_tab
+    return new_status, new_tab
+
+
 _CANCELLED_STATUSES = frozenset(
     {
         TAB_CANCELLED,
@@ -1273,13 +1326,40 @@ def upsert_posting(
     user_id: int,
     source_id: int,
     posting: dict[str, Any],
+    protect_status_downgrade: bool = True,
 ) -> None:
     ensure_ozon_fbs_tables(repo)
     posting_number = str(posting.get("posting_number") or "").strip()
     if not posting_number:
         return
-    status = str(posting.get("status") or "").strip().lower()
+    remote_status = str(posting.get("status") or "").strip().lower()
+    status = remote_status
     tab = compute_tab(status)
+    local_status = ""
+    local_tab = ""
+    if protect_status_downgrade:
+        with repo._connect() as conn:
+            existing = conn.execute(
+                repo._sql(
+                    """
+                    SELECT status, tab FROM ozon_fbs_postings
+                    WHERE user_id = ? AND source_id = ? AND posting_number = ?
+                    """
+                ),
+                (user_id, source_id, posting_number),
+            ).fetchone()
+        if existing:
+            if hasattr(existing, "keys"):
+                local_status = str(existing["status"] or "")
+                local_tab = str(existing["tab"] or "")
+            else:
+                local_status = str(existing[0] or "")
+                local_tab = str(existing[1] or "")
+            status, tab = resolve_upsert_status(
+                local_status=local_status,
+                local_tab=local_tab,
+                remote_status=remote_status,
+            )
     products = _products_from_posting(posting)
     first = products[0] if products else {}
     offer_id = str(first.get("offer_id") or "").strip()

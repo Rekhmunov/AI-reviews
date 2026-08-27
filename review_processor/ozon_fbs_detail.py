@@ -78,16 +78,37 @@ def ship_posting(
         remote = {}
     packages = build_ship_packages(remote if remote else row)
     result = api.ship_posting(str(posting_number), packages)
+    # After a successful ship, local must be awaiting_deliver even if Ozon get/list
+    # still briefly returns awaiting_packaging (eventual consistency). Otherwise a
+    # concurrent sync (or refresh of stale get) bounces the row back to «сборки».
+    refreshed: dict[str, Any] = {}
     try:
-        refreshed = api.get_posting(str(posting_number))
+        got = api.get_posting(str(posting_number))
+        if isinstance(got, dict):
+            refreshed = dict(got)
+    except Exception:
+        refreshed = {}
+    if not refreshed.get("posting_number"):
+        refreshed["posting_number"] = str(posting_number)
+    remote_status = str(refreshed.get("status") or "").strip().lower()
+    remote_tab = oz.compute_tab(remote_status)
+    if remote_tab not in (
+        oz.TAB_AWAITING_DELIVER,
+        oz.TAB_DELIVERING,
+        oz.TAB_DELIVERED,
+        oz.TAB_CANCELLED,
+        oz.TAB_ARBITRATION,
+    ):
+        refreshed["status"] = oz.TAB_AWAITING_DELIVER
+    try:
         oz.upsert_posting(
             repo,
             user_id=user_id,
             source_id=source_id,
             posting=refreshed,
+            protect_status_downgrade=False,
         )
     except Exception:
-        # Fallback: mark locally as awaiting_deliver if Ozon accepted ship.
         with repo._connect() as conn:
             conn.execute(
                 repo._sql(

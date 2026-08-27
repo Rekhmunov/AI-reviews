@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from review_processor.ozon_fbs_detail import (
     build_ship_packages,
     ship_all_awaiting_packaging,
+    ship_posting,
 )
 
 
@@ -72,6 +73,47 @@ class OzonFbsShipAllTests(unittest.TestCase):
         self.assertEqual(out["shipped_numbers"], ["A-1"])
         self.assertEqual(out["errors"][0]["posting_number"], "A-2")
         self.assertEqual(ship.call_count, 2)
+
+    def test_ship_posting_forces_awaiting_deliver_on_stale_get(self) -> None:
+        """Ozon get may still return awaiting_packaging right after ship."""
+        repo = MagicMock()
+        client = MagicMock()
+        client.get_posting.side_effect = [
+            {
+                "posting_number": "P-1",
+                "status": "awaiting_packaging",
+                "products": [{"sku": 1, "quantity": 1}],
+            },
+            {
+                "posting_number": "P-1",
+                "status": "awaiting_packaging",
+                "products": [{"sku": 1, "quantity": 1}],
+            },
+        ]
+        client.ship_posting.return_value = {"result": True}
+        with patch(
+            "review_processor.ozon_fbs_detail.get_posting_row",
+            return_value={
+                "posting_number": "P-1",
+                "products_json": '[{"sku": 1, "quantity": 1}]',
+            },
+        ), patch(
+            "review_processor.ozon_fbs_detail.oz.upsert_posting"
+        ) as upsert:
+            out = ship_posting(
+                repo,
+                user_id=1,
+                source_id=2,
+                posting_number="P-1",
+                client_id="c",
+                api_key="k",
+                client=client,
+            )
+        self.assertTrue(out["ok"])
+        upsert.assert_called_once()
+        kwargs = upsert.call_args.kwargs
+        self.assertEqual(kwargs["posting"]["status"], "awaiting_deliver")
+        self.assertFalse(kwargs["protect_status_downgrade"])
 
 
 if __name__ == "__main__":
