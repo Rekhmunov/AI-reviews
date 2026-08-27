@@ -30136,10 +30136,22 @@ function _wbFbsCollectMgtRenderModal(preview) {
   const body = document.getElementById("wbFbsCollectMgtBody");
   const lead = document.getElementById("wbFbsCollectMgtLead");
   const err = document.getElementById("wbFbsCollectMgtErr");
+  const confirmBtn = document.getElementById("wbFbsCollectMgtConfirmBtn");
+  const readOnly = !!preview?.token_read_only;
+  const readOnlyMsg = String(
+    preview?.token_read_only_message
+    || "Токен WB только для чтения — нужен токен с правами записи."
+  );
   if (err) {
-    err.hidden = true;
-    err.textContent = "";
+    if (readOnly) {
+      err.hidden = false;
+      err.textContent = readOnlyMsg;
+    } else {
+      err.hidden = true;
+      err.textContent = "";
+    }
   }
+  if (confirmBtn) confirmBtn.disabled = readOnly;
   const groups = Array.isArray(preview?.groups) ? preview.groups : [];
   const existing = new Set(
     (Array.isArray(preview?.existing_names) ? preview.existing_names : [])
@@ -30149,7 +30161,7 @@ function _wbFbsCollectMgtRenderModal(preview) {
     lead.textContent = `Новых МГТ заказов: ${preview?.mgt_count || 0}.`;
   }
   if (!body) return;
-  body.innerHTML = groups.map((g, idx) => {
+  const groupsHtml = groups.map((g, idx) => {
     const gkey = String(g.group_key || `g${idx}`);
     const mode = String(g.mode || "create");
     let inner = "";
@@ -30203,6 +30215,7 @@ function _wbFbsCollectMgtRenderModal(preview) {
         ${inner}
       </section>`;
   }).join("");
+  body.innerHTML = groupsHtml;
 }
 
 function wbFbsCollectMgtNameInput(input) {
@@ -30322,6 +30335,17 @@ async function openWbFbsCollectMgt() {
       return;
     }
     wbFbsCollectMgtState.preview = preview;
+    if (preview.token_read_only) {
+      alert(
+        preview.token_read_only_message
+        || "Токен WB только для чтения. Для сборки МГТ нужен токен с правами записи."
+      );
+      if (preview.needs_modal) {
+        _wbFbsCollectMgtRenderModal(preview);
+        document.getElementById("wbFbsCollectMgtModal")?.classList.remove("hidden");
+      }
+      return;
+    }
     if (!preview.needs_modal) {
       const decisions = (preview.groups || []).map((g) => ({
         group_key: String(g.group_key || ""),
@@ -30353,6 +30377,13 @@ window.openWbFbsCollectMgt = openWbFbsCollectMgt;
 async function confirmWbFbsCollectMgt() {
   if (wbFbsCollectMgtState.busy) return;
   if (!wbFbsCollectMgtState.preview) return;
+  if (wbFbsCollectMgtState.preview.token_read_only) {
+    alert(
+      wbFbsCollectMgtState.preview.token_read_only_message
+      || "Токен WB только для чтения. Для сборки МГТ нужен токен с правами записи."
+    );
+    return;
+  }
   if (!(
     wbFbsState.tab === "new"
     || wbFbsState.tab === "assembly"

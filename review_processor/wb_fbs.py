@@ -311,7 +311,13 @@ WB_SCOPE_ANALYTICS = 1 << 1
 WB_SCOPE_PRICES = 1 << 2
 WB_SCOPE_MARKETPLACE = 1 << 3
 WB_SCOPE_STATISTICS = 1 << 4
+# WB docs bit position 30 — token cannot perform write operations.
+WB_TOKEN_READ_ONLY_BIT = 1 << 29
 WB_GOODS_RETURN_SCOPES = WB_SCOPE_ANALYTICS | WB_SCOPE_STATISTICS
+WB_TOKEN_READ_ONLY_MESSAGE = (
+    "Токен WB только для чтения. Для сборки МГТ нужен токен «Маркетплейс» "
+    "с правами чтения и записи (ЛК WB → Настройки → Доступ к API)."
+)
 
 
 def decode_wb_jwt_payload(token: str) -> dict[str, Any]:
@@ -352,6 +358,11 @@ def wb_token_has_goods_return_scope(token: str) -> bool:
     return wb_token_has_scope(token, WB_GOODS_RETURN_SCOPES)
 
 
+def wb_token_is_read_only(token: str) -> bool:
+    """True when WB JWT has the read-only flag (docs bit position 30)."""
+    return wb_token_has_scope(token, WB_TOKEN_READ_ONLY_BIT)
+
+
 def wb_token_scope_labels(token: str) -> list[str]:
     mask = wb_token_scope_mask(token)
     labels: list[str] = []
@@ -364,6 +375,8 @@ def wb_token_scope_labels(token: str) -> list[str]:
     ):
         if mask & bit:
             labels.append(name)
+    if mask & WB_TOKEN_READ_ONLY_BIT:
+        labels.append("Только чтение")
     return labels
 
 
@@ -4807,6 +4820,9 @@ _AUTO_COLLECT_REASON_RU: dict[str, str] = {
     "disabled": "Автосбор МГТ выключен",
     "outside_window": "Вне окна активности (МСК)",
     "not_due": "Интервал автосбора ещё не прошёл",
+    "read_only_token": (
+        "Токен только для чтения — нужен токен «Маркетплейс» с правами записи"
+    ),
 }
 
 
@@ -4919,6 +4935,22 @@ def run_auto_collect_mgt_for_owner(
         api_key = str(job.get("api_key") or "")
         name = str(job.get("name") or sid)
         if not sid or not api_key:
+            continue
+        if wb_token_is_read_only(api_key):
+            row: dict[str, Any] = {
+                "source_id": sid,
+                "source_name": name,
+                "outcome": "skipped",
+                "reason_code": "read_only_token",
+                "reason": auto_collect_reason_ru("read_only_token"),
+                "mgt_found": 0,
+                "added": 0,
+                "planned": 0,
+                "supplies": [],
+                "errors": [],
+            }
+            any_skip = True
+            source_rows.append(row)
             continue
         row: dict[str, Any] = {
             "source_id": sid,
@@ -5412,6 +5444,7 @@ def preview_collect_mgt(
     *,
     user_id: int,
     source_id: int,
+    api_key: str = "",
 ) -> dict[str, Any]:
     """Build collect plan for New-tab MGT orders of one FBS source.
 
@@ -5493,6 +5526,7 @@ def preview_collect_mgt(
             groups.append(group)
 
     needs_modal = any(g.get("mode") in ("create", "choose") for g in groups)
+    token_read_only = wb_token_is_read_only(api_key) if str(api_key or "").strip() else False
     return {
         "ok": True,
         "mgt_count": len(orders),
@@ -5500,6 +5534,8 @@ def preview_collect_mgt(
         "needs_modal": needs_modal,
         "existing_names": sorted(existing_names),
         "source_name": source_name,
+        "token_read_only": token_read_only,
+        "token_read_only_message": WB_TOKEN_READ_ONLY_MESSAGE if token_read_only else "",
     }
 
 
@@ -5513,8 +5549,24 @@ def execute_collect_mgt(
 ) -> dict[str, Any]:
     """Execute collect plan: create supplies / add orders. Always reports leftovers."""
     ensure_wb_fbs_tables(repo)
+    if wb_token_is_read_only(api_key):
+        return {
+            "ok": False,
+            "message": WB_TOKEN_READ_ONLY_MESSAGE,
+            "errors": [WB_TOKEN_READ_ONLY_MESSAGE],
+            "added": 0,
+            "planned_live": 0,
+            "created_supplies": [],
+            "skipped_cancelled": [],
+            "not_added": [],
+            "remaining_in_new": [],
+            "goto_assembly": False,
+            "token_read_only": True,
+        }
     client = WbFbsClient(api_key)
-    preview = preview_collect_mgt(repo, user_id=user_id, source_id=source_id)
+    preview = preview_collect_mgt(
+        repo, user_id=user_id, source_id=source_id, api_key=api_key
+    )
     planned_groups = list(preview.get("groups") or [])
     # Only real open-supply names (preview no longer includes suggested titles).
     existing_names = {

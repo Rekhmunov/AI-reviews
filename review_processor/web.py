@@ -12087,8 +12087,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not sid:
             raise HTTPException(status_code=400, detail="Укажите source_id")
         _wb_fbs_source_key(owner_id, sid)  # validates FBS source exists
+        api_key = _wb_fbs_source_key(owner_id, sid)
         return wb_fbs_mod.preview_collect_mgt(
-            repository, user_id=owner_id, source_id=sid
+            repository, user_id=owner_id, source_id=sid, api_key=api_key
         )
 
     @app.post("/api/wb-fbs/collect-mgt")
