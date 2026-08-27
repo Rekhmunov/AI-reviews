@@ -322,6 +322,25 @@ class ReturnCatalogFieldsTests(unittest.TestCase):
         self.assertEqual(item["catalog_barcodes"], ["2038564013653"])
         self.assertEqual(item["barcode_label_name"], "Под этикетку")
 
+    def test_scan_item_for_api_enriches_catalog_barcodes(self):
+        repo = MagicMock()
+        repo.list_product_photos.return_value = [
+            {
+                "supplier_article": "art-1",
+                "barcodes": ["2038564013653"],
+                "barcode_label_name": "Под этикетку",
+            }
+        ]
+        row = {
+            "id": 7,
+            "product_article": "art-1",
+            "matched_order_ids_json": "[]",
+            "product_barcodes_json": "[]",
+        }
+        item = returns._scan_item_for_api(repo, user_id=1, row=row)
+        self.assertEqual(item["catalog_barcodes"], ["2038564013653"])
+        self.assertEqual(item["id"], 7)
+
 
 class GoodsReturnHttpErrorTests(unittest.TestCase):
     def test_format_retry_hint_seconds(self):

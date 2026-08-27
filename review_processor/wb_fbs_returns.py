@@ -2003,7 +2003,11 @@ def _insert_return_scan(
             repo._sql("SELECT * FROM wb_fbs_return_scans WHERE id = ?"),
             (scan_id,),
         ).fetchone()
-    return _scan_row_to_api(repo._row_to_dict(row) if row else {})
+    return _scan_item_for_api(
+        repo,
+        user_id=user_id,
+        row=repo._row_to_dict(row) if row else {},
+    )
 
 
 def _enrich_return_scan_catalog_fields(
@@ -2082,6 +2086,23 @@ def _scan_row_to_api(row: dict[str, Any]) -> dict[str, Any]:
     out.pop("product_barcodes_json", None)
     out.pop("matched_order_ids_json", None)
     return out
+
+
+def _scan_item_for_api(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    row: dict[str, Any],
+    by_article: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """API scan row with catalog barcodes for «Распечатать ШК»."""
+    item = _scan_row_to_api(row)
+    return _enrich_return_scan_catalog_fields(
+        repo,
+        user_id=user_id,
+        item=item,
+        by_article=by_article,
+    )
 
 
 def process_return_scan(
@@ -2169,7 +2190,7 @@ def _process_return_sticker_scan(
             "ok": False,
             "error": "duplicate",
             "message": "Этот стикер возврата уже просканирован",
-            "item": _scan_row_to_api(dup),
+            "item": _scan_item_for_api(repo, user_id=user_id, row=dup),
         }
     try:
         order_id = int(goods_row.get("wb_order_id") or 0)
@@ -2396,10 +2417,10 @@ def get_return_scan_by_id(
             ),
             (user_id, source_id, scan_id),
         ).fetchone()
-    return _enrich_return_scan_catalog_fields(
+    return _scan_item_for_api(
         repo,
         user_id=user_id,
-        item=_scan_row_to_api(repo._row_to_dict(row)) if row else {},
+        row=repo._row_to_dict(row),
     ) if row else None
 
 
@@ -2449,15 +2470,16 @@ def list_return_scans(
     has_more = len(rows) > page_limit
     if has_more:
         rows = rows[:page_limit]
-    items = [_scan_row_to_api(repo._row_to_dict(r)) for r in rows]
     by_article = _catalog_by_article_index(repo, user_id=user_id)
-    for item in items:
-        _enrich_return_scan_catalog_fields(
+    items = [
+        _scan_item_for_api(
             repo,
             user_id=user_id,
-            item=item,
+            row=repo._row_to_dict(r),
             by_article=by_article,
         )
+        for r in rows
+    ]
     return {"items": items, "has_more": has_more}
 
 
@@ -2542,6 +2564,7 @@ def build_return_order_preview(
         "gtin14": kiz_restore.extract_gtin14(kiz_code) if kiz_code else "",
         **product,
     }
+    item = _enrich_return_scan_catalog_fields(repo, user_id=user_id, item=item)
     out: dict[str, Any] = {
         "found": True,
         "order_id": oid,
