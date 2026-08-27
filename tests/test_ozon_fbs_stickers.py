@@ -280,5 +280,85 @@ class OzonFbsStickerLookupTests(unittest.TestCase):
         self.assertEqual(found["row"]["posting_number"], "0163799058-0084-1")
 
 
+class OzonFbsStickersPrintHtmlTests(unittest.TestCase):
+    def _detail(self) -> dict:
+        return {
+            "supply_id": "OZ-1",
+            "name": "Тест поставка",
+            "orders": [
+                {
+                    "posting_number": "P-1",
+                    "offer_id": "ART-1",
+                    "product_name": "Товар",
+                    "barcodes": ["460"],
+                    "sku": 111,
+                }
+            ],
+        }
+
+    def test_full_print_includes_cover_and_separator(self) -> None:
+        html = oz_sup.render_stickers_print_html(
+            self._detail(),
+            source_name="Ozon FBS",
+            label_images={"P-1": ["QUJD"]},
+            include_cover_and_separators=True,
+        )
+        self.assertIn('class="label cover"', html)
+        self.assertIn('class="label separator"', html)
+        self.assertIn('class="label sticker"', html)
+
+    def test_selected_print_is_sticker_only(self) -> None:
+        html = oz_sup.render_stickers_print_html(
+            self._detail(),
+            source_name="Ozon FBS",
+            label_images={"P-1": ["QUJD"]},
+            order_ids_filter=["P-1"],
+            include_cover_and_separators=False,
+        )
+        self.assertNotIn('class="label cover"', html)
+        self.assertNotIn('class="label separator"', html)
+        self.assertIn('class="label sticker"', html)
+        self.assertEqual(html.count('class="label sticker"'), 1)
+
+    def test_build_stickers_print_skips_cover_when_filtered(self) -> None:
+        detail = {
+            "supply_id": "OZ-1",
+            "name": "Тест",
+            "orders": [
+                {
+                    "posting_number": "P-1",
+                    "offer_id": "A",
+                    "product_name": "T",
+                    "tab": "awaiting_deliver",
+                    "barcodes": [],
+                }
+            ],
+        }
+        with (
+            patch(
+                "review_processor.ozon_fbs_supplies.get_supply_detail_for_print",
+                return_value=detail,
+            ),
+            patch(
+                "review_processor.ozon_fbs_supplies._fetch_label_images",
+                return_value={"P-1": ["QUJD"]},
+            ),
+            patch(
+                "review_processor.ozon_fbs_supplies.render_stickers_print_html",
+                return_value="<html/>",
+            ) as render,
+        ):
+            oz_sup.build_stickers_print(
+                MagicMock(),
+                user_id=1,
+                source_id=2,
+                supply_id="OZ-1",
+                client_id="c",
+                api_key="k",
+                posting_numbers_filter=["P-1"],
+            )
+        self.assertFalse(render.call_args.kwargs.get("include_cover_and_separators"))
+
+
 if __name__ == "__main__":
     unittest.main()

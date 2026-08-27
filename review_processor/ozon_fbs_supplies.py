@@ -2496,7 +2496,13 @@ def render_stickers_print_html(
     label_images: dict[str, list[str]],
     order_ids_filter: list[str] | None = None,
     missing_posting_numbers: list[str] | None = None,
+    include_cover_and_separators: bool = True,
 ) -> str:
+    """Render thermal sticker HTML.
+
+    Full supply print (button «Стикеры») includes cover + article separators.
+    Selected / row-menu print is labels-only (posting stickers).
+    """
     orders = list(detail.get("orders") or [])
     if order_ids_filter is not None:
         allowed = {str(x).strip() for x in order_ids_filter if str(x).strip()}
@@ -2512,7 +2518,7 @@ def render_stickers_print_html(
 
     pages: list[str] = []
     page_no = 0
-    if groups:
+    if include_cover_and_separators and groups:
         page_no += 1
         src_line = (
             f'<div class="cover-source">{_esc(source_name)}</div>' if source_name else ""
@@ -2534,22 +2540,23 @@ def render_stickers_print_html(
         barcodes = g.get("barcodes") or []
         barcode = str(barcodes[0] if barcodes else "")
         nm = g.get("nm_id") or "—"
-        page_no += 1
-        pages.append(
-            f"""
-            <section class="label separator">
-              <div class="qty">{qty} шт.</div>
-              <div class="title">{_esc(pname)}</div>
-              <div class="line">SKU Ozon: {_esc(nm)}</div>
-              <div class="line">Баркод: {_esc(barcode or "—")}</div>
-              <div class="line">Артикул: {_esc(article)}</div>
-              <div class="hint">
-                <span>Артикул для подбора · Не нужно клеить</span>
-                <span class="page">{page_no}</span>
-              </div>
-            </section>
-            """
-        )
+        if include_cover_and_separators:
+            page_no += 1
+            pages.append(
+                f"""
+                <section class="label separator">
+                  <div class="qty">{qty} шт.</div>
+                  <div class="title">{_esc(pname)}</div>
+                  <div class="line">SKU Ozon: {_esc(nm)}</div>
+                  <div class="line">Баркод: {_esc(barcode or "—")}</div>
+                  <div class="line">Артикул: {_esc(article)}</div>
+                  <div class="hint">
+                    <span>Артикул для подбора · Не нужно клеить</span>
+                    <span class="page">{page_no}</span>
+                  </div>
+                </section>
+                """
+            )
         for o in g.get("orders") or []:
             pn = str(o.get("posting_number") or "").strip()
             imgs = label_images.get(pn) or []
@@ -2746,6 +2753,9 @@ def build_stickers_print(
         label_images=images,
         order_ids_filter=posting_numbers_filter,
         missing_posting_numbers=missing,
+        # Cover + article separators only for full «Стикеры» print.
+        # Row menu / selected postings → posting labels only.
+        include_cover_and_separators=posting_numbers_filter is None,
     )
     return StickersPrintResult(
         html=html,
