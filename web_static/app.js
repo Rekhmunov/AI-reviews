@@ -2184,8 +2184,10 @@ let suppliesState = {
 function onSupplySourceMarketplaceChange() {
   const mp = document.getElementById("newSupplySourceMarketplace")?.value || "wb";
   const clientIdRow = document.getElementById("newSupplyOzonClientIdRow");
+  const analyticsRow = document.getElementById("newSupplySourceAnalyticsRow");
   const apiKeyPlaceholder = document.getElementById("newSupplySourceApiKey");
   if (clientIdRow) clientIdRow.style.display = mp === "ozon" ? "" : "none";
+  if (analyticsRow) analyticsRow.style.display = mp === "ozon" ? "none" : "";
   if (apiKeyPlaceholder) {
     apiKeyPlaceholder.placeholder = mp === "ozon"
       ? "API-ключ OZON (из личного кабинета продавца)"
@@ -2204,10 +2206,12 @@ function toggleAddSupplySourceForm(show) {
     const keyEl = document.getElementById("newSupplySourceApiKey");
     const mpEl = document.getElementById("newSupplySourceMarketplace");
     const cidEl = document.getElementById("newSupplySourceClientId");
+    const analyticsEl = document.getElementById("newSupplySourceAnalyticsKey");
     if (nameEl) nameEl.value = "";
     if (keyEl) keyEl.value = "";
     if (mpEl) mpEl.value = "wb";
     if (cidEl) cidEl.value = "";
+    if (analyticsEl) analyticsEl.value = "";
     onSupplySourceMarketplaceChange();
   }
 }
@@ -2281,6 +2285,7 @@ async function createSupplySource() {
   const info = document.getElementById("addSupplySourceInfo");
   const name = (nameEl?.value || "").trim();
   const api_key = (keyEl?.value || "").trim();
+  const analytics_api_key = (document.getElementById("newSupplySourceAnalyticsKey")?.value || "").trim();
   const marketplace = mpEl?.value || "wb";
   const client_id = (cidEl?.value || "").trim();
   if (!name) { if (info) { info.textContent = "Введите название"; info.style.color = "#b91c1c"; } return; }
@@ -2290,7 +2295,7 @@ async function createSupplySource() {
   const res = await fetch("/api/supply-sources", {
     method: "POST",
     headers: jsonHeaders(),
-    body: JSON.stringify({ name, api_key, marketplace, client_id }),
+    body: JSON.stringify({ name, api_key, marketplace, client_id, analytics_api_key }),
   }).catch(() => null);
   if (!res) { if (info) { info.textContent = "Ошибка сети"; info.style.color = "#b91c1c"; } return; }
   if (!res.ok) {
@@ -18908,7 +18913,9 @@ async function syncWbFbsReturnsGoods(options) {
         : ` · удалено чужих ${purgedForeign}`)
       : "";
     const warn = String(payload.warning || "").trim();
-    if (syncInfo) syncInfo.textContent = `WB: ${detail}${skipLabel}${purgeLabel}`;
+    const cachedTotal = Number(payload.goods_cached_total || 0);
+    const cacheLabel = cachedTotal > 0 ? ` · в кэше ${cachedTotal}` : "";
+    if (syncInfo) syncInfo.textContent = `WB: ${detail}${skipLabel}${purgeLabel}${cacheLabel}`;
     if (!isAuto) {
       _wbFbsReturnsSetInfo(
         warn

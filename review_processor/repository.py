@@ -8133,6 +8133,9 @@ class ReviewRepository:
             "ALTER TABLE supply_sources ADD COLUMN IF NOT EXISTS client_id TEXT"
         )
         conn.execute(
+            "ALTER TABLE supply_sources ADD COLUMN IF NOT EXISTS analytics_api_key_encrypted TEXT"
+        )
+        conn.execute(
             "ALTER TABLE supply_legal_entities ADD COLUMN IF NOT EXISTS signatories TEXT"
         )
         conn.execute(
@@ -9990,10 +9993,14 @@ class ReviewRepository:
         result = []
         for row in rows:
             d = self._row_to_dict(row)
-            encrypted = str(d.pop("api_key_encrypted") or "")
+            encrypted = str(d.pop("api_key_encrypted", "") or "")
             key = decrypt_secret(encrypted) if encrypted else None
             d["api_key_preview"] = mask_secret(key)
             d["has_api_key"] = bool(key)
+            analytics_enc = str(d.pop("analytics_api_key_encrypted", "") or "")
+            analytics_key = decrypt_secret(analytics_enc) if analytics_enc else None
+            d["analytics_api_key_preview"] = mask_secret(analytics_key) if analytics_key else ""
+            d["has_analytics_api_key"] = bool(analytics_key)
             d["is_enabled"] = bool(d.get("is_enabled"))
             result.append(d)
         return result
@@ -10007,21 +10014,48 @@ class ReviewRepository:
         if row is None:
             return None
         d = self._row_to_dict(row)
-        encrypted = str(d.pop("api_key_encrypted") or "")
+        encrypted = str(d.pop("api_key_encrypted", "") or "")
         d["api_key"] = decrypt_secret(encrypted) if encrypted else None
+        analytics_enc = str(d.pop("analytics_api_key_encrypted", "") or "")
+        d["analytics_api_key"] = decrypt_secret(analytics_enc) if analytics_enc else None
         return d
 
-    def create_supply_source(self, *, user_id: int, name: str, api_key: str, marketplace: str = "wb", client_id: str = "") -> dict[str, Any]:
+    def create_supply_source(
+        self,
+        *,
+        user_id: int,
+        name: str,
+        api_key: str,
+        marketplace: str = "wb",
+        client_id: str = "",
+        analytics_api_key: str = "",
+    ) -> dict[str, Any]:
         now = _utc_now()
         mp = marketplace.strip().lower() if marketplace else "wb"
+        analytics_enc = (
+            encrypt_secret(str(analytics_api_key or "").strip())
+            if str(analytics_api_key or "").strip()
+            else None
+        )
         with self._connect() as conn:
             source_id = self._insert_and_get_id(
                 conn,
                 """
-                INSERT INTO supply_sources (user_id, name, api_key_encrypted, marketplace, client_id, is_enabled, created_at)
-                VALUES (?, ?, ?, ?, ?, 1, ?)
+                INSERT INTO supply_sources (
+                    user_id, name, api_key_encrypted, marketplace, client_id,
+                    analytics_api_key_encrypted, is_enabled, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, 1, ?)
                 """,
-                (user_id, name.strip(), encrypt_secret(api_key.strip()), mp, client_id.strip() or None, now),
+                (
+                    user_id,
+                    name.strip(),
+                    encrypt_secret(api_key.strip()),
+                    mp,
+                    client_id.strip() or None,
+                    analytics_enc,
+                    now,
+                ),
             )
             row = conn.execute(
                 self._sql("SELECT * FROM supply_sources WHERE id = ?"),
@@ -10029,9 +10063,38 @@ class ReviewRepository:
             ).fetchone()
         d = self._row_to_dict(row) if row else {"id": source_id}
         d.pop("api_key_encrypted", None)
+        d.pop("analytics_api_key_encrypted", None)
         d["api_key_preview"] = mask_secret(api_key.strip())
         d["has_api_key"] = True
+        clean_analytics = str(analytics_api_key or "").strip()
+        d["has_analytics_api_key"] = bool(clean_analytics)
+        d["analytics_api_key_preview"] = mask_secret(clean_analytics) if clean_analytics else ""
         return d
+
+    def update_supply_source_analytics_key(
+        self,
+        *,
+        user_id: int,
+        source_id: int,
+        analytics_api_key: str | None,
+    ) -> bool:
+        """Set/clear per-source WB Analytics token (``None`` = keep unchanged)."""
+        if analytics_api_key is None:
+            return False
+        clean = str(analytics_api_key or "").strip()
+        encrypted = encrypt_secret(clean) if clean else None
+        with self._connect() as conn:
+            result = conn.execute(
+                self._sql(
+                    """
+                    UPDATE supply_sources
+                    SET analytics_api_key_encrypted = ?
+                    WHERE user_id = ? AND id = ?
+                    """
+                ),
+                (encrypted, user_id, source_id),
+            )
+        return bool(result.rowcount)
 
     def toggle_supply_source(self, *, user_id: int, source_id: int, is_enabled: bool) -> bool:
         with self._connect() as conn:

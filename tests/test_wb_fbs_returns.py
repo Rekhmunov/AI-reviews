@@ -630,6 +630,19 @@ class GoodsReturnSourceFilterTests(unittest.TestCase):
         self.assertEqual(src, "settings")
         self.assertTrue(trust)
 
+    def test_resolve_goods_return_api_key_uses_source_analytics_first(self):
+        source = _fake_wb_jwt(uid=11, scopes=wb.WB_SCOPE_MARKETPLACE)
+        source_analytics = _fake_wb_jwt(uid=11, scopes=wb.WB_SCOPE_ANALYTICS)
+        fallback = _fake_wb_jwt(uid=22, scopes=wb.WB_SCOPE_ANALYTICS)
+        key, src, trust = returns.resolve_goods_return_api_key(
+            source_api_key=source,
+            source_analytics_api_key=source_analytics,
+            fallback_analytics_key=fallback,
+        )
+        self.assertEqual(key, source_analytics)
+        self.assertEqual(src, "source_analytics")
+        self.assertTrue(trust)
+
     def test_resolve_goods_return_api_key_rejects_mismatched_settings(self):
         source = _fake_wb_jwt(uid=11, scopes=wb.WB_SCOPE_MARKETPLACE)
         fallback = _fake_wb_jwt(uid=22, scopes=wb.WB_SCOPE_ANALYTICS)

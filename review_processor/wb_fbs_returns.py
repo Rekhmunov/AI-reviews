@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import io
 import json
 import logging
 import re
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -122,11 +124,41 @@ GOODS_RETURN_DEFAULT_TOTAL_DAYS = 90
 GOODS_RETURN_STATUS_BATCH = 500
 # WB Personal/Service token: 1 request / minute for goods-return.
 GOODS_RETURN_REQUEST_INTERVAL_SEC = 61
+GOODS_RETURN_HYDRATE_CONFIRMED_LIMIT = 30
+
+_goods_return_sync_lock_guard = threading.Lock()
+_goods_return_sync_locks: dict[str, threading.Lock] = {}
+
+
+def _goods_return_sync_lock_key(*, user_id: int, cabinet_uid: int | None) -> str:
+    uid = int(cabinet_uid or 0)
+    return f"wb-goods-return:{int(user_id)}:{uid}"
+
+
+class GoodsReturnSyncInProgress(RuntimeError):
+    """Another goods-return sync is running for this WB seller cabinet."""
+
+
+@contextlib.contextmanager
+def goods_return_sync_lock(*, user_id: int, cabinet_uid: int | None):
+    key = _goods_return_sync_lock_key(user_id=user_id, cabinet_uid=cabinet_uid)
+    with _goods_return_sync_lock_guard:
+        lock = _goods_return_sync_locks.setdefault(key, threading.Lock())
+    if not lock.acquire(blocking=False):
+        raise GoodsReturnSyncInProgress(
+            "Синхронизация возвратов WB для этого кабинета уже выполняется. "
+            "Дождитесь завершения или повторите через 1–2 мин."
+        )
+    try:
+        yield
+    finally:
+        lock.release()
 
 
 def resolve_goods_return_api_key(
     *,
     source_api_key: str | None,
+    source_analytics_api_key: str | None = None,
     fallback_analytics_key: str | None,
 ) -> tuple[str, str, bool]:
     """Pick WB token for goods-return report.
@@ -139,6 +171,7 @@ def resolve_goods_return_api_key(
     """
     ordered, trust = resolve_goods_return_api_keys(
         source_api_key=source_api_key,
+        source_analytics_api_key=source_analytics_api_key,
         fallback_analytics_key=fallback_analytics_key,
     )
     key, label = ordered[0]
@@ -148,10 +181,12 @@ def resolve_goods_return_api_key(
 def resolve_goods_return_api_keys(
     *,
     source_api_key: str | None,
+    source_analytics_api_key: str | None = None,
     fallback_analytics_key: str | None,
 ) -> tuple[list[tuple[str, str]], bool]:
     """Ordered Analytics-capable keys: [(token, label), ...], trust_report."""
     source = str(source_api_key or "").strip()
+    source_analytics = str(source_analytics_api_key or "").strip()
     fallback = str(fallback_analytics_key or "").strip()
     source_uid = wb.wb_jwt_uid(source) if source else None
 
@@ -166,6 +201,8 @@ def resolve_goods_return_api_keys(
         seen.add(key)
         ordered.append((key, label))
 
+    if source_analytics:
+        _add(source_analytics, "source_analytics")
     if source:
         _add(source, "source")
     if fallback:
@@ -175,7 +212,9 @@ def resolve_goods_return_api_keys(
 
     if not ordered:
         raise RuntimeError(
-            _goods_return_key_resolution_error(source, fallback, source_uid)
+            _goods_return_key_resolution_error(
+                source, fallback, source_uid, has_source_analytics=bool(source_analytics)
+            )
         )
 
     key, _label = ordered[0]
@@ -187,6 +226,8 @@ def _goods_return_key_resolution_error(
     source_key: str,
     fallback_key: str,
     source_uid: int | None,
+    *,
+    has_source_analytics: bool = False,
 ) -> str:
     if (
         fallback_key
@@ -196,7 +237,13 @@ def _goods_return_key_resolution_error(
     ):
         return (
             "Analytics-ключ в Настройках (Честный знак) принадлежит другому кабинету WB. "
-            "Добавьте категорию «Аналитика» в API-токен этого источника."
+            "Укажите Analytics-ключ этого источника (поле «Analytics WB») или добавьте "
+            "категорию «Аналитика» в основной API-токен источника."
+        )
+    if has_source_analytics:
+        return (
+            "Analytics-ключ источника не имеет категории «Аналитика» или «Статистика». "
+            "Проверьте токен в ЛК WB или обновите поле «Analytics WB» у источника."
         )
     if source_key and not wb.wb_token_has_goods_return_scope(source_key):
         scopes = ", ".join(wb.wb_token_scope_labels(source_key)) or "не определены"
@@ -263,6 +310,47 @@ def _confirm_order_ids_on_marketplace(
             if oid > 0:
                 confirmed.add(oid)
     return confirmed
+
+
+def _hydrate_confirmed_return_orders(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    order_ids: set[int],
+    known_order_ids: set[int],
+    api_key: str,
+    limit: int = GOODS_RETURN_HYDRATE_CONFIRMED_LIMIT,
+) -> int:
+    """Pull minimal order rows for confirmed return orderIds missing locally."""
+    missing = sorted({int(x) for x in order_ids if int(x) > 0 and int(x) not in known_order_ids})
+    if not missing or not str(api_key or "").strip():
+        return 0
+    client = wb.WbFbsClient(str(api_key).strip())
+    hydrated = 0
+    for oid in missing[: max(0, int(limit))]:
+        try:
+            payload, is_archive, status = wb._fetch_order_payload_from_wb(
+                client, oid, max_archive_pages=12
+            )
+        except Exception as exc:
+            _log.warning("returns hydrate confirmed order %s failed: %s", oid, exc)
+            continue
+        if not payload:
+            continue
+        ss = str((status or {}).get("supplierStatus") or payload.get("supplierStatus") or "")
+        ws = str((status or {}).get("wbStatus") or payload.get("wbStatus") or "")
+        wb.upsert_order(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            order=payload,
+            supplier_status=ss,
+            wb_status=ws,
+            is_archive=is_archive,
+        )
+        hydrated += 1
+    return hydrated
 
 
 GOODS_RETURN_CHUNK_DAYS = 30
@@ -1008,179 +1096,203 @@ def sync_goods_returns(
     fetched_stickers: set[str] = set()
     fetched_order_ids: set[int] = set()
     mp_key = str(marketplace_api_key or "").strip()
+    cabinet_uid = wb.wb_jwt_uid(mp_key) if mp_key else None
     report_key: str | None = None
     report_label = str(api_key_source or "").strip()
-    for win_index, (win_from, win_to) in enumerate(windows):
-        if win_index > 0:
+    with goods_return_sync_lock(user_id=user_id, cabinet_uid=cabinet_uid):
+        for win_index, (win_from, win_to) in enumerate(windows):
+            if win_index > 0:
+                if report_key:
+                    time.sleep(GOODS_RETURN_REQUEST_INTERVAL_SEC)
+                else:
+                    raise RuntimeError(
+                        "Не удалось определить API-ключ для отчёта WB по возвратам"
+                    )
             if report_key:
-                time.sleep(GOODS_RETURN_REQUEST_INTERVAL_SEC)
+                rows = fetch_goods_return_report(
+                    api_key=report_key, date_from=win_from, date_to=win_to
+                )
             else:
-                raise RuntimeError(
-                    "Не удалось определить API-ключ для отчёта WB по возвратам"
+                rows, report_key, report_label = _fetch_goods_return_resilient(
+                    candidates,
+                    date_from=win_from,
+                    date_to=win_to,
                 )
-        if report_key:
-            rows = fetch_goods_return_report(
-                api_key=report_key, date_from=win_from, date_to=win_to
-            )
-        else:
-            rows, report_key, report_label = _fetch_goods_return_resilient(
-                candidates,
-                date_from=win_from,
-                date_to=win_to,
-            )
-            if not report_key:
-                raise RuntimeError(
-                    "Не удалось загрузить отчёт WB: нет ключа с категорией «Аналитика»"
-                )
-        if win_index == 0 and len(windows) > 1:
-            totals["rate_limit_windows"] = len(windows)
-        for row in rows:
-            srid = str(row.get("srid") or "").strip()
-            if srid:
-                fetched_srids.add(srid)
-            sticker = str(row.get("stickerId") or "").strip()
-            if sticker:
-                fetched_stickers.add(sticker)
-            try:
-                oid = int(row.get("orderId") or 0)
-            except (TypeError, ValueError):
-                oid = 0
-            if oid > 0:
-                fetched_order_ids.add(oid)
-        window_order_ids = sorted(
-            {
-                int(row.get("orderId") or 0)
-                for row in rows
-                if int(row.get("orderId") or 0) > 0
-            }
-        )
-        if window_order_ids and mp_key:
-            confirmed_order_ids.update(
-                _confirm_order_ids_on_marketplace(mp_key, window_order_ids)
-            )
-        pending_srids = sorted(
-            {
-                str(row.get("srid") or "").strip()
-                for row in rows
-                if str(row.get("srid") or "").strip()
-                and str(row.get("srid") or "").strip() not in srid_to_order
-            }
-        )
-        if pending_srids and mp_key:
-            try:
-                wb.hydrate_orders_for_kiz_srids(
-                    repo,
-                    user_id=user_id,
-                    source_id=source_id,
-                    srids=pending_srids,
-                    api_key=mp_key,
-                    archive_pages=30,
-                    lookback_days=GOODS_RETURN_DEFAULT_TOTAL_DAYS,
-                )
-                matchers = _load_source_goods_return_matchers(
-                    repo, user_id=user_id, source_id=source_id
-                )
-            except Exception as exc:
-                _log.warning("returns hydrate before sync failed: %s", exc)
-        if pending_srids:
-            srid_to_order.update(
-                wb.order_ids_by_srids(
-                    repo,
-                    user_id=user_id,
-                    source_id=source_id,
-                    srids=pending_srids,
-                )
-            )
-        now = datetime.now(UTC).isoformat()
-        stats = {
-            "fetched": len(rows),
-            "inserted": 0,
-            "updated": 0,
-            "unchanged": 0,
-            "skipped_foreign": 0,
-        }
-        with repo._connect() as conn:
+                if not report_key:
+                    raise RuntimeError(
+                        "Не удалось загрузить отчёт WB: нет ключа с категорией «Аналитика»"
+                    )
+            if win_index == 0 and len(windows) > 1:
+                totals["rate_limit_windows"] = len(windows)
             for row in rows:
-                if not _goods_return_api_row_matches_source(
-                    row,
-                    matchers=matchers,
-                    srid_to_order=srid_to_order,
-                    confirmed_order_ids=confirmed_order_ids,
-                    trust_report=trust_report,
-                ):
-                    stats["skipped_foreign"] += 1
-                    continue
-                parsed = _goods_return_values_from_row(
-                    row,
-                    user_id=user_id,
-                    source_id=source_id,
-                    synced_at=now,
+                srid = str(row.get("srid") or "").strip()
+                if srid:
+                    fetched_srids.add(srid)
+                sticker = str(row.get("stickerId") or "").strip()
+                if sticker:
+                    fetched_stickers.add(sticker)
+                try:
+                    oid = int(row.get("orderId") or 0)
+                except (TypeError, ValueError):
+                    oid = 0
+                if oid > 0:
+                    fetched_order_ids.add(oid)
+            window_order_ids = sorted(
+                {
+                    int(row.get("orderId") or 0)
+                    for row in rows
+                    if int(row.get("orderId") or 0) > 0
+                }
+            )
+            if window_order_ids and mp_key:
+                confirmed_order_ids.update(
+                    _confirm_order_ids_on_marketplace(mp_key, window_order_ids)
                 )
-                if not parsed:
-                    continue
-                values, raw_json, srid, order_id, sticker_id = parsed
-                outcome = _upsert_goods_return_row(
-                    conn,
-                    repo,
-                    user_id=user_id,
-                    source_id=source_id,
-                    values=values,
-                    raw_json=raw_json,
-                    srid=srid,
-                    order_id=order_id,
-                    sticker_id=sticker_id,
+                try:
+                    _hydrate_confirmed_return_orders(
+                        repo,
+                        user_id=user_id,
+                        source_id=source_id,
+                        order_ids=confirmed_order_ids,
+                        known_order_ids=set(matchers.get("order_ids") or set()),
+                        api_key=mp_key,
+                    )
+                    matchers = _load_source_goods_return_matchers(
+                        repo, user_id=user_id, source_id=source_id
+                    )
+                except Exception as exc:
+                    _log.warning("returns hydrate confirmed orders failed: %s", exc)
+            pending_srids = sorted(
+                {
+                    str(row.get("srid") or "").strip()
+                    for row in rows
+                    if str(row.get("srid") or "").strip()
+                    and str(row.get("srid") or "").strip() not in srid_to_order
+                }
+            )
+            if pending_srids and mp_key:
+                try:
+                    wb.hydrate_orders_for_kiz_srids(
+                        repo,
+                        user_id=user_id,
+                        source_id=source_id,
+                        srids=pending_srids,
+                        api_key=mp_key,
+                        archive_pages=30,
+                        lookback_days=GOODS_RETURN_DEFAULT_TOTAL_DAYS,
+                    )
+                    matchers = _load_source_goods_return_matchers(
+                        repo, user_id=user_id, source_id=source_id
+                    )
+                except Exception as exc:
+                    _log.warning("returns hydrate before sync failed: %s", exc)
+            if pending_srids:
+                srid_to_order.update(
+                    wb.order_ids_by_srids(
+                        repo,
+                        user_id=user_id,
+                        source_id=source_id,
+                        srids=pending_srids,
+                    )
                 )
-                stats[outcome] += 1
-        for key in ("fetched", "inserted", "updated", "unchanged", "skipped_foreign"):
-            totals[key] += stats[key]
-        window_stats.append(
-            {
-                "date_from": win_from,
-                "date_to": win_to,
-                **stats,
+            now = datetime.now(UTC).isoformat()
+            stats = {
+                "fetched": len(rows),
+                "inserted": 0,
+                "updated": 0,
+                "unchanged": 0,
+                "skipped_foreign": 0,
             }
+            with repo._connect() as conn:
+                for row in rows:
+                    if not _goods_return_api_row_matches_source(
+                        row,
+                        matchers=matchers,
+                        srid_to_order=srid_to_order,
+                        confirmed_order_ids=confirmed_order_ids,
+                        trust_report=trust_report,
+                    ):
+                        stats["skipped_foreign"] += 1
+                        continue
+                    parsed = _goods_return_values_from_row(
+                        row,
+                        user_id=user_id,
+                        source_id=source_id,
+                        synced_at=now,
+                    )
+                    if not parsed:
+                        continue
+                    values, raw_json, srid, order_id, sticker_id = parsed
+                    outcome = _upsert_goods_return_row(
+                        conn,
+                        repo,
+                        user_id=user_id,
+                        source_id=source_id,
+                        values=values,
+                        raw_json=raw_json,
+                        srid=srid,
+                        order_id=order_id,
+                        sticker_id=sticker_id,
+                    )
+                    stats[outcome] += 1
+            for key in ("fetched", "inserted", "updated", "unchanged", "skipped_foreign"):
+                totals[key] += stats[key]
+            window_stats.append(
+                {
+                    "date_from": win_from,
+                    "date_to": win_to,
+                    **stats,
+                }
+            )
+        overall_from = windows[0][0] if windows else _parse_iso_date(date_from)
+        overall_to = windows[-1][1] if windows else _parse_iso_date(date_to)
+        totals["purged_foreign"] = _purge_foreign_goods_returns_in_range(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            date_from=overall_from,
+            date_to=overall_to,
+            matchers=matchers,
+            srid_to_order=srid_to_order,
+            confirmed_order_ids=confirmed_order_ids,
+            trust_report=trust_report,
+            fetched_srids=fetched_srids if trust_report else None,
+            fetched_stickers=fetched_stickers if trust_report else None,
+            fetched_order_ids=fetched_order_ids if trust_report else None,
         )
-    overall_from = windows[0][0] if windows else _parse_iso_date(date_from)
-    overall_to = windows[-1][1] if windows else _parse_iso_date(date_to)
-    totals["purged_foreign"] = _purge_foreign_goods_returns_in_range(
-        repo,
-        user_id=user_id,
-        source_id=source_id,
-        date_from=overall_from,
-        date_to=overall_to,
-        matchers=matchers,
-        srid_to_order=srid_to_order,
-        confirmed_order_ids=confirmed_order_ids,
-        trust_report=trust_report,
-        fetched_srids=fetched_srids if trust_report else None,
-        fetched_stickers=fetched_stickers if trust_report else None,
-        fetched_order_ids=fetched_order_ids if trust_report else None,
-    )
     synced = totals["inserted"] + totals["updated"]
     warning = ""
+    if range_clamped:
+        warning = (
+            f"Период синхронизации ограничен {GOODS_RETURN_DEFAULT_TOTAL_DAYS} днями "
+            f"(WB хранит возвраты ~{GOODS_RETURN_DEFAULT_TOTAL_DAYS} дней)."
+        )
     has_local_orders = bool(matchers.get("order_ids") or matchers.get("nm_ids"))
     if synced == 0 and totals["fetched"] > 0:
-        if totals["skipped_foreign"] > 0 and str(api_key_source or "").strip() == "settings":
-            warning = (
+        extra = ""
+        if totals["skipped_foreign"] > 0 and str(report_label or api_key_source or "").strip() == "settings":
+            extra = (
                 "Отчёт загружен глобальным ключом из Настроек, а не ключом источника. "
                 "При нескольких кабинетах WB у каждого источника должен быть свой API-ключ."
             )
         elif not has_local_orders and not confirmed_order_ids and not trust_report:
-            warning = (
+            extra = (
                 "Для этого источника нет заказов в базе FeedPilot — "
                 "сначала синхронизируйте ВБ ФБС, затем повторите «Синхр. WB»"
             )
         elif totals["skipped_foreign"] > 0 and not trust_report:
-            warning = (
+            extra = (
                 "Все строки отчёта WB не сопоставились с заказами этого источника. "
                 "Проверьте, что выбран нужный источник и заказы синхронизированы "
                 "(включая архив)."
             )
         elif totals["skipped_foreign"] > 0 and trust_report:
-            warning = (
+            extra = (
                 f"Пропущено {totals['skipped_foreign']} строк без идентификатора "
                 "(нет srid, stickerId, orderId, nmId)."
             )
+        if extra:
+            warning = f"{warning} {extra}".strip() if warning else extra
     return {
         "ok": True,
         "synced": synced,
@@ -1198,6 +1310,15 @@ def sync_goods_returns(
         "windows": window_stats,
         "date_from": overall_from,
         "date_to": overall_to,
+        "goods_cached_total": len(
+            list_goods_returns(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                date_from=overall_from,
+                date_to=overall_to,
+            )
+        ),
     }
 
 
@@ -2214,10 +2335,12 @@ def sync_goods_returns_default(
 ) -> dict[str, Any]:
     src = repo.get_supply_source_with_key(user_id=user_id, source_id=source_id)
     source_api_key = str((src or {}).get("api_key") or "").strip() or None
+    source_analytics_key = str((src or {}).get("analytics_api_key") or "").strip() or None
     fallback = get_wb_analytics_api_key(repo, user_id=user_id)
     try:
         candidates, trust_report = resolve_goods_return_api_keys(
             source_api_key=source_api_key,
+            source_analytics_api_key=source_analytics_key,
             fallback_analytics_key=fallback,
         )
     except RuntimeError as exc:

@@ -492,6 +492,11 @@ class CreateSupplySourceRequest(BaseModel):
     api_key: str
     marketplace: str = "wb"
     client_id: str = ""
+    analytics_api_key: str = ""
+
+
+class UpdateSupplySourceAnalyticsKeyRequest(BaseModel):
+    analytics_api_key: str = ""
 
 
 class UpsertSupplyEdoSettingsRequest(BaseModel):
@@ -8552,6 +8557,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 api_key=payload.api_key.strip(),
                 marketplace=payload.marketplace,
                 client_id=payload.client_id,
+                analytics_api_key=payload.analytics_api_key.strip(),
             )
         except Exception as exc:
             _log.error("create_supply_source error: %s", exc, exc_info=True)
@@ -8568,6 +8574,25 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not ok:
             raise HTTPException(status_code=404, detail="Источник не найден")
         return {"ok": True, "source_id": source_id, "is_enabled": payload.is_enabled}
+
+    @app.patch("/api/supply-sources/{source_id}/analytics-key")
+    def update_supply_source_analytics_key(
+        request: Request,
+        source_id: int,
+        payload: UpdateSupplySourceAnalyticsKeyRequest,
+    ) -> dict[str, object]:
+        user = _require_user(request)
+        if str(user.get("role") or "") not in ROLE_CAN_ACCESS_SETTINGS:
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        repository._ensure_supply_tables()
+        ok = repository.update_supply_source_analytics_key(
+            user_id=int(user["id"]),
+            source_id=source_id,
+            analytics_api_key=payload.analytics_api_key.strip(),
+        )
+        if not ok:
+            raise HTTPException(status_code=404, detail="Источник не найден")
+        return {"ok": True, "source_id": source_id}
 
     @app.delete("/api/supply-sources/{source_id}")
     def delete_supply_source(request: Request, source_id: int) -> dict[str, object]:
@@ -11087,10 +11112,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 returns_mod.GOODS_RETURN_DEFAULT_TOTAL_DAYS
             )
         source_api_key = str(src_full.get("api_key") or "").strip() or None
+        source_analytics_key = str(src_full.get("analytics_api_key") or "").strip() or None
         fallback_key = get_wb_analytics_api_key(repository, user_id=owner_id)
         try:
             api_key_candidates, trust_report = returns_mod.resolve_goods_return_api_keys(
                 source_api_key=source_api_key,
+                source_analytics_api_key=source_analytics_key,
                 fallback_analytics_key=fallback_key,
             )
         except RuntimeError as exc:
@@ -11109,6 +11136,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 trust_report=trust_report,
                 api_key_candidates=api_key_candidates,
             )
+        except returns_mod.GoodsReturnSyncInProgress as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return result
@@ -11356,6 +11385,44 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 "Content-Disposition": 'attachment; filename="wb-fbs-returns.csv"'
             },
         )
+
+    @app.get("/api/wb-fbs/returns/goods")
+    def wb_fbs_returns_goods_list(
+        request: Request,
+        source_id: int,
+        date_from: str = "",
+        date_to: str = "",
+        search: str = "",
+        limit: int = 500,
+        offset: int = 0,
+    ) -> dict[str, object]:
+        from . import wb_fbs_returns as returns_mod
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        rows = returns_mod.list_goods_returns(
+            repository,
+            user_id=owner_id,
+            source_id=source_id,
+            date_from=date_from,
+            date_to=date_to,
+            search=search,
+        )
+        total = len(rows)
+        lim = max(1, min(int(limit or 500), 5000))
+        off = max(0, int(offset or 0))
+        page = rows[off : off + lim]
+        return {
+            "items": page,
+            "total": total,
+            "limit": lim,
+            "offset": off,
+            "has_more": off + len(page) < total,
+        }
 
     @app.get("/api/wb-fbs/returns/goods-export")
     def wb_fbs_returns_goods_export(
