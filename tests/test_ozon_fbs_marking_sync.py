@@ -28,6 +28,20 @@ def test_enrich_negative_cache_marks_checked() -> None:
     assert oz.posting_requires_marking({"is_mandatory_mark": False, "raw_json": __import__("json").dumps(out)}) is False
 
 
+def test_get_era_cache_is_invalidated_for_is_required_rerun() -> None:
+    """Postings checked via empty get requirements must re-run is-required."""
+    posting = {
+        "posting_number": "P-1",
+        "products": [{"sku": 1, "quantity": 1}],
+        "requirements": {
+            "products_requiring_mandatory_mark": [],
+            "marking_is_required_checked": True,
+            "marking_check_version": 2,
+        },
+    }
+    assert oz.posting_marking_flags_resolved(posting) is False
+
+
 def test_posting_marking_flags_resolved_after_positive_enrich() -> None:
     posting = {
         "posting_number": "0123604587-1235-1",

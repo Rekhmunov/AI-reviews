@@ -1028,7 +1028,12 @@ def posting_marking_flags_resolved(posting: dict[str, Any]) -> bool:
     if _mandatory_mark(posting, products):
         return True
     req = posting.get("requirements")
-    if isinstance(req, dict) and req.get("marking_is_required_checked"):
+    if not isinstance(req, dict):
+        return False
+    # Invalidate get-only era cache (empty requirements + checked) so is-required re-runs.
+    if req.get("marking_check_version") is not None:
+        return False
+    if req.get("marking_is_required_checked"):
         return True
     return False
 
@@ -1048,6 +1053,8 @@ def _posting_with_marking_checked(posting: dict[str, Any]) -> dict[str, Any]:
     else:
         req = dict(req)
     req["marking_is_required_checked"] = True
+    # Drop get-era marker so future resolves trust is-required cache again.
+    req.pop("marking_check_version", None)
     out["requirements"] = req
     return out
 
