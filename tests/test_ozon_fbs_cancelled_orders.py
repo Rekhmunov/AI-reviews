@@ -186,6 +186,53 @@ def test_list_supply_cancelled_postings_chunks_by_offset() -> None:
     assert client.get_posting.call_count == 3
 
 
+def test_list_supply_cancelled_postings_respects_posting_tab() -> None:
+    repo = MagicMock()
+    supply = {
+        "supply_id": "OZ-1",
+        "posting_numbers": ["A-1", "A-2", "D-1"],
+    }
+    client = MagicMock()
+    client.get_posting.side_effect = lambda pn: {
+        "posting_number": pn,
+        "status": "awaiting_deliver",
+    }
+
+    with (
+        patch(
+            "review_processor.ozon_fbs_supplies.get_supply",
+            return_value=supply,
+        ),
+        patch(
+            "review_processor.ozon_fbs_supplies._assembly_posting_numbers_for_supply_tab",
+            return_value=["A-1", "A-2"],
+        ) as tab_nums,
+        patch(
+            "review_processor.ozon_fbs_supplies.get_supply_detail",
+            return_value={"orders": [], "supply_id": "OZ-1"},
+        ) as get_detail,
+        patch("review_processor.ozon_fbs_supplies.oz.OzonFbsClient", return_value=client),
+        patch("review_processor.ozon_fbs_supplies.oz.upsert_posting"),
+    ):
+        payload = list_supply_cancelled_postings(
+            repo,
+            user_id=1,
+            source_id=2,
+            supply_id="OZ-1",
+            client_id="c",
+            api_key="k",
+            posting_tab="awaiting_deliver",
+        )
+
+    tab_nums.assert_called_once()
+    assert tab_nums.call_args.kwargs.get("tab") == "awaiting_deliver"
+    assert get_detail.call_args.kwargs.get("posting_tab") == "awaiting_deliver"
+    assert payload["posting_count"] == 2
+    assert payload["posting_tab"] == "awaiting_deliver"
+    assert client.get_posting.call_count == 2
+    assert {c.args[0] for c in client.get_posting.call_args_list} == {"A-1", "A-2"}
+
+
 def test_list_supply_cancelled_postings_empty() -> None:
     repo = MagicMock()
     with patch(

@@ -12935,6 +12935,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         source_id: int,
         check_offset: int = 0,
         check_limit: int | None = None,
+        posting_tab: str | None = None,
     ) -> dict[str, object]:
         """Live check for cancelled postings still present in the local supply."""
         from . import ozon_fbs_supplies as oz_sup
@@ -12947,6 +12948,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not sid or not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
         _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
+        tab_key = str(posting_tab or "").strip() or None
         try:
             return oz_sup.list_supply_cancelled_postings(
                 repository,
@@ -12957,6 +12959,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 api_key=api_key,
                 check_offset=int(check_offset or 0),
                 check_limit=check_limit,
+                posting_tab=tab_key,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -12969,6 +12972,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         supply_id: str,
         source_id: int,
         marking_chunk: int | None = None,
+        posting_tab: str | None = None,
     ) -> dict[str, object]:
         from . import ozon_fbs_marking as oz_mark
 
@@ -12980,6 +12984,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not sid or not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
         _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
+        tab_key = str(posting_tab or "").strip() or None
         try:
             return oz_mark.build_marking_payload(
                 repository,
@@ -12990,6 +12995,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 api_key=api_key,
                 resolve_kiz=True,
                 max_postings=marking_chunk,
+                posting_tab=tab_key,
             )
         except RuntimeError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -12999,6 +13005,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         request: Request,
         supply_id: str,
         source_id: int,
+        posting_tab: str | None = None,
     ) -> dict[str, object]:
         from . import ozon_fbs_marking as oz_mark
 
@@ -13009,12 +13016,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         sid = str(supply_id or "").strip()
         if not sid or not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        tab_key = str(posting_tab or "").strip() or None
         try:
             return oz_mark.check_supply_marking_status(
                 repository,
                 user_id=owner_id,
                 source_id=int(source_id),
                 supply_id=sid,
+                posting_tab=tab_key,
             )
         except RuntimeError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -13069,6 +13078,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         supply_id: str,
         source_id: int,
         marking_chunk: int | None = None,
+        posting_tab: str | None = None,
     ) -> dict[str, object]:
         """Postings without КИЗ: resolve flags then local EAN pick-check (owner only)."""
         from . import ozon_fbs_pick_verify as oz_pick
@@ -13086,6 +13096,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not sid or not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
         _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
+        tab_key = str(posting_tab or "").strip() or None
         try:
             return oz_pick.build_pick_verify_payload(
                 repository,
@@ -13096,6 +13107,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 api_key=api_key,
                 resolve_kiz=True,
                 max_postings=marking_chunk,
+                posting_tab=tab_key,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -1634,6 +1634,14 @@
     return tab ? `&posting_tab=${encodeURIComponent(tab)}` : "";
   }
 
+  function _ozonFbsAppendPostingTab(params) {
+    const tab = String(supplyDetailState.postingTab || "").trim();
+    if (tab && params && typeof params.set === "function") {
+      params.set("posting_tab", tab);
+    }
+    return params;
+  }
+
   async function openSupplyDetailModal(supplyId) {
     const sid = String(supplyId || "").trim();
     if (!sid || !state.sourceId) return;
@@ -1783,6 +1791,7 @@
           source_id: String(sourceId),
           check_offset: String(offset),
         });
+        _ozonFbsAppendPostingTab(params);
         if (checkedTotal > 0 || offset > 0) {
           _ozonFbsCancelledSetInfo(
             `Проверка отменённых на Ozon… ${checkedTotal}/${postingCount || "?"}`,
@@ -4402,6 +4411,7 @@
     let loadOk = false;
     try {
       const params = new URLSearchParams({ source_id: String(sourceId) });
+      _ozonFbsAppendPostingTab(params);
       const data = await _ozonFbsFetchResolvedChunks(
         `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/marking?${params}`,
         {
@@ -4519,6 +4529,7 @@
     }
     try {
       const params = new URLSearchParams({ source_id: String(sourceId) });
+      _ozonFbsAppendPostingTab(params);
       const res = await fetch(
         `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/marking/status?${params}`
       );
@@ -4957,6 +4968,7 @@
     let loadOk = false;
     try {
       const params = new URLSearchParams({ source_id: String(sourceId) });
+      _ozonFbsAppendPostingTab(params);
       const data = await _ozonFbsFetchResolvedChunks(
         `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/pick-verify?${params}`,
         {

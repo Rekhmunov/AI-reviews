@@ -235,10 +235,12 @@ def build_pick_verify_payload(
     api_key: str | None = None,
     resolve_kiz: bool = True,
     max_postings: int | None = None,
+    posting_tab: str | None = None,
 ) -> dict[str, Any]:
     """Rows for «Проверка ШК»: resolve КИЗ via is-required (chunked), then plain rows."""
     cid = str(client_id or "").strip()
     key = str(api_key or "").strip()
+    tab_key = str(posting_tab or "").strip() or None
     marking_resolve = oz_sup._empty_marking_resolve()
     chunk = oz_sup._clamp_live_check_chunk(
         max_postings if max_postings is not None else oz_sup.OZON_FBS_LIVE_CHECK_CHUNK
@@ -252,6 +254,7 @@ def build_pick_verify_payload(
                 supply_id=supply_id,
                 client_id=cid,
                 api_key=key,
+                posting_tab=tab_key,
                 max_postings=chunk,
             )
         except Exception as exc:
@@ -262,6 +265,7 @@ def build_pick_verify_payload(
         user_id=user_id,
         source_id=source_id,
         supply_id=supply_id,
+        posting_tab=tab_key,
     )
     plain_orders = [
         o

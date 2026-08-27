@@ -2281,6 +2281,7 @@ def list_supply_cancelled_postings(
     api_key: str,
     check_offset: int = 0,
     check_limit: int | None = OZON_FBS_LIVE_CHECK_CHUNK,
+    posting_tab: str | None = None,
 ) -> dict[str, Any]:
     """Live Ozon get_posting check for cancelled postings (chunked to avoid 504)."""
     sid = str(supply_id or "").strip()
@@ -2292,11 +2293,21 @@ def list_supply_cancelled_postings(
     supply = get_supply(repo, user_id=user_id, source_id=source_id, supply_id=sid)
     if not supply:
         raise RuntimeError("Поставка не найдена")
-    posting_numbers = [
-        str(x).strip()
-        for x in (supply.get("posting_numbers") or [])
-        if str(x).strip()
-    ]
+    tab_key = str(posting_tab or "").strip() or None
+    if tab_key:
+        posting_numbers = _assembly_posting_numbers_for_supply_tab(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=sid,
+            tab=tab_key,
+        )
+    else:
+        posting_numbers = [
+            str(x).strip()
+            for x in (supply.get("posting_numbers") or [])
+            if str(x).strip()
+        ]
     if not posting_numbers:
         return {
             "ok": True,
@@ -2310,6 +2321,7 @@ def list_supply_cancelled_postings(
             "next_offset": 0,
             "remaining": 0,
             "done": True,
+            "posting_tab": tab_key,
         }
 
     try:
@@ -2323,7 +2335,11 @@ def list_supply_cancelled_postings(
     done = remaining == 0
 
     detail = get_supply_detail(
-        repo, user_id=user_id, source_id=source_id, supply_id=sid
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=sid,
+        posting_tab=tab_key,
     )
     local_by_pn: dict[str, dict[str, Any]] = {}
     for o in detail.get("orders") or []:
@@ -2412,6 +2428,7 @@ def list_supply_cancelled_postings(
         "next_offset": next_offset,
         "remaining": remaining,
         "done": done,
+        "posting_tab": tab_key,
         "warnings": fetch_errors[:5] if fetch_errors else [],
     }
 

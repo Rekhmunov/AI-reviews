@@ -197,7 +197,7 @@ def test_build_marking_payload_resolves_kiz_then_filters_rows() -> None:
         patch(
             "review_processor.ozon_fbs_marking.oz_sup.get_supply_detail",
             return_value=detail,
-        ),
+        ) as get_detail,
         patch(
             "review_processor.ozon_fbs_marking.load_marking_map",
             return_value={},
@@ -211,8 +211,11 @@ def test_build_marking_payload_resolves_kiz_then_filters_rows() -> None:
             client_id="cid",
             api_key="key",
             resolve_kiz=True,
+            posting_tab="awaiting_deliver",
         )
     resolve.assert_called_once()
+    assert resolve.call_args.kwargs.get("posting_tab") == "awaiting_deliver"
+    assert get_detail.call_args.kwargs.get("posting_tab") == "awaiting_deliver"
     assert len(payload["rows"]) == 1
     assert payload["rows"][0]["posting_number"] == "K-1"
     assert len(payload["order_kiz_flags"]) == 2

@@ -69,7 +69,7 @@ def test_build_pick_verify_payload_resolves_kiz_then_filters_plain() -> None:
         patch(
             "review_processor.ozon_fbs_pick_verify.oz_sup.get_supply_detail",
             return_value=detail,
-        ),
+        ) as get_detail,
         patch(
             "review_processor.ozon_fbs_pick_verify.load_posting_pick_map",
             return_value={},
@@ -83,8 +83,11 @@ def test_build_pick_verify_payload_resolves_kiz_then_filters_plain() -> None:
             client_id="cid",
             api_key="key",
             resolve_kiz=True,
+            posting_tab="awaiting_deliver",
         )
     resolve.assert_called_once()
+    assert resolve.call_args.kwargs.get("posting_tab") == "awaiting_deliver"
+    assert get_detail.call_args.kwargs.get("posting_tab") == "awaiting_deliver"
     assert payload["plain_count"] == 1
     assert payload["rows"][0]["posting_number"] == "P-1"
     assert len(payload["order_kiz_flags"]) == 2
