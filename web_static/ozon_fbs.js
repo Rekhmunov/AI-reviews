@@ -530,7 +530,17 @@
       }
       closeOzonFbsRenameSupplyModal();
       if (isSuppliesTab()) renderSuppliesTable(state.items);
-      showSyncInfo(`Поставка переименована: ${newName}`);
+      if (data.split) {
+        const kept = String(data.delivering_name || "").trim();
+        const n = Number(data.delivering_count || 0);
+        showSyncInfo(
+          kept
+            ? `Поставка переименована: ${newName}. В «Доставляются» осталось «${kept}» (${n} отпр.)`
+            : `Поставка переименована: ${newName}. Отправления в доставке сохранены под старым названием`
+        );
+      } else {
+        showSyncInfo(`Поставка переименована: ${newName}`);
+      }
     } catch (e) {
       if (err) {
         err.hidden = false;

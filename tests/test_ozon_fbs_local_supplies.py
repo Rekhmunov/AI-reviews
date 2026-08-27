@@ -760,6 +760,9 @@ class OzonFbsDeliveringSuppliesTests(unittest.TestCase):
         ), patch(
             "review_processor.ozon_fbs_supplies.list_open_supplies",
             return_value=[{"supply_id": "OZ-2", "name": "Другая"}],
+        ), patch(
+            "review_processor.ozon_fbs_supplies._assembly_posting_numbers_for_supply_tab",
+            return_value=[],
         ), patch.object(repo, "_connect") as conn_ctx:
             conn = MagicMock()
             conn_ctx.return_value.__enter__.return_value = conn
@@ -772,7 +775,74 @@ class OzonFbsDeliveringSuppliesTests(unittest.TestCase):
             )
         self.assertTrue(out["ok"])
         self.assertEqual(out["name"], "Новое имя")
+        self.assertFalse(out.get("split"))
         conn.execute.assert_called_once()
+
+    def test_rename_local_supply_splits_delivering_keeps_old_name(self) -> None:
+        """Mixed supply: awaiting gets new name; delivering keeps old on a fork."""
+        repo = MagicMock()
+        supply = {
+            "supply_id": "OZ-MIX",
+            "name": "Старое",
+            "done": False,
+            "warehouse_id": 10,
+            "warehouse_name": "WH",
+            "posting_numbers": ["A-1", "D-1"],
+            "order_count": 2,
+        }
+        renamed = {**supply, "name": "Новое", "posting_numbers": ["A-1"]}
+
+        def _tab_nums(**kwargs):
+            tab = str(kwargs.get("tab") or "")
+            if tab == "delivering":
+                return ["D-1"]
+            if tab == "awaiting_deliver":
+                return ["A-1"]
+            return []
+
+        with patch(
+            "review_processor.ozon_fbs_supplies.ensure_ozon_fbs_supply_schema"
+        ), patch(
+            "review_processor.ozon_fbs_supplies.get_supply",
+            side_effect=[supply, renamed],
+        ), patch(
+            "review_processor.ozon_fbs_supplies.list_open_supplies",
+            return_value=[],
+        ), patch(
+            "review_processor.ozon_fbs_supplies._assembly_posting_numbers_for_supply_tab",
+            side_effect=lambda *a, **k: _tab_nums(**k),
+        ), patch(
+            "review_processor.ozon_fbs_supplies._create_local_supply",
+            return_value="OZ-FORK",
+        ) as create_mock, patch(
+            "review_processor.ozon_fbs_supplies._assembly_posting_numbers_for_supply",
+            return_value=["A-1"],
+        ), patch(
+            "review_processor.ozon_fbs_supplies._set_supply_posting_numbers"
+        ) as set_nums, patch.object(repo, "_connect") as conn_ctx:
+            conn = MagicMock()
+            conn_ctx.return_value.__enter__.return_value = conn
+            out = rename_local_supply(
+                repo,
+                user_id=1,
+                source_id=2,
+                supply_id="OZ-MIX",
+                name="Новое",
+            )
+
+        self.assertTrue(out["ok"])
+        self.assertTrue(out["split"])
+        self.assertEqual(out["name"], "Новое")
+        self.assertEqual(out["delivering_supply_id"], "OZ-FORK")
+        self.assertEqual(out["delivering_name"], "Старое")
+        self.assertEqual(out["delivering_count"], 1)
+        create_mock.assert_called_once()
+        ckwargs = create_mock.call_args.kwargs
+        self.assertEqual(ckwargs["name"], "Старое")
+        self.assertEqual(ckwargs["posting_numbers"], ["D-1"])
+        self.assertIsNone(ckwargs["force_tab"])
+        set_nums.assert_called_once()
+        self.assertEqual(set_nums.call_args.kwargs["posting_numbers"], ["A-1"])
 
     def test_rename_local_supply_rejects_duplicate_name(self) -> None:
         repo = MagicMock()

@@ -1547,6 +1547,33 @@ def get_supply(
     return d
 
 
+def _set_supply_posting_numbers(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    posting_numbers: list[str],
+) -> None:
+    """Replace ``posting_numbers_json`` for a local supply row."""
+    ensure_ozon_fbs_supply_schema(repo)
+    sid = str(supply_id or "").strip()
+    if not sid:
+        return
+    nums = [str(x).strip() for x in posting_numbers if str(x).strip()]
+    with repo._connect() as conn:
+        conn.execute(
+            repo._sql(
+                """
+                UPDATE ozon_fbs_supplies
+                SET posting_numbers_json = ?, updated_at = NOW()
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                """
+            ),
+            (json.dumps(nums, ensure_ascii=False), user_id, source_id, sid),
+        )
+
+
 def rename_local_supply(
     repo: ReviewRepository,
     *,
@@ -1555,7 +1582,12 @@ def rename_local_supply(
     supply_id: str,
     name: str,
 ) -> dict[str, Any]:
-    """Rename a local Ozon FBS supply. Name is kept when postings move to delivering."""
+    """Rename a local Ozon FBS supply on «Ожидают отгрузки».
+
+    If the same ``supply_id`` still has postings in ``delivering``, those are
+    forked into a new local supply that keeps the **old** name so the
+    «Доставляются» card does not follow the rename.
+    """
     ensure_ozon_fbs_supply_schema(repo)
     sid = str(supply_id or "").strip()
     new_name = str(name or "").strip()
@@ -1572,6 +1604,15 @@ def rename_local_supply(
     if bool(supply.get("done")):
         raise RuntimeError("Нельзя переименовать закрытую поставку")
 
+    old_name = str(supply.get("name") or "").strip()
+    if new_name == old_name:
+        return {
+            "ok": True,
+            "supply_id": sid,
+            "name": old_name,
+            "split": False,
+        }
+
     open_names = {
         str(s.get("name") or "").strip()
         for s in list_open_supplies(repo, user_id=user_id, source_id=source_id)
@@ -1580,6 +1621,22 @@ def rename_local_supply(
     }
     if new_name in open_names:
         raise ValueError(f"Поставка «{new_name}» уже есть — выберите другое название")
+
+    delivering_nums = _assembly_posting_numbers_for_supply_tab(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=sid,
+        tab=oz.TAB_DELIVERING,
+    )
+    awaiting_nums = _assembly_posting_numbers_for_supply_tab(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=sid,
+        tab=oz.TAB_AWAITING_DELIVER,
+    )
+    should_split = bool(delivering_nums) and bool(awaiting_nums)
 
     with repo._connect() as conn:
         conn.execute(
@@ -1592,14 +1649,49 @@ def rename_local_supply(
             ),
             (new_name, user_id, source_id, sid),
         )
+
+    split_supply_id: str | None = None
+    if should_split:
+        # Old name is free after rename — keep it on the delivering fork.
+        split_supply_id = _create_local_supply(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            name=old_name or new_name,
+            warehouse_id=supply.get("warehouse_id"),
+            warehouse_name=str(supply.get("warehouse_name") or "").strip(),
+            posting_numbers=delivering_nums,
+            force_tab=None,
+        )
+        # Delivering rows already point at the fork; refresh JSON from assembly.
+        remaining = _assembly_posting_numbers_for_supply(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=sid,
+        )
+        _set_supply_posting_numbers(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=sid,
+            posting_numbers=remaining,
+        )
+
     updated = get_supply(repo, user_id=user_id, source_id=source_id, supply_id=sid)
     if not updated:
         raise RuntimeError("Поставка не найдена после переименования")
-    return {
+    result: dict[str, Any] = {
         "ok": True,
         "supply_id": sid,
         "name": str(updated.get("name") or new_name).strip(),
+        "split": bool(split_supply_id),
     }
+    if split_supply_id:
+        result["delivering_supply_id"] = split_supply_id
+        result["delivering_name"] = old_name
+        result["delivering_count"] = len(delivering_nums)
+    return result
 
 
 def _assembly_posting_numbers_for_supply_tab(

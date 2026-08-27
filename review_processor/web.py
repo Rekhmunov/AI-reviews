@@ -12862,7 +12862,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         request: Request,
         supply_id: str,
     ) -> dict[str, object]:
-        """Rename local Ozon FBS supply (name persists into «Доставляются»)."""
+        """Rename local Ozon FBS supply on awaiting; split delivering if mixed."""
         from . import ozon_fbs_supplies as oz_sup
 
         user = _require_user(request)
