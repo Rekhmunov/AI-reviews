@@ -2942,6 +2942,11 @@
     const ctype = String(barcode?.content_type || "image/png").trim() || "image/png";
     const hasImg = Boolean(b64);
     const canPrint = Boolean(hasImg || text);
+    const journalHint = String(
+      data?.journal_hint
+      || (Array.isArray(data?.blocks) && data.blocks[0]?.journal_hint)
+      || "Отметьтесь в журнале регистрации, как только приедете на СЦ. От этого зависит скидка на тариф отгрузки или штраф"
+    ).trim();
     const visual = hasImg
       ? `<img id="ozonFbsShipmentsBarcodeImg" src="data:${esc(ctype)};base64,${b64}" alt="Штрихкод поставки" />`
       : (text
@@ -2954,43 +2959,56 @@
       <section class="ozon-fbs-shipments-barcode-card">
         <div class="ozon-fbs-shipments-barcode-head">
           <h4 class="ozon-fbs-shipments-barcode-title">Штрихкод для склада ${whName}</h4>
-          <div class="ozon-fbs-shipments-barcode-actions">
-            <button type="button" class="ozon-fbs-shipments-icon-btn" ${canPrint ? "" : "disabled"}
-                    onclick="ozonFbsShipmentsPrintBarcode()" title="Печать" aria-label="Печать штрихкода">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M7 9V4h10v5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M7 17H5a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <rect x="7" y="13" width="10" height="7" rx="1" stroke="currentColor" stroke-width="2"/>
-              </svg>
-            </button>
-            <button type="button" class="ozon-fbs-shipments-icon-btn" ${canPrint ? "" : "disabled"}
-                    onclick="ozonFbsShipmentsDownloadBarcode()" title="Скачать" aria-label="Скачать штрихкод">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M12 4v10M8 10l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M5 19h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-              </svg>
-            </button>
-          </div>
         </div>
         <div class="ozon-fbs-shipments-barcode-grid">
-          <div class="ozon-fbs-shipments-barcode-visual">
-            ${visual}
-            ${textHtml}
+          <div class="ozon-fbs-shipments-barcode-main">
+            <div class="ozon-fbs-shipments-barcode-visual">
+              ${visual}
+              ${textHtml}
+            </div>
+            <div class="ozon-fbs-shipments-barcode-actions">
+              <button type="button" class="ozon-fbs-shipments-icon-btn" ${canPrint ? "" : "disabled"}
+                      onclick="ozonFbsShipmentsPrintBarcode()" title="Печать" aria-label="Печать штрихкода">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M7 9V4h10v5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M7 17H5a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  <rect x="7" y="13" width="10" height="7" rx="1" stroke="currentColor" stroke-width="2"/>
+                </svg>
+              </button>
+              <button type="button" class="ozon-fbs-shipments-icon-btn" ${canPrint ? "" : "disabled"}
+                      onclick="ozonFbsShipmentsDownloadBarcode()" title="Скачать" aria-label="Скачать штрихкод">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M12 4v10M8 10l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M5 19h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+              </button>
+            </div>
           </div>
+          <aside class="ozon-fbs-shipments-journal-callout" role="note">
+            ${esc(journalHint)}
+          </aside>
         </div>
       </section>`;
   }
 
   function renderShipmentsBlocks(data) {
     const blocks = Array.isArray(data?.blocks) ? data.blocks : [];
+    const banner = String(data?.message || "").trim();
+    const bannerHtml = banner
+      ? `<div class="ozon-fbs-shipments-banner">${esc(banner)}</div>`
+      : "";
     if (!blocks.length) {
-      return `<div class="ozon-fbs-shipments-loading">Нет данных отгрузки на выбранную дату</div>`;
+      return `${bannerHtml}<div class="ozon-fbs-shipments-loading">Нет данных отгрузки на выбранную дату</div>`;
     }
-    return blocks.map((block, bi) => {
+    return bannerHtml + blocks.map((block) => {
       const carriages = Array.isArray(block.carriages) ? block.carriages : [];
       const carriageHtml = carriages.map((c) => {
         const formed = Boolean(c.is_formed);
-        const statusCls = formed ? " is-formed" : "";
+        const statusLabel = String(c.status_label || "Не сформирована");
+        const awaiting = statusLabel.toLowerCase().includes("ожидает");
+        const statusCls = formed
+          ? (awaiting ? " is-awaiting" : " is-formed")
+          : "";
         const count = Number(c.postings_count || 0);
         const canForm = Boolean(c.can_form) && !shipmentsState.forming;
         const formBtn = formed
@@ -3006,7 +3024,7 @@
           <div class="ozon-fbs-shipments-carriage">
             <span class="ozon-fbs-shipments-carriage-title">${esc(c.label || "Отгрузка")}</span>
             <span class="ozon-fbs-shipments-carriage-count">${count} отправлений</span>
-            <span class="ozon-fbs-shipments-status${statusCls}">${esc(c.status_label || "Не сформирована")}</span>
+            <span class="ozon-fbs-shipments-status${statusCls}">${esc(statusLabel)}</span>
             <div class="ozon-fbs-shipments-carriage-actions">
               ${formBtn}
               ${picking}
@@ -3023,11 +3041,11 @@
             </div>
             <div class="ozon-fbs-shipments-meta-item">
               <span class="ozon-fbs-shipments-meta-label">Пункт</span>
-              <span class="ozon-fbs-shipments-meta-value">${esc(block.dropoff_point_type_label || "СЦ")}</span>
+              <span class="ozon-fbs-shipments-meta-value">${esc(block.dropoff_point_type_label || "Сортировочный центр")}</span>
             </div>
             <div class="ozon-fbs-shipments-meta-item">
               <span class="ozon-fbs-shipments-meta-label">Способ отгрузки</span>
-              <span class="ozon-fbs-shipments-meta-value">${esc(block.dropoff_point_type_label || "В пункт приема")}</span>
+              <span class="ozon-fbs-shipments-meta-value">${esc(block.shipment_method_label || "В пункт приема")}</span>
             </div>
             <div class="ozon-fbs-shipments-meta-item">
               <span class="ozon-fbs-shipments-meta-label">Адрес</span>
@@ -3043,10 +3061,6 @@
             </div>
           </div>
           ${carriageHtml}
-          <div class="ozon-fbs-shipments-hint">
-            <span class="ozon-fbs-shipments-hint-ico" aria-hidden="true">✓</span>
-            <span>${esc(block.hint || "")}</span>
-          </div>
         </section>`;
     }).join("");
   }
@@ -3058,7 +3072,7 @@
       body.innerHTML = `<div class="ozon-fbs-shipments-loading">Нет данных</div>`;
       return;
     }
-    if (data.ok === false && data.message) {
+    if (data.ok === false && data.message && !(Array.isArray(data.blocks) && data.blocks.length)) {
       body.innerHTML = `<div class="ozon-fbs-shipments-error">${esc(data.message)}</div>`;
       return;
     }

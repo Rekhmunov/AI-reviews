@@ -8225,9 +8225,10 @@ button.ozon-fbs-ship-all-btn:disabled {
 .ozon-fbs-shipments-barcode-head {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
+  justify-content: center;
   gap: 12px;
   margin-bottom: 16px;
+  text-align: center;
 }
 .ozon-fbs-shipments-barcode-title {
   margin: 0;
@@ -8237,7 +8238,9 @@ button.ozon-fbs-ship-all-btn:disabled {
 }
 .ozon-fbs-shipments-barcode-actions {
   display: flex;
-  gap: 8px;
+  gap: 4px;
+  justify-content: center;
+  margin-top: 8px;
 }
 .ozon-fbs-shipments-icon-btn {
   appearance: none;
@@ -8267,8 +8270,13 @@ button.ozon-fbs-ship-all-btn:disabled {
 .ozon-fbs-shipments-barcode-grid {
   display: grid;
   grid-template-columns: minmax(200px, 280px) 1fr;
-  gap: 20px;
-  align-items: start;
+  gap: 16px;
+  align-items: stretch;
+}
+.ozon-fbs-shipments-barcode-main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 .ozon-fbs-shipments-barcode-visual {
   display: flex;
@@ -8281,6 +8289,7 @@ button.ozon-fbs-ship-all-btn:disabled {
   border: 1px solid #e2e8f0;
   min-height: 96px;
   justify-content: center;
+  width: 100%;
 }
 .ozon-fbs-shipments-barcode-visual img {
   max-width: 100%;
@@ -8294,6 +8303,20 @@ button.ozon-fbs-ship-all-btn:disabled {
   font-weight: 600;
   color: #0f172a;
   letter-spacing: 0.02em;
+  text-align: center;
+}
+.ozon-fbs-shipments-journal-callout {
+  margin: 0;
+  padding: 16px;
+  border-radius: 12px;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  color: #9a3412;
+  font-size: 14px;
+  line-height: 1.5;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
 }
 .ozon-fbs-shipments-barcode-help {
   margin: 0;
@@ -8305,6 +8328,17 @@ button.ozon-fbs-ship-all-btn:disabled {
   font-size: 14px;
   color: #64748b;
   text-align: center;
+}
+.ozon-fbs-shipments-banner {
+  margin: 0 0 12px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  color: #9a3412;
+  font-size: 14px;
+  line-height: 1.45;
+  font-weight: 600;
 }
 .ozon-fbs-shipments-block-title {
   margin: 0 0 16px;
@@ -8367,6 +8401,10 @@ button.ozon-fbs-ship-all-btn:disabled {
   background: #dcfce7;
   color: #166534;
 }
+.ozon-fbs-shipments-status.is-awaiting {
+  background: #ffedd5;
+  color: #9a3412;
+}
 .ozon-fbs-shipments-carriage-actions {
   margin-left: auto;
   display: flex;
@@ -8419,20 +8457,10 @@ button.ozon-fbs-ship-all-btn:disabled {
   border-radius: 4px;
 }
 .ozon-fbs-shipments-hint {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  margin-top: 12px;
-  padding: 12px;
-  border-radius: 8px;
-  background: #ecfdf5;
-  color: #065f46;
-  font-size: 13px;
-  line-height: 1.45;
+  display: none;
 }
 .ozon-fbs-shipments-hint-ico {
-  flex: 0 0 auto;
-  margin-top: 1px;
+  display: none;
 }
 @media (max-width: 720px) {
   .ozon-fbs-shipments-barcode-grid,

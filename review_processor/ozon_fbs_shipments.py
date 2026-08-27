@@ -34,6 +34,16 @@ def _friendly_ozon_api_error(exc: Exception) -> RuntimeError:
     low = text.casefold()
     if "403" in low or "required role" in low:
         return RuntimeError(f"{_OZON_ROLE_HINT} ({text})")
+    if (
+        "there_are_incomplete_carriages" in low
+        or "незакрыт" in low
+        or "incomplete_carriage" in low
+    ):
+        return RuntimeError(
+            "По этому методу доставки есть незакрытые отгрузки. "
+            "Подтвердите или закройте текущую отгрузку (статус «Ожидает подтверждения»), "
+            "затем сформируйте новую на нужную дату."
+        )
     return RuntimeError(text)
 
 
@@ -176,9 +186,10 @@ PREFERRED_METHOD_HINTS = (
     "самостоятельно",
 )
 
-# Carriage statuses that mean «Сформирована» in Seller UI terms.
-_FORMED_STATUSES = frozenset(
+# Carriage statuses that mean documents exist (no «Сформировать»).
+_OPEN_CARRIAGE_STATUSES = frozenset(
     {
+        "new",
         "formed",
         "confirmed",
         "ready",
@@ -188,9 +199,16 @@ _FORMED_STATUSES = frozenset(
         "closed",
         "received",
         "completed",
-        "сформирована",
         "formed_partially",
+        "ожидает подтверждения",
+        "сформирована",
+        "подтверждена",
     }
+)
+
+_JOURNAL_HINT = (
+    "Отметьтесь в журнале регистрации, как только приедете на СЦ. "
+    "От этого зависит скидка на тариф отгрузки или штраф"
 )
 
 
@@ -289,55 +307,100 @@ def pick_default_delivery_method(
 
 
 def _carriage_status_label(status: object) -> str:
+    """Portal-aligned labels for carriage lifecycle."""
     st = str(status or "").strip()
     if not st:
         return "Не сформирована"
     low = st.casefold()
-    if low in _FORMED_STATUSES or "форм" in low:
-        if "не" in low and "форм" in low:
-            return "Не сформирована"
-        return "Сформирована"
-    if low in {"new", "created", "pending", "assembly", "forming"}:
+    if "не" in low and "форм" in low:
         return "Не сформирована"
+    if low in {"new", "created", "pending"} or "ожидает подтвержд" in low:
+        return "Ожидает подтверждения"
+    if low in {"formed", "formed_partially"} or "форм" in low:
+        # Seller portal shows «Ожидает подтверждения» for formed digital acts
+        # until the shipment is accepted at the drop-off point.
+        return "Ожидает подтверждения"
+    if low in {"confirmed", "ready"} or "подтвержд" in low:
+        return "Подтверждена"
+    if low in {"sended", "sent", "shipped", "closed", "received", "completed"}:
+        return "Закрыта"
     return st
 
 
-def _is_formed(status: object) -> bool:
-    return _carriage_status_label(status) == "Сформирована"
+def _carriage_is_open(status: object, *, carriage_id: int | None) -> bool:
+    """True when an act/carriage already exists (Form must stay hidden)."""
+    if carriage_id is not None and carriage_id > 0:
+        st = str(status or "").strip().casefold()
+        if not st or st in _OPEN_CARRIAGE_STATUSES or "форм" in st or "подтвержд" in st:
+            return True
+        if st not in {"cancelled", "canceled", "error", "deleted"}:
+            return True
+    low = str(status or "").strip().casefold()
+    return low in _OPEN_CARRIAGE_STATUSES
 
 
-def _dropoff_type_label(raw: object) -> str:
+def _is_formed(status: object, *, carriage_id: int | None = None) -> bool:
+    """Documents exist / barcode available (not a blank draft)."""
+    return _carriage_is_open(status, carriage_id=carriage_id) and _carriage_status_label(
+        status
+    ) != "Не сформирована"
+
+
+def _dropoff_point_label(raw: object) -> str:
+    """«Пункт» field — SortCenter → Сортировочный центр."""
     t = str(raw or "").strip()
-    low = t.casefold()
+    low = t.casefold().replace(" ", "").replace("_", "")
     mapping = {
-        "pvz": "В пункт приема",
-        "sc": "В пункт приема",
-        "sorting_center": "В пункт приема",
-        "dropoff": "В пункт приема",
-        "pickup": "Самовывоз Ozon",
-        "courier": "Курьер",
+        "pvz": "Пункт выдачи",
+        "sc": "Сортировочный центр",
+        "sortcenter": "Сортировочный центр",
+        "sortingcenter": "Сортировочный центр",
+        "sorting_center": "Сортировочный центр",
+        "dropoff": "Пункт приема",
     }
     if low in mapping:
         return mapping[low]
+    if "sort" in low and "centr" in low:
+        return "Сортировочный центр"
     if t:
         return t
+    return "Сортировочный центр"
+
+
+def _shipment_method_label(block: dict[str, Any]) -> str:
+    """«Способ отгрузки» — always portal wording for drop-off warehouses."""
+    first_mile = str(block.get("first_mile_type") or "").strip().casefold()
+    if first_mile in {"pickup", "pick_up"}:
+        return "Самовывоз Ozon"
+    if first_mile in {"courier"}:
+        return "Курьер"
     return "В пункт приема"
 
 
 def _acceptance_label(block: dict[str, Any]) -> str:
-    local = str(block.get("recommended_time_local") or "").strip()
+    """Portal «Приём отправлений» uses timeslot_to (e.g. 21:00), not recommended_time_local."""
     city = str(block.get("warehouse_city") or "").strip()
+    local = str(block.get("timeslot_to") or "").strip()
+    if not local:
+        # cutoff_at is usually timeslot end minus 1 minute (20:59) → show HH:00 next minute? Portal 21:00.
+        cutoff = str(block.get("cutoff_at") or "").strip()
+        if cutoff:
+            try:
+                dt = datetime.fromisoformat(cutoff.replace("Z", "+00:00"))
+                # Round up :59 → next hour for portal parity (20:59 → 21:00).
+                if dt.minute >= 59:
+                    hour = (dt.hour + 1) % 24
+                    local = f"{hour:02d}:00"
+                else:
+                    local = dt.strftime("%H:%M")
+            except ValueError:
+                local = ""
+    if not local:
+        local = str(block.get("recommended_time_local") or "").strip()
     if local and city:
         return f"до {local} ({city})"
     if local:
         return f"до {local}"
-    cutoff = str(block.get("cutoff_at") or "").strip()
-    if cutoff:
-        try:
-            dt = datetime.fromisoformat(cutoff.replace("Z", "+00:00"))
-            return f"до {dt.strftime('%H:%M')}"
-        except ValueError:
-            return cutoff
     return "—"
 
 
@@ -349,14 +412,22 @@ def _collected_label(block: dict[str, Any]) -> str:
         t = int(total) if total is not None else None
     except (TypeError, ValueError):
         p, t = None, None
-    if p is not None and t is not None:
+    if p is not None and t is not None and t > 0:
         return f"{p} из {t}"
+    # Optional carriages: packaged optional + postings in carriages.
+    try:
+        opt = int(block.get("optional_packaged_count") or 0)
+    except (TypeError, ValueError):
+        opt = 0
+    try:
+        carriage_n = int(block.get("carriage_postings_count") or 0)
+    except (TypeError, ValueError):
+        carriage_n = 0
+    if carriage_n > 0:
+        return f"{opt or carriage_n} из {carriage_n}" if opt else str(carriage_n)
     if t is not None:
         return f"0 из {t}"
-    try:
-        return str(int(block.get("carriage_postings_count") or 0))
-    except (TypeError, ValueError):
-        return "—"
+    return "—"
 
 
 def fetch_carriage_barcode(
@@ -400,36 +471,75 @@ def fetch_carriage_barcode(
     }
 
 
-def _normalize_block(block: dict[str, Any]) -> dict[str, Any]:
+def _enrich_carriage_from_get(
+    client: oz.OzonFbsClient | None, carriage_id: int, status: object
+) -> str:
+    """Prefer /v1/carriage/get status — delivery/list can still report «new»."""
+    if client is None or carriage_id <= 0:
+        return str(status or "")
+    try:
+        got = client.carriage_get(carriage_id=carriage_id)
+    except Exception as exc:
+        _log.warning("ozon carriage/get id=%s: %s", carriage_id, exc)
+        return str(status or "")
+    remote = str(got.get("status") or "").strip()
+    return remote or str(status or "")
+
+
+def _normalize_carriage(
+    c: dict[str, Any],
+    *,
+    idx: int,
+    client: oz.OzonFbsClient | None = None,
+    force_no_form: bool = False,
+) -> dict[str, Any]:
+    cid = c.get("id") if c.get("id") is not None else c.get("carriage_id")
+    try:
+        carriage_id = int(cid) if cid is not None and str(cid).strip() != "" else None
+        if carriage_id is not None and carriage_id <= 0:
+            carriage_id = None
+    except (TypeError, ValueError):
+        carriage_id = None
+    status = c.get("status")
+    if carriage_id is not None:
+        status = _enrich_carriage_from_get(client, carriage_id, status)
+    try:
+        postings_count = int(c.get("postings_count") or 0)
+    except (TypeError, ValueError):
+        postings_count = 0
+    open_act = _carriage_is_open(status, carriage_id=carriage_id)
+    status_label = _carriage_status_label(status) if open_act or status else "Не сформирована"
+    if carriage_id is not None and status_label == "Не сформирована":
+        status_label = "Ожидает подтверждения"
+        open_act = True
+    label = f"Отгрузка{carriage_id}" if carriage_id is not None else f"Отгрузка {idx}"
+    return {
+        "carriage_id": carriage_id,
+        "index": idx,
+        "label": label,
+        "postings_count": postings_count,
+        "status": str(status or ""),
+        "status_label": status_label,
+        "is_formed": open_act,
+        "can_form": (not open_act) and (not force_no_form),
+    }
+
+
+def _normalize_block(
+    block: dict[str, Any],
+    *,
+    client: oz.OzonFbsClient | None = None,
+    force_no_form: bool = False,
+) -> dict[str, Any]:
     carriages_raw = block.get("carriages") if isinstance(block.get("carriages"), list) else []
     carriages: list[dict[str, Any]] = []
     for idx, c in enumerate(carriages_raw):
         if not isinstance(c, dict):
             continue
-        cid = c.get("id") if c.get("id") is not None else c.get("carriage_id")
-        try:
-            carriage_id = int(cid) if cid is not None and str(cid).strip() != "" else None
-            if carriage_id is not None and carriage_id <= 0:
-                carriage_id = None
-        except (TypeError, ValueError):
-            carriage_id = None
-        status = c.get("status")
-        try:
-            postings_count = int(c.get("postings_count") or 0)
-        except (TypeError, ValueError):
-            postings_count = 0
-        formed = _is_formed(status)
         carriages.append(
-            {
-                "carriage_id": carriage_id,
-                "index": idx + 1,
-                "label": f"Отгрузка {idx + 1}",
-                "postings_count": postings_count,
-                "status": str(status or ""),
-                "status_label": _carriage_status_label(status),
-                "is_formed": formed,
-                "can_form": not formed,
-            }
+            _normalize_carriage(
+                c, idx=idx + 1, client=client, force_no_form=force_no_form
+            )
         )
     if not carriages:
         try:
@@ -445,7 +555,7 @@ def _normalize_block(block: dict[str, Any]) -> dict[str, Any]:
                 "status": "",
                 "status_label": "Не сформирована",
                 "is_formed": False,
-                "can_form": True,
+                "can_form": not force_no_form,
             }
         )
 
@@ -453,7 +563,10 @@ def _normalize_block(block: dict[str, Any]) -> dict[str, Any]:
     day_label = ""
     if departure:
         try:
-            d = datetime.fromisoformat(departure.replace("Z", "+00:00"))
+            if "T" in departure:
+                d = datetime.fromisoformat(departure.replace("Z", "+00:00"))
+            else:
+                d = datetime.fromisoformat(departure[:10])
             months = (
                 "",
                 "января",
@@ -481,7 +594,8 @@ def _normalize_block(block: dict[str, Any]) -> dict[str, Any]:
         "warehouse_city": str(block.get("warehouse_city") or "").strip(),
         "dropoff_address": str(block.get("dropoff_address") or "").strip(),
         "dropoff_point_type": str(block.get("dropoff_point_type") or "").strip(),
-        "dropoff_point_type_label": _dropoff_type_label(block.get("dropoff_point_type")),
+        "dropoff_point_type_label": _dropoff_point_label(block.get("dropoff_point_type")),
+        "shipment_method_label": _shipment_method_label(block),
         "dropoff_point_id": block.get("dropoff_point_id"),
         "acceptance_label": _acceptance_label(block),
         "collected_label": _collected_label(block),
@@ -494,10 +608,8 @@ def _normalize_block(block: dict[str, Any]) -> dict[str, Any]:
         "day_label": day_label or "Ozon",
         "tpl_provider_name": str(block.get("tpl_provider_name") or "").strip(),
         "carriages": carriages,
-        "hint": (
-            "Формировать отгрузку нужно, только если хотите изменить её состав "
-            "или оформить пропуск"
-        ),
+        "hint": "",
+        "journal_hint": _JOURNAL_HINT,
     }
 
 
@@ -539,6 +651,7 @@ def build_shipments_view(
             "selected_delivery_method_id": None,
             "blocks": [],
             "barcode": None,
+            "journal_hint": _JOURNAL_HINT,
         }
 
     dep_iso = _departure_iso(departure)
@@ -551,12 +664,52 @@ def build_shipments_view(
     except Exception as exc:
         raise _friendly_ozon_api_error(exc) from exc
 
-    raw_blocks = [
-        b
-        for b in _carriage_delivery_blocks(raw)
-        if _block_matches_departure(b, departure)
-    ]
-    blocks = [_normalize_block(b) for b in raw_blocks]
+    raw_blocks = _carriage_delivery_blocks(raw)
+    matched = [b for b in raw_blocks if _block_matches_departure(b, departure)]
+    other_day = [b for b in raw_blocks if not _block_matches_departure(b, departure)]
+    blocking_message = ""
+    force_no_form = False
+
+    # Ozon often keeps returning the open carriage day even when another date is
+    # requested. Surfacing those blocks prevents a fake «Сформировать» that then
+    # fails with there_are_incomplete_carriages.
+    if not matched and other_day:
+        force_no_form = True
+        dates: list[str] = []
+        for b in other_day:
+            d = _block_departure_date(b)
+            if d is not None:
+                dates.append(d.isoformat())
+        date_txt = ", ".join(sorted(set(dates))) or "другой день"
+        blocking_message = (
+            f"По этому методу есть незакрытые отгрузки на {date_txt}. "
+            "Подтвердите или закройте их (на портале Ozon / в этой модалке на той дате), "
+            "иначе сформировать отгрузку на выбранную дату нельзя."
+        )
+        blocks = [
+            _normalize_block(b, client=client, force_no_form=True) for b in other_day
+        ]
+    else:
+        blocks = [
+            _normalize_block(b, client=client, force_no_form=False) for b in matched
+        ]
+        if other_day:
+            # Same method still has open acts on another day — disable form.
+            force_no_form = True
+            dates = []
+            for b in other_day:
+                d = _block_departure_date(b)
+                if d is not None:
+                    dates.append(d.isoformat())
+            date_txt = ", ".join(sorted(set(dates))) or "другой день"
+            blocking_message = (
+                f"По этому методу есть незакрытые отгрузки на {date_txt}. "
+                "Новую отгрузку на выбранную дату можно сформировать только после их закрытия."
+            )
+            for block in blocks:
+                for c in block.get("carriages") or []:
+                    c["can_form"] = False
+
     if blocks:
         block_method = {
             "id": blocks[0].get("delivery_method_id") or mid,
@@ -574,11 +727,15 @@ def build_shipments_view(
                     "warehouse_id": warehouse_id,
                     "warehouse_name": warehouse_name,
                     "departure_date": dep_carriage,
+                    "first_mile_type": "dropoff",
+                    "dropoff_point_type": "SortCenter",
                     "carriages": [],
                     "carriage_postings_count": 0,
                     "mandatory_packaged_count": 0,
                     "mandatory_postings_count": 0,
-                }
+                },
+                client=client,
+                force_no_form=force_no_form,
             )
         ]
 
@@ -603,7 +760,7 @@ def build_shipments_view(
 
     return {
         "ok": True,
-        "message": "",
+        "message": blocking_message,
         "departure_date": departure.isoformat(),
         "departure_date_api": dep_iso,
         "delivery_methods": methods,
@@ -613,6 +770,8 @@ def build_shipments_view(
         "warehouse_name": warehouse_name or "",
         "blocks": blocks,
         "barcode": barcode,
+        "journal_hint": _JOURNAL_HINT,
+        "has_open_carriages_blocking": bool(blocking_message),
     }
 
 
@@ -688,6 +847,24 @@ def form_shipment(
     mid = view.get("selected_delivery_method_id")
     if mid is None:
         raise RuntimeError(view.get("message") or "Нет метода доставки")
+    if view.get("has_open_carriages_blocking"):
+        raise RuntimeError(
+            str(view.get("message") or "").strip()
+            or (
+                "По этому методу доставки есть незакрытые отгрузки. "
+                "Закройте их перед формированием на другую дату."
+            )
+        )
+    any_can_form = any(
+        bool(c.get("can_form"))
+        for block in (view.get("blocks") or [])
+        for c in (block.get("carriages") or [])
+    )
+    if not any_can_form:
+        raise RuntimeError(
+            "Отгрузка уже сформирована (статус «Ожидает подтверждения»). "
+            "Повторно нажимать «Сформировать» не нужно — используйте штрихкод поставки."
+        )
     dep_iso = str(view.get("departure_date_api") or _departure_iso(day))
     cc = None
     if containers_count is not None and str(containers_count).strip() != "":
@@ -696,11 +873,14 @@ def form_shipment(
         except (TypeError, ValueError) as exc:
             raise RuntimeError("Некорректное число грузомест") from exc
 
-    created = client.fbs_act_create(
-        delivery_method_id=int(mid),
-        departure_date=dep_iso,
-        containers_count=cc,
-    )
+    try:
+        created = client.fbs_act_create(
+            delivery_method_id=int(mid),
+            departure_date=dep_iso,
+            containers_count=cc,
+        )
+    except Exception as exc:
+        raise _friendly_ozon_api_error(exc) from exc
     result = created.get("result") if isinstance(created.get("result"), dict) else created
     try:
         act_id = int(result.get("id") if isinstance(result, dict) else created.get("id"))

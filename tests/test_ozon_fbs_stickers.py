@@ -16,6 +16,7 @@ class OzonFbsClientStructureTests(unittest.TestCase):
         for name in (
             "delivery_method_list",
             "carriage_delivery_list",
+            "carriage_get",
             "fbs_act_create",
             "fbs_act_check_status",
             "fbs_act_get_barcode",

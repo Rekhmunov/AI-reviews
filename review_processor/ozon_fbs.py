@@ -392,6 +392,12 @@ class OzonFbsClient:
         }
         return self.post_json("/v2/carriage/delivery/list", body)
 
+    def carriage_get(self, *, carriage_id: int) -> dict[str, Any]:
+        """POST /v1/carriage/get — authoritative carriage status (list can lag)."""
+        return self.post_json(
+            "/v1/carriage/get", {"carriage_id": int(carriage_id)}
+        )
+
     def fbs_act_create(
         self,
         *,
