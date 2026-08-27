@@ -48,8 +48,9 @@ def test_build_pick_verify_payload_plain_only() -> None:
         payload = build_pick_verify_payload(
             MagicMock(), user_id=1, source_id=2, supply_id="OZ-1"
         )
-    assert payload["plain_count"] == 1
-    assert payload["rows"][0]["posting_number"] == "P-1"
+    assert payload["plain_count"] == 2
+    pns = {r["posting_number"] for r in payload["rows"]}
+    assert pns == {"P-1", "P-3"}
 
 
 def test_save_pick_verify_validates_barcode() -> None:

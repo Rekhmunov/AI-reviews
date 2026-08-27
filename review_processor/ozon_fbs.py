@@ -160,6 +160,37 @@ def is_cancelled_posting(*, status: object = "", tab: object = "") -> bool:
     return s in _CANCELLED_STATUSES
 
 
+# Tabs where badge counts must exclude cancelled postings (warehouse workload).
+OPERATIONAL_COUNT_TABS = frozenset(
+    {
+        TAB_AWAITING_PACKAGING,
+        TAB_AWAITING_DELIVER,
+        TAB_DELIVERING,
+    }
+)
+
+
+def sql_exclude_cancelled_postings_clause(*, prefix: str = "") -> str:
+    """SQL fragment: row is not cancelled (status/tab)."""
+    p = f"{prefix}." if prefix else ""
+    statuses = ", ".join(f"'{s}'" for s in sorted(_CANCELLED_STATUSES))
+    return (
+        f"LOWER(COALESCE({p}tab, '')) <> '{TAB_CANCELLED}' "
+        f"AND LOWER(COALESCE({p}status, '')) NOT IN ({statuses})"
+    )
+
+
+def posting_row_is_cancelled(row: dict[str, Any]) -> bool:
+    """True when a posting dict/DB row represents a cancelled shipment."""
+    if not isinstance(row, dict):
+        return False
+    if row.get("cancelled"):
+        return True
+    if is_cancelled_posting(status=row.get("status"), tab=row.get("tab")):
+        return True
+    return bool(cancel_reason_label_from_row(row))
+
+
 def cancel_reason_label_from_posting(posting: dict[str, Any]) -> str:
     """Human-readable cancel reason from Ozon posting payload."""
     if not isinstance(posting, dict):
@@ -1295,11 +1326,23 @@ def _tab_counts(repo: ReviewRepository, *, user_id: int, source_id: int | None) 
         clauses.append("source_id = ?")
         params.append(source_id)
     where = " AND ".join(clauses)
+    not_cancelled = sql_exclude_cancelled_postings_clause()
     counts = {tab: 0 for tab in ALL_TABS}
     with repo._connect() as conn:
         rows = conn.execute(
-            repo._sql(f"SELECT tab, COUNT(*) AS n FROM ozon_fbs_postings WHERE {where} GROUP BY tab"),
-            tuple(params),
+            repo._sql(
+                f"""
+                SELECT tab, COUNT(*) AS n
+                FROM ozon_fbs_postings
+                WHERE {where}
+                  AND (
+                    tab NOT IN ({", ".join("?" for _ in OPERATIONAL_COUNT_TABS)})
+                    OR ({not_cancelled})
+                  )
+                GROUP BY tab
+                """
+            ),
+            tuple([*params, *sorted(OPERATIONAL_COUNT_TABS)]),
         ).fetchall()
     for row in rows:
         tab = str(row["tab"] or "")

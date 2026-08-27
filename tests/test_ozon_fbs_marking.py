@@ -144,6 +144,7 @@ def test_build_marking_payload_filters_required_only() -> None:
                 "product_name": "Бельё",
                 "offer_id": "ART1",
                 "barcodes": ["2001"],
+                "is_mandatory_mark": True,
             },
             {
                 "posting_number": "A-2",

@@ -10,6 +10,7 @@ from . import ozon_fbs as oz
 from . import ozon_fbs_supplies as oz_sup
 from . import wb_fbs as wb
 from . import wb_fbs_detail as wb_detail
+from .ozon_fbs_marking import _load_posting_cancelled_map
 from .repository import ReviewRepository
 
 _log = logging.getLogger(__name__)
@@ -206,7 +207,7 @@ def build_pick_verify_payload(
     plain_orders = [
         o
         for o in (detail.get("orders") or [])
-        if isinstance(o, dict) and not o.get("kiz_required") and not o.get("cancelled")
+        if isinstance(o, dict) and not o.get("kiz_required")
     ]
     posting_numbers = [
         str(o.get("posting_number") or "").strip()
@@ -243,6 +244,7 @@ def build_pick_verify_payload(
                 else "",
                 "pick_verified_at": str(local.get("pick_verified_at") or ""),
                 "cancel_reason_label": str(o.get("cancel_reason_label") or ""),
+                "cancelled": bool(o.get("cancelled")),
                 "order_id": o.get("order_id"),
                 "order_number": str(o.get("order_number") or "").strip(),
                 "sticker_barcode": str(o.get("sticker_barcode") or "").strip(),
@@ -288,12 +290,21 @@ def save_pick_verify(
         source_id=int(source_id),
         posting_numbers=candidate_pns,
     )
+    cancelled_map = _load_posting_cancelled_map(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        posting_numbers=candidate_pns,
+    )
 
     for raw in items:
         if not isinstance(raw, dict):
             continue
         pn = str(raw.get("posting_number") or "").strip()
         if not pn:
+            continue
+        if cancelled_map.get(pn):
+            skipped_n += 1
             continue
         if allowed_posting_numbers is not None and pn not in allowed_posting_numbers:
             err_n += 1

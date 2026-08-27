@@ -159,6 +159,39 @@ def _posting_dict_from_row(row: dict[str, Any]) -> dict[str, Any]:
     return raw if isinstance(raw, dict) else {}
 
 
+def _load_posting_cancelled_map(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_numbers: list[str],
+) -> dict[str, bool]:
+    nums = [str(x).strip() for x in posting_numbers if str(x).strip()]
+    if not nums:
+        return {}
+    oz.ensure_ozon_fbs_tables(repo)
+    placeholders = ", ".join("?" for _ in nums)
+    out: dict[str, bool] = {}
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT posting_number, status, tab, raw_json
+                FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ?
+                  AND posting_number IN ({placeholders})
+                """
+            ),
+            tuple([user_id, source_id, *nums]),
+        ).fetchall()
+    for row in rows:
+        d = repo._row_to_dict(row) if hasattr(repo, "_row_to_dict") else dict(row)
+        pn = str(d.get("posting_number") or "").strip()
+        if pn:
+            out[pn] = oz.posting_row_is_cancelled(d)
+    return out
+
+
 def build_marking_payload(
     repo: ReviewRepository,
     *,
@@ -180,7 +213,11 @@ def build_marking_payload(
     orders = [
         o
         for o in (detail.get("orders") or [])
-        if isinstance(o, dict) and o.get("kiz_required")
+        if isinstance(o, dict)
+        and (
+            o.get("kiz_required")
+            or (bool(o.get("cancelled")) and oz.posting_requires_marking(o))
+        )
     ]
     posting_numbers = [
         str(o.get("posting_number") or "").strip()
@@ -219,7 +256,7 @@ def build_marking_payload(
                 "sku": o.get("sku"),
                 "barcodes": list(o.get("barcodes") or []),
                 "quantity": req_qty,
-                "kiz_required": True,
+                "kiz_required": bool(o.get("kiz_required")),
                 "kiz_codes": codes,
                 "kiz_saved_at": str(loc.get("saved_at") or ""),
                 "kiz_ozon_synced": bool(loc.get("ozon_synced")),
@@ -239,7 +276,7 @@ def build_marking_payload(
         "supply_id": detail.get("supply_id"),
         "source_id": source_id,
         "rows": rows,
-        "required_count": len(rows),
+        "required_count": sum(1 for o in orders if o.get("kiz_required")),
     }
 
 
@@ -344,11 +381,25 @@ def save_marking(
     ok_n = 0
     err_n = 0
     skipped_n = 0
+    candidate_pns = [
+        str(raw.get("posting_number") or "").strip()
+        for raw in items
+        if isinstance(raw, dict) and str(raw.get("posting_number") or "").strip()
+    ]
+    cancelled_map = _load_posting_cancelled_map(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        posting_numbers=candidate_pns,
+    )
     for raw in items:
         if not isinstance(raw, dict):
             continue
         pn = str(raw.get("posting_number") or "").strip()
         if not pn:
+            continue
+        if cancelled_map.get(pn):
+            skipped_n += 1
             continue
         if allowed_posting_numbers is not None and pn not in allowed_posting_numbers:
             err_n += 1

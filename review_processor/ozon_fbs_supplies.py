@@ -2065,6 +2065,15 @@ def list_supply_cancelled_postings(
     }
 
 
+def _orders_excluding_cancelled(orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Fulfillment lists (picking, stickers) skip cancelled postings."""
+    return [
+        o
+        for o in (orders or [])
+        if isinstance(o, dict) and not oz.posting_row_is_cancelled(o)
+    ]
+
+
 def _group_postings_by_article(orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
     groups: dict[str, dict[str, Any]] = {}
     order_list: list[str] = []
@@ -2091,8 +2100,9 @@ def _group_postings_by_article(orders: list[dict[str, Any]]) -> list[dict[str, A
 
 
 def render_picking_list_html(detail: dict[str, Any]) -> str:
-    groups = _group_postings_by_article(list(detail.get("orders") or []))
-    total = int(detail.get("order_count") or sum(int(g.get("qty") or 0) for g in groups))
+    active_orders = _orders_excluding_cancelled(list(detail.get("orders") or []))
+    groups = _group_postings_by_article(active_orders)
+    total = sum(int(g.get("qty") or 0) for g in groups)
     sid = _esc(detail.get("supply_id"))
     name = _esc(detail.get("name") or sid)
     rows = []
@@ -2396,7 +2406,9 @@ class StickersPrintResult:
 
 
 def list_sticker_groups(detail: dict[str, Any]) -> dict[str, Any]:
-    groups = _group_postings_by_article(list(detail.get("orders") or []))
+    groups = _group_postings_by_article(
+        _orders_excluding_cancelled(list(detail.get("orders") or []))
+    )
     out = []
     for g in groups:
         nums = [
@@ -2439,7 +2451,7 @@ def build_stickers_print(
             else "stickers"
         ),
     )
-    orders = list(detail.get("orders") or [])
+    orders = _orders_excluding_cancelled(list(detail.get("orders") or []))
     if posting_numbers_filter is not None:
         allowed = {str(x).strip() for x in posting_numbers_filter if str(x).strip()}
         orders = [o for o in orders if str(o.get("posting_number") or "").strip() in allowed]

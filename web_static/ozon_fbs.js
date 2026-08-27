@@ -1152,6 +1152,16 @@
     return `<div class="wb-fbs-cancel-reason" title="${esc(label)}">${esc(label)}</div>`;
   }
 
+  function _ozonFbsRowIsCancelled(row) {
+    if (!row) return false;
+    if (row.cancelled) return true;
+    return !!String(row.cancel_reason_label || "").trim();
+  }
+
+  function _ozonFbsActiveModalRows(rows) {
+    return (rows || []).filter((r) => !_ozonFbsRowIsCancelled(r));
+  }
+
   function renderSupplyDetail(data) {
     closeOzonFbsRowMenus();
     const supply = data || supplyDetailState.supply;
@@ -2846,7 +2856,7 @@
     if (!raw) return { row: null, ambiguous: false };
     const rawKey = _ozonFbsStickerScanKey(raw);
     const rawLower = raw.toLowerCase();
-    const list = Array.isArray(rows) ? rows : [];
+    const list = _ozonFbsActiveModalRows(Array.isArray(rows) ? rows : []);
 
     const byBarcode = [];
     for (const row of list) {
@@ -3065,7 +3075,7 @@
     const btn = document.getElementById("ozonFbsSupplyDetailPickVerifyBtn");
     if (!btn) return;
     const list = Array.isArray(orders) ? orders : [];
-    const hasPlain = list.some((o) => o && !o.kiz_required && !o.cancelled);
+    const hasPlain = list.some((o) => o && !o.kiz_required);
     const can = typeof isTenantOwner === "function" && isTenantOwner()
       && _ozonFbsSupplyActionsReady() && hasPlain;
     btn.hidden = !can;
@@ -3152,6 +3162,7 @@
     let filled = 0;
     let total = 0;
     for (const row of ozonFbsKizState.rows) {
+      if (_ozonFbsRowIsCancelled(row)) continue;
       const codes = Array.isArray(row?.kiz_codes) && row.kiz_codes.length ? row.kiz_codes : [""];
       total += codes.length;
       for (const code of codes) {
@@ -3251,6 +3262,7 @@
       const pn = String(r.posting_number || "");
       const safePn = esc(pn);
       const menuKey = _ozonFbsPostingMenuKey(pn);
+      const isCancelled = _ozonFbsRowIsCancelled(r);
       const codes = Array.isArray(r.kiz_codes) && r.kiz_codes.length ? r.kiz_codes : [""];
       const err = String(ozonFbsKizState.errors[pn] || "").trim();
       const photo = r.product_photo
@@ -3262,8 +3274,20 @@
             `<div class="wb-fbs-kiz-barcode">${esc(b)}</div>`
           ).join("")}</div>`
         : "";
-      const canRemoveRow = codes.length > 1;
-      const codeHtml = codes.map((code, idx) => {
+      const canRemoveRow = !isCancelled && codes.length > 1;
+      const codeHtml = isCancelled
+        ? codes
+            .map((code, idx) => {
+              const val = String(code || "").trim();
+              return `<div class="wb-fbs-kiz-code-block is-readonly">
+                <div class="wb-fbs-kiz-code-row">
+                  <span class="wb-fbs-kiz-code-idx">${idx + 1}</span>
+                  <span class="wb-fbs-kiz-code-readonly">${val ? esc(val) : "—"}</span>
+                </div>
+              </div>`;
+            })
+            .join("")
+        : codes.map((code, idx) => {
         const clearTitle = canRemoveRow ? "Удалить строку КИЗ" : "Очистить маркировку";
         return `
         <div class="wb-fbs-kiz-code-block">
@@ -3285,7 +3309,7 @@
       }).join("");
       const stickerHtml = _ozonFbsKizStickerHtml(r);
       const menuIcon = typeof _wbFbsQrMenuIconHtml === "function" ? _wbFbsQrMenuIconHtml() : "";
-      return `<tr class="wb-fbs-kiz-row${pending === pn ? " is-active" : ""}" data-posting="${safePn}">
+      return `<tr class="wb-fbs-kiz-row${pending === pn ? " is-active" : ""}${isCancelled ? " is-cancelled" : ""}" data-posting="${safePn}">
         <td>
           <div class="wb-fbs-kiz-order-id">${formatOzonPostingNumberHtml(pn)}</div>
           <div class="wb-fbs-kiz-order-sticker">${stickerHtml}</div>
@@ -3304,7 +3328,11 @@
         </td>
         <td>
           <div class="wb-fbs-kiz-codes">${codeHtml}</div>
-          <button type="button" class="wb-fbs-kiz-add" onclick="addOzonFbsKizCode('${safePn}')">+ Добавить КИЗ</button>
+          ${
+            isCancelled
+              ? ""
+              : `<button type="button" class="wb-fbs-kiz-add" onclick="addOzonFbsKizCode('${safePn}')">+ Добавить КИЗ</button>`
+          }
         </td>
         <td>
           <div class="wb-fbs-row-menu-wrap">
@@ -3453,7 +3481,7 @@
     const sourceId = supplyDetailState.sourceId || state.sourceId;
     if (!sid || !sourceId) return;
     const row = ozonFbsKizState.rows.find((r) => String(r.posting_number) === pn);
-    if (!row) return;
+    if (!row || _ozonFbsRowIsCancelled(row)) return;
     const codes = (row.kiz_codes || []).map((c) => _ozonFbsNormalizeMark(c)).filter(Boolean);
     const item = {
       posting_number: pn,
@@ -3691,7 +3719,9 @@
     _ozonFbsKizSetInfo("Сохранение…");
     try {
       await ozonFbsKizState.localAutosaveChain;
-      const items = (ozonFbsKizState.rows || []).map((r) => ({
+      const items = (ozonFbsKizState.rows || [])
+        .filter((r) => !_ozonFbsRowIsCancelled(r))
+        .map((r) => ({
         posting_number: r.posting_number,
         kiz_codes: (r.kiz_codes || []).map((c) => _ozonFbsNormalizeMark(c)).filter(Boolean),
         expected_saved_at: r.kiz_saved_at || "",
@@ -3868,8 +3898,9 @@
     const el = document.getElementById("ozonFbsPickScanCount");
     if (!el) return;
     let filled = 0;
-    const total = ozonFbsPickState.rows.length;
-    for (const row of ozonFbsPickState.rows) {
+    const active = _ozonFbsActiveModalRows(ozonFbsPickState.rows);
+    const total = active.length;
+    for (const row of active) {
       if (row.pick_verified && String(row.pick_barcode || "").trim()) filled += 1;
     }
     el.textContent = `Проверено ${filled} из ${total}`;
@@ -3877,6 +3908,10 @@
 
   function _ozonFbsPickStatusHtml(row) {
     const pn = String(row.posting_number || "");
+    if (_ozonFbsRowIsCancelled(row)) {
+      const label = String(row.cancel_reason_label || "Отменено").trim();
+      return `<div class="wb-fbs-pick-status is-muted">${esc(label)}</div>`;
+    }
     const err = String(ozonFbsPickState.errors[pn] || "").trim();
     const verified = !!row.pick_verified && !!String(row.pick_barcode || "").trim();
     let body = "";
@@ -3952,7 +3987,7 @@
             `<div class="wb-fbs-kiz-barcode">${esc(b)}</div>`
           ).join("")}</div>`
         : "";
-      return `<tr class="wb-fbs-kiz-row${pending === pn ? " is-active" : ""}" data-posting="${safePn}">
+      return `<tr class="wb-fbs-kiz-row${pending === pn ? " is-active" : ""}${_ozonFbsRowIsCancelled(r) ? " is-cancelled" : ""}" data-posting="${safePn}">
         <td>
           <div class="wb-fbs-kiz-order-id">${formatOzonPostingNumberHtml(pn)}</div>
           <div class="wb-fbs-kiz-order-sticker">${stickerHtml}</div>
@@ -3977,7 +4012,7 @@
   function clearOzonFbsPickVerify(postingNumber) {
     const pn = String(postingNumber || "");
     const row = ozonFbsPickState.rows.find((r) => String(r.posting_number) === pn);
-    if (!row) return;
+    if (!row || _ozonFbsRowIsCancelled(row)) return;
     row.pick_verified = false;
     row.pick_barcode = "";
     delete ozonFbsPickState.errors[pn];
@@ -4004,7 +4039,7 @@
     const sourceId = supplyDetailState.sourceId || state.sourceId;
     if (!sid || !sourceId) return;
     const row = ozonFbsPickState.rows.find((r) => String(r.posting_number) === pn);
-    if (!row) return;
+    if (!row || _ozonFbsRowIsCancelled(row)) return;
     const verified = !!row.pick_verified && !!String(row.pick_barcode || "").trim();
     let item;
     if (verified) {
@@ -4221,7 +4256,9 @@
     _ozonFbsPickSetInfo("Сохранение…");
     try {
       await ozonFbsPickState.localAutosaveChain;
-      const items = (ozonFbsPickState.rows || []).map((r) => {
+      const items = (ozonFbsPickState.rows || [])
+        .filter((r) => !_ozonFbsRowIsCancelled(r))
+        .map((r) => {
         const pn = String(r.posting_number || "");
         const verified = !!r.pick_verified && !!String(r.pick_barcode || "").trim();
         return {
