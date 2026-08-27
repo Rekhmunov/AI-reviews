@@ -3250,20 +3250,151 @@
 
   function _ozonFbsKizSetFiltersReady(ready) {
     ozonFbsKizState.rowsReady = !!ready;
+    const tip = "Дождитесь загрузки заказов";
+    const filled = document.getElementById("ozonFbsKizFilterFilled");
+    const empty = document.getElementById("ozonFbsKizFilterEmpty");
+    const errors = document.getElementById("ozonFbsKizFilterErrors");
+    const cancelled = document.getElementById("ozonFbsKizFilterCancelled");
+    const filledLabel = document.getElementById("ozonFbsKizFilterFilledLabel")
+      || (filled && filled.closest("label"));
+    const emptyLabel = document.getElementById("ozonFbsKizFilterEmptyLabel")
+      || (empty && empty.closest("label"));
+    const errorsLabel = document.getElementById("ozonFbsKizFilterErrorsLabel")
+      || (errors && errors.closest("label"));
+    const cancelledLabel = document.getElementById("ozonFbsKizFilterCancelledLabel")
+      || (cancelled && cancelled.closest("label"));
+    const search = document.getElementById("ozonFbsKizSearchFilter");
     const sticker = document.getElementById("ozonFbsKizStickerScan");
-    if (sticker) {
-      sticker.readOnly = !ready;
-      sticker.disabled = !ready;
-    }
+
+    const setLabelWait = (label, on) => {
+      if (!label) return;
+      if (on) {
+        if (label.dataset.waitTitleSaved === undefined) {
+          label.dataset.waitTitleSaved = label.getAttribute("title") || "";
+        }
+        label.classList.add("is-wait-rows");
+        label.setAttribute("title", tip);
+      } else {
+        label.classList.remove("is-wait-rows");
+        const saved = label.dataset.waitTitleSaved;
+        if (saved !== undefined) {
+          if (saved) label.setAttribute("title", saved);
+          else label.removeAttribute("title");
+          delete label.dataset.waitTitleSaved;
+        }
+      }
+    };
+
+    const setInputWait = (input, on) => {
+      if (!input) return;
+      if (on) {
+        if (input.dataset.waitTitleSaved === undefined) {
+          input.dataset.waitTitleSaved = input.getAttribute("title") || "";
+        }
+        input.readOnly = true;
+        input.setAttribute("aria-disabled", "true");
+        input.classList.add("is-wait-rows");
+        input.setAttribute("title", tip);
+        input.tabIndex = -1;
+        if (document.activeElement === input) {
+          try { input.blur(); } catch (_) {}
+        }
+      } else {
+        input.readOnly = false;
+        input.removeAttribute("aria-disabled");
+        input.classList.remove("is-wait-rows");
+        input.removeAttribute("tabindex");
+        const saved = input.dataset.waitTitleSaved;
+        if (saved !== undefined) {
+          if (saved) input.setAttribute("title", saved);
+          else input.removeAttribute("title");
+          delete input.dataset.waitTitleSaved;
+        }
+      }
+    };
+
+    if (filled) filled.disabled = !ready;
+    if (empty) empty.disabled = !ready;
+    if (errors) errors.disabled = !ready;
+    if (cancelled) cancelled.disabled = !ready;
+    setLabelWait(filledLabel, !ready);
+    setLabelWait(emptyLabel, !ready);
+    setLabelWait(errorsLabel, !ready);
+    setLabelWait(cancelledLabel, !ready);
+    setInputWait(search, !ready);
+    setInputWait(sticker, !ready);
   }
 
   function _ozonFbsPickSetFiltersReady(ready) {
     ozonFbsPickState.rowsReady = !!ready;
+    const tip = "Дождитесь загрузки заказов";
+    const filled = document.getElementById("ozonFbsPickFilterFilled");
+    const empty = document.getElementById("ozonFbsPickFilterEmpty");
+    const errors = document.getElementById("ozonFbsPickFilterErrors");
+    const filledLabel = document.getElementById("ozonFbsPickFilterFilledLabel")
+      || (filled && filled.closest("label"));
+    const emptyLabel = document.getElementById("ozonFbsPickFilterEmptyLabel")
+      || (empty && empty.closest("label"));
+    const errorsLabel = document.getElementById("ozonFbsPickFilterErrorsLabel")
+      || (errors && errors.closest("label"));
+    const search = document.getElementById("ozonFbsPickSearchFilter");
     const sticker = document.getElementById("ozonFbsPickStickerScan");
-    if (sticker) {
-      sticker.readOnly = !ready;
-      sticker.disabled = !ready;
-    }
+
+    const setLabelWait = (label, on) => {
+      if (!label) return;
+      if (on) {
+        if (label.dataset.waitTitleSaved === undefined) {
+          label.dataset.waitTitleSaved = label.getAttribute("title") || "";
+        }
+        label.classList.add("is-wait-rows");
+        label.setAttribute("title", tip);
+      } else {
+        label.classList.remove("is-wait-rows");
+        const saved = label.dataset.waitTitleSaved;
+        if (saved !== undefined) {
+          if (saved) label.setAttribute("title", saved);
+          else label.removeAttribute("title");
+          delete label.dataset.waitTitleSaved;
+        }
+      }
+    };
+
+    const setInputWait = (input, on) => {
+      if (!input) return;
+      if (on) {
+        if (input.dataset.waitTitleSaved === undefined) {
+          input.dataset.waitTitleSaved = input.getAttribute("title") || "";
+        }
+        input.readOnly = true;
+        input.setAttribute("aria-disabled", "true");
+        input.classList.add("is-wait-rows");
+        input.setAttribute("title", tip);
+        input.tabIndex = -1;
+        if (document.activeElement === input) {
+          try { input.blur(); } catch (_) {}
+        }
+      } else {
+        input.readOnly = false;
+        input.removeAttribute("aria-disabled");
+        input.classList.remove("is-wait-rows");
+        input.removeAttribute("tabindex");
+        const saved = input.dataset.waitTitleSaved;
+        if (saved !== undefined) {
+          if (saved) input.setAttribute("title", saved);
+          else input.removeAttribute("title");
+          delete input.dataset.waitTitleSaved;
+        }
+      }
+    };
+
+    if (filled) filled.disabled = !ready;
+    if (empty) empty.disabled = !ready;
+    if (errors) errors.disabled = !ready;
+    setLabelWait(filledLabel, !ready);
+    setLabelWait(emptyLabel, !ready);
+    setLabelWait(errorsLabel, !ready);
+    setInputWait(search, !ready);
+    setInputWait(sticker, !ready);
   }
 
   function _ozonFbsKizRowFilled(row) {
