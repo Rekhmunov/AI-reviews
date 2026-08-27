@@ -18880,6 +18880,8 @@ async function syncWbFbsReturnsGoods(options) {
     const updated = Number(payload.updated || 0);
     const unchanged = Number(payload.unchanged || 0);
     const fetched = Number(payload.fetched || synced);
+    const skippedForeign = Number(payload.skipped_foreign || 0);
+    const purgedForeign = Number(payload.purged_foreign || 0);
     const windows = Array.isArray(payload.windows) ? payload.windows.length : 0;
     const parts = [];
     if (inserted) parts.push(`+${inserted}`);
@@ -18890,10 +18892,12 @@ async function syncWbFbsReturnsGoods(options) {
       ? ` · ${payload.date_from}–${payload.date_to}`
       : "";
     const winLabel = windows > 1 ? ` · ${windows} периода` : "";
-    if (syncInfo) syncInfo.textContent = `WB: ${detail}${winLabel}`;
+    const skipLabel = skippedForeign > 0 ? ` · пропущено чужих ${skippedForeign}` : "";
+    const purgeLabel = purgedForeign > 0 ? ` · удалено чужих ${purgedForeign}` : "";
+    if (syncInfo) syncInfo.textContent = `WB: ${detail}${skipLabel}${purgeLabel}`;
     if (!isAuto) {
       _wbFbsReturnsSetInfo(
-        `Синхронизация возвратов WB: получено ${fetched}, ${detail}${range}${winLabel}`,
+        `Синхронизация возвратов WB: получено ${fetched}, ${detail}${skipLabel}${purgeLabel}${range}${winLabel}`,
         "ok",
       );
     }

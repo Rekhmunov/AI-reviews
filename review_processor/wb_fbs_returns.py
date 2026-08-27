@@ -533,6 +533,179 @@ def fetch_goods_return_report(
     return []
 
 
+def _load_source_goods_return_matchers(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+) -> dict[str, set[int]]:
+    """Order/nm ids known for one FBS source (from synced wb_fbs_orders)."""
+    wb.ensure_wb_fbs_tables(repo)
+    order_ids: set[int] = set()
+    nm_ids: set[int] = set()
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                """
+                SELECT DISTINCT order_id, nm_id
+                FROM wb_fbs_orders
+                WHERE user_id = ? AND source_id = ?
+                """
+            ),
+            (user_id, source_id),
+        ).fetchall()
+    for row in rows:
+        d = repo._row_to_dict(row)
+        try:
+            oid = int(d.get("order_id") or 0)
+        except (TypeError, ValueError):
+            oid = 0
+        if oid > 0:
+            order_ids.add(oid)
+        try:
+            nm = int(d.get("nm_id") or 0)
+        except (TypeError, ValueError):
+            nm = 0
+        if nm > 0:
+            nm_ids.add(nm)
+    return {"order_ids": order_ids, "nm_ids": nm_ids}
+
+
+def _goods_return_row_matches_source(
+    *,
+    order_id: int,
+    srid: str,
+    nm_id: int | None,
+    matchers: dict[str, set[int]],
+    srid_to_order: dict[str, int],
+) -> bool:
+    """True when a goods-return row belongs to the selected FBS source."""
+    if order_id > 0:
+        return order_id in matchers["order_ids"]
+    srid_key = str(srid or "").strip()
+    if srid_key:
+        mapped = int(srid_to_order.get(srid_key) or 0)
+        if mapped > 0:
+            return mapped in matchers["order_ids"]
+    if nm_id and int(nm_id) > 0:
+        return int(nm_id) in matchers["nm_ids"]
+    return False
+
+
+def _goods_return_api_row_matches_source(
+    row: dict[str, Any],
+    *,
+    matchers: dict[str, set[int]],
+    srid_to_order: dict[str, int],
+) -> bool:
+    try:
+        order_id = int(row.get("orderId") or 0)
+    except (TypeError, ValueError):
+        order_id = 0
+    srid = str(row.get("srid") or "").strip()
+    try:
+        nm_id = int(row.get("nmId") or 0) or None
+    except (TypeError, ValueError):
+        nm_id = None
+    return _goods_return_row_matches_source(
+        order_id=order_id,
+        srid=srid,
+        nm_id=nm_id,
+        matchers=matchers,
+        srid_to_order=srid_to_order,
+    )
+
+
+def _stored_goods_return_matches_source(
+    row: dict[str, Any],
+    *,
+    matchers: dict[str, set[int]],
+    srid_to_order: dict[str, int],
+) -> bool:
+    try:
+        order_id = int(row.get("wb_order_id") or 0)
+    except (TypeError, ValueError):
+        order_id = 0
+    srid = str(row.get("srid") or "").strip()
+    try:
+        nm_raw = row.get("nm_id")
+        nm_id = int(nm_raw) if nm_raw not in (None, "") else None
+    except (TypeError, ValueError):
+        nm_id = None
+    return _goods_return_row_matches_source(
+        order_id=order_id,
+        srid=srid,
+        nm_id=nm_id,
+        matchers=matchers,
+        srid_to_order=srid_to_order,
+    )
+
+
+def _purge_foreign_goods_returns_in_range(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    date_from: str,
+    date_to: str,
+    matchers: dict[str, set[int]],
+    srid_to_order: dict[str, int],
+) -> int:
+    """Remove cached rows stored under source_id that do not belong to it."""
+    rows = list_goods_returns(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    pending_srids = sorted(
+        {
+            str(row.get("srid") or "").strip()
+            for row in rows
+            if str(row.get("srid") or "").strip()
+            and str(row.get("srid") or "").strip() not in srid_to_order
+        }
+    )
+    if pending_srids:
+        srid_to_order.update(
+            wb.order_ids_by_srids(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                srids=pending_srids,
+            )
+        )
+    stale_ids: list[int] = []
+    for row in rows:
+        if _stored_goods_return_matches_source(
+            row,
+            matchers=matchers,
+            srid_to_order=srid_to_order,
+        ):
+            continue
+        try:
+            row_id = int(row.get("id") or 0)
+        except (TypeError, ValueError):
+            row_id = 0
+        if row_id > 0:
+            stale_ids.append(row_id)
+    if not stale_ids:
+        return 0
+    with repo._connect() as conn:
+        for row_id in stale_ids:
+            conn.execute(
+                repo._sql(
+                    """
+                    DELETE FROM wb_fbs_goods_returns
+                    WHERE user_id = ? AND source_id = ? AND id = ?
+                    """
+                ),
+                (user_id, source_id, row_id),
+            )
+    return len(stale_ids)
+
+
 def sync_goods_returns(
     repo: ReviewRepository,
     *,
@@ -542,24 +715,65 @@ def sync_goods_returns(
     date_from: str,
     date_to: str,
 ) -> dict[str, Any]:
-    """Sync WB goods-return report; splits >31 days into 30-day API windows."""
+    """Sync WB goods-return report for one FBS source.
+
+    WB Analytics returns all seller returns; rows are stored only when they match
+    orders/nmIds synced for ``source_id``. Foreign rows are skipped and purged
+    from this source cache for the requested date range.
+    """
     ensure_wb_fbs_returns_tables(repo)
+    matchers = _load_source_goods_return_matchers(
+        repo, user_id=user_id, source_id=source_id
+    )
     windows = iter_goods_return_windows(date_from, date_to)
     totals = {
         "fetched": 0,
         "inserted": 0,
         "updated": 0,
         "unchanged": 0,
+        "skipped_foreign": 0,
+        "purged_foreign": 0,
     }
     window_stats: list[dict[str, Any]] = []
+    srid_to_order: dict[str, int] = {}
     for win_from, win_to in windows:
         rows = fetch_goods_return_report(
             api_key=api_key, date_from=win_from, date_to=win_to
         )
+        pending_srids = sorted(
+            {
+                str(row.get("srid") or "").strip()
+                for row in rows
+                if str(row.get("srid") or "").strip()
+                and str(row.get("srid") or "").strip() not in srid_to_order
+            }
+        )
+        if pending_srids:
+            srid_to_order.update(
+                wb.order_ids_by_srids(
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    srids=pending_srids,
+                )
+            )
         now = datetime.now(UTC).isoformat()
-        stats = {"fetched": len(rows), "inserted": 0, "updated": 0, "unchanged": 0}
+        stats = {
+            "fetched": len(rows),
+            "inserted": 0,
+            "updated": 0,
+            "unchanged": 0,
+            "skipped_foreign": 0,
+        }
         with repo._connect() as conn:
             for row in rows:
+                if not _goods_return_api_row_matches_source(
+                    row,
+                    matchers=matchers,
+                    srid_to_order=srid_to_order,
+                ):
+                    stats["skipped_foreign"] += 1
+                    continue
                 parsed = _goods_return_values_from_row(
                     row,
                     user_id=user_id,
@@ -581,7 +795,7 @@ def sync_goods_returns(
                     sticker_id=sticker_id,
                 )
                 stats[outcome] += 1
-        for key in ("fetched", "inserted", "updated", "unchanged"):
+        for key in ("fetched", "inserted", "updated", "unchanged", "skipped_foreign"):
             totals[key] += stats[key]
         window_stats.append(
             {
@@ -590,9 +804,18 @@ def sync_goods_returns(
                 **stats,
             }
         )
-    synced = totals["inserted"] + totals["updated"]
     overall_from = windows[0][0] if windows else _parse_iso_date(date_from)
     overall_to = windows[-1][1] if windows else _parse_iso_date(date_to)
+    totals["purged_foreign"] = _purge_foreign_goods_returns_in_range(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        date_from=overall_from,
+        date_to=overall_to,
+        matchers=matchers,
+        srid_to_order=srid_to_order,
+    )
+    synced = totals["inserted"] + totals["updated"]
     return {
         "ok": True,
         "synced": synced,
@@ -600,6 +823,8 @@ def sync_goods_returns(
         "updated": totals["updated"],
         "unchanged": totals["unchanged"],
         "fetched": totals["fetched"],
+        "skipped_foreign": totals["skipped_foreign"],
+        "purged_foreign": totals["purged_foreign"],
         "windows": window_stats,
         "date_from": overall_from,
         "date_to": overall_to,

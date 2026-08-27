@@ -471,5 +471,94 @@ class ExportCsvTests(unittest.TestCase):
         self.assertIn("order_dt", sql)
 
 
+class GoodsReturnSourceFilterTests(unittest.TestCase):
+    def test_goods_return_row_matches_source_by_order_id(self):
+        matchers = {"order_ids": {9001}, "nm_ids": {100}}
+        self.assertTrue(
+            returns._goods_return_row_matches_source(
+                order_id=9001,
+                srid="",
+                nm_id=100,
+                matchers=matchers,
+                srid_to_order={},
+            )
+        )
+        self.assertFalse(
+            returns._goods_return_row_matches_source(
+                order_id=9002,
+                srid="",
+                nm_id=100,
+                matchers=matchers,
+                srid_to_order={},
+            )
+        )
+
+    def test_goods_return_row_matches_source_by_srid(self):
+        matchers = {"order_ids": {9001}, "nm_ids": set()}
+        self.assertTrue(
+            returns._goods_return_row_matches_source(
+                order_id=0,
+                srid="abc.1.0",
+                nm_id=None,
+                matchers=matchers,
+                srid_to_order={"abc.1.0": 9001},
+            )
+        )
+
+    def test_goods_return_row_matches_source_by_nm_when_no_order(self):
+        matchers = {"order_ids": set(), "nm_ids": {555}}
+        self.assertTrue(
+            returns._goods_return_row_matches_source(
+                order_id=0,
+                srid="",
+                nm_id=555,
+                matchers=matchers,
+                srid_to_order={},
+            )
+        )
+
+    @patch("review_processor.wb_fbs_returns._purge_foreign_goods_returns_in_range", return_value=0)
+    @patch("review_processor.wb_fbs_returns.fetch_goods_return_report")
+    @patch("review_processor.wb_fbs_returns.ensure_wb_fbs_returns_tables")
+    @patch("review_processor.wb_fbs_returns._load_source_goods_return_matchers")
+    def test_sync_goods_returns_skips_foreign_rows(
+        self,
+        load_matchers,
+        _ensure,
+        fetch_report,
+        _purge,
+    ):
+        load_matchers.return_value = {"order_ids": {9001}, "nm_ids": {100}}
+        fetch_report.return_value = [
+            {"orderId": 9001, "nmId": 100, "srid": "keep.1.0", "stickerId": "111"},
+            {"orderId": 9002, "nmId": 200, "srid": "skip.1.0", "stickerId": "222"},
+        ]
+        repo = MagicMock()
+        repo._sql = lambda sql: sql
+        conn = MagicMock()
+        repo._connect.return_value.__enter__ = MagicMock(return_value=conn)
+        repo._connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        with patch(
+            "review_processor.wb_fbs_returns.wb.order_ids_by_srids",
+            return_value={"keep.1.0": 9001, "skip.1.0": 9002},
+        ), patch(
+            "review_processor.wb_fbs_returns._upsert_goods_return_row",
+            return_value="inserted",
+        ) as upsert:
+            out = returns.sync_goods_returns(
+                repo,
+                user_id=1,
+                source_id=10,
+                api_key="k",
+                date_from="2026-08-01",
+                date_to="2026-08-10",
+            )
+
+        self.assertEqual(out["skipped_foreign"], 1)
+        self.assertEqual(upsert.call_count, 1)
+        self.assertEqual(upsert.call_args.kwargs["order_id"], 9001)
+
+
 if __name__ == "__main__":
     unittest.main()
