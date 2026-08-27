@@ -12859,6 +12859,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         supply_id: str,
         source_id: int,
         posting_tab: str | None = None,
+        refresh: bool = False,
     ) -> dict[str, object]:
         from . import ozon_fbs_supplies as oz_sup
 
@@ -12879,7 +12880,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 posting_tab=tab_key,
                 client_id=client_id,
                 api_key=api_key,
-                refresh_from_ozon=tab_key != "delivering",
+                refresh_from_ozon=bool(refresh) and tab_key != "delivering",
             )
         except RuntimeError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc

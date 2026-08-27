@@ -572,6 +572,94 @@ class OzonFbsDeliveringSuppliesTests(unittest.TestCase):
         self.assertEqual(detail["posting_tab"], oz.TAB_DELIVERING)
         self.assertEqual(detail["order_count"], 1)
 
+    def test_get_supply_detail_fallback_when_supply_row_missing(self) -> None:
+        from review_processor.ozon_fbs_supplies import get_supply_detail
+
+        repo = MagicMock()
+        repo.get_product_name_by_article.return_value = {}
+        repo.get_product_name_by_ozon_sku.return_value = {}
+        repo.get_product_barcodes_map.return_value = {}
+        repo.get_product_photo_map.return_value = {}
+        posting_row = {
+            "posting_number": "P-9",
+            "offer_id": "art9",
+            "sku": "",
+            "warehouse_name": "Склад 9",
+            "barcodes_json": "[]",
+            "marking_codes_json": "[]",
+            "tab": "awaiting_deliver",
+        }
+        with patch(
+            "review_processor.ozon_fbs_supplies.ensure_ozon_fbs_supply_schema"
+        ), patch(
+            "review_processor.ozon_fbs_supplies.get_supply",
+            return_value=None,
+        ), patch(
+            "review_processor.ozon_fbs_supplies._assembly_posting_numbers_for_supply",
+            return_value=["P-9"],
+        ), patch.object(repo, "_connect") as conn_ctx:
+            conn = MagicMock()
+            conn_ctx.return_value.__enter__.return_value = conn
+            conn.execute.return_value.fetchone.return_value = {
+                "warehouse_name": "Склад 9",
+                "warehouse_id": 9,
+            }
+            conn.execute.return_value.fetchall.return_value = [posting_row]
+            repo._row_to_dict.side_effect = lambda r: r
+            detail = get_supply_detail(
+                repo,
+                user_id=1,
+                source_id=17,
+                supply_id="OZ-MISSING",
+            )
+        self.assertEqual(detail["supply_id"], "OZ-MISSING")
+        self.assertEqual(detail["order_count"], 1)
+        self.assertEqual(detail["orders"][0]["posting_number"], "P-9")
+
+    def test_get_supply_detail_prefers_assembly_over_empty_json(self) -> None:
+        from review_processor.ozon_fbs_supplies import get_supply_detail
+
+        repo = MagicMock()
+        repo.get_product_name_by_article.return_value = {}
+        repo.get_product_name_by_ozon_sku.return_value = {}
+        repo.get_product_barcodes_map.return_value = {}
+        repo.get_product_photo_map.return_value = {}
+        supply_row = {
+            "supply_id": "OZ-2",
+            "name": "Поставка",
+            "warehouse_name": "Склад",
+            "posting_numbers": [],
+        }
+        posting_row = {
+            "posting_number": "P-2",
+            "offer_id": "art2",
+            "sku": "",
+            "warehouse_name": "Склад",
+            "barcodes_json": "[]",
+            "marking_codes_json": "[]",
+            "tab": "awaiting_deliver",
+        }
+        with patch(
+            "review_processor.ozon_fbs_supplies.ensure_ozon_fbs_supply_schema"
+        ), patch(
+            "review_processor.ozon_fbs_supplies.get_supply",
+            return_value=supply_row,
+        ), patch(
+            "review_processor.ozon_fbs_supplies._assembly_posting_numbers_for_supply",
+            return_value=["P-2"],
+        ), patch.object(repo, "_connect") as conn_ctx:
+            conn = MagicMock()
+            conn_ctx.return_value.__enter__.return_value = conn
+            conn.execute.return_value.fetchall.return_value = [posting_row]
+            repo._row_to_dict.side_effect = lambda r: r
+            detail = get_supply_detail(
+                repo,
+                user_id=1,
+                source_id=17,
+                supply_id="OZ-2",
+            )
+        self.assertEqual(detail["order_count"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

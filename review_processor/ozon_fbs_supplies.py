@@ -1808,6 +1808,61 @@ def refresh_supply_postings_from_ozon(
             time.sleep(0.05)
 
 
+def _supply_stub_from_assembly(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    tab: str | None = None,
+) -> dict[str, Any] | None:
+    """Build minimal supply dict from assembly links when ozon_fbs_supplies row is missing."""
+    sid = str(supply_id or "").strip()
+    if not sid:
+        return None
+    tab_key = str(tab or "").strip() or None
+    if tab_key:
+        nums = _assembly_posting_numbers_for_supply_tab(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=sid,
+            tab=tab_key,
+        )
+    else:
+        nums = _assembly_posting_numbers_for_supply(
+            repo, user_id=user_id, source_id=source_id, supply_id=sid
+        )
+    if not nums:
+        return None
+    wh_name = ""
+    wh_id = None
+    with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql(
+                """
+                SELECT warehouse_name, warehouse_id
+                FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                LIMIT 1
+                """
+            ),
+            (user_id, source_id, sid),
+        ).fetchone()
+    if row:
+        d = repo._row_to_dict(row)
+        wh_name = str(d.get("warehouse_name") or "").strip()
+        wh_id = d.get("warehouse_id")
+    return {
+        "supply_id": sid,
+        "name": sid,
+        "warehouse_name": wh_name,
+        "warehouse_id": wh_id,
+        "posting_numbers": nums,
+        "order_count": len(nums),
+    }
+
+
 def get_supply_detail(
     repo: ReviewRepository,
     *,
@@ -1818,12 +1873,20 @@ def get_supply_detail(
     posting_tab: str | None = None,
     client_id: str | None = None,
     api_key: str | None = None,
-    refresh_from_ozon: bool = True,
+    refresh_from_ozon: bool = False,
 ) -> dict[str, Any]:
+    tab_filter = str(posting_tab or "").strip() or None
     supply = get_supply(repo, user_id=user_id, source_id=source_id, supply_id=supply_id)
     if not supply:
+        supply = _supply_stub_from_assembly(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=str(supply_id),
+            tab=tab_filter,
+        )
+    if not supply:
         raise RuntimeError("Поставка не найдена")
-    tab_filter = str(posting_tab or "").strip() or None
     if posting_numbers is not None:
         nums = [str(x).strip() for x in posting_numbers if str(x).strip()]
     elif tab_filter:
@@ -1835,7 +1898,11 @@ def get_supply_detail(
             tab=tab_filter,
         )
     else:
-        nums = list(supply.get("posting_numbers") or [])
+        nums = _assembly_posting_numbers_for_supply(
+            repo, user_id=user_id, source_id=source_id, supply_id=str(supply_id)
+        )
+        if not nums:
+            nums = list(supply.get("posting_numbers") or [])
     read_only = tab_filter == oz.TAB_DELIVERING
     if (
         refresh_from_ozon
