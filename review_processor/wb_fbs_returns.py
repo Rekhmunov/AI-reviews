@@ -125,8 +125,6 @@ GOODS_RETURN_DEFAULT_TOTAL_DAYS = 90
 GOODS_RETURN_STATUS_BATCH = 500
 # WB Personal/Service token: 1 request / minute for goods-return.
 GOODS_RETURN_REQUEST_INTERVAL_SEC = 61
-GOODS_RETURN_429_MAX_RETRIES = 4
-GOODS_RETURN_429_RETRY_BUFFER_SEC = 2
 GOODS_RETURN_HYDRATE_CONFIRMED_LIMIT = 30
 
 _goods_return_sync_lock_guard = threading.Lock()
@@ -674,19 +672,19 @@ def format_wb_goods_return_http_error(
 ) -> GoodsReturnHttpError:
     """Human-readable WB Analytics goods-return errors (esp. 429 rate limit)."""
     if int(code) == 429:
-        msg = (
-            "Лимит WB на отчёт по возвратам: слишком много запросов к Analytics API. "
-            "Синхронизация за 90 дней делает 3 запроса с паузой ~1 мин между ними. "
-            "Не запускайте «Синхр. WB» для нескольких источников подряд без паузы."
-        )
+        retry_secs = _parse_wb_retry_seconds(retry_after)
+        msg = "Синхронизация возвратов WB сейчас невозможна: превышен лимит Analytics API."
         hint = _format_wb_retry_hint(retry_after)
         if hint:
             msg += hint
+        else:
+            msg += " Подождите ~1 мин и повторите."
+        msg += " Не запускайте «Синхр. WB» для нескольких источников подряд."
         return GoodsReturnHttpError(
             msg,
             code=429,
             retry_after=retry_after,
-            retry_seconds=_parse_wb_retry_seconds(retry_after),
+            retry_seconds=retry_secs,
         )
     if int(code) == 403 and (
         "scope is not allowed" in (body or "").lower()
@@ -1010,40 +1008,26 @@ def fetch_goods_return_report_rated(
     source_id: int | None = None,
     timeout: int = 60,
 ) -> list[dict[str, Any]]:
-    """Fetch goods-return with per-token cooldown and automatic 429 retry."""
+    """Fetch goods-return with per-token cooldown; fail fast on HTTP 429."""
     token_key = _analytics_token_key(api_key)
-    last_exc: GoodsReturnHttpError | None = None
-    for attempt in range(GOODS_RETURN_429_MAX_RETRIES + 1):
-        with _goods_return_token_rate_slot(api_key=api_key, source_id=source_id):
-            try:
-                return fetch_goods_return_report(
-                    api_key=api_key,
-                    date_from=date_from,
-                    date_to=date_to,
-                    timeout=timeout,
-                )
-            except GoodsReturnHttpError as exc:
-                if exc.code != 429 or attempt >= GOODS_RETURN_429_MAX_RETRIES:
-                    raise
-                last_exc = exc
+    with _goods_return_token_rate_slot(api_key=api_key, source_id=source_id):
+        try:
+            return fetch_goods_return_report(
+                api_key=api_key,
+                date_from=date_from,
+                date_to=date_to,
+                timeout=timeout,
+            )
+        except GoodsReturnHttpError as exc:
+            if exc.code == 429:
                 retry_secs = exc.retry_seconds or _parse_wb_retry_seconds(exc.retry_after)
-                if retry_secs <= 0:
-                    retry_secs = GOODS_RETURN_REQUEST_INTERVAL_SEC
-                wait = retry_secs + GOODS_RETURN_429_RETRY_BUFFER_SEC
                 _log.warning(
-                    "goods-return HTTP 429 token=%s source_id=%s retry_after=%ss "
-                    "attempt=%s/%s waiting=%ss",
+                    "goods-return HTTP 429 token=%s source_id=%s retry_after=%ss — sync blocked",
                     token_key,
                     source_id,
                     retry_secs,
-                    attempt + 1,
-                    GOODS_RETURN_429_MAX_RETRIES + 1,
-                    wait,
                 )
-                time.sleep(wait)
-    if last_exc is not None:
-        raise last_exc
-    return []
+            raise
 
 
 def _fetch_goods_return_resilient(

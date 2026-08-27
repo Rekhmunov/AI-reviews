@@ -340,7 +340,7 @@ class GoodsReturnHttpErrorTests(unittest.TestCase):
             body='{"status":429}',
             retry_after="900",
         )
-        self.assertIn("Лимит WB", str(err))
+        self.assertIn("невозможна", str(err))
         self.assertIn("15 мин", str(err))
         self.assertEqual(err.code, 429)
         self.assertEqual(err.retry_seconds, 900)
@@ -351,23 +351,23 @@ class GoodsReturnHttpErrorTests(unittest.TestCase):
     @patch("review_processor.wb_fbs_returns.fetch_goods_return_report")
     @patch("review_processor.wb_fbs_returns._goods_return_token_rate_slot")
     @patch("review_processor.wb_fbs_returns.time.sleep")
-    def test_fetch_goods_return_report_rated_retries_429(
+    def test_fetch_goods_return_report_rated_fails_fast_on_429(
         self, sleep_mock, slot_mock, fetch_mock
     ):
         slot_mock.side_effect = lambda **kwargs: contextlib.nullcontext()
-        fetch_mock.side_effect = [
-            returns.GoodsReturnHttpError("429", code=429, retry_after="3", retry_seconds=3),
-            [{"orderId": 1}],
-        ]
-        rows = returns.fetch_goods_return_report_rated(
-            api_key="test-key",
-            date_from="2026-08-01",
-            date_to="2026-08-31",
-            source_id=19,
+        fetch_mock.side_effect = returns.GoodsReturnHttpError(
+            "429", code=429, retry_after="1800", retry_seconds=1800
         )
-        self.assertEqual(rows, [{"orderId": 1}])
-        self.assertEqual(fetch_mock.call_count, 2)
-        sleep_mock.assert_called_once_with(3 + returns.GOODS_RETURN_429_RETRY_BUFFER_SEC)
+        with self.assertRaises(returns.GoodsReturnHttpError) as ctx:
+            returns.fetch_goods_return_report_rated(
+                api_key="test-key",
+                date_from="2026-08-01",
+                date_to="2026-08-31",
+                source_id=19,
+            )
+        self.assertEqual(ctx.exception.code, 429)
+        self.assertEqual(fetch_mock.call_count, 1)
+        sleep_mock.assert_not_called()
 
 
 class ListReturnScansTests(unittest.TestCase):
@@ -575,26 +575,24 @@ class GoodsReturnRateLimitTests(unittest.TestCase):
 
     @patch("review_processor.wb_fbs_returns.time.sleep")
     @patch("review_processor.wb_fbs_returns.fetch_goods_return_report")
-    def test_fetch_goods_return_report_rated_retries_on_429(self, fetch_report, sleep_mock):
+    def test_fetch_goods_return_report_rated_fails_on_429(self, fetch_report, sleep_mock):
         token = _fake_wb_jwt(uid=7)
         err429 = returns.GoodsReturnHttpError(
-            "Лимит WB на отчёт по возвратам",
+            "Синхронизация возвратов WB сейчас невозможна",
             code=429,
-            retry_after="3",
-            retry_seconds=3,
+            retry_after="1800",
+            retry_seconds=1800,
         )
-        fetch_report.side_effect = [err429, [{"orderId": 1, "srid": "s1"}]]
-        rows = returns.fetch_goods_return_report_rated(
-            api_key=token,
-            date_from="2026-08-01",
-            date_to="2026-08-10",
-            source_id=19,
-        )
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(fetch_report.call_count, 2)
-        sleep_mock.assert_called()
-        wait_arg = sleep_mock.call_args[0][0]
-        self.assertGreaterEqual(wait_arg, 5)
+        fetch_report.side_effect = err429
+        with self.assertRaises(returns.GoodsReturnHttpError):
+            returns.fetch_goods_return_report_rated(
+                api_key=token,
+                date_from="2026-08-01",
+                date_to="2026-08-10",
+                source_id=19,
+            )
+        self.assertEqual(fetch_report.call_count, 1)
+        sleep_mock.assert_not_called()
 
     @patch("review_processor.wb_fbs_returns.time.sleep")
     @patch("review_processor.wb_fbs_returns.fetch_goods_return_report")
