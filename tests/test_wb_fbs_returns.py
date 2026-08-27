@@ -8,6 +8,18 @@ from datetime import date
 from unittest.mock import MagicMock, patch
 
 from review_processor import wb_fbs_returns as returns
+from review_processor import wb_fbs as wb
+
+
+def _fake_wb_jwt(*, uid: int = 1, scopes: int = wb.WB_SCOPE_ANALYTICS | wb.WB_SCOPE_MARKETPLACE) -> str:
+    import base64
+    import json
+
+    header = base64.urlsafe_b64encode(b'{"alg":"ES256"}').decode().rstrip("=")
+    payload = base64.urlsafe_b64encode(
+        json.dumps({"uid": uid, "s": scopes}, separators=(",", ":")).encode()
+    ).decode().rstrip("=")
+    return f"{header}.{payload}.sig"
 
 
 class GoodsReturnWindowTests(unittest.TestCase):
@@ -557,20 +569,46 @@ class GoodsReturnSourceFilterTests(unittest.TestCase):
         )
 
     def test_resolve_goods_return_api_key_prefers_source(self):
-        key, src = returns.resolve_goods_return_api_key(
-            source_api_key="source-token",
-            fallback_analytics_key="settings-token",
+        source = _fake_wb_jwt(uid=11, scopes=wb.WB_SCOPE_ANALYTICS | wb.WB_SCOPE_MARKETPLACE)
+        fallback = _fake_wb_jwt(uid=22, scopes=wb.WB_SCOPE_ANALYTICS)
+        key, src, trust = returns.resolve_goods_return_api_key(
+            source_api_key=source,
+            fallback_analytics_key=fallback,
         )
-        self.assertEqual(key, "source-token")
+        self.assertEqual(key, source)
         self.assertEqual(src, "source")
+        self.assertTrue(trust)
 
     def test_resolve_goods_return_api_key_falls_back_to_settings(self):
-        key, src = returns.resolve_goods_return_api_key(
+        fallback = _fake_wb_jwt(uid=11, scopes=wb.WB_SCOPE_ANALYTICS)
+        key, src, trust = returns.resolve_goods_return_api_key(
             source_api_key="",
-            fallback_analytics_key="settings-token",
+            fallback_analytics_key=fallback,
         )
-        self.assertEqual(key, "settings-token")
+        self.assertEqual(key, fallback)
         self.assertEqual(src, "settings")
+        self.assertFalse(trust)
+
+    def test_resolve_goods_return_api_key_uses_settings_when_source_marketplace_only(self):
+        source = _fake_wb_jwt(uid=11, scopes=wb.WB_SCOPE_MARKETPLACE)
+        fallback = _fake_wb_jwt(uid=11, scopes=wb.WB_SCOPE_ANALYTICS)
+        key, src, trust = returns.resolve_goods_return_api_key(
+            source_api_key=source,
+            fallback_analytics_key=fallback,
+        )
+        self.assertEqual(key, fallback)
+        self.assertEqual(src, "settings")
+        self.assertTrue(trust)
+
+    def test_resolve_goods_return_api_key_rejects_mismatched_settings(self):
+        source = _fake_wb_jwt(uid=11, scopes=wb.WB_SCOPE_MARKETPLACE)
+        fallback = _fake_wb_jwt(uid=22, scopes=wb.WB_SCOPE_ANALYTICS)
+        with self.assertRaises(RuntimeError) as ctx:
+            returns.resolve_goods_return_api_key(
+                source_api_key=source,
+                fallback_analytics_key=fallback,
+            )
+        self.assertIn("другому кабинету", str(ctx.exception))
 
     def test_goods_return_report_trusted_for_source_key(self):
         self.assertTrue(returns.goods_return_report_trusted("source"))
@@ -623,6 +661,8 @@ class GoodsReturnSourceFilterTests(unittest.TestCase):
                 date_from="2026-08-01",
                 date_to="2026-08-10",
                 api_key_source="source",
+                trust_report=True,
+                api_key_candidates=[("source-key", "source")],
             )
 
         self.assertEqual(out["skipped_foreign"], 0)
@@ -665,6 +705,8 @@ class GoodsReturnSourceFilterTests(unittest.TestCase):
                 api_key="k",
                 date_from="2026-08-01",
                 date_to="2026-08-10",
+                trust_report=False,
+                api_key_candidates=[("k", "settings")],
             )
 
         self.assertEqual(out["skipped_foreign"], 1)
@@ -704,6 +746,8 @@ class GoodsReturnSourceFilterTests(unittest.TestCase):
                 date_from="2026-08-01",
                 date_to="2026-08-10",
                 api_key_source="settings",
+                trust_report=False,
+                api_key_candidates=[("settings-key", "settings")],
             )
 
         self.assertIn("глобальным ключом", out["warning"])

@@ -7,6 +7,7 @@ import io
 import json
 import logging
 import re
+import time
 import urllib.error
 import urllib.request
 from datetime import UTC, date, datetime, timedelta
@@ -119,29 +120,101 @@ def ensure_wb_fbs_returns_tables(repo: ReviewRepository) -> None:
 GOODS_RETURN_MAX_WINDOW_DAYS = 31
 GOODS_RETURN_DEFAULT_TOTAL_DAYS = 90
 GOODS_RETURN_STATUS_BATCH = 500
+# WB Personal/Service token: 1 request / minute for goods-return.
+GOODS_RETURN_REQUEST_INTERVAL_SEC = 61
 
 
 def resolve_goods_return_api_key(
     *,
     source_api_key: str | None,
     fallback_analytics_key: str | None,
-) -> tuple[str, str]:
+) -> tuple[str, str, bool]:
     """Pick WB token for goods-return report.
 
-    Each FBS source is usually a separate seller cabinet. The report must be
-    fetched with that source's token — not the global Analytics key from settings.
+    goods-return lives on seller-analytics API and requires Analytics/Statistics
+    scope. Marketplace-only source tokens get 403. When the global Settings key
+    belongs to the same seller (JWT uid), it is used as fallback.
+
+    Returns ``(api_key, api_key_source, trust_report)``.
     """
+    ordered, trust = resolve_goods_return_api_keys(
+        source_api_key=source_api_key,
+        fallback_analytics_key=fallback_analytics_key,
+    )
+    key, label = ordered[0]
+    return key, label, trust
+
+
+def resolve_goods_return_api_keys(
+    *,
+    source_api_key: str | None,
+    fallback_analytics_key: str | None,
+) -> tuple[list[tuple[str, str]], bool]:
+    """Ordered Analytics-capable keys: [(token, label), ...], trust_report."""
     source = str(source_api_key or "").strip()
     fallback = str(fallback_analytics_key or "").strip()
+    source_uid = wb.wb_jwt_uid(source) if source else None
+
+    ordered: list[tuple[str, str]] = []
+    seen: set[str] = set()
+
+    def _add(key: str, label: str) -> None:
+        if not key or key in seen:
+            return
+        if not wb.wb_token_has_goods_return_scope(key):
+            return
+        seen.add(key)
+        ordered.append((key, label))
+
     if source:
-        return source, "source"
+        _add(source, "source")
     if fallback:
-        return fallback, "settings"
-    return "", ""
+        fb_uid = wb.wb_jwt_uid(fallback)
+        if source_uid is None or fb_uid == source_uid:
+            _add(fallback, "settings")
+
+    if not ordered:
+        raise RuntimeError(
+            _goods_return_key_resolution_error(source, fallback, source_uid)
+        )
+
+    key, _label = ordered[0]
+    trust = bool(source_uid and wb.wb_jwt_uid(key) == source_uid)
+    return ordered, trust
 
 
-def goods_return_report_trusted(api_key_source: str) -> bool:
-    """When the report is fetched with the source token, WB scopes it to that seller."""
+def _goods_return_key_resolution_error(
+    source_key: str,
+    fallback_key: str,
+    source_uid: int | None,
+) -> str:
+    if (
+        fallback_key
+        and wb.wb_token_has_goods_return_scope(fallback_key)
+        and source_uid
+        and wb.wb_jwt_uid(fallback_key) not in (None, source_uid)
+    ):
+        return (
+            "Analytics-ключ в Настройках (Честный знак) принадлежит другому кабинету WB. "
+            "Добавьте категорию «Аналитика» в API-токен этого источника."
+        )
+    if source_key and not wb.wb_token_has_goods_return_scope(source_key):
+        scopes = ", ".join(wb.wb_token_scope_labels(source_key)) or "не определены"
+        return (
+            "API-ключ источника не имеет категории «Аналитика» или «Статистика» "
+            f"(сейчас: {scopes}). Создайте в ЛК WB новый токен с категорией «Аналитика» "
+            "и обновите ключ источника."
+        )
+    return (
+        "Не задан подходящий WB API-ключ для отчёта по возвратам "
+        "(нужна категория «Аналитика» или «Статистика»)."
+    )
+
+
+def goods_return_report_trusted(api_key_source: str, *, trust_report: bool | None = None) -> bool:
+    """Whether goods-return rows can be stored without local order matching."""
+    if trust_report is not None:
+        return bool(trust_report)
     return str(api_key_source or "").strip() == "source"
 
 
@@ -296,12 +369,21 @@ def format_wb_goods_return_http_error(
     if int(code) == 429:
         msg = (
             "Лимит WB на отчёт по возвратам: слишком много запросов к Analytics API. "
-            "Не нажимайте «Синхр. WB» часто — один ключ общий для всех операций FBS."
+            "Синхронизация за 90 дней делает 3 запроса с паузой ~1 мин между ними. "
+            "Не запускайте «Синхр. WB» для нескольких источников подряд без паузы."
         )
         hint = _format_wb_retry_hint(retry_after)
         if hint:
             msg += hint
         return RuntimeError(msg)
+    if int(code) == 403 and (
+        "scope is not allowed" in (body or "").lower()
+        or "scope is not allowed" in (reason or "").lower()
+    ):
+        return RuntimeError(
+            "WB goods-return: у API-ключа нет категории «Аналитика» или «Статистика». "
+            "Создайте токен в ЛК WB с категорией «Аналитика» и обновите ключ источника."
+        )
     detail = (body or reason or "").strip()
     if detail:
         return RuntimeError(f"WB goods-return HTTP {code}: {detail[:500]}")
@@ -607,6 +689,30 @@ def fetch_goods_return_report(
     return []
 
 
+def _fetch_goods_return_resilient(
+    candidates: list[tuple[str, str]],
+    *,
+    date_from: str,
+    date_to: str,
+) -> tuple[list[dict[str, Any]], str, str]:
+    """Try each Analytics-capable key; skip 403 scope errors."""
+    last_exc: RuntimeError | None = None
+    for key, label in candidates:
+        try:
+            rows = fetch_goods_return_report(
+                api_key=key, date_from=date_from, date_to=date_to
+            )
+            return rows, key, label
+        except RuntimeError as exc:
+            if wb.is_goods_return_scope_error(exc):
+                last_exc = exc
+                continue
+            raise
+    if last_exc is not None:
+        raise last_exc
+    return [], "", ""
+
+
 def _load_source_goods_return_matchers(
     repo: ReviewRepository,
     *,
@@ -868,15 +974,20 @@ def sync_goods_returns(
     date_to: str,
     marketplace_api_key: str | None = None,
     api_key_source: str = "",
+    trust_report: bool | None = None,
+    api_key_candidates: list[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Sync WB goods-return report for one FBS source.
 
-    WB Analytics returns all seller returns; rows are stored only when they match
-    orders/nmIds synced for ``source_id``. Foreign rows are skipped and purged
-    from this source cache for the requested date range.
+    Rows are stored when they belong to this ``source_id``. With
+    ``trust_report=True`` (same WB seller cabinet), all report rows are kept.
     """
     ensure_wb_fbs_returns_tables(repo)
-    trust_report = goods_return_report_trusted(api_key_source)
+    if trust_report is None:
+        trust_report = goods_return_report_trusted(api_key_source)
+    candidates = list(api_key_candidates or [])
+    if not candidates and api_key:
+        candidates = [(str(api_key).strip(), str(api_key_source or "source").strip() or "source")]
     matchers = _load_source_goods_return_matchers(
         repo, user_id=user_id, source_id=source_id
     )
@@ -896,10 +1007,32 @@ def sync_goods_returns(
     fetched_stickers: set[str] = set()
     fetched_order_ids: set[int] = set()
     mp_key = str(marketplace_api_key or "").strip()
-    for win_from, win_to in windows:
-        rows = fetch_goods_return_report(
-            api_key=api_key, date_from=win_from, date_to=win_to
-        )
+    report_key: str | None = None
+    report_label = str(api_key_source or "").strip()
+    for win_index, (win_from, win_to) in enumerate(windows):
+        if win_index > 0:
+            if report_key:
+                time.sleep(GOODS_RETURN_REQUEST_INTERVAL_SEC)
+            else:
+                raise RuntimeError(
+                    "Не удалось определить API-ключ для отчёта WB по возвратам"
+                )
+        if report_key:
+            rows = fetch_goods_return_report(
+                api_key=report_key, date_from=win_from, date_to=win_to
+            )
+        else:
+            rows, report_key, report_label = _fetch_goods_return_resilient(
+                candidates,
+                date_from=win_from,
+                date_to=win_to,
+            )
+            if not report_key:
+                raise RuntimeError(
+                    "Не удалось загрузить отчёт WB: нет ключа с категорией «Аналитика»"
+                )
+        if win_index == 0 and len(windows) > 1:
+            totals["rate_limit_windows"] = len(windows)
         for row in rows:
             srid = str(row.get("srid") or "").strip()
             if srid:
@@ -1057,8 +1190,9 @@ def sync_goods_returns(
         "skipped_foreign": totals["skipped_foreign"],
         "purged_foreign": totals["purged_foreign"],
         "warning": warning,
-        "api_key_source": str(api_key_source or "").strip() or None,
+        "api_key_source": report_label or str(api_key_source or "").strip() or None,
         "report_trusted": trust_report,
+        "rate_limit_windows": totals.get("rate_limit_windows"),
         "windows": window_stats,
         "date_from": overall_from,
         "date_to": overall_to,
@@ -2057,16 +2191,14 @@ def sync_goods_returns_default(
     src = repo.get_supply_source_with_key(user_id=user_id, source_id=source_id)
     source_api_key = str((src or {}).get("api_key") or "").strip() or None
     fallback = get_wb_analytics_api_key(repo, user_id=user_id)
-    api_key, api_key_source = resolve_goods_return_api_key(
-        source_api_key=source_api_key,
-        fallback_analytics_key=fallback,
-    )
-    if not api_key:
-        return {
-            "ok": False,
-            "error": "no_api_key",
-            "message": "Не задан API-ключ источника WB и нет запасного ключа в Настройках",
-        }
+    try:
+        candidates, trust_report = resolve_goods_return_api_keys(
+            source_api_key=source_api_key,
+            fallback_analytics_key=fallback,
+        )
+    except RuntimeError as exc:
+        return {"ok": False, "error": "no_api_key", "message": str(exc)}
+    api_key, api_key_source = candidates[0]
     date_from, date_to = default_sync_date_range(GOODS_RETURN_DEFAULT_TOTAL_DAYS)
     return sync_goods_returns(
         repo,
@@ -2077,4 +2209,6 @@ def sync_goods_returns_default(
         date_to=date_to,
         marketplace_api_key=source_api_key,
         api_key_source=api_key_source,
+        trust_report=trust_report,
+        api_key_candidates=candidates,
     )

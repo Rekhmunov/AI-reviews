@@ -18856,7 +18856,12 @@ async function syncWbFbsReturnsGoods(options) {
   const syncBtn = document.getElementById("wbFbsReturnsSyncBtn");
   const syncInfo = document.getElementById("wbFbsReturnsSyncInfo");
   if (syncBtn) syncBtn.disabled = true;
-  if (syncInfo) syncInfo.textContent = isAuto ? "Автосинхронизация WB…" : "Синхронизация WB…";
+    if (syncInfo) {
+      const rateHint = Number(payload.rate_limit_windows || 0) > 1
+        ? " (запросы WB с паузой ~1 мин)"
+        : "";
+      syncInfo.textContent = isAuto ? `Автосинхронизация WB…${rateHint}` : `Синхронизация WB…${rateHint}`;
+    }
   try {
     const body = { source_id: sid };
     const df = document.getElementById("wbFbsReturnsDateFrom")?.value || "";

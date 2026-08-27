@@ -11088,18 +11088,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             )
         source_api_key = str(src_full.get("api_key") or "").strip() or None
         fallback_key = get_wb_analytics_api_key(repository, user_id=owner_id)
-        api_key, api_key_source = returns_mod.resolve_goods_return_api_key(
-            source_api_key=source_api_key,
-            fallback_analytics_key=fallback_key,
-        )
-        if not api_key:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Не задан API-ключ источника WB и нет запасного ключа "
-                    "(Настройки → Честный знак)"
-                ),
+        try:
+            api_key_candidates, trust_report = returns_mod.resolve_goods_return_api_keys(
+                source_api_key=source_api_key,
+                fallback_analytics_key=fallback_key,
             )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        api_key, api_key_source = api_key_candidates[0]
         try:
             result = returns_mod.sync_goods_returns(
                 repository,
@@ -11110,6 +11106,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 date_to=date_to,
                 marketplace_api_key=source_api_key,
                 api_key_source=api_key_source,
+                trust_report=trust_report,
+                api_key_candidates=api_key_candidates,
             )
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -305,6 +305,76 @@ def cancel_reason_label(*, supplier_status: object = "", wb_status: object = "")
 
 SCOPE_ERROR_MESSAGE = "Нет ни одного источника с нужным API (Marketplace)."
 
+# WB JWT ``s`` bitmask (category bit = 2 ** (position - 1), positions from WB docs).
+WB_SCOPE_CONTENT = 1 << 0
+WB_SCOPE_ANALYTICS = 1 << 1
+WB_SCOPE_PRICES = 1 << 2
+WB_SCOPE_MARKETPLACE = 1 << 3
+WB_SCOPE_STATISTICS = 1 << 4
+WB_GOODS_RETURN_SCOPES = WB_SCOPE_ANALYTICS | WB_SCOPE_STATISTICS
+
+
+def decode_wb_jwt_payload(token: str) -> dict[str, Any]:
+    """Decode WB API JWT payload without signature verification."""
+    try:
+        parts = str(token or "").strip().split(".")
+        if len(parts) < 2:
+            return {}
+        payload = parts[1] + "=" * (-len(parts[1]) % 4)
+        data = json.loads(base64.urlsafe_b64decode(payload))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def wb_jwt_uid(token: str) -> int | None:
+    try:
+        uid = int(decode_wb_jwt_payload(token).get("uid") or 0)
+    except (TypeError, ValueError):
+        uid = 0
+    return uid if uid > 0 else None
+
+
+def wb_token_scope_mask(token: str) -> int:
+    try:
+        return int(decode_wb_jwt_payload(token).get("s") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def wb_token_has_scope(token: str, scope_mask: int) -> bool:
+    mask = wb_token_scope_mask(token)
+    return bool(mask & int(scope_mask or 0))
+
+
+def wb_token_has_goods_return_scope(token: str) -> bool:
+    """True when token includes Analytics/Statistics scopes for goods-return."""
+    return wb_token_has_scope(token, WB_GOODS_RETURN_SCOPES)
+
+
+def wb_token_scope_labels(token: str) -> list[str]:
+    mask = wb_token_scope_mask(token)
+    labels: list[str] = []
+    for bit, name in (
+        (WB_SCOPE_CONTENT, "Контент"),
+        (WB_SCOPE_ANALYTICS, "Аналитика"),
+        (WB_SCOPE_PRICES, "Цены"),
+        (WB_SCOPE_MARKETPLACE, "Маркетплейс"),
+        (WB_SCOPE_STATISTICS, "Статистика"),
+    ):
+        if mask & bit:
+            labels.append(name)
+    return labels
+
+
+def is_goods_return_scope_error(exc: object) -> bool:
+    text = str(exc or "").lower()
+    return (
+        "scope is not allowed" in text
+        or "ag-contentanalytics" in text
+        or ("http 403" in text and "forbidden" in text and "scope" in text)
+    )
+
 
 def is_fbs_source_name(name: object) -> bool:
     """True when supply source name is meant for FBS (contains ФБС/FBS)."""
