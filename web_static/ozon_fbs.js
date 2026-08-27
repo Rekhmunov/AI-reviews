@@ -3934,6 +3934,33 @@
     return _ozonFbsFindByStickerInRows(scan, ozonFbsPickState.rows);
   }
 
+  async function _ozonFbsPickFindByStickerWithLookup(scan) {
+    const local = _ozonFbsPickFindBySticker(scan);
+    if (local.row || local.ambiguous) return local;
+    const sourceId = supplyDetailState.sourceId || state.sourceId;
+    const raw = _ozonFbsNormalizeScan(scan);
+    if (!sourceId || !raw) return local;
+    try {
+      const params = new URLSearchParams({ source_id: String(sourceId), scan: raw });
+      const res = await fetch(`/api/ozon-fbs/postings/lookup?${params}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.found || !data.posting) return local;
+      const pn = String(data.posting.posting_number || "").trim();
+      if (!pn) return local;
+      const row = (ozonFbsPickState.rows || []).find((r) => String(r.posting_number || "").trim() === pn);
+      if (!row) return local;
+      row.sticker_barcode = String(data.posting.sticker_barcode || row.sticker_barcode || "").trim();
+      row.sticker_lower_barcode = String(
+        data.posting.sticker_lower_barcode || row.sticker_lower_barcode || ""
+      ).trim();
+      row.sticker_part_a = String(data.posting.sticker_part_a || row.sticker_part_a || "").trim();
+      row.sticker_part_b = String(data.posting.sticker_part_b || row.sticker_part_b || "").trim();
+      return { row, ambiguous: false };
+    } catch (_) {
+      return local;
+    }
+  }
+
   function _ozonFbsPickFindByPosting(scan) {
     return _ozonFbsPickFindBySticker(scan);
   }
@@ -4139,7 +4166,7 @@
     }
   }
 
-  function onOzonFbsPickStickerScanKey(event) {
+  async function onOzonFbsPickStickerScanKey(event) {
     if (!event || event.key !== "Enter") return;
     event.preventDefault();
     if (typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen()) return;
@@ -4153,7 +4180,7 @@
     }
     const scan = _ozonFbsNormalizeScan(rawTyped);
     if (!scan) return;
-    const found = _ozonFbsPickFindBySticker(scan);
+    const found = await _ozonFbsPickFindByStickerWithLookup(scan);
     if (found.ambiguous) {
       const ids = (found.matches || []).map((r) => r.posting_number).slice(0, 5).join(", ");
       _ozonFbsPickSetInfo(
