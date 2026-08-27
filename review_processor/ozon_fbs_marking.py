@@ -36,8 +36,9 @@ def _parse_codes(raw: object) -> list[str]:
 def clean_open_kiz_codes(codes: object) -> list[str]:
     """Sanitize KIZ slots when opening Marking modal.
 
-    Keep all filled codes (2+ filled stay). Drop empty extras — no padding to
-    quantity (avoids two blank fields on qty≥2). If nothing filled → one empty slot.
+    - 0 scanned → one empty input only
+    - 1+ scanned → only filled codes (no trailing empty slot)
+    Never pad empty fields up to quantity.
     """
     if isinstance(codes, list):
         raw = codes
