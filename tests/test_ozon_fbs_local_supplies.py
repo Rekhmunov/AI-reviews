@@ -13,6 +13,7 @@ from review_processor.ozon_fbs_supplies import (
     preview_ship_all_collect,
     execute_ship_all_collect,
     list_collect_target_supplies,
+    rename_local_supply,
 )
 
 
@@ -659,6 +660,97 @@ class OzonFbsDeliveringSuppliesTests(unittest.TestCase):
                 supply_id="OZ-2",
             )
         self.assertEqual(detail["order_count"], 1)
+
+    def test_rename_local_supply_updates_name(self) -> None:
+        repo = MagicMock()
+        supply = {
+            "supply_id": "OZ-1",
+            "name": "Старое имя",
+            "done": False,
+            "posting_numbers": ["P-1"],
+            "order_count": 1,
+        }
+        renamed = {**supply, "name": "Новое имя"}
+        with patch(
+            "review_processor.ozon_fbs_supplies.ensure_ozon_fbs_supply_schema"
+        ), patch(
+            "review_processor.ozon_fbs_supplies.get_supply",
+            side_effect=[supply, renamed],
+        ), patch(
+            "review_processor.ozon_fbs_supplies.list_open_supplies",
+            return_value=[{"supply_id": "OZ-2", "name": "Другая"}],
+        ), patch.object(repo, "_connect") as conn_ctx:
+            conn = MagicMock()
+            conn_ctx.return_value.__enter__.return_value = conn
+            out = rename_local_supply(
+                repo,
+                user_id=1,
+                source_id=2,
+                supply_id="OZ-1",
+                name="Новое имя",
+            )
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["name"], "Новое имя")
+        conn.execute.assert_called_once()
+
+    def test_rename_local_supply_rejects_duplicate_name(self) -> None:
+        repo = MagicMock()
+        supply = {
+            "supply_id": "OZ-1",
+            "name": "Старое",
+            "done": False,
+            "posting_numbers": [],
+            "order_count": 0,
+        }
+        with patch(
+            "review_processor.ozon_fbs_supplies.ensure_ozon_fbs_supply_schema"
+        ), patch(
+            "review_processor.ozon_fbs_supplies.get_supply",
+            return_value=supply,
+        ), patch(
+            "review_processor.ozon_fbs_supplies.list_open_supplies",
+            return_value=[{"supply_id": "OZ-2", "name": "Занято"}],
+        ):
+            with self.assertRaises(ValueError):
+                rename_local_supply(
+                    repo,
+                    user_id=1,
+                    source_id=2,
+                    supply_id="OZ-1",
+                    name="Занято",
+                )
+
+    def test_build_supply_items_uses_local_name_for_any_tab(self) -> None:
+        """Renamed name from ozon_fbs_supplies must show on delivering too."""
+        from review_processor.ozon_fbs_supplies import _build_supply_items_for_tab
+
+        repo = MagicMock()
+        group = {
+            "supply_id": "OZ-1",
+            "order_count": 2,
+            "warehouse_name": "WH",
+            "warehouse_id": 1,
+            "last_posting_at": "2026-08-27",
+        }
+        meta_row = {
+            "supply_id": "OZ-1",
+            "name": "Переименованная поставка",
+            "warehouse_name": "WH",
+            "warehouse_id": 1,
+            "created_at": "2026-08-27",
+        }
+        with patch(
+            "review_processor.ozon_fbs_supplies.ensure_ozon_fbs_supply_schema"
+        ), patch.object(repo, "_connect") as conn_ctx:
+            conn = MagicMock()
+            conn_ctx.return_value.__enter__.return_value = conn
+            conn.execute.return_value.fetchall.side_effect = [[group], [meta_row]]
+            repo._row_to_dict.side_effect = lambda r: r
+            items = _build_supply_items_for_tab(
+                repo, user_id=1, source_id=2, tab="delivering"
+            )
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["name"], "Переименованная поставка")
 
 
 if __name__ == "__main__":

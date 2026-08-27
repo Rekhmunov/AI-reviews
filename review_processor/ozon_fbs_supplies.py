@@ -1540,6 +1540,61 @@ def get_supply(
     return d
 
 
+def rename_local_supply(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    name: str,
+) -> dict[str, Any]:
+    """Rename a local Ozon FBS supply. Name is kept when postings move to delivering."""
+    ensure_ozon_fbs_supply_schema(repo)
+    sid = str(supply_id or "").strip()
+    new_name = str(name or "").strip()
+    if not sid:
+        raise ValueError("Не указан ID поставки")
+    if not new_name:
+        raise ValueError("Укажите название поставки")
+    if len(new_name) > 128:
+        raise ValueError("Название не длиннее 128 символов")
+
+    supply = get_supply(repo, user_id=user_id, source_id=source_id, supply_id=sid)
+    if not supply:
+        raise RuntimeError("Поставка не найдена")
+    if bool(supply.get("done")):
+        raise RuntimeError("Нельзя переименовать закрытую поставку")
+
+    open_names = {
+        str(s.get("name") or "").strip()
+        for s in list_open_supplies(repo, user_id=user_id, source_id=source_id)
+        if str(s.get("supply_id") or "").strip() != sid
+        and str(s.get("name") or "").strip()
+    }
+    if new_name in open_names:
+        raise ValueError(f"Поставка «{new_name}» уже есть — выберите другое название")
+
+    with repo._connect() as conn:
+        conn.execute(
+            repo._sql(
+                """
+                UPDATE ozon_fbs_supplies
+                SET name = ?, updated_at = NOW()
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                """
+            ),
+            (new_name, user_id, source_id, sid),
+        )
+    updated = get_supply(repo, user_id=user_id, source_id=source_id, supply_id=sid)
+    if not updated:
+        raise RuntimeError("Поставка не найдена после переименования")
+    return {
+        "ok": True,
+        "supply_id": sid,
+        "name": str(updated.get("name") or new_name).strip(),
+    }
+
+
 def _assembly_posting_numbers_for_supply_tab(
     repo: ReviewRepository,
     *,

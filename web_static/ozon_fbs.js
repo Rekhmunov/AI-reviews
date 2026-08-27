@@ -214,7 +214,8 @@
   }
 
   function colspan() {
-    return isSuppliesTab() ? 6 : 4;
+    if (!isSuppliesTab()) return 4;
+    return isDeliveringSuppliesTab() ? 6 : 7;
   }
 
   async function loadSources() {
@@ -337,7 +338,9 @@
 
   function syncTableMode() {
     const supplies = isSuppliesTab();
-    const nextMode = supplies ? "supplies" : "orders";
+    const nextMode = supplies
+      ? (isDeliveringSuppliesTab() ? "supplies-delivering" : "supplies-awaiting")
+      : "orders";
     const modeChanged = state.viewMode !== nextMode;
     state.viewMode = nextMode;
     const table = document.getElementById("ozonFbsOrdersTable");
@@ -356,13 +359,15 @@
     if (!colgroup || !thead) return;
     if (!modeChanged && colgroup.children.length) return;
     if (supplies) {
+      const canRename = !isDeliveringSuppliesTab();
       colgroup.innerHTML = `
         <col data-fixed="1" class="wb-fbs-col-check" style="width:40px" />
-        <col data-col="0" class="wb-fbs-col-supply" style="width:28%" />
-        <col data-col="1" class="wb-fbs-col-qr" style="width:18%" />
+        <col data-col="0" class="wb-fbs-col-supply" style="width:${canRename ? "26%" : "28%"}" />
+        <col data-col="1" class="wb-fbs-col-qr" style="width:16%" />
         <col data-col="2" class="wb-fbs-col-orders" style="width:14%" />
         <col data-col="3" class="wb-fbs-col-status" style="width:16%" />
-        <col data-col="4" class="wb-fbs-col-wh" style="width:24%" />
+        <col data-col="4" class="wb-fbs-col-wh" style="width:${canRename ? "22%" : "24%"}" />
+        ${canRename ? '<col data-fixed="1" class="wb-fbs-col-act" style="width:48px" />' : ""}
       `;
       thead.innerHTML = `
         <th class="wb-fbs-th-check"><input type="checkbox" id="ozonFbsSelectAll" onchange="toggleSelectAllOzonFbs(this.checked)" title="Выбрать все на странице" /></th>
@@ -371,6 +376,7 @@
         <th data-col="2">Заказы</th>
         <th data-col="3">Этап сборки</th>
         <th data-col="4">Склад</th>
+        ${canRename ? '<th class="wb-fbs-th-act"></th>' : ""}
       `;
     } else {
       colgroup.innerHTML = `
@@ -389,6 +395,142 @@
     }
   }
 
+  function _ozonFbsRenameMenuIconHtml() {
+    return `<span class="wb-fbs-menu-ico" aria-hidden="true">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M11.5 3.5l3 3L6.75 14.25H3.75v-3L11.5 3.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" fill="none"/>
+        <path d="M10.25 4.75l3 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+      </svg>
+    </span>`;
+  }
+
+  function _ozonFbsSupplyRowActionsHtml(supplyId) {
+    const sid = String(supplyId || "").trim();
+    if (!sid || isDeliveringSuppliesTab()) return "";
+    const safeKey = _ozonFbsPostingMenuKey(`s_${sid}`);
+    return `<div class="wb-fbs-row-menu-wrap" id="ozonFbsRowMenuWrap_${safeKey}">
+      <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
+              onclick="toggleOzonFbsRowMenu(event, '${esc(safeKey)}')" aria-haspopup="menu">⋮</button>
+      <div id="ozonFbsRowMenu_${safeKey}" class="wb-fbs-row-menu" data-supply-id="${esc(sid)}" role="menu">
+        <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
+                onclick="openOzonFbsRenameSupplyModal('${esc(sid)}')">
+          ${_ozonFbsRenameMenuIconHtml()}
+          Переименовать поставку
+        </button>
+      </div>
+    </div>`;
+  }
+
+  function openOzonFbsRenameSupplyModal(supplyId) {
+    closeOzonFbsRowMenus();
+    const sid = String(supplyId || "").trim();
+    if (!sid || !state.sourceId || isDeliveringSuppliesTab()) return;
+    const row = state.items.find((x) => String(x.supply_id || "").trim() === sid);
+    const detailName = (
+      supplyDetailState.supply && String(supplyDetailState.supply.supply_id || "") === sid
+    )
+      ? String(supplyDetailState.supply.name || "").trim()
+      : "";
+    const input = document.getElementById("ozonFbsRenameSupplyInput");
+    const err = document.getElementById("ozonFbsRenameSupplyError");
+    const saveBtn = document.getElementById("ozonFbsRenameSupplySaveBtn");
+    if (err) {
+      err.hidden = true;
+      err.textContent = "";
+    }
+    if (saveBtn) saveBtn.disabled = false;
+    if (input) {
+      input.value = detailName || String(row?.name || "").trim();
+      input.dataset.supplyId = sid;
+      input.onkeydown = (ev) => {
+        if (ev.key === "Enter") {
+          ev.preventDefault();
+          submitOzonFbsRenameSupply();
+        } else if (ev.key === "Escape") {
+          ev.preventDefault();
+          closeOzonFbsRenameSupplyModal();
+        }
+      };
+    }
+    if (typeof setModalVisibility === "function") {
+      setModalVisibility("ozonFbsRenameSupplyModal", true);
+    } else {
+      document.getElementById("ozonFbsRenameSupplyModal")?.classList.remove("hidden");
+    }
+    setTimeout(() => {
+      input?.focus();
+      input?.select();
+    }, 0);
+  }
+
+  function closeOzonFbsRenameSupplyModal() {
+    const input = document.getElementById("ozonFbsRenameSupplyInput");
+    if (input) input.dataset.supplyId = "";
+    if (typeof setModalVisibility === "function") {
+      setModalVisibility("ozonFbsRenameSupplyModal", false);
+    } else {
+      document.getElementById("ozonFbsRenameSupplyModal")?.classList.add("hidden");
+    }
+  }
+
+  async function submitOzonFbsRenameSupply() {
+    const input = document.getElementById("ozonFbsRenameSupplyInput");
+    const err = document.getElementById("ozonFbsRenameSupplyError");
+    const saveBtn = document.getElementById("ozonFbsRenameSupplySaveBtn");
+    const sid = String(input?.dataset.supplyId || "").trim();
+    const name = String(input?.value || "").trim();
+    if (!sid || !state.sourceId) return;
+    if (!name) {
+      if (err) {
+        err.hidden = false;
+        err.textContent = "Укажите название поставки";
+      }
+      input?.focus();
+      return;
+    }
+    if (name.length > 128) {
+      if (err) {
+        err.hidden = false;
+        err.textContent = "Название не длиннее 128 символов";
+      }
+      return;
+    }
+    if (saveBtn) saveBtn.disabled = true;
+    if (err) {
+      err.hidden = true;
+      err.textContent = "";
+    }
+    try {
+      const res = await fetch(`/api/ozon-fbs/supplies/${encodeURIComponent(sid)}`, {
+        method: "PATCH",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ source_id: state.sourceId, name }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      const newName = String(data.name || name).trim();
+      const row = state.items.find((x) => String(x.supply_id || "").trim() === sid);
+      if (row) row.name = newName;
+      if (supplyDetailState.supply && String(supplyDetailState.supply.supply_id || "") === sid) {
+        supplyDetailState.supply.name = newName;
+        const title = document.getElementById("ozonFbsSupplyDetailTitle");
+        if (title) title.textContent = newName;
+      }
+      closeOzonFbsRenameSupplyModal();
+      if (isSuppliesTab()) renderSuppliesTable(state.items);
+      showSyncInfo(`Поставка переименована: ${newName}`);
+    } catch (e) {
+      if (err) {
+        err.hidden = false;
+        err.textContent = String(e.message || e);
+      } else {
+        alert(String(e.message || e));
+      }
+    } finally {
+      if (saveBtn) saveBtn.disabled = false;
+    }
+  }
+
   function renderSuppliesTable(items) {
     const tbody = document.getElementById("ozonFbsOrdersTbody");
     if (!tbody) return;
@@ -401,6 +543,7 @@
       syncSelectAll();
       return;
     }
+    const canRename = !isDeliveringSuppliesTab();
     tbody.innerHTML = state.items.map((s) => {
       const sid = String(s.supply_id || "").trim();
       const checked = state.selected.has(sid) ? "checked" : "";
@@ -410,6 +553,9 @@
         : "";
       const ordersCount = Number(s.order_count || 0);
       const status = String(s.status_label || "Сборка заказов");
+      const actionsTd = canRename
+        ? `<td class="wb-fbs-td-act">${_ozonFbsSupplyRowActionsHtml(sid)}</td>`
+        : "";
       return `<tr>
         <td><input type="checkbox" class="wb-fbs-row-cb" data-supply-id="${esc(sid)}" ${checked} onchange="onOzonFbsCheckboxChange()" /></td>
         <td>
@@ -429,6 +575,7 @@
         <td>
           <div class="wb-fbs-wh-name" title="${esc(s.warehouse_label || "")}">${esc(s.warehouse_label || "—")}</div>
         </td>
+        ${actionsTd}
       </tr>`;
     }).join("");
     syncSelectAll();
@@ -1231,6 +1378,8 @@
     const tbody = document.getElementById("ozonFbsSupplyDetailTbody");
     const sid = String(supply.supply_id || "").trim();
     if (title) title.textContent = supply.name || (`Поставка ${sid}`);
+    const renameBtn = document.getElementById("ozonFbsSupplyDetailRenameBtn");
+    if (renameBtn) renameBtn.hidden = !!readOnly;
     if (wh) wh.textContent = String(supply.warehouse_label || "—").trim() || "—";
     if (meta) {
       meta.innerHTML = [
@@ -4804,6 +4953,10 @@
   window.confirmOzonFbsCollect = confirmCollect;
   window.ozonFbsCollectNameInput = collectNameInput;
 
+  window.openOzonFbsRenameSupplyModal = openOzonFbsRenameSupplyModal;
+  window.closeOzonFbsRenameSupplyModal = closeOzonFbsRenameSupplyModal;
+  window.submitOzonFbsRenameSupply = submitOzonFbsRenameSupply;
+  window.ozonFbsSupplyDetailId = () => String(supplyDetailState.supplyId || "");
   window.openOzonFbsSupplyDetailModal = openSupplyDetailModal;
   window.closeOzonFbsSupplyDetailModal = closeSupplyDetailModal;
   window.renderOzonFbsSupplyDetail = () => renderSupplyDetail();

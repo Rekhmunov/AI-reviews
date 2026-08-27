@@ -12853,6 +12853,45 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             ),
         }
 
+    @app.patch("/api/ozon-fbs/supplies/{supply_id}")
+    async def ozon_fbs_rename_supply(
+        request: Request,
+        supply_id: str,
+    ) -> dict[str, object]:
+        """Rename local Ozon FBS supply (name persists into «Доставляются»)."""
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid:
+            raise HTTPException(status_code=400, detail="Укажите supply_id")
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        source_id = int(body.get("source_id") or 0)
+        name = str(body.get("name") or "").strip()
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _ozon_fbs_source_credentials(owner_id, source_id)
+        try:
+            return oz_sup.rename_local_supply(
+                repository,
+                user_id=owner_id,
+                source_id=source_id,
+                supply_id=sid,
+                name=name,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     @app.get("/api/ozon-fbs/supplies/{supply_id}/detail")
     def ozon_fbs_supply_detail(
         request: Request,

@@ -7417,6 +7417,46 @@ tr.dnd-over td {
   grid-row: 1;
   white-space: nowrap;
 }
+.wb-fbs-rename-modal {
+  max-width: 440px;
+  width: calc(100% - 32px);
+}
+.wb-fbs-rename-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+  margin: 0 0 8px;
+}
+.wb-fbs-rename-input {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 16px;
+  line-height: 1.4;
+  color: #0f172a;
+  background: #fff;
+  box-sizing: border-box;
+}
+.wb-fbs-rename-input:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.16);
+}
+.wb-fbs-rename-input:disabled {
+  background: #f8fafc;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+.wb-fbs-rename-error {
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #b91c1c;
+}
 @media (max-width: 560px) {
   .wb-fbs-trbx-print-actions {
     grid-template-columns: 1fr;
