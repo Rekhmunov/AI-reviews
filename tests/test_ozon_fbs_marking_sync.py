@@ -18,15 +18,12 @@ def test_enrich_negative_cache_marks_checked() -> None:
         "products": [{"sku": 752040595, "quantity": 1}],
     }
     client = MagicMock()
-    client.get_posting.return_value = {
-        "posting_number": "0114598183-0259-1",
-        "products": [{"sku": 752040595, "quantity": 1}],
-        "requirements": {"products_requiring_mandatory_mark": []},
-    }
+    client.mandatory_mark_is_required.return_value = [
+        {"sku": 752040595, "is_required": False}
+    ]
     out = oz.enrich_posting_marking_flags_light(client, posting)
     req = out.get("requirements") or {}
     assert req.get("marking_is_required_checked") is True
-    assert req.get("marking_check_version") == oz.MARKING_REQUIREMENT_CHECK_VERSION
     assert oz.posting_marking_flags_resolved(out) is True
     assert oz.posting_requires_marking({"is_mandatory_mark": False, "raw_json": __import__("json").dumps(out)}) is False
 
@@ -37,11 +34,9 @@ def test_posting_marking_flags_resolved_after_positive_enrich() -> None:
         "products": [{"sku": 3722013683, "quantity": 1}],
     }
     client = MagicMock()
-    client.get_posting.return_value = {
-        "posting_number": "0123604587-1235-1",
-        "products": [{"sku": 3722013683, "quantity": 1}],
-        "requirements": {"products_requiring_mandatory_mark": ["3722013683"]},
-    }
+    client.mandatory_mark_is_required.return_value = [
+        {"sku": 3722013683, "is_required": True}
+    ]
     out = oz.enrich_posting_marking_flags_light(client, posting)
     assert oz.posting_marking_flags_resolved(out) is True
     assert oz.posting_requires_marking(
@@ -49,7 +44,7 @@ def test_posting_marking_flags_resolved_after_positive_enrich() -> None:
     )
 
 
-def test_refresh_supply_marking_flags_uses_get_posting() -> None:
+def test_refresh_supply_marking_flags_uses_is_required_not_get_posting() -> None:
     repo = MagicMock()
     conn = MagicMock()
     repo._connect.return_value.__enter__ = MagicMock(return_value=conn)
@@ -60,18 +55,13 @@ def test_refresh_supply_marking_flags_uses_get_posting() -> None:
         "posting_number": "P-1",
         "is_mandatory_mark": False,
         "raw_json": (
-            '{"posting_number":"P-1","products":[{"sku":555,"quantity":1}],'
-            '"requirements":{"products_requiring_mandatory_mark":["555"]}}'
+            '{"posting_number":"P-1","products":[{"sku":555,"quantity":1}]}'
         ),
         "products_json": "[]",
     }
     conn.execute.return_value.fetchall.return_value = [row]
     client = MagicMock()
-    client.get_posting.return_value = {
-        "posting_number": "P-1",
-        "products": [{"sku": 555, "quantity": 1}],
-        "requirements": {"products_requiring_mandatory_mark": []},
-    }
+    client.mandatory_mark_is_required.return_value = [{"sku": 555, "is_required": True}]
 
     with (
         patch("review_processor.ozon_fbs_supplies.oz.OzonFbsClient", return_value=client),
@@ -90,12 +80,10 @@ def test_refresh_supply_marking_flags_uses_get_posting() -> None:
     assert result["updated"] == 1
     assert result["checked"] == 1
     assert result["remaining"] == 0
-    client.get_posting.assert_called()
-    client.mandatory_mark_is_required.assert_not_called()
+    client.get_posting.assert_not_called()
     saved = upsert.call_args.kwargs.get("posting") or upsert.call_args.args[2]
     req = saved.get("requirements") or {}
-    assert not (req.get("products_requiring_mandatory_mark") or [])
-    assert req.get("marking_check_version") == oz.MARKING_REQUIREMENT_CHECK_VERSION
+    assert "555" in (req.get("products_requiring_mandatory_mark") or [])
 
 
 def test_refresh_supply_marking_flags_chunks_and_reports_remaining() -> None:
@@ -120,11 +108,7 @@ def test_refresh_supply_marking_flags_chunks_and_reports_remaining() -> None:
         )
     conn.execute.return_value.fetchall.return_value = rows
     client = MagicMock()
-    client.get_posting.side_effect = lambda pn: {
-        "posting_number": pn,
-        "products": [{"sku": 100, "quantity": 1}],
-        "requirements": {"products_requiring_mandatory_mark": []},
-    }
+    client.mandatory_mark_is_required.return_value = [{"sku": 100, "is_required": False}]
 
     with (
         patch("review_processor.ozon_fbs_supplies.oz.OzonFbsClient", return_value=client),
@@ -144,11 +128,11 @@ def test_refresh_supply_marking_flags_chunks_and_reports_remaining() -> None:
     assert result["remaining"] == 3
     assert result["total_pending"] == 5
     assert result["updated"] == 2
-    assert client.get_posting.call_count == 2
+    assert client.mandatory_mark_is_required.call_count == 2
 
 
 def test_refresh_supply_marking_flags_marks_checked_on_ozon_error() -> None:
-    """Failed get must still advance the chunk queue (no infinite FE loop)."""
+    """Failed is-required must still advance the chunk queue (no infinite FE loop)."""
     repo = MagicMock()
     conn = MagicMock()
     repo._connect.return_value.__enter__ = MagicMock(return_value=conn)
@@ -163,7 +147,7 @@ def test_refresh_supply_marking_flags_marks_checked_on_ozon_error() -> None:
     }
     conn.execute.return_value.fetchall.return_value = [row]
     client = MagicMock()
-    client.get_posting.side_effect = RuntimeError("ozon down")
+    client.mandatory_mark_is_required.side_effect = RuntimeError("ozon down")
 
     with (
         patch("review_processor.ozon_fbs_supplies.oz.OzonFbsClient", return_value=client),

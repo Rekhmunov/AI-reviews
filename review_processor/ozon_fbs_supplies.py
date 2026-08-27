@@ -2034,7 +2034,7 @@ def refresh_supply_marking_flags_from_ozon(
     api_key: str,
     max_postings: int | None = OZON_FBS_LIVE_CHECK_CHUNK,
 ) -> dict[str, int]:
-    """Light Ozon refresh: posting get for КИЗ requirements (chunked to avoid 504)."""
+    """Light Ozon refresh: mandatory-mark/is-required only (chunked to avoid 504)."""
     nums = [str(x).strip() for x in posting_numbers if str(x).strip()]
     if not nums or not str(client_id or "").strip() or not str(api_key or "").strip():
         return _empty_marking_resolve()
@@ -2128,7 +2128,7 @@ def resolve_supply_kiz_flags_from_ozon(
     posting_tab: str | None = None,
     max_postings: int | None = OZON_FBS_LIVE_CHECK_CHUNK,
 ) -> dict[str, int]:
-    """Resolve КИЗ flags for non-cancelled supply postings (chunked live get)."""
+    """Resolve КИЗ flags for non-cancelled supply postings (chunked live is-required)."""
     sid = str(supply_id or "").strip()
     if not sid:
         return _empty_marking_resolve()

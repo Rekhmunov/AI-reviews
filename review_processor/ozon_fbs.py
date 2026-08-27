@@ -1020,31 +1020,17 @@ def _merge_products_requiring_mandatory_mark(
     return out
 
 
-# Bump when KIZ detection source changes so old is-required caches re-resolve.
-MARKING_REQUIREMENT_CHECK_VERSION = 2
-
-
 def posting_marking_flags_resolved(posting: dict[str, Any]) -> bool:
-    """True when КИЗ requirement was resolved against Ozon posting card (get).
-
-    Version gate invalidates older caches that trusted catalog
-    ``mandatory-mark/is-required`` alone (false positives for textiles).
-    """
+    """True when КИЗ requirement is known (required or confirmed absent via is-required)."""
     if not isinstance(posting, dict):
         return False
-    req = posting.get("requirements")
-    if not isinstance(req, dict):
-        return False
-    try:
-        version = int(req.get("marking_check_version") or 0)
-    except (TypeError, ValueError):
-        version = 0
-    if version < MARKING_REQUIREMENT_CHECK_VERSION:
-        return False
-    if req.get("marking_is_required_checked"):
-        return True
     products = _products_from_posting(posting)
-    return _mandatory_mark(posting, products)
+    if _mandatory_mark(posting, products):
+        return True
+    req = posting.get("requirements")
+    if isinstance(req, dict) and req.get("marking_is_required_checked"):
+        return True
+    return False
 
 
 def posting_marking_flags_known(posting: dict[str, Any]) -> bool:
@@ -1062,7 +1048,6 @@ def _posting_with_marking_checked(posting: dict[str, Any]) -> dict[str, Any]:
     else:
         req = dict(req)
     req["marking_is_required_checked"] = True
-    req["marking_check_version"] = MARKING_REQUIREMENT_CHECK_VERSION
     out["requirements"] = req
     return out
 
@@ -1073,34 +1058,94 @@ def enrich_posting_marking_flags(
     *,
     allow_exemplar_fallback: bool = True,
 ) -> dict[str, Any]:
-    """Resolve КИЗ from Ozon posting card (get), not catalog is-required.
-
-    ``/v2/posting/fbs/product/mandatory-mark/is-required`` can return
-    ``is_required: true`` while ``requirements.products_requiring_mandatory_mark``
-    on the posting stays empty (seen on textiles like white23). The seller portal
-    follows the posting card, so FeedPilot must too.
-    """
-    del allow_exemplar_fallback  # exemplar create-or-get is obsolete on Ozon; get is source of truth
+    """Augment posting with marking requirements when get/list omit them."""
     if not isinstance(posting, dict):
+        return posting
+    products = _products_from_posting(posting)
+    if _mandatory_mark(posting, products):
         return posting
     pn = str(posting.get("posting_number") or "").strip()
     if not pn:
         return posting
+    sku_ints: list[int] = []
+    payload_products: list[dict[str, Any]] = []
+    for p in products:
+        if bool(p.get("is_marketplace_buyout")):
+            continue
+        product_id = p.get("sku") or p.get("product_id")
+        try:
+            pid = int(product_id)
+        except (TypeError, ValueError):
+            continue
+        try:
+            qty = int(p.get("quantity") or 1)
+        except (TypeError, ValueError):
+            qty = 1
+        payload_products.append({"product_id": pid, "quantity": max(qty, 1)})
+    for p in products:
+        product_id = p.get("sku") or p.get("product_id")
+        try:
+            pid = int(product_id)
+        except (TypeError, ValueError):
+            continue
+        sku_ints.append(pid)
+    if not sku_ints:
+        return posting
+
+    required_ids: set[str] = set()
+    is_required_checked = False
     try:
-        remote = client.get_posting(pn)
+        required_items = client.mandatory_mark_is_required(pn, sku_ints)
+        is_required_checked = True
+        for item in required_items:
+            if not item.get("is_required"):
+                continue
+            sku_val = item.get("sku")
+            if sku_val is not None:
+                text = str(sku_val).strip()
+                if text:
+                    required_ids.add(text)
     except RuntimeError:
-        remote = None
-    if isinstance(remote, dict) and str(remote.get("posting_number") or "").strip():
-        return _posting_with_marking_checked(remote)
-    # get failed: keep local payload, do not promote via is-required
-    return _posting_with_marking_checked(posting)
+        pass
+    if required_ids:
+        return _posting_with_marking_checked(
+            _merge_products_requiring_mandatory_mark(posting, required_ids)
+        )
+    if is_required_checked:
+        return _posting_with_marking_checked(posting)
+    if not allow_exemplar_fallback:
+        # Light path (modal/TSD chunks): on is-required failure still mark checked
+        # so the queue advances and the UI does not loop on the same postings.
+        return _posting_with_marking_checked(posting)
+
+    if not payload_products:
+        return posting
+    try:
+        resp = client.product_exemplar_create_or_get(pn, payload_products)
+    except RuntimeError:
+        try:
+            resp = client.product_exemplar_create_or_get_v5(pn, payload_products)
+        except RuntimeError:
+            return posting
+    for item in resp.get("products") or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("is_mandatory_mark_needed"):
+            pid = item.get("product_id")
+            if pid is not None:
+                text = str(pid).strip()
+                if text:
+                    required_ids.add(text)
+    return _posting_with_marking_checked(
+        _merge_products_requiring_mandatory_mark(posting, required_ids)
+    )
 
 
 def enrich_posting_marking_flags_light(
     client: OzonFbsClient,
     posting: dict[str, Any],
 ) -> dict[str, Any]:
-    """Resolve КИЗ flags via posting get (safe for bulk modal chunks)."""
+    """Resolve КИЗ flags via mandatory-mark/is-required only (safe for bulk sync)."""
     return enrich_posting_marking_flags(
         client, posting, allow_exemplar_fallback=False
     )
