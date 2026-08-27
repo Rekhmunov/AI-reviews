@@ -311,28 +311,41 @@ class GoodsReturnHttpError(RuntimeError):
         self.retry_seconds = max(0, int(retry_seconds))
 
 
-def _parse_wb_retry_seconds(retry_after: str) -> int:
+def _parse_wb_retry_at_msk(retry_after: str) -> datetime | None:
+    """Absolute retry moment from WB X-RateLimit-Retry (unix ts, ISO, or seconds)."""
     retry = str(retry_after or "").strip()
     if not retry:
-        return 0
+        return None
     if retry.isdigit():
-        secs = int(retry)
-        if secs > 1_700_000_000:
-            return max(0, secs - int(time.time()))
-        return max(0, secs)
+        val = int(retry)
+        if val > 1_700_000_000:
+            return datetime.fromtimestamp(val, tz=UTC).astimezone(MSK)
+        if val > 0:
+            return datetime.now(MSK) + timedelta(seconds=val)
+        return None
     try:
         dt = datetime.fromisoformat(retry.replace("Z", "+00:00"))
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=UTC)
-        return max(0, int((dt - datetime.now(UTC)).total_seconds()))
+        return dt.astimezone(MSK)
     except Exception:
+        return None
+
+
+def _parse_wb_retry_seconds(retry_after: str) -> int:
+    retry_at = _parse_wb_retry_at_msk(retry_after)
+    if retry_at is None:
         return 0
+    return max(0, int((retry_at - datetime.now(MSK)).total_seconds()))
 
 
 def _is_goods_return_rate_limit_error(exc: BaseException) -> bool:
     if isinstance(exc, GoodsReturnHttpError):
         return exc.code == 429
-    return "Лимит WB на отчёт по возвратам" in str(exc)
+    return (
+        "Лимит WB на отчёт по возвратам" in str(exc)
+        or "WB ограничил частоту запросов" in str(exc)
+    )
 
 
 def _goods_return_rate_limit_retry_seconds(exc: BaseException) -> int:
@@ -664,25 +677,13 @@ def _format_wb_retry_hint(retry_after: str) -> str:
 
 
 def _format_goods_return_429_message(retry_after: str) -> str:
-    """User-facing 429 message with when to retry (from WB X-RateLimit-Retry)."""
-    retry_secs = _parse_wb_retry_seconds(retry_after)
-    if retry_secs > 0:
-        retry_at = datetime.now(MSK) + timedelta(seconds=retry_secs)
-        clock = retry_at.strftime("%H:%M МСК (%d.%m.%Y)")
-        if retry_secs >= 3600:
-            hours = retry_secs // 3600
-            mins = (retry_secs % 3600 + 59) // 60
-            if mins and hours < 24:
-                wait_label = f"{hours} ч {mins} мин"
-            else:
-                wait_label = f"{hours} ч"
-        elif retry_secs >= 60:
-            wait_label = f"{(retry_secs + 59) // 60} мин"
-        else:
-            wait_label = f"{retry_secs} сек"
+    """User-facing 429 message with exact retry time from WB X-RateLimit-Retry."""
+    retry_at = _parse_wb_retry_at_msk(retry_after)
+    if retry_at is not None:
+        clock = retry_at.strftime("%H:%M:%S МСК (%d.%m.%Y)")
         return (
             "Синхронизация возвратов WB не выполнена: WB ограничил частоту запросов. "
-            f"Попробуйте снова примерно через {wait_label} (после {clock}). "
+            f"Повторите после {clock}. "
             "Вернитесь к «Синхр. WB» после этого времени."
         )
     return (

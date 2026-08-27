@@ -341,13 +341,27 @@ class GoodsReturnHttpErrorTests(unittest.TestCase):
             retry_after="900",
         )
         self.assertIn("не выполнена", str(err))
-        self.assertIn("15 мин", str(err))
-        self.assertIn("Вернитесь", str(err))
+        self.assertIn("Повторите после", str(err))
+        self.assertIn("МСК", str(err))
+        self.assertNotIn("29 мин", str(err))
         self.assertEqual(err.code, 429)
-        self.assertEqual(err.retry_seconds, 900)
+        self.assertGreaterEqual(err.retry_seconds, 895)
+        self.assertLessEqual(err.retry_seconds, 900)
+
+    def test_format_goods_return_http_error_429_unix_timestamp(self):
+        # 2026-08-25 00:47:17 UTC = 03:47:17 MSK
+        err = returns.format_wb_goods_return_http_error(
+            code=429,
+            body='{"status":429}',
+            retry_after="1787618837",
+        )
+        self.assertIn("03:47:17 МСК", str(err))
+        self.assertIn("25.08.2026", str(err))
 
     def test_parse_wb_retry_seconds_plain(self):
-        self.assertEqual(returns._parse_wb_retry_seconds("540"), 540)
+        parsed = returns._parse_wb_retry_seconds("540")
+        self.assertGreaterEqual(parsed, 535)
+        self.assertLessEqual(parsed, 540)
 
     @patch("review_processor.wb_fbs_returns.fetch_goods_return_report")
     @patch("review_processor.wb_fbs_returns._goods_return_token_rate_slot")
@@ -556,7 +570,9 @@ class GoodsReturnRateLimitTests(unittest.TestCase):
         self.assertTrue(key.startswith("hash:"))
 
     def test_parse_wb_retry_seconds_plain(self):
-        self.assertEqual(returns._parse_wb_retry_seconds("540"), 540)
+        parsed = returns._parse_wb_retry_seconds("540")
+        self.assertGreaterEqual(parsed, 535)
+        self.assertLessEqual(parsed, 540)
 
     def test_parse_wb_retry_seconds_unix_timestamp(self):
         future = int(__import__("time").time()) + 120
@@ -572,7 +588,8 @@ class GoodsReturnRateLimitTests(unittest.TestCase):
         )
         self.assertIsInstance(err, returns.GoodsReturnHttpError)
         self.assertEqual(err.code, 429)
-        self.assertEqual(err.retry_seconds, 900)
+        self.assertGreaterEqual(err.retry_seconds, 895)
+        self.assertLessEqual(err.retry_seconds, 900)
 
     @patch("review_processor.wb_fbs_returns.time.sleep")
     @patch("review_processor.wb_fbs_returns.fetch_goods_return_report")
