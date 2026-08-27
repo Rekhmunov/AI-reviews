@@ -33,6 +33,10 @@ from .models import ReviewInput
 from .stock_service import StockScheduler, sync_stock_source
 from . import wb_fbs as wb_fbs_mod
 from . import ozon_fbs as ozon_fbs_mod
+from .supply_permissions import (
+    heal_orphaned_fbs_supply_permissions,
+    supply_sources_has_any_permission,
+)
 
 try:  # pragma: no cover - optional in sqlite-only environments
     import psycopg  # type: ignore
@@ -5636,6 +5640,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 _sp = repository.get_manager_supply_permissions(
                     manager_user_id=int(item["id"])
                 )
+                _sp["sources"] = heal_orphaned_fbs_supply_permissions(
+                    repository,
+                    owner_id=owner_id,
+                    sources=_sp.get("sources") or {},
+                    existing=_sp.get("sources") or {},
+                )
                 _sp["can_supply_planning"] = bool(item.get("can_supply_planning"))
                 _sp["can_supply_stock"] = bool(item.get("can_supply_stock"))
                 try:
@@ -5765,7 +5775,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         owner = _require_tenant_owner(request)
         target = _target_user_for_admin_scope(actor=owner, target_user_id=target_user_id)
         repository._ensure_supply_tables()
+        owner_id = _tenant_owner_id(owner)
         perms = repository.get_manager_supply_permissions(manager_user_id=target_user_id)
+        perms["sources"] = heal_orphaned_fbs_supply_permissions(
+            repository,
+            owner_id=owner_id,
+            sources=perms.get("sources") or {},
+            existing=perms.get("sources") or {},
+        )
         perms["can_supply_planning"] = bool(target.get("can_supply_planning"))
         perms["can_supply_stock"] = bool(target.get("can_supply_stock"))
         try:
@@ -5789,24 +5806,23 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if str(target.get("role") or "").strip().lower() not in TENANT_MANAGER_ROLES:
             raise HTTPException(status_code=400, detail="Применимо только для менеджера")
         try:
-            sources = {str(k): v for k, v in (payload.supply_sources or {}).items()}
-            has_any_supply = (
-                payload.can_supplies
-                or payload.can_supply_settings
-                or payload.can_supply_poa
-                or payload.can_supply_certs
-                or payload.can_supply_planning
-                or payload.can_supply_stock
-                or any(
-                    (
-                        v.get("wb")
-                        or v.get("wb_fbs")
-                        or v.get("wb_fbs_tsd")
-                        or v.get("ozon")
-                    )
-                    for v in sources.values()
-                    if isinstance(v, dict)
-                )
+            owner_id = _tenant_owner_id(owner)
+            existing = repository.get_manager_supply_permissions(manager_user_id=target_user_id)
+            existing_sources = existing.get("sources") or {}
+            sources = heal_orphaned_fbs_supply_permissions(
+                repository,
+                owner_id=owner_id,
+                sources={str(k): v for k, v in (payload.supply_sources or {}).items()},
+                existing=existing_sources,
+            )
+            has_any_supply = supply_sources_has_any_permission(
+                can_supplies=payload.can_supplies,
+                can_supply_settings=payload.can_supply_settings,
+                can_supply_poa=payload.can_supply_poa,
+                can_supply_certs=payload.can_supply_certs,
+                can_supply_planning=payload.can_supply_planning,
+                can_supply_stock=payload.can_supply_stock,
+                sources=sources,
             )
             repository.set_user_can_supplies(user_id=target_user_id, can_supplies=has_any_supply)
             repository.set_manager_supply_permissions(
@@ -8398,6 +8414,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except Exception:
             return datetime.now(UTC).date().isoformat()
 
+    def _manager_supply_sources(user: dict[str, object]) -> dict[str, dict[str, bool]]:
+        owner_id = _supply_owner_id(user)
+        perms = repository.get_manager_supply_permissions(manager_user_id=int(user["id"]))
+        raw = perms.get("sources") or {}
+        return heal_orphaned_fbs_supply_permissions(
+            repository,
+            owner_id=owner_id,
+            sources=raw,
+            existing=raw,
+        )
+
     def _can_view_ozon_fbs(user: dict[str, object]) -> bool:
         """True if user may open Поставки → ОЗОН ФБС (owner or explicit ozon_fbs grant)."""
         role = str(user.get("role") or ROLE_USER)
@@ -8405,8 +8432,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             return True
         if not bool(user.get("can_supplies")):
             return False
-        perms = repository.get_manager_supply_permissions(manager_user_id=int(user["id"]))
-        sources = perms.get("sources") or {}
+        sources = _manager_supply_sources(user)
         return any(
             bool(v.get("ozon_fbs"))
             for v in sources.values()
@@ -12210,10 +12236,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         role = str(user.get("role") or ROLE_USER)
         allowed: set[str] | None = None
         if role not in ROLE_CAN_ACCESS_SETTINGS:
-            perms = repository.get_manager_supply_permissions(manager_user_id=int(user["id"]))
+            sources = _manager_supply_sources(user)
             allowed = {
                 str(sid)
-                for sid, sv in (perms.get("sources") or {}).items()
+                for sid, sv in sources.items()
                 if isinstance(sv, dict) and sv.get("ozon_fbs")
             }
         out: list[dict[str, object]] = []
@@ -18046,6 +18072,13 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
     if can_view_supplies and role not in ROLE_CAN_ACCESS_SETTINGS and repository is not None:
         _supply_perms = repository.get_manager_supply_permissions(manager_user_id=user_id)
     _sp_sources = _supply_perms.get("sources") or {}
+    if repository is not None and role not in ROLE_CAN_ACCESS_SETTINGS:
+        _sp_sources = heal_orphaned_fbs_supply_permissions(
+            repository,
+            owner_id=owner_user_id,
+            sources=_sp_sources,
+            existing=_sp_sources,
+        )
     can_view_wb_supplies = (
         role in ROLE_CAN_ACCESS_SETTINGS
         or any(v.get("wb") for v in _sp_sources.values() if isinstance(v, dict))

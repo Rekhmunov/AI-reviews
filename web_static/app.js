@@ -11550,6 +11550,13 @@ function initPermSectionToggles(feedbackEnabled, suppliesEnabled, salaryEnabled)
   ['feedback', 'supplies', 'salary'].forEach(s => togglePermSection(s));
 }
 
+function _isOzonFbsSupplySource(src) {
+  const mp = String(src?.marketplace || "wb").toLowerCase();
+  const name = String(src?.name || "").toLowerCase();
+  if (mp === "ozon_fbs") return true;
+  return mp === "ozon" && (name.includes("фбс") || name.includes("fbs"));
+}
+
 function renderManagerSupplyPermissionsRows(supplySources, supplyPerms) {
   const tbody = document.getElementById("managerSupplyPermissionsTbody");
   if (!tbody) return;
@@ -11589,6 +11596,10 @@ function renderManagerSupplyPermissionsRows(supplySources, supplyPerms) {
     const ozonStyle = !isOzon ? "opacity:0.2;cursor:default" : "";
     const ozonFbsDisabled = !isOzon ? "disabled" : "";
     const ozonFbsStyle = !isOzon ? "opacity:0.2;cursor:default" : "";
+    let ozonFbsChecked = Boolean(srcPerms.ozon_fbs);
+    if (!ozonFbsChecked && _isOzonFbsSupplySource(src)) {
+      ozonFbsChecked = Object.values(sources).some((s) => s && s.ozon_fbs);
+    }
     const settingsMerge = settingsCell ? settingsCell.replace("<td ", `<td style="${tdCt}" `) : "";
     const poaMerge = poaCell ? poaCell.replace("<td ", `<td style="${tdCt}" `) : "";
     const certsMerge = certsCell ? certsCell.replace("<td ", `<td style="${tdCt}" `) : "";
@@ -11603,7 +11614,7 @@ function renderManagerSupplyPermissionsRows(supplySources, supplyPerms) {
       <td style="${tdCt}"><input type="checkbox" data-source-id="${sid}" data-col="ozon"
           ${srcPerms.ozon ? "checked" : ""} ${ozonDisabled} style="${ozonStyle}" /></td>
       <td style="${tdCt}"><input type="checkbox" data-source-id="${sid}" data-col="ozon_fbs"
-          ${srcPerms.ozon_fbs ? "checked" : ""} ${ozonFbsDisabled} style="${ozonFbsStyle}" title="Поставки OZON ФБС" /></td>
+          ${ozonFbsChecked ? "checked" : ""} ${ozonFbsDisabled} style="${ozonFbsStyle}" title="Поставки OZON ФБС" /></td>
       ${settingsMerge}${poaMerge}${certsMerge}
     `;
     tbody.appendChild(tr);
@@ -11611,7 +11622,9 @@ function renderManagerSupplyPermissionsRows(supplySources, supplyPerms) {
 }
 
 function collectManagerSupplyPermissionsFromModal() {
-  const sources = {};
+  const sources = {
+    ...(teamState.pendingSupplyPermissions?.sources || {}),
+  };
   document.querySelectorAll("#managerSupplyPermissionsTbody input[data-source-id]").forEach(cb => {
     const sid = cb.getAttribute("data-source-id");
     const col = cb.getAttribute("data-col");
