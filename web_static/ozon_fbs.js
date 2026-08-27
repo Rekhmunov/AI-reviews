@@ -3616,7 +3616,7 @@
   }
 
   /**
-   * Load marking / pick-verify payloads in chunks until Ozon posting-card KIZ resolve is done.
+   * Load marking / pick-verify payloads in chunks until Ozon is-required resolve is done.
    * Prevents nginx 504 on large supplies.
    */
   async function _ozonFbsFetchResolvedChunks(url, { onProgress } = {}) {
