@@ -9699,6 +9699,7 @@ button.wb-fbs-sd-portal-btn:focus-visible {
 }
 .wb-fbs-kiz-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   gap: 16px;
   padding: 20px 24px 16px;
@@ -9725,9 +9726,16 @@ button.wb-fbs-sd-portal-btn:focus-visible {
 }
 .wb-fbs-kiz-header-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   flex: 0 0 auto;
+}
+.wb-fbs-kiz-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 .wb-fbs-kiz-header-actions button:not(.icon-btn) {
   min-height: 40px;
