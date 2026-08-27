@@ -11349,6 +11349,40 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             },
         )
 
+    @app.get("/api/wb-fbs/returns/goods-export")
+    def wb_fbs_returns_goods_export(
+        request: Request,
+        source_id: int,
+        date_from: str = "",
+        date_to: str = "",
+        search: str = "",
+    ):
+        from . import wb_fbs_returns as returns_mod
+        from fastapi.responses import Response
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        rows = returns_mod.list_goods_returns(
+            repository,
+            user_id=owner_id,
+            source_id=source_id,
+            date_from=date_from,
+            date_to=date_to,
+            search=search,
+        )
+        csv_text = returns_mod.export_goods_returns_csv(rows)
+        return Response(
+            content=csv_text,
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": 'attachment; filename="wb-fbs-goods-return.csv"'
+            },
+        )
+
     @app.get("/api/wb-fbs/kiz-circulation")
     def wb_fbs_kiz_circulation_overview(
         request: Request, source_id: int

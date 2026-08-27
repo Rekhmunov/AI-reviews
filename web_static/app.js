@@ -19634,6 +19634,23 @@ function exportWbFbsReturnsCsv() {
 }
 window.exportWbFbsReturnsCsv = exportWbFbsReturnsCsv;
 
+function exportWbFbsReturnsGoodsCsv() {
+  const sid = _wbFbsReturnsSourceId();
+  if (!sid) {
+    alert("Выберите источник WB FBS");
+    return;
+  }
+  const params = new URLSearchParams({ source_id: String(sid) });
+  const df = document.getElementById("wbFbsReturnsDateFrom")?.value || "";
+  const dt = document.getElementById("wbFbsReturnsDateTo")?.value || "";
+  const search = document.getElementById("wbFbsReturnsSearchFilter")?.value || "";
+  if (df) params.set("date_from", df);
+  if (dt) params.set("date_to", dt);
+  if (search.trim()) params.set("search", search.trim());
+  window.location.href = `/api/wb-fbs/returns/goods-export?${params.toString()}`;
+}
+window.exportWbFbsReturnsGoodsCsv = exportWbFbsReturnsGoodsCsv;
+
 async function _wbFbsKizPersistStickerForOrder(row) {
   const sid = Number(wbFbsState?.sourceId || 0);
   const oid = Number(row?.order_id || 0);

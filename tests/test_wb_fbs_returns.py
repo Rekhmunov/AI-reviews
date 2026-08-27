@@ -411,6 +411,65 @@ class ExportCsvTests(unittest.TestCase):
         self.assertTrue(csv_text.startswith("\ufeff"))
         self.assertIn("Товар", csv_text)
 
+    def test_export_goods_returns_csv_has_bom_and_fields(self):
+        csv_text = returns.export_goods_returns_csv(
+            [
+                {
+                    "wb_order_id": 900001,
+                    "sticker_id": "54628560521",
+                    "barcode": "1680063403480",
+                    "shk_id": "23411783472",
+                    "srid": "ad3817664d3046c5a8d55054d8be96d6",
+                    "nm_id": 12862181,
+                    "status": "Готов к выдаче",
+                    "reason": "Цвет",
+                    "order_dt": "2026-08-20",
+                    "ready_to_return_dt": "2026-08-21",
+                    "completed_dt": "",
+                    "synced_at": "2026-08-27T10:00:00+00:00",
+                    "raw_json": json.dumps(
+                        {
+                            "returnType": "Возврат товара",
+                            "brand": "TestBrand",
+                            "subjectName": "Рубашки",
+                            "dstOfficeAddress": "Москва",
+                        },
+                        ensure_ascii=False,
+                    ),
+                }
+            ]
+        )
+        self.assertTrue(csv_text.startswith("\ufeff"))
+        self.assertIn("54628560521", csv_text)
+        self.assertIn("TestBrand", csv_text)
+        self.assertIn("stickerId", csv_text)
+
+    @patch("review_processor.wb_fbs_returns.ensure_wb_fbs_returns_tables")
+    def test_list_goods_returns_date_filter(self, _ensure):
+        repo = MagicMock()
+        repo._sql = lambda sql: sql
+
+        class _Result:
+            def fetchall(self):
+                return [{"wb_order_id": 1, "sticker_id": "99", "raw_json": "{}"}]
+
+        conn = MagicMock()
+        conn.execute = MagicMock(return_value=_Result())
+        repo._connect.return_value.__enter__ = MagicMock(return_value=conn)
+        repo._connect.return_value.__exit__ = MagicMock(return_value=False)
+        repo._row_to_dict = lambda row: dict(row)
+
+        rows = returns.list_goods_returns(
+            repo,
+            user_id=1,
+            source_id=2,
+            date_from="2026-08-01",
+            date_to="2026-08-31",
+        )
+        self.assertEqual(len(rows), 1)
+        sql = conn.execute.call_args[0][0]
+        self.assertIn("order_dt", sql)
+
 
 if __name__ == "__main__":
     unittest.main()
