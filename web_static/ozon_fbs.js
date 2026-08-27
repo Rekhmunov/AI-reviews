@@ -190,6 +190,10 @@
     return state.tab === "delivering";
   }
 
+  /**
+   * Composition lock for «Доставляются»: нельзя менять состав/название,
+   * но Маркировка и Проверка ШК остаются доступны (локальная БД).
+   */
   function isSupplyDetailReadOnly() {
     return Boolean(supplyDetailState.supply?.read_only) || isDeliveringSuppliesTab();
   }
@@ -200,7 +204,8 @@
     const checkTh = modal?.querySelector("th.wb-fbs-sd-col-check");
     const actTh = modal?.querySelector("th.wb-fbs-sd-col-act");
     if (modal) modal.classList.toggle("wb-fbs-sd--readonly", !!readOnly);
-    if (actions) actions.hidden = !!readOnly;
+    // Keep action bar visible so Marking / Pick-verify stay reachable on delivering.
+    if (actions) actions.hidden = false;
     if (checkTh) checkTh.hidden = !!readOnly;
     if (actTh) actTh.hidden = !!readOnly;
     document.querySelectorAll("#ozonFbsSupplyDetailColgroup col[data-fixed]").forEach((col) => {
@@ -210,7 +215,9 @@
     if (info) {
       if (readOnly) {
         info.hidden = false;
-        info.textContent = "Только просмотр — отправления уже в доставке.";
+        info.textContent =
+          "Состав поставки изменению не подлежит — отправления уже в доставке. "
+          + "Маркировку и проверку ШК можно заносить локально.";
       } else {
         info.hidden = true;
         info.textContent = "";
@@ -1529,17 +1536,14 @@
     const kizSplit = document.getElementById("ozonFbsKizSplit");
     const kizBtn = document.getElementById("ozonFbsSupplyDetailKizBtn");
     const kizRefreshBtn = document.getElementById("ozonFbsSupplyDetailKizRefreshBtn");
-    if (!readOnly) {
-      const needsKiz = allOrders.some((o) => o && o.kiz_required && !_ozonFbsRowIsCancelled(o));
-      if (kizSplit) kizSplit.hidden = !allOrders.length;
-      if (kizBtn) kizBtn.hidden = !allOrders.length;
-      if (kizRefreshBtn) kizRefreshBtn.hidden = !needsKiz;
-      if (!needsKiz) _ozonFbsKizSplitSetTone("");
-      else _ozonFbsKizSplitSetTone(_ozonFbsKizToneFromSupply(supply));
-      _ozonFbsSyncPickVerifyBtn(allOrders);
-    } else {
-      if (kizSplit) kizSplit.hidden = true;
-    }
+    // Marking + Pick-verify stay available even when composition is locked (delivering).
+    const needsKiz = allOrders.some((o) => o && o.kiz_required && !_ozonFbsRowIsCancelled(o));
+    if (kizSplit) kizSplit.hidden = !allOrders.length;
+    if (kizBtn) kizBtn.hidden = !allOrders.length;
+    if (kizRefreshBtn) kizRefreshBtn.hidden = !needsKiz;
+    if (!needsKiz) _ozonFbsKizSplitSetTone("");
+    else _ozonFbsKizSplitSetTone(_ozonFbsKizToneFromSupply(supply));
+    _ozonFbsSyncPickVerifyBtn(allOrders);
     const searchQ = String(document.getElementById("ozonFbsSupplyDetailSearchFilter")?.value || "").trim().toLowerCase();
     const orders = searchQ
       ? allOrders.filter((o) => {
