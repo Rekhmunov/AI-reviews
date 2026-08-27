@@ -1190,7 +1190,7 @@
         const needsKiz = allOrders.some((o) => o && o.kiz_required);
         kizSplit.hidden = !needsKiz;
         if (!needsKiz) _ozonFbsKizSplitSetTone("");
-        else refreshOzonFbsMarkingStatus(true).catch(() => {});
+        else _ozonFbsKizSplitSetTone(_ozonFbsKizToneFromSupply(supply));
       }
       _ozonFbsSyncPickVerifyBtn(allOrders);
     } else if (kizSplit) {
@@ -1291,6 +1291,9 @@
     supplyDetailState.supplyId = sid;
     supplyDetailState.sourceId = state.sourceId;
     supplyDetailState.selected = new Set();
+    _ozonFbsKizSplitSetTone("");
+    const kizSplitOpen = document.getElementById("ozonFbsKizSplit");
+    if (kizSplitOpen) kizSplitOpen.hidden = true;
     const modal = document.getElementById("ozonFbsSupplyDetailModal");
     const title = document.getElementById("ozonFbsSupplyDetailTitle");
     const tbody = document.getElementById("ozonFbsSupplyDetailTbody");
@@ -3143,6 +3146,52 @@
     else if (t === "error") split.classList.add("is-error");
   }
 
+  function _ozonFbsKizToneFromSupply(supply) {
+    const orders = Array.isArray(supply?.orders) ? supply.orders : [];
+    const required = orders.filter((o) => o && o.kiz_required && !_ozonFbsRowIsCancelled(o));
+    if (!required.length) return "";
+    return required.every((o) => String(o.kiz_status || "") === "ok") ? "ok" : "";
+  }
+
+  function _ozonFbsKizStatusFromRow(row) {
+    const codes = (Array.isArray(row?.kiz_codes) ? row.kiz_codes : [])
+      .map((c) => String(c || "").trim())
+      .filter(Boolean);
+    const req = Math.max(Number(row?.quantity) || 1, 1);
+    if (!codes.length) return "empty";
+    if (codes.length >= req) return "ok";
+    return "pending";
+  }
+
+  function _ozonFbsKizRefreshDetailBadgesFromRows(rows) {
+    const supply = supplyDetailState.supply;
+    if (!supply || !Array.isArray(supply.orders) || !Array.isArray(rows)) return false;
+    const byPn = new Map();
+    rows.forEach((row) => {
+      const pn = String(row?.posting_number || "").trim();
+      if (pn) byPn.set(pn, row);
+    });
+    let changed = false;
+    supply.orders.forEach((o) => {
+      const pn = String(o?.posting_number || "").trim();
+      const row = byPn.get(pn);
+      if (!row || !o.kiz_required) return;
+      const st = _ozonFbsKizStatusFromRow(row);
+      const codes = (row.kiz_codes || []).map((c) => String(c || "").trim()).filter(Boolean);
+      if (String(o.kiz_status || "") !== st) {
+        o.kiz_status = st;
+        changed = true;
+      }
+      const prev = JSON.stringify(Array.isArray(o.kiz_codes) ? o.kiz_codes : []);
+      const next = JSON.stringify(codes);
+      if (prev !== next) {
+        o.kiz_codes = codes;
+        changed = true;
+      }
+    });
+    return changed;
+  }
+
   function _ozonFbsKizSetFiltersReady(ready) {
     ozonFbsKizState.rowsReady = !!ready;
     const sticker = document.getElementById("ozonFbsKizStickerScan");
@@ -3803,13 +3852,10 @@
         _ozonFbsKizCaptureBaseline();
         renderOzonFbsKizTable();
       }
-      await refreshOzonFbsMarkingStatus(true);
-      if (supplyDetailState.supplyId) {
-        const dres = await fetch(
-          `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/detail?source_id=${sourceId}`
-        );
-        const detail = await dres.json().catch(() => ({}));
-        if (dres.ok) renderSupplyDetail(detail);
+      _ozonFbsKizRefreshDetailBadgesFromRows(ozonFbsKizState.rows);
+      if (supplyDetailState.supply) {
+        renderSupplyDetail();
+        _ozonFbsKizSplitSetTone(_ozonFbsKizToneFromSupply(supplyDetailState.supply));
       }
     } catch (e) {
       _ozonFbsKizSetInfo(String(e.message || e));
@@ -3819,11 +3865,10 @@
     }
   }
 
-  async function refreshOzonFbsMarkingStatus(eventOrSilent) {
-    const silent = eventOrSilent === true;
-    if (eventOrSilent && eventOrSilent !== true) {
-      eventOrSilent.preventDefault();
-      eventOrSilent.stopPropagation();
+  async function refreshOzonFbsMarkingStatus(event) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
     }
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
@@ -3841,7 +3886,10 @@
     }
     if (kizBtn) kizBtn.disabled = true;
     try {
-      const params = new URLSearchParams({ source_id: String(sourceId) });
+      const params = new URLSearchParams({
+        source_id: String(sourceId),
+        refresh: "1",
+      });
       const res = await fetch(
         `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/marking/status?${params}`
       );
@@ -3864,9 +3912,9 @@
         supplyDetailState.supplyId === sid
         && ozonFbsKizState.statusRefreshGen === refreshGen
       ) {
-        if (!silent) _ozonFbsKizSetInfo(String(e.message || e));
+        _ozonFbsKizSetInfo(String(e.message || e));
         const info = document.getElementById("ozonFbsSupplyDetailInfo");
-        if (info && !silent) {
+        if (info) {
           info.hidden = false;
           info.textContent = String(e.message || e);
         }
