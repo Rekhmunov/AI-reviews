@@ -3912,7 +3912,6 @@
         supplyDetailState.supplyId === sid
         && ozonFbsKizState.statusRefreshGen === refreshGen
       ) {
-        _ozonFbsKizSetInfo(String(e.message || e));
         const info = document.getElementById("ozonFbsSupplyDetailInfo");
         if (info) {
           info.hidden = false;
