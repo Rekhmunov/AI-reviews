@@ -33,6 +33,26 @@ def _parse_codes(raw: object) -> list[str]:
     return [_normalize_mark_code(x) for x in parsed if _normalize_mark_code(x)]
 
 
+def clean_open_kiz_codes(codes: object) -> list[str]:
+    """Sanitize KIZ slots when opening Marking modal.
+
+    Keep all filled codes (2+ filled stay). Drop empty extras — no padding to
+    quantity (avoids two blank fields on qty≥2). If nothing filled → one empty slot.
+    """
+    if isinstance(codes, list):
+        raw = codes
+    else:
+        raw = []
+    filled: list[str] = []
+    for item in raw:
+        text = str(item or "").strip()
+        if text:
+            filled.append(text)
+    if filled:
+        return filled
+    return [""]
+
+
 def load_marking_map(
     repo: ReviewRepository,
     *,
@@ -210,9 +230,9 @@ def build_marking_payload(
         elif saved_codes:
             codes = saved_codes
         else:
-            codes = [""] * max(req_qty, 1)
-        while len(codes) < req_qty:
-            codes.append("")
+            codes = [""]
+        # Drop empty second+ slots on open; keep all filled codes.
+        codes = clean_open_kiz_codes(codes)
         status = _marking_status(codes=codes, required_qty=req_qty)
         rows.append(
             {

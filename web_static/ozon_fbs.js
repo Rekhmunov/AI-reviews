@@ -4201,8 +4201,7 @@
     const pn = String(postingNumber || "");
     const row = ozonFbsKizState.rows.find((r) => String(r.posting_number) === pn);
     if (!row) return;
-    const req = Math.max(Number(row.quantity) || 1, 1);
-    row.kiz_codes = Array.from({ length: req }, () => "");
+    row.kiz_codes = [""];
     row.kiz_status = "empty";
     delete ozonFbsKizState.errors[pn];
     renderOzonFbsKizTable();
@@ -4456,10 +4455,14 @@
           },
         }
       );
-      ozonFbsKizState.rows = (Array.isArray(data.rows) ? data.rows : []).map((r) => ({
-        ...r,
-        kiz_codes: Array.isArray(r.kiz_codes) && r.kiz_codes.length ? r.kiz_codes.slice() : [""],
-      }));
+      ozonFbsKizState.rows = (Array.isArray(data.rows) ? data.rows : []).map((r) => {
+        const raw = Array.isArray(r.kiz_codes) ? r.kiz_codes : [];
+        const filled = raw.map((c) => String(c || "").trim()).filter(Boolean);
+        return {
+          ...r,
+          kiz_codes: filled.length ? filled.slice() : [""],
+        };
+      });
       _ozonFbsKizMergeOrderFlagsIntoDetail(data.order_kiz_flags || []);
       _ozonFbsKizCaptureBaseline();
       renderOzonFbsKizTable();

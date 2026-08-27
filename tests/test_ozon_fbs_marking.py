@@ -273,3 +273,79 @@ def test_build_marking_payload_filters_required_only() -> None:
     assert payload["required_count"] == 1
     assert payload["rows"][0]["posting_number"] == "A-1"
     assert payload["rows"][0]["kiz_codes"] == [""]
+
+
+def test_clean_open_kiz_codes_drops_empty_extras() -> None:
+    from review_processor.ozon_fbs_marking import clean_open_kiz_codes
+
+    assert clean_open_kiz_codes(["", ""]) == [""]
+    assert clean_open_kiz_codes(["", "", ""]) == [""]
+    assert clean_open_kiz_codes(["CODE", ""]) == ["CODE"]
+    assert clean_open_kiz_codes(["A", "B"]) == ["A", "B"]
+    assert clean_open_kiz_codes(["A", "B", ""]) == ["A", "B"]
+    assert clean_open_kiz_codes([]) == [""]
+
+
+def test_build_marking_payload_no_qty_empty_padding() -> None:
+    detail = {
+        "supply_id": "OZ-1",
+        "orders": [
+            {
+                "posting_number": "Q-2",
+                "kiz_required": True,
+                "kiz_quantity": 2,
+                "product_name": "x2",
+                "offer_id": "ART",
+            },
+        ],
+    }
+    with (
+        patch(
+            "review_processor.ozon_fbs_marking.oz_sup.get_supply_detail",
+            return_value=detail,
+        ),
+        patch(
+            "review_processor.ozon_fbs_marking.load_marking_map",
+            return_value={},
+        ),
+    ):
+        payload = build_marking_payload(
+            MagicMock(), user_id=1, source_id=2, supply_id="OZ-1", resolve_kiz=False
+        )
+    assert payload["rows"][0]["quantity"] == 2
+    assert payload["rows"][0]["kiz_codes"] == [""]
+
+
+def test_build_marking_payload_keeps_filled_codes() -> None:
+    detail = {
+        "supply_id": "OZ-1",
+        "orders": [
+            {
+                "posting_number": "Q-2",
+                "kiz_required": True,
+                "kiz_quantity": 2,
+                "product_name": "x2",
+                "offer_id": "ART",
+            },
+        ],
+    }
+    with (
+        patch(
+            "review_processor.ozon_fbs_marking.oz_sup.get_supply_detail",
+            return_value=detail,
+        ),
+        patch(
+            "review_processor.ozon_fbs_marking.load_marking_map",
+            return_value={
+                "Q-2": {
+                    "codes": ["AAA", "BBB", ""],
+                    "saved_at": "2026-01-01T00:00:00+00:00",
+                    "ozon_synced": False,
+                }
+            },
+        ),
+    ):
+        payload = build_marking_payload(
+            MagicMock(), user_id=1, source_id=2, supply_id="OZ-1", resolve_kiz=False
+        )
+    assert payload["rows"][0]["kiz_codes"] == ["AAA", "BBB"]
