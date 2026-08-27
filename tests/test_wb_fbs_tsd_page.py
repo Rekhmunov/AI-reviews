@@ -57,6 +57,8 @@ def test_web_py_has_tsd_routes_and_builder() -> None:
     assert "/api/wb-fbs/tsd/supplies/{supply_id}/pick-verify" in src
     assert "/api/wb-fbs/tsd/supplies/{supply_id}/summary" in src
     assert "def _can_view_wb_fbs_tsd" in src
+    assert "ozon_fbs_mod.is_fbs_source_name" in src
+    assert "build_ozon_tsd_hub_progress" in src
     assert re.search(r'CAN_VIEW_WB_FBS_TSD["\']:\s*"true" if can_view_wb_fbs_tsd', src)
 
 
@@ -64,7 +66,11 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     js = (STATIC / "wb_fbs_tsd.js").read_text(encoding="utf-8")
     assert "/api/wb-fbs/tsd/" in js
     assert "local_only: true" in js
+    assert "isOzon()" in js
+    assert "posting_number" in js
+    assert "sourceOptionLabel" in js
     assert "sticker_barcode" in js
+    assert "sticker_lower_barcode" in js
     assert "sticker_part_a" in js
     assert "expected_saved_at" in js
     assert "expected_verified_at" in js
@@ -109,7 +115,7 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "kizHubToneSupplyId" in js
     # First × on a filled KIZ must dismiss the row (not leave «—» via noteSessionScanned).
     clear_body = js.split("async function clearKizCodes", 1)[1].split("function syncSourceSelectVisibility", 1)[0]
-    assert "removeSessionScanned(oid)" in clear_body
+    assert "removeSessionScanned(id)" in clear_body
     assert "noteSessionScanned(oid)" not in clear_body
     assert "clear: true" in js
     assert "refreshHubKizStatus" in js

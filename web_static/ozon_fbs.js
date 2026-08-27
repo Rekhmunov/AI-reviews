@@ -1831,6 +1831,12 @@
 
   async function initSection() {
     if (!canView()) return;
+    const tsdBtn = document.getElementById("ozonFbsTsdBtn");
+    if (tsdBtn) {
+      const p = permissions();
+      tsdBtn.style.display =
+        p.can_view_wb_fbs_tsd || p.is_tenant_owner ? "" : "none";
+    }
     syncTableMode();
     initColumnResizer();
     await loadSources();

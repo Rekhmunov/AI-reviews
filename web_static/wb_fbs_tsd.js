@@ -52,6 +52,53 @@
 
   const LS_SOURCE = "wb_fbs_tsd_source_id";
 
+  function currentSource() {
+    return (
+      (state.sources || []).find((s) => Number(s.id) === Number(state.sourceId)) || {}
+    );
+  }
+
+  function isOzon() {
+    return String(currentSource().marketplace || "wb").toLowerCase() === "ozon";
+  }
+
+  function rowScanId(row) {
+    if (!row) return "";
+    if (isOzon()) return String(row.posting_number || row.order_id || "").trim();
+    const oid = Number(row.order_id);
+    return Number.isFinite(oid) && oid > 0 ? String(oid) : "";
+  }
+
+  function rowDisplayLabel(row) {
+    if (isOzon()) {
+      return String(row.posting_number || row.order_number || "—");
+    }
+    return String(row.order_id || "—");
+  }
+
+  function rowMatchesScanId(row, id) {
+    return rowScanId(row) === String(id || "").trim();
+  }
+
+  function findRowByScanId(rows, id) {
+    const key = String(id || "").trim();
+    if (!key) return null;
+    return (rows || []).find((r) => rowScanId(r) === key) || null;
+  }
+
+  function forceSaveKey(row, mode) {
+    const id = rowScanId(row);
+    return mode === "pick" ? `pick:${id}` : id;
+  }
+
+  function sourceOptionLabel(s) {
+    const name = String(s.name || `Источник ${s.id}`);
+    const mp = String(s.marketplace || "wb").toLowerCase();
+    if (mp === "ozon") return `Ozon · ${name}`;
+    if (mp === "wb") return `WB · ${name}`;
+    return name;
+  }
+
   // Wedge scanners type as keyboard; RU layout turns Latin sticker barcodes into Cyrillic.
   const RU_LAYOUT_TO_EN = {
     й: "q", ц: "w", у: "e", к: "r", е: "t", н: "y", г: "u", ш: "i",
@@ -112,6 +159,7 @@
 
   function ordersBoxesText(s) {
     const orders = Number(s.order_count || 0);
+    if (isOzon()) return `${orders} отпр.`;
     const boxes = Number(s.boxes_count || 0);
     return `${orders} заказ. · ${boxesLabel(boxes)}`;
   }
@@ -397,6 +445,8 @@
     for (const row of rows || []) {
       const bc = normalizeScan(row.sticker_barcode);
       if (bc && scanKey(bc) === rawKey) byBarcode.push(row);
+      const bcLow = normalizeScan(row.sticker_lower_barcode);
+      if (bcLow && scanKey(bcLow) === rawKey) byBarcode.push(row);
     }
     if (byBarcode.length === 1) return { row: byBarcode[0], ambiguous: false };
     if (byBarcode.length > 1) {
@@ -406,7 +456,9 @@
     const digits = digitsOnly(scan);
     const matches = [];
     for (const row of rows || []) {
-      const full = normalizeScan(row.sticker_number || row.sticker || "");
+      const full = normalizeScan(
+        row.sticker_number || row.sticker || row.posting_number || ""
+      );
       const partA = normalizeScan(row.sticker_part_a);
       const partB = normalizeScan(row.sticker_part_b);
       if (
@@ -521,7 +573,9 @@
       ? state.sources
           .map(
             (s) =>
-              `<option value="${esc(s.id)}">${esc(s.name || "Источник " + s.id)}</option>`
+              `<option value="${esc(s.id)}" data-marketplace="${esc(
+                s.marketplace || "wb"
+              )}">${esc(sourceOptionLabel(s))}</option>`
           )
           .join("")
       : `<option value="">Нет кабинетов</option>`;
@@ -580,35 +634,45 @@
 
   async function saveKizLocal(row, opts) {
     const params = new URLSearchParams({ source_id: String(state.sourceId) });
-    const oid = Number(row.order_id);
+    const scanId = rowScanId(row);
     const codes = normalizeKizCodesList(row.kiz_codes);
     row.kiz_codes = codes.length ? codes.slice() : [""];
     const retrying = !!(opts && opts._retry);
+    const item = isOzon()
+      ? {
+          posting_number: scanId,
+          kiz_codes: codes,
+          clear: !codes.length,
+          expected_saved_at: String(row.kiz_saved_at || ""),
+          force: !!state.forceSaveByOrder[scanId] || retrying,
+        }
+      : {
+          order_id: Number(row.order_id),
+          kiz_codes: codes,
+          clear: !codes.length,
+          local_only: true,
+          expected_saved_at: String(row.kiz_saved_at || ""),
+          force: !!state.forceSaveByOrder[scanId] || retrying,
+        };
     const data = await api(
       `/api/wb-fbs/tsd/supplies/${encodeURIComponent(state.route.supplyId)}/kiz?${params}`,
       {
         method: "PUT",
         headers: jsonHeaders(),
-        body: JSON.stringify({
-          items: [
-            {
-              order_id: oid,
-              kiz_codes: codes,
-              clear: !codes.length,
-              local_only: true,
-              expected_saved_at: String(row.kiz_saved_at || ""),
-              force: !!state.forceSaveByOrder[oid] || retrying,
-            },
-          ],
-        }),
+        body: JSON.stringify({ items: [item] }),
         keepalive: true,
       }
     );
-    const result = (data.results || []).find((r) => Number(r.order_id) === oid) || null;
+    const result =
+      (data.results || []).find((r) =>
+        isOzon()
+          ? String(r.posting_number || "") === scanId
+          : Number(r.order_id) === Number(row.order_id)
+      ) || null;
     if (!result) throw new Error("Сервер не вернул результат сохранения КИЗ");
     if (result.conflict) {
       row.kiz_saved_at = String(result.kiz_saved_at || row.kiz_saved_at || "");
-      state.forceSaveByOrder[oid] = true;
+      state.forceSaveByOrder[scanId] = true;
       // Keep scanned codes and retry once — same operator / timezone false conflicts.
       row.kiz_codes = codes.length ? codes.slice() : [""];
       if (!retrying) return saveKizLocal(row, { _retry: true });
@@ -621,41 +685,52 @@
       throw new Error(result.error || "Не удалось сохранить КИЗ локально");
     }
     if (result.kiz_saved_at) row.kiz_saved_at = String(result.kiz_saved_at);
-    delete state.forceSaveByOrder[oid];
+    delete state.forceSaveByOrder[scanId];
     return result;
   }
 
   async function savePickLocal(row, opts) {
     const params = new URLSearchParams({ source_id: String(state.sourceId) });
-    const oid = Number(row.order_id);
+    const scanId = rowScanId(row);
     const retrying = !!(opts && opts._retry);
     const intendedVerified = !!row.pick_verified;
     const intendedBarcode = String(row.pick_barcode || "").trim();
+    const pickKey = forceSaveKey(row, "pick");
+    const item = isOzon()
+      ? {
+          posting_number: scanId,
+          pick_verified: intendedVerified,
+          pick_barcode: intendedBarcode,
+          expected_verified_at: String(row.pick_verified_at || ""),
+          force: !!state.forceSaveByOrder[pickKey] || retrying,
+        }
+      : {
+          order_id: Number(row.order_id),
+          pick_verified: intendedVerified,
+          pick_barcode: intendedBarcode,
+          local_only: true,
+          expected_verified_at: String(row.pick_verified_at || ""),
+          force: !!state.forceSaveByOrder[pickKey] || retrying,
+        };
     const data = await api(
       `/api/wb-fbs/tsd/supplies/${encodeURIComponent(state.route.supplyId)}/pick-verify?${params}`,
       {
         method: "PUT",
         headers: jsonHeaders(),
-        body: JSON.stringify({
-          items: [
-            {
-              order_id: oid,
-              pick_verified: intendedVerified,
-              pick_barcode: intendedBarcode,
-              local_only: true,
-              expected_verified_at: String(row.pick_verified_at || ""),
-              force: !!state.forceSaveByOrder[`pick:${oid}`] || retrying,
-            },
-          ],
-        }),
+        body: JSON.stringify({ items: [item] }),
         keepalive: true,
       }
     );
-    const result = (data.results || []).find((r) => Number(r.order_id) === oid) || null;
+    const result =
+      (data.results || []).find((r) =>
+        isOzon()
+          ? String(r.posting_number || "") === scanId
+          : Number(r.order_id) === Number(row.order_id)
+      ) || null;
     if (!result) throw new Error("Сервер не вернул результат сохранения ШК");
     if (result.conflict) {
       row.pick_verified_at = String(result.pick_verified_at || row.pick_verified_at || "");
-      state.forceSaveByOrder[`pick:${oid}`] = true;
+      state.forceSaveByOrder[pickKey] = true;
       row.pick_verified = intendedVerified;
       row.pick_barcode = intendedBarcode;
       if (!retrying) return savePickLocal(row, { _retry: true });
@@ -668,7 +743,7 @@
       throw new Error(result.error || "Не удалось сохранить проверку ШК");
     }
     if (result.pick_verified_at) row.pick_verified_at = String(result.pick_verified_at);
-    delete state.forceSaveByOrder[`pick:${oid}`];
+    delete state.forceSaveByOrder[pickKey];
     return result;
   }
 
@@ -676,17 +751,17 @@
     if (mode === "kiz") {
       state.baselineKizByOrder = {};
       for (const row of state.kizRows || []) {
-        const oid = Number(row.order_id);
-        if (!Number.isFinite(oid)) continue;
-        state.baselineKizByOrder[oid] = normalizeKizCodesList(row.kiz_codes);
+        const id = rowScanId(row);
+        if (!id) continue;
+        state.baselineKizByOrder[id] = normalizeKizCodesList(row.kiz_codes);
       }
       return;
     }
     state.baselinePickByOrder = {};
     for (const row of state.pickRows || []) {
-      const oid = Number(row.order_id);
-      if (!Number.isFinite(oid)) continue;
-      state.baselinePickByOrder[oid] = {
+      const id = rowScanId(row);
+      if (!id) continue;
+      state.baselinePickByOrder[id] = {
         verified: !!row.pick_verified,
         barcode: String(row.pick_barcode || "").trim(),
       };
@@ -694,8 +769,8 @@
   }
 
   function kizBaselineEquals(orderId, codes) {
-    const oid = Number(orderId);
-    const base = state.baselineKizByOrder[oid];
+    const id = String(orderId);
+    const base = state.baselineKizByOrder[id];
     if (!Array.isArray(base)) return false;
     const cur = normalizeKizCodesList(codes);
     if (base.length !== cur.length) return false;
@@ -706,8 +781,8 @@
   }
 
   function pickBaselineEquals(orderId, row) {
-    const oid = Number(orderId);
-    const base = state.baselinePickByOrder[oid];
+    const id = String(orderId);
+    const base = state.baselinePickByOrder[id];
     if (!base) return false;
     return (
       base.verified === !!row.pick_verified &&
@@ -717,23 +792,23 @@
 
   /** Queue silent local-only save — scan path never awaits (parity with desktop modal). */
   function scheduleKizLocalAutosave(orderId) {
-    const oid = Number(orderId);
-    if (!Number.isFinite(oid) || oid <= 0) return;
-    const seq = (Number(state.localAutosaveSeqByOrder[oid]) || 0) + 1;
-    state.localAutosaveSeqByOrder[oid] = seq;
-    const run = () => flushKizLocalAutosave(oid, seq);
+    const id = String(orderId || "").trim();
+    if (!id) return;
+    const seq = (Number(state.localAutosaveSeqByOrder[id]) || 0) + 1;
+    state.localAutosaveSeqByOrder[id] = seq;
+    const run = () => flushKizLocalAutosave(id, seq);
     state.localAutosaveChain = (state.localAutosaveChain || Promise.resolve())
       .then(run, run)
       .catch(() => {});
   }
 
   function schedulePickLocalAutosave(orderId) {
-    const oid = Number(orderId);
-    if (!Number.isFinite(oid) || oid <= 0) return;
-    const key = `pick:${oid}`;
+    const id = String(orderId || "").trim();
+    if (!id) return;
+    const key = `pick:${id}`;
     const seq = (Number(state.localAutosaveSeqByOrder[key]) || 0) + 1;
     state.localAutosaveSeqByOrder[key] = seq;
-    const run = () => flushPickLocalAutosave(oid, seq);
+    const run = () => flushPickLocalAutosave(id, seq);
     state.localAutosaveChain = (state.localAutosaveChain || Promise.resolve())
       .then(run, run)
       .catch(() => {});
@@ -754,32 +829,33 @@
   }
 
   async function flushKizLocalAutosave(orderId, seq, attempt = 0) {
-    const oid = Number(orderId);
-    if ((Number(state.localAutosaveSeqByOrder[oid]) || 0) !== seq) return;
+    const id = String(orderId || "").trim();
+    if (!id) return;
+    if ((Number(state.localAutosaveSeqByOrder[id]) || 0) !== seq) return;
     if (state.route.view !== "scan" || state.route.mode !== "kiz") return;
-    const row = (state.kizRows || []).find((r) => Number(r.order_id) === oid);
+    const row = findRowByScanId(state.kizRows, id);
     if (!row) return;
     const codes = normalizeKizCodesList(row.kiz_codes);
     const wasBound = !!row.kiz_bound;
     const hadLocal = !!row.kiz_local;
     const clear =
       !codes.length &&
-      (wasBound || hadLocal || !!state.pendingKizClear[oid]);
+      (wasBound || hadLocal || !!state.pendingKizClear[id]);
     if (!codes.length && !clear) return;
-    if (kizBaselineEquals(oid, codes) && !clear) return;
+    if (kizBaselineEquals(id, codes) && !clear) return;
 
     state.localAutosaveInflight = (Number(state.localAutosaveInflight) || 0) + 1;
     try {
       await saveKizLocal(row);
-      if ((Number(state.localAutosaveSeqByOrder[oid]) || 0) !== seq) return;
+      if ((Number(state.localAutosaveSeqByOrder[id]) || 0) !== seq) return;
       row.kiz_local = true;
-      state.baselineKizByOrder[oid] = codes.slice();
+      state.baselineKizByOrder[id] = codes.slice();
     } catch (e) {
-      if ((Number(state.localAutosaveSeqByOrder[oid]) || 0) !== seq) return;
+      if ((Number(state.localAutosaveSeqByOrder[id]) || 0) !== seq) return;
       if (attempt < 1) {
         await new Promise((r) => setTimeout(r, 120));
-        if ((Number(state.localAutosaveSeqByOrder[oid]) || 0) !== seq) return;
-        return flushKizLocalAutosave(oid, seq, attempt + 1);
+        if ((Number(state.localAutosaveSeqByOrder[id]) || 0) !== seq) return;
+        return flushKizLocalAutosave(id, seq, attempt + 1);
       }
       setBanner(e.message || String(e), "err");
       refreshScanChrome("kiz");
@@ -792,19 +868,20 @@
   }
 
   async function flushPickLocalAutosave(orderId, seq, attempt = 0) {
-    const oid = Number(orderId);
-    const key = `pick:${oid}`;
+    const id = String(orderId || "").trim();
+    const key = `pick:${id}`;
+    if (!id) return;
     if ((Number(state.localAutosaveSeqByOrder[key]) || 0) !== seq) return;
     if (state.route.view !== "scan" || state.route.mode !== "pick") return;
-    const row = (state.pickRows || []).find((r) => Number(r.order_id) === oid);
+    const row = findRowByScanId(state.pickRows, id);
     if (!row) return;
-    if (pickBaselineEquals(oid, row)) return;
+    if (pickBaselineEquals(id, row)) return;
 
     state.localAutosaveInflight = (Number(state.localAutosaveInflight) || 0) + 1;
     try {
       await savePickLocal(row);
       if ((Number(state.localAutosaveSeqByOrder[key]) || 0) !== seq) return;
-      state.baselinePickByOrder[oid] = {
+      state.baselinePickByOrder[id] = {
         verified: !!row.pick_verified,
         barcode: String(row.pick_barcode || "").trim(),
       };
@@ -813,7 +890,7 @@
       if (attempt < 1) {
         await new Promise((r) => setTimeout(r, 120));
         if ((Number(state.localAutosaveSeqByOrder[key]) || 0) !== seq) return;
-        return flushPickLocalAutosave(oid, seq, attempt + 1);
+        return flushPickLocalAutosave(id, seq, attempt + 1);
       }
       setBanner(e.message || String(e), "err");
       refreshScanChrome("pick");
@@ -825,16 +902,31 @@
     }
   }
 
-  /** Explicit «Сохранить»: local + push КИЗ to Wildberries (like desktop modal). */
+  /** Explicit «Сохранить»: WB pushes to API; Ozon saves locally only. */
   async function saveKizPushAll() {
     if (state.saving) return;
     await awaitLocalAutosaves();
     const rows = state.kizRows || [];
     const items = [];
     for (const row of rows) {
+      const id = rowScanId(row);
+      if (!id) continue;
+      const codes = normalizeKizCodesList(row.kiz_codes);
+      if (isOzon()) {
+        const changed =
+          !kizBaselineEquals(id, codes) || !!state.pendingKizClear[id];
+        if (!changed) continue;
+        items.push({
+          posting_number: id,
+          kiz_codes: codes,
+          clear: !codes.length,
+          expected_saved_at: String(row.kiz_saved_at || ""),
+          force: !!state.forceSaveByOrder[id],
+        });
+        continue;
+      }
       const oid = Number(row.order_id);
       if (!Number.isFinite(oid)) continue;
-      const codes = normalizeKizCodesList(row.kiz_codes);
       if (!codes.length) {
         if (!rowNeedsKizWbClear(row)) continue;
         items.push({
@@ -842,7 +934,7 @@
           kiz_codes: [],
           clear: true,
           expected_saved_at: String(row.kiz_saved_at || ""),
-          force: !!state.forceSaveByOrder[oid],
+          force: !!state.forceSaveByOrder[id],
         });
         continue;
       }
@@ -852,16 +944,24 @@
         kiz_codes: codes,
         clear: false,
         expected_saved_at: String(row.kiz_saved_at || ""),
-        force: !!state.forceSaveByOrder[oid],
+        force: !!state.forceSaveByOrder[id],
       });
     }
     if (!items.length) {
-      setBanner("Нет КИЗ для отправки в WB", "warn");
+      setBanner(
+        isOzon() ? "Нет изменений КИЗ для сохранения" : "Нет КИЗ для отправки в WB",
+        "warn"
+      );
       renderScan();
       return;
     }
     state.saving = true;
-    setBanner(`Сохранение ${items.length} в WB…`, "info");
+    setBanner(
+      isOzon()
+        ? `Сохранение ${items.length}…`
+        : `Сохранение ${items.length} в WB…`,
+      "info"
+    );
     renderScan();
     try {
       const params = new URLSearchParams({ source_id: String(state.sourceId) });
@@ -877,37 +977,53 @@
       let errN = 0;
       let conflictN = 0;
       for (const r of data.results || []) {
-        const oid = Number(r.order_id);
-        const row = rows.find((x) => Number(x.order_id) === oid);
+        const id = isOzon()
+          ? String(r.posting_number || "")
+          : String(Number(r.order_id));
+        const row = findRowByScanId(rows, id);
         if (!row) continue;
         if (r.conflict) {
           conflictN += 1;
           row.kiz_saved_at = String(r.kiz_saved_at || row.kiz_saved_at || "");
           if (Array.isArray(r.kiz_codes)) row.kiz_codes = r.kiz_codes.slice();
-          state.forceSaveByOrder[oid] = true;
+          state.forceSaveByOrder[id] = true;
           continue;
         }
         if (r.kiz_saved_at) row.kiz_saved_at = String(r.kiz_saved_at);
+        if (isOzon()) {
+          if (r.ok) {
+            okN += 1;
+            delete state.forceSaveByOrder[id];
+            delete state.rowErrors[id];
+            delete state.pendingKizClear[id];
+            row.kiz_local = true;
+            state.baselineKizByOrder[id] = normalizeKizCodesList(row.kiz_codes);
+          } else {
+            errN += 1;
+            if (r.error) state.rowErrors[id] = String(r.error);
+          }
+          continue;
+        }
         if (r.kiz_wb_synced != null) row.kiz_wb_synced = !!r.kiz_wb_synced;
         if (r.ok || r.wb_ok) {
           okN += 1;
-          delete state.forceSaveByOrder[oid];
-          delete state.rowErrors[oid];
+          delete state.forceSaveByOrder[id];
+          delete state.rowErrors[id];
           const pushedCodes = normalizeKizCodesList(
             Array.isArray(r.kiz_codes) ? r.kiz_codes : row.kiz_codes
           );
           if (!pushedCodes.length) {
-            delete state.pendingKizClear[oid];
+            delete state.pendingKizClear[id];
             row.kiz_bound = false;
             row.kiz_local = false;
             row.kiz_wb_synced = true;
             row.kiz_status = "empty";
             row.kiz_codes = [""];
             state.sessionScannedIds = (state.sessionScannedIds || []).filter(
-              (x) => Number(x) !== oid
+              (x) => String(x) !== id
             );
           } else {
-            delete state.pendingKizClear[oid];
+            delete state.pendingKizClear[id];
             row.kiz_bound = true;
             row.kiz_local = true;
             row.kiz_codes = pushedCodes.slice();
@@ -915,23 +1031,34 @@
           }
         } else if (r.local_ok) {
           errN += 1;
-          if (r.error) state.rowErrors[oid] = String(r.error);
+          if (r.error) state.rowErrors[id] = String(r.error);
         } else {
           errN += 1;
-          if (r.error) state.rowErrors[oid] = String(r.error);
+          if (r.error) state.rowErrors[id] = String(r.error);
         }
       }
       if (conflictN) {
         setBanner(
-          `Конфликт у ${conflictN} заказ(ов) — проверьте и сохраните ещё раз`,
+          `Конфликт у ${conflictN} ${isOzon() ? "отпр." : "заказ(ов)"} — проверьте и сохраните ещё раз`,
           "err"
         );
       } else if (errN && okN) {
-        setBanner(`Отправлено ${okN}, ошибок ${errN} — повторите «Сохранить»`, "warn");
+        setBanner(
+          isOzon()
+            ? `Сохранено ${okN}, ошибок ${errN}`
+            : `Отправлено ${okN}, ошибок ${errN} — повторите «Сохранить»`,
+          "warn"
+        );
       } else if (errN) {
-        setBanner(`Не удалось отправить в WB (${errN})`, "err");
+        setBanner(
+          isOzon() ? `Не удалось сохранить (${errN})` : `Не удалось отправить в WB (${errN})`,
+          "err"
+        );
       } else {
-        setBanner(`Сохранено в WB: ${okN}`, "ok");
+        setBanner(
+          isOzon() ? `Сохранено локально: ${okN}` : `Сохранено в WB: ${okN}`,
+          "ok"
+        );
       }
     } catch (e) {
       setBanner(e.message || String(e), "err");
@@ -948,16 +1075,26 @@
     const rows = state.pickRows || [];
     const items = [];
     for (const row of rows) {
-      const oid = Number(row.order_id);
-      if (!Number.isFinite(oid)) continue;
+      const id = rowScanId(row);
+      if (!id) continue;
       if (!rowPickFilled(row)) continue;
-      items.push({
-        order_id: oid,
-        pick_verified: true,
-        pick_barcode: String(row.pick_barcode || "").trim(),
-        expected_verified_at: String(row.pick_verified_at || ""),
-        force: !!state.forceSaveByOrder[`pick:${oid}`],
-      });
+      items.push(
+        isOzon()
+          ? {
+              posting_number: id,
+              pick_verified: true,
+              pick_barcode: String(row.pick_barcode || "").trim(),
+              expected_verified_at: String(row.pick_verified_at || ""),
+              force: !!state.forceSaveByOrder[`pick:${id}`],
+            }
+          : {
+              order_id: Number(row.order_id),
+              pick_verified: true,
+              pick_barcode: String(row.pick_barcode || "").trim(),
+              expected_verified_at: String(row.pick_verified_at || ""),
+              force: !!state.forceSaveByOrder[`pick:${id}`],
+            }
+      );
     }
     if (!items.length) {
       setBanner("Нет подтверждённых ШК для сохранения", "warn");
@@ -981,19 +1118,22 @@
       let errN = 0;
       let conflictN = 0;
       for (const r of data.results || []) {
-        const oid = Number(r.order_id);
-        const row = rows.find((x) => Number(x.order_id) === oid);
+        const id = isOzon()
+          ? String(r.posting_number || "")
+          : String(Number(r.order_id));
+        const row = findRowByScanId(rows, id);
         if (!row) continue;
+        const pickKey = `pick:${id}`;
         if (r.conflict) {
           conflictN += 1;
           row.pick_verified_at = String(r.pick_verified_at || row.pick_verified_at || "");
-          state.forceSaveByOrder[`pick:${oid}`] = true;
+          state.forceSaveByOrder[pickKey] = true;
           continue;
         }
         if (r.ok) {
           okN += 1;
           if (r.pick_verified_at) row.pick_verified_at = String(r.pick_verified_at);
-          delete state.forceSaveByOrder[`pick:${oid}`];
+          delete state.forceSaveByOrder[pickKey];
         } else {
           errN += 1;
         }
@@ -1014,63 +1154,69 @@
   }
 
   function noteSessionScanned(orderId) {
-    const oid = Number(orderId);
-    if (!Number.isFinite(oid) || oid <= 0) return;
+    const id = String(orderId || "").trim();
+    if (!id) return;
     state.sessionScannedIds = (state.sessionScannedIds || []).filter(
-      (x) => Number(x) !== oid
+      (x) => String(x) !== id
     );
-    state.sessionScannedIds.push(oid);
+    state.sessionScannedIds.push(id);
   }
 
   function rowNeedsKizWbClear(row) {
-    const oid = Number(row && row.order_id);
-    if (!Number.isFinite(oid)) return false;
+    if (isOzon()) return false;
+    const id = rowScanId(row);
+    if (!id) return false;
     if (rowKizFilled(row)) return false;
-    if (state.pendingKizClear[oid]) return true;
-    // WB still has a mark, or local empty draft is not synced yet.
+    if (state.pendingKizClear[id]) return true;
     if (row.kiz_bound) return true;
     if (row.kiz_local && row.kiz_wb_synced === false) return true;
     return false;
   }
 
   function hasPendingKizPush() {
+    if (isOzon()) {
+      return (state.kizRows || []).some((row) => {
+        const id = rowScanId(row);
+        if (!id) return false;
+        const codes = normalizeKizCodesList(row.kiz_codes);
+        return !kizBaselineEquals(id, codes) || !!state.pendingKizClear[id];
+      });
+    }
     return (state.kizRows || []).some((row) => {
-      const oid = Number(row.order_id);
-      if (!Number.isFinite(oid)) return false;
+      const id = rowScanId(row);
+      if (!id) return false;
       if (rowNeedsKizWbClear(row)) return true;
       return rowKizFilled(row);
     });
   }
 
   function removeSessionScanned(orderId) {
-    const oid = Number(orderId);
-    if (!Number.isFinite(oid)) return;
+    const id = String(orderId || "").trim();
+    if (!id) return;
     state.sessionScannedIds = (state.sessionScannedIds || []).filter(
-      (x) => Number(x) !== oid
+      (x) => String(x) !== id
     );
   }
 
   function orderedScannedRows(mode) {
     const rows = mode === "kiz" ? state.kizRows : state.pickRows;
-    // KIZ: show filled codes, or empty only after this-session clear (pending + session).
-    // Do NOT pull in stale empty local drafts (КИЗ «—») just because kiz_local/kiz_bound.
     const fn =
       mode === "kiz"
         ? (r) => {
             if (rowKizFilled(r)) return true;
-            const oid = Number(r.order_id);
+            const id = rowScanId(r);
             return (
-              !!state.pendingKizClear[oid] &&
-              (state.sessionScannedIds || []).some((x) => Number(x) === oid)
+              !!state.pendingKizClear[id] &&
+              (state.sessionScannedIds || []).some((x) => String(x) === id)
             );
           }
         : rowPickFilled;
     const filled = (rows || []).filter(fn);
-    const byId = new Map(filled.map((r) => [Number(r.order_id), r]));
+    const byId = new Map(filled.map((r) => [rowScanId(r), r]));
     const out = [];
     const seen = new Set();
     for (let i = (state.sessionScannedIds || []).length - 1; i >= 0; i -= 1) {
-      const id = Number(state.sessionScannedIds[i]);
+      const id = String(state.sessionScannedIds[i]);
       const row = byId.get(id);
       if (row && !seen.has(id)) {
         out.push(row);
@@ -1078,7 +1224,7 @@
       }
     }
     for (const row of filled) {
-      const id = Number(row.order_id);
+      const id = rowScanId(row);
       if (!seen.has(id)) {
         out.push(row);
         seen.add(id);
@@ -1160,8 +1306,12 @@
         const photo = r.product_photo
           ? `<img src="${esc(r.product_photo)}" alt="" width="48" height="48" />`
           : `<span class="tsd-scanned-ph" aria-hidden="true"></span>`;
-        const oid = esc(String(r.order_id));
-        const stickerHtml = formatBoldLastDigits(r.sticker_number || "—", 4);
+        const oid = esc(rowScanId(r));
+        const orderWord = isOzon() ? "Отпр." : "Заказ";
+        const stickerHtml = formatBoldLastDigits(
+          r.sticker_number || r.posting_number || "—",
+          4
+        );
         const barcodes = orderBarcodesLabel(r);
         const barcodesHtml = barcodes
           ? `<div class="tsd-scanned-kv">
@@ -1203,7 +1353,7 @@
             <div class="tsd-scanned-top">
               ${photo}
               <div class="tsd-scanned-text">
-                <div class="tsd-scanned-order">Заказ ${oid} · ${stickerHtml}</div>
+                <div class="tsd-scanned-order">${orderWord} ${oid} · ${stickerHtml}</div>
                 <div class="tsd-scanned-name">${esc(r.product_name || r.article || "—")}</div>
               </div>
               ${clearBtn}
@@ -1225,30 +1375,31 @@
 
   async function clearKizCodes(orderId) {
     if (state.saving || state.clearing) return;
-    const oid = Number(orderId);
-    const row = (state.kizRows || []).find((r) => Number(r.order_id) === oid);
+    const id = String(orderId || "").trim();
+    const row = findRowByScanId(state.kizRows, id);
     if (!row) return;
     if (!Array.isArray(row.kiz_codes)) row.kiz_codes = [""];
     const hadCodes = rowKizFilled(row);
     const wasBound = !!row.kiz_bound;
     const hadLocal = !!row.kiz_local || hadCodes;
     const needsWbClear =
-      wasBound || (hadLocal && row.kiz_wb_synced === false) || !!state.pendingKizClear[oid];
+      !isOzon() &&
+      (wasBound || (hadLocal && row.kiz_wb_synced === false) || !!state.pendingKizClear[id]);
+    const label = rowDisplayLabel(row);
 
-    // Already empty (КИЗ «—»): just dismiss from «Просканировано».
     if (!hadCodes) {
-      removeSessionScanned(oid);
+      removeSessionScanned(id);
       if (needsWbClear) {
-        state.pendingKizClear[oid] = true;
+        state.pendingKizClear[id] = true;
         row.kiz_bound = wasBound || !!row.kiz_bound;
         row.kiz_local = hadLocal || !!row.kiz_local;
         setBanner(
-          `Заказ ${oid} убран из списка — нажмите «Сохранить», чтобы очистить КИЗ на WB`,
+          `${label} убран из списка — нажмите «Сохранить», чтобы очистить КИЗ на WB`,
           "ok"
         );
       } else {
-        delete state.pendingKizClear[oid];
-        setBanner(`Заказ ${oid} убран из просканированных`, "ok");
+        delete state.pendingKizClear[id];
+        setBanner(`${label} убран из просканированных`, "ok");
       }
       refreshScanChrome("kiz");
       return;
@@ -1259,22 +1410,20 @@
     try {
       row.kiz_codes = [""];
       if (wasBound || hadLocal || needsWbClear) {
-        state.pendingKizClear[oid] = true;
-        // Keep flags until WB clear succeeds — mirrors desktop wasBound/hadLocal.
+        state.pendingKizClear[id] = true;
         row.kiz_bound = wasBound;
         row.kiz_local = hadLocal;
       } else {
-        delete state.pendingKizClear[oid];
+        delete state.pendingKizClear[id];
       }
-      // Remove from «Просканировано» immediately — do not leave a «—» ghost row.
-      removeSessionScanned(oid);
-      scheduleKizLocalAutosave(oid);
-      if (state.rowErrors[oid]) delete state.rowErrors[oid];
+      removeSessionScanned(id);
+      scheduleKizLocalAutosave(id);
+      if (state.rowErrors[id]) delete state.rowErrors[id];
       if (String(row.kiz_status || "") === "error") row.kiz_status = "empty";
       setBanner(
-        state.pendingKizClear[oid]
-          ? `КИЗ очищен · заказ ${oid} убран из списка — нажмите «Сохранить», чтобы очистить на WB`
-          : `КИЗ очищен · заказ ${oid}`,
+        state.pendingKizClear[id]
+          ? `КИЗ очищен · ${label} убран из списка — нажмите «Сохранить», чтобы очистить на WB`
+          : `КИЗ очищен · ${label}`,
         "ok"
       );
     } catch (e) {
@@ -1794,11 +1943,15 @@
   function orderSearchHaystack(row) {
     const parts = [
       row.order_id,
+      row.posting_number,
+      row.order_number,
       row.sticker_number,
       row.sticker_barcode,
+      row.sticker_lower_barcode,
       row.sticker_part_a,
       row.sticker_part_b,
       row.product_name,
+      row.offer_id,
       row.article,
       row.brand,
       row.pick_barcode,
@@ -1837,12 +1990,12 @@
   function selectOrderFromSearch(orderId) {
     const mode = state.route.mode;
     const rows = mode === "kiz" ? state.kizRows : state.pickRows;
-    const row = (rows || []).find((r) => Number(r.order_id) === Number(orderId));
+    const row = findRowByScanId(rows, orderId);
     if (!row) {
-      setBanner("Заказ не найден", "err");
+      setBanner(isOzon() ? "Отправление не найдено" : "Заказ не найден", "err");
       return;
     }
-    state.pendingOrderId = Number(row.order_id);
+    state.pendingOrderId = rowScanId(row);
     state.step = mode === "kiz" ? "mark" : "sku";
     state.searchOpen = false;
     state.orderSearch = "";
@@ -1883,12 +2036,12 @@
       return;
     }
     if (found.row) {
-      selectOrderFromSearch(found.row.order_id);
+      selectOrderFromSearch(rowScanId(found.row));
       return;
     }
     const matched = filterOrdersBySearch(rows, raw);
     if (matched.length === 1) {
-      selectOrderFromSearch(matched[0].order_id);
+      selectOrderFromSearch(rowScanId(matched[0]));
       return;
     }
     if (!matched.length) {
@@ -1964,12 +2117,16 @@
     title.textContent = "ТСД";
 
     if (!state.sources.length) {
-      main.innerHTML = `<div class="tsd-empty">Нет доступных кабинетов ВБ ФБС для ТСД</div>`;
+      main.innerHTML = `<div class="tsd-empty">Нет доступных кабинетов FBS для ТСД</div>`;
       return;
     }
     if (!state.supplies.length) {
       main.innerHTML = `<div class="tsd-empty">${
-        state.search ? "Ничего не найдено" : "Нет поставок на сборке"
+        state.search
+          ? "Ничего не найдено"
+          : isOzon()
+            ? "Нет поставок «Ожидают отгрузки»"
+            : "Нет поставок на сборке"
       }</div>`;
       return;
     }
@@ -2201,16 +2358,20 @@
       if (m === "kiz" && Object.keys(state.pendingKizClear || {}).length) return true;
       return false;
     }
-    const sessionSet = new Set(session.map((x) => Number(x)));
+    const sessionSet = new Set(session.map((x) => String(x)));
     if (m === "kiz") {
       return (state.kizRows || []).some((row) => {
-        const oid = Number(row.order_id);
-        if (!sessionSet.has(oid)) return false;
+        const id = rowScanId(row);
+        if (!sessionSet.has(id)) return false;
+        if (isOzon()) {
+          const codes = normalizeKizCodesList(row.kiz_codes);
+          return rowKizFilled(row) || !kizBaselineEquals(id, codes);
+        }
         return rowNeedsKizWbClear(row) || rowKizFilled(row);
       });
     }
     return (state.pickRows || []).some(
-      (row) => sessionSet.has(Number(row.order_id)) && rowPickFilled(row)
+      (row) => sessionSet.has(rowScanId(row)) && rowPickFilled(row)
     );
   }
 
@@ -2240,7 +2401,7 @@
 
   function buildScanCardHtml(mode) {
     const rows = mode === "kiz" ? state.kizRows : state.pickRows;
-    const pending = rows.find((r) => Number(r.order_id) === Number(state.pendingOrderId));
+    const pending = findRowByScanId(rows, state.pendingOrderId);
     const step = state.step;
     if (!rows.length) {
       return `<div class="tsd-empty">Нет заказов в этом режиме</div>`;
@@ -2280,7 +2441,7 @@
           <div class="tsd-scan-step">Шаг 2</div>
           <p class="tsd-scan-prompt">${prompt}</p>
           ${multiHint}
-          <div class="tsd-scan-context">Заказ ${esc(pending.order_id)} · стикер ${esc(pending.sticker_number || "—")}</div>
+          <div class="tsd-scan-context">${isOzon() ? "Отпр." : "Заказ"} ${esc(rowDisplayLabel(pending))} · стикер ${esc(pending.sticker_number || pending.posting_number || "—")}</div>
           <div class="tsd-scan-field">
             <input class="tsd-scan-input" id="tsdScanInput" type="text" autocomplete="off" inputmode="none" />
             <button type="button" class="tsd-scan-clear" id="tsdScanClear" hidden
@@ -2609,7 +2770,7 @@
         refreshScanBanner();
         return;
       }
-      state.pendingOrderId = Number(found.row.order_id);
+      state.pendingOrderId = rowScanId(found.row);
       state.step = mode === "kiz" ? "mark" : "sku";
       setBanner(null);
       beep(true);
@@ -2618,7 +2779,7 @@
     }
 
     const rows = mode === "kiz" ? state.kizRows : state.pickRows;
-    const row = rows.find((r) => Number(r.order_id) === Number(state.pendingOrderId));
+    const row = findRowByScanId(rows, state.pendingOrderId);
     if (!row) {
       state.pendingOrderId = null;
       state.step = "sticker";
@@ -2626,20 +2787,21 @@
       return;
     }
 
+    const rowId = rowScanId(row);
     try {
       if (mode === "kiz") {
         const mark = normalizeKizMark(raw);
         const check = markMatchesOrder(mark, row);
         if (!check.ok) {
           setBanner(check.error || "КИЗ не подходит", "err");
-          state.rowErrors[Number(row.order_id)] = check.error || "КИЗ не подходит";
+          state.rowErrors[rowId] = check.error || "КИЗ не подходит";
           beep(false);
           input.select();
           refreshScanBanner();
           return;
         }
-        delete state.rowErrors[Number(row.order_id)];
-        delete state.pendingKizClear[Number(row.order_id)];
+        delete state.rowErrors[rowId];
+        delete state.pendingKizClear[rowId];
         const ownDup = (Array.isArray(row.kiz_codes) ? row.kiz_codes : []).some(
           (c) => normalizeKizMark(c) === mark
         );
@@ -2651,13 +2813,13 @@
           return;
         }
         const dup = state.kizRows.find((r) =>
-          Number(r.order_id) !== Number(row.order_id) &&
+          rowScanId(r) !== rowId &&
           (Array.isArray(r.kiz_codes) ? r.kiz_codes : []).some(
             (c) => normalizeKizMark(c) === mark
           )
         );
         if (dup) {
-          setBanner(`Этот КИЗ уже в заказе ${dup.order_id}`, "err");
+          setBanner(`Этот КИЗ уже в ${isOzon() ? "отпр." : "заказе"} ${rowDisplayLabel(dup)}`, "err");
           beep(false);
           input.select();
           refreshScanBanner();
@@ -2674,13 +2836,14 @@
         }
         if (!placed) row.kiz_codes.push(mark);
         row.kiz_local = true;
-        noteSessionScanned(row.order_id);
-        scheduleKizLocalAutosave(row.order_id);
+        noteSessionScanned(rowId);
+        scheduleKizLocalAutosave(rowId);
         const kizN = filledKizEntries(row).length;
+        const label = rowDisplayLabel(row);
         setBanner(
           kizN <= 1
-            ? `КИЗ записан · заказ ${row.order_id}. Для 2-го КИЗ снова сканируйте стикер`
-            : `КИЗ ${kizN} записан · заказ ${row.order_id}`,
+            ? `КИЗ записан · ${label}. Для 2-го КИЗ снова сканируйте стикер`
+            : `КИЗ ${kizN} записан · ${label}`,
           "ok"
         );
       } else {
@@ -2694,9 +2857,9 @@
         }
         row.pick_verified = true;
         row.pick_barcode = digitsOnly(raw);
-        noteSessionScanned(row.order_id);
-        schedulePickLocalAutosave(row.order_id);
-        setBanner(`ШК подтверждён · заказ ${row.order_id}`, "ok");
+        noteSessionScanned(rowId);
+        schedulePickLocalAutosave(rowId);
+        setBanner(`ШК подтверждён · ${rowDisplayLabel(row)}`, "ok");
       }
       beep(true);
       state.pendingOrderId = null;

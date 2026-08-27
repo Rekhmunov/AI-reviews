@@ -8471,6 +8471,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if isinstance(sv, dict) and sv.get("wb_fbs_tsd")
         }
 
+    def _tsd_marketplace_for_source(*, owner_id: int, source_id: int) -> str:
+        src = repository.get_supply_source_with_key(
+            user_id=owner_id, source_id=int(source_id)
+        )
+        if not src:
+            raise HTTPException(status_code=404, detail="Источник не найден")
+        return str(src.get("marketplace") or "wb").lower()
+
+    def _require_tsd_source(user: dict[str, object], source_id: int) -> None:
+        _require_wb_fbs_tsd(user)
+        allowed = _wb_fbs_tsd_allowed_source_ids(user)
+        if allowed is not None and str(int(source_id)) not in allowed:
+            raise HTTPException(status_code=403, detail="Нет доступа к источнику")
+
     def _is_wb_fbs_tenant_owner(user: dict[str, object]) -> bool:
         """Главный пользователь кабинета (или супер-админ)."""
         if _is_super_admin(user):
@@ -9434,21 +9448,34 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.get("/api/wb-fbs/tsd/sources")
     def list_wb_fbs_tsd_sources(request: Request) -> list[dict[str, object]]:
-        """WB FBS sources allowed for ТСД (warehouse page)."""
+        """FBS sources (WB + Ozon) allowed for ТСД (warehouse page)."""
         user = _require_user(request)
         _require_wb_fbs_tsd(user)
         owner_id = _supply_owner_id(user)
         repository._ensure_supply_tables()
-        sources = [
-            s
-            for s in repository.list_supply_sources(user_id=owner_id)
-            if (s.get("marketplace") or "wb").lower() == "wb"
-            and s.get("is_enabled")
-            and wb_fbs_mod.is_fbs_source_name(s.get("name"))
-        ]
         allowed = _wb_fbs_tsd_allowed_source_ids(user)
+        sources: list[dict[str, object]] = []
+        for s in repository.list_supply_sources(user_id=owner_id):
+            if not s.get("is_enabled"):
+                continue
+            mp = str(s.get("marketplace") or "wb").lower()
+            name = s.get("name")
+            if mp == "wb" and wb_fbs_mod.is_fbs_source_name(name):
+                row = dict(s)
+                row["marketplace"] = "wb"
+                sources.append(row)
+            elif mp == "ozon" and ozon_fbs_mod.is_fbs_source_name(name):
+                row = dict(s)
+                row["marketplace"] = "ozon"
+                sources.append(row)
         if allowed is not None:
             sources = [s for s in sources if str(s.get("id")) in allowed]
+        sources.sort(
+            key=lambda x: (
+                0 if str(x.get("marketplace") or "") == "wb" else 1,
+                str(x.get("name") or "").lower(),
+            )
+        )
         return sources
 
     @app.get("/api/wb-fbs/tsd/supplies")
@@ -9459,15 +9486,22 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         page: int = 1,
         page_size: int = 100,
     ) -> dict[str, object]:
-        """Assembly supplies for ТСД list."""
+        """Open FBS supplies for ТСД (WB assembly / Ozon awaiting_deliver)."""
+        from . import ozon_fbs_tsd as oz_tsd
+
         user = _require_user(request)
-        _require_wb_fbs_tsd(user)
         if not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id")
-        allowed = _wb_fbs_tsd_allowed_source_ids(user)
-        if allowed is not None and str(int(source_id)) not in allowed:
-            raise HTTPException(status_code=403, detail="Нет доступа к источнику")
+        _require_tsd_source(user, int(source_id))
         owner_id = _supply_owner_id(user)
+        mp = _tsd_marketplace_for_source(owner_id=owner_id, source_id=int(source_id))
+        if mp == "ozon":
+            return oz_tsd.list_ozon_tsd_supplies(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                search=search or None,
+            )
         return wb_fbs_mod.list_assembly_supplies(
             repository,
             user_id=owner_id,
@@ -9484,17 +9518,72 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         source_id: int,
     ) -> dict[str, object]:
         """Hub card: name/QR/orders/warehouse + KIZ/pick progress (local DB)."""
+        from . import ozon_fbs_tsd as oz_tsd
         from . import wb_fbs_detail as wb_detail
 
         user = _require_user(request)
-        _require_wb_fbs_tsd(user)
-        allowed = _wb_fbs_tsd_allowed_source_ids(user)
-        if allowed is not None and str(int(source_id)) not in allowed:
-            raise HTTPException(status_code=403, detail="Нет доступа к источнику")
+        _require_tsd_source(user, int(source_id))
         owner_id = _supply_owner_id(user)
         sid = str(supply_id or "").strip()
         if not sid:
             raise HTTPException(status_code=400, detail="Укажите supply_id")
+        mp = _tsd_marketplace_for_source(owner_id=owner_id, source_id=int(source_id))
+
+        if mp == "ozon":
+            from . import ozon_fbs_supplies as oz_sup
+
+            _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
+            items = oz_tsd.list_ozon_tsd_supplies(
+                repository, user_id=owner_id, source_id=int(source_id)
+            ).get("items") or []
+            supply_row = next(
+                (x for x in items if str(x.get("supply_id") or "") == sid),
+                None,
+            )
+            if supply_row is None:
+                supply = oz_sup.get_supply(
+                    repository,
+                    user_id=owner_id,
+                    source_id=int(source_id),
+                    supply_id=sid,
+                )
+                if supply:
+                    supply_row = {
+                        "supply_id": sid,
+                        "name": supply.get("name") or sid,
+                        "order_count": supply.get("order_count") or 0,
+                        "warehouse_label": supply.get("warehouse_name") or "—",
+                        "boxes_count": 0,
+                    }
+            progress = oz_tsd.build_ozon_tsd_hub_progress(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                supply_id=sid,
+                client_id=client_id,
+                api_key=api_key,
+            )
+            kiz = progress.get("kiz") if isinstance(progress, dict) else None
+            pick = progress.get("pick") if isinstance(progress, dict) else None
+            if not isinstance(kiz, dict):
+                kiz = {"total": 0, "done": 0}
+            if not isinstance(pick, dict):
+                pick = {"total": 0, "done": 0}
+            base = dict(supply_row or {})
+            base.setdefault("supply_id", sid)
+            base.setdefault("source_id", int(source_id))
+            base["order_count"] = int(progress.get("order_count") or 0)
+            base["kiz"] = {
+                "total": int(kiz.get("total") or 0),
+                "done": int(kiz.get("done") or 0),
+            }
+            base["pick"] = {
+                "total": int(pick.get("total") or 0),
+                "done": int(pick.get("done") or 0),
+            }
+            base["marketplace"] = "ozon"
+            return base
+
         api_key = _wb_fbs_source_key(owner_id, int(source_id))
         # Prefer exact supply_id match (search is ILIKE and can paginate away).
         assembly = wb_fbs_mod.list_assembly_supplies(
@@ -9560,6 +9649,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "total": int(pick.get("total") or 0),
             "done": int(pick.get("done") or 0),
         }
+        base["marketplace"] = "wb"
         return base
 
     @app.get("/api/wb-fbs/tsd/supplies/{supply_id}/kiz/status")
@@ -9568,18 +9658,30 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         supply_id: str,
         source_id: int,
     ) -> dict[str, object]:
-        """Live КИЗ check for ТСД hub refresh (same rules as desktop Маркировка)."""
+        """Live КИЗ check for ТСД hub refresh."""
+        from . import ozon_fbs_marking as oz_mark
         from . import wb_fbs_detail as wb_detail
 
         user = _require_user(request)
-        _require_wb_fbs_tsd(user)
-        allowed = _wb_fbs_tsd_allowed_source_ids(user)
-        if allowed is not None and str(int(source_id)) not in allowed:
-            raise HTTPException(status_code=403, detail="Нет доступа к источнику")
+        _require_tsd_source(user, int(source_id))
         owner_id = _supply_owner_id(user)
         sid = str(supply_id or "").strip()
         if not sid or not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        mp = _tsd_marketplace_for_source(owner_id=owner_id, source_id=int(source_id))
+        if mp == "ozon":
+            _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
+            try:
+                return oz_mark.check_supply_marking_status(
+                    repository,
+                    user_id=owner_id,
+                    source_id=int(source_id),
+                    supply_id=sid,
+                    client_id=client_id,
+                    api_key=api_key,
+                )
+            except RuntimeError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
         api_key = _wb_fbs_source_key(owner_id, int(source_id))
         try:
             return wb_detail.check_supply_kiz_status(
@@ -9600,17 +9702,29 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         supply_id: str,
         source_id: int,
     ) -> dict[str, object]:
+        from . import ozon_fbs_tsd as oz_tsd
         from . import wb_fbs_detail as wb_detail
 
         user = _require_user(request)
-        _require_wb_fbs_tsd(user)
-        allowed = _wb_fbs_tsd_allowed_source_ids(user)
-        if allowed is not None and str(int(source_id)) not in allowed:
-            raise HTTPException(status_code=403, detail="Нет доступа к источнику")
+        _require_tsd_source(user, int(source_id))
         owner_id = _supply_owner_id(user)
         sid = str(supply_id or "").strip()
         if not sid:
             raise HTTPException(status_code=400, detail="Укажите supply_id")
+        mp = _tsd_marketplace_for_source(owner_id=owner_id, source_id=int(source_id))
+        if mp == "ozon":
+            _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
+            try:
+                return oz_tsd.build_ozon_tsd_kiz_payload(
+                    repository,
+                    user_id=owner_id,
+                    source_id=int(source_id),
+                    supply_id=sid,
+                    client_id=client_id,
+                    api_key=api_key,
+                )
+            except RuntimeError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
         api_key = _wb_fbs_source_key(owner_id, int(source_id))
         try:
             return wb_detail.build_kiz_marking_payload(
@@ -9632,13 +9746,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         source_id: int,
     ) -> dict[str, object]:
         """KIZ save for ТСД: scan autosave is local_only; «Сохранить» pushes to WB."""
+        from . import ozon_fbs_marking as oz_mark
+        from . import ozon_fbs_supplies as oz_sup
         from . import wb_fbs_detail as wb_detail
 
         user = _require_user(request)
-        _require_wb_fbs_tsd(user)
-        allowed_sources = _wb_fbs_tsd_allowed_source_ids(user)
-        if allowed_sources is not None and str(int(source_id)) not in allowed_sources:
-            raise HTTPException(status_code=403, detail="Нет доступа к источнику")
+        _require_tsd_source(user, int(source_id))
         owner_id = _supply_owner_id(user)
         sid = str(supply_id or "").strip()
         if not sid:
@@ -9650,7 +9763,40 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         items = body.get("items") if isinstance(body, dict) else None
         if not isinstance(items, list):
             raise HTTPException(status_code=400, detail="Укажите items[]")
-        # Preserve client local_only for scan autosave. Explicit Save omits it → WB.
+        mp = _tsd_marketplace_for_source(owner_id=owner_id, source_id=int(source_id))
+        if mp == "ozon":
+            oz_items: list[dict[str, object]] = []
+            for it in items:
+                if not isinstance(it, dict):
+                    continue
+                pn = str(it.get("posting_number") or it.get("order_id") or "").strip()
+                if not pn:
+                    continue
+                row = dict(it)
+                row["posting_number"] = pn
+                oz_items.append(row)
+            if not oz_items:
+                raise HTTPException(status_code=400, detail="Укажите items[]")
+            supply = oz_sup.get_supply(
+                repository, user_id=owner_id, source_id=int(source_id), supply_id=sid
+            )
+            if not supply:
+                raise HTTPException(status_code=404, detail="Поставка не найдена")
+            allowed_pns = {
+                str(x).strip()
+                for x in (supply.get("posting_numbers") or [])
+                if str(x).strip()
+            }
+            try:
+                return oz_mark.save_marking(
+                    repository,
+                    user_id=owner_id,
+                    source_id=int(source_id),
+                    items=oz_items,
+                    allowed_posting_numbers=allowed_pns,
+                )
+            except RuntimeError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
         normalized_items: list[dict[str, object]] = []
         for it in items:
             if not isinstance(it, dict):
@@ -9700,17 +9846,29 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         supply_id: str,
         source_id: int,
     ) -> dict[str, object]:
+        from . import ozon_fbs_tsd as oz_tsd
         from . import wb_fbs_detail as wb_detail
 
         user = _require_user(request)
-        _require_wb_fbs_tsd(user)
-        allowed = _wb_fbs_tsd_allowed_source_ids(user)
-        if allowed is not None and str(int(source_id)) not in allowed:
-            raise HTTPException(status_code=403, detail="Нет доступа к источнику")
+        _require_tsd_source(user, int(source_id))
         owner_id = _supply_owner_id(user)
         sid = str(supply_id or "").strip()
         if not sid:
             raise HTTPException(status_code=400, detail="Укажите supply_id")
+        mp = _tsd_marketplace_for_source(owner_id=owner_id, source_id=int(source_id))
+        if mp == "ozon":
+            _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
+            try:
+                return oz_tsd.build_ozon_tsd_pick_payload(
+                    repository,
+                    user_id=owner_id,
+                    source_id=int(source_id),
+                    supply_id=sid,
+                    client_id=client_id,
+                    api_key=api_key,
+                )
+            except (ValueError, RuntimeError) as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
         api_key = _wb_fbs_source_key(owner_id, int(source_id))
         try:
             return wb_detail.build_pick_verify_payload(
@@ -9731,13 +9889,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         supply_id: str,
         source_id: int,
     ) -> dict[str, object]:
+        from . import ozon_fbs_pick_verify as oz_pick
+        from . import ozon_fbs_supplies as oz_sup
         from . import wb_fbs_detail as wb_detail
 
         user = _require_user(request)
-        _require_wb_fbs_tsd(user)
-        allowed_sources = _wb_fbs_tsd_allowed_source_ids(user)
-        if allowed_sources is not None and str(int(source_id)) not in allowed_sources:
-            raise HTTPException(status_code=403, detail="Нет доступа к источнику")
+        _require_tsd_source(user, int(source_id))
         owner_id = _supply_owner_id(user)
         sid = str(supply_id or "").strip()
         if not sid:
@@ -9749,6 +9906,38 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         items = body.get("items") if isinstance(body, dict) else None
         if not isinstance(items, list):
             raise HTTPException(status_code=400, detail="Укажите items[]")
+        mp = _tsd_marketplace_for_source(owner_id=owner_id, source_id=int(source_id))
+        if mp == "ozon":
+            oz_items: list[dict[str, object]] = []
+            for it in items:
+                if not isinstance(it, dict):
+                    continue
+                pn = str(it.get("posting_number") or it.get("order_id") or "").strip()
+                if not pn:
+                    continue
+                row = dict(it)
+                row["posting_number"] = pn
+                oz_items.append(row)
+            supply = oz_sup.get_supply(
+                repository, user_id=owner_id, source_id=int(source_id), supply_id=sid
+            )
+            if not supply:
+                raise HTTPException(status_code=404, detail="Поставка не найдена")
+            allowed_pns = {
+                str(x).strip()
+                for x in (supply.get("posting_numbers") or [])
+                if str(x).strip()
+            }
+            try:
+                return oz_pick.save_pick_verify(
+                    repository,
+                    user_id=owner_id,
+                    source_id=int(source_id),
+                    items=oz_items,
+                    allowed_posting_numbers=allowed_pns,
+                )
+            except RuntimeError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
         try:
             allowed = set(
                 wb_detail._local_order_ids_for_supply(

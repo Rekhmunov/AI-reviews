@@ -2642,7 +2642,10 @@
               <button id="ozonFbsStopBtn" type="button" class="secondary icon-btn hidden" onclick="stopOzonFbsSync()" style="color:#b91c1c;border-color:#fca5a5" title="Остановить синхронизацию">🛑</button>
               <button type="button" id="ozonFbsKizCirculationBtn" class="secondary ozon-fbs-stub-btn" disabled title="Скоро">Вывод КИЗ</button>
               <button type="button" id="ozonFbsKizRestoreBtn" class="secondary ozon-fbs-stub-btn" disabled title="Скоро">Возвраты</button>
-              <button type="button" id="ozonFbsTsdBtn" class="secondary ozon-fbs-stub-btn" disabled title="Скоро">ТСД</button>
+              <button type="button" id="ozonFbsTsdBtn" class="secondary"
+                      onclick="window.location.href='/wb-fbs/tsd'" title="ТСД — сборка на складе">
+                ТСД
+              </button>
             </div>
             <div class="wb-fbs-toolbar-right">
               <button type="button" id="ozonFbsStickerLookupBtn" class="secondary"
@@ -5876,7 +5879,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=32"></script>
+  <script src="/static/ozon_fbs.js?v=33"></script>
   <script src="/static/app.js?v=507"></script>
 </body>
 </html>
