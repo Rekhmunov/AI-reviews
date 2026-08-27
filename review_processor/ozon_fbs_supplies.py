@@ -691,6 +691,31 @@ def execute_ship_all_collect(
 
     shipped_n = len(shipped)
     failed_n = len(errors)
+    # Re-assert tab after all ships: concurrent sync may have upserted a stale
+    # awaiting_packaging page while we were shipping.
+    if shipped:
+        placeholders = ", ".join("?" for _ in shipped)
+        with repo._connect() as conn:
+            conn.execute(
+                repo._sql(
+                    f"""
+                    UPDATE ozon_fbs_postings
+                    SET status = ?, tab = ?
+                    WHERE user_id = ? AND source_id = ?
+                      AND posting_number IN ({placeholders})
+                      AND LOWER(COALESCE(tab, '')) IN (?, ?)
+                    """
+                ),
+                (
+                    oz.TAB_AWAITING_DELIVER,
+                    oz.TAB_AWAITING_DELIVER,
+                    user_id,
+                    source_id,
+                    *shipped,
+                    oz.TAB_AWAITING_PACKAGING,
+                    oz.TAB_AWAITING_DELIVER,
+                ),
+            )
     ok = shipped_n > 0 and failed_n == 0
     if shipped_n and not failed_n:
         message = f"Собрано {shipped_n} отправлений → «Ожидают отгрузки»"

@@ -12,7 +12,9 @@ from review_processor.ozon_fbs import (
     is_ozon_fbs_source,
     resolve_product_barcodes,
     resolve_product_display_name,
+    resolve_upsert_status,
     TAB_ARBITRATION,
+    TAB_AWAITING_DELIVER,
     TAB_AWAITING_PACKAGING,
     TAB_CANCELLED,
     TAB_DELIVERED,
@@ -56,6 +58,33 @@ class OzonFbsMappingTests(unittest.TestCase):
         self.assertEqual(compute_tab("cancelled"), TAB_CANCELLED)
         self.assertEqual(compute_tab("arbitration"), TAB_ARBITRATION)
         self.assertEqual(compute_tab("client_arbitration"), TAB_ARBITRATION)
+
+    def test_resolve_upsert_blocks_packaging_after_deliver(self) -> None:
+        status, tab = resolve_upsert_status(
+            local_status=TAB_AWAITING_DELIVER,
+            local_tab=TAB_AWAITING_DELIVER,
+            remote_status=TAB_AWAITING_PACKAGING,
+        )
+        self.assertEqual(status, TAB_AWAITING_DELIVER)
+        self.assertEqual(tab, TAB_AWAITING_DELIVER)
+
+    def test_resolve_upsert_allows_deliver_after_packaging(self) -> None:
+        status, tab = resolve_upsert_status(
+            local_status=TAB_AWAITING_PACKAGING,
+            local_tab=TAB_AWAITING_PACKAGING,
+            remote_status=TAB_AWAITING_DELIVER,
+        )
+        self.assertEqual(status, TAB_AWAITING_DELIVER)
+        self.assertEqual(tab, TAB_AWAITING_DELIVER)
+
+    def test_resolve_upsert_cancelled_wins(self) -> None:
+        status, tab = resolve_upsert_status(
+            local_status=TAB_AWAITING_DELIVER,
+            local_tab=TAB_AWAITING_DELIVER,
+            remote_status=TAB_CANCELLED,
+        )
+        self.assertEqual(status, TAB_CANCELLED)
+        self.assertEqual(tab, TAB_CANCELLED)
 
     def test_resolve_product_name_from_settings_article(self) -> None:
         name = resolve_product_display_name(
