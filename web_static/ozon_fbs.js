@@ -4016,7 +4016,6 @@
           ${err && String(code || "").trim() ? `<div class="wb-fbs-kiz-code-status is-error">${esc(err)}</div>` : ""}
         </div>`;
       }).join("");
-      const stickerHtml = _ozonFbsKizStickerHtml(r);
       const menuIcon = typeof _wbFbsQrMenuIconHtml === "function" ? _wbFbsQrMenuIconHtml() : "";
       return `<tr class="wb-fbs-kiz-row${pending === pn ? " is-active" : ""}${isCancelled ? " is-cancelled" : ""}" data-posting="${safePn}">
         <td>
