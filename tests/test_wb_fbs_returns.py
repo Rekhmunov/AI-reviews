@@ -340,8 +340,9 @@ class GoodsReturnHttpErrorTests(unittest.TestCase):
             body='{"status":429}',
             retry_after="900",
         )
-        self.assertIn("невозможна", str(err))
+        self.assertIn("не выполнена", str(err))
         self.assertIn("15 мин", str(err))
+        self.assertIn("Вернитесь", str(err))
         self.assertEqual(err.code, 429)
         self.assertEqual(err.retry_seconds, 900)
 
@@ -578,7 +579,7 @@ class GoodsReturnRateLimitTests(unittest.TestCase):
     def test_fetch_goods_return_report_rated_fails_on_429(self, fetch_report, sleep_mock):
         token = _fake_wb_jwt(uid=7)
         err429 = returns.GoodsReturnHttpError(
-            "Синхронизация возвратов WB сейчас невозможна",
+            "Синхронизация возвратов WB не выполнена",
             code=429,
             retry_after="1800",
             retry_seconds=1800,

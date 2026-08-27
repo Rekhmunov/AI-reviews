@@ -663,6 +663,34 @@ def _format_wb_retry_hint(retry_after: str) -> str:
         return f" Повторите после: {retry}."
 
 
+def _format_goods_return_429_message(retry_after: str) -> str:
+    """User-facing 429 message with when to retry (from WB X-RateLimit-Retry)."""
+    retry_secs = _parse_wb_retry_seconds(retry_after)
+    if retry_secs > 0:
+        retry_at = datetime.now(MSK) + timedelta(seconds=retry_secs)
+        clock = retry_at.strftime("%H:%M МСК (%d.%m.%Y)")
+        if retry_secs >= 3600:
+            hours = retry_secs // 3600
+            mins = (retry_secs % 3600 + 59) // 60
+            if mins and hours < 24:
+                wait_label = f"{hours} ч {mins} мин"
+            else:
+                wait_label = f"{hours} ч"
+        elif retry_secs >= 60:
+            wait_label = f"{(retry_secs + 59) // 60} мин"
+        else:
+            wait_label = f"{retry_secs} сек"
+        return (
+            "Синхронизация возвратов WB не выполнена: WB ограничил частоту запросов. "
+            f"Попробуйте снова примерно через {wait_label} (после {clock}). "
+            "Вернитесь к «Синхр. WB» после этого времени."
+        )
+    return (
+        "Синхронизация возвратов WB не выполнена: WB ограничил частоту запросов. "
+        "Подождите ~1 мин и нажмите «Синхр. WB» снова."
+    )
+
+
 def format_wb_goods_return_http_error(
     *,
     code: int,
@@ -673,13 +701,7 @@ def format_wb_goods_return_http_error(
     """Human-readable WB Analytics goods-return errors (esp. 429 rate limit)."""
     if int(code) == 429:
         retry_secs = _parse_wb_retry_seconds(retry_after)
-        msg = "Синхронизация возвратов WB сейчас невозможна: превышен лимит Analytics API."
-        hint = _format_wb_retry_hint(retry_after)
-        if hint:
-            msg += hint
-        else:
-            msg += " Подождите ~1 мин и повторите."
-        msg += " Не запускайте «Синхр. WB» для нескольких источников подряд."
+        msg = _format_goods_return_429_message(retry_after)
         return GoodsReturnHttpError(
             msg,
             code=429,
