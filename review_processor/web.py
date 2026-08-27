@@ -3571,6 +3571,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         box_qty: str = Form(""),
         product_category: str = Form(""),
         skip_kiz_gtin_check: str = Form(""),
+        requires_kiz: str = Form(""),
         barcodes: str = Form("[]"),
         barcode_label_name: str = Form(""),
         photo: UploadFile | None = File(None),
@@ -3584,6 +3585,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         parsed_box_qty = _parse_product_box_qty(box_qty)
         parsed_category = _parse_product_category(product_category, owner_uid=owner_uid)
         skip_gtin = str(skip_kiz_gtin_check or "").strip().lower() in ("1", "true", "yes", "on")
+        needs_kiz = str(requires_kiz or "").strip().lower() in ("1", "true", "yes", "on")
         parsed_barcodes = _parse_product_barcodes(barcodes)
         item = repository.add_product_photo(
             user_id=owner_uid, name=name.strip(), supplier_article=supplier_article.strip(),
@@ -3591,6 +3593,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             yandex_offer_id=yandex_offer_id.strip(), photo_path=photo_path,
             box_qty=parsed_box_qty, product_category=parsed_category,
             skip_kiz_gtin_check=skip_gtin,
+            requires_kiz=needs_kiz,
             barcodes=parsed_barcodes,
             barcode_label_name=barcode_label_name.strip(),
         )
@@ -3610,6 +3613,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         box_qty: str = Form(""),
         product_category: str = Form(""),
         skip_kiz_gtin_check: str = Form(""),
+        requires_kiz: str = Form(""),
         barcodes: str = Form(""),
         barcode_label_name: str = Form(""),
         photo: UploadFile | None = File(None),
@@ -3622,6 +3626,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         parsed_box_qty = _parse_product_box_qty(box_qty)
         parsed_category = _parse_product_category(product_category, owner_uid=owner_uid)
         skip_gtin = str(skip_kiz_gtin_check or "").strip().lower() in ("1", "true", "yes", "on")
+        needs_kiz = str(requires_kiz or "").strip().lower() in ("1", "true", "yes", "on")
         parsed_barcodes = _parse_product_barcodes(barcodes) if str(barcodes or "").strip() else None
         ok = repository.update_product_photo(
             user_id=owner_uid, product_id=product_id, name=name.strip(),
@@ -3630,6 +3635,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             photo_path=new_photo_path,
             box_qty=parsed_box_qty, product_category=parsed_category,
             skip_kiz_gtin_check=skip_gtin,
+            requires_kiz=needs_kiz,
             barcodes=parsed_barcodes,
             barcode_label_name=barcode_label_name.strip(),
         )

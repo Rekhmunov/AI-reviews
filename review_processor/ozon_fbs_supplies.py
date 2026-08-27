@@ -2034,11 +2034,15 @@ def refresh_supply_marking_flags_from_ozon(
     api_key: str,
     max_postings: int | None = OZON_FBS_LIVE_CHECK_CHUNK,
 ) -> dict[str, int]:
-    """Light Ozon refresh: mandatory-mark/is-required only (chunked to avoid 504)."""
+    """Apply catalog «Требует КИЗ» flags to postings (no Ozon is-required calls).
+
+    ``client_id`` / ``api_key`` are kept for call-site compatibility; unused.
+    """
+    del client_id, api_key  # catalog is the source of truth for Ozon FBS Marking
     nums = [str(x).strip() for x in posting_numbers if str(x).strip()]
-    if not nums or not str(client_id or "").strip() or not str(api_key or "").strip():
+    if not nums:
         return _empty_marking_resolve()
-    client = oz.OzonFbsClient(str(client_id).strip(), str(api_key).strip())
+    requires_kiz_map = repo.get_product_requires_kiz_map(user_id=user_id)
     placeholders = ", ".join("?" for _ in nums)
     with repo._connect() as conn:
         rows = conn.execute(
@@ -2061,7 +2065,7 @@ def refresh_supply_marking_flags_from_ozon(
         if not row:
             continue
         posting = oz._posting_payload_from_row(row)
-        if not posting or oz.posting_marking_flags_resolved(posting):
+        if not posting:
             continue
         pending.append((pn, posting))
     total_pending = len(pending)
@@ -2076,28 +2080,9 @@ def refresh_supply_marking_flags_from_ozon(
             "total_pending": total_pending,
         }
 
-    def _enrich_one(
-        item: tuple[str, dict[str, Any]],
-    ) -> tuple[str, dict[str, Any] | None, Exception | None]:
-        pn, posting = item
-        try:
-            return pn, oz.enrich_posting_marking_flags_light(client, posting), None
-        except Exception as exc:
-            # Mark checked so the same PN does not block chunk loops forever.
-            return pn, oz._posting_with_marking_checked(posting), exc
-
     updated = 0
-    workers = min(OZON_FBS_LIVE_CHECK_WORKERS, len(chunk))
-    results: list[tuple[str, dict[str, Any] | None, Exception | None]] = []
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futs = [pool.submit(_enrich_one, item) for item in chunk]
-        for fut in as_completed(futs):
-            results.append(fut.result())
-    for pn, enriched, err in results:
-        if not isinstance(enriched, dict):
-            continue
-        if err is not None:
-            _log.warning("ozon supply marking enrich %s: %s", pn, err)
+    for pn, posting in chunk:
+        enriched = oz.apply_catalog_marking_flags(posting, requires_kiz_map)
         try:
             oz.upsert_posting(
                 repo,
@@ -2105,10 +2090,9 @@ def refresh_supply_marking_flags_from_ozon(
                 source_id=source_id,
                 posting=enriched,
             )
-            if err is None:
-                updated += 1
+            updated += 1
         except Exception as exc:
-            _log.warning("ozon supply marking persist %s: %s", pn, exc)
+            _log.warning("ozon supply marking catalog persist %s: %s", pn, exc)
     return {
         "updated": updated,
         "checked": len(chunk),
@@ -2128,7 +2112,7 @@ def resolve_supply_kiz_flags_from_ozon(
     posting_tab: str | None = None,
     max_postings: int | None = OZON_FBS_LIVE_CHECK_CHUNK,
 ) -> dict[str, int]:
-    """Resolve КИЗ flags for non-cancelled supply postings (chunked live is-required)."""
+    """Resolve КИЗ flags for supply postings from Settings → Products catalog."""
     sid = str(supply_id or "").strip()
     if not sid:
         return _empty_marking_resolve()
@@ -2289,6 +2273,7 @@ def get_supply_detail(
     ozon_sku_map = repo.get_product_name_by_ozon_sku(user_id=user_id)
     barcode_map = repo.get_product_barcodes_map(user_id=user_id)
     photo_map = repo.get_product_photo_map(user_id=user_id)
+    requires_kiz_map = repo.get_product_requires_kiz_map(user_id=user_id)
     orders: list[dict[str, Any]] = []
     if nums:
         placeholders = ", ".join("?" for _ in nums)
@@ -2325,8 +2310,15 @@ def get_supply_detail(
             cancel_label = oz.cancel_reason_label_from_row(d)
             d["cancel_reason_label"] = cancel_label
             d["cancelled"] = bool(cancel_label)
-            d["kiz_required"] = oz.posting_requires_marking(d) and not d["cancelled"]
-            d["kiz_quantity"] = oz.posting_marking_quantity(d) if d["kiz_required"] else 0
+            d["kiz_required"] = (
+                oz.posting_requires_marking(d, requires_kiz_map=requires_kiz_map)
+                and not d["cancelled"]
+            )
+            d["kiz_quantity"] = (
+                oz.posting_marking_quantity(d, requires_kiz_map=requires_kiz_map)
+                if d["kiz_required"]
+                else 0
+            )
             if d["kiz_required"]:
                 try:
                     parsed_codes = json.loads(str(d.get("marking_codes_json") or "[]"))

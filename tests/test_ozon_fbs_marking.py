@@ -180,6 +180,63 @@ def test_marking_quantity_from_requirements_sku() -> None:
     assert oz.posting_marking_quantity(row) == 3
 
 
+def test_catalog_requires_kiz_match_offer_then_sku() -> None:
+    m = {"white27": True, "752039906": True}
+    assert oz.catalog_requires_kiz(offer_id="white27", sku="1", requires_kiz_map=m)
+    assert oz.catalog_requires_kiz(offer_id="OTHER", sku="752039906", requires_kiz_map=m)
+    assert oz.catalog_requires_kiz(offer_id="WHITE27", sku="", requires_kiz_map=m)
+    assert not oz.catalog_requires_kiz(offer_id="x", sku="y", requires_kiz_map=m)
+    assert not oz.catalog_requires_kiz(offer_id="white27", sku="1", requires_kiz_map={})
+
+
+def test_posting_requires_marking_from_catalog_map() -> None:
+    row = {
+        "offer_id": "white27",
+        "sku": "752039906",
+        "raw_json": (
+            '{"products":[{"sku":752039906,"quantity":2,"offer_id":"white27"},'
+            '{"sku":1,"quantity":1,"offer_id":"whitebort"}]}'
+        ),
+    }
+    assert oz.posting_requires_marking(row, requires_kiz_map={"white27": True}) is True
+    assert oz.posting_requires_marking(row, requires_kiz_map={}) is False
+    row_api = {
+        "raw_json": (
+            '{"requirements":{"products_requiring_mandatory_mark":["752039906"]},'
+            '"products":[{"sku":752039906,"quantity":1,"offer_id":"white27"}]}'
+        ),
+    }
+    assert oz.posting_requires_marking(row_api, requires_kiz_map={}) is False
+    assert oz.posting_marking_quantity(row, requires_kiz_map={"white27": True}) == 2
+    marked = oz.marked_products_for_posting(
+        {
+            "products": [
+                {"sku": 752039906, "quantity": 2, "offer_id": "white27"},
+                {"sku": 1, "quantity": 1, "offer_id": "whitebort"},
+            ]
+        },
+        requires_kiz_map={"white27": True},
+    )
+    assert len(marked) == 1
+    assert marked[0]["product_id"] == 752039906
+    assert marked[0]["quantity"] == 2
+
+
+def test_apply_catalog_marking_flags_sets_requirements() -> None:
+    posting = {
+        "posting_number": "P-1",
+        "products": [
+            {"sku": 10, "quantity": 1, "offer_id": "need"},
+            {"sku": 20, "quantity": 1, "offer_id": "skip"},
+        ],
+        "requirements": {"products_requiring_mandatory_mark": ["20"]},
+    }
+    out = oz.apply_catalog_marking_flags(posting, {"need": True})
+    req = out.get("requirements") or {}
+    assert req.get("products_requiring_mandatory_mark") == ["10"]
+    assert req.get("marking_is_required_checked") is True
+
+
 def test_build_marking_payload_filters_required_only() -> None:
     detail = {
         "supply_id": "OZ-1",

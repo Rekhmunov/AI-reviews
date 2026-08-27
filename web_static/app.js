@@ -12711,6 +12711,8 @@ function openAddProductForm(editItem = null) {
   loadProductCategories().then(() => _fillProductCategorySelect(category));
   const skipGtin = document.getElementById("productFormSkipKizGtinCheck");
   if (skipGtin) skipGtin.checked = !!editItem?.skip_kiz_gtin_check;
+  const requiresKiz = document.getElementById("productFormRequiresKiz");
+  if (requiresKiz) requiresKiz.checked = !!editItem?.requires_kiz;
   const barcodeLabelName = document.getElementById("productFormBarcodeLabelName");
   if (barcodeLabelName) barcodeLabelName.value = editItem?.barcode_label_name || "";
   const barcodes = Array.isArray(editItem?.barcodes)
@@ -13073,7 +13075,7 @@ window.saveProductFillBarcodesModal = saveProductFillBarcodesModal;
 // ── Products table column resizer ────────────────────────────────────────
 const PRODUCTS_COL_WIDTHS_KEY = "products_col_widths_v4";
 // photo, name, seller, wb, ozon, ym, box qty, category, barcodes, actions
-const PRODUCTS_DEFAULT_WIDTHS = [7, 14, 10, 9, 9, 9, 9, 12, 12, 10, 7];
+const PRODUCTS_DEFAULT_WIDTHS = [7, 13, 9, 8, 8, 8, 8, 11, 11, 9, 7, 7];
 
 function initProductsColumnResizer() {
   const table = document.getElementById("productsTable");
@@ -13143,7 +13145,7 @@ async function loadProducts() {
     if (info) info.textContent = `Товаров: ${_productsCache.length}`;
     tbody.innerHTML = "";
     if (!_productsCache.length) {
-      tbody.innerHTML = '<tr><td colspan="11" class="small" style="color:#94a3b8;padding:16px">Нет товаров. Нажмите «+ Добавить товар»</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="12" class="small" style="color:#94a3b8;padding:16px">Нет товаров. Нажмите «+ Добавить товар»</td></tr>';
       initProductsColumnResizer();
       return;
     }
@@ -13172,6 +13174,7 @@ async function loadProducts() {
         <td title="${esc(item.product_category || "")}">${esc(item.product_category || "—")}</td>
         <td title="${esc(labelName)}">${esc(labelPreview)}</td>
         <td title="${esc(barcodesText)}">${esc(barcodesText)}</td>
+        <td>${item.requires_kiz ? "да" : "нет"}</td>
         <td>
           <button type="button" class="secondary" style="font-size:12px;padding:4px 8px" onclick="editProduct(${item.id})">✏</button>
           <button type="button" class="secondary danger" style="font-size:12px;padding:4px 8px" onclick="deleteProduct(${item.id})">✕</button>
@@ -13213,6 +13216,7 @@ async function exportProductsCsv() {
       "Название для этикетки ШК",
       "ШК",
       "Без проверки GTIN маркировки",
+      "Требует КИЗ",
     ];
     const lines = [headers.map(_csvEscapeCell).join(";")];
     for (const item of _productsCache) {
@@ -13234,6 +13238,7 @@ async function exportProductsCsv() {
         item.barcode_label_name || "",
         barcodes.join(", "),
         item.skip_kiz_gtin_check ? "да" : "нет",
+        item.requires_kiz ? "да" : "нет",
       ].map(_csvEscapeCell).join(";"));
     }
     const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
@@ -13268,6 +13273,7 @@ async function saveProduct() {
   const productCategory = String(document.getElementById("productFormCategory")?.value || "").trim();
   const barcodeLabelName = String(document.getElementById("productFormBarcodeLabelName")?.value || "").trim();
   const skipKizGtinCheck = !!document.getElementById("productFormSkipKizGtinCheck")?.checked;
+  const requiresKiz = !!document.getElementById("productFormRequiresKiz")?.checked;
   const barcodes = _productBarcodeRowsFromDom().filter(Boolean);
   const photoFile = document.getElementById("productFormPhoto")?.files?.[0];
   const info = document.getElementById("productFormInfo");
@@ -13298,6 +13304,7 @@ async function saveProduct() {
   fd.append("product_category", productCategory);
   fd.append("barcode_label_name", barcodeLabelName);
   fd.append("skip_kiz_gtin_check", skipKizGtinCheck ? "1" : "0");
+  fd.append("requires_kiz", requiresKiz ? "1" : "0");
   fd.append("barcodes", JSON.stringify(barcodes));
   if (photoFile) fd.append("photo", photoFile);
   try {

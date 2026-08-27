@@ -149,7 +149,7 @@ def build_marking_payload(
     max_postings: int | None = None,
     posting_tab: str | None = None,
 ) -> dict[str, Any]:
-    """Marking modal: resolve КИЗ via is-required (chunked), then local rows."""
+    """Marking modal: resolve КИЗ via Settings → Products «Требует КИЗ», then local rows."""
     cid = str(client_id or "").strip()
     key = str(api_key or "").strip()
     tab_key = str(posting_tab or "").strip() or None
@@ -289,8 +289,11 @@ def push_marking_to_ozon(
     posting_number: str,
     posting: dict[str, Any],
     codes: list[str],
+    requires_kiz_map: dict[str, bool] | None = None,
 ) -> None:
-    marked = oz.marked_products_for_posting(posting)
+    marked = oz.marked_products_for_posting(
+        posting, requires_kiz_map=requires_kiz_map
+    )
     if not marked:
         raise RuntimeError("Отправление не требует маркировки")
     create_products = [

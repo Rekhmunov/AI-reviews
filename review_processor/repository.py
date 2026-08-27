@@ -7439,6 +7439,7 @@ class ReviewRepository:
                 box_qty INTEGER,
                 product_category TEXT NOT NULL DEFAULT '',
                 skip_kiz_gtin_check INTEGER NOT NULL DEFAULT 0,
+                requires_kiz INTEGER NOT NULL DEFAULT 0,
                 photo_path TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -7461,6 +7462,9 @@ class ReviewRepository:
             "ALTER TABLE product_photos ADD COLUMN IF NOT EXISTS skip_kiz_gtin_check INTEGER NOT NULL DEFAULT 0"
         )
         conn.execute(
+            "ALTER TABLE product_photos ADD COLUMN IF NOT EXISTS requires_kiz INTEGER NOT NULL DEFAULT 0"
+        )
+        conn.execute(
             "ALTER TABLE product_photos ADD COLUMN IF NOT EXISTS barcodes_json TEXT NOT NULL DEFAULT '[]'"
         )
         conn.execute(
@@ -7472,6 +7476,7 @@ class ReviewRepository:
         if not d:
             return {}
         d["skip_kiz_gtin_check"] = bool(int(d.get("skip_kiz_gtin_check") or 0))
+        d["requires_kiz"] = bool(int(d.get("requires_kiz") or 0))
         d["barcodes"] = _normalize_product_barcodes(d.get("barcodes_json"))
         d.pop("barcodes_json", None)
         return d
@@ -7491,6 +7496,7 @@ class ReviewRepository:
         box_qty: int | None = None,
         product_category: str = "",
         skip_kiz_gtin_check: bool = False,
+        requires_kiz: bool = False,
         barcodes: list[str] | None = None,
         barcode_label_name: str = "",
     ) -> dict[str, Any]:
@@ -7502,10 +7508,10 @@ class ReviewRepository:
                 self._sql("""
                 INSERT INTO product_photos (
                     user_id, name, supplier_article, wb_nmid, ozon_sku, yandex_offer_id,
-                    box_qty, product_category, skip_kiz_gtin_check, barcodes_json,
+                    box_qty, product_category, skip_kiz_gtin_check, requires_kiz, barcodes_json,
                     barcode_label_name, photo_path, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """),
                 (
                     user_id,
@@ -7517,6 +7523,7 @@ class ReviewRepository:
                     box_qty,
                     str(product_category or "").strip(),
                     1 if skip_kiz_gtin_check else 0,
+                    1 if requires_kiz else 0,
                     barcodes_json,
                     str(barcode_label_name or "").strip(),
                     photo_path,
@@ -7534,6 +7541,7 @@ class ReviewRepository:
         box_qty: int | None = None,
         product_category: str = "",
         skip_kiz_gtin_check: bool = False,
+        requires_kiz: bool = False,
         barcodes: list[str] | None = None,
         barcode_label_name: str | None = None,
     ) -> bool:
@@ -7547,6 +7555,7 @@ class ReviewRepository:
             "box_qty=?",
             "product_category=?",
             "skip_kiz_gtin_check=?",
+            "requires_kiz=?",
             "updated_at=?",
         ]
         params: list[Any] = [
@@ -7558,6 +7567,7 @@ class ReviewRepository:
             box_qty,
             str(product_category or "").strip(),
             1 if skip_kiz_gtin_check else 0,
+            1 if requires_kiz else 0,
             now,
         ]
         if barcode_label_name is not None:
@@ -7688,6 +7698,21 @@ class ReviewRepository:
             if not bool(r.get("skip_kiz_gtin_check")):
                 continue
             for field in ("supplier_article", "wb_nmid"):
+                key = str(r.get(field) or "").strip()
+                if not key:
+                    continue
+                result[key] = True
+                result[key.casefold()] = True
+        return result
+
+    def get_product_requires_kiz_map(self, *, user_id: int) -> dict[str, bool]:
+        """Keys: supplier_article / ozon_sku (+ casefold) → requires КИЗ in Ozon FBS."""
+        rows = self.list_product_photos(user_id=user_id)
+        result: dict[str, bool] = {}
+        for r in rows:
+            if not bool(r.get("requires_kiz")):
+                continue
+            for field in ("supplier_article", "ozon_sku"):
                 key = str(r.get(field) or "").strip()
                 if not key:
                     continue

@@ -1158,8 +1158,98 @@ def enrich_posting_marking_flags_light(
     )
 
 
-def posting_requires_marking(row: dict[str, Any]) -> bool:
-    """True when Ozon posting or any line item requires Chestny ZNAK marking."""
+def catalog_requires_kiz(
+    *,
+    offer_id: str | None,
+    sku: str | None,
+    requires_kiz_map: dict[str, bool],
+) -> bool:
+    """Match posting line to Feedback → Settings → Products «Требует КИЗ».
+
+    Lookup order (same as names/ШК): supplier_article via offer_id, then ozon_sku.
+    """
+    if not requires_kiz_map:
+        return False
+    article = str(offer_id or "").strip()
+    sku_key = str(sku or "").strip()
+    for key in (
+        article,
+        article.casefold() if article else "",
+        sku_key,
+        sku_key.casefold() if sku_key else "",
+    ):
+        if key and requires_kiz_map.get(key):
+            return True
+    return False
+
+
+def apply_catalog_marking_flags(
+    posting: dict[str, Any],
+    requires_kiz_map: dict[str, bool],
+) -> dict[str, Any]:
+    """Set products_requiring_mandatory_mark from catalog checkbox (source of truth)."""
+    if not isinstance(posting, dict):
+        return posting
+    products = _products_from_posting(posting)
+    required_ids: list[str] = []
+    seen: set[str] = set()
+    for p in products:
+        if bool(p.get("is_marketplace_buyout")):
+            continue
+        offer = str(p.get("offer_id") or "").strip()
+        sku_val = p.get("sku") if p.get("sku") is not None else p.get("product_id")
+        sku_str = str(sku_val).strip() if sku_val is not None else ""
+        if not catalog_requires_kiz(
+            offer_id=offer, sku=sku_str, requires_kiz_map=requires_kiz_map
+        ):
+            continue
+        if not sku_str or sku_str in seen:
+            continue
+        seen.add(sku_str)
+        required_ids.append(sku_str)
+    out = dict(posting)
+    req = out.get("requirements")
+    if not isinstance(req, dict):
+        req = {}
+    else:
+        req = dict(req)
+    req["products_requiring_mandatory_mark"] = required_ids
+    req["marking_is_required_checked"] = True
+    req.pop("marking_check_version", None)
+    out["requirements"] = req
+    return out
+
+
+def posting_requires_marking(
+    row: dict[str, Any],
+    *,
+    requires_kiz_map: dict[str, bool] | None = None,
+) -> bool:
+    """True when posting needs Chestny ZNAK marking.
+
+    When ``requires_kiz_map`` is provided (Ozon FBS UI), catalog checkbox is the
+    only gate — Ozon is-required false-positives are ignored.
+    """
+    if requires_kiz_map is not None:
+        posting = _posting_payload_from_row(row)
+        products = _products_from_posting(posting) if posting else []
+        if products:
+            for p in products:
+                if bool(p.get("is_marketplace_buyout")):
+                    continue
+                sku_val = p.get("sku") if p.get("sku") is not None else p.get("product_id")
+                if catalog_requires_kiz(
+                    offer_id=p.get("offer_id"),
+                    sku=sku_val,
+                    requires_kiz_map=requires_kiz_map,
+                ):
+                    return True
+            return False
+        return catalog_requires_kiz(
+            offer_id=row.get("offer_id"),
+            sku=row.get("sku"),
+            requires_kiz_map=requires_kiz_map,
+        )
     if bool(row.get("is_mandatory_mark")):
         return True
     posting = _posting_payload_from_row(row)
@@ -1169,13 +1259,45 @@ def posting_requires_marking(row: dict[str, Any]) -> bool:
     return _mandatory_mark(posting, products)
 
 
-def marked_products_for_posting(posting: dict[str, Any]) -> list[dict[str, Any]]:
+def marked_products_for_posting(
+    posting: dict[str, Any],
+    *,
+    requires_kiz_map: dict[str, bool] | None = None,
+) -> list[dict[str, Any]]:
     """Product lines that need mandatory_mark codes (sku + qty)."""
     if not isinstance(posting, dict):
         return []
     products = _products_from_posting(posting)
+    if requires_kiz_map is not None:
+        out: list[dict[str, Any]] = []
+        for p in products:
+            if bool(p.get("is_marketplace_buyout")):
+                continue
+            sku_val = p.get("sku") if p.get("sku") is not None else p.get("product_id")
+            if not catalog_requires_kiz(
+                offer_id=p.get("offer_id"),
+                sku=sku_val,
+                requires_kiz_map=requires_kiz_map,
+            ):
+                continue
+            try:
+                pid = int(sku_val)
+            except (TypeError, ValueError):
+                continue
+            try:
+                qty = int(p.get("quantity") or 1)
+            except (TypeError, ValueError):
+                qty = 1
+            out.append(
+                {
+                    "product_id": pid,
+                    "quantity": max(qty, 1),
+                    "offer_id": p.get("offer_id"),
+                }
+            )
+        return out
     required_skus = _mandatory_mark_sku_ids(posting)
-    out: list[dict[str, Any]] = []
+    out = []
     for p in products:
         if bool(p.get("is_marketplace_buyout")):
             continue
@@ -1215,13 +1337,17 @@ def marked_products_for_posting(posting: dict[str, Any]) -> list[dict[str, Any]]
     return out
 
 
-def posting_marking_quantity(row: dict[str, Any]) -> int:
+def posting_marking_quantity(
+    row: dict[str, Any],
+    *,
+    requires_kiz_map: dict[str, bool] | None = None,
+) -> int:
     """How many KIZ codes the posting needs (sum of marked product qty)."""
     posting = _posting_payload_from_row(row)
-    marked = marked_products_for_posting(posting)
+    marked = marked_products_for_posting(posting, requires_kiz_map=requires_kiz_map)
     if marked:
         return sum(int(p.get("quantity") or 1) for p in marked)
-    if posting_requires_marking(row):
+    if posting_requires_marking(row, requires_kiz_map=requires_kiz_map):
         try:
             return max(int(row.get("quantity") or 1), 1)
         except (TypeError, ValueError):

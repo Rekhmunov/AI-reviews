@@ -852,6 +852,10 @@
                   <input type="checkbox" id="productFormSkipKizGtinCheck" />
                   <span>Без проверки GTIN маркировки (не сверять с ШК)</span>
                 </label>
+                <label class="product-form-field" style="grid-column:1 / -1;display:flex;align-items:center;gap:8px;margin:0">
+                  <input type="checkbox" id="productFormRequiresKiz" />
+                  <span>Требует КИЗ (Ozon FBS → блок «Маркировка»)</span>
+                </label>
                 <label class="product-form-field" style="grid-column:1 / -1">
                   <span>Название для этикетки ШК</span>
                   <textarea id="productFormBarcodeLabelName" rows="4" placeholder="Текст под штрихкодом на этикетке 58×40 мм" autocomplete="off"></textarea>
@@ -890,6 +894,7 @@
                   <col data-col="9">
                   <col data-col="10">
                   <col data-col="11">
+                  <col data-col="12">
                 </colgroup>
                 <thead>
                   <tr>
@@ -903,7 +908,8 @@
                     <th data-col="7">Категория товара<div class="col-resize-handle"></div></th>
                     <th data-col="8">Название для этикетки ШК<div class="col-resize-handle"></div></th>
                     <th data-col="9">ШК<div class="col-resize-handle"></div></th>
-                    <th data-col="10">Действия</th>
+                    <th data-col="10">Требует КИЗ<div class="col-resize-handle"></div></th>
+                    <th data-col="11">Действия</th>
                   </tr>
                 </thead>
                 <tbody id="productsTbody"></tbody>
