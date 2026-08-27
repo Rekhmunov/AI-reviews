@@ -116,7 +116,11 @@ def test_enrich_posting_marking_light_skips_exemplar_fallback() -> None:
     out = oz.enrich_posting_marking_flags_light(client, posting)
     client.product_exemplar_create_or_get.assert_not_called()
     client.product_exemplar_create_or_get_v5.assert_not_called()
-    assert out is posting
+    req = out.get("requirements") or {}
+    assert req.get("marking_is_required_checked") is True
+    assert oz.posting_requires_marking(
+        {"is_mandatory_mark": False, "raw_json": __import__("json").dumps(out)}
+    ) is False
 
 
 def test_enrich_posting_marking_from_exemplar_fallback() -> None:
