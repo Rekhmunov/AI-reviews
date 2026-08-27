@@ -54,8 +54,9 @@ class OzonFbsShipmentsHelpersTests(unittest.TestCase):
     def test_status_labels(self) -> None:
         self.assertEqual(_carriage_status_label(""), "Не сформирована")
         self.assertEqual(_carriage_status_label("new"), "Ожидает подтверждения")
-        self.assertEqual(_carriage_status_label("formed"), "Ожидает подтверждения")
+        self.assertEqual(_carriage_status_label("formed"), "Сформирована")
         self.assertEqual(_carriage_status_label("Не сформирована"), "Не сформирована")
+        self.assertEqual(_carriage_status_label("Сформирована"), "Сформирована")
         self.assertEqual(
             _carriage_status_label("Ожидает подтверждения"), "Ожидает подтверждения"
         )
@@ -185,7 +186,7 @@ class OzonFbsShipmentsHelpersTests(unittest.TestCase):
         )
         c = block["carriages"][0]
         self.assertEqual(c["label"], "Отгрузка119882557")
-        self.assertEqual(c["status_label"], "Ожидает подтверждения")
+        self.assertEqual(c["status_label"], "Сформирована")
         self.assertTrue(c["is_formed"])
         self.assertFalse(c["can_form"])
         client.carriage_get.assert_called_once_with(carriage_id=119882557)
@@ -240,7 +241,7 @@ class OzonFbsShipmentsHelpersTests(unittest.TestCase):
         self.assertEqual(view["selected_delivery_method_id"], 22)
         self.assertEqual(view["barcode"]["barcode_text"], "1020005028015630")
         self.assertEqual(
-            view["blocks"][0]["carriages"][0]["status_label"], "Ожидает подтверждения"
+            view["blocks"][0]["carriages"][0]["status_label"], "Сформирована"
         )
         client.carriage_delivery_list.assert_called_once()
         args = client.carriage_delivery_list.call_args.kwargs

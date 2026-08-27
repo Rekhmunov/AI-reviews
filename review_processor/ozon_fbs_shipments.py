@@ -41,8 +41,8 @@ def _friendly_ozon_api_error(exc: Exception) -> RuntimeError:
     ):
         return RuntimeError(
             "По этому методу доставки есть незакрытые отгрузки. "
-            "Подтвердите или закройте текущую отгрузку (статус «Ожидает подтверждения»), "
-            "затем сформируйте новую на нужную дату."
+            "Подтвердите или закройте текущую отгрузку, "
+            "иначе новую сформировать нельзя."
         )
     return RuntimeError(text)
 
@@ -316,10 +316,8 @@ def _carriage_status_label(status: object) -> str:
         return "Не сформирована"
     if low in {"new", "created", "pending"} or "ожидает подтвержд" in low:
         return "Ожидает подтверждения"
-    if low in {"formed", "formed_partially"} or "форм" in low:
-        # Seller portal shows «Ожидает подтверждения» for formed digital acts
-        # until the shipment is accepted at the drop-off point.
-        return "Ожидает подтверждения"
+    if low in {"formed", "formed_partially"} or ("форм" in low and "не" not in low):
+        return "Сформирована"
     if low in {"confirmed", "ready"} or "подтвержд" in low:
         return "Подтверждена"
     if low in {"sended", "sent", "shipped", "closed", "received", "completed"}:
@@ -510,7 +508,8 @@ def _normalize_carriage(
     open_act = _carriage_is_open(status, carriage_id=carriage_id)
     status_label = _carriage_status_label(status) if open_act or status else "Не сформирована"
     if carriage_id is not None and status_label == "Не сформирована":
-        status_label = "Ожидает подтверждения"
+        # Act exists but list status was empty/unknown — treat as formed draft on portal.
+        status_label = "Сформирована"
         open_act = True
     label = f"Отгрузка{carriage_id}" if carriage_id is not None else f"Отгрузка {idx}"
     return {
@@ -862,7 +861,7 @@ def form_shipment(
     )
     if not any_can_form:
         raise RuntimeError(
-            "Отгрузка уже сформирована (статус «Ожидает подтверждения»). "
+            "Отгрузка уже сформирована. "
             "Повторно нажимать «Сформировать» не нужно — используйте штрихкод поставки."
         )
     dep_iso = str(view.get("departure_date_api") or _departure_iso(day))
