@@ -3976,7 +3976,7 @@
     if (scan) scan.value = "";
     let loadOk = false;
     try {
-      const params = new URLSearchParams({ source_id: String(sourceId), refresh: "1" });
+      const params = new URLSearchParams({ source_id: String(sourceId) });
       const res = await fetch(
         `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/marking?${params}`
       );
@@ -4096,7 +4096,11 @@
       if (ozonFbsKizState.statusRefreshGen !== refreshGen) return;
       _ozonFbsKizMergeStatusIntoDetail(data.orders || []);
       const info = document.getElementById("ozonFbsSupplyDetailInfo");
-      if (info) {
+      const refreshNote = String(data.refresh_note || "").trim();
+      if (info && refreshNote) {
+        info.hidden = false;
+        info.textContent = refreshNote;
+      } else if (info) {
         info.hidden = true;
         info.textContent = "";
       }
@@ -4527,7 +4531,7 @@
     if (scan) scan.value = "";
     let loadOk = false;
     try {
-      const params = new URLSearchParams({ source_id: String(sourceId), refresh: "1" });
+      const params = new URLSearchParams({ source_id: String(sourceId) });
       const res = await fetch(
         `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/pick-verify?${params}`
       );

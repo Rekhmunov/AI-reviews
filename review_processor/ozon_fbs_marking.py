@@ -14,6 +14,81 @@ from .repository import ReviewRepository
 
 _log = logging.getLogger(__name__)
 
+# Live Ozon get_posting per posting — cap to avoid gateway timeouts on ↻ refresh.
+MARKING_OZON_REFRESH_MAX = 40
+
+
+def _posting_numbers_for_marking_refresh(orders: list[dict[str, Any]]) -> list[str]:
+    """Prefer postings that already need marking; else all non-cancelled in supply."""
+    flagged: list[str] = []
+    fallback: list[str] = []
+    for o in orders:
+        if not isinstance(o, dict) or oz.posting_row_is_cancelled(o):
+            continue
+        pn = str(o.get("posting_number") or "").strip()
+        if not pn:
+            continue
+        fallback.append(pn)
+        if o.get("kiz_required") or oz.posting_requires_marking(o):
+            flagged.append(pn)
+    return flagged if flagged else fallback
+
+
+def _supply_detail_for_marking(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    client_id: str | None = None,
+    api_key: str | None = None,
+    refresh_from_ozon: bool = False,
+) -> tuple[dict[str, Any], str]:
+    """Load supply detail for marking; optional capped live Ozon refresh."""
+    detail = oz_sup.get_supply_detail(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=supply_id,
+        client_id=client_id,
+        api_key=api_key,
+        refresh_from_ozon=False,
+    )
+    note = ""
+    if not refresh_from_ozon:
+        return detail, note
+    cid = str(client_id or "").strip()
+    key = str(api_key or "").strip()
+    if not cid or not key:
+        return detail, note
+    orders = [o for o in (detail.get("orders") or []) if isinstance(o, dict)]
+    pns = _posting_numbers_for_marking_refresh(orders)
+    if len(pns) > MARKING_OZON_REFRESH_MAX:
+        pns = pns[:MARKING_OZON_REFRESH_MAX]
+        note = (
+            f"Обновлены первые {MARKING_OZON_REFRESH_MAX} отправлений с маркировкой. "
+            "Для полной синхронизации нажмите «Синхронизировать» на вкладке Ozon FBS."
+        )
+    if pns:
+        oz_sup.refresh_supply_postings_from_ozon(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            posting_numbers=pns,
+            client_id=cid,
+            api_key=key,
+        )
+        detail = oz_sup.get_supply_detail(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=supply_id,
+            client_id=client_id,
+            api_key=api_key,
+            refresh_from_ozon=False,
+        )
+    return detail, note
+
 
 def _normalize_mark_code(value: object) -> str:
     """Parity with WB FBS: ↔ → GS (\\u001D), then trim edges without stripping GS."""
@@ -204,10 +279,10 @@ def build_marking_payload(
 ) -> dict[str, Any]:
     """Marking modal rows from local DB by default.
 
-    Pass ``refresh_from_ozon=True`` only when opening the modal or from the
-    manual refresh control — live Ozon get per posting is slow.
+    Pass ``refresh_from_ozon=True`` only from the manual ↻ refresh control —
+    live Ozon get per posting is slow and must not run when opening the modal.
     """
-    detail = oz_sup.get_supply_detail(
+    detail, refresh_note = _supply_detail_for_marking(
         repo,
         user_id=user_id,
         source_id=source_id,
@@ -283,6 +358,7 @@ def build_marking_payload(
         "source_id": source_id,
         "rows": rows,
         "required_count": sum(1 for o in orders if o.get("kiz_required")),
+        "refresh_note": refresh_note,
     }
 
 
@@ -516,10 +592,10 @@ def check_supply_marking_status(
 ) -> dict[str, Any]:
     """Marking badge refresh for supply detail (local DB by default).
 
-    Pass ``refresh_from_ozon=True`` only from the manual refresh control —
-    live Ozon get per posting is slow and must not run on every table re-render.
+    Pass ``refresh_from_ozon=True`` only from the manual ↻ refresh control —
+    live Ozon get per posting is slow and must not run when opening the modal.
     """
-    detail = oz_sup.get_supply_detail(
+    detail, refresh_note = _supply_detail_for_marking(
         repo,
         user_id=user_id,
         source_id=source_id,
@@ -587,4 +663,5 @@ def check_supply_marking_status(
         "empty": empty,
         "status": tone,
         "orders": status_rows,
+        "refresh_note": refresh_note,
     }
