@@ -47,6 +47,8 @@
     sourceId: null,
     supply: null,
     selected: new Set(),
+    /** Tab scope for this open (awaiting_deliver / delivering); filters orders/print. */
+    postingTab: null,
     /** False until supply detail (orders) finished loading. */
     ordersReady: false,
   };
@@ -1151,6 +1153,7 @@
     supplyDetailState.sourceId = null;
     supplyDetailState.supply = null;
     supplyDetailState.selected = new Set();
+    supplyDetailState.postingTab = null;
     _ozonFbsSupplyDetailSetActionsReady(false);
   }
 
@@ -1491,12 +1494,18 @@
     if (!readOnly) syncSupplyDetailSelectAll();
   }
 
+  function _ozonFbsSupplyPostingTabParam() {
+    const tab = String(supplyDetailState.postingTab || "").trim();
+    return tab ? `&posting_tab=${encodeURIComponent(tab)}` : "";
+  }
+
   async function openSupplyDetailModal(supplyId) {
     const sid = String(supplyId || "").trim();
     if (!sid || !state.sourceId) return;
     supplyDetailState.supplyId = sid;
     supplyDetailState.sourceId = state.sourceId;
     supplyDetailState.selected = new Set();
+    supplyDetailState.postingTab = isSuppliesTab() ? String(state.tab || "").trim() : null;
     _ozonFbsSupplyDetailSetActionsReady(false);
     _ozonFbsKizSplitSetTone("");
     const kizSplitOpen = document.getElementById("ozonFbsKizSplit");
@@ -1513,7 +1522,7 @@
     if (tbody) tbody.innerHTML = `<tr><td colspan="${detailColspan}" class="wb-fbs-empty">Загрузка…</td></tr>`;
     if (modal) modal.classList.remove("hidden");
     try {
-      const tabParam = readOnly ? "&posting_tab=delivering" : "";
+      const tabParam = _ozonFbsSupplyPostingTabParam();
       const res = await fetch(
         `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/detail?source_id=${state.sourceId}${tabParam}`
       );
@@ -1765,7 +1774,7 @@
     if (caret) caret.disabled = true;
     const url =
       `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/picking-list` +
-      `?source_id=${sourceId}`;
+      `?source_id=${sourceId}${_ozonFbsSupplyPostingTabParam()}`;
     openPrintHtml(url, "Разрешите всплывающие окна для листа подбора")
       .catch((e) => alert(String(e.message || e)))
       .finally(() => {
@@ -1811,7 +1820,7 @@
       : [];
     let url =
       `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/stickers-print` +
-      `?source_id=${sourceId}`;
+      `?source_id=${sourceId}${_ozonFbsSupplyPostingTabParam()}`;
     if (ids.length) url += `&order_ids=${encodeURIComponent(ids.join(","))}`;
     openPrintHtml(url, "Разрешите всплывающие окна для стикеров")
       .catch((e) => alert(String(e.message || e)))
@@ -1976,7 +1985,7 @@
     _ozonFbsStickersCategoryRender();
     try {
       const res = await fetch(
-        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/sticker-groups?source_id=${sourceId}`
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/sticker-groups?source_id=${sourceId}${_ozonFbsSupplyPostingTabParam()}`
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);

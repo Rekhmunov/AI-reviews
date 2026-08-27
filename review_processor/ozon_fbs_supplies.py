@@ -1739,9 +1739,25 @@ def get_supply_detail_for_print(
     source_id: int,
     supply_id: str,
     kind: str = "print",
+    posting_tab: str | None = None,
 ) -> dict[str, Any]:
-    """Detail for print: verify supply↔assembly composition, then load orders."""
+    """Detail for print.
+
+    When ``posting_tab`` is set (e.g. awaiting_deliver / delivering), only orders
+    on that tab are included — so a mixed supply no longer prints already-moved
+    «Доставляются» postings from the awaiting_deliver UI.
+    Without tab, keep the full supply↔assembly composition gate.
+    """
     sid = str(supply_id or "").strip()
+    tab_key = str(posting_tab or "").strip() or None
+    if tab_key:
+        return get_supply_detail(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=sid,
+            posting_tab=tab_key,
+        )
     verified = ensure_supply_ready_for_print(
         repo,
         user_id=user_id,
@@ -2672,6 +2688,7 @@ def build_stickers_print(
     api_key: str,
     source_name: str = "",
     posting_numbers_filter: list[str] | None = None,
+    posting_tab: str | None = None,
 ) -> StickersPrintResult:
     detail = get_supply_detail_for_print(
         repo,
@@ -2683,6 +2700,7 @@ def build_stickers_print(
             if posting_numbers_filter is not None
             else "stickers"
         ),
+        posting_tab=posting_tab,
     )
     orders = _orders_excluding_cancelled(list(detail.get("orders") or []))
     if posting_numbers_filter is not None:

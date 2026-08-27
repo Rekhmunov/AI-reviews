@@ -13258,7 +13258,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.get("/api/ozon-fbs/supplies/{supply_id}/picking-list")
     def ozon_fbs_supply_picking_list(
-        request: Request, supply_id: str, source_id: int
+        request: Request,
+        supply_id: str,
+        source_id: int,
+        posting_tab: str | None = None,
     ) -> Response:
         from . import ozon_fbs_supplies as oz_sup
 
@@ -13269,6 +13272,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id")
         _ozon_fbs_source_credentials(owner_id, int(source_id))
+        tab_key = str(posting_tab or "").strip() or None
         try:
             detail = oz_sup.get_supply_detail_for_print(
                 repository,
@@ -13276,6 +13280,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 source_id=int(source_id),
                 supply_id=str(supply_id),
                 kind="picking_list",
+                posting_tab=tab_key,
             )
             html_doc = oz_sup.render_picking_list_html(detail)
         except ValueError as exc:
@@ -13286,7 +13291,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.get("/api/ozon-fbs/supplies/{supply_id}/sticker-groups")
     def ozon_fbs_supply_sticker_groups(
-        request: Request, supply_id: str, source_id: int
+        request: Request,
+        supply_id: str,
+        source_id: int,
+        posting_tab: str | None = None,
     ) -> dict[str, object]:
         from . import ozon_fbs_supplies as oz_sup
 
@@ -13297,6 +13305,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id")
         _ozon_fbs_source_credentials(owner_id, int(source_id))
+        tab_key = str(posting_tab or "").strip() or None
         try:
             detail = oz_sup.get_supply_detail_for_print(
                 repository,
@@ -13304,6 +13313,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 source_id=int(source_id),
                 supply_id=str(supply_id),
                 kind="sticker_groups",
+                posting_tab=tab_key,
             )
             return oz_sup.list_sticker_groups(detail)
         except ValueError as exc:
@@ -13317,6 +13327,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         supply_id: str,
         source_id: int,
         order_ids: str = "",
+        posting_tab: str | None = None,
     ) -> Response:
         from . import ozon_fbs_supplies as oz_sup
 
@@ -13332,6 +13343,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             for p in str(order_ids or "").replace(";", ",").split(",")
             if p.strip()
         ]
+        tab_key = str(posting_tab or "").strip() or None
         try:
             result = oz_sup.build_stickers_print(
                 repository,
@@ -13342,6 +13354,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 api_key=api_key,
                 source_name=str(src_full.get("name") or ""),
                 posting_numbers_filter=selected or None,
+                posting_tab=tab_key,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
