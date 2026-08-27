@@ -80,10 +80,19 @@ def ensure_ozon_fbs_supply_schema(repo: ReviewRepository) -> None:
         )
 
 
-def default_supply_name(*, when: datetime | None = None) -> str:
-    """Same pattern as WB FBS: Поставка от ДД.ММ.ГГГГ (MSK)."""
+def _source_display_name(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> str:
+    src = repo.get_supply_source_with_key(user_id=user_id, source_id=source_id)
+    name = str((src or {}).get("name") or "").strip()
+    return name or f"Источник {source_id}"
+
+
+def default_supply_name(*, source_name: str, when: datetime | None = None) -> str:
+    """``Поставка «Название источника» от ДД.ММ.ГГГГ`` (MSK)."""
     dt = when or datetime.now(ZoneInfo("Europe/Moscow"))
-    return f"Поставка от {dt.strftime('%d.%m.%Y')}"
+    label = str(source_name or "").strip() or "—"
+    return f"Поставка «{label}» от {dt.strftime('%d.%m.%Y')}"
 
 
 def _unique_supply_name(base: str, existing_names: set[str]) -> str:
@@ -261,6 +270,7 @@ def preview_ship_all_collect(
     reserved = set(existing_names)
     empties_pool = [s for s in open_supplies if s.get("is_empty")]
 
+    source_name = _source_display_name(repo, user_id=user_id, source_id=source_id)
     groups: list[dict[str, Any]] = []
     for warehouse_id in sorted(buckets.keys(), key=lambda x: (x is None, str(x))):
         bucket = buckets[warehouse_id]
@@ -283,7 +293,7 @@ def preview_ship_all_collect(
                 and int(sw) == int(warehouse_id)
             ):
                 matching.append(s)
-        base = default_supply_name()
+        base = default_supply_name(source_name=source_name)
         suggested = _unique_supply_name(base, reserved)
         reserved.add(suggested)
         group_key = f"wh{warehouse_id if warehouse_id is not None else 'none'}"
@@ -342,6 +352,7 @@ def preview_ship_all_collect(
         "groups": groups,
         "needs_modal": needs_modal,
         "existing_names": sorted(existing_names),
+        "source_name": source_name,
     }
 
 
@@ -377,7 +388,12 @@ def _create_local_supply(
                 user_id,
                 source_id,
                 sid,
-                str(name or "").strip() or default_supply_name(),
+                str(name or "").strip()
+                or default_supply_name(
+                    source_name=_source_display_name(
+                        repo, user_id=user_id, source_id=source_id
+                    )
+                ),
                 wh_id,
                 str(warehouse_name or "").strip(),
                 json.dumps(nums, ensure_ascii=False),
@@ -581,6 +597,7 @@ def execute_ship_all_collect(
         for s in list_open_supplies(repo, user_id=user_id, source_id=source_id)
         if str(s.get("name") or "").strip()
     }
+    source_name = _source_display_name(repo, user_id=user_id, source_id=source_id)
 
     for dec in decisions or []:
         if not isinstance(dec, dict):
@@ -618,7 +635,10 @@ def execute_ship_all_collect(
         try:
             if action == "create":
                 name = str(dec.get("name") or group.get("suggested_name") or "").strip()
-                name = _unique_supply_name(name or default_supply_name(), open_names)
+                name = _unique_supply_name(
+                    name or default_supply_name(source_name=source_name),
+                    open_names,
+                )
                 sid = _create_local_supply(
                     repo,
                     user_id=user_id,
@@ -873,7 +893,10 @@ def preview_selection_supply(
             source_id=source_id,
             warehouse_id=traits.get("warehouse_id"),
         )
-    suggested = _unique_supply_name(default_supply_name(), set(existing_names))
+    source_name = _source_display_name(repo, user_id=user_id, source_id=source_id)
+    suggested = _unique_supply_name(
+        default_supply_name(source_name=source_name), set(existing_names)
+    )
     return {
         "ok": not uniq,
         "errors": uniq,
@@ -1123,7 +1146,7 @@ def adopt_orphan_awaiting_deliver_postings(
     """Wrap orphan awaiting_deliver postings into local supplies (WB-like rules).
 
     - Same warehouse as an open non-empty supply → add there
-    - Else create ``Поставка от ДД.ММ.ГГГГ`` (+ uniqueness)
+    - Else create ``Поставка «источник» от ДД.ММ.ГГГГ`` (+ uniqueness)
     Does not call Ozon API — postings are already shipped.
     """
     ensure_ozon_fbs_supply_schema(repo)
@@ -1144,6 +1167,7 @@ def adopt_orphan_awaiting_deliver_postings(
         for s in open_supplies
         if str(s.get("name") or "").strip()
     }
+    source_name = _source_display_name(repo, user_id=user_id, source_id=source_id)
     created: list[dict[str, str]] = []
     group_lines: list[str] = []
     adopted = 0
@@ -1208,7 +1232,9 @@ def adopt_orphan_awaiting_deliver_postings(
             adopted += len(posting_numbers)
             continue
 
-        name = _unique_supply_name(default_supply_name(), open_names)
+        name = _unique_supply_name(
+            default_supply_name(source_name=source_name), open_names
+        )
         sid = _create_local_supply(
             repo,
             user_id=user_id,

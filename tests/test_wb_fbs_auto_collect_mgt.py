@@ -100,10 +100,11 @@ def test_auto_plan_skips_when_several_mgt_or_empty() -> None:
 
 
 def test_auto_plan_ignores_non_mgt_and_creates_when_name_free() -> None:
-    template = default_mgt_supply_name(is_b2b=False)
+    template = default_mgt_supply_name(source_name="ИП Тест", is_b2b=False)
     preview = {
         "mgt_count": 1,
         "existing_names": ["SGT поставка"],
+        "source_name": "ИП Тест",
         "groups": [
             {
                 "group_key": "g1",
@@ -131,10 +132,11 @@ def test_auto_plan_ignores_non_mgt_and_creates_when_name_free() -> None:
 
 
 def test_auto_plan_skips_create_when_template_name_exists() -> None:
-    template = default_mgt_supply_name(is_b2b=False)
+    template = default_mgt_supply_name(source_name="ИП Тест", is_b2b=False)
     preview = {
         "mgt_count": 1,
         "existing_names": [template],
+        "source_name": "ИП Тест",
         "groups": [
             {
                 "group_key": "g1",

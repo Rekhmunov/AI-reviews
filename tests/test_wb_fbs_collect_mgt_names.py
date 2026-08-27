@@ -8,21 +8,26 @@ from review_processor.wb_fbs import (
     default_mgt_supply_name,
 )
 
+_SOURCE = "ИП Тест ФБС"
+
 
 def test_unique_supply_name_leaves_free_title() -> None:
-    assert _unique_supply_name("Поставка от 07.08.2026", set()) == "Поставка от 07.08.2026"
+    assert _unique_supply_name(
+        'Поставка «ИП Тест ФБС» от 07.08.2026', set()
+    ) == 'Поставка «ИП Тест ФБС» от 07.08.2026'
 
 
 def test_unique_supply_name_suffixes_when_taken() -> None:
-    existing = {"Поставка от 07.08.2026"}
-    assert _unique_supply_name("Поставка от 07.08.2026", existing) == (
-        "Поставка от 07.08.2026 (2)"
-    )
+    existing = {'Поставка «ИП Тест ФБС» от 07.08.2026'}
+    assert _unique_supply_name(
+        'Поставка «ИП Тест ФБС» от 07.08.2026', existing
+    ) == ('Поставка «ИП Тест ФБС» от 07.08.2026 (2)')
 
 
 def test_plan_mgt_group_name_has_no_warehouse_suffix() -> None:
     existing: set[str] = set()
     group = _plan_mgt_group(
+        source_name=_SOURCE,
         is_b2b=False,
         order_ids=[101, 102],
         mgt_matching=[],
@@ -35,7 +40,9 @@ def test_plan_mgt_group_name_has_no_warehouse_suffix() -> None:
     name = str(group["suggested_name"])
     assert "склад" not in name.lower()
     assert "1943422" not in name
-    assert name.startswith("Поставка от ")
+    assert name.startswith('Поставка «')
+    assert _SOURCE in name
+    assert " от " in name
     # Suggested title is reserved in the working set, but not marked as conflict.
     assert group["name_conflict"] is False
     assert name in existing
@@ -45,6 +52,7 @@ def test_plan_mgt_group_second_bucket_gets_suffix_not_false_conflict() -> None:
     """Two create-buckets share the date title — second gets (2), no conflict flag."""
     reserved: set[str] = set()
     g1 = _plan_mgt_group(
+        source_name=_SOURCE,
         is_b2b=False,
         order_ids=[1],
         mgt_matching=[],
@@ -53,6 +61,7 @@ def test_plan_mgt_group_second_bucket_gets_suffix_not_false_conflict() -> None:
         warehouse_id=111,
     )
     g2 = _plan_mgt_group(
+        source_name=_SOURCE,
         is_b2b=False,
         order_ids=[2],
         mgt_matching=[],
@@ -87,14 +96,18 @@ def test_preview_existing_names_must_not_include_suggested(monkeypatch) -> None:
     monkeypatch.setattr(wb, "_load_new_mgt_orders", fake_orders)
     monkeypatch.setattr(wb, "list_supplies", fake_supplies)
     monkeypatch.setattr(wb, "ensure_wb_fbs_tables", lambda repo: None)
+    monkeypatch.setattr(
+        wb, "_source_display_name", lambda repo, *, user_id, source_id: _SOURCE
+    )
 
     preview = wb.preview_collect_mgt(object(), user_id=1, source_id=2)
     assert preview["ok"] is True
     assert preview["groups"]
+    assert preview["source_name"] == _SOURCE
     suggested = str(preview["groups"][0]["suggested_name"])
     existing = set(preview["existing_names"] or [])
     assert suggested not in existing
     assert "склад" not in suggested.lower()
-    assert suggested == default_mgt_supply_name(is_b2b=False) or suggested.startswith(
-        "Поставка от "
-    )
+    assert suggested == default_mgt_supply_name(
+        source_name=_SOURCE, is_b2b=False
+    ) or suggested.startswith('Поставка «')

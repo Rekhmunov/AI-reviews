@@ -17,19 +17,25 @@ from review_processor.ozon_fbs_supplies import (
 
 
 class OzonFbsLocalSuppliesTests(unittest.TestCase):
+    _SOURCE = "Ozon FBS Shop"
+
     def test_default_supply_name_msk_date(self) -> None:
         when = datetime(2026, 8, 25, 15, 0, tzinfo=ZoneInfo("Europe/Moscow"))
-        self.assertEqual(default_supply_name(when=when), "Поставка от 25.08.2026")
+        self.assertEqual(
+            default_supply_name(source_name=self._SOURCE, when=when),
+            "Поставка «Ozon FBS Shop» от 25.08.2026",
+        )
 
     def test_unique_supply_name_suffixes(self) -> None:
-        existing = {"Поставка от 25.08.2026"}
+        base = "Поставка «Ozon FBS Shop» от 25.08.2026"
+        existing = {base}
         self.assertEqual(
-            _unique_supply_name("Поставка от 25.08.2026", existing),
-            "Поставка от 25.08.2026 (2)",
+            _unique_supply_name(base, existing),
+            f"{base} (2)",
         )
         self.assertEqual(
-            _unique_supply_name("Поставка от 25.08.2026", set()),
-            "Поставка от 25.08.2026",
+            _unique_supply_name(base, set()),
+            base,
         )
 
     def test_preview_create_mode_groups_by_warehouse(self) -> None:
@@ -59,6 +65,9 @@ class OzonFbsLocalSuppliesTests(unittest.TestCase):
         ), patch(
             "review_processor.ozon_fbs_supplies.list_open_supplies",
             return_value=[],
+        ), patch(
+            "review_processor.ozon_fbs_supplies._source_display_name",
+            return_value=self._SOURCE,
         ):
             preview = preview_ship_all_collect(repo, user_id=1, source_id=2)
 
@@ -68,7 +77,8 @@ class OzonFbsLocalSuppliesTests(unittest.TestCase):
         self.assertTrue(all(g["mode"] == "create" for g in preview["groups"]))
         names = [g["suggested_name"] for g in preview["groups"]]
         self.assertNotEqual(names[0], names[1])
-        self.assertTrue(all(n.startswith("Поставка от ") for n in names))
+        self.assertTrue(all(n.startswith("Поставка «") for n in names))
+        self.assertTrue(all(self._SOURCE in n for n in names))
         self.assertNotIn("склад", names[0].lower())
         for n in names:
             self.assertNotIn(n, preview["existing_names"])

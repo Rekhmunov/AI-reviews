@@ -225,12 +225,23 @@ def order_portal_status_label(*, supplier_status: object = "", wb_status: object
     return ws or ""
 
 
-def default_mgt_supply_name(*, is_b2b: bool, when: datetime | None = None) -> str:
-    """Default editable title: ``Поставка от ДД.ММ.ГГГГ`` (+ `` B2B``)."""
+def _source_display_name(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> str:
+    src = repo.get_supply_source_with_key(user_id=user_id, source_id=source_id)
+    name = str((src or {}).get("name") or "").strip()
+    return name or f"Источник {source_id}"
+
+
+def default_mgt_supply_name(
+    *, source_name: str, is_b2b: bool = False, when: datetime | None = None
+) -> str:
+    """Default editable title: ``Поставка «…» от ДД.ММ.ГГГГ`` (+ `` B2B``)."""
     from zoneinfo import ZoneInfo
 
     dt = when or datetime.now(ZoneInfo("Europe/Moscow"))
-    base = f"Поставка от {dt.strftime('%d.%m.%Y')}"
+    label = str(source_name or "").strip() or "—"
+    base = f"Поставка «{label}» от {dt.strftime('%d.%m.%Y')}"
     return f"{base} B2B" if is_b2b else base
 
 
@@ -4659,7 +4670,8 @@ def plan_auto_collect_mgt_decisions(
             continue
         if mode == "create":
             # Exact template only — never auto-suffix «(2)».
-            template = default_mgt_supply_name(is_b2b=is_b2b)
+            source_name = str(preview.get("source_name") or "").strip()
+            template = default_mgt_supply_name(source_name=source_name, is_b2b=is_b2b)
             if template in existing_names or template in claimed_create_names:
                 return None, "name_conflict"
             claimed_create_names.add(template)
@@ -5215,6 +5227,7 @@ def _supply_matches_mgt_traits(
 
 def _plan_mgt_group(
     *,
+    source_name: str,
     is_b2b: bool,
     order_ids: list[int],
     mgt_matching: list[dict[str, Any]],
@@ -5234,8 +5247,8 @@ def _plan_mgt_group(
         warehouse_id=warehouse_id,
         cross_border_type=cross_border_type,
     )
-    # Title is date (+ B2B) only — warehouse stays in group label, not in supply name.
-    base_name = default_mgt_supply_name(is_b2b=is_b2b)
+    # Title is source + date (+ B2B) — warehouse stays in group label, not in supply name.
+    base_name = default_mgt_supply_name(source_name=source_name, is_b2b=is_b2b)
     suggested = _unique_supply_name(base_name, existing_names)
     candidates = list(mgt_matching) + list(empties)
     group: dict[str, Any] = {
@@ -5345,6 +5358,7 @@ def preview_collect_mgt(
     reserved_names = set(existing_names)
 
     # Non-B2B buckets first — they claim empty supplies before B2B.
+    source_name = _source_display_name(repo, user_id=user_id, source_id=source_id)
     ordered_keys = sorted(buckets.keys(), key=lambda k: (bool(k[0]), str(k[1]), str(k[2])))
     groups: list[dict[str, Any]] = []
     for is_b2b, warehouse_id, cross_border_type in ordered_keys:
@@ -5365,6 +5379,7 @@ def preview_collect_mgt(
         ]
         # Empties pool: only for this bucket's planning; non-B2B clears claimed ones.
         group = _plan_mgt_group(
+            source_name=source_name,
             is_b2b=bool(is_b2b),
             order_ids=order_ids,
             mgt_matching=matching,
@@ -5383,6 +5398,7 @@ def preview_collect_mgt(
         "groups": groups,
         "needs_modal": needs_modal,
         "existing_names": sorted(existing_names),
+        "source_name": source_name,
     }
 
 
@@ -6149,7 +6165,10 @@ def preview_selection_supply(
             repo, user_id=user_id, source_id=source_id, traits=traits
         )
 
-    suggested = default_mgt_supply_name(is_b2b=bool(traits.get("is_b2b")))
+    source_name = _source_display_name(repo, user_id=user_id, source_id=source_id)
+    suggested = default_mgt_supply_name(
+        source_name=source_name, is_b2b=bool(traits.get("is_b2b"))
+    )
     return {
         "ok": not uniq_errors,
         "errors": uniq_errors,
