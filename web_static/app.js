@@ -18897,7 +18897,7 @@ async function syncWbFbsReturnsGoods(options) {
         syncInfo.textContent = "Синхронизация уже идёт — жду завершения…";
       }
       const startedAt = Date.now();
-      const maxWaitMs = 12 * 60 * 1000;
+      const maxWaitMs = 35 * 60 * 1000;
       while (Date.now() - startedAt < maxWaitMs) {
         await new Promise((r) => setTimeout(r, 2000));
         const statusRes = await fetch(
@@ -18911,7 +18911,14 @@ async function syncWbFbsReturnsGoods(options) {
           );
         }
         const st = String(statusPayload.status || "");
-        if (st === "running") continue;
+        if (st === "running") {
+          const elapsedMin = Math.floor((Date.now() - startedAt) / 60000);
+          if (syncInfo && elapsedMin >= 3) {
+            syncInfo.textContent =
+              `Синхронизация WB… (${elapsedMin} мин). При лимите WB ожидание до ~30 мин — не закрывайте окно.`;
+          }
+          continue;
+        }
         if (st === "idle") {
           throw new Error("Синхронизация прервана — повторите «Синхр. WB»");
         }
@@ -18925,7 +18932,7 @@ async function syncWbFbsReturnsGoods(options) {
       }
       if (String(result.status || "") === "running") {
         throw new Error(
-          "Синхронизация WB затянулась. Если на сервере она ещё идёт — подождите 1–2 мин и нажмите «Синхр. WB» снова (не запускайте для другого источника подряд).",
+          "Синхронизация WB затянулась (>35 мин). На сервере она может ещё идти — подождите и нажмите «Синхр. WB» снова.",
         );
       }
     }
