@@ -3652,9 +3652,10 @@
 
   function _ozonFbsResolveProgressText(progress) {
     const checked = Number(progress?.checkedTotal || 0);
-    const remaining = progress?.remaining;
-    if (checked && remaining != null && remaining > 0) {
-      return `Определение маркировки… проверено ${checked}, осталось ${remaining}`;
+    const remaining = Number(progress?.remaining);
+    if (checked && Number.isFinite(remaining) && remaining > 0) {
+      const total = checked + remaining;
+      return `Определение маркировки… проверено ${checked} из ${total}`;
     }
     if (checked) {
       return `Определение маркировки… проверено ${checked}`;

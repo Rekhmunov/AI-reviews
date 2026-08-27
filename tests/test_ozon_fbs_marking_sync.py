@@ -244,8 +244,11 @@ def test_build_marking_payload_resolves_kiz_then_filters_rows() -> None:
             posting_tab="awaiting_deliver",
         )
     resolve.assert_called_once()
+    assert resolve.call_args.kwargs.get("supply_id") == "OZ-1"
+    assert resolve.call_args.kwargs.get("source_id") == 2
     assert resolve.call_args.kwargs.get("posting_tab") == "awaiting_deliver"
     assert get_detail.call_args.kwargs.get("posting_tab") == "awaiting_deliver"
+    assert get_detail.call_args.kwargs.get("supply_id") == "OZ-1"
     assert len(payload["rows"]) == 1
     assert payload["rows"][0]["posting_number"] == "K-1"
     assert len(payload["order_kiz_flags"]) == 2
