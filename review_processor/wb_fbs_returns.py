@@ -607,18 +607,62 @@ def sync_goods_returns(
 
 
 def _goods_return_rows(repo: ReviewRepository, *, user_id: int, source_id: int) -> list[dict[str, Any]]:
+    return list_goods_returns(repo, user_id=user_id, source_id=source_id)
+
+
+def _goods_return_raw_fields(row: dict[str, Any]) -> dict[str, Any]:
+    try:
+        raw = json.loads(str(row.get("raw_json") or "{}") or "{}")
+    except Exception:
+        raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    return raw
+
+
+def list_goods_returns(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    date_from: str = "",
+    date_to: str = "",
+    search: str = "",
+) -> list[dict[str, Any]]:
+    """Rows from ``wb_fbs_goods_returns`` (WB goods-return sync cache)."""
     ensure_wb_fbs_returns_tables(repo)
+    clauses = ["user_id = ?", "source_id = ?"]
+    params: list[Any] = [user_id, source_id]
+    df = _parse_iso_date(date_from)
+    dt = _parse_iso_date(date_to)
+    if df:
+        clauses.append("COALESCE(NULLIF(order_dt, ''), ready_to_return_dt, completed_dt) >= ?")
+        params.append(df)
+    if dt:
+        clauses.append("COALESCE(NULLIF(order_dt, ''), ready_to_return_dt, completed_dt) <= ?")
+        params.append(dt)
+    q = str(search or "").strip()
+    if q:
+        pattern = f"%{q}%"
+        clauses.append(
+            """(
+                CAST(wb_order_id AS TEXT) ILIKE ?
+                OR sticker_id ILIKE ?
+                OR barcode ILIKE ?
+                OR shk_id ILIKE ?
+                OR srid ILIKE ?
+                OR status ILIKE ?
+                OR reason ILIKE ?
+            )"""
+        )
+        params.extend([pattern] * 7)
+    sql = (
+        "SELECT * FROM wb_fbs_goods_returns WHERE "
+        + " AND ".join(clauses)
+        + " ORDER BY COALESCE(NULLIF(order_dt, ''), ready_to_return_dt, completed_dt) DESC, synced_at DESC"
+    )
     with repo._connect() as conn:
-        rows = conn.execute(
-            repo._sql(
-                """
-                SELECT * FROM wb_fbs_goods_returns
-                WHERE user_id = ? AND source_id = ?
-                ORDER BY synced_at DESC
-                """
-            ),
-            (user_id, source_id),
-        ).fetchall()
+        rows = conn.execute(repo._sql(sql), tuple(params)).fetchall()
     return [repo._row_to_dict(r) for r in rows]
 
 
@@ -1447,6 +1491,61 @@ def build_return_order_preview(
 
 def render_kiz_print_png(kiz_code: str) -> str:
     return kiz_restore.kiz_datamatrix_png_base64(kiz_code)
+
+
+def export_goods_returns_csv(rows: list[dict[str, Any]]) -> str:
+    """CSV export of synced WB Analytics goods-return report rows."""
+    buf = io.StringIO()
+    writer = csv.writer(buf, delimiter=";")
+    writer.writerow(
+        [
+            "Заказ (orderId)",
+            "Стикер возврата (stickerId)",
+            "Баркод товара (barcode)",
+            "ШК (shkId)",
+            "srid",
+            "Артикул WB (nmId)",
+            "Статус",
+            "Причина",
+            "Тип возврата",
+            "Дата заказа",
+            "Готов к выдаче",
+            "Выдан",
+            "Истекает",
+            "ПВЗ",
+            "Бренд",
+            "Предмет",
+            "Размер",
+            "Активный статус",
+            "Синхронизировано",
+        ]
+    )
+    for row in rows:
+        raw = _goods_return_raw_fields(row)
+        writer.writerow(
+            [
+                str(row.get("wb_order_id") or ""),
+                str(row.get("sticker_id") or ""),
+                str(row.get("barcode") or ""),
+                str(row.get("shk_id") or ""),
+                str(row.get("srid") or ""),
+                str(row.get("nm_id") or ""),
+                str(row.get("status") or ""),
+                str(row.get("reason") or ""),
+                str(raw.get("returnType") or ""),
+                str(row.get("order_dt") or raw.get("orderDt") or ""),
+                str(row.get("ready_to_return_dt") or raw.get("readyToReturnDt") or ""),
+                str(row.get("completed_dt") or raw.get("completedDt") or ""),
+                str(raw.get("expiredDt") or ""),
+                str(raw.get("dstOfficeAddress") or ""),
+                str(raw.get("brand") or ""),
+                str(raw.get("subjectName") or ""),
+                str(raw.get("techSize") or ""),
+                str(raw.get("isStatusActive") if raw.get("isStatusActive") is not None else ""),
+                str(row.get("synced_at") or ""),
+            ]
+        )
+    return "\ufeff" + buf.getvalue()
 
 
 def export_return_scans_csv(items: list[dict[str, Any]]) -> str:
