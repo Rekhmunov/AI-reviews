@@ -9630,6 +9630,7 @@ button.wb-fbs-sd-portal-btn:focus-visible {
 .wb-fbs-sd-table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 .wb-fbs-sd-table th,
 .wb-fbs-sd-table td {
@@ -9648,6 +9649,9 @@ button.wb-fbs-sd-portal-btn:focus-visible {
   font-weight: 600;
   color: #64748b;
   text-transform: none;
+}
+.wb-fbs-sd-table th[data-col] {
+  position: sticky;
 }
 .wb-fbs-sd-col-check { width: 40px; }
 .wb-fbs-sd-col-act { width: 48px; }
@@ -10033,6 +10037,9 @@ button.wb-fbs-sd-portal-btn:focus-visible {
   color: #64748b;
   font-weight: 600;
   font-size: 13px;
+}
+.wb-fbs-kiz-table th[data-col] {
+  position: relative;
 }
 .wb-fbs-kiz-col-order { width: 160px; }
 .wb-fbs-kiz-col-kiz { width: 320px; }

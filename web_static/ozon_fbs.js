@@ -197,12 +197,15 @@
   function syncSupplyDetailReadOnlyMode(readOnly) {
     const modal = document.getElementById("ozonFbsSupplyDetailModal");
     const actions = modal?.querySelector(".wb-fbs-sd-actions");
-    const checkTh = modal?.querySelector(".wb-fbs-sd-col-check");
-    const actTh = modal?.querySelector(".wb-fbs-sd-col-act");
+    const checkTh = modal?.querySelector("th.wb-fbs-sd-col-check");
+    const actTh = modal?.querySelector("th.wb-fbs-sd-col-act");
     if (modal) modal.classList.toggle("wb-fbs-sd--readonly", !!readOnly);
     if (actions) actions.hidden = !!readOnly;
     if (checkTh) checkTh.hidden = !!readOnly;
     if (actTh) actTh.hidden = !!readOnly;
+    document.querySelectorAll("#ozonFbsSupplyDetailColgroup col[data-fixed]").forEach((col) => {
+      col.style.display = readOnly ? "none" : "";
+    });
     const info = document.getElementById("ozonFbsSupplyDetailInfo");
     if (info) {
       if (readOnly) {
@@ -838,6 +841,138 @@
       handle.classList.add("dragging");
     });
   }
+
+  /** Generic % column resizer with per-user localStorage (modal tables). */
+  function createOzonFbsModalColResizer({
+    tableId,
+    colgroupId,
+    storagePrefix,
+    defaultWidths,
+  }) {
+    let inited = false;
+    const defaults = Array.isArray(defaultWidths) ? defaultWidths.slice() : [];
+
+    function storageKey() {
+      const email = String(document.querySelector(".sidebar-user-email")?.textContent || "")
+        .trim()
+        .toLowerCase();
+      return email ? `${storagePrefix}:${email}` : storagePrefix;
+    }
+
+    function resizableCols() {
+      return Array.from(
+        document.querySelectorAll(`#${colgroupId} col`)
+      ).filter((c) => !c.dataset.fixed);
+    }
+
+    function apply(widths) {
+      resizableCols().forEach((col, i) => {
+        if (widths[i] !== undefined) col.style.width = `${widths[i]}%`;
+      });
+    }
+
+    function get() {
+      return resizableCols().map(
+        (col, i) => parseFloat(col.style.width) || defaults[i] || 10
+      );
+    }
+
+    function restore() {
+      let widths = defaults.slice();
+      try {
+        const saved = JSON.parse(localStorage.getItem(storageKey()) || "null");
+        if (Array.isArray(saved) && saved.length === widths.length) widths = saved;
+        else if (Array.isArray(saved)) localStorage.removeItem(storageKey());
+      } catch (_) {
+        /* ignore */
+      }
+      apply(widths);
+    }
+
+    function init() {
+      const table = document.getElementById(tableId);
+      if (!table) return;
+      restore();
+      if (inited) return;
+      inited = true;
+
+      let startX = 0;
+      let colIdx = 0;
+      let startWidths = [];
+      let activeHandle = null;
+
+      function onMouseMove(e) {
+        const tableEl = document.getElementById(tableId);
+        if (!tableEl) return;
+        const tableW = tableEl.offsetWidth || 1;
+        const deltaPct = ((e.clientX - startX) / tableW) * 100;
+        const newWidths = startWidths.slice();
+        const minPct = 8;
+        const nextIdx = colIdx < newWidths.length - 1 ? colIdx + 1 : colIdx - 1;
+        let newCur = Math.max(minPct, startWidths[colIdx] + deltaPct);
+        let newNext = Math.max(minPct, startWidths[nextIdx] - deltaPct);
+        if (newNext < minPct) {
+          newCur = startWidths[colIdx] + (startWidths[nextIdx] - minPct);
+          newNext = minPct;
+        }
+        newWidths[colIdx] = Math.round(newCur * 10) / 10;
+        newWidths[nextIdx] = Math.round(newNext * 10) / 10;
+        apply(newWidths);
+      }
+
+      function onMouseUp() {
+        document.removeEventListener("mousemove", onMouseMove);
+        document.removeEventListener("mouseup", onMouseUp);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        if (activeHandle) activeHandle.classList.remove("dragging");
+        activeHandle = null;
+        try {
+          localStorage.setItem(storageKey(), JSON.stringify(get()));
+        } catch (_) {
+          /* ignore */
+        }
+      }
+
+      table.addEventListener("mousedown", (e) => {
+        const handle = e.target?.closest?.(".col-resize-handle");
+        if (!handle || !table.contains(handle)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const th = handle.parentElement;
+        colIdx = parseInt(th.getAttribute("data-col") || "0", 10);
+        startX = e.clientX;
+        startWidths = get();
+        activeHandle = handle;
+        document.addEventListener("mousemove", onMouseMove);
+        document.addEventListener("mouseup", onMouseUp);
+        document.body.style.cursor = "col-resize";
+        document.body.style.userSelect = "none";
+        handle.classList.add("dragging");
+      });
+    }
+
+    return { init, restore };
+  }
+
+  const ozonFbsSupplyDetailColResizer = createOzonFbsModalColResizer({
+    tableId: "ozonFbsSupplyDetailTable",
+    colgroupId: "ozonFbsSupplyDetailColgroup",
+    storagePrefix: "ozon_fbs_sd_col_widths_v1",
+    defaultWidths: [32, 60],
+  });
+  const ozonFbsKizColResizer = createOzonFbsModalColResizer({
+    tableId: "ozonFbsKizTable",
+    colgroupId: "ozonFbsKizColgroup",
+    storagePrefix: "ozon_fbs_kiz_col_widths_v1",
+    defaultWidths: [22, 38, 34],
+  });
+  const ozonFbsPickColResizer = createOzonFbsModalColResizer({
+    tableId: "ozonFbsPickTable",
+    colgroupId: "ozonFbsPickColgroup",
+    storagePrefix: "ozon_fbs_pick_col_widths_v1",
+    defaultWidths: [24, 40, 36],
+  });
 
   /* ── Collect (ship-all + local supplies) ── */
 
@@ -1521,6 +1656,7 @@
     const detailColspan = readOnly ? 2 : 4;
     if (tbody) tbody.innerHTML = `<tr><td colspan="${detailColspan}" class="wb-fbs-empty">Загрузка…</td></tr>`;
     if (modal) modal.classList.remove("hidden");
+    ozonFbsSupplyDetailColResizer.init();
     try {
       const tabParam = _ozonFbsSupplyPostingTabParam();
       const res = await fetch(
@@ -2115,6 +2251,9 @@
     }
     syncTableMode();
     initColumnResizer();
+    ozonFbsSupplyDetailColResizer.init();
+    ozonFbsKizColResizer.init();
+    ozonFbsPickColResizer.init();
     await loadSources();
     await loadPostings(true);
     syncShipAllButton();
@@ -4231,6 +4370,7 @@
     if (!sid || !sourceId || !_ozonFbsSupplyActionsReady()) return;
     if (typeof setModalVisibility === "function") setModalVisibility("ozonFbsKizModal", true);
     else document.getElementById("ozonFbsKizModal")?.classList.remove("hidden");
+    ozonFbsKizColResizer.init();
     ozonFbsKizState.rows = [];
     ozonFbsKizState.errors = {};
     ozonFbsKizState.pendingPosting = null;
@@ -4789,6 +4929,7 @@
     if (!sid || !sourceId || !_ozonFbsSupplyActionsReady()) return;
     if (typeof setModalVisibility === "function") setModalVisibility("ozonFbsPickVerifyModal", true);
     else document.getElementById("ozonFbsPickVerifyModal")?.classList.remove("hidden");
+    ozonFbsPickColResizer.init();
     ozonFbsPickState.rows = [];
     ozonFbsPickState.errors = {};
     ozonFbsPickState.pendingPosting = null;

@@ -2949,13 +2949,19 @@
             </div>
             <div id="ozonFbsSupplyDetailInfo" class="wb-fbs-sd-info" hidden></div>
             <div class="wb-fbs-sd-table-wrap">
-              <table class="wb-fbs-sd-table">
+              <table class="wb-fbs-sd-table" id="ozonFbsSupplyDetailTable">
+                <colgroup id="ozonFbsSupplyDetailColgroup">
+                  <col data-fixed="1" class="wb-fbs-sd-col-check" style="width:40px" />
+                  <col data-col="0" style="width:32%" />
+                  <col data-col="1" style="width:60%" />
+                  <col data-fixed="1" class="wb-fbs-sd-col-act" style="width:48px" />
+                </colgroup>
                 <thead>
                   <tr>
                     <th class="wb-fbs-sd-col-check"><input type="checkbox" id="ozonFbsSupplyDetailSelectAll"
                           onchange="toggleSelectAllOzonFbsSupplyDetail(this.checked)" /></th>
-                    <th>Отправление</th>
-                    <th>Товар</th>
+                    <th data-col="0">Отправление<span class="col-resize-handle"></span></th>
+                    <th data-col="1">Товар<span class="col-resize-handle"></span></th>
                     <th class="wb-fbs-sd-col-act"></th>
                   </tr>
                 </thead>
@@ -3053,12 +3059,18 @@
             </div>
             <div id="ozonFbsKizInfo" class="wb-fbs-kiz-info" hidden></div>
             <div class="wb-fbs-kiz-table-wrap">
-              <table class="wb-fbs-kiz-table">
+              <table class="wb-fbs-kiz-table" id="ozonFbsKizTable">
+                <colgroup id="ozonFbsKizColgroup">
+                  <col data-col="0" class="wb-fbs-kiz-col-order" style="width:22%" />
+                  <col data-col="1" class="wb-fbs-kiz-col-product" style="width:38%" />
+                  <col data-col="2" class="wb-fbs-kiz-col-kiz" style="width:34%" />
+                  <col data-fixed="1" class="wb-fbs-kiz-col-act" style="width:48px" />
+                </colgroup>
                 <thead>
                   <tr>
-                    <th class="wb-fbs-kiz-col-order">Отправление</th>
-                    <th class="wb-fbs-kiz-col-product">Товар</th>
-                    <th class="wb-fbs-kiz-col-kiz">КИЗ</th>
+                    <th class="wb-fbs-kiz-col-order" data-col="0">Отправление<span class="col-resize-handle"></span></th>
+                    <th class="wb-fbs-kiz-col-product" data-col="1">Товар<span class="col-resize-handle"></span></th>
+                    <th class="wb-fbs-kiz-col-kiz" data-col="2">КИЗ<span class="col-resize-handle"></span></th>
                     <th class="wb-fbs-kiz-col-act"></th>
                   </tr>
                 </thead>
@@ -3140,12 +3152,17 @@
             </div>
             <div id="ozonFbsPickInfo" class="wb-fbs-kiz-info" hidden></div>
             <div class="wb-fbs-kiz-table-wrap">
-              <table class="wb-fbs-kiz-table">
+              <table class="wb-fbs-kiz-table" id="ozonFbsPickTable">
+                <colgroup id="ozonFbsPickColgroup">
+                  <col data-col="0" class="wb-fbs-kiz-col-order" style="width:24%" />
+                  <col data-col="1" class="wb-fbs-kiz-col-product" style="width:40%" />
+                  <col data-col="2" class="wb-fbs-kiz-col-kiz" style="width:36%" />
+                </colgroup>
                 <thead>
                   <tr>
-                    <th class="wb-fbs-kiz-col-order">Отправление</th>
-                    <th class="wb-fbs-kiz-col-product">Товар</th>
-                    <th class="wb-fbs-kiz-col-kiz">Проверка ШК</th>
+                    <th class="wb-fbs-kiz-col-order" data-col="0">Отправление<span class="col-resize-handle"></span></th>
+                    <th class="wb-fbs-kiz-col-product" data-col="1">Товар<span class="col-resize-handle"></span></th>
+                    <th class="wb-fbs-kiz-col-kiz" data-col="2">Проверка ШК<span class="col-resize-handle"></span></th>
                   </tr>
                 </thead>
                 <tbody id="ozonFbsPickTbody">
