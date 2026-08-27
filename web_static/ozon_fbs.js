@@ -3453,6 +3453,24 @@
       `</div>`;
   }
 
+  /** First column like supply detail: posting number + date (no duplicate sticker line). */
+  function _ozonFbsModalPostingColHtml(row, { quantity } = {}) {
+    const pn = String(row?.posting_number || "").trim();
+    const created = row?.created_at_ozon || row?.in_process_at || row?.created_date || "";
+    const ago = agoLabel(created);
+    const badges = [];
+    if (ago) badges.push(`<span class="wb-fbs-badge time">${esc(ago)}</span>`);
+    const qty = Number(quantity != null ? quantity : row?.quantity || 0);
+    const qtyHtml =
+      qty > 1 ? `<div class="wb-fbs-order-meta">${esc(qty)} шт.</div>` : "";
+    return (
+      `<div class="wb-fbs-sd-order-id">${formatOzonPostingNumberHtml(pn)}</div>` +
+      `<div class="wb-fbs-order-meta">от ${esc(fmtDate(created))}</div>` +
+      (badges.length ? `<div class="wb-fbs-badges">${badges.join("")}</div>` : "") +
+      qtyHtml
+    );
+  }
+
   function _ozonFbsKizRowIsEmpty(row) {
     const codes = Array.isArray(row?.kiz_codes) ? row.kiz_codes : [];
     return !codes.some((c) => String(c || "").trim());
@@ -4002,9 +4020,7 @@
       const menuIcon = typeof _wbFbsQrMenuIconHtml === "function" ? _wbFbsQrMenuIconHtml() : "";
       return `<tr class="wb-fbs-kiz-row${pending === pn ? " is-active" : ""}${isCancelled ? " is-cancelled" : ""}" data-posting="${safePn}">
         <td>
-          <div class="wb-fbs-kiz-order-id">${formatOzonPostingNumberHtml(pn)}</div>
-          <div class="wb-fbs-kiz-order-sticker">${stickerHtml}</div>
-          ${Number(r.quantity) > 1 ? `<div class="wb-fbs-order-meta">${esc(r.quantity)} шт.</div>` : ""}
+          ${_ozonFbsModalPostingColHtml(r)}
         </td>
         <td>
           <div class="wb-fbs-product">
@@ -4705,7 +4721,6 @@
     tbody.innerHTML = rows.map((r) => {
       const pn = String(r.posting_number || "");
       const safePn = esc(pn);
-      const stickerHtml = _ozonFbsKizStickerHtml(r);
       const photo = r.product_photo
         ? `<img class="wb-fbs-product-photo" src="${esc(r.product_photo)}" alt="" width="56" height="56" loading="lazy">`
         : `<span class="wb-fbs-product-ph" aria-hidden="true"></span>`;
@@ -4717,8 +4732,7 @@
         : "";
       return `<tr class="wb-fbs-kiz-row${pending === pn ? " is-active" : ""}${_ozonFbsRowIsCancelled(r) ? " is-cancelled" : ""}" data-posting="${safePn}">
         <td>
-          <div class="wb-fbs-kiz-order-id">${formatOzonPostingNumberHtml(pn)}</div>
-          <div class="wb-fbs-kiz-order-sticker">${stickerHtml}</div>
+          ${_ozonFbsModalPostingColHtml(r)}
         </td>
         <td>
           <div class="wb-fbs-product">

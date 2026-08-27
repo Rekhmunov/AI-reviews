@@ -308,6 +308,8 @@ def build_pick_verify_payload(
                 "cancelled": bool(o.get("cancelled")),
                 "order_id": o.get("order_id"),
                 "order_number": str(o.get("order_number") or "").strip(),
+                "created_at_ozon": o.get("created_at_ozon") or o.get("in_process_at") or "",
+                "in_process_at": o.get("in_process_at") or "",
                 "sticker_barcode": str(o.get("sticker_barcode") or "").strip(),
                 "sticker_lower_barcode": str(o.get("sticker_lower_barcode") or "").strip(),
                 "sticker_part_a": str(o.get("sticker_part_a") or "").strip(),
