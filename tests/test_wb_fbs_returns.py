@@ -560,6 +560,7 @@ class GoodsReturnRateLimitTests(unittest.TestCase):
     def setUp(self):
         returns._goods_return_token_locks.clear()
         returns._goods_return_token_last_request.clear()
+        returns._goods_return_token_blocked_until.clear()
 
     def test_analytics_token_key_prefers_uid(self):
         token = _fake_wb_jwt(uid=42)
@@ -628,6 +629,51 @@ class GoodsReturnRateLimitTests(unittest.TestCase):
         wait_arg = sleep_mock.call_args[0][0]
         self.assertGreater(wait_arg, 0)
         self.assertLessEqual(wait_arg, returns.GOODS_RETURN_REQUEST_INTERVAL_SEC)
+
+    @patch("review_processor.wb_fbs_returns.fetch_goods_return_report")
+    def test_fetch_goods_return_report_rated_sets_block_on_429(self, fetch_report):
+        token = _fake_wb_jwt(uid=8)
+        fetch_report.side_effect = returns.GoodsReturnHttpError(
+            "429",
+            code=429,
+            retry_after="600",
+            retry_seconds=600,
+        )
+        with self.assertRaises(returns.GoodsReturnHttpError):
+            returns.fetch_goods_return_report_rated(
+                api_key=token,
+                date_from="2026-08-01",
+                date_to="2026-08-10",
+                source_id=19,
+            )
+        status = returns.goods_return_rate_limit_status(api_key=token)
+        self.assertTrue(status.get("blocked"))
+        self.assertGreater(status.get("seconds_remaining", 0), 550)
+
+    @patch("review_processor.wb_fbs_returns.fetch_goods_return_report")
+    def test_ensure_goods_return_not_rate_limited_blocks_without_wb_call(self, fetch_report):
+        token = _fake_wb_jwt(uid=9)
+        returns._set_goods_return_token_block(
+            api_key=token,
+            retry_after="1200",
+        )
+        with self.assertRaises(returns.GoodsReturnHttpError) as ctx:
+            returns.ensure_goods_return_not_rate_limited(api_key=token)
+        self.assertEqual(ctx.exception.code, 429)
+        fetch_report.assert_not_called()
+
+    @patch("review_processor.wb_fbs_returns.fetch_goods_return_report")
+    def test_fetch_goods_return_report_rated_skips_wb_while_blocked(self, fetch_report):
+        token = _fake_wb_jwt(uid=10)
+        returns._set_goods_return_token_block(api_key=token, retry_after="1800")
+        with self.assertRaises(returns.GoodsReturnHttpError):
+            returns.fetch_goods_return_report_rated(
+                api_key=token,
+                date_from="2026-08-01",
+                date_to="2026-08-02",
+                source_id=1,
+            )
+        fetch_report.assert_not_called()
 
 
 class GoodsReturnSourceFilterTests(unittest.TestCase):

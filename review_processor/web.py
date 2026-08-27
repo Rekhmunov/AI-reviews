@@ -11123,6 +11123,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         api_key, api_key_source = api_key_candidates[0]
+        rate_limit = returns_mod.goods_return_rate_limit_status(api_key=api_key)
+        if rate_limit.get("blocked"):
+            raise HTTPException(
+                status_code=429,
+                detail=str(rate_limit.get("message") or "Синхронизация временно недоступна"),
+            ) from None
 
         def _run_sync() -> dict[str, object]:
             return returns_mod.sync_goods_returns(
@@ -11150,6 +11156,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         source_id: int = 0,
     ) -> dict[str, object]:
         from . import wb_fbs_returns as returns_mod
+        from .wb_kiz_circulation import get_wb_analytics_api_key
 
         user = _require_user(request)
         if not _can_view_wb_fbs(user):
@@ -11158,9 +11165,28 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         sid = int(source_id or 0)
         if sid <= 0:
             raise HTTPException(status_code=400, detail="Укажите source_id")
+        rate_limit: dict[str, object] = {"blocked": False}
+        src_full = repository.get_supply_source_with_key(
+            user_id=owner_id, source_id=sid
+        )
+        if src_full and wb_fbs_mod.is_fbs_source_name(src_full.get("name")):
+            source_api_key = str(src_full.get("api_key") or "").strip() or None
+            source_analytics_key = str(src_full.get("analytics_api_key") or "").strip() or None
+            fallback_key = get_wb_analytics_api_key(repository, user_id=owner_id)
+            try:
+                api_key_candidates, _trust = returns_mod.resolve_goods_return_api_keys(
+                    source_api_key=source_api_key,
+                    source_analytics_api_key=source_analytics_key,
+                    fallback_analytics_key=fallback_key,
+                )
+                rate_limit = returns_mod.goods_return_rate_limit_status(
+                    api_key=api_key_candidates[0][0]
+                )
+            except RuntimeError:
+                rate_limit = {"blocked": False}
         job = returns_mod.get_goods_return_sync_job(user_id=owner_id, source_id=sid)
         if not job:
-            return {"ok": True, "status": "idle", "source_id": sid}
+            return {"ok": True, "status": "idle", "source_id": sid, "rate_limit": rate_limit}
         status = str(job.get("status") or "idle")
         out: dict[str, object] = {
             "ok": True,
@@ -11168,6 +11194,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "source_id": sid,
             "started_at": job.get("started_at"),
             "finished_at": job.get("finished_at"),
+            "rate_limit": rate_limit,
         }
         if status == "ok" and isinstance(job.get("result"), dict):
             out.update(job["result"])

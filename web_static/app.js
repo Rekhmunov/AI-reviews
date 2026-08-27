@@ -18819,6 +18819,49 @@ window.onWbFbsReturnsSearchInput = onWbFbsReturnsSearchInput;
 const WB_FBS_RETURNS_AUTO_SYNC_PREFIX = "wbFbsReturnsAutoSync:";
 const WB_FBS_RETURNS_GLOBAL_SYNC_KEY = "wbFbsReturnsGlobalSyncAt";
 const WB_FBS_RETURNS_AUTO_SYNC_COOLDOWN_MS = 65000;
+let _wbFbsReturnsRateLimitTimer = null;
+
+function _wbFbsReturnsStopRateLimitTimer() {
+  if (_wbFbsReturnsRateLimitTimer) {
+    clearInterval(_wbFbsReturnsRateLimitTimer);
+    _wbFbsReturnsRateLimitTimer = null;
+  }
+}
+
+async function refreshWbFbsReturnsRateLimitUi() {
+  const sid = _wbFbsReturnsSourceId();
+  const syncBtn = document.getElementById("wbFbsReturnsSyncBtn");
+  const syncInfo = document.getElementById("wbFbsReturnsSyncInfo");
+  if (!sid || !syncBtn) return { blocked: false };
+  if (wbFbsReturnsState.syncing) return { blocked: false };
+  try {
+    const res = await fetch(
+      `/api/wb-fbs/returns/sync/status?source_id=${encodeURIComponent(String(sid))}`,
+      { headers: jsonHeaders() },
+    );
+    const payload = await res.json().catch(() => ({}));
+    const rl = payload.rate_limit && typeof payload.rate_limit === "object"
+      ? payload.rate_limit
+      : {};
+    if (rl.blocked) {
+      syncBtn.disabled = true;
+      const secs = Number(rl.seconds_remaining || 0);
+      const mins = secs > 0 ? Math.ceil(secs / 60) : 0;
+      if (syncInfo) {
+        syncInfo.textContent = rl.retry_at_msk
+          ? `WB: повторите после ${rl.retry_at_msk}${mins > 0 ? ` (ещё ~${mins} мин)` : ""}`
+          : String(rl.message || "Синхронизация временно недоступна");
+      }
+      return rl;
+    }
+    syncBtn.disabled = false;
+    return rl;
+  } catch (_) {
+    if (!wbFbsReturnsState.syncing) syncBtn.disabled = false;
+    return { blocked: false };
+  }
+}
+window.refreshWbFbsReturnsRateLimitUi = refreshWbFbsReturnsRateLimitUi;
 
 function _wbFbsReturnsMskDateKey() {
   return new Intl.DateTimeFormat("en-CA", {
@@ -18858,12 +18901,18 @@ async function syncWbFbsReturnsGoods(options) {
   const opts = options && typeof options === "object" ? options : {};
   const isAuto = !!opts.auto;
   if (wbFbsReturnsState.syncing) return false;
-  if (isAuto && _wbFbsReturnsGlobalSyncRecent()) return false;
   const sid = _wbFbsReturnsSourceId();
   if (!sid) {
     alert("Выберите источник WB FBS");
     return false;
   }
+  const rateLimit = await refreshWbFbsReturnsRateLimitUi();
+  if (rateLimit.blocked) {
+    const msg = String(rateLimit.message || "Синхронизация временно недоступна — дождитесь времени WB");
+    if (!isAuto) _wbFbsReturnsSetInfo(msg, "warn");
+    return false;
+  }
+  if (isAuto && _wbFbsReturnsGlobalSyncRecent()) return false;
   wbFbsReturnsState.syncing = true;
   _wbFbsReturnsMarkGlobalSyncStart();
   const syncBtn = document.getElementById("wbFbsReturnsSyncBtn");
@@ -18976,10 +19025,11 @@ async function syncWbFbsReturnsGoods(options) {
   } catch (err) {
     if (syncInfo) syncInfo.textContent = "";
     _wbFbsReturnsSetInfo(err?.message || String(err));
+    await refreshWbFbsReturnsRateLimitUi();
     return false;
   } finally {
     wbFbsReturnsState.syncing = false;
-    if (syncBtn) syncBtn.disabled = false;
+    void refreshWbFbsReturnsRateLimitUi();
   }
 }
 window.syncWbFbsReturnsGoods = syncWbFbsReturnsGoods;
@@ -19141,6 +19191,11 @@ function openWbFbsKizRestoreModal() {
   initWbFbsReturnsColumnResizer();
   initWbFbsReturnsInfiniteScroll();
   loadWbFbsReturnsScans();
+  void refreshWbFbsReturnsRateLimitUi();
+  _wbFbsReturnsStopRateLimitTimer();
+  _wbFbsReturnsRateLimitTimer = setInterval(() => {
+    void refreshWbFbsReturnsRateLimitUi();
+  }, 15000);
   if (_wbFbsReturnsShouldAutoSync(sid) && !_wbFbsReturnsGlobalSyncRecent()) {
     void syncWbFbsReturnsGoods({ auto: true });
   } else if (_wbFbsReturnsShouldAutoSync(sid) && _wbFbsReturnsGlobalSyncRecent()) {
@@ -19158,6 +19213,7 @@ function closeWbFbsKizRestoreModal() {
   document.getElementById("wbFbsKizRestoreModal")?.classList.add("hidden");
   toggleWbFbsReturnsDatePanel(false);
   _wbFbsReturnsSetInfo("");
+  _wbFbsReturnsStopRateLimitTimer();
 }
 window.closeWbFbsKizRestoreModal = closeWbFbsKizRestoreModal;
 

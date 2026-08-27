@@ -133,9 +133,72 @@ _goods_return_sync_locks: dict[str, threading.Lock] = {}
 _goods_return_token_guard = threading.Lock()
 _goods_return_token_locks: dict[str, threading.Lock] = {}
 _goods_return_token_last_request: dict[str, float] = {}
+_goods_return_token_block_guard = threading.Lock()
+_goods_return_token_blocked_until: dict[str, float] = {}
 
 _goods_return_job_guard = threading.Lock()
 _goods_return_jobs: dict[str, dict[str, Any]] = {}
+
+
+def _set_goods_return_token_block(
+    *,
+    api_key: str,
+    retry_after: str = "",
+    retry_seconds: int = 0,
+) -> None:
+    """Remember WB rate-limit until retry moment (per Analytics token)."""
+    retry_at = _parse_wb_retry_at_msk(retry_after) if retry_after else None
+    if retry_at is None and int(retry_seconds) > 0:
+        retry_at = datetime.now(MSK) + timedelta(seconds=int(retry_seconds))
+    if retry_at is None:
+        return
+    until = retry_at.timestamp()
+    token_key = _analytics_token_key(api_key)
+    with _goods_return_token_block_guard:
+        prev = float(_goods_return_token_blocked_until.get(token_key, 0.0))
+        _goods_return_token_blocked_until[token_key] = max(prev, until)
+
+
+def _clear_goods_return_token_block(*, api_key: str) -> None:
+    token_key = _analytics_token_key(api_key)
+    with _goods_return_token_block_guard:
+        _goods_return_token_blocked_until.pop(token_key, None)
+
+
+def goods_return_rate_limit_status(*, api_key: str) -> dict[str, Any]:
+    """Whether WB goods-return sync is blocked for this Analytics token."""
+    token_key = _analytics_token_key(api_key)
+    now = time.time()
+    with _goods_return_token_block_guard:
+        until = float(_goods_return_token_blocked_until.get(token_key, 0.0))
+    if until <= now + 0.5:
+        return {"blocked": False, "token_key": token_key}
+    retry_at = datetime.fromtimestamp(until, tz=MSK)
+    secs = max(0, int(until - now))
+    clock = retry_at.strftime("%H:%M:%S МСК (%d.%m.%Y)")
+    return {
+        "blocked": True,
+        "token_key": token_key,
+        "retry_at": retry_at.isoformat(),
+        "retry_at_msk": clock,
+        "seconds_remaining": secs,
+        "message": (
+            "Синхронизация возвратов WB временно недоступна: WB ограничил частоту запросов. "
+            f"Повторите после {clock}. "
+            "Запрос к WB не отправлен — дождитесь этого времени."
+        ),
+    }
+
+
+def ensure_goods_return_not_rate_limited(*, api_key: str) -> None:
+    status = goods_return_rate_limit_status(api_key=api_key)
+    if status.get("blocked"):
+        raise GoodsReturnHttpError(
+            str(status.get("message") or ""),
+            code=429,
+            retry_after=str(status.get("seconds_remaining") or 0),
+            retry_seconds=int(status.get("seconds_remaining") or 0),
+        )
 
 
 def _goods_return_job_key(*, user_id: int, source_id: int) -> str:
@@ -1033,16 +1096,24 @@ def fetch_goods_return_report_rated(
 ) -> list[dict[str, Any]]:
     """Fetch goods-return with per-token cooldown; fail fast on HTTP 429."""
     token_key = _analytics_token_key(api_key)
+    ensure_goods_return_not_rate_limited(api_key=api_key)
     with _goods_return_token_rate_slot(api_key=api_key, source_id=source_id):
         try:
-            return fetch_goods_return_report(
+            rows = fetch_goods_return_report(
                 api_key=api_key,
                 date_from=date_from,
                 date_to=date_to,
                 timeout=timeout,
             )
+            _clear_goods_return_token_block(api_key=api_key)
+            return rows
         except GoodsReturnHttpError as exc:
             if exc.code == 429:
+                _set_goods_return_token_block(
+                    api_key=api_key,
+                    retry_after=exc.retry_after,
+                    retry_seconds=exc.retry_seconds,
+                )
                 retry_secs = exc.retry_seconds or _parse_wb_retry_seconds(exc.retry_after)
                 _log.warning(
                     "goods-return HTTP 429 token=%s source_id=%s retry_after=%ss — sync blocked",
