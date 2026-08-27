@@ -4434,7 +4434,7 @@
             if (tbody) {
               tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">${esc(msg)}</td></tr>`;
             }
-            _ozonFbsKizSetInfo(msg);
+            _ozonFbsKizSetInfo(msg, true);
           },
         }
       );
@@ -4991,7 +4991,7 @@
             if (tbody) {
               tbody.innerHTML = `<tr><td colspan="3" class="wb-fbs-empty">${esc(msg)}</td></tr>`;
             }
-            _ozonFbsPickSetInfo(msg);
+            _ozonFbsPickSetInfo(msg, true);
           },
         }
       );
