@@ -55,6 +55,8 @@ def build_ozon_tsd_hub_progress(
         return empty
 
     try:
+        # Hub counters are local-only: live is-required is chunked in modal/TSD
+        # list endpoints and must not run unbound here (504 risk).
         kiz_payload = oz_mark.build_marking_payload(
             repo,
             user_id=user_id,
@@ -62,6 +64,7 @@ def build_ozon_tsd_hub_progress(
             supply_id=sid,
             client_id=client_id,
             api_key=api_key,
+            resolve_kiz=False,
         )
         pick_payload = oz_pick.build_pick_verify_payload(
             repo,
@@ -70,6 +73,7 @@ def build_ozon_tsd_hub_progress(
             supply_id=sid,
             client_id=client_id,
             api_key=api_key,
+            resolve_kiz=False,
         )
     except Exception:
         return empty
@@ -101,6 +105,7 @@ def build_ozon_tsd_kiz_payload(
     supply_id: str,
     client_id: str,
     api_key: str,
+    max_postings: int | None = None,
 ) -> dict[str, Any]:
     payload = oz_mark.build_marking_payload(
         repo,
@@ -109,6 +114,8 @@ def build_ozon_tsd_kiz_payload(
         supply_id=supply_id,
         client_id=client_id,
         api_key=api_key,
+        resolve_kiz=True,
+        max_postings=max_postings,
     )
     rows = _normalize_tsd_rows(list(payload.get("rows") or []))
     return {**payload, "rows": rows}
@@ -122,6 +129,7 @@ def build_ozon_tsd_pick_payload(
     supply_id: str,
     client_id: str,
     api_key: str,
+    max_postings: int | None = None,
 ) -> dict[str, Any]:
     payload = oz_pick.build_pick_verify_payload(
         repo,
@@ -130,6 +138,8 @@ def build_ozon_tsd_pick_payload(
         supply_id=supply_id,
         client_id=client_id,
         api_key=api_key,
+        resolve_kiz=True,
+        max_postings=max_postings,
     )
     rows = _normalize_tsd_rows(list(payload.get("rows") or []))
     return {**payload, "rows": rows}

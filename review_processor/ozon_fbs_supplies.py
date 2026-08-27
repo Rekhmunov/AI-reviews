@@ -1959,12 +1959,15 @@ def refresh_supply_marking_flags_from_ozon(
             "total_pending": total_pending,
         }
 
-    def _enrich_one(item: tuple[str, dict[str, Any]]) -> tuple[str, dict[str, Any] | None, Exception | None]:
+    def _enrich_one(
+        item: tuple[str, dict[str, Any]],
+    ) -> tuple[str, dict[str, Any] | None, Exception | None]:
         pn, posting = item
         try:
             return pn, oz.enrich_posting_marking_flags_light(client, posting), None
         except Exception as exc:
-            return pn, None, exc
+            # Mark checked so the same PN does not block chunk loops forever.
+            return pn, oz._posting_with_marking_checked(posting), exc
 
     updated = 0
     workers = min(OZON_FBS_LIVE_CHECK_WORKERS, len(chunk))
@@ -1974,10 +1977,10 @@ def refresh_supply_marking_flags_from_ozon(
         for fut in as_completed(futs):
             results.append(fut.result())
     for pn, enriched, err in results:
-        if err is not None or not isinstance(enriched, dict):
-            if err is not None:
-                _log.warning("ozon supply marking enrich %s: %s", pn, err)
+        if not isinstance(enriched, dict):
             continue
+        if err is not None:
+            _log.warning("ozon supply marking enrich %s: %s", pn, err)
         try:
             oz.upsert_posting(
                 repo,
@@ -1985,7 +1988,8 @@ def refresh_supply_marking_flags_from_ozon(
                 source_id=source_id,
                 posting=enriched,
             )
-            updated += 1
+            if err is None:
+                updated += 1
         except Exception as exc:
             _log.warning("ozon supply marking persist %s: %s", pn, exc)
     return {

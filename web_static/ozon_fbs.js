@@ -3421,6 +3421,50 @@
     el.classList.toggle("is-ok", !!msg && !!ok);
   }
 
+  /**
+   * Load marking / pick-verify payloads in chunks until Ozon is-required resolve is done.
+   * Prevents nginx 504 on large supplies.
+   */
+  async function _ozonFbsFetchResolvedChunks(url, { onProgress } = {}) {
+    let data = null;
+    let remaining = 1;
+    let checkedTotal = 0;
+    let guard = 0;
+    while (remaining > 0 && guard < 200) {
+      guard += 1;
+      if (typeof onProgress === "function") {
+        onProgress({
+          checkedTotal,
+          remaining: checkedTotal ? remaining : null,
+          round: guard,
+        });
+      }
+      const res = await fetch(url);
+      data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      }
+      const mr =
+        data.marking_resolve && typeof data.marking_resolve === "object"
+          ? data.marking_resolve
+          : {};
+      const checked = Number(mr.checked || 0);
+      checkedTotal += checked;
+      remaining = Number(mr.remaining || 0);
+      if (remaining > 0 && checked <= 0) remaining = 0;
+    }
+    return data || {};
+  }
+
+  function _ozonFbsResolveProgressText(progress) {
+    const checked = Number(progress?.checkedTotal || 0);
+    const remaining = progress?.remaining;
+    if (checked && remaining != null) {
+      return `Определение маркировки у Ozon… проверено ${checked}, осталось ${remaining}`;
+    }
+    return "Определение маркировки у Ozon…";
+  }
+
   function _ozonFbsKizSplitSetTone(tone) {
     const split = document.getElementById("ozonFbsKizSplit");
     if (!split) return;
@@ -4202,44 +4246,24 @@
     if (scan) scan.value = "";
     let loadOk = false;
     try {
-      let data = null;
-      let remaining = 1;
-      let checkedTotal = 0;
-      let guard = 0;
-      while (remaining > 0 && guard < 200) {
-        guard += 1;
-        if (tbody) {
-          tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">${
-            checkedTotal
-              ? `Проверка маркировки у Ozon… проверено ${checkedTotal}, осталось ${remaining}`
-              : "Проверка маркировки у Ozon…"
-          }</td></tr>`;
+      const params = new URLSearchParams({ source_id: String(sourceId) });
+      const data = await _ozonFbsFetchResolvedChunks(
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/marking?${params}`,
+        {
+          onProgress: (p) => {
+            const msg = _ozonFbsResolveProgressText(p);
+            if (tbody) {
+              tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">${esc(msg)}</td></tr>`;
+            }
+            _ozonFbsKizSetInfo(msg);
+          },
         }
-        _ozonFbsKizSetInfo(
-          checkedTotal
-            ? `Проверка маркировки у Ozon… осталось ${remaining}`
-            : "Проверка маркировки у Ozon…"
-        );
-        const params = new URLSearchParams({ source_id: String(sourceId) });
-        const res = await fetch(
-          `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/marking?${params}`
-        );
-        data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
-        const mr = data.marking_resolve && typeof data.marking_resolve === "object"
-          ? data.marking_resolve
-          : {};
-        checkedTotal += Number(mr.checked || 0);
-        remaining = Number(mr.remaining || 0);
-        if (remaining > 0 && Number(mr.checked || 0) <= 0) {
-          remaining = 0;
-        }
-      }
-      ozonFbsKizState.rows = (Array.isArray(data?.rows) ? data.rows : []).map((r) => ({
+      );
+      ozonFbsKizState.rows = (Array.isArray(data.rows) ? data.rows : []).map((r) => ({
         ...r,
         kiz_codes: Array.isArray(r.kiz_codes) && r.kiz_codes.length ? r.kiz_codes.slice() : [""],
       }));
-      _ozonFbsKizMergeOrderFlagsIntoDetail(data?.order_kiz_flags || []);
+      _ozonFbsKizMergeOrderFlagsIntoDetail(data.order_kiz_flags || []);
       _ozonFbsKizCaptureBaseline();
       renderOzonFbsKizTable();
       if (supplyDetailState.supply) {
@@ -4778,41 +4802,21 @@
     if (scan) scan.value = "";
     let loadOk = false;
     try {
-      let data = null;
-      let remaining = 1;
-      let checkedTotal = 0;
-      let guard = 0;
-      while (remaining > 0 && guard < 200) {
-        guard += 1;
-        if (tbody) {
-          tbody.innerHTML = `<tr><td colspan="3" class="wb-fbs-empty">${
-            checkedTotal
-              ? `Проверка маркировки у Ozon… проверено ${checkedTotal}, осталось ${remaining}`
-              : "Проверка маркировки у Ozon…"
-          }</td></tr>`;
+      const params = new URLSearchParams({ source_id: String(sourceId) });
+      const data = await _ozonFbsFetchResolvedChunks(
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/pick-verify?${params}`,
+        {
+          onProgress: (p) => {
+            const msg = _ozonFbsResolveProgressText(p);
+            if (tbody) {
+              tbody.innerHTML = `<tr><td colspan="3" class="wb-fbs-empty">${esc(msg)}</td></tr>`;
+            }
+            _ozonFbsPickSetInfo(msg);
+          },
         }
-        _ozonFbsPickSetInfo(
-          checkedTotal
-            ? `Проверка маркировки у Ozon… осталось ${remaining}`
-            : "Проверка маркировки у Ozon…"
-        );
-        const params = new URLSearchParams({ source_id: String(sourceId) });
-        const res = await fetch(
-          `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/pick-verify?${params}`
-        );
-        data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
-        const mr = data.marking_resolve && typeof data.marking_resolve === "object"
-          ? data.marking_resolve
-          : {};
-        checkedTotal += Number(mr.checked || 0);
-        remaining = Number(mr.remaining || 0);
-        if (remaining > 0 && Number(mr.checked || 0) <= 0) {
-          remaining = 0;
-        }
-      }
-      ozonFbsPickState.rows = Array.isArray(data?.rows) ? data.rows.map((r) => ({ ...r })) : [];
-      _ozonFbsKizMergeOrderFlagsIntoDetail(data?.order_kiz_flags || []);
+      );
+      ozonFbsPickState.rows = Array.isArray(data.rows) ? data.rows.map((r) => ({ ...r })) : [];
+      _ozonFbsKizMergeOrderFlagsIntoDetail(data.order_kiz_flags || []);
       renderOzonFbsPickVerifyTable();
       if (supplyDetailState.supply) {
         renderSupplyDetail();

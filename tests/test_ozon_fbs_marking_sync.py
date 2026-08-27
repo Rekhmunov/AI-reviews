@@ -131,6 +131,45 @@ def test_refresh_supply_marking_flags_chunks_and_reports_remaining() -> None:
     assert client.mandatory_mark_is_required.call_count == 2
 
 
+def test_refresh_supply_marking_flags_marks_checked_on_ozon_error() -> None:
+    """Failed is-required must still advance the chunk queue (no infinite FE loop)."""
+    repo = MagicMock()
+    conn = MagicMock()
+    repo._connect.return_value.__enter__ = MagicMock(return_value=conn)
+    repo._connect.return_value.__exit__ = MagicMock(return_value=False)
+    repo._sql = lambda s: s
+    repo._row_to_dict = lambda row: row
+    row = {
+        "posting_number": "P-1",
+        "is_mandatory_mark": False,
+        "raw_json": '{"posting_number":"P-1","products":[{"sku":555,"quantity":1}]}',
+        "products_json": "[]",
+    }
+    conn.execute.return_value.fetchall.return_value = [row]
+    client = MagicMock()
+    client.mandatory_mark_is_required.side_effect = RuntimeError("ozon down")
+
+    with (
+        patch("review_processor.ozon_fbs_supplies.oz.OzonFbsClient", return_value=client),
+        patch("review_processor.ozon_fbs_supplies.oz.upsert_posting") as upsert,
+    ):
+        result = refresh_supply_marking_flags_from_ozon(
+            repo,
+            user_id=1,
+            source_id=2,
+            posting_numbers=["P-1"],
+            client_id="cid",
+            api_key="key",
+        )
+
+    assert result["checked"] == 1
+    assert result["remaining"] == 0
+    assert result["updated"] == 1
+    saved = upsert.call_args.kwargs.get("posting") or upsert.call_args.args[2]
+    assert (saved.get("requirements") or {}).get("marking_is_required_checked") is True
+    assert oz.posting_marking_flags_resolved(saved) is True
+
+
 def test_build_marking_payload_resolves_kiz_then_filters_rows() -> None:
     detail = {
         "supply_id": "OZ-1",

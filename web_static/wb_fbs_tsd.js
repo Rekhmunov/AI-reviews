@@ -616,9 +616,19 @@
 
   async function loadKiz(supplyId) {
     const params = new URLSearchParams({ source_id: String(state.sourceId) });
-    const data = await api(
-      `/api/wb-fbs/tsd/supplies/${encodeURIComponent(supplyId)}/kiz?${params}`
-    );
+    const path = `/api/wb-fbs/tsd/supplies/${encodeURIComponent(supplyId)}/kiz?${params}`;
+    let data = await api(path);
+    if (isOzon()) {
+      let remaining = Number(data?.marking_resolve?.remaining || 0);
+      let guard = 0;
+      while (remaining > 0 && guard < 200) {
+        guard += 1;
+        data = await api(path);
+        const checked = Number(data?.marking_resolve?.checked || 0);
+        remaining = Number(data?.marking_resolve?.remaining || 0);
+        if (remaining > 0 && checked <= 0) remaining = 0;
+      }
+    }
     state.kizRows = Array.isArray(data.rows) ? data.rows.map((r) => ({ ...r })) : [];
     state.pendingKizClear = {};
     state.rowErrors = {};
@@ -626,9 +636,19 @@
 
   async function loadPick(supplyId) {
     const params = new URLSearchParams({ source_id: String(state.sourceId) });
-    const data = await api(
-      `/api/wb-fbs/tsd/supplies/${encodeURIComponent(supplyId)}/pick-verify?${params}`
-    );
+    const path = `/api/wb-fbs/tsd/supplies/${encodeURIComponent(supplyId)}/pick-verify?${params}`;
+    let data = await api(path);
+    if (isOzon()) {
+      let remaining = Number(data?.marking_resolve?.remaining || 0);
+      let guard = 0;
+      while (remaining > 0 && guard < 200) {
+        guard += 1;
+        data = await api(path);
+        const checked = Number(data?.marking_resolve?.checked || 0);
+        remaining = Number(data?.marking_resolve?.remaining || 0);
+        if (remaining > 0 && checked <= 0) remaining = 0;
+      }
+    }
     state.pickRows = Array.isArray(data.rows) ? data.rows.map((r) => ({ ...r })) : [];
   }
 

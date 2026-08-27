@@ -1036,8 +1036,9 @@ def enrich_posting_marking_flags(
     required_ids: set[str] = set()
     is_required_checked = False
     try:
-        for item in client.mandatory_mark_is_required(pn, sku_ints):
-            is_required_checked = True
+        required_items = client.mandatory_mark_is_required(pn, sku_ints)
+        is_required_checked = True
+        for item in required_items:
             if not item.get("is_required"):
                 continue
             sku_val = item.get("sku")
@@ -1051,8 +1052,12 @@ def enrich_posting_marking_flags(
         return _posting_with_marking_checked(
             _merge_products_requiring_mandatory_mark(posting, required_ids)
         )
-    if is_required_checked or not allow_exemplar_fallback:
-        return _posting_with_marking_checked(posting) if is_required_checked else posting
+    if is_required_checked:
+        return _posting_with_marking_checked(posting)
+    if not allow_exemplar_fallback:
+        # Light path (modal/TSD chunks): on is-required failure still mark checked
+        # so the queue advances and the UI does not loop on the same postings.
+        return _posting_with_marking_checked(posting)
 
     if not payload_products:
         return posting

@@ -9726,6 +9726,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         request: Request,
         supply_id: str,
         source_id: int,
+        marking_chunk: int | None = None,
     ) -> dict[str, object]:
         from . import ozon_fbs_tsd as oz_tsd
         from . import wb_fbs_detail as wb_detail
@@ -9747,6 +9748,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     supply_id=sid,
                     client_id=client_id,
                     api_key=api_key,
+                    max_postings=marking_chunk,
                 )
             except RuntimeError as exc:
                 raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -9870,6 +9872,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         request: Request,
         supply_id: str,
         source_id: int,
+        marking_chunk: int | None = None,
     ) -> dict[str, object]:
         from . import ozon_fbs_tsd as oz_tsd
         from . import wb_fbs_detail as wb_detail
@@ -9891,6 +9894,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     supply_id=sid,
                     client_id=client_id,
                     api_key=api_key,
+                    max_postings=marking_chunk,
                 )
             except (ValueError, RuntimeError) as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
