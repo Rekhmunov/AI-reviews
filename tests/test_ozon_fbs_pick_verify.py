@@ -94,6 +94,38 @@ def test_build_pick_verify_payload_resolves_kiz_then_filters_plain() -> None:
     assert payload["marking_resolve"]["remaining"] == 0
 
 
+def test_build_pick_verify_payload_resolves_without_api_credentials() -> None:
+    """Catalog gate does not need Ozon API keys."""
+    detail = {
+        "supply_id": "OZ-1",
+        "orders": [{"posting_number": "P-1", "kiz_required": False, "cancelled": False}],
+    }
+    with (
+        patch(
+            "review_processor.ozon_fbs_pick_verify.oz_sup.resolve_supply_kiz_flags_from_ozon",
+            return_value={"updated": 0, "checked": 1, "remaining": 0, "total_pending": 1},
+        ) as resolve,
+        patch(
+            "review_processor.ozon_fbs_pick_verify.oz_sup.get_supply_detail",
+            return_value=detail,
+        ),
+        patch(
+            "review_processor.ozon_fbs_pick_verify.load_posting_pick_map",
+            return_value={},
+        ),
+    ):
+        build_pick_verify_payload(
+            MagicMock(),
+            user_id=1,
+            source_id=2,
+            supply_id="OZ-1",
+            client_id="",
+            api_key="",
+            resolve_kiz=True,
+        )
+    resolve.assert_called_once()
+
+
 def test_save_pick_verify_validates_barcode() -> None:
     with (
         patch(

@@ -237,7 +237,7 @@ def build_pick_verify_payload(
     max_postings: int | None = None,
     posting_tab: str | None = None,
 ) -> dict[str, Any]:
-    """Rows for «Проверка ШК»: resolve КИЗ via is-required (chunked), then plain rows."""
+    """Rows for «Проверка ШК»: catalog КИЗ flags, then non-KIZ (plain) rows only."""
     cid = str(client_id or "").strip()
     key = str(api_key or "").strip()
     tab_key = str(posting_tab or "").strip() or None
@@ -245,7 +245,7 @@ def build_pick_verify_payload(
     chunk = oz_sup._clamp_live_check_chunk(
         max_postings if max_postings is not None else oz_sup.OZON_FBS_LIVE_CHECK_CHUNK
     )
-    if resolve_kiz and cid and key:
+    if resolve_kiz:
         try:
             marking_resolve = oz_sup.resolve_supply_kiz_flags_from_ozon(
                 repo,

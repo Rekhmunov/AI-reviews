@@ -157,7 +157,7 @@ def build_marking_payload(
     chunk = oz_sup._clamp_live_check_chunk(
         max_postings if max_postings is not None else oz_sup.OZON_FBS_LIVE_CHECK_CHUNK
     )
-    if resolve_kiz and cid and key:
+    if resolve_kiz:
         try:
             marking_resolve = oz_sup.resolve_supply_kiz_flags_from_ozon(
                 repo,

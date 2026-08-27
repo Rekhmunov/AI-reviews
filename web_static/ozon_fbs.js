@@ -3616,7 +3616,7 @@
   }
 
   /**
-   * Load marking / pick-verify payloads in chunks until Ozon is-required resolve is done.
+   * Load marking / pick-verify payloads in chunks until catalog КИЗ resolve is done.
    * Prevents nginx 504 on large supplies.
    */
   async function _ozonFbsFetchResolvedChunks(url, { onProgress } = {}) {
@@ -3654,9 +3654,9 @@
     const checked = Number(progress?.checkedTotal || 0);
     const remaining = progress?.remaining;
     if (checked && remaining != null) {
-      return `Определение маркировки у Ozon… проверено ${checked}, осталось ${remaining}`;
+      return `Определение маркировки… проверено ${checked}, осталось ${remaining}`;
     }
-    return "Определение маркировки у Ozon…";
+    return "Определение маркировки…";
   }
 
   function _ozonFbsKizSplitSetTone(tone) {

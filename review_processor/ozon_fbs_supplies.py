@@ -1986,11 +1986,13 @@ def refresh_supply_postings_from_ozon(
     if not nums or not str(client_id or "").strip() or not str(api_key or "").strip():
         return
     client = oz.OzonFbsClient(str(client_id).strip(), str(api_key).strip())
+    requires_kiz_map = repo.get_product_requires_kiz_map(user_id=user_id)
     for i, pn in enumerate(nums):
         try:
             remote = client.get_posting(pn)
             if isinstance(remote, dict):
-                remote = oz.enrich_posting_marking_flags(client, remote)
+                # Catalog «Требует КИЗ» is the Marking gate — do not trust is-required.
+                remote = oz.apply_catalog_marking_flags(remote, requires_kiz_map)
                 oz.upsert_posting(
                     repo,
                     user_id=user_id,
