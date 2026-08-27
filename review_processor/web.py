@@ -12785,6 +12785,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         request: Request,
         supply_id: str,
         source_id: int,
+        refresh: bool = False,
     ) -> dict[str, object]:
         from . import ozon_fbs_marking as oz_mark
 
@@ -12804,6 +12805,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 supply_id=sid,
                 client_id=client_id,
                 api_key=api_key,
+                refresh_from_ozon=bool(refresh),
             )
         except RuntimeError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -12887,6 +12889,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         request: Request,
         supply_id: str,
         source_id: int,
+        refresh: bool = False,
     ) -> dict[str, object]:
         """Postings without КИЗ: local EAN pick-check payload (owner only)."""
         from . import ozon_fbs_pick_verify as oz_pick
@@ -12912,6 +12915,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 supply_id=sid,
                 client_id=client_id,
                 api_key=api_key,
+                refresh_from_ozon=bool(refresh),
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

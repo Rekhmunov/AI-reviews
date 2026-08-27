@@ -193,6 +193,7 @@ def build_pick_verify_payload(
     supply_id: str,
     client_id: str | None = None,
     api_key: str | None = None,
+    refresh_from_ozon: bool = False,
 ) -> dict[str, Any]:
     """Rows for «Проверка ШК»: postings without Chestny ZNAK marking."""
     detail = oz_sup.get_supply_detail(
@@ -202,7 +203,7 @@ def build_pick_verify_payload(
         supply_id=supply_id,
         client_id=client_id,
         api_key=api_key,
-        refresh_from_ozon=True,
+        refresh_from_ozon=refresh_from_ozon,
     )
     plain_orders = [
         o

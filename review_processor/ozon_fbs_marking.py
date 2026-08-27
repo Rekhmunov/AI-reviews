@@ -200,7 +200,13 @@ def build_marking_payload(
     supply_id: str,
     client_id: str | None = None,
     api_key: str | None = None,
+    refresh_from_ozon: bool = False,
 ) -> dict[str, Any]:
+    """Marking modal rows from local DB by default.
+
+    Pass ``refresh_from_ozon=True`` only when opening the modal or from the
+    manual refresh control — live Ozon get per posting is slow.
+    """
     detail = oz_sup.get_supply_detail(
         repo,
         user_id=user_id,
@@ -208,7 +214,7 @@ def build_marking_payload(
         supply_id=supply_id,
         client_id=client_id,
         api_key=api_key,
-        refresh_from_ozon=True,
+        refresh_from_ozon=refresh_from_ozon,
     )
     orders = [
         o
