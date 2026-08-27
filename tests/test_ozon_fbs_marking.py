@@ -76,6 +76,34 @@ def test_enrich_posting_marking_is_required_false_skips_marking() -> None:
     ) is False
 
 
+def test_enrich_posting_marking_marketplace_buyout_checks_is_required() -> None:
+    posting = {
+        "posting_number": "0163799058-0084-1",
+        "products": [
+            {
+                "sku": 3722013683,
+                "quantity": 1,
+                "offer_id": "OOO_Uzori_180x200x30",
+                "is_marketplace_buyout": True,
+            }
+        ],
+    }
+    client = MagicMock()
+    client.mandatory_mark_is_required.return_value = [
+        {"sku": 3722013683, "is_required": True}
+    ]
+    out = oz.enrich_posting_marking_flags(client, posting)
+    client.mandatory_mark_is_required.assert_called_once_with(
+        "0163799058-0084-1", [3722013683]
+    )
+    client.product_exemplar_create_or_get.assert_not_called()
+    req = out.get("requirements") or {}
+    assert "3722013683" in (req.get("products_requiring_mandatory_mark") or [])
+    assert oz.posting_requires_marking(
+        {"is_mandatory_mark": False, "raw_json": __import__("json").dumps(out)}
+    )
+
+
 def test_enrich_posting_marking_from_exemplar_fallback() -> None:
     posting = {
         "posting_number": "38972162-0286-1",

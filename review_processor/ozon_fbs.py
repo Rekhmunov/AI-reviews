@@ -984,12 +984,18 @@ def enrich_posting_marking_flags(
             pid = int(product_id)
         except (TypeError, ValueError):
             continue
-        sku_ints.append(pid)
         try:
             qty = int(p.get("quantity") or 1)
         except (TypeError, ValueError):
             qty = 1
         payload_products.append({"product_id": pid, "quantity": max(qty, 1)})
+    for p in products:
+        product_id = p.get("sku") or p.get("product_id")
+        try:
+            pid = int(product_id)
+        except (TypeError, ValueError):
+            continue
+        sku_ints.append(pid)
     if not sku_ints:
         return posting
 
