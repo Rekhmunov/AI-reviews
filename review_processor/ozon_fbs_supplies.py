@@ -89,10 +89,10 @@ def _source_display_name(
 
 
 def default_supply_name(*, source_name: str, when: datetime | None = None) -> str:
-    """``Поставка «Название источника» от ДД.ММ.ГГГГ`` (MSK)."""
+    """``Поставка Название источника от ДД.ММ.ГГГГ`` (MSK)."""
     dt = when or datetime.now(ZoneInfo("Europe/Moscow"))
     label = str(source_name or "").strip() or "—"
-    return f"Поставка «{label}» от {dt.strftime('%d.%m.%Y')}"
+    return f"Поставка {label} от {dt.strftime('%d.%m.%Y')}"
 
 
 def _unique_supply_name(base: str, existing_names: set[str]) -> str:
@@ -1146,7 +1146,7 @@ def adopt_orphan_awaiting_deliver_postings(
     """Wrap orphan awaiting_deliver postings into local supplies (WB-like rules).
 
     - Same warehouse as an open non-empty supply → add there
-    - Else create ``Поставка «источник» от ДД.ММ.ГГГГ`` (+ uniqueness)
+    - Else create ``Поставка источник от ДД.ММ.ГГГГ`` (+ uniqueness)
     Does not call Ozon API — postings are already shipped.
     """
     ensure_ozon_fbs_supply_schema(repo)

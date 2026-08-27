@@ -236,12 +236,12 @@ def _source_display_name(
 def default_mgt_supply_name(
     *, source_name: str, is_b2b: bool = False, when: datetime | None = None
 ) -> str:
-    """Default editable title: ``Поставка «…» от ДД.ММ.ГГГГ`` (+ `` B2B``)."""
+    """Default editable title: ``Поставка … от ДД.ММ.ГГГГ`` (+ `` B2B``)."""
     from zoneinfo import ZoneInfo
 
     dt = when or datetime.now(ZoneInfo("Europe/Moscow"))
     label = str(source_name or "").strip() or "—"
-    base = f"Поставка «{label}» от {dt.strftime('%d.%m.%Y')}"
+    base = f"Поставка {label} от {dt.strftime('%d.%m.%Y')}"
     return f"{base} B2B" if is_b2b else base
 
 

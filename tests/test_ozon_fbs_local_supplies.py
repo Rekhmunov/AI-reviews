@@ -23,11 +23,11 @@ class OzonFbsLocalSuppliesTests(unittest.TestCase):
         when = datetime(2026, 8, 25, 15, 0, tzinfo=ZoneInfo("Europe/Moscow"))
         self.assertEqual(
             default_supply_name(source_name=self._SOURCE, when=when),
-            "Поставка «Ozon FBS Shop» от 25.08.2026",
+            "Поставка Ozon FBS Shop от 25.08.2026",
         )
 
     def test_unique_supply_name_suffixes(self) -> None:
-        base = "Поставка «Ozon FBS Shop» от 25.08.2026"
+        base = "Поставка Ozon FBS Shop от 25.08.2026"
         existing = {base}
         self.assertEqual(
             _unique_supply_name(base, existing),
@@ -77,7 +77,7 @@ class OzonFbsLocalSuppliesTests(unittest.TestCase):
         self.assertTrue(all(g["mode"] == "create" for g in preview["groups"]))
         names = [g["suggested_name"] for g in preview["groups"]]
         self.assertNotEqual(names[0], names[1])
-        self.assertTrue(all(n.startswith("Поставка «") for n in names))
+        self.assertTrue(all(n.startswith("Поставка ") for n in names))
         self.assertTrue(all(self._SOURCE in n for n in names))
         self.assertNotIn("склад", names[0].lower())
         for n in names:
