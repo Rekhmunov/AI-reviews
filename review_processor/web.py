@@ -11123,8 +11123,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         api_key, api_key_source = api_key_candidates[0]
-        try:
-            result = returns_mod.sync_goods_returns(
+
+        def _run_sync() -> dict[str, object]:
+            return returns_mod.sync_goods_returns(
                 repository,
                 user_id=owner_id,
                 source_id=source_id,
@@ -11136,11 +11137,43 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 trust_report=trust_report,
                 api_key_candidates=api_key_candidates,
             )
-        except returns_mod.GoodsReturnSyncInProgress as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except RuntimeError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return result
+
+        return returns_mod.start_goods_return_sync_async(
+            user_id=owner_id,
+            source_id=source_id,
+            sync_callable=_run_sync,
+        )
+
+    @app.get("/api/wb-fbs/returns/sync/status")
+    def wb_fbs_returns_sync_status(
+        request: Request,
+        source_id: int = 0,
+    ) -> dict[str, object]:
+        from . import wb_fbs_returns as returns_mod
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        sid = int(source_id or 0)
+        if sid <= 0:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        job = returns_mod.get_goods_return_sync_job(user_id=owner_id, source_id=sid)
+        if not job:
+            return {"ok": True, "status": "idle", "source_id": sid}
+        status = str(job.get("status") or "idle")
+        out: dict[str, object] = {
+            "ok": True,
+            "status": status,
+            "source_id": sid,
+            "started_at": job.get("started_at"),
+            "finished_at": job.get("finished_at"),
+        }
+        if status == "ok" and isinstance(job.get("result"), dict):
+            out.update(job["result"])
+        elif status == "error":
+            out["error"] = str(job.get("error") or "Синхронизация не удалась")
+        return out
 
     @app.post("/api/wb-fbs/returns/scan")
     async def wb_fbs_returns_scan(request: Request) -> dict[str, object]:

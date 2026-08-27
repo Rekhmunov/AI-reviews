@@ -18881,25 +18881,62 @@ async function syncWbFbsReturnsGoods(options) {
     });
     const payload = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const detail = typeof payload?.detail === "string" ? payload.detail : "Синхронизация не удалась";
-      throw new Error(detail);
+      throw new Error(_wbFbsKizCircApiError(res, payload, "Синхронизация не удалась"));
     }
-    const synced = Number(payload.synced || 0);
-    const inserted = Number(payload.inserted || 0);
-    const updated = Number(payload.updated || 0);
-    const unchanged = Number(payload.unchanged || 0);
-    const fetched = Number(payload.fetched || synced);
-    const skippedForeign = Number(payload.skipped_foreign || 0);
-    const purgedForeign = Number(payload.purged_foreign || 0);
-    const reportTrusted = !!payload.report_trusted;
-    const windows = Array.isArray(payload.windows) ? payload.windows.length : 0;
+    let result = payload;
+    if (payload.async && String(payload.status || "") === "running") {
+      if (payload.already_running && syncInfo) {
+        syncInfo.textContent = "Синхронизация уже идёт — жду завершения…";
+      }
+      const startedAt = Date.now();
+      const maxWaitMs = 12 * 60 * 1000;
+      while (Date.now() - startedAt < maxWaitMs) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const statusRes = await fetch(
+          `/api/wb-fbs/returns/sync/status?source_id=${encodeURIComponent(String(sid))}`,
+          { headers: jsonHeaders() },
+        );
+        const statusPayload = await statusRes.json().catch(() => ({}));
+        if (!statusRes.ok) {
+          throw new Error(
+            _wbFbsKizCircApiError(statusRes, statusPayload, "Не удалось проверить статус синхронизации"),
+          );
+        }
+        const st = String(statusPayload.status || "");
+        if (st === "running") continue;
+        if (st === "idle") {
+          throw new Error("Синхронизация прервана — повторите «Синхр. WB»");
+        }
+        if (st === "error") {
+          throw new Error(String(statusPayload.error || "Синхронизация не удалась"));
+        }
+        if (st === "ok") {
+          result = statusPayload;
+          break;
+        }
+      }
+      if (String(result.status || "") === "running") {
+        throw new Error(
+          "Синхронизация WB затянулась. Если на сервере она ещё идёт — подождите 1–2 мин и нажмите «Синхр. WB» снова (не запускайте для другого источника подряд).",
+        );
+      }
+    }
+    const synced = Number(result.synced || 0);
+    const inserted = Number(result.inserted || 0);
+    const updated = Number(result.updated || 0);
+    const unchanged = Number(result.unchanged || 0);
+    const fetched = Number(result.fetched || synced);
+    const skippedForeign = Number(result.skipped_foreign || 0);
+    const purgedForeign = Number(result.purged_foreign || 0);
+    const reportTrusted = !!result.report_trusted;
+    const windows = Array.isArray(result.windows) ? result.windows.length : 0;
     const parts = [];
     if (inserted) parts.push(`+${inserted}`);
     if (updated) parts.push(`обн. ${updated}`);
     if (unchanged) parts.push(`без изм. ${unchanged}`);
     const detail = parts.length ? parts.join(", ") : `${synced} записей`;
-    const range = payload.date_from && payload.date_to
-      ? ` · ${payload.date_from}–${payload.date_to}`
+    const range = result.date_from && result.date_to
+      ? ` · ${result.date_from}–${result.date_to}`
       : "";
     const winLabel = windows > 1 ? ` · ${windows} периода` : "";
     const skipLabel = skippedForeign > 0
@@ -18912,8 +18949,8 @@ async function syncWbFbsReturnsGoods(options) {
         ? ` · удалено устаревших ${purgedForeign}`
         : ` · удалено чужих ${purgedForeign}`)
       : "";
-    const warn = String(payload.warning || "").trim();
-    const cachedTotal = Number(payload.goods_cached_total || 0);
+    const warn = String(result.warning || "").trim();
+    const cachedTotal = Number(result.goods_cached_total || 0);
     const cacheLabel = cachedTotal > 0 ? ` · в кэше ${cachedTotal}` : "";
     if (syncInfo) syncInfo.textContent = `WB: ${detail}${skipLabel}${purgeLabel}${cacheLabel}`;
     if (!isAuto) {

@@ -129,6 +129,113 @@ GOODS_RETURN_HYDRATE_CONFIRMED_LIMIT = 30
 _goods_return_sync_lock_guard = threading.Lock()
 _goods_return_sync_locks: dict[str, threading.Lock] = {}
 
+_goods_return_job_guard = threading.Lock()
+_goods_return_jobs: dict[str, dict[str, Any]] = {}
+
+
+def _goods_return_job_key(*, user_id: int, source_id: int) -> str:
+    return f"wb-goods-return-job:{int(user_id)}:{int(source_id)}"
+
+
+def get_goods_return_sync_job(
+    *,
+    user_id: int,
+    source_id: int,
+) -> dict[str, Any] | None:
+    key = _goods_return_job_key(user_id=user_id, source_id=source_id)
+    with _goods_return_job_guard:
+        job = _goods_return_jobs.get(key)
+        return dict(job) if isinstance(job, dict) else None
+
+
+def start_goods_return_sync_async(
+    *,
+    user_id: int,
+    source_id: int,
+    sync_callable,
+) -> dict[str, Any]:
+    """Run ``sync_callable()`` in a daemon thread; return job handle for polling."""
+    key = _goods_return_job_key(user_id=user_id, source_id=source_id)
+    with _goods_return_job_guard:
+        existing = _goods_return_jobs.get(key)
+        if isinstance(existing, dict) and str(existing.get("status") or "") == "running":
+            return {
+                "ok": True,
+                "async": True,
+                "status": "running",
+                "already_running": True,
+                "source_id": int(source_id),
+                "started_at": existing.get("started_at"),
+                "message": (
+                    "Синхронизация возвратов WB уже выполняется для этого источника. "
+                    "Дождитесь завершения (~2 мин для 90 дней)."
+                ),
+            }
+        started_at = datetime.now(UTC).isoformat()
+        _goods_return_jobs[key] = {
+            "status": "running",
+            "source_id": int(source_id),
+            "started_at": started_at,
+        }
+
+    def _worker() -> None:
+        try:
+            result = sync_callable()
+            with _goods_return_job_guard:
+                _goods_return_jobs[key] = {
+                    "status": "ok",
+                    "source_id": int(source_id),
+                    "started_at": started_at,
+                    "finished_at": datetime.now(UTC).isoformat(),
+                    "result": result,
+                }
+        except GoodsReturnSyncInProgress as exc:
+            with _goods_return_job_guard:
+                _goods_return_jobs[key] = {
+                    "status": "error",
+                    "source_id": int(source_id),
+                    "started_at": started_at,
+                    "finished_at": datetime.now(UTC).isoformat(),
+                    "error": str(exc),
+                }
+        except RuntimeError as exc:
+            with _goods_return_job_guard:
+                _goods_return_jobs[key] = {
+                    "status": "error",
+                    "source_id": int(source_id),
+                    "started_at": started_at,
+                    "finished_at": datetime.now(UTC).isoformat(),
+                    "error": str(exc),
+                }
+        except Exception as exc:
+            _log.exception("goods-return async sync failed user=%s source=%s", user_id, source_id)
+            with _goods_return_job_guard:
+                _goods_return_jobs[key] = {
+                    "status": "error",
+                    "source_id": int(source_id),
+                    "started_at": started_at,
+                    "finished_at": datetime.now(UTC).isoformat(),
+                    "error": str(exc) or "Синхронизация не удалась",
+                }
+
+    threading.Thread(
+        target=_worker,
+        name=f"wb-goods-return-sync-{user_id}-{source_id}",
+        daemon=True,
+    ).start()
+    return {
+        "ok": True,
+        "async": True,
+        "status": "running",
+        "already_running": False,
+        "source_id": int(source_id),
+        "started_at": started_at,
+        "message": (
+            "Синхронизация возвратов WB запущена в фоне (~2 мин для 90 дней). "
+            "Не закрывайте окно — статус обновится автоматически."
+        ),
+    }
+
 
 def _goods_return_sync_lock_key(*, user_id: int, cabinet_uid: int | None) -> str:
     uid = int(cabinet_uid or 0)

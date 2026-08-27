@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import unittest
 from datetime import date
 from unittest.mock import MagicMock, patch
@@ -795,6 +796,53 @@ class GoodsReturnSourceFilterTests(unittest.TestCase):
 
         self.assertIn("глобальным ключом", out["warning"])
         self.assertEqual(out["api_key_source"], "settings")
+
+    def test_start_goods_return_sync_async_runs_in_background(self):
+        returns._goods_return_jobs.clear()
+        done = threading.Event()
+        result_holder: dict[str, object] = {}
+
+        def _sync():
+            result_holder["value"] = {"synced": 3, "ok": True}
+            done.set()
+            return result_holder["value"]
+
+        started = returns.start_goods_return_sync_async(
+            user_id=1,
+            source_id=10,
+            sync_callable=_sync,
+        )
+        self.assertTrue(started.get("async"))
+        self.assertEqual(started.get("status"), "running")
+        self.assertTrue(done.wait(5), "background sync did not finish")
+        job = returns.get_goods_return_sync_job(user_id=1, source_id=10)
+        self.assertIsNotNone(job)
+        assert job is not None
+        self.assertEqual(job.get("status"), "ok")
+        self.assertEqual(job.get("result"), {"synced": 3, "ok": True})
+
+    def test_start_goods_return_sync_async_already_running(self):
+        returns._goods_return_jobs.clear()
+        gate = threading.Event()
+        gate.clear()
+
+        def _sync():
+            gate.wait(10)
+            return {"synced": 1}
+
+        first = returns.start_goods_return_sync_async(
+            user_id=1,
+            source_id=10,
+            sync_callable=_sync,
+        )
+        self.assertFalse(first.get("already_running"))
+        second = returns.start_goods_return_sync_async(
+            user_id=1,
+            source_id=10,
+            sync_callable=_sync,
+        )
+        self.assertTrue(second.get("already_running"))
+        gate.set()
 
 
 if __name__ == "__main__":
