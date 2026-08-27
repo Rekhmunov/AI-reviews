@@ -681,14 +681,28 @@ def posting_sticker_payload_from_row(row: dict[str, Any]) -> dict[str, Any]:
     pn = str(row.get("posting_number") or "").strip()
     part_a = str(row.get("sticker_part_a") or "").strip()
     part_b = str(row.get("sticker_part_b") or "").strip()
+    upper = str(row.get("sticker_barcode") or "").strip()
+    lower = str(row.get("sticker_lower_barcode") or "").strip()
+    if (not upper or not lower or (not part_a and not part_b)) and pn:
+        posting = _posting_payload_from_row(row)
+        if posting:
+            hints = sticker_fields_from_posting({**posting, "posting_number": pn})
+            if not upper:
+                upper = str(hints.get("sticker_barcode") or "").strip()
+            if not lower:
+                lower = str(hints.get("sticker_lower_barcode") or "").strip()
+            if not part_a:
+                part_a = str(hints.get("sticker_part_a") or "").strip()
+            if not part_b:
+                part_b = str(hints.get("sticker_part_b") or "").strip()
     if not part_a and pn:
         part_a, part_b = sticker_parts_from_posting_number(pn)
     return {
         "posting_number": pn,
         "order_id": row.get("order_id"),
         "order_number": str(row.get("order_number") or "").strip(),
-        "sticker_barcode": str(row.get("sticker_barcode") or "").strip(),
-        "sticker_lower_barcode": str(row.get("sticker_lower_barcode") or "").strip(),
+        "sticker_barcode": upper,
+        "sticker_lower_barcode": lower,
         "sticker_part_a": part_a,
         "sticker_part_b": part_b,
     }
@@ -862,6 +876,13 @@ def apply_posting_sticker_hints(
     if not pn:
         return
     hints = sticker_fields_from_posting(posting)
+    if not (
+        hints.get("sticker_barcode")
+        or hints.get("sticker_lower_barcode")
+        or hints.get("sticker_part_a")
+        or hints.get("sticker_part_b")
+    ):
+        return
     persist_posting_stickers_batch(
         repo,
         user_id=user_id,

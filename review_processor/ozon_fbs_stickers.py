@@ -15,7 +15,8 @@ _POSTING_SCAN_SELECT = """
     posting_number, order_id, order_number, supply_id, tab, status,
     offer_id, sku, product_name, marking_codes_json, marking_saved_at,
     pick_verified, pick_barcode, pick_verified_at,
-    sticker_barcode, sticker_part_a, sticker_part_b, sticker_lower_barcode
+    sticker_barcode, sticker_part_a, sticker_part_b, sticker_lower_barcode,
+    raw_json
 """
 
 _MATCH_LIMIT = 50
@@ -57,6 +58,44 @@ def _resolve_matches(matches: list[dict[str, Any]]) -> dict[str, Any]:
     return {"row": None, "ambiguous": False, "matches": []}
 
 
+def _sticker_fields_for_scan_row(row: dict[str, Any]) -> dict[str, str]:
+    """Resolved sticker fields for lookup (DB columns + Ozon raw_json barcodes)."""
+    payload = oz.posting_sticker_payload_from_row(row)
+    return {
+        "sticker_barcode": str(payload.get("sticker_barcode") or "").strip(),
+        "sticker_lower_barcode": str(payload.get("sticker_lower_barcode") or "").strip(),
+        "sticker_part_a": str(payload.get("sticker_part_a") or "").strip(),
+        "sticker_part_b": str(payload.get("sticker_part_b") or "").strip(),
+    }
+
+
+def _row_matches_sticker_scan(row: dict[str, Any], raw: str, raw_key: str, digits: str) -> bool:
+    fields = _sticker_fields_for_scan_row(row)
+    bc = fields["sticker_barcode"]
+    bc_low = fields["sticker_lower_barcode"]
+    if bc and _sticker_scan_key(bc) == raw_key:
+        return True
+    if bc_low and _sticker_scan_key(bc_low) == raw_key:
+        return True
+    part_a = normalize_sticker_scan(fields["sticker_part_a"])
+    part_b = normalize_sticker_scan(fields["sticker_part_b"])
+    full = normalize_sticker_scan(sticker_number(part_a, part_b))
+    pn = str(row.get("posting_number") or "").strip()
+    pn_lower = pn.casefold()
+    raw_lower = raw.casefold()
+    if pn_lower and (pn_lower == raw_lower or raw_lower in pn_lower or pn_lower in raw_lower):
+        return True
+    return bool(
+        (full and (_sticker_scan_key(full) == raw_key or digits == re.sub(r"\D+", "", full)))
+        or (part_a and part_b and digits == re.sub(r"\D+", "", f"{part_a}{part_b}"))
+        or (
+            part_b
+            and (_sticker_scan_key(part_b) == raw_key or digits == re.sub(r"\D+", "", part_b))
+        )
+        or (pn and digits and re.sub(r"\D+", "", pn).endswith(digits[-4:]))
+    )
+
+
 def _fuzzy_match_postings(
     postings: list[dict[str, Any]],
     raw: str,
@@ -64,35 +103,9 @@ def _fuzzy_match_postings(
     digits: str,
 ) -> list[dict[str, Any]]:
     """Client-parity fuzzy match on a bounded row set."""
-    raw_lower = raw.casefold()
-    by_pn: list[dict[str, Any]] = []
-    for row in postings:
-        pn = str(row.get("posting_number") or "").strip()
-        if not pn:
-            continue
-        pn_lower = pn.casefold()
-        if pn_lower == raw_lower or raw_lower in pn_lower or pn_lower in raw_lower:
-            by_pn.append(row)
-    if by_pn:
-        return by_pn
-
     matches: list[dict[str, Any]] = []
     for row in postings:
-        full = normalize_sticker_scan(
-            sticker_number(row.get("sticker_part_a"), row.get("sticker_part_b"))
-        )
-        part_a = normalize_sticker_scan(row.get("sticker_part_a"))
-        part_b = normalize_sticker_scan(row.get("sticker_part_b"))
-        pn = str(row.get("posting_number") or "").strip()
-        if (
-            (full and (_sticker_scan_key(full) == raw_key or digits == re.sub(r"\D+", "", full)))
-            or (part_a and part_b and digits == re.sub(r"\D+", "", f"{part_a}{part_b}"))
-            or (
-                part_b
-                and (_sticker_scan_key(part_b) == raw_key or digits == re.sub(r"\D+", "", part_b))
-            )
-            or (pn and digits and re.sub(r"\D+", "", pn).endswith(digits[-4:]))
-        ):
+        if _row_matches_sticker_scan(row, raw, raw_key, digits):
             matches.append(row)
     return matches
 
@@ -212,6 +225,20 @@ def find_postings_by_sticker_scan(
             ]
             if by_tail:
                 return _resolve_matches(by_tail)
+
+        # 6) Ozon package barcode stored only in raw_json (columns not backfilled yet).
+        if len(raw) >= 8:
+            rows = _fetch_posting_rows(
+                repo,
+                conn,
+                user_id=user_id,
+                source_id=source_id,
+                where_sql="raw_json ILIKE ?",
+                params=(f"%{raw}%",),
+            )
+            by_raw = [r for r in rows if _row_matches_sticker_scan(r, raw, raw_key, digits)]
+            if by_raw:
+                return _resolve_matches(by_raw)
 
     return {"row": None, "ambiguous": False, "matches": []}
 

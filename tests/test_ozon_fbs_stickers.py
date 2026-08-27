@@ -91,6 +91,26 @@ class OzonFbsStickerFieldsTests(unittest.TestCase):
         self.assertEqual(fields["sticker_barcode"], "UPQR")
         self.assertEqual(fields["sticker_lower_barcode"], "LOWQR")
 
+    def test_posting_sticker_payload_falls_back_to_raw_json(self) -> None:
+        payload = oz.posting_sticker_payload_from_row(
+            {
+                "posting_number": "0163799058-0084-1",
+                "sticker_barcode": "",
+                "sticker_lower_barcode": "",
+                "sticker_part_a": "",
+                "sticker_part_b": "",
+                "raw_json": (
+                    '{"posting_number":"0163799058-0084-1",'
+                    '"barcodes":{"upper_barcode":"751420599146000",'
+                    '"lower_barcode":"751420599146000"}}'
+                ),
+            }
+        )
+        self.assertEqual(payload["sticker_barcode"], "751420599146000")
+        self.assertEqual(payload["sticker_lower_barcode"], "751420599146000")
+        self.assertEqual(payload["sticker_part_a"], "0163799058")
+        self.assertEqual(payload["sticker_part_b"], "0084-1")
+
 
 class OzonFbsStickerPersistTests(unittest.TestCase):
     @patch("review_processor.ozon_fbs.ensure_ozon_fbs_tables")
@@ -218,6 +238,7 @@ class OzonFbsStickerLookupTests(unittest.TestCase):
                     "sticker_barcode": "",
                     "sticker_part_a": "0123604587",
                     "sticker_part_b": "1235-1",
+                    "raw_json": "",
                 }
             ],
         ]
@@ -226,6 +247,37 @@ class OzonFbsStickerLookupTests(unittest.TestCase):
             repo, user_id=1, source_id=2, scan="1235-1"
         )
         self.assertEqual(found["row"]["posting_number"], "0123604587-1235-1")
+
+    def test_find_by_package_barcode_in_raw_json_only(self) -> None:
+        repo = MagicMock()
+        conn = MagicMock()
+        repo._connect.return_value.__enter__.return_value = conn
+        row = {
+            "posting_number": "0163799058-0084-1",
+            "sticker_barcode": "",
+            "sticker_lower_barcode": "",
+            "sticker_part_a": "",
+            "sticker_part_b": "",
+            "raw_json": (
+                '{"posting_number":"0163799058-0084-1",'
+                '"barcodes":{"upper_barcode":"751420599146000",'
+                '"lower_barcode":"751420599146000"}}'
+            ),
+        }
+        conn.execute.return_value.fetchall.side_effect = [
+            [],  # upper barcode column
+            [],  # lower barcode column
+            [],  # exact pn
+            [],  # partial pn
+            [],  # part_b exact
+            [],  # digit tail
+            [row],  # raw_json ILIKE
+        ]
+        repo._row_to_dict = lambda r: dict(r)
+        found = find_postings_by_sticker_scan(
+            repo, user_id=1, source_id=2, scan="751420599146000"
+        )
+        self.assertEqual(found["row"]["posting_number"], "0163799058-0084-1")
 
 
 if __name__ == "__main__":
