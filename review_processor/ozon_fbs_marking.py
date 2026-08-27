@@ -506,7 +506,13 @@ def check_supply_marking_status(
     supply_id: str,
     client_id: str | None = None,
     api_key: str | None = None,
+    refresh_from_ozon: bool = False,
 ) -> dict[str, Any]:
+    """Marking badge refresh for supply detail (local DB by default).
+
+    Pass ``refresh_from_ozon=True`` only from the manual refresh control —
+    live Ozon get per posting is slow and must not run on every table re-render.
+    """
     detail = oz_sup.get_supply_detail(
         repo,
         user_id=user_id,
@@ -514,7 +520,7 @@ def check_supply_marking_status(
         supply_id=supply_id,
         client_id=client_id,
         api_key=api_key,
-        refresh_from_ozon=True,
+        refresh_from_ozon=refresh_from_ozon,
     )
     orders = [o for o in (detail.get("orders") or []) if isinstance(o, dict)]
     posting_numbers = [
