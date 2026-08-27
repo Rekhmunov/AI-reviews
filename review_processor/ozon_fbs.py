@@ -578,6 +578,7 @@ def ensure_ozon_fbs_tables(repo: ReviewRepository) -> None:
             "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS pick_barcode TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS pick_verified_at TIMESTAMPTZ",
             "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS sticker_barcode TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS sticker_lower_barcode TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS sticker_part_a TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS sticker_part_b TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS sticker_scanned_at TIMESTAMPTZ",
@@ -591,6 +592,11 @@ def ensure_ozon_fbs_tables(repo: ReviewRepository) -> None:
                 "CREATE INDEX IF NOT EXISTS idx_ozon_fbs_postings_sticker_barcode "
                 "ON ozon_fbs_postings(user_id, source_id, sticker_barcode) "
                 "WHERE sticker_barcode <> ''"
+            ),
+            repo._sql(
+                "CREATE INDEX IF NOT EXISTS idx_ozon_fbs_postings_sticker_lower_barcode "
+                "ON ozon_fbs_postings(user_id, source_id, sticker_lower_barcode) "
+                "WHERE sticker_lower_barcode <> ''"
             ),
             repo._sql(
                 "CREATE INDEX IF NOT EXISTS idx_ozon_fbs_postings_sticker_part_b "
@@ -618,17 +624,22 @@ def sticker_parts_from_posting_number(posting_number: object) -> tuple[str, str]
 
 
 def sticker_fields_from_posting(posting: dict[str, Any]) -> dict[str, str]:
-    """Derive sticker binding fields from Ozon posting payload (non-destructive hints)."""
+    """Derive sticker binding from Ozon posting (``barcodes`` + posting_number).
+
+    Ozon API ``FbsPostingBarcodes``: ``upper_barcode`` = верхняя этикетка,
+    ``lower_barcode`` = нижняя. Источник: ``/v3/posting/fbs/get`` с ``with.barcodes``.
+    """
     pn = str(posting.get("posting_number") or "").strip()
     part_a, part_b = sticker_parts_from_posting_number(pn)
-    barcode = ""
+    upper = ""
+    lower = ""
     barcodes = posting.get("barcodes")
     if isinstance(barcodes, dict):
-        barcode = str(
-            barcodes.get("upper_barcode") or barcodes.get("lower_barcode") or ""
-        ).strip()
+        upper = str(barcodes.get("upper_barcode") or "").strip()
+        lower = str(barcodes.get("lower_barcode") or "").strip()
     return {
-        "sticker_barcode": barcode,
+        "sticker_barcode": upper,
+        "sticker_lower_barcode": lower,
         "sticker_part_a": part_a,
         "sticker_part_b": part_b,
     }
@@ -646,6 +657,7 @@ def posting_sticker_payload_from_row(row: dict[str, Any]) -> dict[str, Any]:
         "order_id": row.get("order_id"),
         "order_number": str(row.get("order_number") or "").strip(),
         "sticker_barcode": str(row.get("sticker_barcode") or "").strip(),
+        "sticker_lower_barcode": str(row.get("sticker_lower_barcode") or "").strip(),
         "sticker_part_a": part_a,
         "sticker_part_b": part_b,
     }
@@ -668,7 +680,7 @@ def load_posting_sticker_map(
             repo._sql(
                 f"""
                 SELECT posting_number, order_id, order_number,
-                       sticker_barcode, sticker_part_a, sticker_part_b
+                       sticker_barcode, sticker_lower_barcode, sticker_part_a, sticker_part_b
                 FROM ozon_fbs_postings
                 WHERE user_id = ? AND source_id = ?
                   AND posting_number IN ({placeholders})
@@ -710,6 +722,9 @@ def persist_posting_stickers_batch(
             barcode = str(
                 st.get("sticker_barcode") or st.get("barcode") or ""
             ).strip()
+            lower_barcode = str(
+                st.get("sticker_lower_barcode") or st.get("lower_barcode") or ""
+            ).strip()
             part_a = str(st.get("sticker_part_a") or st.get("partA") or "").strip()
             part_b = str(st.get("sticker_part_b") or st.get("partB") or "").strip()
             if not part_a and not part_b:
@@ -718,7 +733,7 @@ def persist_posting_stickers_batch(
                     part_a = hint_a
                 if not part_b:
                     part_b = hint_b
-            if not (barcode or part_a or part_b):
+            if not (barcode or lower_barcode or part_a or part_b):
                 continue
             if only_if_empty:
                 cur = conn.execute(
@@ -728,6 +743,10 @@ def persist_posting_stickers_batch(
                         SET sticker_barcode = CASE
                                 WHEN sticker_barcode = '' AND ? <> '' THEN ?
                                 ELSE sticker_barcode
+                            END,
+                            sticker_lower_barcode = CASE
+                                WHEN sticker_lower_barcode = '' AND ? <> '' THEN ?
+                                ELSE sticker_lower_barcode
                             END,
                             sticker_part_a = CASE
                                 WHEN sticker_part_a = '' AND ? <> '' THEN ?
@@ -743,6 +762,8 @@ def persist_posting_stickers_batch(
                     (
                         barcode,
                         barcode,
+                        lower_barcode,
+                        lower_barcode,
                         part_a,
                         part_a,
                         part_b,
@@ -761,6 +782,10 @@ def persist_posting_stickers_batch(
                                 WHEN ? <> '' THEN ?
                                 ELSE sticker_barcode
                             END,
+                            sticker_lower_barcode = CASE
+                                WHEN ? <> '' THEN ?
+                                ELSE sticker_lower_barcode
+                            END,
                             sticker_part_a = CASE
                                 WHEN ? <> '' THEN ?
                                 ELSE sticker_part_a
@@ -776,6 +801,8 @@ def persist_posting_stickers_batch(
                     (
                         barcode,
                         barcode,
+                        lower_barcode,
+                        lower_barcode,
                         part_a,
                         part_a,
                         part_b,

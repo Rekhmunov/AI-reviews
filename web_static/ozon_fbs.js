@@ -2833,7 +2833,7 @@
 
   /**
    * Ozon FBS sticker match — parity with WB `_wbFbsKizFindBySticker` / backend lookup.
-   * Supports Ozon package-label QR (`upper_barcode`), posting_number, part_a/part_b.
+   * Ozon API ``FbsPostingBarcodes``: upper/lower штрихкоды этикетки + posting_number.
    */
   function _ozonFbsFindByStickerInRows(scan, rows) {
     const raw = _ozonFbsNormalizeScan(scan);
@@ -2845,7 +2845,9 @@
     const byBarcode = [];
     for (const row of list) {
       const bc = _ozonFbsNormalizeScan(row?.sticker_barcode);
+      const bcLow = _ozonFbsNormalizeScan(row?.sticker_lower_barcode);
       if (bc && _ozonFbsStickerScanKey(bc) === rawKey) byBarcode.push(row);
+      else if (bcLow && _ozonFbsStickerScanKey(bcLow) === rawKey) byBarcode.push(row);
     }
     if (byBarcode.length === 1) return { row: byBarcode[0], ambiguous: false };
     if (byBarcode.length > 1) return { row: null, ambiguous: true, matches: byBarcode };
@@ -2899,6 +2901,7 @@
     const raw = _ozonFbsNormalizeScan(scanRaw);
     if (!raw) return;
     const pn = String(row.posting_number || "").trim();
+    const rawKey = _ozonFbsStickerScanKey(raw);
     const rawLower = raw.toLowerCase();
     const pnLower = pn.toLowerCase();
     let partA = String(row.sticker_part_a || "").trim();
@@ -2908,13 +2911,18 @@
       partA = parts.part_a;
       partB = parts.part_b;
     }
-    let barcode = String(row.sticker_barcode || "").trim();
-    if (rawLower === pnLower || (pnLower && rawLower.includes(pnLower))) {
-      if (!barcode) barcode = raw;
+    const knownUpper = _ozonFbsNormalizeScan(row.sticker_barcode);
+    const knownLower = _ozonFbsNormalizeScan(row.sticker_lower_barcode);
+    if (knownLower && _ozonFbsStickerScanKey(knownLower) === rawKey) {
+      row.sticker_lower_barcode = raw;
+    } else if (knownUpper && _ozonFbsStickerScanKey(knownUpper) === rawKey) {
+      row.sticker_barcode = raw;
+    } else if (rawLower === pnLower || (pnLower && rawLower.includes(pnLower))) {
+      if (!row.sticker_barcode) row.sticker_barcode = raw;
     } else {
-      barcode = raw;
+      // Новый скан с этикетки — по умолчанию upper; Ozon API разделяет upper/lower.
+      row.sticker_barcode = raw;
     }
-    row.sticker_barcode = barcode;
     if (partA) row.sticker_part_a = partA;
     if (partB) row.sticker_part_b = partB;
   }
@@ -2932,7 +2940,8 @@
         body: JSON.stringify({
           source_id: sourceId,
           posting_number: pn,
-          sticker_barcode: String(row.sticker_barcode || raw).trim(),
+          sticker_barcode: String(row.sticker_barcode || "").trim(),
+          sticker_lower_barcode: String(row.sticker_lower_barcode || "").trim(),
           sticker_part_a: String(row.sticker_part_a || "").trim(),
           sticker_part_b: String(row.sticker_part_b || "").trim(),
           supply_id: String(supplyDetailState.supplyId || "").trim() || undefined,

@@ -15,7 +15,7 @@ _POSTING_SCAN_SELECT = """
     posting_number, order_id, order_number, supply_id, tab, status,
     offer_id, sku, product_name, marking_codes_json, marking_saved_at,
     pick_verified, pick_barcode, pick_verified_at,
-    sticker_barcode, sticker_part_a, sticker_part_b
+    sticker_barcode, sticker_part_a, sticker_part_b, sticker_lower_barcode
 """
 
 _MATCH_LIMIT = 50
@@ -130,6 +130,24 @@ def find_postings_by_sticker_scan(
             ]
             if by_bc:
                 return _resolve_matches(by_bc)
+
+        # 1b) Exact lower_barcode (нижняя этикетка Ozon).
+        rows = _fetch_posting_rows(
+            repo,
+            conn,
+            user_id=user_id,
+            source_id=source_id,
+            where_sql="sticker_lower_barcode <> '' AND sticker_lower_barcode = ?",
+            params=(raw,),
+        )
+        if rows:
+            by_low = [
+                r
+                for r in rows
+                if _sticker_scan_key(r.get("sticker_lower_barcode")) == raw_key
+            ]
+            if by_low:
+                return _resolve_matches(by_low)
 
         # 2) Exact posting_number (case-insensitive).
         rows = _fetch_posting_rows(

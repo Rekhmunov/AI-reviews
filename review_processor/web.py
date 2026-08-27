@@ -12124,6 +12124,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 posting_number: {
                     "posting_number": posting_number,
                     "sticker_barcode": body.get("sticker_barcode"),
+                    "sticker_lower_barcode": body.get("sticker_lower_barcode"),
                     "sticker_part_a": body.get("sticker_part_a"),
                     "sticker_part_b": body.get("sticker_part_b"),
                 }

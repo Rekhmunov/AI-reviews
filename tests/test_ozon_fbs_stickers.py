@@ -77,8 +77,19 @@ class OzonFbsStickerFieldsTests(unittest.TestCase):
             }
         )
         self.assertEqual(fields["sticker_barcode"], "QR123")
+        self.assertEqual(fields["sticker_lower_barcode"], "")
         self.assertEqual(fields["sticker_part_a"], "0123604587")
         self.assertEqual(fields["sticker_part_b"], "1235-1")
+
+    def test_sticker_fields_upper_and_lower(self) -> None:
+        fields = oz.sticker_fields_from_posting(
+            {
+                "posting_number": "0123604587-1235-1",
+                "barcodes": {"upper_barcode": "UPQR", "lower_barcode": "LOWQR"},
+            }
+        )
+        self.assertEqual(fields["sticker_barcode"], "UPQR")
+        self.assertEqual(fields["sticker_lower_barcode"], "LOWQR")
 
 
 class OzonFbsStickerPersistTests(unittest.TestCase):
@@ -152,6 +163,28 @@ class OzonFbsStickerLookupTests(unittest.TestCase):
         )
         self.assertEqual(found["row"]["posting_number"], "PN-1")
 
+    def test_find_by_sticker_lower_barcode(self) -> None:
+        repo = MagicMock()
+        conn = MagicMock()
+        repo._connect.return_value.__enter__.return_value = conn
+        conn.execute.return_value.fetchall.side_effect = [
+            [],
+            [
+                {
+                    "posting_number": "PN-2",
+                    "sticker_barcode": "UPQR",
+                    "sticker_lower_barcode": "LOWQR",
+                    "sticker_part_a": "",
+                    "sticker_part_b": "",
+                }
+            ],
+        ]
+        repo._row_to_dict = lambda r: dict(r)
+        found = find_postings_by_sticker_scan(
+            repo, user_id=1, source_id=2, scan="LOWQR"
+        )
+        self.assertEqual(found["row"]["posting_number"], "PN-2")
+
     def test_find_by_posting_number_partial(self) -> None:
         repo = MagicMock()
         conn = MagicMock()
@@ -176,7 +209,8 @@ class OzonFbsStickerLookupTests(unittest.TestCase):
         repo._connect.return_value.__enter__.return_value = conn
         # part_b exact query returns empty; fuzzy via ILIKE tail
         conn.execute.return_value.fetchall.side_effect = [
-            [],  # barcode
+            [],  # upper barcode
+            [],  # lower barcode
             [],  # exact pn
             [
                 {
