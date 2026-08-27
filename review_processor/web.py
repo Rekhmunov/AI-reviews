@@ -8025,6 +8025,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         """
         _log.info("restore_auto_sync_on_startup: starting")
         try:
+            try:
+                from . import _ozon_fbs_kiz_agent_diag as _oz_diag
+
+                _oz_diag.run_ozon_fbs_kiz_agent_diag(repository)
+            except Exception as _diag_exc:
+                _log.warning("ozon kiz agent diag skipped: %s", _diag_exc)
             owner_users = repository.list_users(owner_only=True)
             _log.info("restore_auto_sync_on_startup: found %d owner users", len(owner_users))
             for user in owner_users:
