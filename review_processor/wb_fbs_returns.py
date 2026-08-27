@@ -983,6 +983,7 @@ def sync_goods_returns(
     ``trust_report=True`` (same WB seller cabinet), all report rows are kept.
     """
     ensure_wb_fbs_returns_tables(repo)
+    date_from, date_to, range_clamped = clamp_goods_return_sync_range(date_from, date_to)
     if trust_report is None:
         trust_report = goods_return_report_trusted(api_key_source)
     candidates = list(api_key_candidates or [])
@@ -1192,6 +1193,7 @@ def sync_goods_returns(
         "warning": warning,
         "api_key_source": report_label or str(api_key_source or "").strip() or None,
         "report_trusted": trust_report,
+        "range_clamped": range_clamped,
         "rate_limit_windows": totals.get("rate_limit_windows"),
         "windows": window_stats,
         "date_from": overall_from,
@@ -1272,6 +1274,9 @@ def find_goods_return_by_scan(
     raw_key = _scan_key(raw)
     digits = _digits_only(raw)
     for row in _goods_return_rows(repo, user_id=user_id, source_id=source_id):
+        srid = str(row.get("srid") or "").strip()
+        if srid and (_scan_key(srid) == raw_key or srid.casefold() == raw.casefold()):
+            return row
         sticker_id = str(row.get("sticker_id") or "").strip()
         if sticker_id and (
             sticker_id == raw
@@ -2180,6 +2185,25 @@ def default_sync_date_range(
     end = date.today()
     start = end - timedelta(days=max(1, days) - 1)
     return start.isoformat(), end.isoformat()
+
+
+def clamp_goods_return_sync_range(
+    date_from: str,
+    date_to: str,
+    *,
+    max_days: int = GOODS_RETURN_DEFAULT_TOTAL_DAYS,
+) -> tuple[str, str, bool]:
+    """Limit custom sync range to WB storage window (≤90 days). Returns (from, to, was_clamped)."""
+    df = _parse_sync_date(_parse_iso_date(date_from))
+    dt = _parse_sync_date(_parse_iso_date(date_to))
+    if dt < df:
+        df, dt = dt, df
+    cap = max(1, int(max_days))
+    span = (dt - df).days + 1
+    if span <= cap:
+        return df.isoformat(), dt.isoformat(), False
+    df = dt - timedelta(days=cap - 1)
+    return df.isoformat(), dt.isoformat(), True
 
 
 def sync_goods_returns_default(

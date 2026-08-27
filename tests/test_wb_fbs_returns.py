@@ -38,6 +38,16 @@ class GoodsReturnWindowTests(unittest.TestCase):
         windows = returns.iter_goods_return_windows("2026-08-01", "2026-08-20")
         self.assertEqual(windows, [("2026-08-01", "2026-08-20")])
 
+    def test_clamp_goods_return_sync_range_limits_to_90_days(self):
+        df, dt, clamped = returns.clamp_goods_return_sync_range(
+            "2025-01-01", "2026-08-27"
+        )
+        self.assertTrue(clamped)
+        span = (
+            date.fromisoformat(dt) - date.fromisoformat(df)
+        ).days + 1
+        self.assertLessEqual(span, returns.GOODS_RETURN_DEFAULT_TOTAL_DAYS)
+
 
 class GoodsReturnUpsertTests(unittest.TestCase):
     def test_upsert_skips_unchanged_srid(self):
@@ -127,6 +137,26 @@ class GoodsReturnMatchTests(unittest.TestCase):
         )
         self.assertIsNotNone(hit)
         self.assertEqual(hit["wb_order_id"], 900002)
+
+    @patch("review_processor.wb_fbs_returns.wb.ensure_wb_fbs_tables")
+    @patch("review_processor.wb_fbs_returns.ensure_wb_fbs_returns_tables")
+    def test_find_goods_return_by_srid(self, _ensure_ret, _ensure_wb):
+        repo = self._repo_with_goods_returns(
+            [
+                {
+                    "sticker_id": "",
+                    "srid": "abc123def456",
+                    "wb_order_id": 900003,
+                    "barcode": "",
+                    "shk_id": "",
+                }
+            ]
+        )
+        hit = returns.find_goods_return_by_scan(
+            repo, user_id=1, source_id=2, scan="abc123def456"
+        )
+        self.assertIsNotNone(hit)
+        self.assertEqual(hit["wb_order_id"], 900003)
 
 
 class ReturnScanDuplicateTests(unittest.TestCase):

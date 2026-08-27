@@ -18856,12 +18856,11 @@ async function syncWbFbsReturnsGoods(options) {
   const syncBtn = document.getElementById("wbFbsReturnsSyncBtn");
   const syncInfo = document.getElementById("wbFbsReturnsSyncInfo");
   if (syncBtn) syncBtn.disabled = true;
-    if (syncInfo) {
-      const rateHint = Number(payload.rate_limit_windows || 0) > 1
-        ? " (запросы WB с паузой ~1 мин)"
-        : "";
-      syncInfo.textContent = isAuto ? `Автосинхронизация WB…${rateHint}` : `Синхронизация WB…${rateHint}`;
-    }
+  if (syncInfo) {
+    syncInfo.textContent = isAuto
+      ? "Автосинхронизация WB… (до ~2 мин для 90 дней)"
+      : "Синхронизация WB… (до ~2 мин для 90 дней)";
+  }
   try {
     const body = { source_id: sid };
     const df = document.getElementById("wbFbsReturnsDateFrom")?.value || "";
@@ -18920,9 +18919,12 @@ async function syncWbFbsReturnsGoods(options) {
     } else if (warn) {
       _wbFbsReturnsSetInfo(warn, "warn");
     }
+    if (isAuto) _wbFbsReturnsMarkAutoSynced(sid);
+    return true;
   } catch (err) {
     if (syncInfo) syncInfo.textContent = "";
     _wbFbsReturnsSetInfo(err?.message || String(err));
+    return false;
   } finally {
     wbFbsReturnsState.syncing = false;
     if (syncBtn) syncBtn.disabled = false;
@@ -19088,8 +19090,7 @@ function openWbFbsKizRestoreModal() {
   initWbFbsReturnsInfiniteScroll();
   loadWbFbsReturnsScans();
   if (_wbFbsReturnsShouldAutoSync(sid)) {
-    _wbFbsReturnsMarkAutoSynced(sid);
-    syncWbFbsReturnsGoods({ auto: true });
+    void syncWbFbsReturnsGoods({ auto: true });
   }
   setTimeout(() => scan?.focus(), 40);
 }
