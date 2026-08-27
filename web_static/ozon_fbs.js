@@ -1243,10 +1243,10 @@
     const kizBtn = document.getElementById("ozonFbsSupplyDetailKizBtn");
     const kizRefreshBtn = document.getElementById("ozonFbsSupplyDetailKizRefreshBtn");
     if (!readOnly) {
-      const needsKiz = allOrders.some((o) => o && o.kiz_required);
+      const needsKiz = allOrders.some((o) => o && o.kiz_required && !_ozonFbsRowIsCancelled(o));
       if (kizSplit) kizSplit.hidden = !allOrders.length;
-      if (kizBtn) kizBtn.hidden = !needsKiz;
-      if (kizRefreshBtn) kizRefreshBtn.hidden = !allOrders.length;
+      if (kizBtn) kizBtn.hidden = !allOrders.length;
+      if (kizRefreshBtn) kizRefreshBtn.hidden = !needsKiz;
       if (!needsKiz) _ozonFbsKizSplitSetTone("");
       else _ozonFbsKizSplitSetTone(_ozonFbsKizToneFromSupply(supply));
       _ozonFbsSyncPickVerifyBtn(allOrders);
@@ -1371,12 +1371,6 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(detailText(data.detail) || "Не найдено");
       renderSupplyDetail(data);
-      const enrichNote = String(data.marking_enrich_note || "").trim();
-      const info = document.getElementById("ozonFbsSupplyDetailInfo");
-      if (info && enrichNote) {
-        info.hidden = false;
-        info.textContent = enrichNote;
-      }
       _ozonFbsSupplyDetailSetActionsReady(true);
     } catch (e) {
       _ozonFbsSupplyDetailSetActionsReady(false);
@@ -3131,6 +3125,27 @@
     return { ok: true };
   }
 
+  function _ozonFbsKizMergeOrderFlagsIntoDetail(flags) {
+    const supply = supplyDetailState.supply;
+    if (!supply || !Array.isArray(supply.orders) || !Array.isArray(flags)) return;
+    const byPn = new Map();
+    flags.forEach((row) => {
+      const pn = String(row?.posting_number || "").trim();
+      if (pn) byPn.set(pn, row);
+    });
+    supply.orders.forEach((o) => {
+      const pn = String(o?.posting_number || "").trim();
+      const upd = byPn.get(pn);
+      if (!upd) return;
+      o.kiz_required = !!upd.kiz_required;
+      if (upd.kiz_status) o.kiz_status = String(upd.kiz_status);
+      if (upd.cancel_reason_label) {
+        o.cancel_reason_label = String(upd.cancel_reason_label || "").trim();
+      }
+      if (upd.cancelled) o.cancelled = true;
+    });
+  }
+
   function _ozonFbsKizMergeStatusIntoDetail(orders) {
     const supply = supplyDetailState.supply;
     if (!supply || !Array.isArray(supply.orders) || !Array.isArray(orders)) return;
@@ -3161,7 +3176,7 @@
     const btn = document.getElementById("ozonFbsSupplyDetailPickVerifyBtn");
     if (!btn) return;
     const list = Array.isArray(orders) ? orders : [];
-    const hasPlain = list.some((o) => o && !o.kiz_required);
+    const hasPlain = list.some((o) => o && !o.kiz_required && !_ozonFbsRowIsCancelled(o));
     const can = typeof isTenantOwner === "function" && isTenantOwner()
       && _ozonFbsSupplyActionsReady() && hasPlain;
     btn.hidden = !can;
@@ -3994,8 +4009,13 @@
         ...r,
         kiz_codes: Array.isArray(r.kiz_codes) && r.kiz_codes.length ? r.kiz_codes.slice() : [""],
       }));
+      _ozonFbsKizMergeOrderFlagsIntoDetail(data.order_kiz_flags || []);
       _ozonFbsKizCaptureBaseline();
       renderOzonFbsKizTable();
+      if (supplyDetailState.supply) {
+        renderSupplyDetail();
+        _ozonFbsKizSplitSetTone(_ozonFbsKizToneFromSupply(supplyDetailState.supply));
+      }
       if (!ozonFbsKizState.rows.length) {
         _ozonFbsKizSetInfo("В поставке нет отправлений, требующих маркировки");
       }
@@ -4079,7 +4099,6 @@
       return;
     }
     const refreshBtn = document.getElementById("ozonFbsSupplyDetailKizRefreshBtn");
-    const kizBtn = document.getElementById("ozonFbsSupplyDetailKizBtn");
     const refreshGen = Number(ozonFbsKizState.statusRefreshGen || 0) + 1;
     ozonFbsKizState.statusRefreshGen = refreshGen;
     ozonFbsKizState.statusRefreshing = true;
@@ -4087,12 +4106,8 @@
       refreshBtn.disabled = true;
       refreshBtn.classList.add("is-spinning");
     }
-    if (kizBtn) kizBtn.disabled = true;
     try {
-      const params = new URLSearchParams({
-        source_id: String(sourceId),
-        refresh: "1",
-      });
+      const params = new URLSearchParams({ source_id: String(sourceId) });
       const res = await fetch(
         `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/marking/status?${params}`
       );
@@ -4103,17 +4118,10 @@
       if (supplyDetailState.supplyId !== sid) return;
       if (ozonFbsKizState.statusRefreshGen !== refreshGen) return;
       _ozonFbsKizMergeStatusIntoDetail(data.orders || []);
-      const info = document.getElementById("ozonFbsSupplyDetailInfo");
-      const refreshNote = String(data.refresh_note || "").trim();
-      if (info && refreshNote) {
-        info.hidden = false;
-        info.textContent = refreshNote;
-      } else if (info) {
-        info.hidden = true;
-        info.textContent = "";
-      }
       if (supplyDetailState.supply) renderSupplyDetail();
-      _ozonFbsKizSplitSetTone(data.status || "");
+      if (String(data.status || "") === "ok") {
+        _ozonFbsKizSplitSetTone("ok");
+      }
     } catch (e) {
       if (
         supplyDetailState.supplyId === sid
@@ -4132,7 +4140,6 @@
           refreshBtn.disabled = false;
           refreshBtn.classList.remove("is-spinning");
         }
-        if (kizBtn) kizBtn.disabled = false;
       }
     }
   }

@@ -55,14 +55,6 @@ SYNC_STATUSES = [
     "cancelled",
 ]
 
-# Tabs where marking flags must be resolved via mandatory-mark/is-required when list omits them.
-MARKING_ENRICH_SYNC_STATUSES = frozenset(
-    {
-        "awaiting_packaging",
-        "awaiting_deliver",
-    }
-)
-
 DEFAULT_LOOKBACK_DAYS = 30
 
 _ozon_fbs_sync_lock = threading.Lock()
@@ -969,11 +961,36 @@ def _merge_products_requiring_mandatory_mark(
     return out
 
 
+def posting_marking_flags_resolved(posting: dict[str, Any]) -> bool:
+    """True when КИЗ requirement is known (required or confirmed absent via is-required)."""
+    if not isinstance(posting, dict):
+        return False
+    products = _products_from_posting(posting)
+    if _mandatory_mark(posting, products):
+        return True
+    req = posting.get("requirements")
+    if isinstance(req, dict) and req.get("marking_is_required_checked"):
+        return True
+    return False
+
+
 def posting_marking_flags_known(posting: dict[str, Any]) -> bool:
     """True when list/get payload already indicates КИЗ requirement."""
     if not isinstance(posting, dict):
         return False
     return _mandatory_mark(posting, _products_from_posting(posting))
+
+
+def _posting_with_marking_checked(posting: dict[str, Any]) -> dict[str, Any]:
+    out = dict(posting)
+    req = out.get("requirements")
+    if not isinstance(req, dict):
+        req = {}
+    else:
+        req = dict(req)
+    req["marking_is_required_checked"] = True
+    out["requirements"] = req
+    return out
 
 
 def enrich_posting_marking_flags(
@@ -1031,9 +1048,11 @@ def enrich_posting_marking_flags(
     except RuntimeError:
         pass
     if required_ids:
-        return _merge_products_requiring_mandatory_mark(posting, required_ids)
+        return _posting_with_marking_checked(
+            _merge_products_requiring_mandatory_mark(posting, required_ids)
+        )
     if is_required_checked or not allow_exemplar_fallback:
-        return posting
+        return _posting_with_marking_checked(posting) if is_required_checked else posting
 
     if not payload_products:
         return posting
@@ -1053,7 +1072,9 @@ def enrich_posting_marking_flags(
                 text = str(pid).strip()
                 if text:
                     required_ids.add(text)
-    return _merge_products_requiring_mandatory_mark(posting, required_ids)
+    return _posting_with_marking_checked(
+        _merge_products_requiring_mandatory_mark(posting, required_ids)
+    )
 
 
 def enrich_posting_marking_flags_light(
@@ -1592,30 +1613,16 @@ def sync_ozon_fbs_source(
                 break
             if not postings:
                 break
-            enrich_n = 0
             for posting in postings:
                 pn = str(posting.get("posting_number") or "").strip()
                 if not pn:
                     continue
-                to_save = posting
-                if (
-                    status in MARKING_ENRICH_SYNC_STATUSES
-                    and not posting_marking_flags_known(posting)
-                ):
-                    try:
-                        to_save = enrich_posting_marking_flags_light(client, posting)
-                        enrich_n += 1
-                    except Exception as exc:
-                        _log.warning("ozon_fbs marking enrich %s: %s", pn, exc)
                 upsert_posting(
-                    repo, user_id=user_id, source_id=source_id, posting=to_save
+                    repo, user_id=user_id, source_id=source_id, posting=posting
                 )
                 seen.add(pn)
             pages += 1
-            if enrich_n:
-                _prog(f"{label}… стр. {pages}, маркировка {enrich_n}")
-            else:
-                _prog(f"{label}… стр. {pages}")
+            _prog(f"{label}… стр. {pages}")
             if not has_next:
                 break
             offset += len(postings)

@@ -55,7 +55,7 @@ def test_picking_list_excludes_cancelled() -> None:
     assert "One — 1 шт." in html
 
 
-def test_build_marking_payload_includes_cancelled_with_marking() -> None:
+def test_build_marking_payload_excludes_cancelled_with_marking() -> None:
     detail = {
         "supply_id": "OZ-1",
         "orders": [
@@ -107,14 +107,11 @@ def test_build_marking_payload_includes_cancelled_with_marking() -> None:
             MagicMock(), user_id=1, source_id=2, supply_id="OZ-1"
         )
     pns = [r["posting_number"] for r in payload["rows"]]
-    assert pns == ["A-1", "A-2"]
+    assert pns == ["A-1"]
     assert payload["required_count"] == 1
-    cancelled_row = next(r for r in payload["rows"] if r["posting_number"] == "A-2")
-    assert cancelled_row["cancelled"] is True
-    assert cancelled_row["cancel_reason_label"] == "Отмена"
 
 
-def test_build_pick_verify_payload_includes_cancelled_plain() -> None:
+def test_build_pick_verify_payload_excludes_cancelled_plain() -> None:
     detail = {
         "supply_id": "OZ-1",
         "orders": [
@@ -151,11 +148,9 @@ def test_build_pick_verify_payload_includes_cancelled_plain() -> None:
         payload = build_pick_verify_payload(
             MagicMock(), user_id=1, source_id=2, supply_id="OZ-1"
         )
-    assert payload["plain_count"] == 2
+    assert payload["plain_count"] == 1
     pns = {r["posting_number"] for r in payload["rows"]}
-    assert pns == {"P-1", "P-3"}
-    cancelled = next(r for r in payload["rows"] if r["posting_number"] == "P-3")
-    assert cancelled["cancelled"] is True
+    assert pns == {"P-1"}
 
 
 def test_save_marking_skips_cancelled_postings() -> None:

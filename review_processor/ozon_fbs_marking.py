@@ -14,81 +14,6 @@ from .repository import ReviewRepository
 
 _log = logging.getLogger(__name__)
 
-# Live Ozon get_posting per posting — cap to avoid gateway timeouts on ↻ refresh.
-MARKING_OZON_REFRESH_MAX = 40
-
-
-def _posting_numbers_for_marking_refresh(orders: list[dict[str, Any]]) -> list[str]:
-    """Prefer postings that already need marking; else all non-cancelled in supply."""
-    flagged: list[str] = []
-    fallback: list[str] = []
-    for o in orders:
-        if not isinstance(o, dict) or oz.posting_row_is_cancelled(o):
-            continue
-        pn = str(o.get("posting_number") or "").strip()
-        if not pn:
-            continue
-        fallback.append(pn)
-        if o.get("kiz_required") or oz.posting_requires_marking(o):
-            flagged.append(pn)
-    return flagged if flagged else fallback
-
-
-def _supply_detail_for_marking(
-    repo: ReviewRepository,
-    *,
-    user_id: int,
-    source_id: int,
-    supply_id: str,
-    client_id: str | None = None,
-    api_key: str | None = None,
-    refresh_from_ozon: bool = False,
-) -> tuple[dict[str, Any], str]:
-    """Load supply detail for marking; optional capped live Ozon refresh."""
-    detail = oz_sup.get_supply_detail(
-        repo,
-        user_id=user_id,
-        source_id=source_id,
-        supply_id=supply_id,
-        client_id=client_id,
-        api_key=api_key,
-        refresh_from_ozon=False,
-    )
-    note = ""
-    if not refresh_from_ozon:
-        return detail, note
-    cid = str(client_id or "").strip()
-    key = str(api_key or "").strip()
-    if not cid or not key:
-        return detail, note
-    orders = [o for o in (detail.get("orders") or []) if isinstance(o, dict)]
-    pns = _posting_numbers_for_marking_refresh(orders)
-    if len(pns) > MARKING_OZON_REFRESH_MAX:
-        pns = pns[:MARKING_OZON_REFRESH_MAX]
-        note = (
-            f"Обновлены первые {MARKING_OZON_REFRESH_MAX} отправлений с маркировкой. "
-            "Для полной синхронизации нажмите «Синхронизировать» на вкладке Ozon FBS."
-        )
-    if pns:
-        oz_sup.refresh_supply_marking_flags_from_ozon(
-            repo,
-            user_id=user_id,
-            source_id=source_id,
-            posting_numbers=pns,
-            client_id=cid,
-            api_key=key,
-        )
-        detail = oz_sup.get_supply_detail(
-            repo,
-            user_id=user_id,
-            source_id=source_id,
-            supply_id=supply_id,
-            client_id=client_id,
-            api_key=api_key,
-            refresh_from_ozon=False,
-        )
-    return detail, note
-
 
 def _normalize_mark_code(value: object) -> str:
     """Parity with WB FBS: ↔ → GS (\\u001D), then trim edges without stripping GS."""
@@ -124,8 +49,7 @@ def load_marking_map(
         rows = conn.execute(
             repo._sql(
                 f"""
-                SELECT posting_number, marking_codes_json, marking_saved_at,
-                       marking_ozon_synced
+                SELECT posting_number, marking_codes_json, marking_saved_at, marking_ozon_synced
                 FROM ozon_fbs_postings
                 WHERE user_id = ? AND source_id = ?
                   AND posting_number IN ({placeholders})
@@ -139,99 +63,21 @@ def load_marking_map(
         pn = str(d.get("posting_number") or "").strip()
         if not pn:
             continue
-        saved_at = d.get("marking_saved_at")
         out[pn] = {
             "codes": _parse_codes(d.get("marking_codes_json")),
-            "saved_at": wb._normalize_kiz_saved_at(saved_at) if saved_at else "",
+            "saved_at": str(d.get("marking_saved_at") or ""),
             "ozon_synced": bool(d.get("marking_ozon_synced")),
         }
     return out
 
 
-def update_posting_marking_codes(
-    repo: ReviewRepository,
-    *,
-    user_id: int,
-    source_id: int,
-    posting_number: str,
-    codes: list[str],
-    ozon_synced: bool = False,
-    expected_saved_at: str | None = None,
-    force: bool = False,
-) -> dict[str, Any]:
-    oz.ensure_ozon_fbs_tables(repo)
-    pn = str(posting_number or "").strip()
-    clean = [_normalize_mark_code(x) for x in (codes or []) if _normalize_mark_code(x)]
-    payload = json.dumps(clean, ensure_ascii=False)
-    saved_at = datetime.now(UTC)
-    expected = wb._normalize_kiz_saved_at(expected_saved_at)
-    with repo._connect() as conn:
-        row = conn.execute(
-            repo._sql(
-                """
-                SELECT marking_codes_json, marking_saved_at
-                FROM ozon_fbs_postings
-                WHERE user_id = ? AND source_id = ? AND posting_number = ?
-                """
-            ),
-            (user_id, source_id, pn),
-        ).fetchone()
-        if not row:
-            return {"ok": False, "conflict": False, "missing": True, "codes": clean, "saved_at": ""}
-        d = repo._row_to_dict(row)
-        cur_saved = wb._normalize_kiz_saved_at(d.get("marking_saved_at"))
-        if expected and not force and cur_saved and cur_saved != expected:
-            return {
-                "ok": False,
-                "conflict": True,
-                "missing": False,
-                "codes": _parse_codes(d.get("marking_codes_json")),
-                "saved_at": cur_saved,
-            }
-        conn.execute(
-            repo._sql(
-                """
-                UPDATE ozon_fbs_postings
-                SET marking_codes_json = ?, marking_saved_at = ?, marking_ozon_synced = ?
-                WHERE user_id = ? AND source_id = ? AND posting_number = ?
-                """
-            ),
-            (
-                payload,
-                saved_at,
-                bool(ozon_synced),
-                user_id,
-                source_id,
-                pn,
-            ),
-        )
-    return {
-        "ok": True,
-        "conflict": False,
-        "missing": False,
-        "codes": clean,
-        "saved_at": wb._normalize_kiz_saved_at(saved_at),
-    }
-
-
 def _marking_status(*, codes: list[str], required_qty: int) -> str:
-    filled = [c for c in codes if c]
-    if not filled:
+    clean = [c for c in codes if c]
+    if not clean:
         return "empty"
-    if len(filled) >= max(required_qty, 1):
+    if len(clean) >= max(required_qty, 1):
         return "ok"
     return "pending"
-
-
-def _posting_dict_from_row(row: dict[str, Any]) -> dict[str, Any]:
-    raw_text = str(row.get("raw_json") or "").strip()
-    if not raw_text:
-        return {}
-    try:
-        raw = json.loads(raw_text)
-    except json.JSONDecodeError:
-        return {}
-    return raw if isinstance(raw, dict) else {}
 
 
 def _load_posting_cancelled_map(
@@ -244,9 +90,7 @@ def _load_posting_cancelled_map(
     nums = [str(x).strip() for x in posting_numbers if str(x).strip()]
     if not nums:
         return {}
-    oz.ensure_ozon_fbs_tables(repo)
     placeholders = ", ".join("?" for _ in nums)
-    out: dict[str, bool] = {}
     with repo._connect() as conn:
         rows = conn.execute(
             repo._sql(
@@ -257,13 +101,34 @@ def _load_posting_cancelled_map(
                   AND posting_number IN ({placeholders})
                 """
             ),
-            tuple([user_id, source_id, *nums]),
+            (user_id, source_id, *nums),
         ).fetchall()
+    out: dict[str, bool] = {}
     for row in rows:
-        d = repo._row_to_dict(row) if hasattr(repo, "_row_to_dict") else dict(row)
+        d = repo._row_to_dict(row)
         pn = str(d.get("posting_number") or "").strip()
         if pn:
             out[pn] = oz.posting_row_is_cancelled(d)
+    return out
+
+
+def _order_kiz_flags(orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for o in orders:
+        if not isinstance(o, dict):
+            continue
+        pn = str(o.get("posting_number") or "").strip()
+        if not pn:
+            continue
+        out.append(
+            {
+                "posting_number": pn,
+                "kiz_required": bool(o.get("kiz_required")),
+                "kiz_status": str(o.get("kiz_status") or "empty"),
+                "cancelled": bool(o.get("cancelled")),
+                "cancel_reason_label": str(o.get("cancel_reason_label") or ""),
+            }
+        )
     return out
 
 
@@ -275,30 +140,36 @@ def build_marking_payload(
     supply_id: str,
     client_id: str | None = None,
     api_key: str | None = None,
-    refresh_from_ozon: bool = False,
+    resolve_kiz: bool = True,
 ) -> dict[str, Any]:
-    """Marking modal rows from local DB by default.
+    """Marking modal: resolve КИЗ via is-required for all supply postings, then local rows."""
+    cid = str(client_id or "").strip()
+    key = str(api_key or "").strip()
+    if resolve_kiz and cid and key:
+        try:
+            oz_sup.resolve_supply_kiz_flags_from_ozon(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                supply_id=supply_id,
+                client_id=cid,
+                api_key=key,
+            )
+        except Exception as exc:
+            _log.warning("ozon marking resolve kiz %s: %s", supply_id, exc)
 
-    Pass ``refresh_from_ozon=True`` only from the manual ↻ refresh control —
-    live Ozon get per posting is slow and must not run when opening the modal.
-    """
-    detail, refresh_note = _supply_detail_for_marking(
+    detail = oz_sup.get_supply_detail(
         repo,
         user_id=user_id,
         source_id=source_id,
         supply_id=supply_id,
-        client_id=client_id,
-        api_key=api_key,
-        refresh_from_ozon=refresh_from_ozon,
     )
     orders = [
         o
         for o in (detail.get("orders") or [])
         if isinstance(o, dict)
-        and (
-            o.get("kiz_required")
-            or (bool(o.get("cancelled")) and oz.posting_requires_marking(o))
-        )
+        and o.get("kiz_required")
+        and not o.get("cancelled")
     ]
     posting_numbers = [
         str(o.get("posting_number") or "").strip()
@@ -337,13 +208,13 @@ def build_marking_payload(
                 "sku": o.get("sku"),
                 "barcodes": list(o.get("barcodes") or []),
                 "quantity": req_qty,
-                "kiz_required": bool(o.get("kiz_required")),
+                "kiz_required": True,
                 "kiz_codes": codes,
                 "kiz_saved_at": str(loc.get("saved_at") or ""),
                 "kiz_ozon_synced": bool(loc.get("ozon_synced")),
                 "kiz_status": status,
                 "cancel_reason_label": str(o.get("cancel_reason_label") or ""),
-                "cancelled": bool(o.get("cancelled")),
+                "cancelled": False,
                 "order_id": o.get("order_id"),
                 "order_number": str(o.get("order_number") or "").strip(),
                 "sticker_barcode": str(o.get("sticker_barcode") or "").strip(),
@@ -352,13 +223,14 @@ def build_marking_payload(
                 "sticker_part_b": str(o.get("sticker_part_b") or "").strip(),
             }
         )
+    all_orders = [o for o in (detail.get("orders") or []) if isinstance(o, dict)]
     return {
         "ok": True,
         "supply_id": detail.get("supply_id"),
         "source_id": source_id,
         "rows": rows,
-        "required_count": sum(1 for o in orders if o.get("kiz_required")),
-        "refresh_note": refresh_note,
+        "required_count": len(rows),
+        "order_kiz_flags": _order_kiz_flags(all_orders),
     }
 
 
@@ -368,35 +240,22 @@ def _build_exemplar_set_products(
     codes: list[str],
 ) -> list[dict[str, Any]]:
     products_out: list[dict[str, Any]] = []
-    code_iter = iter(codes)
-    result_products = create_result.get("products")
-    if not isinstance(result_products, list):
-        result_products = (create_result.get("result") or {}).get("products")
-    if not isinstance(result_products, list):
-        raise RuntimeError("Ozon не вернул exemplars для отправления")
-    for prod in result_products:
+    code_idx = 0
+    for prod in create_result.get("products") or []:
         if not isinstance(prod, dict):
             continue
-        try:
-            product_id = int(prod.get("product_id") or 0)
-        except (TypeError, ValueError):
+        product_id = prod.get("product_id")
+        if product_id is None:
             continue
-        if product_id <= 0:
-            continue
-        exemplars_in = prod.get("exemplars")
-        if not isinstance(exemplars_in, list):
-            exemplars_in = []
         exemplars_out: list[dict[str, Any]] = []
-        for ex in exemplars_in:
+        for ex in prod.get("exemplars") or []:
             if not isinstance(ex, dict):
                 continue
-            try:
-                exemplar_id = int(ex.get("exemplar_id") or 0)
-            except (TypeError, ValueError):
+            exemplar_id = ex.get("exemplar_id")
+            if exemplar_id is None:
                 continue
-            if exemplar_id <= 0:
-                continue
-            code = next(code_iter, "")
+            code = codes[code_idx] if code_idx < len(codes) else ""
+            code_idx += 1
             marks: list[dict[str, str]] = []
             if code:
                 marks.append({"mark": code, "mark_type": "mandatory_mark"})
@@ -547,37 +406,92 @@ def save_marking(
             )
             continue
         local_ok = bool(local_res.get("ok"))
-        local_saved_at = str(local_res.get("saved_at") or "")
         if local_ok:
             ok_n += 1
-            from . import ozon_fbs_scans as oz_scans
-
-            oz_scans.record_posting_scan(
-                repo,
-                user_id=user_id,
-                source_id=source_id,
-                scan_type=oz_scans.SCAN_KIZ,
-                scan_raw=uniq[0] if uniq else "",
-                posting_number=pn,
-                kiz_code=uniq[0] if uniq else "",
-            )
         else:
             err_n += 1
         results.append(
             {
                 "posting_number": pn,
                 "ok": local_ok,
-                "kiz_codes": uniq,
-                "kiz_saved_at": local_saved_at,
+                "kiz_codes": list(local_res.get("codes") or uniq),
+                "kiz_saved_at": str(local_res.get("saved_at") or ""),
             }
         )
     return {
         "ok": err_n == 0,
         "saved": ok_n,
-        "errors": err_n,
         "skipped": skipped_n,
+        "errors": err_n,
         "results": results,
     }
+
+
+def update_posting_marking_codes(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_number: str,
+    codes: list[str],
+    ozon_synced: bool = False,
+    expected_saved_at: str | None = None,
+    force: bool = False,
+) -> dict[str, Any]:
+    pn = str(posting_number or "").strip()
+    if not pn:
+        return {"ok": False, "missing": True}
+    oz.ensure_ozon_fbs_tables(repo)
+    clean = [_normalize_mark_code(c) for c in codes if _normalize_mark_code(c)]
+    now = datetime.now(UTC).isoformat()
+    with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql(
+                """
+                SELECT marking_codes_json, marking_saved_at
+                FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ? AND posting_number = ?
+                """
+            ),
+            (user_id, source_id, pn),
+        ).fetchone()
+        if not row:
+            return {"ok": False, "missing": True}
+        d = repo._row_to_dict(row)
+        prev_saved = str(d.get("marking_saved_at") or "").strip()
+        if (
+            expected_saved_at
+            and prev_saved
+            and prev_saved != expected_saved_at
+            and not force
+        ):
+            prev_codes = _parse_codes(d.get("marking_codes_json"))
+            return {
+                "ok": False,
+                "conflict": True,
+                "codes": prev_codes,
+                "saved_at": prev_saved,
+            }
+        conn.execute(
+            repo._sql(
+                """
+                UPDATE ozon_fbs_postings
+                SET marking_codes_json = ?,
+                    marking_saved_at = ?,
+                    marking_ozon_synced = ?
+                WHERE user_id = ? AND source_id = ? AND posting_number = ?
+                """
+            ),
+            (
+                json.dumps(clean, ensure_ascii=False),
+                now,
+                repo._bool_db(ozon_synced),
+                user_id,
+                source_id,
+                pn,
+            ),
+        )
+    return {"ok": True, "codes": clean, "saved_at": now}
 
 
 def check_supply_marking_status(
@@ -590,19 +504,13 @@ def check_supply_marking_status(
     api_key: str | None = None,
     refresh_from_ozon: bool = False,
 ) -> dict[str, Any]:
-    """Marking badge refresh for supply detail (local DB by default).
-
-    Pass ``refresh_from_ozon=True`` only from the manual ↻ refresh control —
-    live Ozon get per posting is slow and must not run when opening the modal.
-    """
-    detail, refresh_note = _supply_detail_for_marking(
+    """Local check: are all КИЗ fields filled for kiz_required postings in supply."""
+    del client_id, api_key, refresh_from_ozon
+    detail = oz_sup.get_supply_detail(
         repo,
         user_id=user_id,
         source_id=source_id,
         supply_id=supply_id,
-        client_id=client_id,
-        api_key=api_key,
-        refresh_from_ozon=refresh_from_ozon,
     )
     orders = [o for o in (detail.get("orders") or []) if isinstance(o, dict)]
     posting_numbers = [
@@ -616,7 +524,11 @@ def check_supply_marking_status(
         source_id=source_id,
         posting_numbers=posting_numbers,
     )
-    required = [o for o in orders if o.get("kiz_required")]
+    required = [
+        o
+        for o in orders
+        if o.get("kiz_required") and not oz.posting_row_is_cancelled(o)
+    ]
     done = 0
     pending = 0
     empty = 0
@@ -629,14 +541,17 @@ def check_supply_marking_status(
         kiz_required = bool(o.get("kiz_required"))
         loc = local.get(pn) or {}
         codes = list(loc.get("codes") or [])
-        st = str(o.get("kiz_status") or "empty")
-        if kiz_required:
+        if kiz_required and not cancelled:
+            req_qty = int(o.get("kiz_quantity") or 1)
+            st = _marking_status(codes=codes, required_qty=req_qty)
             if st == "ok":
                 done += 1
             elif st == "empty":
                 empty += 1
             else:
                 pending += 1
+        else:
+            st = "empty"
         status_rows.append(
             {
                 "posting_number": pn,
@@ -648,7 +563,6 @@ def check_supply_marking_status(
             }
         )
     total = len(required)
-    # Green only when every non-cancelled required posting has all КИЗ filled.
     if total == 0:
         tone = ""
     elif done == total:
@@ -663,5 +577,4 @@ def check_supply_marking_status(
         "empty": empty,
         "status": tone,
         "orders": status_rows,
-        "refresh_note": refresh_note,
     }

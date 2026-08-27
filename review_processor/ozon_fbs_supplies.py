@@ -1808,7 +1808,6 @@ def refresh_supply_postings_from_ozon(
             time.sleep(0.05)
 
 
-SUPPLY_MARKING_ENRICH_MAX = 40
 
 
 def refresh_supply_marking_flags_from_ozon(
@@ -1847,7 +1846,7 @@ def refresh_supply_marking_flags_from_ozon(
         if not row:
             continue
         posting = oz._posting_payload_from_row(row)
-        if not posting or oz.posting_marking_flags_known(posting):
+        if not posting or oz.posting_marking_flags_resolved(posting):
             continue
         try:
             enriched = oz.enrich_posting_marking_flags_light(client, posting)
@@ -1865,58 +1864,59 @@ def refresh_supply_marking_flags_from_ozon(
     return updated
 
 
-def _ensure_supply_marking_flags(
+def resolve_supply_kiz_flags_from_ozon(
     repo: ReviewRepository,
     *,
     user_id: int,
     source_id: int,
-    posting_numbers: list[str],
+    supply_id: str,
     client_id: str,
     api_key: str,
-) -> str:
-    """Resolve uncertain КИЗ flags for supply postings before rendering detail."""
-    nums = [str(x).strip() for x in posting_numbers if str(x).strip()]
+    posting_tab: str | None = None,
+) -> int:
+    """Resolve КИЗ flags for all non-cancelled supply postings (marking modal)."""
+    sid = str(supply_id or "").strip()
+    if not sid:
+        return 0
+    tab_key = str(posting_tab or "").strip() or None
+    if tab_key:
+        nums = _assembly_posting_numbers_for_supply_tab(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=sid,
+            tab=tab_key,
+        )
+    else:
+        nums = _assembly_posting_numbers_for_supply(
+            repo, user_id=user_id, source_id=source_id, supply_id=sid
+        )
     if not nums:
-        return ""
-    uncertain: list[str] = []
-    placeholders = ", ".join("?" for _ in nums)
-    with repo._connect() as conn:
-        rows = conn.execute(
-            repo._sql(
-                f"""
-                SELECT posting_number, raw_json, products_json, is_mandatory_mark
-                FROM ozon_fbs_postings
-                WHERE user_id = ? AND source_id = ?
-                  AND posting_number IN ({placeholders})
-                """
-            ),
-            (user_id, source_id, *nums),
-        ).fetchall()
-    for row in rows:
-        d = repo._row_to_dict(row)
-        pn = str(d.get("posting_number") or "").strip()
-        if not pn:
-            continue
-        posting = oz._posting_payload_from_row(d)
-        if not oz.posting_marking_flags_known(posting):
-            uncertain.append(pn)
-    if not uncertain:
-        return ""
-    capped = uncertain[:SUPPLY_MARKING_ENRICH_MAX]
-    refresh_supply_marking_flags_from_ozon(
+        return 0
+    detail = get_supply_detail(
         repo,
         user_id=user_id,
         source_id=source_id,
-        posting_numbers=capped,
+        supply_id=sid,
+        posting_tab=tab_key,
+    )
+    active: list[str] = []
+    for o in detail.get("orders") or []:
+        if not isinstance(o, dict) or oz.posting_row_is_cancelled(o):
+            continue
+        pn = str(o.get("posting_number") or "").strip()
+        if pn:
+            active.append(pn)
+    if not active:
+        active = list(nums)
+    return refresh_supply_marking_flags_from_ozon(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        posting_numbers=active,
         client_id=client_id,
         api_key=api_key,
     )
-    if len(uncertain) > SUPPLY_MARKING_ENRICH_MAX:
-        return (
-            f"Проверена маркировка для первых {SUPPLY_MARKING_ENRICH_MAX} отправлений. "
-            "Нажмите ↻ или «Синхронизировать» для полной проверки."
-        )
-    return ""
 
 
 def _supply_stub_from_assembly(
@@ -2015,7 +2015,6 @@ def get_supply_detail(
         if not nums:
             nums = list(supply.get("posting_numbers") or [])
     read_only = tab_filter == oz.TAB_DELIVERING
-    marking_enrich_note = ""
     if (
         refresh_from_ozon
         and not read_only
@@ -2024,20 +2023,6 @@ def get_supply_detail(
         and api_key
     ):
         refresh_supply_postings_from_ozon(
-            repo,
-            user_id=user_id,
-            source_id=source_id,
-            posting_numbers=nums,
-            client_id=str(client_id),
-            api_key=str(api_key),
-        )
-    elif (
-        not read_only
-        and nums
-        and client_id
-        and api_key
-    ):
-        marking_enrich_note = _ensure_supply_marking_flags(
             repo,
             user_id=user_id,
             source_id=source_id,
@@ -2118,7 +2103,6 @@ def get_supply_detail(
         "source_id": source_id,
         "read_only": read_only,
         "posting_tab": tab_filter,
-        "marking_enrich_note": marking_enrich_note,
     }
 
 

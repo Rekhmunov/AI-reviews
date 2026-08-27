@@ -142,34 +142,13 @@ def test_check_supply_marking_status_default_when_partial() -> None:
     assert out["empty"] == 1
 
 
-def test_marking_refresh_uses_capped_live_ozon_not_full_supply() -> None:
-    from review_processor.ozon_fbs_marking import (
-        MARKING_OZON_REFRESH_MAX,
-        _supply_detail_for_marking,
-    )
-
-    detail = {
-        "supply_id": "OZ-1",
-        "orders": [
-            {
-                "posting_number": f"P-{i}",
-                "kiz_required": True,
-                "kiz_quantity": 1,
-                "cancelled": False,
-            }
-            for i in range(MARKING_OZON_REFRESH_MAX + 5)
-        ],
-    }
-    with (
-        patch(
-            "review_processor.ozon_fbs_marking.oz_sup.get_supply_detail",
-            return_value=detail,
-        ) as get_detail,
-        patch(
-            "review_processor.ozon_fbs_marking.oz_sup.refresh_supply_marking_flags_from_ozon"
-        ) as refresh,
-    ):
-        out, note = _supply_detail_for_marking(
+def test_check_supply_marking_status_local_only_no_ozon() -> None:
+    detail = {"orders": []}
+    with patch(
+        "review_processor.ozon_fbs_marking.oz_sup.get_supply_detail",
+        return_value=detail,
+    ) as get_detail:
+        check_supply_marking_status(
             MagicMock(),
             user_id=1,
             source_id=2,
@@ -178,13 +157,4 @@ def test_marking_refresh_uses_capped_live_ozon_not_full_supply() -> None:
             api_key="key",
             refresh_from_ozon=True,
         )
-    assert out["supply_id"] == "OZ-1"
-    assert refresh.call_count == 1
-    refreshed = refresh.call_args.kwargs.get("posting_numbers") or []
-    assert len(refreshed) == MARKING_OZON_REFRESH_MAX
-    assert "Синхронизировать" in note
-    assert get_detail.call_count == 2
-    assert all(
-        not c.kwargs.get("refresh_from_ozon")
-        for c in get_detail.call_args_list
-    )
+    assert get_detail.call_count == 1
