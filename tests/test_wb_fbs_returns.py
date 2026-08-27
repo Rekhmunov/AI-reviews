@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import threading
 import unittest
@@ -341,6 +342,32 @@ class GoodsReturnHttpErrorTests(unittest.TestCase):
         )
         self.assertIn("Лимит WB", str(err))
         self.assertIn("15 мин", str(err))
+        self.assertEqual(err.code, 429)
+        self.assertEqual(err.retry_seconds, 900)
+
+    def test_parse_wb_retry_seconds_plain(self):
+        self.assertEqual(returns._parse_wb_retry_seconds("540"), 540)
+
+    @patch("review_processor.wb_fbs_returns.fetch_goods_return_report")
+    @patch("review_processor.wb_fbs_returns._goods_return_token_rate_slot")
+    @patch("review_processor.wb_fbs_returns.time.sleep")
+    def test_fetch_goods_return_report_rated_retries_429(
+        self, sleep_mock, slot_mock, fetch_mock
+    ):
+        slot_mock.side_effect = lambda **kwargs: contextlib.nullcontext()
+        fetch_mock.side_effect = [
+            returns.GoodsReturnHttpError("429", code=429, retry_after="3", retry_seconds=3),
+            [{"orderId": 1}],
+        ]
+        rows = returns.fetch_goods_return_report_rated(
+            api_key="test-key",
+            date_from="2026-08-01",
+            date_to="2026-08-31",
+            source_id=19,
+        )
+        self.assertEqual(rows, [{"orderId": 1}])
+        self.assertEqual(fetch_mock.call_count, 2)
+        sleep_mock.assert_called_once_with(3 + returns.GOODS_RETURN_429_RETRY_BUFFER_SEC)
 
 
 class ListReturnScansTests(unittest.TestCase):

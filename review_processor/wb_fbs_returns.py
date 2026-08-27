@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import csv
+import hashlib
 import io
 import json
 import logging
@@ -124,10 +125,16 @@ GOODS_RETURN_DEFAULT_TOTAL_DAYS = 90
 GOODS_RETURN_STATUS_BATCH = 500
 # WB Personal/Service token: 1 request / minute for goods-return.
 GOODS_RETURN_REQUEST_INTERVAL_SEC = 61
+GOODS_RETURN_429_MAX_RETRIES = 4
+GOODS_RETURN_429_RETRY_BUFFER_SEC = 2
 GOODS_RETURN_HYDRATE_CONFIRMED_LIMIT = 30
 
 _goods_return_sync_lock_guard = threading.Lock()
 _goods_return_sync_locks: dict[str, threading.Lock] = {}
+
+_goods_return_token_guard = threading.Lock()
+_goods_return_token_locks: dict[str, threading.Lock] = {}
+_goods_return_token_last_request: dict[str, float] = {}
 
 _goods_return_job_guard = threading.Lock()
 _goods_return_jobs: dict[str, dict[str, Any]] = {}
@@ -199,6 +206,16 @@ def start_goods_return_sync_async(
                     "error": str(exc),
                 }
         except RuntimeError as exc:
+            if _is_goods_return_rate_limit_error(exc):
+                token_key = "unknown"
+                retry_secs = _goods_return_rate_limit_retry_seconds(exc)
+                _log.warning(
+                    "goods-return async sync rate limited user=%s source=%s retry=%ss: %s",
+                    user_id,
+                    source_id,
+                    retry_secs,
+                    exc,
+                )
             with _goods_return_job_guard:
                 _goods_return_jobs[key] = {
                     "status": "error",
@@ -240,6 +257,100 @@ def start_goods_return_sync_async(
 def _goods_return_sync_lock_key(*, user_id: int, cabinet_uid: int | None) -> str:
     uid = int(cabinet_uid or 0)
     return f"wb-goods-return:{int(user_id)}:{uid}"
+
+
+def _analytics_token_key(api_key: str) -> str:
+    """Stable key for WB Analytics token (uid preferred, hash fallback)."""
+    key = str(api_key or "").strip()
+    if not key:
+        return "empty"
+    uid = wb.wb_jwt_uid(key)
+    if uid is not None:
+        return f"uid:{uid}"
+    return f"hash:{hashlib.sha256(key.encode('utf-8')).hexdigest()[:16]}"
+
+
+@contextlib.contextmanager
+def _goods_return_token_rate_slot(*, api_key: str, source_id: int | None = None):
+    """Serialize goods-return API calls per Analytics token with 61s cooldown."""
+    token_key = _analytics_token_key(api_key)
+    with _goods_return_token_guard:
+        lock = _goods_return_token_locks.setdefault(token_key, threading.Lock())
+    lock.acquire()
+    try:
+        with _goods_return_token_guard:
+            last = float(_goods_return_token_last_request.get(token_key, 0.0))
+        wait = GOODS_RETURN_REQUEST_INTERVAL_SEC - (time.monotonic() - last)
+        if wait > 0:
+            _log.info(
+                "goods-return token cooldown token=%s source_id=%s wait=%.1fs",
+                token_key,
+                source_id,
+                wait,
+            )
+            time.sleep(wait)
+        yield token_key
+    finally:
+        with _goods_return_token_guard:
+            _goods_return_token_last_request[token_key] = time.monotonic()
+        lock.release()
+
+
+class GoodsReturnHttpError(RuntimeError):
+    """WB goods-return HTTP error with optional rate-limit metadata."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: int = 0,
+        retry_after: str = "",
+        retry_seconds: int = 0,
+    ) -> None:
+        super().__init__(message)
+        self.code = int(code)
+        self.retry_after = str(retry_after or "")
+        self.retry_seconds = max(0, int(retry_seconds))
+
+
+def _parse_wb_retry_seconds(retry_after: str) -> int:
+    retry = str(retry_after or "").strip()
+    if not retry:
+        return 0
+    if retry.isdigit():
+        secs = int(retry)
+        if secs > 1_700_000_000:
+            return max(0, secs - int(time.time()))
+        return max(0, secs)
+    try:
+        dt = datetime.fromisoformat(retry.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        return max(0, int((dt - datetime.now(UTC)).total_seconds()))
+    except Exception:
+        return 0
+
+
+def _is_goods_return_rate_limit_error(exc: BaseException) -> bool:
+    if isinstance(exc, GoodsReturnHttpError):
+        return exc.code == 429
+    return "Лимит WB на отчёт по возвратам" in str(exc)
+
+
+def _goods_return_rate_limit_retry_seconds(exc: BaseException) -> int:
+    if isinstance(exc, GoodsReturnHttpError) and exc.retry_seconds > 0:
+        return exc.retry_seconds
+    text = str(exc)
+    match = re.search(r"через\s+(\d+)\s+мин", text)
+    if match:
+        return int(match.group(1)) * 60
+    match = re.search(r"через\s+(\d+)\s+сек", text)
+    if match:
+        return int(match.group(1))
+    match = re.search(r"через\s+(\d+)\s+ч", text)
+    if match:
+        return int(match.group(1)) * 3600
+    return GOODS_RETURN_REQUEST_INTERVAL_SEC
 
 
 class GoodsReturnSyncInProgress(RuntimeError):
@@ -560,7 +671,7 @@ def format_wb_goods_return_http_error(
     body: str = "",
     retry_after: str = "",
     reason: str = "",
-) -> RuntimeError:
+) -> GoodsReturnHttpError:
     """Human-readable WB Analytics goods-return errors (esp. 429 rate limit)."""
     if int(code) == 429:
         msg = (
@@ -571,19 +682,25 @@ def format_wb_goods_return_http_error(
         hint = _format_wb_retry_hint(retry_after)
         if hint:
             msg += hint
-        return RuntimeError(msg)
+        return GoodsReturnHttpError(
+            msg,
+            code=429,
+            retry_after=retry_after,
+            retry_seconds=_parse_wb_retry_seconds(retry_after),
+        )
     if int(code) == 403 and (
         "scope is not allowed" in (body or "").lower()
         or "scope is not allowed" in (reason or "").lower()
     ):
-        return RuntimeError(
+        return GoodsReturnHttpError(
             "WB goods-return: у API-ключа нет категории «Аналитика» или «Статистика». "
-            "Создайте токен в ЛК WB с категорией «Аналитика» и обновите ключ источника."
+            "Создайте токен в ЛК WB с категорией «Аналитика» и обновите ключ источника.",
+            code=403,
         )
     detail = (body or reason or "").strip()
     if detail:
-        return RuntimeError(f"WB goods-return HTTP {code}: {detail[:500]}")
-    return RuntimeError(f"WB goods-return HTTP {code}")
+        return GoodsReturnHttpError(f"WB goods-return HTTP {code}: {detail[:500]}", code=int(code))
+    return GoodsReturnHttpError(f"WB goods-return HTTP {code}", code=int(code))
 
 
 def _goods_return_values_from_row(
@@ -885,18 +1002,66 @@ def fetch_goods_return_report(
     return []
 
 
+def fetch_goods_return_report_rated(
+    *,
+    api_key: str,
+    date_from: str,
+    date_to: str,
+    source_id: int | None = None,
+    timeout: int = 60,
+) -> list[dict[str, Any]]:
+    """Fetch goods-return with per-token cooldown and automatic 429 retry."""
+    token_key = _analytics_token_key(api_key)
+    last_exc: GoodsReturnHttpError | None = None
+    for attempt in range(GOODS_RETURN_429_MAX_RETRIES + 1):
+        with _goods_return_token_rate_slot(api_key=api_key, source_id=source_id):
+            try:
+                return fetch_goods_return_report(
+                    api_key=api_key,
+                    date_from=date_from,
+                    date_to=date_to,
+                    timeout=timeout,
+                )
+            except GoodsReturnHttpError as exc:
+                if exc.code != 429 or attempt >= GOODS_RETURN_429_MAX_RETRIES:
+                    raise
+                last_exc = exc
+                retry_secs = exc.retry_seconds or _parse_wb_retry_seconds(exc.retry_after)
+                if retry_secs <= 0:
+                    retry_secs = GOODS_RETURN_REQUEST_INTERVAL_SEC
+                wait = retry_secs + GOODS_RETURN_429_RETRY_BUFFER_SEC
+                _log.warning(
+                    "goods-return HTTP 429 token=%s source_id=%s retry_after=%ss "
+                    "attempt=%s/%s waiting=%ss",
+                    token_key,
+                    source_id,
+                    retry_secs,
+                    attempt + 1,
+                    GOODS_RETURN_429_MAX_RETRIES + 1,
+                    wait,
+                )
+                time.sleep(wait)
+    if last_exc is not None:
+        raise last_exc
+    return []
+
+
 def _fetch_goods_return_resilient(
     candidates: list[tuple[str, str]],
     *,
     date_from: str,
     date_to: str,
+    source_id: int | None = None,
 ) -> tuple[list[dict[str, Any]], str, str]:
     """Try each Analytics-capable key; skip 403 scope errors."""
     last_exc: RuntimeError | None = None
     for key, label in candidates:
         try:
-            rows = fetch_goods_return_report(
-                api_key=key, date_from=date_from, date_to=date_to
+            rows = fetch_goods_return_report_rated(
+                api_key=key,
+                date_from=date_from,
+                date_to=date_to,
+                source_id=source_id,
             )
             return rows, key, label
         except RuntimeError as exc:
@@ -1209,22 +1374,19 @@ def sync_goods_returns(
     report_label = str(api_key_source or "").strip()
     with goods_return_sync_lock(user_id=user_id, cabinet_uid=cabinet_uid):
         for win_index, (win_from, win_to) in enumerate(windows):
-            if win_index > 0:
-                if report_key:
-                    time.sleep(GOODS_RETURN_REQUEST_INTERVAL_SEC)
-                else:
-                    raise RuntimeError(
-                        "Не удалось определить API-ключ для отчёта WB по возвратам"
-                    )
             if report_key:
-                rows = fetch_goods_return_report(
-                    api_key=report_key, date_from=win_from, date_to=win_to
+                rows = fetch_goods_return_report_rated(
+                    api_key=report_key,
+                    date_from=win_from,
+                    date_to=win_to,
+                    source_id=source_id,
                 )
             else:
                 rows, report_key, report_label = _fetch_goods_return_resilient(
                     candidates,
                     date_from=win_from,
                     date_to=win_to,
+                    source_id=source_id,
                 )
                 if not report_key:
                     raise RuntimeError(
