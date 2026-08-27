@@ -146,7 +146,7 @@ def test_build_pick_verify_payload_excludes_cancelled_plain() -> None:
         ),
     ):
         payload = build_pick_verify_payload(
-            MagicMock(), user_id=1, source_id=2, supply_id="OZ-1"
+            MagicMock(), user_id=1, source_id=2, supply_id="OZ-1", resolve_kiz=False
         )
     assert payload["plain_count"] == 1
     pns = {r["posting_number"] for r in payload["rows"]}

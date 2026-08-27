@@ -112,6 +112,11 @@ def _load_posting_cancelled_map(
     return out
 
 
+def order_kiz_flags_for_orders(orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """KIZ flags per posting for supply detail merge after modal load."""
+    return _order_kiz_flags(orders)
+
+
 def _order_kiz_flags(orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for o in orders:
@@ -230,7 +235,7 @@ def build_marking_payload(
         "source_id": source_id,
         "rows": rows,
         "required_count": len(rows),
-        "order_kiz_flags": _order_kiz_flags(all_orders),
+        "order_kiz_flags": order_kiz_flags_for_orders(all_orders),
     }
 
 

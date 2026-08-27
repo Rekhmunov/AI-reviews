@@ -10,7 +10,7 @@ from . import ozon_fbs as oz
 from . import ozon_fbs_supplies as oz_sup
 from . import wb_fbs as wb
 from . import wb_fbs_detail as wb_detail
-from .ozon_fbs_marking import _load_posting_cancelled_map
+from .ozon_fbs_marking import _load_posting_cancelled_map, order_kiz_flags_for_orders
 from .repository import ReviewRepository
 
 _log = logging.getLogger(__name__)
@@ -233,11 +233,25 @@ def build_pick_verify_payload(
     supply_id: str,
     client_id: str | None = None,
     api_key: str | None = None,
-    refresh_from_ozon: bool = False,
+    resolve_kiz: bool = True,
 ) -> dict[str, Any]:
-    """Rows for «Проверка ШК»: postings without Chestny ZNAK marking."""
-    del client_id, api_key, refresh_from_ozon
-    detail = _supply_detail_for_pick_verify(
+    """Rows for «Проверка ШК»: resolve КИЗ via is-required, then plain non-cancelled rows."""
+    cid = str(client_id or "").strip()
+    key = str(api_key or "").strip()
+    if resolve_kiz and cid and key:
+        try:
+            oz_sup.resolve_supply_kiz_flags_from_ozon(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                supply_id=supply_id,
+                client_id=cid,
+                api_key=key,
+            )
+        except Exception as exc:
+            _log.warning("ozon pick-verify resolve kiz %s: %s", supply_id, exc)
+
+    detail = oz_sup.get_supply_detail(
         repo,
         user_id=user_id,
         source_id=source_id,
@@ -294,12 +308,14 @@ def build_pick_verify_payload(
                 "sticker_part_b": str(o.get("sticker_part_b") or "").strip(),
             }
         )
+    all_orders = [o for o in (detail.get("orders") or []) if isinstance(o, dict)]
     return {
         "ok": True,
         "supply_id": detail.get("supply_id"),
         "source_id": source_id,
         "rows": rows,
         "plain_count": len(rows),
+        "order_kiz_flags": order_kiz_flags_for_orders(all_orders),
     }
 
 

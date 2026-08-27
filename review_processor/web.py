@@ -13019,9 +13019,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         request: Request,
         supply_id: str,
         source_id: int,
-        refresh: bool = False,
     ) -> dict[str, object]:
-        """Postings without КИЗ: local EAN pick-check payload (owner only)."""
+        """Postings without КИЗ: resolve flags then local EAN pick-check (owner only)."""
         from . import ozon_fbs_pick_verify as oz_pick
 
         user = _require_user(request)
@@ -13045,7 +13044,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 supply_id=sid,
                 client_id=client_id,
                 api_key=api_key,
-                refresh_from_ozon=bool(refresh),
+                resolve_kiz=True,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

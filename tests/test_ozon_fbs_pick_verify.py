@@ -37,7 +37,7 @@ def test_build_pick_verify_payload_plain_only() -> None:
     }
     with (
         patch(
-            "review_processor.ozon_fbs_pick_verify._supply_detail_for_pick_verify",
+            "review_processor.ozon_fbs_pick_verify.oz_sup.get_supply_detail",
             return_value=detail,
         ),
         patch(
@@ -46,11 +46,48 @@ def test_build_pick_verify_payload_plain_only() -> None:
         ),
     ):
         payload = build_pick_verify_payload(
-            MagicMock(), user_id=1, source_id=2, supply_id="OZ-1"
+            MagicMock(), user_id=1, source_id=2, supply_id="OZ-1", resolve_kiz=False
         )
     assert payload["plain_count"] == 1
     pns = {r["posting_number"] for r in payload["rows"]}
     assert pns == {"P-1"}
+
+
+def test_build_pick_verify_payload_resolves_kiz_then_filters_plain() -> None:
+    detail = {
+        "supply_id": "OZ-1",
+        "orders": [
+            {"posting_number": "P-1", "kiz_required": False, "cancelled": False},
+            {"posting_number": "K-1", "kiz_required": True, "cancelled": False},
+        ],
+    }
+    with (
+        patch(
+            "review_processor.ozon_fbs_pick_verify.oz_sup.resolve_supply_kiz_flags_from_ozon",
+            return_value=1,
+        ) as resolve,
+        patch(
+            "review_processor.ozon_fbs_pick_verify.oz_sup.get_supply_detail",
+            return_value=detail,
+        ),
+        patch(
+            "review_processor.ozon_fbs_pick_verify.load_posting_pick_map",
+            return_value={},
+        ),
+    ):
+        payload = build_pick_verify_payload(
+            MagicMock(),
+            user_id=1,
+            source_id=2,
+            supply_id="OZ-1",
+            client_id="cid",
+            api_key="key",
+            resolve_kiz=True,
+        )
+    resolve.assert_called_once()
+    assert payload["plain_count"] == 1
+    assert payload["rows"][0]["posting_number"] == "P-1"
+    assert len(payload["order_kiz_flags"]) == 2
 
 
 def test_save_pick_verify_validates_barcode() -> None:

@@ -4553,7 +4553,12 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
       ozonFbsPickState.rows = Array.isArray(data.rows) ? data.rows.map((r) => ({ ...r })) : [];
+      _ozonFbsKizMergeOrderFlagsIntoDetail(data.order_kiz_flags || []);
       renderOzonFbsPickVerifyTable();
+      if (supplyDetailState.supply) {
+        renderSupplyDetail();
+        _ozonFbsKizSplitSetTone(_ozonFbsKizToneFromSupply(supplyDetailState.supply));
+      }
       if (!ozonFbsPickState.rows.length) {
         _ozonFbsPickSetInfo("В поставке нет отправлений без маркировки", true);
       }
