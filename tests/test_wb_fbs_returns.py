@@ -530,6 +530,48 @@ class GoodsReturnSourceFilterTests(unittest.TestCase):
             )
         )
 
+    def test_goods_return_row_matches_confirmed_marketplace_order(self):
+        matchers = {"order_ids": set(), "nm_ids": set(), "barcodes": set()}
+        self.assertTrue(
+            returns._goods_return_row_matches_source(
+                order_id=777,
+                srid="",
+                nm_id=None,
+                matchers=matchers,
+                srid_to_order={},
+                confirmed_order_ids={777},
+            )
+        )
+
+    def test_goods_return_row_matches_srid_via_confirmed_order(self):
+        matchers = {"order_ids": set(), "nm_ids": set(), "barcodes": set()}
+        self.assertTrue(
+            returns._goods_return_row_matches_source(
+                order_id=0,
+                srid="abchex",
+                nm_id=None,
+                matchers=matchers,
+                srid_to_order={"abchex": 888},
+                confirmed_order_ids={888},
+            )
+        )
+
+    def test_resolve_goods_return_api_key_prefers_source(self):
+        key, src = returns.resolve_goods_return_api_key(
+            source_api_key="source-token",
+            fallback_analytics_key="settings-token",
+        )
+        self.assertEqual(key, "source-token")
+        self.assertEqual(src, "source")
+
+    def test_resolve_goods_return_api_key_falls_back_to_settings(self):
+        key, src = returns.resolve_goods_return_api_key(
+            source_api_key="",
+            fallback_analytics_key="settings-token",
+        )
+        self.assertEqual(key, "settings-token")
+        self.assertEqual(src, "settings")
+
     @patch("review_processor.wb_fbs_returns._purge_foreign_goods_returns_in_range", return_value=0)
     @patch("review_processor.wb_fbs_returns.fetch_goods_return_report")
     @patch("review_processor.wb_fbs_returns.ensure_wb_fbs_returns_tables")
@@ -571,6 +613,44 @@ class GoodsReturnSourceFilterTests(unittest.TestCase):
         self.assertEqual(out["skipped_foreign"], 1)
         self.assertEqual(upsert.call_count, 1)
         self.assertEqual(upsert.call_args.kwargs["order_id"], 9001)
+
+    @patch("review_processor.wb_fbs_returns._purge_foreign_goods_returns_in_range", return_value=0)
+    @patch("review_processor.wb_fbs_returns.fetch_goods_return_report")
+    @patch("review_processor.wb_fbs_returns.ensure_wb_fbs_returns_tables")
+    @patch("review_processor.wb_fbs_returns._load_source_goods_return_matchers")
+    def test_sync_goods_returns_warning_when_settings_key_mismatch(
+        self,
+        load_matchers,
+        _ensure,
+        fetch_report,
+        _purge,
+    ):
+        load_matchers.return_value = {"order_ids": set(), "nm_ids": set(), "barcodes": set()}
+        fetch_report.return_value = [
+            {"orderId": 9001, "nmId": 100, "srid": "x", "stickerId": "111"},
+        ]
+        repo = MagicMock()
+        repo._sql = lambda sql: sql
+        conn = MagicMock()
+        repo._connect.return_value.__enter__ = MagicMock(return_value=conn)
+        repo._connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        with patch(
+            "review_processor.wb_fbs_returns.wb.order_ids_by_srids",
+            return_value={},
+        ):
+            out = returns.sync_goods_returns(
+                repo,
+                user_id=1,
+                source_id=10,
+                api_key="settings-key",
+                date_from="2026-08-01",
+                date_to="2026-08-10",
+                api_key_source="settings",
+            )
+
+        self.assertIn("глобальным ключом", out["warning"])
+        self.assertEqual(out["api_key_source"], "settings")
 
 
 if __name__ == "__main__":

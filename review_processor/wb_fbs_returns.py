@@ -118,6 +118,57 @@ def ensure_wb_fbs_returns_tables(repo: ReviewRepository) -> None:
 
 GOODS_RETURN_MAX_WINDOW_DAYS = 31
 GOODS_RETURN_DEFAULT_TOTAL_DAYS = 90
+GOODS_RETURN_STATUS_BATCH = 500
+
+
+def resolve_goods_return_api_key(
+    *,
+    source_api_key: str | None,
+    fallback_analytics_key: str | None,
+) -> tuple[str, str]:
+    """Pick WB token for goods-return report.
+
+    Each FBS source is usually a separate seller cabinet. The report must be
+    fetched with that source's token — not the global Analytics key from settings.
+    """
+    source = str(source_api_key or "").strip()
+    fallback = str(fallback_analytics_key or "").strip()
+    if source:
+        return source, "source"
+    if fallback:
+        return fallback, "settings"
+    return "", ""
+
+
+def _confirm_order_ids_on_marketplace(
+    marketplace_api_key: str,
+    order_ids: list[int],
+) -> set[int]:
+    """Order IDs that exist on this seller cabinet (POST /api/v3/orders/status)."""
+    ids = sorted({int(x) for x in order_ids if int(x) > 0})
+    if not ids or not str(marketplace_api_key or "").strip():
+        return set()
+    client = wb.WbFbsClient(str(marketplace_api_key).strip())
+    confirmed: set[int] = set()
+    for i in range(0, len(ids), GOODS_RETURN_STATUS_BATCH):
+        chunk = ids[i : i + GOODS_RETURN_STATUS_BATCH]
+        try:
+            statuses = client.get_statuses(chunk)
+        except Exception as exc:
+            _log.warning("goods-return order status batch failed: %s", exc)
+            continue
+        for st in statuses or []:
+            if not isinstance(st, dict):
+                continue
+            try:
+                oid = int(st.get("id") or 0)
+            except (TypeError, ValueError):
+                continue
+            if oid > 0:
+                confirmed.add(oid)
+    return confirmed
+
+
 GOODS_RETURN_CHUNK_DAYS = 30
 MSK = ZoneInfo("Europe/Moscow")
 
@@ -589,15 +640,24 @@ def _goods_return_row_matches_source(
     barcode: str = "",
     matchers: dict[str, set[int] | set[str]],
     srid_to_order: dict[str, int],
+    confirmed_order_ids: set[int] | None = None,
 ) -> bool:
     """True when a goods-return row belongs to the selected FBS source."""
     if order_id > 0:
-        return order_id in matchers["order_ids"]
+        if order_id in matchers["order_ids"]:
+            return True
+        if confirmed_order_ids and order_id in confirmed_order_ids:
+            return True
+        return False
     srid_key = str(srid or "").strip()
     if srid_key:
         mapped = int(srid_to_order.get(srid_key) or 0)
         if mapped > 0:
-            return mapped in matchers["order_ids"]
+            if mapped in matchers["order_ids"]:
+                return True
+            if confirmed_order_ids and mapped in confirmed_order_ids:
+                return True
+            return False
     bc = str(barcode or "").strip()
     if bc and bc in matchers.get("barcodes", set()):
         return True
@@ -611,6 +671,7 @@ def _goods_return_api_row_matches_source(
     *,
     matchers: dict[str, set[int] | set[str]],
     srid_to_order: dict[str, int],
+    confirmed_order_ids: set[int] | None = None,
 ) -> bool:
     try:
         order_id = int(row.get("orderId") or 0)
@@ -629,6 +690,7 @@ def _goods_return_api_row_matches_source(
         barcode=barcode,
         matchers=matchers,
         srid_to_order=srid_to_order,
+        confirmed_order_ids=confirmed_order_ids,
     )
 
 
@@ -733,6 +795,7 @@ def sync_goods_returns(
     date_from: str,
     date_to: str,
     marketplace_api_key: str | None = None,
+    api_key_source: str = "",
 ) -> dict[str, Any]:
     """Sync WB goods-return report for one FBS source.
 
@@ -755,10 +818,23 @@ def sync_goods_returns(
     }
     window_stats: list[dict[str, Any]] = []
     srid_to_order: dict[str, int] = {}
+    confirmed_order_ids: set[int] = set()
+    mp_key = str(marketplace_api_key or "").strip()
     for win_from, win_to in windows:
         rows = fetch_goods_return_report(
             api_key=api_key, date_from=win_from, date_to=win_to
         )
+        window_order_ids = sorted(
+            {
+                int(row.get("orderId") or 0)
+                for row in rows
+                if int(row.get("orderId") or 0) > 0
+            }
+        )
+        if window_order_ids and mp_key:
+            confirmed_order_ids.update(
+                _confirm_order_ids_on_marketplace(mp_key, window_order_ids)
+            )
         pending_srids = sorted(
             {
                 str(row.get("srid") or "").strip()
@@ -767,19 +843,16 @@ def sync_goods_returns(
                 and str(row.get("srid") or "").strip() not in srid_to_order
             }
         )
-        if pending_srids and str(marketplace_api_key or "").strip():
+        if pending_srids and mp_key:
             try:
                 wb.hydrate_orders_for_kiz_srids(
                     repo,
                     user_id=user_id,
                     source_id=source_id,
                     srids=pending_srids,
-                    api_key=str(marketplace_api_key).strip(),
-                    archive_pages=20,
-                    lookback_days=max(
-                        30,
-                        min(GOODS_RETURN_DEFAULT_TOTAL_DAYS, 90),
-                    ),
+                    api_key=mp_key,
+                    archive_pages=30,
+                    lookback_days=GOODS_RETURN_DEFAULT_TOTAL_DAYS,
                 )
                 matchers = _load_source_goods_return_matchers(
                     repo, user_id=user_id, source_id=source_id
@@ -809,6 +882,7 @@ def sync_goods_returns(
                     row,
                     matchers=matchers,
                     srid_to_order=srid_to_order,
+                    confirmed_order_ids=confirmed_order_ids,
                 ):
                     stats["skipped_foreign"] += 1
                     continue
@@ -855,21 +929,24 @@ def sync_goods_returns(
     )
     synced = totals["inserted"] + totals["updated"]
     warning = ""
-    if (
-        synced == 0
-        and totals["fetched"] > 0
-        and not matchers.get("order_ids")
-        and not matchers.get("nm_ids")
-    ):
-        warning = (
-            "Для этого источника нет заказов в базе FeedPilot — "
-            "сначала синхронизируйте ВБ ФБС, затем повторите «Синхр. WB»"
-        )
-    elif synced == 0 and totals["skipped_foreign"] > 0:
-        warning = (
-            "Все строки отчёта WB не сопоставились с заказами этого источника. "
-            "Проверьте, что выбран нужный источник и заказы синхронизированы."
-        )
+    has_local_orders = bool(matchers.get("order_ids") or matchers.get("nm_ids"))
+    if synced == 0 and totals["fetched"] > 0:
+        if totals["skipped_foreign"] > 0 and str(api_key_source or "").strip() == "settings":
+            warning = (
+                "Отчёт загружен глобальным ключом из Настроек, а не ключом источника. "
+                "При нескольких кабинетах WB у каждого источника должен быть свой API-ключ."
+            )
+        elif not has_local_orders and not confirmed_order_ids:
+            warning = (
+                "Для этого источника нет заказов в базе FeedPilot — "
+                "сначала синхронизируйте ВБ ФБС, затем повторите «Синхр. WB»"
+            )
+        elif totals["skipped_foreign"] > 0:
+            warning = (
+                "Все строки отчёта WB не сопоставились с заказами этого источника. "
+                "Проверьте, что выбран нужный источник и заказы синхронизированы "
+                "(включая архив)."
+            )
     return {
         "ok": True,
         "synced": synced,
@@ -880,6 +957,7 @@ def sync_goods_returns(
         "skipped_foreign": totals["skipped_foreign"],
         "purged_foreign": totals["purged_foreign"],
         "warning": warning,
+        "api_key_source": str(api_key_source or "").strip() or None,
         "windows": window_stats,
         "date_from": overall_from,
         "date_to": overall_to,
@@ -1875,9 +1953,19 @@ def sync_goods_returns_default(
     user_id: int,
     source_id: int,
 ) -> dict[str, Any]:
-    api_key = get_wb_analytics_api_key(repo, user_id=user_id)
+    src = repo.get_supply_source_with_key(user_id=user_id, source_id=source_id)
+    source_api_key = str((src or {}).get("api_key") or "").strip() or None
+    fallback = get_wb_analytics_api_key(repo, user_id=user_id)
+    api_key, api_key_source = resolve_goods_return_api_key(
+        source_api_key=source_api_key,
+        fallback_analytics_key=fallback,
+    )
     if not api_key:
-        return {"ok": False, "error": "no_analytics_key", "message": "Не задан WB Analytics API ключ"}
+        return {
+            "ok": False,
+            "error": "no_api_key",
+            "message": "Не задан API-ключ источника WB и нет запасного ключа в Настройках",
+        }
     date_from, date_to = default_sync_date_range(GOODS_RETURN_DEFAULT_TOTAL_DAYS)
     return sync_goods_returns(
         repo,
@@ -1886,4 +1974,6 @@ def sync_goods_returns_default(
         api_key=api_key,
         date_from=date_from,
         date_to=date_to,
+        marketplace_api_key=source_api_key,
+        api_key_source=api_key_source,
     )
