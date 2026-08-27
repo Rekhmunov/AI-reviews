@@ -68,7 +68,7 @@ def test_refresh_supply_marking_flags_uses_is_required_not_get_posting() -> None
         patch("review_processor.ozon_fbs_supplies.oz.upsert_posting") as upsert,
         patch("review_processor.ozon_fbs_supplies.time.sleep"),
     ):
-        n = refresh_supply_marking_flags_from_ozon(
+        result = refresh_supply_marking_flags_from_ozon(
             repo,
             user_id=1,
             source_id=2,
@@ -77,11 +77,58 @@ def test_refresh_supply_marking_flags_uses_is_required_not_get_posting() -> None
             api_key="key",
         )
 
-    assert n == 1
+    assert result["updated"] == 1
+    assert result["checked"] == 1
+    assert result["remaining"] == 0
     client.get_posting.assert_not_called()
     saved = upsert.call_args.kwargs.get("posting") or upsert.call_args.args[2]
     req = saved.get("requirements") or {}
     assert "555" in (req.get("products_requiring_mandatory_mark") or [])
+
+
+def test_refresh_supply_marking_flags_chunks_and_reports_remaining() -> None:
+    repo = MagicMock()
+    conn = MagicMock()
+    repo._connect.return_value.__enter__ = MagicMock(return_value=conn)
+    repo._connect.return_value.__exit__ = MagicMock(return_value=False)
+    repo._sql = lambda s: s
+    repo._row_to_dict = lambda row: row
+    rows = []
+    for i in range(5):
+        pn = f"P-{i}"
+        rows.append(
+            {
+                "posting_number": pn,
+                "is_mandatory_mark": False,
+                "raw_json": (
+                    f'{{"posting_number":"{pn}","products":[{{"sku":{100 + i},"quantity":1}}]}}'
+                ),
+                "products_json": "[]",
+            }
+        )
+    conn.execute.return_value.fetchall.return_value = rows
+    client = MagicMock()
+    client.mandatory_mark_is_required.return_value = [{"sku": 100, "is_required": False}]
+
+    with (
+        patch("review_processor.ozon_fbs_supplies.oz.OzonFbsClient", return_value=client),
+        patch("review_processor.ozon_fbs_supplies.oz.upsert_posting"),
+    ):
+        result = refresh_supply_marking_flags_from_ozon(
+            repo,
+            user_id=1,
+            source_id=2,
+            posting_numbers=[f"P-{i}" for i in range(5)],
+            client_id="cid",
+            api_key="key",
+            max_postings=2,
+        )
+
+    assert result["checked"] == 2
+    assert result["remaining"] == 3
+    assert result["total_pending"] == 5
+    assert result["updated"] == 2
+    assert client.mandatory_mark_is_required.call_count == 2
 
 
 def test_build_marking_payload_resolves_kiz_then_filters_rows() -> None:
@@ -106,7 +153,7 @@ def test_build_marking_payload_resolves_kiz_then_filters_rows() -> None:
     with (
         patch(
             "review_processor.ozon_fbs_marking.oz_sup.resolve_supply_kiz_flags_from_ozon",
-            return_value=2,
+            return_value={"updated": 2, "checked": 2, "remaining": 0, "total_pending": 2},
         ) as resolve,
         patch(
             "review_processor.ozon_fbs_marking.oz_sup.get_supply_detail",
@@ -130,6 +177,7 @@ def test_build_marking_payload_resolves_kiz_then_filters_rows() -> None:
     assert len(payload["rows"]) == 1
     assert payload["rows"][0]["posting_number"] == "K-1"
     assert len(payload["order_kiz_flags"]) == 2
+    assert payload["marking_resolve"]["remaining"] == 0
 
 
 def test_sync_does_not_call_marking_enrich() -> None:
@@ -179,10 +227,10 @@ def test_resolve_supply_kiz_flags_delegates_to_refresh() -> None:
         ),
         patch(
             "review_processor.ozon_fbs_supplies.refresh_supply_marking_flags_from_ozon",
-            return_value=1,
+            return_value={"updated": 1, "checked": 1, "remaining": 0, "total_pending": 1},
         ) as refresh,
     ):
-        n = resolve_supply_kiz_flags_from_ozon(
+        result = resolve_supply_kiz_flags_from_ozon(
             MagicMock(),
             user_id=1,
             source_id=2,
@@ -190,5 +238,6 @@ def test_resolve_supply_kiz_flags_delegates_to_refresh() -> None:
             client_id="cid",
             api_key="key",
         )
-    assert n == 1
+    assert result["updated"] == 1
     assert refresh.call_args.kwargs.get("posting_numbers") == ["P-1"]
+    assert refresh.call_args.kwargs.get("max_postings") is not None

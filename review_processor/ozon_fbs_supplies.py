@@ -11,6 +11,7 @@ import json
 import logging
 import secrets
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -25,6 +26,12 @@ _log = logging.getLogger(__name__)
 
 SUPPLY_ID_PREFIX = "OZ-FBS"
 ORPHAN_DELIVERING_SUPPLY_NAME = "Без локальной поставки"
+
+# Live Ozon calls are capped per HTTP request so nginx/proxy does not 504
+# when a supply has hundreds of postings (is-required / get_posting loops).
+OZON_FBS_LIVE_CHECK_CHUNK = 40
+OZON_FBS_LIVE_CHECK_WORKERS = 4
+OZON_FBS_LIVE_CHECK_CHUNK_MAX = 100
 
 _TAB_SUPPLY_STATUS_LABEL: dict[str, str] = {
     oz.TAB_AWAITING_DELIVER: "Сборка заказов",
@@ -1881,6 +1888,25 @@ def refresh_supply_postings_from_ozon(
 
 
 
+def _clamp_live_check_chunk(value: int | None, *, default: int = OZON_FBS_LIVE_CHECK_CHUNK) -> int:
+    try:
+        n = int(value) if value is not None else int(default)
+    except (TypeError, ValueError):
+        n = int(default)
+    if n < 1:
+        n = int(default)
+    return min(n, OZON_FBS_LIVE_CHECK_CHUNK_MAX)
+
+
+def _empty_marking_resolve() -> dict[str, int]:
+    return {
+        "updated": 0,
+        "checked": 0,
+        "remaining": 0,
+        "total_pending": 0,
+    }
+
+
 def refresh_supply_marking_flags_from_ozon(
     repo: ReviewRepository,
     *,
@@ -1889,14 +1915,14 @@ def refresh_supply_marking_flags_from_ozon(
     posting_numbers: list[str],
     client_id: str,
     api_key: str,
-) -> int:
-    """Light Ozon refresh: mandatory-mark/is-required only (no get_posting, no create-or-get)."""
+    max_postings: int | None = OZON_FBS_LIVE_CHECK_CHUNK,
+) -> dict[str, int]:
+    """Light Ozon refresh: mandatory-mark/is-required only (chunked to avoid 504)."""
     nums = [str(x).strip() for x in posting_numbers if str(x).strip()]
     if not nums or not str(client_id or "").strip() or not str(api_key or "").strip():
-        return 0
+        return _empty_marking_resolve()
     client = oz.OzonFbsClient(str(client_id).strip(), str(api_key).strip())
     placeholders = ", ".join("?" for _ in nums)
-    updated = 0
     with repo._connect() as conn:
         rows = conn.execute(
             repo._sql(
@@ -1912,15 +1938,47 @@ def refresh_supply_marking_flags_from_ozon(
         str(repo._row_to_dict(row).get("posting_number") or "").strip(): repo._row_to_dict(row)
         for row in rows
     }
-    for i, pn in enumerate(nums):
+    pending: list[tuple[str, dict[str, Any]]] = []
+    for pn in nums:
         row = by_pn.get(pn)
         if not row:
             continue
         posting = oz._posting_payload_from_row(row)
         if not posting or oz.posting_marking_flags_resolved(posting):
             continue
+        pending.append((pn, posting))
+    total_pending = len(pending)
+    chunk_limit = _clamp_live_check_chunk(max_postings)
+    chunk = pending[:chunk_limit]
+    remaining = max(0, total_pending - len(chunk))
+    if not chunk:
+        return {
+            "updated": 0,
+            "checked": 0,
+            "remaining": 0,
+            "total_pending": total_pending,
+        }
+
+    def _enrich_one(item: tuple[str, dict[str, Any]]) -> tuple[str, dict[str, Any] | None, Exception | None]:
+        pn, posting = item
         try:
-            enriched = oz.enrich_posting_marking_flags_light(client, posting)
+            return pn, oz.enrich_posting_marking_flags_light(client, posting), None
+        except Exception as exc:
+            return pn, None, exc
+
+    updated = 0
+    workers = min(OZON_FBS_LIVE_CHECK_WORKERS, len(chunk))
+    results: list[tuple[str, dict[str, Any] | None, Exception | None]] = []
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futs = [pool.submit(_enrich_one, item) for item in chunk]
+        for fut in as_completed(futs):
+            results.append(fut.result())
+    for pn, enriched, err in results:
+        if err is not None or not isinstance(enriched, dict):
+            if err is not None:
+                _log.warning("ozon supply marking enrich %s: %s", pn, err)
+            continue
+        try:
             oz.upsert_posting(
                 repo,
                 user_id=user_id,
@@ -1929,10 +1987,13 @@ def refresh_supply_marking_flags_from_ozon(
             )
             updated += 1
         except Exception as exc:
-            _log.warning("ozon supply marking enrich %s: %s", pn, exc)
-        if i + 1 < len(nums):
-            time.sleep(0.05)
-    return updated
+            _log.warning("ozon supply marking persist %s: %s", pn, exc)
+    return {
+        "updated": updated,
+        "checked": len(chunk),
+        "remaining": remaining,
+        "total_pending": total_pending,
+    }
 
 
 def resolve_supply_kiz_flags_from_ozon(
@@ -1944,11 +2005,12 @@ def resolve_supply_kiz_flags_from_ozon(
     client_id: str,
     api_key: str,
     posting_tab: str | None = None,
-) -> int:
-    """Resolve КИЗ flags for all non-cancelled supply postings (marking modal)."""
+    max_postings: int | None = OZON_FBS_LIVE_CHECK_CHUNK,
+) -> dict[str, int]:
+    """Resolve КИЗ flags for non-cancelled supply postings (chunked live is-required)."""
     sid = str(supply_id or "").strip()
     if not sid:
-        return 0
+        return _empty_marking_resolve()
     tab_key = str(posting_tab or "").strip() or None
     if tab_key:
         nums = _assembly_posting_numbers_for_supply_tab(
@@ -1963,7 +2025,7 @@ def resolve_supply_kiz_flags_from_ozon(
             repo, user_id=user_id, source_id=source_id, supply_id=sid
         )
     if not nums:
-        return 0
+        return _empty_marking_resolve()
     detail = get_supply_detail(
         repo,
         user_id=user_id,
@@ -1987,6 +2049,7 @@ def resolve_supply_kiz_flags_from_ozon(
         posting_numbers=active,
         client_id=client_id,
         api_key=api_key,
+        max_postings=max_postings,
     )
 
 
@@ -2212,8 +2275,10 @@ def list_supply_cancelled_postings(
     supply_id: str,
     client_id: str,
     api_key: str,
+    check_offset: int = 0,
+    check_limit: int | None = OZON_FBS_LIVE_CHECK_CHUNK,
 ) -> dict[str, Any]:
-    """Live Ozon get_posting check for cancelled postings still in a local supply."""
+    """Live Ozon get_posting check for cancelled postings (chunked to avoid 504)."""
     sid = str(supply_id or "").strip()
     if not sid:
         raise ValueError("Укажите supply_id")
@@ -2236,7 +2301,22 @@ def list_supply_cancelled_postings(
             "posting_count": 0,
             "cancelled_count": 0,
             "rows": [],
+            "checked": 0,
+            "check_offset": 0,
+            "next_offset": 0,
+            "remaining": 0,
+            "done": True,
         }
+
+    try:
+        offset = max(0, int(check_offset or 0))
+    except (TypeError, ValueError):
+        offset = 0
+    limit = _clamp_live_check_chunk(check_limit)
+    chunk = posting_numbers[offset : offset + limit]
+    next_offset = offset + len(chunk)
+    remaining = max(0, len(posting_numbers) - next_offset)
+    done = remaining == 0
 
     detail = get_supply_detail(
         repo, user_id=user_id, source_id=source_id, supply_id=sid
@@ -2252,10 +2332,26 @@ def list_supply_cancelled_postings(
     client = oz.OzonFbsClient(client_id, api_key)
     refreshed: dict[str, dict[str, Any]] = {}
     fetch_errors: list[str] = []
-    for pn in posting_numbers:
+
+    def _fetch_one(pn: str) -> tuple[str, dict[str, Any] | None, Exception | None]:
         try:
             remote = client.get_posting(pn)
             if isinstance(remote, dict):
+                return pn, remote, None
+            return pn, None, RuntimeError("Ozon get_posting returned non-object")
+        except Exception as exc:
+            return pn, None, exc
+
+    if chunk:
+        workers = min(OZON_FBS_LIVE_CHECK_WORKERS, len(chunk))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futs = [pool.submit(_fetch_one, pn) for pn in chunk]
+            for fut in as_completed(futs):
+                pn, remote, err = fut.result()
+                if err is not None or remote is None:
+                    fetch_errors.append(f"{pn}: {err}" if err else f"{pn}: empty")
+                    _log.warning("ozon cancelled check get_posting %s: %s", pn, err)
+                    continue
                 refreshed[pn] = remote
                 try:
                     oz.upsert_posting(
@@ -2266,20 +2362,17 @@ def list_supply_cancelled_postings(
                     )
                 except Exception as exc:
                     _log.debug("cancelled persist %s: %s", pn, exc)
-        except Exception as exc:
-            fetch_errors.append(f"{pn}: {exc}")
-            _log.warning("ozon cancelled check get_posting %s: %s", pn, exc)
-        if len(posting_numbers) > 1:
-            time.sleep(0.05)
 
-    if fetch_errors and len(refreshed) == 0 and not local_by_pn:
+    if fetch_errors and len(refreshed) == 0 and not any(
+        pn in local_by_pn for pn in chunk
+    ):
         raise RuntimeError(
             "Не удалось проверить статусы отправлений на Ozon: "
             + "; ".join(fetch_errors[:3])
         )
 
     rows: list[dict[str, Any]] = []
-    for pn in posting_numbers:
+    for pn in chunk:
         remote = refreshed.get(pn) or {}
         local = dict(local_by_pn.get(pn) or {})
         if remote:
@@ -2310,6 +2403,11 @@ def list_supply_cancelled_postings(
         "posting_count": len(posting_numbers),
         "cancelled_count": len(rows),
         "rows": rows,
+        "checked": len(chunk),
+        "check_offset": offset,
+        "next_offset": next_offset,
+        "remaining": remaining,
+        "done": done,
         "warnings": fetch_errors[:5] if fetch_errors else [],
     }
 

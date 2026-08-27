@@ -1634,25 +1634,70 @@
       renderOzonFbsCancelledOrdersTable();
     }
     try {
-      const params = new URLSearchParams({ source_id: String(sourceId) });
-      const res = await fetch(
-        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/cancelled?${params}`
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || data.ok === false) {
-        throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      const merged = [];
+      const seen = new Set();
+      let offset = 0;
+      let done = false;
+      let postingCount = 0;
+      let checkedTotal = 0;
+      const allWarnings = [];
+      while (!done) {
+        if (ozonFbsCancelledState.refreshGen !== refreshGen) return;
+        const params = new URLSearchParams({
+          source_id: String(sourceId),
+          check_offset: String(offset),
+        });
+        if (checkedTotal > 0 || offset > 0) {
+          _ozonFbsCancelledSetInfo(
+            `Проверка отменённых на Ozon… ${checkedTotal}/${postingCount || "?"}`,
+            "ok"
+          );
+        }
+        const res = await fetch(
+          `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/cancelled?${params}`
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.ok === false) {
+          throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+        }
+        if (ozonFbsCancelledState.refreshGen !== refreshGen) return;
+        postingCount = Number(data.posting_count || postingCount || 0);
+        checkedTotal += Number(data.checked || 0);
+        const chunkRows = Array.isArray(data.rows) ? data.rows : [];
+        for (const row of chunkRows) {
+          const pn = String(row?.posting_number || "").trim();
+          if (!pn || seen.has(pn)) continue;
+          seen.add(pn);
+          merged.push(row);
+        }
+        const warnings = Array.isArray(data.warnings) ? data.warnings : [];
+        allWarnings.push(...warnings);
+        done = data.done === true || Number(data.remaining || 0) <= 0;
+        offset = Number(data.next_offset != null ? data.next_offset : offset + Number(data.checked || 0));
+        if (!done && Number(data.checked || 0) <= 0) {
+          done = true;
+        }
+        ozonFbsCancelledState.rows = merged.slice();
+        renderOzonFbsCancelledOrdersTable();
+        if (!done) {
+          _ozonFbsCancelledSetInfo(
+            `Проверка отменённых на Ozon… ${checkedTotal}/${postingCount}`,
+            "ok"
+          );
+        }
       }
       if (ozonFbsCancelledState.refreshGen !== refreshGen) return;
       ozonFbsCancelledState.lastError = "";
-      ozonFbsCancelledState.rows = Array.isArray(data.rows) ? data.rows : [];
+      ozonFbsCancelledState.rows = merged;
       renderOzonFbsCancelledOrdersTable();
       _ozonFbsCancelledMergeIntoDetail(ozonFbsCancelledState.rows);
-      const warnings = Array.isArray(data.warnings) ? data.warnings : [];
-      if (warnings.length) {
+      if (allWarnings.length) {
         _ozonFbsCancelledSetInfo(
-          `Часть отправлений проверена по локальным данным (${warnings.length})`,
+          `Часть отправлений проверена по локальным данным (${allWarnings.length})`,
           "ok"
         );
+      } else {
+        _ozonFbsCancelledSetInfo("");
       }
     } catch (e) {
       if (ozonFbsCancelledState.refreshGen !== refreshGen) return;
@@ -4157,17 +4202,44 @@
     if (scan) scan.value = "";
     let loadOk = false;
     try {
-      const params = new URLSearchParams({ source_id: String(sourceId) });
-      const res = await fetch(
-        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/marking?${params}`
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
-      ozonFbsKizState.rows = (Array.isArray(data.rows) ? data.rows : []).map((r) => ({
+      let data = null;
+      let remaining = 1;
+      let checkedTotal = 0;
+      let guard = 0;
+      while (remaining > 0 && guard < 200) {
+        guard += 1;
+        if (tbody) {
+          tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">${
+            checkedTotal
+              ? `Проверка маркировки у Ozon… проверено ${checkedTotal}, осталось ${remaining}`
+              : "Проверка маркировки у Ozon…"
+          }</td></tr>`;
+        }
+        _ozonFbsKizSetInfo(
+          checkedTotal
+            ? `Проверка маркировки у Ozon… осталось ${remaining}`
+            : "Проверка маркировки у Ozon…"
+        );
+        const params = new URLSearchParams({ source_id: String(sourceId) });
+        const res = await fetch(
+          `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/marking?${params}`
+        );
+        data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+        const mr = data.marking_resolve && typeof data.marking_resolve === "object"
+          ? data.marking_resolve
+          : {};
+        checkedTotal += Number(mr.checked || 0);
+        remaining = Number(mr.remaining || 0);
+        if (remaining > 0 && Number(mr.checked || 0) <= 0) {
+          remaining = 0;
+        }
+      }
+      ozonFbsKizState.rows = (Array.isArray(data?.rows) ? data.rows : []).map((r) => ({
         ...r,
         kiz_codes: Array.isArray(r.kiz_codes) && r.kiz_codes.length ? r.kiz_codes.slice() : [""],
       }));
-      _ozonFbsKizMergeOrderFlagsIntoDetail(data.order_kiz_flags || []);
+      _ozonFbsKizMergeOrderFlagsIntoDetail(data?.order_kiz_flags || []);
       _ozonFbsKizCaptureBaseline();
       renderOzonFbsKizTable();
       if (supplyDetailState.supply) {
@@ -4176,6 +4248,8 @@
       }
       if (!ozonFbsKizState.rows.length) {
         _ozonFbsKizSetInfo("В поставке нет отправлений, требующих маркировки");
+      } else {
+        _ozonFbsKizSetInfo("");
       }
       loadOk = true;
     } catch (e) {
@@ -4704,14 +4778,41 @@
     if (scan) scan.value = "";
     let loadOk = false;
     try {
-      const params = new URLSearchParams({ source_id: String(sourceId) });
-      const res = await fetch(
-        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/pick-verify?${params}`
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
-      ozonFbsPickState.rows = Array.isArray(data.rows) ? data.rows.map((r) => ({ ...r })) : [];
-      _ozonFbsKizMergeOrderFlagsIntoDetail(data.order_kiz_flags || []);
+      let data = null;
+      let remaining = 1;
+      let checkedTotal = 0;
+      let guard = 0;
+      while (remaining > 0 && guard < 200) {
+        guard += 1;
+        if (tbody) {
+          tbody.innerHTML = `<tr><td colspan="3" class="wb-fbs-empty">${
+            checkedTotal
+              ? `Проверка маркировки у Ozon… проверено ${checkedTotal}, осталось ${remaining}`
+              : "Проверка маркировки у Ozon…"
+          }</td></tr>`;
+        }
+        _ozonFbsPickSetInfo(
+          checkedTotal
+            ? `Проверка маркировки у Ozon… осталось ${remaining}`
+            : "Проверка маркировки у Ozon…"
+        );
+        const params = new URLSearchParams({ source_id: String(sourceId) });
+        const res = await fetch(
+          `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/pick-verify?${params}`
+        );
+        data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+        const mr = data.marking_resolve && typeof data.marking_resolve === "object"
+          ? data.marking_resolve
+          : {};
+        checkedTotal += Number(mr.checked || 0);
+        remaining = Number(mr.remaining || 0);
+        if (remaining > 0 && Number(mr.checked || 0) <= 0) {
+          remaining = 0;
+        }
+      }
+      ozonFbsPickState.rows = Array.isArray(data?.rows) ? data.rows.map((r) => ({ ...r })) : [];
+      _ozonFbsKizMergeOrderFlagsIntoDetail(data?.order_kiz_flags || []);
       renderOzonFbsPickVerifyTable();
       if (supplyDetailState.supply) {
         renderSupplyDetail();
@@ -4719,6 +4820,8 @@
       }
       if (!ozonFbsPickState.rows.length) {
         _ozonFbsPickSetInfo("В поставке нет отправлений без маркировки", true);
+      } else {
+        _ozonFbsPickSetInfo("");
       }
       loadOk = true;
     } catch (e) {

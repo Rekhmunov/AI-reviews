@@ -12929,6 +12929,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         request: Request,
         supply_id: str,
         source_id: int,
+        check_offset: int = 0,
+        check_limit: int | None = None,
     ) -> dict[str, object]:
         """Live check for cancelled postings still present in the local supply."""
         from . import ozon_fbs_supplies as oz_sup
@@ -12949,6 +12951,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 supply_id=sid,
                 client_id=client_id,
                 api_key=api_key,
+                check_offset=int(check_offset or 0),
+                check_limit=check_limit,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -12960,6 +12964,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         request: Request,
         supply_id: str,
         source_id: int,
+        marking_chunk: int | None = None,
     ) -> dict[str, object]:
         from . import ozon_fbs_marking as oz_mark
 
@@ -12980,6 +12985,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 client_id=client_id,
                 api_key=api_key,
                 resolve_kiz=True,
+                max_postings=marking_chunk,
             )
         except RuntimeError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -13058,6 +13064,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         request: Request,
         supply_id: str,
         source_id: int,
+        marking_chunk: int | None = None,
     ) -> dict[str, object]:
         """Postings without КИЗ: resolve flags then local EAN pick-check (owner only)."""
         from . import ozon_fbs_pick_verify as oz_pick
@@ -13084,6 +13091,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 client_id=client_id,
                 api_key=api_key,
                 resolve_kiz=True,
+                max_postings=marking_chunk,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

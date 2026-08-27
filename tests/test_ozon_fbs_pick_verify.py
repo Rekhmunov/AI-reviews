@@ -64,7 +64,7 @@ def test_build_pick_verify_payload_resolves_kiz_then_filters_plain() -> None:
     with (
         patch(
             "review_processor.ozon_fbs_pick_verify.oz_sup.resolve_supply_kiz_flags_from_ozon",
-            return_value=1,
+            return_value={"updated": 1, "checked": 1, "remaining": 0, "total_pending": 1},
         ) as resolve,
         patch(
             "review_processor.ozon_fbs_pick_verify.oz_sup.get_supply_detail",
@@ -88,6 +88,7 @@ def test_build_pick_verify_payload_resolves_kiz_then_filters_plain() -> None:
     assert payload["plain_count"] == 1
     assert payload["rows"][0]["posting_number"] == "P-1"
     assert len(payload["order_kiz_flags"]) == 2
+    assert payload["marking_resolve"]["remaining"] == 0
 
 
 def test_save_pick_verify_validates_barcode() -> None:

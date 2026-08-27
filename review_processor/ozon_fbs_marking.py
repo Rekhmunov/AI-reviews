@@ -146,19 +146,25 @@ def build_marking_payload(
     client_id: str | None = None,
     api_key: str | None = None,
     resolve_kiz: bool = True,
+    max_postings: int | None = None,
 ) -> dict[str, Any]:
-    """Marking modal: resolve КИЗ via is-required for all supply postings, then local rows."""
+    """Marking modal: resolve КИЗ via is-required (chunked), then local rows."""
     cid = str(client_id or "").strip()
     key = str(api_key or "").strip()
+    marking_resolve = oz_sup._empty_marking_resolve()
+    chunk = oz_sup._clamp_live_check_chunk(
+        max_postings if max_postings is not None else oz_sup.OZON_FBS_LIVE_CHECK_CHUNK
+    )
     if resolve_kiz and cid and key:
         try:
-            oz_sup.resolve_supply_kiz_flags_from_ozon(
+            marking_resolve = oz_sup.resolve_supply_kiz_flags_from_ozon(
                 repo,
                 user_id=user_id,
                 source_id=source_id,
                 supply_id=supply_id,
                 client_id=cid,
                 api_key=key,
+                max_postings=chunk,
             )
         except Exception as exc:
             _log.warning("ozon marking resolve kiz %s: %s", supply_id, exc)
@@ -236,6 +242,7 @@ def build_marking_payload(
         "rows": rows,
         "required_count": len(rows),
         "order_kiz_flags": order_kiz_flags_for_orders(all_orders),
+        "marking_resolve": marking_resolve,
     }
 
 

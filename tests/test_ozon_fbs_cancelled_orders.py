@@ -112,6 +112,77 @@ def test_list_supply_cancelled_postings_finds_cancelled() -> None:
     assert payload["cancelled_count"] == 1
     assert payload["rows"][0]["posting_number"] == "A-2"
     assert payload["rows"][0]["cancel_reason_label"] == "Покупатель не забрал заказ"
+    assert payload["done"] is True
+    assert payload["remaining"] == 0
+    assert client.get_posting.call_count == 3
+
+
+def test_list_supply_cancelled_postings_chunks_by_offset() -> None:
+    repo = MagicMock()
+    supply = {
+        "supply_id": "OZ-1",
+        "posting_numbers": ["A-1", "A-2", "A-3"],
+    }
+    local_orders = [
+        {"posting_number": "A-1", "status": "awaiting_deliver", "tab": "awaiting_deliver"},
+        {"posting_number": "A-2", "status": "awaiting_deliver", "tab": "awaiting_deliver"},
+        {"posting_number": "A-3", "status": "awaiting_deliver", "tab": "awaiting_deliver"},
+    ]
+
+    def _get_posting(pn: str) -> dict:
+        if pn == "A-2":
+            return {
+                "posting_number": pn,
+                "status": "cancelled",
+                "cancellation": {"cancel_reason_id": 665},
+            }
+        return {"posting_number": pn, "status": "awaiting_deliver"}
+
+    client = MagicMock()
+    client.get_posting.side_effect = _get_posting
+
+    with (
+        patch(
+            "review_processor.ozon_fbs_supplies.get_supply",
+            return_value=supply,
+        ),
+        patch(
+            "review_processor.ozon_fbs_supplies.get_supply_detail",
+            return_value={"orders": local_orders, "supply_id": "OZ-1"},
+        ),
+        patch("review_processor.ozon_fbs_supplies.oz.OzonFbsClient", return_value=client),
+        patch("review_processor.ozon_fbs_supplies.oz.upsert_posting"),
+    ):
+        first = list_supply_cancelled_postings(
+            repo,
+            user_id=1,
+            source_id=2,
+            supply_id="OZ-1",
+            client_id="c",
+            api_key="k",
+            check_offset=0,
+            check_limit=2,
+        )
+        second = list_supply_cancelled_postings(
+            repo,
+            user_id=1,
+            source_id=2,
+            supply_id="OZ-1",
+            client_id="c",
+            api_key="k",
+            check_offset=first["next_offset"],
+            check_limit=2,
+        )
+
+    assert first["checked"] == 2
+    assert first["remaining"] == 1
+    assert first["done"] is False
+    assert first["cancelled_count"] == 1
+    assert first["rows"][0]["posting_number"] == "A-2"
+    assert second["checked"] == 1
+    assert second["remaining"] == 0
+    assert second["done"] is True
+    assert second["cancelled_count"] == 0
     assert client.get_posting.call_count == 3
 
 
