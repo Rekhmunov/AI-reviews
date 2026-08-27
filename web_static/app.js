@@ -18817,6 +18817,8 @@ function onWbFbsReturnsSearchInput() {
 window.onWbFbsReturnsSearchInput = onWbFbsReturnsSearchInput;
 
 const WB_FBS_RETURNS_AUTO_SYNC_PREFIX = "wbFbsReturnsAutoSync:";
+const WB_FBS_RETURNS_GLOBAL_SYNC_KEY = "wbFbsReturnsGlobalSyncAt";
+const WB_FBS_RETURNS_AUTO_SYNC_COOLDOWN_MS = 65000;
 
 function _wbFbsReturnsMskDateKey() {
   return new Intl.DateTimeFormat("en-CA", {
@@ -18843,16 +18845,27 @@ function _wbFbsReturnsMarkAutoSynced(sourceId) {
   localStorage.setItem(_wbFbsReturnsAutoSyncKey(sid), _wbFbsReturnsMskDateKey());
 }
 
+function _wbFbsReturnsGlobalSyncRecent() {
+  const ts = Number(localStorage.getItem(WB_FBS_RETURNS_GLOBAL_SYNC_KEY) || 0);
+  return ts > 0 && Date.now() - ts < WB_FBS_RETURNS_AUTO_SYNC_COOLDOWN_MS;
+}
+
+function _wbFbsReturnsMarkGlobalSyncStart() {
+  localStorage.setItem(WB_FBS_RETURNS_GLOBAL_SYNC_KEY, String(Date.now()));
+}
+
 async function syncWbFbsReturnsGoods(options) {
   const opts = options && typeof options === "object" ? options : {};
   const isAuto = !!opts.auto;
-  if (wbFbsReturnsState.syncing) return;
+  if (wbFbsReturnsState.syncing) return false;
+  if (isAuto && _wbFbsReturnsGlobalSyncRecent()) return false;
   const sid = _wbFbsReturnsSourceId();
   if (!sid) {
     alert("Выберите источник WB FBS");
-    return;
+    return false;
   }
   wbFbsReturnsState.syncing = true;
+  _wbFbsReturnsMarkGlobalSyncStart();
   const syncBtn = document.getElementById("wbFbsReturnsSyncBtn");
   const syncInfo = document.getElementById("wbFbsReturnsSyncInfo");
   if (syncBtn) syncBtn.disabled = true;
@@ -19128,8 +19141,14 @@ function openWbFbsKizRestoreModal() {
   initWbFbsReturnsColumnResizer();
   initWbFbsReturnsInfiniteScroll();
   loadWbFbsReturnsScans();
-  if (_wbFbsReturnsShouldAutoSync(sid)) {
+  if (_wbFbsReturnsShouldAutoSync(sid) && !_wbFbsReturnsGlobalSyncRecent()) {
     void syncWbFbsReturnsGoods({ auto: true });
+  } else if (_wbFbsReturnsShouldAutoSync(sid) && _wbFbsReturnsGlobalSyncRecent()) {
+    const syncInfoDefer = document.getElementById("wbFbsReturnsSyncInfo");
+    if (syncInfoDefer) {
+      syncInfoDefer.textContent =
+        "Автосинхр. отложена — недавно синхронизировался другой источник (~1 мин)";
+    }
   }
   setTimeout(() => scan?.focus(), 40);
 }
