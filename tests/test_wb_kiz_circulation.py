@@ -2249,6 +2249,39 @@ def test_order_ids_by_srids_matches_mid_when_suffix_differs() -> None:
     assert "order_uid" in mid_sql
 
 
+def test_order_ids_by_srids_matches_hex_goods_return_srid() -> None:
+    """Analytics goods-return srid is orderUid without leading 'r'."""
+    from review_processor import wb_fbs as wb_fbs_mod
+
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+    empty = MagicMock()
+    empty.fetchall.return_value = []
+    hex_hit = MagicMock()
+    hex_hit.fetchall.return_value = [
+        {
+            "order_id": 5597890219,
+            "order_uid": "r76748dba919745c7b5e3dd12666f1650",
+        }
+    ]
+    conn.execute.side_effect = [empty, empty, hex_hit]
+    repo = MagicMock()
+    repo._connect.return_value = conn
+    repo._sql.side_effect = lambda q: q
+    repo._row_to_dict.side_effect = lambda r: r if isinstance(r, dict) else {}
+    with patch.object(wb_fbs_mod, "ensure_wb_fbs_tables"):
+        got = wb_fbs_mod.order_ids_by_srids(
+            repo,
+            user_id=1,
+            source_id=2,
+            srids=["76748dba919745c7b5e3dd12666f1650"],
+        )
+    assert got["76748dba919745c7b5e3dd12666f1650"] == 5597890219
+    hex_sql = conn.execute.call_args_list[-1].args[0]
+    assert "SUBSTRING(order_uid FROM 2)" in hex_sql
+
+
 def test_norm_eligibility_sold_and_cancelled_only() -> None:
     index = {
         "sold-1": {

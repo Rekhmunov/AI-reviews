@@ -517,6 +517,19 @@ class GoodsReturnSourceFilterTests(unittest.TestCase):
             )
         )
 
+    def test_goods_return_row_matches_source_by_barcode(self):
+        matchers = {"order_ids": set(), "nm_ids": set(), "barcodes": {"2001900289005"}}
+        self.assertTrue(
+            returns._goods_return_row_matches_source(
+                order_id=0,
+                srid="",
+                nm_id=None,
+                barcode="2001900289005",
+                matchers=matchers,
+                srid_to_order={},
+            )
+        )
+
     @patch("review_processor.wb_fbs_returns._purge_foreign_goods_returns_in_range", return_value=0)
     @patch("review_processor.wb_fbs_returns.fetch_goods_return_report")
     @patch("review_processor.wb_fbs_returns.ensure_wb_fbs_returns_tables")
@@ -528,7 +541,7 @@ class GoodsReturnSourceFilterTests(unittest.TestCase):
         fetch_report,
         _purge,
     ):
-        load_matchers.return_value = {"order_ids": {9001}, "nm_ids": {100}}
+        load_matchers.return_value = {"order_ids": {9001}, "nm_ids": {100}, "barcodes": set()}
         fetch_report.return_value = [
             {"orderId": 9001, "nmId": 100, "srid": "keep.1.0", "stickerId": "111"},
             {"orderId": 9002, "nmId": 200, "srid": "skip.1.0", "stickerId": "222"},

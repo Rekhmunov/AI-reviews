@@ -18894,12 +18894,17 @@ async function syncWbFbsReturnsGoods(options) {
     const winLabel = windows > 1 ? ` · ${windows} периода` : "";
     const skipLabel = skippedForeign > 0 ? ` · пропущено чужих ${skippedForeign}` : "";
     const purgeLabel = purgedForeign > 0 ? ` · удалено чужих ${purgedForeign}` : "";
+    const warn = String(payload.warning || "").trim();
     if (syncInfo) syncInfo.textContent = `WB: ${detail}${skipLabel}${purgeLabel}`;
     if (!isAuto) {
       _wbFbsReturnsSetInfo(
-        `Синхронизация возвратов WB: получено ${fetched}, ${detail}${skipLabel}${purgeLabel}${range}${winLabel}`,
-        "ok",
+        warn
+          ? `${warn}${range}${winLabel}`
+          : `Синхронизация возвратов WB: получено ${fetched}, ${detail}${skipLabel}${purgeLabel}${range}${winLabel}`,
+        warn ? "warn" : "ok",
       );
+    } else if (warn) {
+      _wbFbsReturnsSetInfo(warn, "warn");
     }
   } catch (err) {
     if (syncInfo) syncInfo.textContent = "";

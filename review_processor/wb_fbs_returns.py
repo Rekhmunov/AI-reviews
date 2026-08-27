@@ -538,16 +538,17 @@ def _load_source_goods_return_matchers(
     *,
     user_id: int,
     source_id: int,
-) -> dict[str, set[int]]:
-    """Order/nm ids known for one FBS source (from synced wb_fbs_orders)."""
+) -> dict[str, set[int] | set[str]]:
+    """Order/nm/barcodes known for one FBS source (from synced wb_fbs_orders)."""
     wb.ensure_wb_fbs_tables(repo)
     order_ids: set[int] = set()
     nm_ids: set[int] = set()
+    barcodes: set[str] = set()
     with repo._connect() as conn:
         rows = conn.execute(
             repo._sql(
                 """
-                SELECT DISTINCT order_id, nm_id
+                SELECT DISTINCT order_id, nm_id, skus_json
                 FROM wb_fbs_orders
                 WHERE user_id = ? AND source_id = ?
                 """
@@ -568,7 +569,16 @@ def _load_source_goods_return_matchers(
             nm = 0
         if nm > 0:
             nm_ids.add(nm)
-    return {"order_ids": order_ids, "nm_ids": nm_ids}
+        try:
+            parsed = json.loads(str(d.get("skus_json") or "[]") or "[]")
+        except json.JSONDecodeError:
+            parsed = []
+        if isinstance(parsed, list):
+            for sku in parsed:
+                code = str(sku or "").strip()
+                if code:
+                    barcodes.add(code)
+    return {"order_ids": order_ids, "nm_ids": nm_ids, "barcodes": barcodes}
 
 
 def _goods_return_row_matches_source(
@@ -576,7 +586,8 @@ def _goods_return_row_matches_source(
     order_id: int,
     srid: str,
     nm_id: int | None,
-    matchers: dict[str, set[int]],
+    barcode: str = "",
+    matchers: dict[str, set[int] | set[str]],
     srid_to_order: dict[str, int],
 ) -> bool:
     """True when a goods-return row belongs to the selected FBS source."""
@@ -587,6 +598,9 @@ def _goods_return_row_matches_source(
         mapped = int(srid_to_order.get(srid_key) or 0)
         if mapped > 0:
             return mapped in matchers["order_ids"]
+    bc = str(barcode or "").strip()
+    if bc and bc in matchers.get("barcodes", set()):
+        return True
     if nm_id and int(nm_id) > 0:
         return int(nm_id) in matchers["nm_ids"]
     return False
@@ -595,7 +609,7 @@ def _goods_return_row_matches_source(
 def _goods_return_api_row_matches_source(
     row: dict[str, Any],
     *,
-    matchers: dict[str, set[int]],
+    matchers: dict[str, set[int] | set[str]],
     srid_to_order: dict[str, int],
 ) -> bool:
     try:
@@ -607,10 +621,12 @@ def _goods_return_api_row_matches_source(
         nm_id = int(row.get("nmId") or 0) or None
     except (TypeError, ValueError):
         nm_id = None
+    barcode = str(row.get("barcode") or "").strip()
     return _goods_return_row_matches_source(
         order_id=order_id,
         srid=srid,
         nm_id=nm_id,
+        barcode=barcode,
         matchers=matchers,
         srid_to_order=srid_to_order,
     )
@@ -619,7 +635,7 @@ def _goods_return_api_row_matches_source(
 def _stored_goods_return_matches_source(
     row: dict[str, Any],
     *,
-    matchers: dict[str, set[int]],
+    matchers: dict[str, set[int] | set[str]],
     srid_to_order: dict[str, int],
 ) -> bool:
     try:
@@ -632,10 +648,12 @@ def _stored_goods_return_matches_source(
         nm_id = int(nm_raw) if nm_raw not in (None, "") else None
     except (TypeError, ValueError):
         nm_id = None
+    barcode = str(row.get("barcode") or "").strip()
     return _goods_return_row_matches_source(
         order_id=order_id,
         srid=srid,
         nm_id=nm_id,
+        barcode=barcode,
         matchers=matchers,
         srid_to_order=srid_to_order,
     )
@@ -714,6 +732,7 @@ def sync_goods_returns(
     api_key: str,
     date_from: str,
     date_to: str,
+    marketplace_api_key: str | None = None,
 ) -> dict[str, Any]:
     """Sync WB goods-return report for one FBS source.
 
@@ -748,6 +767,25 @@ def sync_goods_returns(
                 and str(row.get("srid") or "").strip() not in srid_to_order
             }
         )
+        if pending_srids and str(marketplace_api_key or "").strip():
+            try:
+                wb.hydrate_orders_for_kiz_srids(
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    srids=pending_srids,
+                    api_key=str(marketplace_api_key).strip(),
+                    archive_pages=20,
+                    lookback_days=max(
+                        30,
+                        min(GOODS_RETURN_DEFAULT_TOTAL_DAYS, 90),
+                    ),
+                )
+                matchers = _load_source_goods_return_matchers(
+                    repo, user_id=user_id, source_id=source_id
+                )
+            except Exception as exc:
+                _log.warning("returns hydrate before sync failed: %s", exc)
         if pending_srids:
             srid_to_order.update(
                 wb.order_ids_by_srids(
@@ -816,6 +854,22 @@ def sync_goods_returns(
         srid_to_order=srid_to_order,
     )
     synced = totals["inserted"] + totals["updated"]
+    warning = ""
+    if (
+        synced == 0
+        and totals["fetched"] > 0
+        and not matchers.get("order_ids")
+        and not matchers.get("nm_ids")
+    ):
+        warning = (
+            "Для этого источника нет заказов в базе FeedPilot — "
+            "сначала синхронизируйте ВБ ФБС, затем повторите «Синхр. WB»"
+        )
+    elif synced == 0 and totals["skipped_foreign"] > 0:
+        warning = (
+            "Все строки отчёта WB не сопоставились с заказами этого источника. "
+            "Проверьте, что выбран нужный источник и заказы синхронизированы."
+        )
     return {
         "ok": True,
         "synced": synced,
@@ -825,6 +879,7 @@ def sync_goods_returns(
         "fetched": totals["fetched"],
         "skipped_foreign": totals["skipped_foreign"],
         "purged_foreign": totals["purged_foreign"],
+        "warning": warning,
         "windows": window_stats,
         "date_from": overall_from,
         "date_to": overall_to,

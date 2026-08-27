@@ -11100,6 +11100,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 api_key=api_key,
                 date_from=date_from,
                 date_to=date_to,
+                marketplace_api_key=str(src_full.get("api_key") or "").strip() or None,
             )
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

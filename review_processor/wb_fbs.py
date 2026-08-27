@@ -2267,6 +2267,37 @@ def order_ids_by_srids(
                     cf = candidate.casefold()
                     for orig in fold_to_origs.get(cf, []):
                         _assign(orig, oid)
+
+        # Analytics goods-return often sends 32-char hex srid = orderUid without leading "r".
+        missing = [k for k in raw_keys if k not in out]
+        hex_keys = sorted({k.casefold() for k in missing if k and "." not in k})
+        if hex_keys:
+            ph = ", ".join("?" for _ in hex_keys)
+            rows4 = conn.execute(
+                repo._sql(
+                    f"""
+                    SELECT order_id, order_uid
+                    FROM wb_fbs_orders
+                    WHERE user_id = ? AND source_id = ?
+                      AND order_uid IS NOT NULL AND LENGTH(order_uid) > 1
+                      AND LOWER(SUBSTRING(order_uid FROM 2)) IN ({ph})
+                    """
+                ),
+                (user_id, source_id, *hex_keys),
+            ).fetchall()
+            for r in rows4:
+                d = repo._row_to_dict(r)
+                try:
+                    oid = int(d.get("order_id") or 0)
+                except (TypeError, ValueError):
+                    oid = 0
+                if oid <= 0:
+                    continue
+                uid = str(d.get("order_uid") or "").strip()
+                uid_tail = uid[1:].casefold() if len(uid) > 1 else ""
+                if uid_tail:
+                    for orig in fold_to_origs.get(uid_tail, []):
+                        _assign(orig, oid)
     return out
 
 def refresh_order_statuses_light(
