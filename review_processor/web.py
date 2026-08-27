@@ -13087,16 +13087,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         items = body.get("items") if isinstance(body, dict) else None
         if not isinstance(items, list):
             raise HTTPException(status_code=400, detail="Укажите items[]")
-        supply = oz_sup.get_supply(
-            repository, user_id=owner_id, source_id=int(source_id), supply_id=sid
-        )
-        if not supply:
+        try:
+            allowed = oz_pick.allowed_pick_verify_posting_numbers(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                supply_id=sid,
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if not allowed:
             raise HTTPException(status_code=404, detail="Поставка не найдена")
-        allowed = {
-            str(x).strip()
-            for x in (supply.get("posting_numbers") or [])
-            if str(x).strip()
-        }
         try:
             return oz_pick.save_pick_verify(
                 repository,

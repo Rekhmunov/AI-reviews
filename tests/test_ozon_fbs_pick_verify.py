@@ -37,8 +37,8 @@ def test_build_pick_verify_payload_plain_only() -> None:
     }
     with (
         patch(
-            "review_processor.ozon_fbs_pick_verify.oz_sup.get_supply_detail",
-            return_value=detail,
+            "review_processor.ozon_fbs_pick_verify._supply_detail_for_pick_verify",
+            return_value=(detail, ""),
         ),
         patch(
             "review_processor.ozon_fbs_pick_verify.load_posting_pick_map",
@@ -133,3 +133,65 @@ def test_update_posting_pick_verify_conflict() -> None:
             expected_verified_at="2026-01-02T00:00:00+00:00",
         )
     assert res["conflict"] is True
+
+
+def test_pick_verify_refresh_plain_only_capped() -> None:
+    from review_processor.ozon_fbs_pick_verify import (
+        PICK_VERIFY_OZON_REFRESH_MAX,
+        _supply_detail_for_pick_verify,
+    )
+
+    orders = [
+        {
+            "posting_number": f"P-{i}",
+            "kiz_required": False,
+            "cancelled": False,
+        }
+        for i in range(PICK_VERIFY_OZON_REFRESH_MAX + 3)
+    ] + [{"posting_number": "K-1", "kiz_required": True, "cancelled": False}]
+    detail = {"supply_id": "OZ-1", "orders": orders}
+    with (
+        patch(
+            "review_processor.ozon_fbs_pick_verify.oz_sup.get_supply_detail",
+            return_value=detail,
+        ) as get_detail,
+        patch(
+            "review_processor.ozon_fbs_pick_verify.oz_sup.refresh_supply_postings_from_ozon"
+        ) as refresh,
+    ):
+        out, note = _supply_detail_for_pick_verify(
+            MagicMock(),
+            user_id=1,
+            source_id=2,
+            supply_id="OZ-1",
+            client_id="cid",
+            api_key="key",
+            refresh_from_ozon=True,
+        )
+    assert out["supply_id"] == "OZ-1"
+    refreshed = refresh.call_args.kwargs.get("posting_numbers") or []
+    assert len(refreshed) == PICK_VERIFY_OZON_REFRESH_MAX
+    assert "K-1" not in refreshed
+    assert "Синхронизировать" in note
+    assert all(not c.kwargs.get("refresh_from_ozon") for c in get_detail.call_args_list)
+
+
+def test_allowed_pick_verify_posting_numbers_plain_only() -> None:
+    from review_processor.ozon_fbs_pick_verify import allowed_pick_verify_posting_numbers
+
+    detail = {
+        "supply_id": "OZ-1",
+        "orders": [
+            {"posting_number": "P-1", "kiz_required": False},
+            {"posting_number": "P-2", "kiz_required": True},
+            {"posting_number": "P-3", "kiz_required": False, "cancelled": True},
+        ],
+    }
+    with patch(
+        "review_processor.ozon_fbs_pick_verify._supply_detail_for_pick_verify",
+        return_value=(detail, ""),
+    ):
+        allowed = allowed_pick_verify_posting_numbers(
+            MagicMock(), user_id=1, source_id=2, supply_id="OZ-1"
+        )
+    assert allowed == {"P-1", "P-3"}

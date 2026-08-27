@@ -15,6 +15,105 @@ from .repository import ReviewRepository
 
 _log = logging.getLogger(__name__)
 
+# Live Ozon get_posting — cap manual refresh (no ↻ button in UI; guard API ?refresh=1).
+PICK_VERIFY_OZON_REFRESH_MAX = 40
+
+
+def _posting_numbers_for_pick_verify_refresh(
+    orders: list[dict[str, Any]],
+) -> list[str]:
+    """Non-cancelled postings without КИЗ — candidates for live Ozon refresh."""
+    out: list[str] = []
+    for o in orders:
+        if not isinstance(o, dict) or oz.posting_row_is_cancelled(o):
+            continue
+        if o.get("kiz_required"):
+            continue
+        pn = str(o.get("posting_number") or "").strip()
+        if pn:
+            out.append(pn)
+    return out
+
+
+def _supply_detail_for_pick_verify(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    client_id: str | None = None,
+    api_key: str | None = None,
+    refresh_from_ozon: bool = False,
+) -> tuple[dict[str, Any], str]:
+    """Load supply detail for pick-verify; optional capped live Ozon refresh."""
+    detail = oz_sup.get_supply_detail(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=supply_id,
+        client_id=client_id,
+        api_key=api_key,
+        refresh_from_ozon=False,
+    )
+    note = ""
+    if not refresh_from_ozon:
+        return detail, note
+    cid = str(client_id or "").strip()
+    key = str(api_key or "").strip()
+    if not cid or not key:
+        return detail, note
+    orders = [o for o in (detail.get("orders") or []) if isinstance(o, dict)]
+    pns = _posting_numbers_for_pick_verify_refresh(orders)
+    if len(pns) > PICK_VERIFY_OZON_REFRESH_MAX:
+        pns = pns[:PICK_VERIFY_OZON_REFRESH_MAX]
+        note = (
+            f"Обновлены первые {PICK_VERIFY_OZON_REFRESH_MAX} отправлений без маркировки. "
+            "Для полной синхронизации нажмите «Синхронизировать» на вкладке Ozon FBS."
+        )
+    if pns:
+        oz_sup.refresh_supply_postings_from_ozon(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            posting_numbers=pns,
+            client_id=cid,
+            api_key=key,
+        )
+        detail = oz_sup.get_supply_detail(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=supply_id,
+            client_id=client_id,
+            api_key=api_key,
+            refresh_from_ozon=False,
+        )
+    return detail, note
+
+
+def allowed_pick_verify_posting_numbers(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+) -> set[str]:
+    """Plain (non-КИЗ) posting numbers in a supply — assembly/local truth."""
+    detail, _ = _supply_detail_for_pick_verify(
+        repo,
+        user_id=user_id,
+        source_id=int(source_id),
+        supply_id=str(supply_id),
+        refresh_from_ozon=False,
+    )
+    return {
+        str(o.get("posting_number") or "").strip()
+        for o in (detail.get("orders") or [])
+        if isinstance(o, dict)
+        and not o.get("kiz_required")
+        and str(o.get("posting_number") or "").strip()
+    }
+
 
 def load_posting_pick_map(
     repo: ReviewRepository,
@@ -196,7 +295,7 @@ def build_pick_verify_payload(
     refresh_from_ozon: bool = False,
 ) -> dict[str, Any]:
     """Rows for «Проверка ШК»: postings without Chestny ZNAK marking."""
-    detail = oz_sup.get_supply_detail(
+    detail, refresh_note = _supply_detail_for_pick_verify(
         repo,
         user_id=user_id,
         source_id=source_id,
@@ -260,6 +359,7 @@ def build_pick_verify_payload(
         "source_id": source_id,
         "rows": rows,
         "plain_count": len(rows),
+        "refresh_note": refresh_note,
     }
 
 
