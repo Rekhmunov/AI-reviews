@@ -71,7 +71,7 @@ def _supply_detail_for_pick_verify(
             "Для полной синхронизации нажмите «Синхронизировать» на вкладке Ozon FBS."
         )
     if pns:
-        oz_sup.refresh_supply_postings_from_ozon(
+        oz_sup.refresh_supply_marking_flags_from_ozon(
             repo,
             user_id=user_id,
             source_id=source_id,

@@ -55,6 +55,14 @@ SYNC_STATUSES = [
     "cancelled",
 ]
 
+# Tabs where marking flags must be resolved via mandatory-mark/is-required when list omits them.
+MARKING_ENRICH_SYNC_STATUSES = frozenset(
+    {
+        "awaiting_packaging",
+        "awaiting_deliver",
+    }
+)
+
 DEFAULT_LOOKBACK_DAYS = 30
 
 _ozon_fbs_sync_lock = threading.Lock()
@@ -961,9 +969,18 @@ def _merge_products_requiring_mandatory_mark(
     return out
 
 
+def posting_marking_flags_known(posting: dict[str, Any]) -> bool:
+    """True when list/get payload already indicates КИЗ requirement."""
+    if not isinstance(posting, dict):
+        return False
+    return _mandatory_mark(posting, _products_from_posting(posting))
+
+
 def enrich_posting_marking_flags(
     client: OzonFbsClient,
     posting: dict[str, Any],
+    *,
+    allow_exemplar_fallback: bool = True,
 ) -> dict[str, Any]:
     """Augment posting with marking requirements when get/list omit them."""
     if not isinstance(posting, dict):
@@ -1015,7 +1032,7 @@ def enrich_posting_marking_flags(
         pass
     if required_ids:
         return _merge_products_requiring_mandatory_mark(posting, required_ids)
-    if is_required_checked:
+    if is_required_checked or not allow_exemplar_fallback:
         return posting
 
     if not payload_products:
@@ -1037,6 +1054,16 @@ def enrich_posting_marking_flags(
                 if text:
                     required_ids.add(text)
     return _merge_products_requiring_mandatory_mark(posting, required_ids)
+
+
+def enrich_posting_marking_flags_light(
+    client: OzonFbsClient,
+    posting: dict[str, Any],
+) -> dict[str, Any]:
+    """Resolve КИЗ flags via mandatory-mark/is-required only (safe for bulk sync)."""
+    return enrich_posting_marking_flags(
+        client, posting, allow_exemplar_fallback=False
+    )
 
 
 def posting_requires_marking(row: dict[str, Any]) -> bool:
@@ -1141,8 +1168,6 @@ def _mandatory_mark(posting: dict[str, Any], products: list[dict[str, Any]]) -> 
             return True
     required_skus = _mandatory_mark_sku_ids(posting)
     for p in products:
-        if bool(p.get("is_marketplace_buyout")):
-            continue
         if _product_has_mandatory_mark_flag(p):
             return True
         sku = p.get("sku") or p.get("product_id")
@@ -1567,14 +1592,30 @@ def sync_ozon_fbs_source(
                 break
             if not postings:
                 break
+            enrich_n = 0
             for posting in postings:
                 pn = str(posting.get("posting_number") or "").strip()
                 if not pn:
                     continue
-                upsert_posting(repo, user_id=user_id, source_id=source_id, posting=posting)
+                to_save = posting
+                if (
+                    status in MARKING_ENRICH_SYNC_STATUSES
+                    and not posting_marking_flags_known(posting)
+                ):
+                    try:
+                        to_save = enrich_posting_marking_flags_light(client, posting)
+                        enrich_n += 1
+                    except Exception as exc:
+                        _log.warning("ozon_fbs marking enrich %s: %s", pn, exc)
+                upsert_posting(
+                    repo, user_id=user_id, source_id=source_id, posting=to_save
+                )
                 seen.add(pn)
             pages += 1
-            _prog(f"{label}… стр. {pages}")
+            if enrich_n:
+                _prog(f"{label}… стр. {pages}, маркировка {enrich_n}")
+            else:
+                _prog(f"{label}… стр. {pages}")
             if not has_next:
                 break
             offset += len(postings)

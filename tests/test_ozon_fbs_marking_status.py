@@ -166,7 +166,7 @@ def test_marking_refresh_uses_capped_live_ozon_not_full_supply() -> None:
             return_value=detail,
         ) as get_detail,
         patch(
-            "review_processor.ozon_fbs_marking.oz_sup.refresh_supply_postings_from_ozon"
+            "review_processor.ozon_fbs_marking.oz_sup.refresh_supply_marking_flags_from_ozon"
         ) as refresh,
     ):
         out, note = _supply_detail_for_marking(

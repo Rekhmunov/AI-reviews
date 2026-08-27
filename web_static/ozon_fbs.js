@@ -1240,16 +1240,18 @@
     }
     const allOrders = Array.isArray(supply.orders) ? supply.orders : [];
     const kizSplit = document.getElementById("ozonFbsKizSplit");
+    const kizBtn = document.getElementById("ozonFbsSupplyDetailKizBtn");
+    const kizRefreshBtn = document.getElementById("ozonFbsSupplyDetailKizRefreshBtn");
     if (!readOnly) {
-      if (kizSplit) {
-        const needsKiz = allOrders.some((o) => o && o.kiz_required);
-        kizSplit.hidden = !needsKiz;
-        if (!needsKiz) _ozonFbsKizSplitSetTone("");
-        else _ozonFbsKizSplitSetTone(_ozonFbsKizToneFromSupply(supply));
-      }
+      const needsKiz = allOrders.some((o) => o && o.kiz_required);
+      if (kizSplit) kizSplit.hidden = !allOrders.length;
+      if (kizBtn) kizBtn.hidden = !needsKiz;
+      if (kizRefreshBtn) kizRefreshBtn.hidden = !allOrders.length;
+      if (!needsKiz) _ozonFbsKizSplitSetTone("");
+      else _ozonFbsKizSplitSetTone(_ozonFbsKizToneFromSupply(supply));
       _ozonFbsSyncPickVerifyBtn(allOrders);
-    } else if (kizSplit) {
-      kizSplit.hidden = true;
+    } else {
+      if (kizSplit) kizSplit.hidden = true;
     }
     const searchQ = String(document.getElementById("ozonFbsSupplyDetailSearchFilter")?.value || "").trim().toLowerCase();
     const orders = searchQ
@@ -1369,6 +1371,12 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(detailText(data.detail) || "Не найдено");
       renderSupplyDetail(data);
+      const enrichNote = String(data.marking_enrich_note || "").trim();
+      const info = document.getElementById("ozonFbsSupplyDetailInfo");
+      if (info && enrichNote) {
+        info.hidden = false;
+        info.textContent = enrichNote;
+      }
       _ozonFbsSupplyDetailSetActionsReady(true);
     } catch (e) {
       _ozonFbsSupplyDetailSetActionsReady(false);

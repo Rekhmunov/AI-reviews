@@ -156,7 +156,7 @@ def test_pick_verify_refresh_plain_only_capped() -> None:
             return_value=detail,
         ) as get_detail,
         patch(
-            "review_processor.ozon_fbs_pick_verify.oz_sup.refresh_supply_postings_from_ozon"
+            "review_processor.ozon_fbs_pick_verify.oz_sup.refresh_supply_marking_flags_from_ozon"
         ) as refresh,
     ):
         out, note = _supply_detail_for_pick_verify(

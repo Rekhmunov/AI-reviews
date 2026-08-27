@@ -104,6 +104,19 @@ def test_enrich_posting_marking_marketplace_buyout_checks_is_required() -> None:
     )
 
 
+def test_enrich_posting_marking_light_skips_exemplar_fallback() -> None:
+    posting = {
+        "posting_number": "38972162-0286-1",
+        "products": [{"sku": 3722013683, "quantity": 1, "offer_id": "ART"}],
+    }
+    client = MagicMock()
+    client.mandatory_mark_is_required.side_effect = RuntimeError("403")
+    out = oz.enrich_posting_marking_flags_light(client, posting)
+    client.product_exemplar_create_or_get.assert_not_called()
+    client.product_exemplar_create_or_get_v5.assert_not_called()
+    assert out is posting
+
+
 def test_enrich_posting_marking_from_exemplar_fallback() -> None:
     posting = {
         "posting_number": "38972162-0286-1",
