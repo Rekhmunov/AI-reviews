@@ -2036,16 +2036,26 @@ def refresh_supply_marking_flags_from_ozon(
     api_key: str,
     max_postings: int | None = OZON_FBS_LIVE_CHECK_CHUNK,
 ) -> dict[str, int]:
-    """Apply catalog «Требует КИЗ» flags to postings (no Ozon is-required calls).
+    """Apply catalog «Требует КИЗ» to the given postings (one supply, one pass).
 
-    ``client_id`` / ``api_key`` are kept for call-site compatibility; unused.
+    ``client_id`` / ``api_key`` / ``max_postings`` kept for call-site compatibility.
+    Catalog lookup is local — no Ozon API and no multi-round chunking (chunking
+    re-scanned the same head of the list and inflated FE «проверено» counters).
     """
-    del client_id, api_key  # catalog is the source of truth for Ozon FBS Marking
+    del client_id, api_key, max_postings
     nums = [str(x).strip() for x in posting_numbers if str(x).strip()]
     if not nums:
         return _empty_marking_resolve()
+    # De-dupe, keep order — only the caller's list (current supply), nothing else.
+    seen: set[str] = set()
+    unique_nums: list[str] = []
+    for pn in nums:
+        if pn in seen:
+            continue
+        seen.add(pn)
+        unique_nums.append(pn)
     requires_kiz_map = repo.get_product_requires_kiz_map(user_id=user_id)
-    placeholders = ", ".join("?" for _ in nums)
+    placeholders = ", ".join("?" for _ in unique_nums)
     with repo._connect() as conn:
         rows = conn.execute(
             repo._sql(
@@ -2055,14 +2065,14 @@ def refresh_supply_marking_flags_from_ozon(
                   AND posting_number IN ({placeholders})
                 """
             ),
-            (user_id, source_id, *nums),
+            (user_id, source_id, *unique_nums),
         ).fetchall()
     by_pn = {
         str(repo._row_to_dict(row).get("posting_number") or "").strip(): repo._row_to_dict(row)
         for row in rows
     }
     pending: list[tuple[str, dict[str, Any]]] = []
-    for pn in nums:
+    for pn in unique_nums:
         row = by_pn.get(pn)
         if not row:
             continue
@@ -2071,19 +2081,16 @@ def refresh_supply_marking_flags_from_ozon(
             continue
         pending.append((pn, posting))
     total_pending = len(pending)
-    chunk_limit = _clamp_live_check_chunk(max_postings)
-    chunk = pending[:chunk_limit]
-    remaining = max(0, total_pending - len(chunk))
-    if not chunk:
+    if not pending:
         return {
             "updated": 0,
             "checked": 0,
             "remaining": 0,
-            "total_pending": total_pending,
+            "total_pending": 0,
         }
 
     updated = 0
-    for pn, posting in chunk:
+    for pn, posting in pending:
         enriched = oz.apply_catalog_marking_flags(posting, requires_kiz_map)
         try:
             oz.upsert_posting(
@@ -2097,8 +2104,8 @@ def refresh_supply_marking_flags_from_ozon(
             _log.warning("ozon supply marking catalog persist %s: %s", pn, exc)
     return {
         "updated": updated,
-        "checked": len(chunk),
-        "remaining": remaining,
+        "checked": total_pending,
+        "remaining": 0,
         "total_pending": total_pending,
     }
 

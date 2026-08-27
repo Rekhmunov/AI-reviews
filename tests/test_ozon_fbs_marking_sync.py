@@ -95,7 +95,8 @@ def test_refresh_supply_marking_flags_uses_catalog_requires_kiz() -> None:
     assert req.get("marking_is_required_checked") is True
 
 
-def test_refresh_supply_marking_flags_chunks_and_reports_remaining() -> None:
+def test_refresh_supply_marking_flags_processes_whole_supply_once() -> None:
+    """Catalog apply is one pass for the given posting list (current supply only)."""
     repo = MagicMock()
     conn = MagicMock()
     repo._connect.return_value.__enter__ = MagicMock(return_value=conn)
@@ -118,7 +119,7 @@ def test_refresh_supply_marking_flags_chunks_and_reports_remaining() -> None:
         )
     conn.execute.return_value.fetchall.return_value = rows
 
-    with patch("review_processor.ozon_fbs_supplies.oz.upsert_posting"):
+    with patch("review_processor.ozon_fbs_supplies.oz.upsert_posting") as upsert:
         result = refresh_supply_marking_flags_from_ozon(
             repo,
             user_id=1,
@@ -129,10 +130,11 @@ def test_refresh_supply_marking_flags_chunks_and_reports_remaining() -> None:
             max_postings=2,
         )
 
-    assert result["checked"] == 2
-    assert result["remaining"] == 3
+    assert result["checked"] == 5
+    assert result["remaining"] == 0
     assert result["total_pending"] == 5
-    assert result["updated"] == 2
+    assert result["updated"] == 5
+    assert upsert.call_count == 5
 
 
 def test_refresh_supply_marking_flags_clears_when_catalog_off() -> None:
