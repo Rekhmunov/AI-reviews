@@ -47,7 +47,22 @@
     sourceId: null,
     supply: null,
     selected: new Set(),
+    /** False until supply detail (orders) finished loading. */
+    ordersReady: false,
   };
+
+  const _OZON_FBS_DETAIL_ACTION_IDS = [
+    "ozonFbsSupplyDetailPickingBtn",
+    "ozonFbsSupplyDetailPickingMenuBtn",
+    "ozonFbsSupplyDetailStickersBtn",
+    "ozonFbsSupplyDetailStickersMenuBtn",
+    "ozonFbsSupplyDetailKizBtn",
+    "ozonFbsSupplyDetailKizRefreshBtn",
+    "ozonFbsSupplyDetailPickVerifyBtn",
+    "ozonFbsSupplyDetailTrbxBtn",
+    "ozonFbsSupplyDetailCancelledBtn",
+    "ozonFbsSupplyDetailShipmentsBtn",
+  ];
 
   const ozonFbsCancelledState = {
     rows: [],
@@ -987,10 +1002,48 @@
     supplyDetailState.sourceId = null;
     supplyDetailState.supply = null;
     supplyDetailState.selected = new Set();
+    _ozonFbsSupplyDetailSetActionsReady(false);
   }
 
   function supplyDetailReady() {
     return Boolean(supplyDetailState.supplyId && supplyDetailState.sourceId);
+  }
+
+  /**
+   * Disable supply-detail action buttons until orders are loaded.
+   * Uses aria-disabled (not native disabled) so the hover tooltip still works.
+   */
+  function _ozonFbsSupplyDetailSetActionsReady(ready) {
+    supplyDetailState.ordersReady = !!ready;
+    const tip = "Дождитесь загрузки заказов";
+    _OZON_FBS_DETAIL_ACTION_IDS.forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (!ready) {
+        if (el.dataset.waitTitleSaved === undefined) {
+          el.dataset.waitTitleSaved = el.getAttribute("title") || "";
+        }
+        el.setAttribute("aria-disabled", "true");
+        el.classList.add("is-wait-orders");
+        el.setAttribute("title", tip);
+        el.tabIndex = -1;
+      } else {
+        el.removeAttribute("aria-disabled");
+        el.classList.remove("is-wait-orders");
+        el.removeAttribute("tabindex");
+        const saved = el.dataset.waitTitleSaved;
+        if (saved !== undefined) {
+          if (saved) el.setAttribute("title", saved);
+          else el.removeAttribute("title");
+          delete el.dataset.waitTitleSaved;
+        }
+      }
+    });
+    if (!ready) {
+      closePickingMenu();
+      closeStickersMenu();
+    }
+    _ozonFbsSyncPickVerifyBtn(supplyDetailState.supply?.orders || []);
   }
 
   function onSupplyDetailCheckboxChange() {
@@ -1135,7 +1188,7 @@
       return;
     }
     // Same HTML print flow as the supply «Стикеры» button (reliable in browsers).
-    if (supplyDetailReady()) {
+    if (supplyDetailReady() && _ozonFbsSupplyActionsReady()) {
       openStickersPrint([pn]);
       return;
     }
@@ -1291,6 +1344,7 @@
     supplyDetailState.supplyId = sid;
     supplyDetailState.sourceId = state.sourceId;
     supplyDetailState.selected = new Set();
+    _ozonFbsSupplyDetailSetActionsReady(false);
     _ozonFbsKizSplitSetTone("");
     const kizSplitOpen = document.getElementById("ozonFbsKizSplit");
     if (kizSplitOpen) kizSplitOpen.hidden = true;
@@ -1313,7 +1367,9 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(detailText(data.detail) || "Не найдено");
       renderSupplyDetail(data);
+      _ozonFbsSupplyDetailSetActionsReady(true);
     } catch (e) {
+      _ozonFbsSupplyDetailSetActionsReady(false);
       if (title) title.textContent = "Ошибка";
       if (tbody) {
         tbody.innerHTML = `<tr><td colspan="${detailColspan}" class="wb-fbs-empty" style="color:#b91c1c">${esc(e.message)}</td></tr>`;
@@ -1454,7 +1510,7 @@
   function openOzonFbsCancelledOrdersModal() {
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
-    if (!sid || !sourceId) return;
+    if (!sid || !sourceId || !_ozonFbsSupplyActionsReady()) return;
     if (typeof setModalVisibility === "function") {
       setModalVisibility("ozonFbsCancelledOrdersModal", true);
     } else {
@@ -1534,7 +1590,7 @@
       event.preventDefault();
       event.stopPropagation();
     }
-    if (!supplyDetailReady()) return;
+    if (!_ozonFbsSupplyActionsReady()) return;
     closeStickersMenu();
     const menu = document.getElementById("ozonFbsPickingMenu");
     const caret = document.getElementById("ozonFbsSupplyDetailPickingMenuBtn");
@@ -1548,7 +1604,7 @@
   function openPickingList() {
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
-    if (!sid || !sourceId || !supplyDetailReady()) return;
+    if (!sid || !sourceId || !_ozonFbsSupplyActionsReady()) return;
     closePickingMenu();
     const btn = document.getElementById("ozonFbsSupplyDetailPickingBtn");
     const caret = document.getElementById("ozonFbsSupplyDetailPickingMenuBtn");
@@ -1560,7 +1616,7 @@
     openPrintHtml(url, "Разрешите всплывающие окна для листа подбора")
       .catch((e) => alert(String(e.message || e)))
       .finally(() => {
-        if (!supplyDetailReady()) return;
+        if (!_ozonFbsSupplyActionsReady()) return;
         if (btn) btn.disabled = false;
         if (caret) caret.disabled = false;
       });
@@ -1578,7 +1634,7 @@
       event.preventDefault();
       event.stopPropagation();
     }
-    if (!supplyDetailReady()) return;
+    if (!_ozonFbsSupplyActionsReady()) return;
     closePickingMenu();
     const menu = document.getElementById("ozonFbsStickersMenu");
     const caret = document.getElementById("ozonFbsSupplyDetailStickersMenuBtn");
@@ -1591,7 +1647,7 @@
   function openStickersPrint(postingNumbers) {
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
-    if (!sid || !sourceId || !supplyDetailReady()) return;
+    if (!sid || !sourceId || !_ozonFbsSupplyActionsReady()) return;
     closeStickersMenu();
     const btn = document.getElementById("ozonFbsSupplyDetailStickersBtn");
     const caret = document.getElementById("ozonFbsSupplyDetailStickersMenuBtn");
@@ -1607,7 +1663,7 @@
     openPrintHtml(url, "Разрешите всплывающие окна для стикеров")
       .catch((e) => alert(String(e.message || e)))
       .finally(() => {
-        if (!supplyDetailReady()) return;
+        if (!_ozonFbsSupplyActionsReady()) return;
         if (btn) btn.disabled = false;
         if (caret) caret.disabled = false;
       });
@@ -2682,7 +2738,7 @@
   async function openShipmentsModal() {
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
-    if (!sid || !sourceId) {
+    if (!sid || !sourceId || !_ozonFbsSupplyActionsReady()) {
       alert("Откройте поставку");
       return;
     }
@@ -3088,7 +3144,7 @@
   }
 
   function _ozonFbsSupplyActionsReady() {
-    return !!(supplyDetailState.supplyId && (supplyDetailState.sourceId || state.sourceId));
+    return !!supplyDetailState.ordersReady;
   }
 
   function _ozonFbsSyncPickVerifyBtn(orders) {
