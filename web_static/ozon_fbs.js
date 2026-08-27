@@ -969,6 +969,8 @@
     showSyncInfo("Сборка отправлений и создание поставок…");
     try {
       const data = await executeCollect(decisions, sourceId);
+      collectState.busy = false;
+      state.shipAllBusy = false;
       closeCollectModal();
       showCollectResult(data);
       showSyncInfo(data.message || "Готово");
