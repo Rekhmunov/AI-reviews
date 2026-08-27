@@ -541,6 +541,79 @@ class ExportCsvTests(unittest.TestCase):
         self.assertIn("order_dt", sql)
 
 
+class GoodsReturnRateLimitTests(unittest.TestCase):
+    def setUp(self):
+        returns._goods_return_token_locks.clear()
+        returns._goods_return_token_last_request.clear()
+
+    def test_analytics_token_key_prefers_uid(self):
+        token = _fake_wb_jwt(uid=42)
+        self.assertEqual(returns._analytics_token_key(token), "uid:42")
+
+    def test_analytics_token_key_hash_fallback(self):
+        key = returns._analytics_token_key("not-a-jwt-token")
+        self.assertTrue(key.startswith("hash:"))
+
+    def test_parse_wb_retry_seconds_plain(self):
+        self.assertEqual(returns._parse_wb_retry_seconds("540"), 540)
+
+    def test_parse_wb_retry_seconds_unix_timestamp(self):
+        future = int(__import__("time").time()) + 120
+        parsed = returns._parse_wb_retry_seconds(str(future))
+        self.assertGreaterEqual(parsed, 110)
+        self.assertLessEqual(parsed, 130)
+
+    def test_format_goods_return_http_error_429_has_retry_seconds(self):
+        err = returns.format_wb_goods_return_http_error(
+            code=429,
+            body='{"status":429}',
+            retry_after="900",
+        )
+        self.assertIsInstance(err, returns.GoodsReturnHttpError)
+        self.assertEqual(err.code, 429)
+        self.assertEqual(err.retry_seconds, 900)
+
+    @patch("review_processor.wb_fbs_returns.time.sleep")
+    @patch("review_processor.wb_fbs_returns.fetch_goods_return_report")
+    def test_fetch_goods_return_report_rated_retries_on_429(self, fetch_report, sleep_mock):
+        token = _fake_wb_jwt(uid=7)
+        err429 = returns.GoodsReturnHttpError(
+            "Лимит WB на отчёт по возвратам",
+            code=429,
+            retry_after="3",
+            retry_seconds=3,
+        )
+        fetch_report.side_effect = [err429, [{"orderId": 1, "srid": "s1"}]]
+        rows = returns.fetch_goods_return_report_rated(
+            api_key=token,
+            date_from="2026-08-01",
+            date_to="2026-08-10",
+            source_id=19,
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(fetch_report.call_count, 2)
+        sleep_mock.assert_called()
+        wait_arg = sleep_mock.call_args[0][0]
+        self.assertGreaterEqual(wait_arg, 5)
+
+    @patch("review_processor.wb_fbs_returns.time.sleep")
+    @patch("review_processor.wb_fbs_returns.fetch_goods_return_report")
+    def test_fetch_goods_return_report_rated_enforces_token_cooldown(self, fetch_report, sleep_mock):
+        token = _fake_wb_jwt(uid=99)
+        fetch_report.return_value = []
+        returns._goods_return_token_last_request["uid:99"] = __import__("time").monotonic()
+        returns.fetch_goods_return_report_rated(
+            api_key=token,
+            date_from="2026-08-01",
+            date_to="2026-08-02",
+            source_id=1,
+        )
+        sleep_mock.assert_called()
+        wait_arg = sleep_mock.call_args[0][0]
+        self.assertGreater(wait_arg, 0)
+        self.assertLessEqual(wait_arg, returns.GOODS_RETURN_REQUEST_INTERVAL_SEC)
+
+
 class GoodsReturnSourceFilterTests(unittest.TestCase):
     def test_goods_return_row_matches_source_by_order_id(self):
         matchers = {"order_ids": {9001}, "nm_ids": {100}}
@@ -700,7 +773,7 @@ class GoodsReturnSourceFilterTests(unittest.TestCase):
         )
 
     @patch("review_processor.wb_fbs_returns._purge_foreign_goods_returns_in_range", return_value=0)
-    @patch("review_processor.wb_fbs_returns.fetch_goods_return_report")
+    @patch("review_processor.wb_fbs_returns.fetch_goods_return_report_rated")
     @patch("review_processor.wb_fbs_returns.ensure_wb_fbs_returns_tables")
     @patch("review_processor.wb_fbs_returns._load_source_goods_return_matchers")
     def test_sync_goods_returns_trusted_source_stores_unmatched_rows(
@@ -741,7 +814,7 @@ class GoodsReturnSourceFilterTests(unittest.TestCase):
         self.assertEqual(upsert.call_count, 1)
 
     @patch("review_processor.wb_fbs_returns._purge_foreign_goods_returns_in_range", return_value=0)
-    @patch("review_processor.wb_fbs_returns.fetch_goods_return_report")
+    @patch("review_processor.wb_fbs_returns.fetch_goods_return_report_rated")
     @patch("review_processor.wb_fbs_returns.ensure_wb_fbs_returns_tables")
     @patch("review_processor.wb_fbs_returns._load_source_goods_return_matchers")
     def test_sync_goods_returns_skips_foreign_rows(
@@ -785,7 +858,7 @@ class GoodsReturnSourceFilterTests(unittest.TestCase):
         self.assertEqual(upsert.call_args.kwargs["order_id"], 9001)
 
     @patch("review_processor.wb_fbs_returns._purge_foreign_goods_returns_in_range", return_value=0)
-    @patch("review_processor.wb_fbs_returns.fetch_goods_return_report")
+    @patch("review_processor.wb_fbs_returns.fetch_goods_return_report_rated")
     @patch("review_processor.wb_fbs_returns.ensure_wb_fbs_returns_tables")
     @patch("review_processor.wb_fbs_returns._load_source_goods_return_matchers")
     def test_sync_goods_returns_warning_when_settings_key_mismatch(
