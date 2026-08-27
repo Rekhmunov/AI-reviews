@@ -95,8 +95,8 @@ def test_refresh_supply_marking_flags_uses_catalog_requires_kiz() -> None:
     assert req.get("marking_is_required_checked") is True
 
 
-def test_refresh_supply_marking_flags_processes_whole_supply_once() -> None:
-    """Catalog apply is one pass for the given posting list (current supply only)."""
+def test_refresh_supply_marking_flags_chunks_and_advances() -> None:
+    """Chunked upserts advance: already-matching rows are skipped next round."""
     repo = MagicMock()
     conn = MagicMock()
     repo._connect.return_value.__enter__ = MagicMock(return_value=conn)
@@ -130,11 +130,35 @@ def test_refresh_supply_marking_flags_processes_whole_supply_once() -> None:
             max_postings=2,
         )
 
-    assert result["checked"] == 5
-    assert result["remaining"] == 0
+    assert result["checked"] == 2
+    assert result["remaining"] == 3
     assert result["total_pending"] == 5
-    assert result["updated"] == 5
-    assert upsert.call_count == 5
+    assert result["updated"] == 2
+    assert upsert.call_count == 2
+
+    # Simulate DB now holding catalog-applied flags for first two.
+    saved = []
+    for call in upsert.call_args_list:
+        posting = call.kwargs.get("posting") or call.args[2]
+        saved.append(posting)
+    for i, posting in enumerate(saved):
+        rows[i]["raw_json"] = __import__("json").dumps(posting)
+    conn.execute.return_value.fetchall.return_value = rows
+
+    with patch("review_processor.ozon_fbs_supplies.oz.upsert_posting") as upsert2:
+        result2 = refresh_supply_marking_flags_from_ozon(
+            repo,
+            user_id=1,
+            source_id=2,
+            posting_numbers=[f"P-{i}" for i in range(5)],
+            client_id="cid",
+            api_key="key",
+            max_postings=2,
+        )
+    assert result2["checked"] == 2
+    assert result2["remaining"] == 1
+    assert result2["total_pending"] == 3
+    assert upsert2.call_count == 2
 
 
 def test_refresh_supply_marking_flags_clears_when_catalog_off() -> None:
