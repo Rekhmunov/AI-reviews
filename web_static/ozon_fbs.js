@@ -3681,6 +3681,17 @@
     el.textContent = text;
   }
 
+  function _ozonFbsKizMarkPreview(mark) {
+    const raw = _ozonFbsNormalizeMark(mark);
+    if (!raw) return "—";
+    if (raw.length <= 28) return raw;
+    return `${raw.slice(0, 14)}…${raw.slice(-10)}`;
+  }
+
+  function _ozonFbsKizRowExistingCodes(row) {
+    return _ozonFbsKizNormalizeCodesList(row?.kiz_codes);
+  }
+
   async function runOzonFbsKizImport() {
     if (!_ozonFbsKizCanImport()) {
       alert("Импорт маркировки доступен только главному пользователю");
@@ -3705,6 +3716,8 @@
     let okN = 0;
     let skipN = 0;
     const touched = new Set();
+    /** Marks accepted earlier in this same paste — avoid double-add in one run. */
+    const importedMarks = new Set();
 
     try {
       for (let i = 0; i < pairs.length; i += 1) {
@@ -3752,24 +3765,40 @@
           continue;
         }
 
+        const existing = _ozonFbsKizRowExistingCodes(row);
+        // Same sticker + same KIZ already scanned (or already in this paste).
+        if (existing.includes(mark) || importedMarks.has(mark)) {
+          skipN += 1;
+          log.push(
+            `${n}. ${stickerKey} → ${pn} — дубль: стикер и КИЗ уже просканированы ` +
+              `(${_ozonFbsKizMarkPreview(mark)})`
+          );
+          continue;
+        }
+
         const dup = _ozonFbsKizFindExistingMark(mark);
         if (dup) {
           const dupPn = String(dup.posting_number || "").trim();
           skipN += 1;
           log.push(
             dupPn === pn
-              ? `${n}. ${stickerKey} → ${pn} — этот КИЗ уже есть в отправлении`
-              : `${n}. ${stickerKey} → ${pn} — КИЗ уже в отправлении ${dupPn}`
+              ? `${n}. ${stickerKey} → ${pn} — дубль: этот КИЗ уже есть в отправлении (${_ozonFbsKizMarkPreview(mark)})`
+              : `${n}. ${stickerKey} → ${pn} — дубль: КИЗ уже в отправлении ${dupPn} (${_ozonFbsKizMarkPreview(mark)})`
           );
           continue;
         }
 
         if (!Array.isArray(row.kiz_codes) || !row.kiz_codes.length) row.kiz_codes = [""];
         const qty = Math.max(1, Number(row.quantity) || 1);
-        const filledN = row.kiz_codes.filter((c) => String(c || "").trim()).length;
+        const filledN = existing.length;
         if (filledN >= qty) {
           skipN += 1;
-          log.push(`${n}. ${stickerKey} → ${pn} — слоты КИЗ уже заполнены (${filledN}/${qty})`);
+          // Sticker found, slots full, incoming KIZ differs — never overwrite.
+          const had = existing.map(_ozonFbsKizMarkPreview).join("; ");
+          log.push(
+            `${n}. ${stickerKey} → ${pn} — конфликт: у стикера уже другой КИЗ ` +
+              `[${had}], импорт [${_ozonFbsKizMarkPreview(mark)}] — не заменяем`
+          );
           continue;
         }
 
@@ -3788,6 +3817,7 @@
         row.kiz_status = "pending";
         delete ozonFbsKizState.errors[pn];
         _ozonFbsKizIndexSetMark(mark, pn);
+        importedMarks.add(mark);
         touched.add(pn);
         void _ozonFbsPersistStickerForRow(row, stickerKey);
         _ozonFbsKizScheduleLocalAutosave(pn, false);
