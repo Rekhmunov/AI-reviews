@@ -3322,7 +3322,13 @@
       if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
       closeSupplyDetailModal();
       setTab("delivering");
-      alert(String(data.message || "Поставка перенесена в «Доставляются»"));
+      const moved = Number(data.moved || 0);
+      const shipped = Number(data.stock?.shipped || 0);
+      const base = String(data.message || "Поставка перенесена в «Доставляются»");
+      const stockNote = moved > 0
+        ? `\nСписание с Остатки: ${shipped > 0 ? `записей ${shipped}` : "будет при следующей синхронизации / нет производства"}`
+        : "";
+      alert(base + stockNote);
     } catch (e) {
       alert(e.message || String(e));
     } finally {
@@ -3724,16 +3730,35 @@
     else document.getElementById("ozonFbsKizImportModal")?.classList.add("hidden");
   }
 
-  /** Block RU layout in import field (same warning as Marking scan). */
+  /** RU layout warning for import — same modal as Marking, but never wipe the textarea. */
   function onOzonFbsKizImportTextInput(event) {
     const input = event?.target;
     if (!input) return;
     if (typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen()) {
-      input.value = "";
+      // Keep buffer: operator may have pasted a long list; only the warning matters.
       return;
     }
     if (typeof _wbFbsKizHasCyrillic === "function" && _wbFbsKizHasCyrillic(input.value)) {
-      if (typeof _wbFbsKizBlockRuLayout === "function") _wbFbsKizBlockRuLayout(input);
+      const keep = String(input.value || "");
+      if (typeof _wbFbsKizBlockRuLayout === "function") {
+        _wbFbsKizBlockRuLayout(input);
+        // Restore paste/scan buffer — unlike Marking single-field scan.
+        input.value = keep;
+        try {
+          const len = keep.length;
+          input.setSelectionRange(len, len);
+        } catch (_e) {
+          /* ignore */
+        }
+      }
+      _ozonFbsKizImportSetInfo(
+        "Русская раскладка — переключите на EN. Поле не очищено: исправьте кириллицу или пересканируйте."
+      );
+      const info = document.getElementById("ozonFbsKizImportInfo");
+      if (info) {
+        info.classList.remove("is-ok");
+        info.classList.add("is-warn");
+      }
     }
   }
 
@@ -3744,7 +3769,11 @@
   function onOzonFbsKizImportTextKey(event) {
     if (!event) return;
     if (typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen()) {
-      event.preventDefault();
+      // Swallow scanner tail while warning is open; do not wipe the field.
+      const key = String(event.key || "");
+      if (key === "Enter" || key === "Tab" || key.length === 1) {
+        event.preventDefault();
+      }
       return;
     }
     if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
@@ -3763,16 +3792,19 @@
     if (!_ozonFbsKizImportModalIsOpen() || !_ozonFbsKizCanImport()) return;
     const ta = document.getElementById("ozonFbsKizImportText");
     if (!ta) return;
-    const pairs = _ozonFbsKizParseImportText(ta.value);
+    if (typeof _wbFbsKizHasCyrillic === "function" && _wbFbsKizHasCyrillic(ta.value)) {
+      return;
+    }
+    const snapshot = String(ta.value || "");
+    const pairs = _ozonFbsKizParseImportText(snapshot);
     if (!pairs.length) return;
-    // Batch paste: operator uses «Импортировать». Live wedge usually has 1 pair.
+    // Batch paste: operator uses «Импортировать». Live wedge usually has 1 pair in flight.
     if (pairs.length > 2) return;
     const last = pairs[pairs.length - 1];
     const mark = _ozonFbsNormalizeMark(last.kiz);
     // Wait until the wedge finished a Data Matrix (not only the sticker line).
     if (!/^01\d{14}21/.test(mark)) return;
     // Do not accept truncated scans (typical cut right at GS before AI 91, ~31 chars).
-    // Keep the pair in the field so the operator can rescan; never silently store a stub.
     if (!_ozonFbsKizMarkLooksComplete(mark)) {
       _ozonFbsKizImportSetInfo(
         `КИЗ обрезан / неполный (${mark.length} симв.) — пересканируйте маркировку целиком`
@@ -3786,10 +3818,16 @@
     }
     const remaining = pairs.slice(0, -1);
     ta.value = `${last.sticker}\t${last.kiz}`;
+    let result = null;
     try {
-      await runOzonFbsKizImport({ liveScan: true });
+      result = await runOzonFbsKizImport({ liveScan: true });
     } finally {
-      ta.value = remaining.map((p) => `${p.sticker}\t${p.kiz}`).join("\n");
+      // Only drop the applied pair on success; keep buffer on skip/error for rescan.
+      if (result && Number(result.okN || 0) > 0) {
+        ta.value = remaining.map((p) => `${p.sticker}\t${p.kiz}`).join("\n");
+      } else {
+        ta.value = snapshot;
+      }
       ta.focus();
       try {
         const len = String(ta.value || "").length;
@@ -3824,11 +3862,14 @@
   }
 
   function _ozonFbsKizParseImportText(text) {
-    const rawLines = String(text || "").split(/\r?\n/);
+    // Notepad-like: blank lines between pairs are fine; same-line "sticker KIZ" too.
+    const rawLines = String(text || "")
+      .replace(/\u00a0/g, " ")
+      .split(/\r?\n/);
     const lines = [];
     for (const line of rawLines) {
       const trimmed = line.trim();
-      if (!trimmed) continue;
+      if (!trimmed) continue; // 1–N empty lines between pairs
       if (/^стикер\b/i.test(trimmed) && /\bкиз\b/i.test(trimmed)) continue;
       lines.push(trimmed);
     }
@@ -3841,6 +3882,9 @@
       const k = String(kiz || "").trim();
       if (s && k) pairs.push({ sticker: s, kiz: k });
     };
+
+    const isStickerToken = (s) => /^\d{10,20}$/.test(String(s || "").trim());
+    const isKizStart = (s) => /^01\d{14}21/.test(String(s || "").trim());
 
     for (let i = 0; i < lines.length; i += 1) {
       const trimmed = lines[i];
@@ -3859,27 +3903,28 @@
         pushPair(trimmed.slice(0, idx), trimmed.slice(idx + 1));
         continue;
       }
-      // Same-line: sticker + spaces + 01…KIZ
-      const inline = trimmed.match(/^(\d{10,20})\s+(01\d{14}21[\s\S]+)$/);
+      // Same-line: sticker + spaces + 01…KIZ (Notepad / paste from Excel)
+      const inline = trimmed.match(/^(\d{10,20})[ \t]+(01\d{14}21[\s\S]+)$/);
       if (inline) {
         pendingSticker = "";
         pushPair(inline[1], inline[2]);
         continue;
       }
 
-      // Alternating lines: sticker, then KIZ on the next line(s).
-      if (/^\d{10,20}$/.test(trimmed)) {
+      // Alternating lines: sticker, then KIZ (optionally wrapped after GS → newline).
+      if (isStickerToken(trimmed)) {
         pendingSticker = trimmed;
         continue;
       }
-      if (pendingSticker && /^01\d{14}21/.test(trimmed)) {
+      if (pendingSticker && isKizStart(trimmed)) {
         let kiz = trimmed;
-        // Join wrapped KIZ continuation lines until next sticker / blank boundary.
         while (i + 1 < lines.length) {
           const nxt = lines[i + 1];
-          if (/^\d{10,20}$/.test(nxt)) break;
-          if (/^01\d{14}21/.test(nxt)) break;
+          if (isStickerToken(nxt)) break;
+          if (isKizStart(nxt)) break;
           if (nxt.includes("\t") || /^\d{10,20}\s*\|/.test(nxt)) break;
+          if (/^\d{10,20}[ \t]+01\d{14}21/.test(nxt)) break;
+          // Continuation of crypto / AI91 after GS was turned into a line break.
           kiz += nxt;
           i += 1;
         }
@@ -3887,7 +3932,7 @@
         pendingSticker = "";
         continue;
       }
-      // Lone KIZ without sticker — ignore.
+      // Lone KIZ / junk without sticker — ignore, reset pending.
       pendingSticker = "";
     }
     return pairs;
@@ -4074,26 +4119,50 @@
 
   async function runOzonFbsKizImport(opts) {
     const liveScan = !!(opts && opts.liveScan);
+    const emptyResult = { okN: 0, skipN: 0, conflicts: 0 };
     if (!_ozonFbsKizCanImport()) {
       if (!liveScan) {
         _ozonFbsKizImportSetInfo("Сначала откройте модалку маркировки и дождитесь загрузки");
       }
-      return;
+      return emptyResult;
     }
     if (!ozonFbsKizState.rowsReady || !_ozonFbsKizModalIsOpen()) {
       _ozonFbsKizImportSetInfo("Сначала откройте модалку маркировки и дождитесь загрузки");
-      return;
+      return emptyResult;
     }
     const ta = document.getElementById("ozonFbsKizImportText");
     const runBtn = document.getElementById("ozonFbsKizImportRunBtn");
-    const pairs = _ozonFbsKizParseImportText(ta?.value || "");
+    const rawText = String(ta?.value || "");
+    if (typeof _wbFbsKizHasCyrillic === "function" && _wbFbsKizHasCyrillic(rawText)) {
+      _ozonFbsKizImportSetInfo(
+        "В тексте есть русские буквы — переключите раскладку на EN и исправьте коды. Поле не очищено."
+      );
+      const info = document.getElementById("ozonFbsKizImportInfo");
+      if (info) {
+        info.classList.remove("is-ok");
+        info.classList.add("is-warn");
+      }
+      if (!liveScan && typeof _wbFbsKizBlockRuLayout === "function" && ta) {
+        const keep = ta.value;
+        if (typeof _wbFbsKizRuLayoutModalOpen === "function" && !_wbFbsKizRuLayoutModalOpen()) {
+          _wbFbsKizBlockRuLayout(ta);
+          ta.value = keep;
+        }
+      }
+      return emptyResult;
+    }
+    const pairs = _ozonFbsKizParseImportText(rawText);
     if (!pairs.length) {
       if (!liveScan) {
-        _ozonFbsKizImportSetLog(["Нет строк вида «стикер \\t КИЗ»"]);
+        _ozonFbsKizImportSetLog([
+          "Нет пар стикер+КИЗ. Допустимо:",
+          "• стикер и КИЗ в одной строке через пробел или таб",
+          "• стикер, затем КИЗ на следующей строке (пустые строки между ними ок)",
+        ]);
         _ozonFbsKizImportSetInfo("Импорт: пустой список");
         _ozonFbsKizClearImportConflicts();
       }
-      return;
+      return emptyResult;
     }
 
     if (runBtn) runBtn.disabled = true;
@@ -4262,6 +4331,7 @@
           info.classList.add("is-warn");
         }
       }
+      return { okN, skipN, conflicts: conflicts.length };
     } finally {
       if (runBtn) runBtn.disabled = false;
     }
