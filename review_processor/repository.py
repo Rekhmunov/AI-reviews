@@ -352,6 +352,12 @@ class ReviewRepository:
         conn.execute(
             """
             ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS ozon_fbs_sync_lookback_days INTEGER NOT NULL DEFAULT 3
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
             ADD COLUMN IF NOT EXISTS wb_fbs_last_synced_at TIMESTAMPTZ
             """
         )
@@ -7719,6 +7725,84 @@ class ReviewRepository:
                 result[key] = True
                 result[key.casefold()] = True
         return result
+
+    _OZON_FBS_SYNC_LOOKBACK_MIN = 1
+    _OZON_FBS_SYNC_LOOKBACK_MAX = 30
+    _OZON_FBS_SYNC_LOOKBACK_DEFAULT = 3
+
+    def _normalize_ozon_fbs_sync_lookback_days(self, value: object | None) -> int:
+        try:
+            days = (
+                int(value)
+                if value is not None
+                else self._OZON_FBS_SYNC_LOOKBACK_DEFAULT
+            )
+        except (TypeError, ValueError):
+            days = self._OZON_FBS_SYNC_LOOKBACK_DEFAULT
+        return max(
+            self._OZON_FBS_SYNC_LOOKBACK_MIN,
+            min(self._OZON_FBS_SYNC_LOOKBACK_MAX, days),
+        )
+
+    def get_ozon_fbs_sync_settings(self, *, user_id: int) -> dict[str, Any]:
+        with self._connect() as conn:
+            try:
+                conn.execute(
+                    """
+                    ALTER TABLE users
+                    ADD COLUMN IF NOT EXISTS ozon_fbs_sync_lookback_days INTEGER NOT NULL DEFAULT 3
+                    """
+                )
+            except Exception:
+                pass
+            row = conn.execute(
+                self._sql(
+                    """
+                    SELECT ozon_fbs_sync_lookback_days
+                    FROM users
+                    WHERE id = ? AND is_deleted = ?
+                    """
+                ),
+                (user_id, self._bool_db(False)),
+            ).fetchone()
+        if row is None:
+            raise RuntimeError("User not found")
+        lookback_days = self._normalize_ozon_fbs_sync_lookback_days(
+            row["ozon_fbs_sync_lookback_days"] if hasattr(row, "keys") else row[0]
+        )
+        return {
+            "lookback_days": lookback_days,
+            "lookback_days_min": self._OZON_FBS_SYNC_LOOKBACK_MIN,
+            "lookback_days_max": self._OZON_FBS_SYNC_LOOKBACK_MAX,
+        }
+
+    def save_ozon_fbs_sync_settings(
+        self, *, user_id: int, lookback_days: int
+    ) -> dict[str, Any]:
+        days = self._normalize_ozon_fbs_sync_lookback_days(lookback_days)
+        with self._connect() as conn:
+            try:
+                conn.execute(
+                    """
+                    ALTER TABLE users
+                    ADD COLUMN IF NOT EXISTS ozon_fbs_sync_lookback_days INTEGER NOT NULL DEFAULT 3
+                    """
+                )
+            except Exception:
+                pass
+            result = conn.execute(
+                self._sql(
+                    """
+                    UPDATE users
+                    SET ozon_fbs_sync_lookback_days = ?
+                    WHERE id = ? AND is_deleted = ?
+                    """
+                ),
+                (days, user_id, self._bool_db(False)),
+            )
+            if not result.rowcount:
+                raise RuntimeError("User not found")
+        return self.get_ozon_fbs_sync_settings(user_id=user_id)
 
     def _migrate_manually_closed_at(self, conn) -> None:
         """Add manually_closed_at column to conversation_items."""

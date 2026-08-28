@@ -2272,6 +2272,7 @@
       tsdBtn.style.display =
         p.can_view_wb_fbs_tsd || p.is_tenant_owner ? "" : "none";
     }
+    _ozonFbsSyncOwnerOnlyGear();
     syncTableMode();
     initColumnResizer();
     ozonFbsSupplyDetailColResizer.init();
@@ -2280,6 +2281,98 @@
     await loadSources();
     await loadPostings(true);
     syncShipAllButton();
+  }
+
+  function _ozonFbsSyncOwnerOnlyGear() {
+    const btn = document.getElementById("ozonFbsSyncSettingsBtn");
+    if (!btn) return;
+    const can = typeof isTenantOwner === "function" && isTenantOwner();
+    btn.hidden = !can;
+    btn.style.display = can ? "" : "none";
+  }
+
+  function _ozonFbsSyncSettingsSetInfo(text, kind) {
+    const el = document.getElementById("ozonFbsSyncSettingsInfo");
+    if (!el) return;
+    const msg = String(text || "").trim();
+    el.hidden = !msg;
+    el.textContent = msg;
+    el.classList.toggle("is-error", !!msg && kind === "error");
+    el.classList.toggle("is-ok", !!msg && kind === "ok");
+  }
+
+  async function openOzonFbsSyncSettings() {
+    if (typeof isTenantOwner === "function" && !isTenantOwner()) {
+      alert("Настройки синхронизации доступны только главному пользователю");
+      return;
+    }
+    const modal = document.getElementById("ozonFbsSyncSettingsModal");
+    if (!modal) return;
+    modal.classList.remove("hidden");
+    _ozonFbsSyncSettingsSetInfo("");
+    const saveBtn = document.getElementById("ozonFbsSyncSettingsSaveBtn");
+    const lookbackEl = document.getElementById("ozonFbsSyncLookback");
+    if (saveBtn) saveBtn.disabled = true;
+    try {
+      const res = await fetch("/api/ozon-fbs/sync-settings");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      if (lookbackEl) {
+        const minD = Number(data.lookback_days_min) || 1;
+        const maxD = Number(data.lookback_days_max) || 30;
+        lookbackEl.min = String(minD);
+        lookbackEl.max = String(maxD);
+        let days = Number(data.lookback_days);
+        if (!Number.isFinite(days)) days = 3;
+        lookbackEl.value = String(Math.min(maxD, Math.max(minD, Math.round(days))));
+        lookbackEl.disabled = data.can_edit === false;
+      }
+      if (saveBtn) {
+        saveBtn.disabled = data.can_edit === false;
+        saveBtn.title = data.can_edit === false
+          ? "Недостаточно прав для изменения настроек"
+          : "";
+      }
+    } catch (e) {
+      _ozonFbsSyncSettingsSetInfo(String(e.message || e), "error");
+      if (saveBtn) saveBtn.disabled = false;
+    }
+  }
+
+  function closeOzonFbsSyncSettings() {
+    const modal = document.getElementById("ozonFbsSyncSettingsModal");
+    if (modal) modal.classList.add("hidden");
+  }
+
+  async function saveOzonFbsSyncSettings() {
+    if (typeof isTenantOwner === "function" && !isTenantOwner()) {
+      alert("Настройки синхронизации доступны только главному пользователю");
+      return;
+    }
+    const lookbackRaw = Number(document.getElementById("ozonFbsSyncLookback")?.value);
+    const lookbackDays = Number.isFinite(lookbackRaw) ? Math.round(lookbackRaw) : 3;
+    if (lookbackDays < 1 || lookbackDays > 30) {
+      _ozonFbsSyncSettingsSetInfo("Укажите глубину от 1 до 30 дней", "error");
+      return;
+    }
+    const saveBtn = document.getElementById("ozonFbsSyncSettingsSaveBtn");
+    if (saveBtn) saveBtn.disabled = true;
+    _ozonFbsSyncSettingsSetInfo("Сохранение…");
+    try {
+      const res = await fetch("/api/ozon-fbs/sync-settings", {
+        method: "PUT",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ lookback_days: lookbackDays }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      _ozonFbsSyncSettingsSetInfo("Сохранено", "ok");
+      setTimeout(() => closeOzonFbsSyncSettings(), 500);
+    } catch (e) {
+      _ozonFbsSyncSettingsSetInfo(String(e.message || e), "error");
+    } finally {
+      if (saveBtn) saveBtn.disabled = false;
+    }
   }
 
   function setTab(tab) {
@@ -5108,6 +5201,9 @@
   window.changeOzonFbsPageSize = changePageSize;
   window.syncOzonFbs = syncOzonFbs;
   window.stopOzonFbsSync = stopOzonFbsSync;
+  window.openOzonFbsSyncSettings = openOzonFbsSyncSettings;
+  window.closeOzonFbsSyncSettings = closeOzonFbsSyncSettings;
+  window.saveOzonFbsSyncSettings = saveOzonFbsSyncSettings;
   window.closeOzonFbsSyncInfo = closeSyncInfo;
   window.openOzonFbsDetail = openDetail;
   window.closeOzonFbsDetailModal = closeDetailModal;

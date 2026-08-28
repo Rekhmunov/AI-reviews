@@ -2647,6 +2647,9 @@
             <div class="supplies-actions">
               <button id="ozonFbsSyncBtn" type="button" onclick="syncOzonFbs()">Синхронизировать</button>
               <button id="ozonFbsStopBtn" type="button" class="secondary icon-btn hidden" onclick="stopOzonFbsSync()" style="color:#b91c1c;border-color:#fca5a5" title="Остановить синхронизацию">🛑</button>
+              <button type="button" id="ozonFbsSyncSettingsBtn" class="secondary icon-btn"
+                      onclick="openOzonFbsSyncSettings()" title="Настройки синхронизации Ozon FBS"
+                      aria-label="Настройки синхронизации Ozon FBS">⚙</button>
               <button type="button" id="ozonFbsKizCirculationBtn" class="secondary ozon-fbs-stub-btn" disabled title="Скоро">Вывод КИЗ</button>
               <button type="button" id="ozonFbsKizRestoreBtn" class="secondary ozon-fbs-stub-btn" disabled title="Скоро">Возвраты</button>
               <button type="button" id="ozonFbsTsdBtn" class="secondary"
@@ -2672,6 +2675,32 @@
             </div>
             <button type="button" id="ozonFbsSyncInfoClose" class="wb-fbs-sync-info-close"
                     onclick="closeOzonFbsSyncInfo()" aria-label="Скрыть" title="Скрыть">✕</button>
+          </div>
+        </div>
+        <div id="ozonFbsSyncSettingsModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsSyncSettingsTitle"
+             onclick="if(event.target===this)closeOzonFbsSyncSettings()">
+          <div class="modal-card wb-fbs-auto-sync-modal">
+            <div class="wb-fbs-auto-sync-header">
+              <h3 id="ozonFbsSyncSettingsTitle" class="wb-fbs-auto-sync-title">Настройки синхронизации</h3>
+              <button type="button" class="icon-btn secondary" onclick="closeOzonFbsSyncSettings()" aria-label="Закрыть">✕</button>
+            </div>
+            <div class="wb-fbs-auto-sync-section">
+              <p class="wb-fbs-auto-sync-section-lead">
+                Глубина загрузки заказов при ручной синхронизации Ozon FBS.
+              </p>
+              <div class="wb-fbs-auto-sync-field">
+                <label for="ozonFbsSyncLookback">Глубина синхронизации (дни)</label>
+                <input type="number" id="ozonFbsSyncLookback" min="1" max="30" step="1" value="3"
+                       inputmode="numeric" autocomplete="off" />
+                <span class="wb-fbs-auto-sync-field-hint">Сколько дней назад брать отправления из Ozon (по умолчанию 3, макс. 30).</span>
+              </div>
+            </div>
+            <div id="ozonFbsSyncSettingsInfo" class="wb-fbs-auto-sync-info" hidden></div>
+            <div class="wb-fbs-auto-sync-footer">
+              <button type="button" class="secondary" onclick="closeOzonFbsSyncSettings()">Отмена</button>
+              <button type="button" id="ozonFbsSyncSettingsSaveBtn" onclick="saveOzonFbsSyncSettings()">Сохранить</button>
+            </div>
           </div>
         </div>
         <div class="wb-fbs-tabs-row">

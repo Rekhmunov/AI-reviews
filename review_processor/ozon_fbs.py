@@ -55,7 +55,7 @@ SYNC_STATUSES = [
     "cancelled",
 ]
 
-DEFAULT_LOOKBACK_DAYS = 30
+DEFAULT_LOOKBACK_DAYS = 3
 
 _ozon_fbs_sync_lock = threading.Lock()
 _ozon_fbs_sync_state: dict[str, object] = {

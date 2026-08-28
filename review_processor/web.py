@@ -1049,6 +1049,12 @@ class StockSourceUpdateRequest(BaseModel):
     is_active: bool | None = None
 
 
+class OzonFbsSyncSettingsRequest(BaseModel):
+    """Ozon FBS sync settings (lookback only for now)."""
+
+    lookback_days: int = Field(default=3, ge=1, le=30)
+
+
 class WbFbsAutoSyncSettingsRequest(BaseModel):
     enabled: bool = False
     # Preferred: minutes (10, 30, 60, …). Legacy clients may still send hours.
@@ -12648,6 +12654,48 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             return {"ok": True, "message": "Остановка синхронизации ОЗОН ФБС…"}
         return {"ok": False, "message": "Синхронизация не запущена"}
 
+    @app.get("/api/ozon-fbs/sync-settings")
+    def get_ozon_fbs_sync_settings(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        if not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Настройки синхронизации доступны только главному пользователю",
+            )
+        owner_id = _supply_owner_id(user)
+        try:
+            settings = repository.get_ozon_fbs_sync_settings(user_id=owner_id)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        settings["can_edit"] = True
+        return settings
+
+    @app.put("/api/ozon-fbs/sync-settings")
+    def update_ozon_fbs_sync_settings(
+        request: Request, payload: OzonFbsSyncSettingsRequest
+    ) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        if not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Настройки синхронизации доступны только главному пользователю",
+            )
+        owner_id = _supply_owner_id(user)
+        try:
+            updated = repository.save_ozon_fbs_sync_settings(
+                user_id=owner_id,
+                lookback_days=int(payload.lookback_days),
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        updated["can_edit"] = True
+        updated["ok"] = True
+        return updated
+
     @app.post("/api/ozon-fbs/sync")
     def sync_ozon_fbs(request: Request, source_id: int | None = None) -> dict[str, object]:
         user = _require_user(request)
@@ -12688,16 +12736,23 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     "message": "Нет источников OZON ФБС. Добавьте источник OZON с «ФБС» в названии (Поставки → Настройки → Источники).",
                 }
             return {"ok": False, "message": "У источников OZON ФБС не задан Client-Id или Api-Key"}
+        try:
+            sync_settings = repository.get_ozon_fbs_sync_settings(user_id=owner_id)
+            lookback_days = int(sync_settings.get("lookback_days") or 3)
+        except Exception:
+            lookback_days = 3
         ok, message = ozon_fbs_mod.start_sync_thread(
             repo=repository,
             user_id=owner_id,
             sources=jobs,
+            lookback_days=lookback_days,
         )
         return {
             "ok": ok,
             "message": message,
             "source_ids": [int(j["source_id"]) for j in jobs],
             "sources_count": len(jobs),
+            "lookback_days": lookback_days,
         }
 
     @app.get("/api/ozon-fbs/postings/{posting_number}/detail")
