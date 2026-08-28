@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -16,8 +17,24 @@ _log = logging.getLogger(__name__)
 
 
 def _normalize_mark_code(value: object) -> str:
-    """Parity with WB FBS: ↔ → GS (\\u001D), then trim edges without stripping GS."""
-    return wb._kiz_code_clean(kiz_restore.normalize_kiz_mark(value))
+    """Ozon FBS: ↔/☻/☺ → GS, then ensure GS before AI 91/92 for ЧЗ."""
+    gs = "\x1d"
+    text = str(value or "")
+    for ch in ("\u263b", "\u263a", "\u2194"):  # ☻ ☺ ↔
+        text = text.replace(ch, gs)
+    text = text.replace("<GS>", gs).replace("<gs>", gs)
+    text = text.replace("\\u001d", gs).replace("\\u001D", gs)
+    text = wb._kiz_code_clean(kiz_restore.normalize_kiz_mark(text))
+    # GS between AI 91 key and AI 92 crypto when missing.
+    text = re.sub(r"(91[0-9A-Za-z+/]{4})(?!\x1d)(92)", rf"\1{gs}\2", text, count=1)
+    # GS before AI 91 when serial is glued to the crypto tail.
+    text = re.sub(
+        rf"(?<!\x1d)(91[0-9A-Za-z+/]{{4}}\x1d92)",
+        rf"{gs}\1",
+        text,
+        count=1,
+    )
+    return text
 
 
 def _parse_codes(raw: object) -> list[str]:

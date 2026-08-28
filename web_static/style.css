@@ -9995,6 +9995,62 @@ button.wb-fbs-sd-portal-btn:focus-visible {
   gap: 12px;
   padding-right: 16px;
 }
+.ozon-fbs-kiz-import {
+  padding: 12px 24px 16px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ozon-fbs-kiz-import-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+}
+.ozon-fbs-kiz-import-text {
+  width: 100%;
+  min-height: 120px;
+  padding: 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #0f172a;
+  background: #fff;
+  resize: vertical;
+}
+.ozon-fbs-kiz-import-text:focus {
+  outline: 2px solid #93c5fd;
+  outline-offset: 1px;
+  border-color: #60a5fa;
+}
+.ozon-fbs-kiz-import-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.ozon-fbs-kiz-import-actions button {
+  min-height: 40px;
+  padding: 8px 16px;
+}
+.ozon-fbs-kiz-import-log {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #334155;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .wb-fbs-returns-info-text {
   flex: 1 1 auto;
   min-width: 0;

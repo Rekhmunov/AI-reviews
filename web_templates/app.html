@@ -3077,6 +3077,9 @@
                        autocomplete="off" oninput="renderOzonFbsKizTable()" />
               </div>
               <div class="wb-fbs-kiz-toolbar-actions">
+                <button type="button" id="ozonFbsKizImportBtn" class="secondary" hidden
+                        onclick="toggleOzonFbsKizImportPanel()"
+                        title="Импорт списка стикер + КИЗ (только главный пользователь)">Импорт маркировки</button>
                 <div id="ozonFbsKizScanCount" class="wb-fbs-kiz-scan-count" aria-live="polite">Просканировано 0 из 0 КИЗ</div>
               </div>
             </div>
@@ -3091,6 +3094,19 @@
                         aria-label="Очистить поле сканирования"
                         onclick="clearWbFbsKizScanField('ozonFbsKizStickerScan')">✕</button>
               </div>
+            </div>
+            <div id="ozonFbsKizImportPanel" class="ozon-fbs-kiz-import" hidden>
+              <label class="ozon-fbs-kiz-import-label" for="ozonFbsKizImportText">
+                Список для импорта — по строке: стикер, затем таб, затем КИЗ
+              </label>
+              <textarea id="ozonFbsKizImportText" class="ozon-fbs-kiz-import-text" rows="6"
+                        spellcheck="false" autocomplete="off"
+                        placeholder="202150211695000&#9;010467…91EE11…92…"></textarea>
+              <div class="ozon-fbs-kiz-import-actions">
+                <button type="button" id="ozonFbsKizImportRunBtn" onclick="runOzonFbsKizImport()">Импортировать</button>
+                <button type="button" class="secondary" onclick="toggleOzonFbsKizImportPanel(false)">Скрыть</button>
+              </div>
+              <pre id="ozonFbsKizImportLog" class="ozon-fbs-kiz-import-log" hidden></pre>
             </div>
             <div id="ozonFbsKizInfo" class="wb-fbs-kiz-info" hidden></div>
             <div class="wb-fbs-kiz-table-wrap">

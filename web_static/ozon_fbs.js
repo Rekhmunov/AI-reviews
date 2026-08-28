@@ -3584,13 +3584,243 @@
   }
 
   function _ozonFbsNormalizeMark(value) {
+    let text;
     if (typeof _wbFbsKizNormalizeMark === "function") {
-      return _wbFbsKizNormalizeMark(value);
+      text = _wbFbsKizNormalizeMark(value);
+    } else {
+      text = String(value || "")
+        .replace(/\u2194/g, "\u001D")
+        .replace(/\r?\n/g, "")
+        .replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, "");
     }
-    return String(value || "")
-      .replace(/\u2194/g, "\u001D")
-      .replace(/\r?\n/g, "")
-      .replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, "");
+    // Ozon-only: scanners/pastes sometimes use ☻/☺ instead of GS; also
+    // accept visible "<GS>" / "\\u001D" from normalized copy-paste lists.
+    text = String(text || "")
+      .replace(/\u263b/g, "\u001D") // ☻
+      .replace(/\u263a/g, "\u001D") // ☺
+      .replace(/\\u001[dD]/g, "\u001D")
+      .replace(/<GS>/gi, "\u001D")
+      .replace(/\r?\n/g, "");
+    // ЧЗ: GS before AI 91 (4-char key) and before AI 92 crypto.
+    text = text.replace(/(91[0-9A-Za-z+/]{4})(?!\u001D)(92)/, "$1\u001D$2");
+    text = text.replace(/(?<!\u001D)(91[0-9A-Za-z+/]{4}\u001D92)/, "\u001D$1");
+    return text;
+  }
+
+  function _ozonFbsKizMarkLooksComplete(mark) {
+    const raw = _ozonFbsNormalizeMark(mark);
+    if (!raw || !/^01\d{14}21/.test(raw)) return false;
+    return /\u001D91.{4}\u001D92.{20,}/.test(raw) || /91.{4}\u001D92.{20,}/.test(raw);
+  }
+
+  function _ozonFbsKizCanImport() {
+    return typeof isTenantOwner === "function" && isTenantOwner();
+  }
+
+  function _ozonFbsKizSyncImportBtn() {
+    const btn = document.getElementById("ozonFbsKizImportBtn");
+    if (!btn) return;
+    const can = _ozonFbsKizCanImport();
+    btn.hidden = !can;
+    btn.style.display = can ? "" : "none";
+    if (!can) {
+      const panel = document.getElementById("ozonFbsKizImportPanel");
+      if (panel) panel.hidden = true;
+    }
+  }
+
+  function toggleOzonFbsKizImportPanel(forceOpen) {
+    if (!_ozonFbsKizCanImport()) {
+      alert("Импорт маркировки доступен только главному пользователю");
+      return;
+    }
+    const panel = document.getElementById("ozonFbsKizImportPanel");
+    if (!panel) return;
+    const open = forceOpen === true ? true : forceOpen === false ? false : panel.hidden;
+    panel.hidden = !open;
+    if (open) {
+      const ta = document.getElementById("ozonFbsKizImportText");
+      if (ta) setTimeout(() => ta.focus(), 40);
+    }
+  }
+
+  function _ozonFbsKizParseImportText(text) {
+    const lines = String(text || "").split(/\r?\n/);
+    const pairs = [];
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      if (/^стикер\b/i.test(trimmed) && /\bкиз\b/i.test(trimmed)) continue;
+      let sticker = "";
+      let kiz = "";
+      if (trimmed.includes("\t")) {
+        const parts = trimmed.split("\t");
+        sticker = String(parts[0] || "").trim();
+        kiz = parts.slice(1).join("\t").trim();
+      } else if (trimmed.includes("|")) {
+        const idx = trimmed.indexOf("|");
+        sticker = trimmed.slice(0, idx).trim();
+        kiz = trimmed.slice(idx + 1).trim();
+      } else {
+        const m = trimmed.match(/^(\d{10,20})\s+(01\d{14}21[\s\S]+)$/);
+        if (m) {
+          sticker = m[1];
+          kiz = m[2];
+        }
+      }
+      if (sticker && kiz) pairs.push({ sticker, kiz });
+    }
+    return pairs;
+  }
+
+  function _ozonFbsKizImportSetLog(lines) {
+    const el = document.getElementById("ozonFbsKizImportLog");
+    if (!el) return;
+    const text = (Array.isArray(lines) ? lines : []).join("\n");
+    el.hidden = !text;
+    el.textContent = text;
+  }
+
+  async function runOzonFbsKizImport() {
+    if (!_ozonFbsKizCanImport()) {
+      alert("Импорт маркировки доступен только главному пользователю");
+      return;
+    }
+    if (!ozonFbsKizState.rowsReady || !_ozonFbsKizModalIsOpen()) {
+      _ozonFbsKizSetInfo("Сначала откройте модалку маркировки и дождитесь загрузки");
+      return;
+    }
+    const ta = document.getElementById("ozonFbsKizImportText");
+    const runBtn = document.getElementById("ozonFbsKizImportRunBtn");
+    const pairs = _ozonFbsKizParseImportText(ta?.value || "");
+    if (!pairs.length) {
+      _ozonFbsKizImportSetLog(["Нет строк вида «стикер \\t КИЗ»"]);
+      _ozonFbsKizSetInfo("Импорт: пустой список");
+      return;
+    }
+
+    if (runBtn) runBtn.disabled = true;
+    _ozonFbsKizSyncActiveCodeInput();
+    const log = [];
+    let okN = 0;
+    let skipN = 0;
+    const touched = new Set();
+
+    try {
+      for (let i = 0; i < pairs.length; i += 1) {
+        const { sticker, kiz } = pairs[i];
+        const n = i + 1;
+        const stickerKey = _ozonFbsNormalizeScan(sticker);
+        const mark = _ozonFbsNormalizeMark(kiz);
+        if (!stickerKey || !mark) {
+          skipN += 1;
+          log.push(`${n}. пропуск — пустой стикер или КИЗ`);
+          continue;
+        }
+        if (!_ozonFbsKizMarkLooksComplete(mark)) {
+          skipN += 1;
+          log.push(`${n}. ${stickerKey} — КИЗ без криптохвоста 91/92 (неполный код)`);
+          continue;
+        }
+
+        const found = _ozonFbsKizFindBySticker(stickerKey);
+        if (found.ambiguous) {
+          skipN += 1;
+          const ids = (found.matches || []).map((r) => r.posting_number).slice(0, 4).join(", ");
+          log.push(`${n}. ${stickerKey} — стикер неоднозначен (${ids || "несколько отправлений"})`);
+          continue;
+        }
+        if (!found.row) {
+          skipN += 1;
+          log.push(`${n}. ${stickerKey} — стикер не найден в этой поставке`);
+          continue;
+        }
+        const row = found.row;
+        const pn = String(row.posting_number || "").trim();
+        if (!pn) {
+          skipN += 1;
+          log.push(`${n}. ${stickerKey} — нет номера отправления`);
+          continue;
+        }
+        if (_ozonFbsRowIsCancelled(row)) {
+          skipN += 1;
+          log.push(`${n}. ${stickerKey} → ${pn} — отправление отменено`);
+          continue;
+        }
+
+        const check = _ozonFbsKizValidateMarkForOrder(mark, row);
+        if (!check.ok) {
+          skipN += 1;
+          log.push(`${n}. ${stickerKey} → ${pn} — ${check.error || "КИЗ не совпадает с ШК"}`);
+          ozonFbsKizState.errors[pn] = check.error || "КИЗ не совпадает с ШК";
+          continue;
+        }
+
+        const dup = _ozonFbsKizFindExistingMark(mark);
+        if (dup) {
+          const dupPn = String(dup.posting_number || "").trim();
+          skipN += 1;
+          log.push(
+            dupPn === pn
+              ? `${n}. ${stickerKey} → ${pn} — этот КИЗ уже есть в отправлении`
+              : `${n}. ${stickerKey} → ${pn} — КИЗ уже в отправлении ${dupPn}`
+          );
+          continue;
+        }
+
+        if (!Array.isArray(row.kiz_codes) || !row.kiz_codes.length) row.kiz_codes = [""];
+        const qty = Math.max(1, Number(row.quantity) || 1);
+        const filledN = row.kiz_codes.filter((c) => String(c || "").trim()).length;
+        if (filledN >= qty) {
+          skipN += 1;
+          log.push(`${n}. ${stickerKey} → ${pn} — слоты КИЗ уже заполнены (${filledN}/${qty})`);
+          continue;
+        }
+
+        let placedIdx = -1;
+        for (let j = 0; j < row.kiz_codes.length; j += 1) {
+          if (!String(row.kiz_codes[j] || "").trim()) {
+            row.kiz_codes[j] = mark;
+            placedIdx = j;
+            break;
+          }
+        }
+        if (placedIdx < 0) {
+          row.kiz_codes.push(mark);
+          placedIdx = row.kiz_codes.length - 1;
+        }
+        row.kiz_status = "pending";
+        delete ozonFbsKizState.errors[pn];
+        _ozonFbsKizIndexSetMark(mark, pn);
+        touched.add(pn);
+        void _ozonFbsPersistStickerForRow(row, stickerKey);
+        _ozonFbsKizScheduleLocalAutosave(pn, false);
+        okN += 1;
+        log.push(`${n}. ${stickerKey} → ${pn} — добавлен`);
+      }
+
+      if (touched.size) {
+        const emptyFilter = document.getElementById("ozonFbsKizFilterEmpty");
+        if (emptyFilter) emptyFilter.checked = false;
+        renderOzonFbsKizTable({ skipCollect: true });
+        await _ozonFbsKizAwaitLocalAutosaves();
+      }
+
+      log.push("");
+      log.push(`Итого: добавлено ${okN}, пропущено ${skipN}, строк ${pairs.length}`);
+      _ozonFbsKizImportSetLog(log);
+      const summary = `Импорт: добавлено ${okN}, пропущено ${skipN}`;
+      _ozonFbsKizSetInfo(summary, okN > 0 && skipN === 0);
+      if (okN > 0 && skipN > 0) {
+        const info = document.getElementById("ozonFbsKizInfo");
+        if (info) {
+          info.classList.remove("is-ok");
+          info.classList.add("is-warn");
+        }
+      }
+    } finally {
+      if (runBtn) runBtn.disabled = false;
+    }
   }
 
   function _ozonFbsKizNormalizeCodesList(codes) {
@@ -3751,6 +3981,7 @@
     el.hidden = !msg;
     el.textContent = msg;
     el.classList.toggle("is-ok", !!msg && !!ok);
+    if (!ok) el.classList.remove("is-warn");
   }
 
   function _ozonFbsPickSetInfo(text, ok) {
@@ -4888,6 +5119,12 @@
     ozonFbsKizState.stickerIndex = new Map();
     _ozonFbsKizSetFiltersReady(false);
     _ozonFbsKizSetInfo("");
+    _ozonFbsKizSyncImportBtn();
+    const importPanel = document.getElementById("ozonFbsKizImportPanel");
+    if (importPanel) importPanel.hidden = true;
+    const importText = document.getElementById("ozonFbsKizImportText");
+    if (importText) importText.value = "";
+    _ozonFbsKizImportSetLog([]);
     const tbody = document.getElementById("ozonFbsKizTbody");
     if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">Загрузка…</td></tr>`;
     const saveBtn = document.getElementById("ozonFbsKizSaveBtn");
@@ -5785,6 +6022,8 @@
   window.onOzonFbsKizMarkScanKey = onOzonFbsKizMarkScanKey;
   window.cancelOzonFbsKizMarkScan = cancelOzonFbsKizMarkScan;
   window.clearOzonFbsKizRow = clearOzonFbsKizRow;
+  window.toggleOzonFbsKizImportPanel = toggleOzonFbsKizImportPanel;
+  window.runOzonFbsKizImport = runOzonFbsKizImport;
   window.refreshOzonFbsMarkingStatus = refreshOzonFbsMarkingStatus;
   window.openOzonFbsPickVerifyModal = openOzonFbsPickVerifyModal;
   window.closeOzonFbsPickVerifyModal = closeOzonFbsPickVerifyModal;
