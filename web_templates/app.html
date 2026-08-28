@@ -3050,6 +3050,9 @@
                 <p class="wb-fbs-kiz-sub">Код Data Matrix «Честный знак» для отправлений Ozon FBS. Сохранение только локально в FeedPilot (без передачи в Ozon).</p>
               </div>
               <div class="wb-fbs-kiz-header-actions">
+                <button type="button" id="ozonFbsKizImportBtn" class="secondary"
+                        onclick="toggleOzonFbsKizImportPanel()"
+                        title="Импорт списка стикер + КИЗ (только главный пользователь)">Импорт маркировки</button>
                 <button type="button" id="ozonFbsKizSaveBtn" onclick="saveOzonFbsKizModal()">Сохранить</button>
                 <button type="button" class="icon-btn secondary" onclick="closeOzonFbsKizModal()" aria-label="Закрыть">✕</button>
               </div>
@@ -3077,9 +3080,6 @@
                        autocomplete="off" oninput="renderOzonFbsKizTable()" />
               </div>
               <div class="wb-fbs-kiz-toolbar-actions">
-                <button type="button" id="ozonFbsKizImportBtn" class="secondary" hidden
-                        onclick="toggleOzonFbsKizImportPanel()"
-                        title="Импорт списка стикер + КИЗ (только главный пользователь)">Импорт маркировки</button>
                 <div id="ozonFbsKizScanCount" class="wb-fbs-kiz-scan-count" aria-live="polite">Просканировано 0 из 0 КИЗ</div>
               </div>
             </div>

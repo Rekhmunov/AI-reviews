@@ -3636,6 +3636,7 @@
       alert("Импорт маркировки доступен только главному пользователю");
       return;
     }
+    _ozonFbsKizSyncImportBtn();
     const panel = document.getElementById("ozonFbsKizImportPanel");
     if (!panel) return;
     const open = forceOpen === true ? true : forceOpen === false ? false : panel.hidden;
@@ -5340,6 +5341,7 @@
     const importText = document.getElementById("ozonFbsKizImportText");
     if (importText) importText.value = "";
     _ozonFbsKizImportSetLog([]);
+    _ozonFbsKizClearImportConflicts();
     const tbody = document.getElementById("ozonFbsKizTbody");
     if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">Загрузка…</td></tr>`;
     const saveBtn = document.getElementById("ozonFbsKizSaveBtn");
@@ -6239,6 +6241,9 @@
   window.clearOzonFbsKizRow = clearOzonFbsKizRow;
   window.toggleOzonFbsKizImportPanel = toggleOzonFbsKizImportPanel;
   window.runOzonFbsKizImport = runOzonFbsKizImport;
+  window.applyOzonFbsKizImportConflicts = applyOzonFbsKizImportConflicts;
+  window.dismissOzonFbsKizImportConflicts = dismissOzonFbsKizImportConflicts;
+  window.selectAllOzonFbsKizImportConflicts = selectAllOzonFbsKizImportConflicts;
   window.refreshOzonFbsMarkingStatus = refreshOzonFbsMarkingStatus;
   window.openOzonFbsPickVerifyModal = openOzonFbsPickVerifyModal;
   window.closeOzonFbsPickVerifyModal = closeOzonFbsPickVerifyModal;
