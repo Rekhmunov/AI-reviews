@@ -2972,7 +2972,12 @@
                         title="Проверить отменённые отправления в поставке">Отмененные заказы</button>
                 <button type="button" class="secondary" id="ozonFbsSupplyDetailShipmentsBtn"
                         onclick="openOzonFbsShipmentsModal()"
-                        title="Отгрузки Ozon: ШК поставки и формирование">Перейти к отгрузкам</button>
+                        title="Отгрузки Ozon: ШК поставки и формирование">ШК поставки</button>
+                <button type="button" id="ozonFbsSupplyDetailMoveDeliveringBtn"
+                        onclick="moveOzonFbsSupplyToDelivering()"
+                        title="Локально перенести поставку в «Доставляются» и списать с Остатки (без отправки в Ozon)">
+                  Перенести в доставку
+                </button>
               </div>
             </div>
             <div id="ozonFbsSupplyDetailInfo" class="wb-fbs-sd-info" hidden></div>

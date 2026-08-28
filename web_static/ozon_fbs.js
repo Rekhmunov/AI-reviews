@@ -65,6 +65,7 @@
     "ozonFbsSupplyDetailTrbxBtn",
     "ozonFbsSupplyDetailCancelledBtn",
     "ozonFbsSupplyDetailShipmentsBtn",
+    "ozonFbsSupplyDetailMoveDeliveringBtn",
   ];
 
   const ozonFbsCancelledState = {
@@ -212,6 +213,9 @@
     document.querySelectorAll("#ozonFbsSupplyDetailColgroup col[data-fixed]").forEach((col) => {
       col.style.display = readOnly ? "none" : "";
     });
+    const moveBtn = document.getElementById("ozonFbsSupplyDetailMoveDeliveringBtn");
+    // Local «Перенести в доставку» only from «Ожидают отгрузки».
+    if (moveBtn) moveBtn.hidden = !!readOnly || isDeliveringSuppliesTab();
     const info = document.getElementById("ozonFbsSupplyDetailInfo");
     if (info) {
       if (readOnly) {
@@ -3273,6 +3277,60 @@
     if (methodEl) methodEl.innerHTML = `<option value="">Загрузка…</option>`;
     if (modal) modal.classList.remove("hidden");
     await loadShipments();
+  }
+
+  /**
+   * Local only: move supply awaiting_deliver → delivering and deduct Остатки.
+   * Does not call Ozon.
+   */
+  async function moveOzonFbsSupplyToDelivering() {
+    const sid = String(supplyDetailState.supplyId || "").trim();
+    const sourceId = supplyDetailState.sourceId || state.sourceId;
+    const btn = document.getElementById("ozonFbsSupplyDetailMoveDeliveringBtn");
+    if (!sid || !sourceId || !_ozonFbsSupplyActionsReady()) {
+      alert("Откройте поставку и дождитесь загрузки заказов");
+      return;
+    }
+    if (isDeliveringSuppliesTab() || isSupplyDetailReadOnly()) {
+      alert("Поставка уже в «Доставляются»");
+      return;
+    }
+    const name = String(supplyDetailState.supply?.name || sid).trim();
+    const orderN = Number(supplyDetailState.supply?.order_count || 0);
+    const ok = window.confirm(
+      `Перенести поставку «${name}» в «Доставляются»?\n\n`
+        + `• На Ozon ничего не отправится\n`
+        + `• ${orderN || "Все"} отправлений уйдут из «Ожидают отгрузки»\n`
+        + `• Продукция спишется с Остатки прямо сейчас\n`
+        + `• При следующей сборке заказов создастся новая поставка`
+    );
+    if (!ok) return;
+    if (btn) {
+      btn.setAttribute("aria-disabled", "true");
+      btn.classList.add("is-wait-orders");
+    }
+    try {
+      const res = await fetch(
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/move-to-delivering`
+          + `?source_id=${encodeURIComponent(sourceId)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...jsonHeaders() },
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      closeSupplyDetailModal();
+      setTab("delivering");
+      alert(String(data.message || "Поставка перенесена в «Доставляются»"));
+    } catch (e) {
+      alert(e.message || String(e));
+    } finally {
+      if (btn) {
+        btn.removeAttribute("aria-disabled");
+        btn.classList.remove("is-wait-orders");
+      }
+    }
   }
 
   async function formShipmentsCarriage() {
@@ -6390,6 +6448,7 @@
   window.ozonFbsShipmentsForm = formShipmentsCarriage;
   window.ozonFbsShipmentsPrintBarcode = shipmentsPrintBarcode;
   window.ozonFbsShipmentsDownloadBarcode = shipmentsDownloadBarcode;
+  window.moveOzonFbsSupplyToDelivering = moveOzonFbsSupplyToDelivering;
   window.toggleOzonFbsRowMenu = toggleOzonFbsRowMenu;
   window.closeOzonFbsRowMenus = closeOzonFbsRowMenus;
   window.ozonFbsPrintOnePostingStickerFromDetail = printOnePostingStickerFromDetail;
