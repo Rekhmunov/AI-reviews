@@ -3682,30 +3682,71 @@
   }
 
   function _ozonFbsKizParseImportText(text) {
-    const lines = String(text || "").split(/\r?\n/);
-    const pairs = [];
-    for (const line of lines) {
+    const rawLines = String(text || "").split(/\r?\n/);
+    const lines = [];
+    for (const line of rawLines) {
       const trimmed = line.trim();
       if (!trimmed) continue;
       if (/^стикер\b/i.test(trimmed) && /\bкиз\b/i.test(trimmed)) continue;
-      let sticker = "";
-      let kiz = "";
+      lines.push(trimmed);
+    }
+
+    const pairs = [];
+    let pendingSticker = "";
+
+    const pushPair = (sticker, kiz) => {
+      const s = String(sticker || "").trim();
+      const k = String(kiz || "").trim();
+      if (s && k) pairs.push({ sticker: s, kiz: k });
+    };
+
+    for (let i = 0; i < lines.length; i += 1) {
+      const trimmed = lines[i];
+
+      // Same-line: sticker \t KIZ
       if (trimmed.includes("\t")) {
+        pendingSticker = "";
         const parts = trimmed.split("\t");
-        sticker = String(parts[0] || "").trim();
-        kiz = parts.slice(1).join("\t").trim();
-      } else if (trimmed.includes("|")) {
-        const idx = trimmed.indexOf("|");
-        sticker = trimmed.slice(0, idx).trim();
-        kiz = trimmed.slice(idx + 1).trim();
-      } else {
-        const m = trimmed.match(/^(\d{10,20})\s+(01\d{14}21[\s\S]+)$/);
-        if (m) {
-          sticker = m[1];
-          kiz = m[2];
-        }
+        pushPair(parts[0], parts.slice(1).join("\t"));
+        continue;
       }
-      if (sticker && kiz) pairs.push({ sticker, kiz });
+      // Same-line: sticker | KIZ
+      if (trimmed.includes("|") && /^\d{10,20}\s*\|/.test(trimmed)) {
+        pendingSticker = "";
+        const idx = trimmed.indexOf("|");
+        pushPair(trimmed.slice(0, idx), trimmed.slice(idx + 1));
+        continue;
+      }
+      // Same-line: sticker + spaces + 01…KIZ
+      const inline = trimmed.match(/^(\d{10,20})\s+(01\d{14}21[\s\S]+)$/);
+      if (inline) {
+        pendingSticker = "";
+        pushPair(inline[1], inline[2]);
+        continue;
+      }
+
+      // Alternating lines: sticker, then KIZ on the next line(s).
+      if (/^\d{10,20}$/.test(trimmed)) {
+        pendingSticker = trimmed;
+        continue;
+      }
+      if (pendingSticker && /^01\d{14}21/.test(trimmed)) {
+        let kiz = trimmed;
+        // Join wrapped KIZ continuation lines until next sticker / blank boundary.
+        while (i + 1 < lines.length) {
+          const nxt = lines[i + 1];
+          if (/^\d{10,20}$/.test(nxt)) break;
+          if (/^01\d{14}21/.test(nxt)) break;
+          if (nxt.includes("\t") || /^\d{10,20}\s*\|/.test(nxt)) break;
+          kiz += nxt;
+          i += 1;
+        }
+        pushPair(pendingSticker, kiz);
+        pendingSticker = "";
+        continue;
+      }
+      // Lone KIZ without sticker — ignore.
+      pendingSticker = "";
     }
     return pairs;
   }
@@ -3898,7 +3939,7 @@
       return;
     }
     if (!ozonFbsKizState.rowsReady || !_ozonFbsKizModalIsOpen()) {
-      _ozonFbsKizSetInfo("Сначала откройте модалку маркировки и дождитесь загрузки");
+      _ozonFbsKizImportSetInfo("Сначала откройте модалку маркировки и дождитесь загрузки");
       return;
     }
     const ta = document.getElementById("ozonFbsKizImportText");
