@@ -12875,17 +12875,36 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id")
         _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, source_id)
-        try:
-            return oz_sup.execute_ship_all_collect(
-                repository,
-                user_id=owner_id,
-                source_id=source_id,
-                client_id=client_id,
-                api_key=api_key,
-                decisions=decisions,
-            )
-        except RuntimeError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        ok, message = oz_sup.start_ship_all_collect_thread(
+            repo=repository,
+            user_id=owner_id,
+            source_id=source_id,
+            client_id=client_id,
+            api_key=api_key,
+            decisions=decisions,
+        )
+        if not ok:
+            raise HTTPException(status_code=409, detail=message)
+        return {"ok": True, "started": True, "message": message}
+
+    @app.get("/api/ozon-fbs/ship-all/status")
+    def ozon_fbs_ship_all_status(request: Request) -> dict[str, object]:
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        return oz_sup.get_ship_all_collect_state()
+
+    @app.post("/api/ozon-fbs/ship-all/stop")
+    def ozon_fbs_ship_all_stop(request: Request) -> dict[str, object]:
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        stopped = oz_sup.request_ship_all_collect_stop()
+        return {"ok": True, "stopping": bool(stopped)}
 
     @app.get("/api/ozon-fbs/supplies")
     def ozon_fbs_list_supplies(

@@ -40,6 +40,7 @@
     preview: null,
     sourceId: null,
     busy: false,
+    pollTimer: null,
   };
 
   const supplyDetailState = {
@@ -1191,6 +1192,53 @@
     return data;
   }
 
+  function _collectResultFromStatus(st) {
+    return {
+      ok: !!st?.ok && !(st?.errors || []).length,
+      message: String(st?.message || ""),
+      errors: Array.isArray(st?.errors) ? st.errors : [],
+      group_lines: Array.isArray(st?.group_lines) ? st.group_lines : [],
+      created_supplies: Array.isArray(st?.created_supplies) ? st.created_supplies : [],
+      shipped: Number(st?.shipped || 0),
+      failed: Number(st?.failed || 0),
+      total: Number(st?.total || 0),
+      goto_awaiting_deliver: !!st?.goto_awaiting_deliver,
+    };
+  }
+
+  async function pollCollectStatus() {
+    try {
+      const res = await fetch("/api/ozon-fbs/ship-all/status");
+      const st = await res.json().catch(() => ({}));
+      const running = Boolean(st.in_progress);
+      const done = Number(st.done || 0);
+      const total = Number(st.total || 0);
+      const msg = String(st.message || "");
+      const progress =
+        total > 0 ? `Сборка… ${done} из ${total}` : (msg || "Сборка…");
+      showSyncInfo(running ? progress : msg);
+      const btn = document.getElementById("ozonFbsShipAllBtn");
+      if (btn && running) btn.textContent = total > 0 ? `Сборка ${done}/${total}` : "Сборка…";
+      if (running) {
+        collectState.pollTimer = setTimeout(pollCollectStatus, 1000);
+        return;
+      }
+      clearTimeout(collectState.pollTimer);
+      collectState.pollTimer = null;
+      collectState.busy = false;
+      state.shipAllBusy = false;
+      syncShipAllButton();
+      if (btn) btn.textContent = "Собрать все заказы";
+      const data = _collectResultFromStatus(st);
+      closeCollectModal();
+      showCollectResult(data);
+      if (data.goto_awaiting_deliver) setTab("awaiting_deliver");
+      else await loadPostings(true);
+    } catch (_e) {
+      collectState.pollTimer = setTimeout(pollCollectStatus, 1500);
+    }
+  }
+
   async function shipAll() {
     if (!state.sourceId || state.shipAllBusy || collectState.busy) return;
     const n = Number(state.counts.awaiting_packaging || 0);
@@ -1217,31 +1265,29 @@
       collectState.preview = preview;
       if (!preview.needs_modal) {
         if (btn) btn.textContent = "Сборка…";
-        showSyncInfo("Сборка отправлений и создание поставок…");
+        showSyncInfo("Запуск сборки…");
         const decisions = (preview.groups || []).map((g) => ({
           group_key: String(g.group_key || ""),
           action: "add",
           supply_id: String(g.default_supply_id || ""),
         }));
-        const data = await executeCollect(decisions, state.sourceId);
-        collectState.busy = false;
-        state.shipAllBusy = false;
-        closeCollectModal();
-        showCollectResult(data);
-        showSyncInfo(data.message || "Готово");
-        if (data.goto_awaiting_deliver) setTab("awaiting_deliver");
-        else await loadPostings(true);
+        await executeCollect(decisions, state.sourceId);
+        showSyncInfo("Сборка запущена…");
+        pollCollectStatus();
         return;
       }
       renderCollectModal(preview);
       document.getElementById("ozonFbsCollectModal")?.classList.remove("hidden");
       if (confirmBtn) confirmBtn.disabled = false;
+      collectState.busy = false;
+      state.shipAllBusy = false;
+      if (btn) btn.textContent = "Собрать все заказы";
+      syncShipAllButton();
     } catch (e) {
       collectState.sourceId = null;
       const err = e.message || String(e);
       showSyncInfo(err);
       alert(err);
-    } finally {
       collectState.busy = false;
       state.shipAllBusy = false;
       if (btn) btn.textContent = "Собрать все заказы";
@@ -1267,16 +1313,12 @@
     state.shipAllBusy = true;
     if (confirmBtn) confirmBtn.disabled = true;
     syncShipAllButton();
-    showSyncInfo("Сборка отправлений и создание поставок…");
+    showSyncInfo("Запуск сборки…");
     try {
-      const data = await executeCollect(decisions, sourceId);
-      collectState.busy = false;
-      state.shipAllBusy = false;
-      closeCollectModal();
-      showCollectResult(data);
-      showSyncInfo(data.message || "Готово");
-      if (data.goto_awaiting_deliver) setTab("awaiting_deliver");
-      else await loadPostings(true);
+      await executeCollect(decisions, sourceId);
+      document.getElementById("ozonFbsCollectModal")?.classList.add("hidden");
+      showSyncInfo("Сборка запущена…");
+      pollCollectStatus();
     } catch (e) {
       const msg = e.message || String(e);
       if (errEl) {
@@ -1285,7 +1327,6 @@
       } else {
         alert(msg);
       }
-    } finally {
       collectState.busy = false;
       state.shipAllBusy = false;
       if (confirmBtn) confirmBtn.disabled = false;

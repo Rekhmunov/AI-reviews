@@ -56,6 +56,66 @@ def build_ship_packages(posting: dict[str, Any]) -> list[dict[str, Any]]:
     return [{"products": package_products}]
 
 
+def _force_local_awaiting_deliver(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_number: str,
+    posting: dict[str, Any] | None = None,
+) -> None:
+    """Persist awaiting_deliver without relying on Ozon get eventual consistency."""
+    pn = str(posting_number or "").strip()
+    if not pn:
+        return
+    payload = dict(posting or {})
+    payload["posting_number"] = pn
+    payload["status"] = oz.TAB_AWAITING_DELIVER
+    try:
+        oz.upsert_posting(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            posting=payload,
+            protect_status_downgrade=False,
+        )
+    except Exception:
+        with repo._connect() as conn:
+            conn.execute(
+                repo._sql(
+                    """
+                    UPDATE ozon_fbs_postings
+                    SET status = ?, tab = ?, synced_at = CURRENT_TIMESTAMP
+                    WHERE user_id = ? AND source_id = ? AND posting_number = ?
+                    """
+                ),
+                (
+                    oz.TAB_AWAITING_DELIVER,
+                    oz.TAB_AWAITING_DELIVER,
+                    user_id,
+                    source_id,
+                    pn,
+                ),
+            )
+
+
+def _ship_error_already_assembled(exc: BaseException) -> bool:
+    """Ozon may reject ship when posting already left awaiting_packaging."""
+    text = str(exc or "").lower()
+    needles = (
+        "awaiting_deliver",
+        "already",
+        "уже собран",
+        "уже отправлен",
+        "нельзя собрать",
+        "invalidstate",
+        "invalid_state",
+        "status_not_valid",
+        "posting_already",
+    )
+    return any(n in text for n in needles)
+
+
 def ship_posting(
     repo: ReviewRepository,
     *,
@@ -65,22 +125,101 @@ def ship_posting(
     client_id: str,
     api_key: str,
     client: oz.OzonFbsClient | None = None,
+    fast: bool = False,
 ) -> dict[str, Any]:
+    """Ship one posting via ``/v4/posting/fbs/ship``.
+
+    ``fast=True`` (bulk collect): prefer local products, skip post-ship get,
+    treat «already assembled» as success — fewer Ozon round-trips / timeouts.
+    """
     row = get_posting_row(
         repo, user_id=user_id, source_id=source_id, posting_number=posting_number
     )
     if not row:
         raise RuntimeError("Отправление не найдено локально — синхронизируйте и повторите")
+
+    local_tab = str(row.get("tab") or "").strip().lower()
+    if local_tab in {
+        oz.TAB_AWAITING_DELIVER,
+        oz.TAB_DELIVERING,
+        oz.TAB_DELIVERED,
+    }:
+        return {"ok": True, "result": {"already": True}, "skipped": True}
+
     api = client or oz.OzonFbsClient(client_id, api_key)
+    packages: list[dict[str, Any]] | None = None
+    remote: dict[str, Any] = {}
+
+    if fast:
+        try:
+            packages = build_ship_packages(row)
+        except Exception:
+            packages = None
+        if packages is None:
+            try:
+                remote = api.get_posting(str(posting_number))
+            except Exception:
+                remote = {}
+            packages = build_ship_packages(remote if remote else row)
+    else:
+        try:
+            remote = api.get_posting(str(posting_number))
+        except Exception:
+            remote = {}
+        packages = build_ship_packages(remote if remote else row)
+
     try:
-        remote = api.get_posting(str(posting_number))
-    except Exception:
-        remote = {}
-    packages = build_ship_packages(remote if remote else row)
-    result = api.ship_posting(str(posting_number), packages)
+        result = api.ship_posting(str(posting_number), packages)
+    except Exception as exc:
+        if not _ship_error_already_assembled(exc):
+            # One soft retry on rate limit / transient HTTP.
+            err_l = str(exc).lower()
+            if "429" in err_l or "http 5" in err_l or "network" in err_l:
+                import time as _time
+
+                _time.sleep(1.5)
+                try:
+                    result = api.ship_posting(str(posting_number), packages)
+                except Exception as exc2:
+                    if not _ship_error_already_assembled(exc2):
+                        raise
+                    result = {"already": True, "error": str(exc2)}
+            else:
+                # Confirm remote status — may already be past packaging.
+                try:
+                    got = api.get_posting(str(posting_number))
+                except Exception:
+                    got = {}
+                got_tab = oz.compute_tab(str((got or {}).get("status") or ""))
+                if got_tab in {
+                    oz.TAB_AWAITING_DELIVER,
+                    oz.TAB_DELIVERING,
+                    oz.TAB_DELIVERED,
+                }:
+                    _force_local_awaiting_deliver(
+                        repo,
+                        user_id=user_id,
+                        source_id=source_id,
+                        posting_number=str(posting_number),
+                        posting=got if isinstance(got, dict) else None,
+                    )
+                    return {"ok": True, "result": {"already": True}, "skipped": True}
+                raise
+        else:
+            result = {"already": True, "error": str(exc)}
+
+    if fast:
+        _force_local_awaiting_deliver(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            posting_number=str(posting_number),
+            posting=remote or row,
+        )
+        return {"ok": True, "result": result}
+
     # After a successful ship, local must be awaiting_deliver even if Ozon get/list
-    # still briefly returns awaiting_packaging (eventual consistency). Otherwise a
-    # concurrent sync (or refresh of stale get) bounces the row back to «сборки».
+    # still briefly returns awaiting_packaging (eventual consistency).
     refreshed: dict[str, Any] = {}
     try:
         got = api.get_posting(str(posting_number))
@@ -109,23 +248,12 @@ def ship_posting(
             protect_status_downgrade=False,
         )
     except Exception:
-        with repo._connect() as conn:
-            conn.execute(
-                repo._sql(
-                    """
-                    UPDATE ozon_fbs_postings
-                    SET status = ?, tab = ?, synced_at = CURRENT_TIMESTAMP
-                    WHERE user_id = ? AND source_id = ? AND posting_number = ?
-                    """
-                ),
-                (
-                    oz.TAB_AWAITING_DELIVER,
-                    oz.TAB_AWAITING_DELIVER,
-                    user_id,
-                    source_id,
-                    str(posting_number),
-                ),
-            )
+        _force_local_awaiting_deliver(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            posting_number=str(posting_number),
+        )
     return {"ok": True, "result": result}
 
 

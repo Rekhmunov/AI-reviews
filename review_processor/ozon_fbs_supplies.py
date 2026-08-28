@@ -10,6 +10,7 @@ import base64
 import json
 import logging
 import secrets
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -32,6 +33,27 @@ ORPHAN_DELIVERING_SUPPLY_NAME = "Без локальной поставки"
 OZON_FBS_LIVE_CHECK_CHUNK = 40
 OZON_FBS_LIVE_CHECK_WORKERS = 4
 OZON_FBS_LIVE_CHECK_CHUNK_MAX = 100
+
+# Bulk «Собрать все»: pause between /v4/posting/fbs/ship calls (Ozon has no batch ship).
+OZON_FBS_SHIP_ALL_PAUSE_SEC = 0.22
+
+_collect_lock = threading.Lock()
+_collect_state: dict[str, Any] = {
+    "in_progress": False,
+    "cancel_requested": False,
+    "source_id": 0,
+    "total": 0,
+    "done": 0,
+    "shipped": 0,
+    "failed": 0,
+    "message": "",
+    "errors": [],
+    "created_supplies": [],
+    "group_lines": [],
+    "shipped_numbers": [],
+    "goto_awaiting_deliver": False,
+    "ok": True,
+}
 
 _TAB_SUPPLY_STATUS_LABEL: dict[str, str] = {
     oz.TAB_AWAITING_DELIVER: "Сборка заказов",
@@ -568,6 +590,32 @@ def _link_postings_to_supply_only(
         )
 
 
+def get_ship_all_collect_state() -> dict[str, Any]:
+    with _collect_lock:
+        st = dict(_collect_state)
+        st["errors"] = [dict(x) if isinstance(x, dict) else x for x in (_collect_state.get("errors") or [])]
+        st["created_supplies"] = [
+            dict(x) if isinstance(x, dict) else x
+            for x in (_collect_state.get("created_supplies") or [])
+        ]
+        st["group_lines"] = list(_collect_state.get("group_lines") or [])
+        st["shipped_numbers"] = list(_collect_state.get("shipped_numbers") or [])
+        return st
+
+
+def request_ship_all_collect_stop() -> bool:
+    with _collect_lock:
+        if _collect_state.get("in_progress"):
+            _collect_state["cancel_requested"] = True
+            return True
+    return False
+
+
+def _set_collect_progress(**kwargs: Any) -> None:
+    with _collect_lock:
+        _collect_state.update(kwargs)
+
+
 def execute_ship_all_collect(
     repo: ReviewRepository,
     *,
@@ -576,22 +624,35 @@ def execute_ship_all_collect(
     client_id: str,
     api_key: str,
     decisions: list[dict[str, Any]],
+    progress: Any | None = None,
+    stop_requested: Any | None = None,
+    ship_pause_sec: float = OZON_FBS_SHIP_ALL_PAUSE_SEC,
 ) -> dict[str, Any]:
-    """Ship on Ozon + create/add local supplies from decisions."""
+    """Ship on Ozon + create/add local supplies from decisions.
+
+    Ozon has no batch ship — one ``/v4/posting/fbs/ship`` per posting.
+    Progress callback: ``progress(done, total, message)``.
+    """
     ensure_ozon_fbs_supply_schema(repo)
     preview = preview_ship_all_collect(repo, user_id=user_id, source_id=source_id)
     groups_by_key = {str(g.get("group_key")): g for g in preview.get("groups") or []}
     if not groups_by_key:
-        return {
+        out = {
             "ok": True,
             "total": 0,
             "shipped": 0,
             "failed": 0,
+            "done": 0,
             "created_supplies": [],
             "errors": [],
             "message": "Нет отправлений в «Ожидают сборки»",
             "goto_awaiting_deliver": False,
+            "shipped_numbers": [],
+            "group_lines": [],
         }
+        if progress:
+            progress(0, 0, out["message"])
+        return out
 
     client = oz.OzonFbsClient(client_id, api_key)
     shipped: list[str] = []
@@ -606,6 +667,8 @@ def execute_ship_all_collect(
     }
     source_name = _source_display_name(repo, user_id=user_id, source_id=source_id)
 
+    # Flatten for progress total.
+    work_groups: list[tuple[dict[str, Any], dict[str, Any], list[str]]] = []
     for dec in decisions or []:
         if not isinstance(dec, dict):
             continue
@@ -614,12 +677,28 @@ def execute_ship_all_collect(
         if not group:
             errors.append({"posting_number": gkey or "?", "error": "Группа не найдена"})
             continue
+        posting_numbers = [str(x).strip() for x in (group.get("posting_numbers") or []) if str(x).strip()]
+        if posting_numbers:
+            work_groups.append((dec, group, posting_numbers))
+    total = sum(len(pns) for _, _, pns in work_groups)
+    done = 0
+    if progress:
+        progress(0, total, f"Сборка… 0 из {total}")
+
+    def _stopped() -> bool:
+        return bool(stop_requested and stop_requested())
+
+    for dec, group, posting_numbers in work_groups:
+        if _stopped():
+            break
+        gkey = str(dec.get("group_key") or group.get("group_key") or "").strip()
         action = str(dec.get("action") or group.get("mode") or "create").strip().lower()
         if action == "add_one":
             action = "add"
-        posting_numbers = list(group.get("posting_numbers") or [])
         shipped_here: list[str] = []
         for pn in posting_numbers:
+            if _stopped():
+                break
             try:
                 oz_detail.ship_posting(
                     repo,
@@ -629,11 +708,24 @@ def execute_ship_all_collect(
                     client_id=client_id,
                     api_key=api_key,
                     client=client,
+                    fast=True,
                 )
                 shipped.append(pn)
                 shipped_here.append(pn)
             except Exception as exc:
                 errors.append({"posting_number": pn, "error": str(exc)})
+                _log.warning("ozon ship-all %s failed: %s", pn, exc)
+            done += 1
+            if progress:
+                progress(
+                    done,
+                    total,
+                    f"Сборка… {done} из {total}"
+                    + (f" · ошибок {len(errors)}" if errors else ""),
+                )
+            if ship_pause_sec and ship_pause_sec > 0:
+                time.sleep(float(ship_pause_sec))
+
         if not shipped_here:
             continue
 
@@ -691,8 +783,6 @@ def execute_ship_all_collect(
 
     shipped_n = len(shipped)
     failed_n = len(errors)
-    # Re-assert tab after all ships: concurrent sync may have upserted a stale
-    # awaiting_packaging page while we were shipping.
     if shipped:
         placeholders = ", ".join("?" for _ in shipped)
         with repo._connect() as conn:
@@ -716,16 +806,24 @@ def execute_ship_all_collect(
                     oz.TAB_AWAITING_DELIVER,
                 ),
             )
-    ok = shipped_n > 0 and failed_n == 0
-    if shipped_n and not failed_n:
+    stopped = _stopped()
+    ok = shipped_n > 0 and failed_n == 0 and not stopped
+    if stopped and shipped_n:
+        message = f"Остановлено. Собрано {shipped_n} из {total}"
+    elif stopped:
+        message = "Остановлено"
+    elif shipped_n and not failed_n:
         message = f"Собрано {shipped_n} отправлений → «Ожидают отгрузки»"
     elif shipped_n:
         message = f"Собрано {shipped_n}, ошибок {failed_n}"
     else:
         message = f"Не удалось собрать отправления ({failed_n})"
+    if progress:
+        progress(done, total, message)
     return {
         "ok": ok,
-        "total": int(preview.get("posting_count") or 0),
+        "total": total or int(preview.get("posting_count") or 0),
+        "done": done,
         "shipped": shipped_n,
         "failed": failed_n,
         "shipped_numbers": shipped,
@@ -734,7 +832,116 @@ def execute_ship_all_collect(
         "errors": errors,
         "message": message,
         "goto_awaiting_deliver": shipped_n > 0,
+        "stopped": stopped,
     }
+
+
+def start_ship_all_collect_thread(
+    *,
+    repo: ReviewRepository,
+    user_id: int,
+    source_id: int,
+    client_id: str,
+    api_key: str,
+    decisions: list[dict[str, Any]],
+) -> tuple[bool, str]:
+    """Background «Собрать все» — same UX pattern as Ozon FBS sync."""
+    with _collect_lock:
+        if _collect_state.get("in_progress"):
+            return False, "Сборка уже выполняется"
+        _collect_state.update(
+            {
+                "in_progress": True,
+                "cancel_requested": False,
+                "source_id": int(source_id),
+                "total": 0,
+                "done": 0,
+                "shipped": 0,
+                "failed": 0,
+                "message": "Запуск сборки…",
+                "errors": [],
+                "created_supplies": [],
+                "group_lines": [],
+                "shipped_numbers": [],
+                "goto_awaiting_deliver": False,
+                "ok": True,
+            }
+        )
+
+    def _run() -> None:
+        def _progress(done: int, total: int, message: str) -> None:
+            with _collect_lock:
+                _collect_state["done"] = int(done)
+                _collect_state["total"] = int(total)
+                _collect_state["message"] = str(message or "")
+
+        def _stop() -> bool:
+            with _collect_lock:
+                return bool(_collect_state.get("cancel_requested"))
+
+        try:
+            result = execute_ship_all_collect(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                client_id=client_id,
+                api_key=api_key,
+                decisions=decisions,
+                progress=_progress,
+                stop_requested=_stop,
+            )
+            with _collect_lock:
+                _collect_state.update(
+                    {
+                        "in_progress": False,
+                        "total": int(result.get("total") or 0),
+                        "done": int(result.get("done") or result.get("total") or 0),
+                        "shipped": int(result.get("shipped") or 0),
+                        "failed": int(result.get("failed") or 0),
+                        "message": str(result.get("message") or ""),
+                        "errors": list(result.get("errors") or []),
+                        "created_supplies": list(result.get("created_supplies") or []),
+                        "group_lines": list(result.get("group_lines") or []),
+                        "shipped_numbers": list(result.get("shipped_numbers") or []),
+                        "goto_awaiting_deliver": bool(result.get("goto_awaiting_deliver")),
+                        "ok": bool(result.get("ok")),
+                    }
+                )
+        except Exception as exc:
+            _log.exception("ozon ship-all collect failed")
+            with _collect_lock:
+                _collect_state.update(
+                    {
+                        "in_progress": False,
+                        "ok": False,
+                        "message": f"Ошибка сборки: {exc}",
+                        "errors": [{"posting_number": "?", "error": str(exc)}],
+                    }
+                )
+
+    threading.Thread(target=_run, name="ozon-fbs-ship-all", daemon=True).start()
+    return True, "Сборка запущена"
+
+
+def execute_ship_all_collect_legacy_sync(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    client_id: str,
+    api_key: str,
+    decisions: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Synchronous collect (tests / legacy). Prefer ``start_ship_all_collect_thread``."""
+    return execute_ship_all_collect(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        client_id=client_id,
+        api_key=api_key,
+        decisions=decisions,
+        ship_pause_sec=0,
+    )
 
 
 def _load_postings_by_numbers(
