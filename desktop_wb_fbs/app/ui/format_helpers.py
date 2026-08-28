@@ -22,6 +22,8 @@ _RU_LAYOUT_TO_EN = {
     "В": "D", "А": "F", "П": "G", "Р": "H", "О": "J", "Л": "K", "Д": "L",
     "Ж": ":", "Э": '"', "Я": "Z", "Ч": "X", "С": "C", "М": "V", "И": "B",
     "Т": "N", "Ь": "M", "Б": "<", "Ю": ">", "Ё": "~",
+    # Same physical keys as EN / and ? when OS layout is Russian (ЧЗ crypto is base64).
+    ".": "/", ",": "?",
 }
 
 _CYRILLIC_RE = re.compile(r"[А-Яа-яЁё]")
@@ -33,6 +35,10 @@ def has_cyrillic(value: object) -> bool:
 
 def fix_ru_keyboard_layout(value: object) -> str:
     text = str(value or "")
+    # Match web `_wbFbsFixRuKeyboardLayout`: only remap when Cyrillic is present,
+    # so EN marks with literal `.` / `,` in serial or crypto stay intact.
+    if not _CYRILLIC_RE.search(text):
+        return text
     out = []
     for ch in text:
         out.append(_RU_LAYOUT_TO_EN.get(ch, ch))

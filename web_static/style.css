@@ -10032,13 +10032,13 @@ button.wb-fbs-sd-portal-btn:focus-visible {
 }
 .ozon-fbs-kiz-import-text {
   width: 100%;
-  min-height: 72px;
-  max-height: 120px;
+  min-height: 120px;
+  max-height: 200px;
   padding: 8px 12px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.4;
   color: #0f172a;
   background: #fff;

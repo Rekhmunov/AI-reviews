@@ -3620,13 +3620,14 @@
   }
 
   function _ozonFbsKizCanImport() {
-    return typeof isTenantOwner === "function" && isTenantOwner();
+    // Available to all roles while Marking modal is open and rows are loaded.
+    return _ozonFbsKizModalIsOpen() && !!ozonFbsKizState.rowsReady;
   }
 
   function _ozonFbsKizSyncImportBtn() {
     const btn = document.getElementById("ozonFbsKizImportBtn");
     if (!btn) return;
-    const can = _ozonFbsKizCanImport();
+    const can = !!ozonFbsKizState.rowsReady && _ozonFbsKizModalIsOpen();
     btn.hidden = !can;
     btn.style.display = can ? "" : "none";
     if (!can) closeOzonFbsKizImportModal();
@@ -3638,10 +3639,6 @@
   }
 
   function openOzonFbsKizImportModal() {
-    if (!_ozonFbsKizCanImport()) {
-      alert("Импорт маркировки доступен только главному пользователю");
-      return;
-    }
     if (!_ozonFbsKizModalIsOpen() || !ozonFbsKizState.rowsReady) {
       alert("Сначала откройте модалку «Маркировка» и дождитесь загрузки");
       return;
@@ -3650,12 +3647,86 @@
     if (typeof setModalVisibility === "function") setModalVisibility("ozonFbsKizImportModal", true);
     else document.getElementById("ozonFbsKizImportModal")?.classList.remove("hidden");
     const ta = document.getElementById("ozonFbsKizImportText");
-    if (ta) setTimeout(() => ta.focus(), 40);
+    if (ta) {
+      // Scanner-first: keep focus in the paste/scan field; wedge ends with Enter → newline.
+      setTimeout(() => {
+        ta.focus();
+        try {
+          const len = String(ta.value || "").length;
+          ta.setSelectionRange(len, len);
+        } catch (_e) {
+          /* ignore */
+        }
+      }, 40);
+    }
   }
 
   function closeOzonFbsKizImportModal() {
     if (typeof setModalVisibility === "function") setModalVisibility("ozonFbsKizImportModal", false);
     else document.getElementById("ozonFbsKizImportModal")?.classList.add("hidden");
+  }
+
+  /** Block RU layout in import field (same warning as Marking scan). */
+  function onOzonFbsKizImportTextInput(event) {
+    const input = event?.target;
+    if (!input) return;
+    if (typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen()) {
+      input.value = "";
+      return;
+    }
+    if (typeof _wbFbsKizHasCyrillic === "function" && _wbFbsKizHasCyrillic(input.value)) {
+      if (typeof _wbFbsKizBlockRuLayout === "function") _wbFbsKizBlockRuLayout(input);
+    }
+  }
+
+  /**
+   * Scanner-friendly Enter: after sticker+КИЗ pair lands (wedge sends Enter),
+   * apply the latest complete pair immediately. Ctrl/Cmd+Enter runs full import.
+   */
+  function onOzonFbsKizImportTextKey(event) {
+    if (!event) return;
+    if (typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen()) {
+      event.preventDefault();
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+      event.preventDefault();
+      void runOzonFbsKizImport();
+      return;
+    }
+    if (event.key !== "Enter" || event.ctrlKey || event.metaKey || event.altKey) return;
+    // Allow newline for sticker / KIZ separation, then try live apply.
+    window.setTimeout(() => {
+      void _ozonFbsKizImportApplyLatestScanPair();
+    }, 0);
+  }
+
+  async function _ozonFbsKizImportApplyLatestScanPair() {
+    if (!_ozonFbsKizImportModalIsOpen() || !_ozonFbsKizCanImport()) return;
+    const ta = document.getElementById("ozonFbsKizImportText");
+    if (!ta) return;
+    const pairs = _ozonFbsKizParseImportText(ta.value);
+    if (!pairs.length) return;
+    // Batch paste: operator uses «Импортировать». Live wedge usually has 1 pair.
+    if (pairs.length > 2) return;
+    const last = pairs[pairs.length - 1];
+    const mark = _ozonFbsNormalizeMark(last.kiz);
+    // Wait until the wedge finished a Data Matrix (not only the sticker line).
+    if (!/^01\d{14}21/.test(mark)) return;
+    const remaining = pairs.slice(0, -1);
+    ta.value = `${last.sticker}\t${last.kiz}`;
+    try {
+      await runOzonFbsKizImport({ liveScan: true });
+    } finally {
+      ta.value = remaining.map((p) => `${p.sticker}\t${p.kiz}`).join("\n");
+      ta.focus();
+      try {
+        const len = String(ta.value || "").length;
+        ta.setSelectionRange(len, len);
+      } catch (_e) {
+        /* ignore */
+      }
+    }
   }
 
   /** @deprecated use openOzonFbsKizImportModal / closeOzonFbsKizImportModal */
@@ -3823,10 +3894,7 @@
   }
 
   async function applyOzonFbsKizImportConflicts() {
-    if (!_ozonFbsKizCanImport()) {
-      alert("Импорт маркировки доступен только главному пользователю");
-      return;
-    }
+    if (!_ozonFbsKizCanImport()) return;
     if (!ozonFbsKizState.rowsReady || !_ozonFbsKizModalIsOpen()) return;
     const items = Array.isArray(ozonFbsKizState.importConflicts)
       ? ozonFbsKizState.importConflicts
@@ -3933,9 +4001,12 @@
     }
   }
 
-  async function runOzonFbsKizImport() {
+  async function runOzonFbsKizImport(opts) {
+    const liveScan = !!(opts && opts.liveScan);
     if (!_ozonFbsKizCanImport()) {
-      alert("Импорт маркировки доступен только главному пользователю");
+      if (!liveScan) {
+        _ozonFbsKizImportSetInfo("Сначала откройте модалку маркировки и дождитесь загрузки");
+      }
       return;
     }
     if (!ozonFbsKizState.rowsReady || !_ozonFbsKizModalIsOpen()) {
@@ -3946,9 +4017,11 @@
     const runBtn = document.getElementById("ozonFbsKizImportRunBtn");
     const pairs = _ozonFbsKizParseImportText(ta?.value || "");
     if (!pairs.length) {
-      _ozonFbsKizImportSetLog(["Нет строк вида «стикер \\t КИЗ»"]);
-      _ozonFbsKizImportSetInfo("Импорт: пустой список");
-      _ozonFbsKizClearImportConflicts();
+      if (!liveScan) {
+        _ozonFbsKizImportSetLog(["Нет строк вида «стикер \\t КИЗ»"]);
+        _ozonFbsKizImportSetInfo("Импорт: пустой список");
+        _ozonFbsKizClearImportConflicts();
+      }
       return;
     }
 
@@ -6328,6 +6401,8 @@
   window.openOzonFbsKizImportModal = openOzonFbsKizImportModal;
   window.closeOzonFbsKizImportModal = closeOzonFbsKizImportModal;
   window.toggleOzonFbsKizImportPanel = toggleOzonFbsKizImportPanel;
+  window.onOzonFbsKizImportTextInput = onOzonFbsKizImportTextInput;
+  window.onOzonFbsKizImportTextKey = onOzonFbsKizImportTextKey;
   window.runOzonFbsKizImport = runOzonFbsKizImport;
   window.applyOzonFbsKizImportConflicts = applyOzonFbsKizImportConflicts;
   window.dismissOzonFbsKizImportConflicts = dismissOzonFbsKizImportConflicts;

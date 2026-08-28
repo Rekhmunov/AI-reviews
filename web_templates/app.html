@@ -3043,7 +3043,7 @@
               <div class="wb-fbs-kiz-header-actions">
                 <button type="button" id="ozonFbsKizImportBtn" class="secondary"
                         onclick="openOzonFbsKizImportModal()"
-                        title="Импорт списка стикер + КИЗ (только главный пользователь)">Импорт маркировки</button>
+                        title="Импорт списка стикер + КИЗ или сканирование прямо в окно">Импорт маркировки</button>
                 <button type="button" id="ozonFbsKizSaveBtn" onclick="saveOzonFbsKizModal()">Сохранить</button>
                 <button type="button" class="icon-btn secondary" onclick="closeOzonFbsKizModal()" aria-label="Закрыть">✕</button>
               </div>
@@ -3119,14 +3119,17 @@
             <div class="wb-fbs-kiz-header ozon-fbs-kiz-import-header">
               <div class="wb-fbs-kiz-header-main">
                 <h3 id="ozonFbsKizImportTitle" class="wb-fbs-kiz-title">Импорт маркировки</h3>
-                <p class="wb-fbs-kiz-sub">Вставьте список: стикер и КИЗ в одной строке через таб, или по очереди — стикер, следующей строкой КИЗ. Коды пишутся в открытую модалку «Маркировка».</p>
+                <p class="wb-fbs-kiz-sub">Сканируйте стикер, затем КИЗ (сканер сам ставит Enter между ними) — пара применится сразу. Либо вставьте список и нажмите «Импортировать». Раскладка только EN, как в «Маркировка».</p>
               </div>
             </div>
             <div class="ozon-fbs-kiz-import">
-              <label class="ozon-fbs-kiz-import-label" for="ozonFbsKizImportText">Список стикер + КИЗ</label>
-              <textarea id="ozonFbsKizImportText" class="ozon-fbs-kiz-import-text" rows="4"
-                        spellcheck="false" autocomplete="off"
-                        placeholder="202150211695000&#9;010467…91EE11…92…"></textarea>
+              <label class="ozon-fbs-kiz-import-label" for="ozonFbsKizImportText">Сканирование / список стикер + КИЗ</label>
+              <textarea id="ozonFbsKizImportText" class="ozon-fbs-kiz-import-text" rows="6"
+                        spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off"
+                        inputmode="text"
+                        oninput="onOzonFbsKizImportTextInput(event)"
+                        onkeydown="onOzonFbsKizImportTextKey(event)"
+                        placeholder="Сканируйте стикер → КИЗ&#10;или вставьте:&#10;202150211695000&#9;010467…91EE11…92…"></textarea>
               <div class="ozon-fbs-kiz-import-actions">
                 <button type="button" id="ozonFbsKizImportRunBtn" onclick="runOzonFbsKizImport()">Импортировать</button>
                 <button type="button" class="secondary" onclick="closeOzonFbsKizImportModal()">Закрыть</button>
