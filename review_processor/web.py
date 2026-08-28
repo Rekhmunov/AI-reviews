@@ -17076,6 +17076,42 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             out.append(row)
         return out
 
+    def _stock_item_visible_map(owner_id: int) -> dict[tuple[str, int], bool]:
+        """Default True when no visibility row (same as table / Вывод editor)."""
+        repository.ensure_supply_balances_tables()
+        vis_rows = repository.list_supply_balance_visibility(user_id=owner_id)
+        return {
+            (str(v.get("item_type") or ""), int(v.get("item_id") or 0)): bool(
+                v.get("visible", True)
+            )
+            for v in vis_rows
+        }
+
+    def _reject_hidden_stock_lines(
+        owner_id: int, lines: list[dict[str, object]]
+    ) -> None:
+        """Block receipt/adjustment for items turned off in «Вывод»."""
+        if not lines:
+            return
+        vis_map = _stock_item_visible_map(owner_id)
+        hidden = [
+            line
+            for line in lines
+            if not vis_map.get(
+                (str(line.get("item_type") or ""), int(line.get("item_id") or 0)),
+                True,
+            )
+        ]
+        if not hidden:
+            return
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Среди позиций есть выключенные в «Вывод». "
+                "Включите их в Вывод или уберите из документа."
+            ),
+        )
+
     @app.get("/api/supply-balances/meta")
     def supply_balances_meta(request: Request) -> dict[str, object]:
         user = _require_user(request)
@@ -17247,6 +17283,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             if ozon_sku and ozon_sku != article and ozon_sku not in barcodes:
                 barcodes.append(ozon_sku)
             balance = bal_by_date[as_of_date].get(("product", pid_item))
+            product_category = str(p.get("product_category") or "").strip()
             row = {
                 "item_type": "product",
                 "item_id": pid_item,
@@ -17255,6 +17292,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                 "supplier_article": article,
                 "wb_nmid": wb_nmid,
                 "ozon_sku": ozon_sku,
+                "product_category": product_category,
                 "photo_url": (
                     f"/api/products/photo/{pid_item}"
                     if p.get("photo_path")
@@ -17284,6 +17322,25 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             )
         )
         rows = material_rows + product_rows
+        # Categories for stock filter (no settings access required).
+        try:
+            cat_rows = repository.list_product_categories(
+                user_id=owner_id, seed_defaults=True
+            )
+        except Exception:
+            cat_rows = []
+        categories = [
+            str(c.get("name") or "").strip()
+            for c in cat_rows
+            if str(c.get("name") or "").strip()
+        ]
+        # Also include categories present on visible products but missing from list.
+        seen_cats = set(categories)
+        for pr in product_rows:
+            cat = str(pr.get("product_category") or "").strip()
+            if cat and cat not in seen_cats:
+                categories.append(cat)
+                seen_cats.add(cat)
         return {
             "today": today,
             "as_of": as_of_date,
@@ -17291,6 +17348,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             "dates": dates,
             "history": include_history,
             "rows": rows,
+            "categories": categories,
             "productions": productions,
             "can_edit": False,
             "ledger": True,
@@ -17316,6 +17374,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         lines = [x for x in lines if float(x["qty"]) > 0]
         if not lines:
             raise HTTPException(status_code=400, detail="Добавьте позиции с количеством")
+        _reject_hidden_stock_lines(owner_id, lines)
         import uuid as _uuid
 
         items = [
@@ -17362,6 +17421,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         lines = _normalize_stock_line_items(list(payload.items or []))
         if not lines:
             raise HTTPException(status_code=400, detail="Добавьте позиции")
+        _reject_hidden_stock_lines(owner_id, lines)
         current = repository.sum_supply_stock_balances(
             user_id=owner_id, production_id=pid, as_of=date_s
         )
@@ -17535,6 +17595,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                     "supplier_article": article,
                     "wb_nmid": wb_nmid,
                     "ozon_sku": ozon_sku,
+                    "product_category": str(p.get("product_category") or "").strip(),
                     "photo_url": (
                         f"/api/products/photo/{pid_item}"
                         if p.get("photo_path")

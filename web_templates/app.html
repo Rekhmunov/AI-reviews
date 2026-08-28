@@ -3599,15 +3599,23 @@
           </div>
         </div>
         <div class="panel supplies-toolbar-panel sb-toolbar">
-          <div class="sb-toolbar-grid">
+          <div class="sb-toolbar-grid" role="toolbar" aria-label="Фильтры и действия остатков">
             <div class="sb-toolbar-search">
-              <label class="sb-search-label" for="supplyBalancesSearchFilter">Поиск</label>
+              <label class="sr-only" for="supplyBalancesSearchFilter">Поиск</label>
               <div class="sb-search-row">
-                <input id="supplyBalancesSearchFilter" type="search" placeholder="Название, артикул, ШК…"
+                <input id="supplyBalancesSearchFilter" type="search" placeholder="Поиск: название, артикул, ШК…"
                        autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
                        oninput="onSupplyBalancesSearchInput()" />
                 <span id="supplyBalancesFilterCount" class="small supplies-filter-count" hidden></span>
               </div>
+            </div>
+            <div class="sb-toolbar-category">
+              <label class="sr-only" for="supplyBalancesCategoryFilter">Категория</label>
+              <select id="supplyBalancesCategoryFilter" onchange="onSupplyBalancesCategoryChange()"
+                      title="Фильтр по категории товаров или материалам">
+                <option value="">Все</option>
+                <option value="__materials__">Материалы</option>
+              </select>
             </div>
             <div class="sb-toolbar-filters" role="group" aria-label="Фильтры остатков">
               <button type="button" class="secondary" id="supplyBalancesBelowMinBtn"
@@ -5903,7 +5911,6 @@
           <h3 id="supplyStockAdjTitle" class="sb-sheet-title">Корректировка остатков</h3>
           <button type="button" class="icon-btn secondary" onclick="closeSupplyStockAdjustmentModal()" aria-label="Закрыть">✕</button>
         </div>
-        <p class="sb-sheet-lead">Укажите фактический остаток на дату. Система запишет разницу с расчётным остатком. Пустые строки не сохраняются. После сохранения текущие поставки «В доставку» не будут списываться повторно.</p>
         <div class="sb-doc-fields sb-doc-fields-search-end">
           <label class="sb-doc-field" for="supplyStockAdjMode">
             <span>Тип</span>

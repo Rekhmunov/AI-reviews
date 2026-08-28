@@ -13444,10 +13444,13 @@ const supplyBalancesState = {
   asOf: "",
   dates: [],
   rows: [],
+  categories: [],
   productions: [],
   catalogItems: [],
   visibilityItems: [],
   search: "",
+  // "" = all, "__materials__" = materials only, else product category name
+  categoryFilter: "",
   // Default: one date column (as_of / today). Opt-in loads all movement dates.
   showHistory: false,
   filterBelowMin: false,
@@ -13689,6 +13692,7 @@ async function loadSupplyBalancesData() {
     supplyBalancesState.asOf = String(data.as_of || asOf || supplyBalancesState.today || "");
     supplyBalancesState.dates = Array.isArray(data.dates) ? data.dates : [supplyBalancesState.asOf];
     supplyBalancesState.rows = Array.isArray(data.rows) ? data.rows : [];
+    supplyBalancesState.categories = Array.isArray(data.categories) ? data.categories : [];
     supplyBalancesState.productionId = Number(data.production_id || pid);
     if (typeof data.history === "boolean") {
       supplyBalancesState.showHistory = data.history;
@@ -13696,6 +13700,7 @@ async function loadSupplyBalancesData() {
     _sbUpdateTodayBadge();
     _sbUpdateHistoryBtn();
     _sbUpdateBelowMinBtn();
+    _sbSyncCategoryFilterOptions();
     renderSupplyBalancesTable();
     if (supplyBalancesState.rows.length) {
       const asOfLabel = _sbFormatDateLabel(supplyBalancesState.asOf);
@@ -13768,9 +13773,13 @@ function _sbRenderItemRow(row, dates, asOf) {
     row.supplier_article,
     row.wb_nmid,
     row.ozon_sku,
+    row.product_category,
     ...(Array.isArray(row.barcodes) ? row.barcodes : []),
   ];
   const searchBlob = searchParts.map((x) => String(x || "")).filter(Boolean).join(" ");
+  const categoryKey = type === "material"
+    ? "__materials__"
+    : String(row.product_category || "").trim();
   const cells = dates.map((d) => {
     const raw = values[d];
     const isAsOf = d === asOf;
@@ -13800,7 +13809,8 @@ function _sbRenderItemRow(row, dates, asOf) {
     belowMin ? "sb-item-row--below-min" : "",
   ].filter(Boolean).join(" ");
   return `<tr class="${rowClass}" data-sb-type="${esc(type)}" data-sb-id="${itemId}"
-    data-sb-below-min="${belowMin ? "1" : "0"}" data-sb-search="${esc(searchBlob)}">
+    data-sb-category="${esc(categoryKey)}" data-sb-below-min="${belowMin ? "1" : "0"}"
+    data-sb-search="${esc(searchBlob)}">
     <td class="sb-col-name">
       <button type="button" class="sb-journal-open" title="Журнал движений"
         onclick="openSupplyStockMovementsModal('${esc(type)}', ${itemId})">
@@ -13822,19 +13832,57 @@ function onSupplyBalancesSearchInput() {
 }
 window.onSupplyBalancesSearchInput = onSupplyBalancesSearchInput;
 
+function _sbSyncCategoryFilterOptions() {
+  const sel = document.getElementById("supplyBalancesCategoryFilter");
+  if (!sel) return;
+  const current = String(supplyBalancesState.categoryFilter || "");
+  const cats = Array.isArray(supplyBalancesState.categories)
+    ? supplyBalancesState.categories.map((c) => String(c || "").trim()).filter(Boolean)
+    : [];
+  const opts = [
+    { value: "", label: "Все" },
+    { value: "__materials__", label: "Материалы" },
+    ...cats.map((name) => ({ value: name, label: name })),
+  ];
+  sel.innerHTML = opts.map((o) =>
+    `<option value="${esc(o.value)}">${esc(o.label)}</option>`
+  ).join("");
+  const stillValid = opts.some((o) => o.value === current);
+  supplyBalancesState.categoryFilter = stillValid ? current : "";
+  sel.value = supplyBalancesState.categoryFilter;
+}
+
+function onSupplyBalancesCategoryChange() {
+  const sel = document.getElementById("supplyBalancesCategoryFilter");
+  supplyBalancesState.categoryFilter = String(sel?.value || "");
+  applySupplyBalancesSearchFilter();
+}
+window.onSupplyBalancesCategoryChange = onSupplyBalancesCategoryChange;
+
+function _sbRowMatchesCategoryFilter(tr, categoryFilter) {
+  const cat = String(categoryFilter || "");
+  if (!cat) return true;
+  const rowCat = String(tr.getAttribute("data-sb-category") || "");
+  const rowType = String(tr.getAttribute("data-sb-type") || "");
+  if (cat === "__materials__") return rowType === "material";
+  return rowType === "product" && rowCat === cat;
+}
+
 function applySupplyBalancesSearchFilter() {
   const tbody = document.getElementById("supplyBalancesTbody");
   const countEl = document.getElementById("supplyBalancesFilterCount");
   if (!tbody) return;
   const q = _sbNormalizeSearch(supplyBalancesState.search);
   const belowOnly = !!supplyBalancesState.filterBelowMin;
+  const categoryFilter = String(supplyBalancesState.categoryFilter || "");
   const itemRows = Array.from(tbody.querySelectorAll("tr.sb-item-row"));
   let visible = 0;
   itemRows.forEach((tr) => {
     const hay = _sbNormalizeSearch(tr.getAttribute("data-sb-search") || "");
     const matchQ = !q || hay.includes(q);
     const matchBelow = !belowOnly || tr.getAttribute("data-sb-below-min") === "1";
-    const show = matchQ && matchBelow;
+    const matchCat = _sbRowMatchesCategoryFilter(tr, categoryFilter);
+    const show = matchQ && matchBelow && matchCat;
     tr.classList.toggle("hidden", !show);
     tr.hidden = !show;
     if (show) visible += 1;
@@ -13855,7 +13903,7 @@ function applySupplyBalancesSearchFilter() {
   });
   // Empty-filter placeholder
   let emptyTr = tbody.querySelector("tr.sb-search-empty");
-  const filterActive = !!(q || belowOnly);
+  const filterActive = !!(q || belowOnly || categoryFilter);
   if (filterActive && itemRows.length && visible === 0) {
     if (!emptyTr) {
       const colCount = 1 + (supplyBalancesState.dates?.length || 0);
@@ -13866,7 +13914,7 @@ function applySupplyBalancesSearchFilter() {
     } else {
       const cell = emptyTr.querySelector("td");
       if (cell) {
-        cell.textContent = belowOnly && !q
+        cell.textContent = belowOnly && !q && !categoryFilter
           ? "Нет позиций ниже минимума"
           : "Ничего не найдено";
       }
@@ -14035,6 +14083,11 @@ async function _sbLoadCatalogItems() {
   if (!res.ok) throw new Error(data.detail || "Ошибка загрузки справочника");
   supplyBalancesState.catalogItems = Array.isArray(data.items) ? data.items : [];
   return supplyBalancesState.catalogItems;
+}
+
+/** Items enabled in «Вывод» — for receipt / adjustment / scan (not the editor). */
+function _sbVisibleCatalogItems() {
+  return (supplyBalancesState.catalogItems || []).filter((x) => x.visible !== false);
 }
 
 function _sbSetDocErr(id, text) {
@@ -14282,9 +14335,9 @@ function _sbBindBulkChecks(kind) {
 function renderSupplyStockReceiptList() {
   const list = document.getElementById("supplyStockReceiptList");
   if (!list) return;
-  const items = supplyBalancesState.catalogItems || [];
+  const items = _sbVisibleCatalogItems();
   if (!items.length) {
-    list.innerHTML = `<div class="sb-doc-empty">Нет материалов и товаров в справочниках</div>`;
+    list.innerHTML = `<div class="sb-doc-empty">Нет видимых материалов и товаров. Включите позиции в «Вывод».</div>`;
     _sbBindBulkChecks("receipt");
     return;
   }
@@ -14378,7 +14431,7 @@ function _sbReceiptScanLookupKeys(scan) {
 function _sbFindReceiptProductByScan(scan) {
   const scanKeys = _sbReceiptScanLookupKeys(scan);
   if (!scanKeys.size) return null;
-  for (const product of supplyBalancesState.catalogItems || []) {
+  for (const product of _sbVisibleCatalogItems()) {
     if (product.item_type !== "product") continue;
     for (const code of product.barcodes || []) {
       if (_sbSetsIntersect(scanKeys, _sbBarcodeMatchKeys(code))) return product;
@@ -14596,9 +14649,9 @@ function _sbCurrentBalanceHint(itemType, itemId) {
 function renderSupplyStockAdjList() {
   const list = document.getElementById("supplyStockAdjList");
   if (!list) return;
-  const items = supplyBalancesState.catalogItems || [];
+  const items = _sbVisibleCatalogItems();
   if (!items.length) {
-    list.innerHTML = `<div class="sb-doc-empty">Нет материалов и товаров в справочниках</div>`;
+    list.innerHTML = `<div class="sb-doc-empty">Нет видимых материалов и товаров. Включите позиции в «Вывод».</div>`;
     _sbBindBulkChecks("adj");
     return;
   }
