@@ -13638,20 +13638,26 @@ function _sbUpdateHistoryBtn() {
 function _sbUpdateBelowMinBtn() {
   const btn = document.getElementById("supplyBalancesBelowMinBtn");
   if (!btn) return;
-  const on = !!supplyBalancesState.filterBelowMin;
-  const belowCount = (supplyBalancesState.rows || []).filter((r) => r.below_min).length;
+  const salesMode = supplyBalancesState.viewMode === "sales";
+  const on = !!supplyBalancesState.filterBelowMin && !salesMode;
+  const belowCount = salesMode
+    ? 0
+    : (supplyBalancesState.rows || []).filter((r) => r.below_min).length;
   const full = belowCount > 0 ? `Ниже минимума · ${belowCount}` : "Ниже минимума";
   const short = belowCount > 0 ? `Ниже мин. · ${belowCount}` : "Ниже мин.";
   _sbSetDualBtnLabel(btn, full, short);
   btn.setAttribute("aria-pressed", on ? "true" : "false");
   btn.classList.toggle("is-active", on);
-  btn.disabled = belowCount === 0 && !on;
-  btn.title = on
-    ? "Показать все позиции"
-    : "Показать только позиции ниже минимума";
+  btn.disabled = salesMode || (belowCount === 0 && !on);
+  btn.title = salesMode
+    ? "Фильтр «Ниже минимума» недоступен в режиме «Продажи»"
+    : on
+      ? "Показать все позиции"
+      : "Показать только позиции ниже минимума";
 }
 
 function toggleSupplyBalancesBelowMin() {
+  if (supplyBalancesState.viewMode === "sales") return;
   supplyBalancesState.filterBelowMin = !supplyBalancesState.filterBelowMin;
   _sbUpdateBelowMinBtn();
   applySupplyBalancesSearchFilter();
@@ -13775,6 +13781,7 @@ async function loadSupplyBalancesSalesData() {
     if (!res.ok) throw new Error(data.detail || "Ошибка загрузки продаж");
     supplyBalancesState.viewMode = "sales";
     supplyBalancesState.showHistory = false;
+    supplyBalancesState.filterBelowMin = false;
     supplyBalancesState.today = String(data.today || supplyBalancesState.today || "");
     supplyBalancesState.dateFrom = String(data.date_from || from || to);
     supplyBalancesState.asOf = String(data.date_to || data.date || data.as_of || to || supplyBalancesState.today || "");
@@ -14740,6 +14747,8 @@ async function saveSupplyStockReceipt() {
 window.saveSupplyStockReceipt = saveSupplyStockReceipt;
 
 function _sbCurrentBalanceHint(itemType, itemId) {
+  // Sales table rows carry sold qty in ``balance`` — never reuse as stock hint.
+  if (supplyBalancesState.viewMode === "sales") return "";
   const row = (supplyBalancesState.rows || []).find(
     (r) => r.item_type === itemType && Number(r.item_id) === Number(itemId)
   );
@@ -14900,10 +14909,16 @@ function _sbSyncAsOfModeUi() {
   const toWrap = document.getElementById("supplyStockAsOfToWrap");
   const mpWrap = document.getElementById("supplyStockAsOfMpWrap");
   const zerosWrap = document.getElementById("supplyStockAsOfZerosWrap");
+  const fromEl = document.getElementById("supplyStockAsOfDateFrom");
+  const toEl = document.getElementById("supplyStockAsOfDateTo");
   if (fromLabel) fromLabel.textContent = sales ? "Дата с" : "Дата";
   if (toWrap) toWrap.hidden = !sales;
   if (mpWrap) mpWrap.hidden = !sales;
   if (zerosWrap) zerosWrap.hidden = !sales;
+  // Leaving sales → balance: use period end as the snapshot date.
+  if (!sales && fromEl && toEl && toEl.value) {
+    fromEl.value = toEl.value;
+  }
   _sbFillAsOfCategorySelect();
   _sbUpdateAsOfLead();
 }
@@ -15006,6 +15021,7 @@ async function applySupplyStockAsOf() {
   supplyBalancesState.hideSalesZeros = form.hideZeros;
   if (form.mode === "sales") {
     supplyBalancesState.showHistory = false;
+    supplyBalancesState.filterBelowMin = false;
     if (supplyBalancesState.categoryFilter === "__materials__") {
       supplyBalancesState.categoryFilter = "";
     }
