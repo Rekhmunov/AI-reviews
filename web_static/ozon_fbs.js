@@ -3332,6 +3332,16 @@
     localAutosaveChain: Promise.resolve(),
     localAutosaveSeqByPosting: {},
     localAutosaveInflight: 0,
+    /** @type {Set<string>} postings waiting for coalesced silent save */
+    localAutosaveDirty: new Set(),
+    localAutosaveClearByPosting: {},
+    localAutosaveTimer: null,
+    /** @type {Map<string, object>} posting_number → row */
+    rowsByPosting: new Map(),
+    /** @type {Map<string, string>} normalized mark → posting_number */
+    markIndex: new Map(),
+    /** @type {Map<string, string[]>} sticker scan key → posting_number[] */
+    stickerIndex: new Map(),
     statusRefreshing: false,
     statusRefreshGen: 0,
   };
@@ -3501,6 +3511,9 @@
     const sourceId = supplyDetailState.sourceId || state.sourceId;
     if (!pn || !raw || !sourceId) return;
     _ozonFbsApplyStickerScanToRow(row, raw);
+    if (ozonFbsKizState.rowsByPosting?.has(pn)) {
+      _ozonFbsKizRebuildIndexes();
+    }
     try {
       await fetch("/api/ozon-fbs/postings/persist-sticker", {
         method: "POST",
@@ -3988,14 +4001,76 @@
     el.textContent = `Просканировано ${filled} из ${total} КИЗ`;
   }
 
+  function _ozonFbsKizStickerIndexAdd(map, key, pn) {
+    const k = String(key || "").trim();
+    const posting = String(pn || "").trim();
+    if (!k || !posting) return;
+    const list = map.get(k);
+    if (!list) {
+      map.set(k, [posting]);
+      return;
+    }
+    if (!list.includes(posting)) list.push(posting);
+  }
+
+  /** Rebuild O(1) maps used by high-frequency Marking scans (~hundreds of rows). */
+  function _ozonFbsKizRebuildIndexes() {
+    const rowsByPosting = new Map();
+    const markIndex = new Map();
+    const stickerIndex = new Map();
+    for (const row of ozonFbsKizState.rows || []) {
+      const pn = String(row?.posting_number || "").trim();
+      if (!pn) continue;
+      rowsByPosting.set(pn, row);
+      for (const c of row.kiz_codes || []) {
+        const mark = _ozonFbsNormalizeMark(c);
+        if (mark) markIndex.set(mark, pn);
+      }
+      const fields = _ozonFbsResolvedStickerFields(row);
+      if (fields.upper) _ozonFbsKizStickerIndexAdd(stickerIndex, _ozonFbsStickerScanKey(fields.upper), pn);
+      if (fields.lower) _ozonFbsKizStickerIndexAdd(stickerIndex, _ozonFbsStickerScanKey(fields.lower), pn);
+      if (pn) _ozonFbsKizStickerIndexAdd(stickerIndex, pn.toLowerCase(), pn);
+    }
+    ozonFbsKizState.rowsByPosting = rowsByPosting;
+    ozonFbsKizState.markIndex = markIndex;
+    ozonFbsKizState.stickerIndex = stickerIndex;
+  }
+
+  function _ozonFbsKizRowByPosting(postingNumber) {
+    const pn = String(postingNumber || "").trim();
+    if (!pn) return null;
+    const cached = ozonFbsKizState.rowsByPosting?.get(pn);
+    if (cached) return cached;
+    return (ozonFbsKizState.rows || []).find((r) => String(r.posting_number) === pn) || null;
+  }
+
+  function _ozonFbsKizIndexSetMark(mark, postingNumber) {
+    const key = _ozonFbsNormalizeMark(mark);
+    const pn = String(postingNumber || "").trim();
+    if (!key || !pn) return;
+    if (!ozonFbsKizState.markIndex) ozonFbsKizState.markIndex = new Map();
+    ozonFbsKizState.markIndex.set(key, pn);
+  }
+
+  function _ozonFbsKizIndexClearMark(mark) {
+    const key = _ozonFbsNormalizeMark(mark);
+    if (!key || !ozonFbsKizState.markIndex) return;
+    ozonFbsKizState.markIndex.delete(key);
+  }
+
   function _ozonFbsKizCollectFromDom() {
+    const byPn = ozonFbsKizState.rowsByPosting;
     document.querySelectorAll("#ozonFbsKizTbody .wb-fbs-kiz-code-input").forEach((input) => {
       const pn = String(input.dataset.posting || "");
       const idx = Number(input.dataset.idx);
-      const row = ozonFbsKizState.rows.find((r) => String(r.posting_number) === pn);
+      const row = (byPn && byPn.get(pn)) || ozonFbsKizState.rows.find((r) => String(r.posting_number) === pn);
       if (!row || !Number.isFinite(idx)) return;
       if (!Array.isArray(row.kiz_codes)) row.kiz_codes = [];
-      row.kiz_codes[idx] = _ozonFbsNormalizeMark(input.value);
+      const prev = _ozonFbsNormalizeMark(row.kiz_codes[idx]);
+      const next = _ozonFbsNormalizeMark(input.value);
+      row.kiz_codes[idx] = next;
+      if (prev && prev !== next) _ozonFbsKizIndexClearMark(prev);
+      if (next) _ozonFbsKizIndexSetMark(next, pn);
     });
   }
 
@@ -4009,7 +4084,33 @@
     ozonFbsKizState.baselineByPosting = map;
   }
 
+  function _ozonFbsKizBaselineEquals(postingNumber, codes) {
+    const pn = String(postingNumber || "").trim();
+    const base = ozonFbsKizState.baselineByPosting?.[pn];
+    if (!Array.isArray(base)) return false;
+    const cur = _ozonFbsKizNormalizeCodesList(codes);
+    if (base.length !== cur.length) return false;
+    for (let i = 0; i < base.length; i += 1) {
+      if (base[i] !== cur[i]) return false;
+    }
+    return true;
+  }
+
   function _ozonFbsKizFindBySticker(scan) {
+    const raw = _ozonFbsNormalizeScan(scan);
+    if (!raw) return { row: null, ambiguous: false };
+    const index = ozonFbsKizState.stickerIndex;
+    if (index && index.size) {
+      const rawKey = _ozonFbsStickerScanKey(raw);
+      const rawLower = raw.toLowerCase();
+      for (const key of [rawKey, rawLower]) {
+        const pns = index.get(key);
+        if (!pns || !pns.length) continue;
+        const rows = pns.map((pn) => _ozonFbsKizRowByPosting(pn)).filter(Boolean);
+        if (rows.length === 1) return { row: rows[0], ambiguous: false };
+        if (rows.length > 1) return { row: null, ambiguous: true, matches: rows };
+      }
+    }
     return _ozonFbsFindByStickerInRows(scan, ozonFbsKizState.rows, { includeCancelled: true });
   }
 
@@ -4026,7 +4127,7 @@
       if (!res.ok || !data.found || !data.posting) return local;
       const pn = String(data.posting.posting_number || "").trim();
       if (!pn) return local;
-      const row = (ozonFbsKizState.rows || []).find((r) => String(r.posting_number || "").trim() === pn);
+      const row = _ozonFbsKizRowByPosting(pn);
       if (!row) return local;
       row.sticker_barcode = String(data.posting.sticker_barcode || row.sticker_barcode || "").trim();
       row.sticker_lower_barcode = String(
@@ -4034,6 +4135,7 @@
       ).trim();
       row.sticker_part_a = String(data.posting.sticker_part_a || row.sticker_part_a || "").trim();
       row.sticker_part_b = String(data.posting.sticker_part_b || row.sticker_part_b || "").trim();
+      _ozonFbsKizRebuildIndexes();
       return { row, ambiguous: false };
     } catch (_) {
       return local;
@@ -4047,9 +4149,17 @@
   function _ozonFbsKizFindExistingMark(mark) {
     const key = _ozonFbsNormalizeMark(mark);
     if (!key) return null;
+    const indexedPn = ozonFbsKizState.markIndex?.get(key);
+    if (indexedPn) {
+      const row = _ozonFbsKizRowByPosting(indexedPn);
+      if (row) return row;
+    }
     for (const row of ozonFbsKizState.rows) {
       for (const c of row.kiz_codes || []) {
-        if (_ozonFbsNormalizeMark(c) === key) return row;
+        if (_ozonFbsNormalizeMark(c) === key) {
+          _ozonFbsKizIndexSetMark(key, row.posting_number);
+          return row;
+        }
       }
     }
     return null;
@@ -4098,6 +4208,7 @@
       tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">${
         ozonFbsKizState.rows?.length ? "Нет строк по выбранным фильтрам" : "Нет отправлений с маркировкой"
       }</td></tr>`;
+      _ozonFbsKizRebuildIndexes();
       _ozonFbsKizUpdateScanCounter();
       return;
     }
@@ -4192,12 +4303,73 @@
     tbody.querySelectorAll(".wb-fbs-kiz-code-input").forEach((input) => {
       const pn = String(input.dataset.posting || "");
       const idx = Number(input.dataset.idx);
-      const row = ozonFbsKizState.rows.find((r) => String(r.posting_number) === pn);
+      const row = _ozonFbsKizRowByPosting(pn);
       if (!row || !Number.isFinite(idx)) return;
       const rowCodes = Array.isArray(row.kiz_codes) ? row.kiz_codes : [];
       input.value = String(rowCodes[idx] ?? "");
     });
+    _ozonFbsKizRebuildIndexes();
     _ozonFbsKizUpdateScanCounter();
+  }
+
+  /**
+   * Patch one existing KIZ input after a wedge scan (no full table rebuild).
+   * Returns false when DOM cannot represent the new state → caller should full-render.
+   */
+  function _ozonFbsKizPatchScannedCode(postingNumber, codeIdx, mark) {
+    const pn = String(postingNumber || "").trim();
+    const idx = Number(codeIdx);
+    if (!pn || !Number.isFinite(idx) || idx < 0) return false;
+    const tr = document.querySelector(`#ozonFbsKizTbody tr.wb-fbs-kiz-row[data-posting="${pn}"]`);
+    if (!tr) return false;
+    const input = tr.querySelector(`.wb-fbs-kiz-code-input[data-posting="${pn}"][data-idx="${idx}"]`);
+    if (!input) return false;
+    input.value = String(mark || "");
+    input.classList.remove("is-error");
+    const block = input.closest(".wb-fbs-kiz-code-block");
+    if (block) block.querySelectorAll(".wb-fbs-kiz-code-status").forEach((node) => node.remove());
+    _ozonFbsKizUpdateScanCounter();
+    return true;
+  }
+
+  /** Append a new KIZ slot into an existing row without rebuilding the whole table. */
+  function _ozonFbsKizAppendScannedCodeSlot(postingNumber, codeIdx, mark) {
+    const pn = String(postingNumber || "").trim();
+    const idx = Number(codeIdx);
+    if (!pn || !Number.isFinite(idx) || idx < 0) return false;
+    const tr = document.querySelector(`#ozonFbsKizTbody tr.wb-fbs-kiz-row[data-posting="${pn}"]`);
+    if (!tr) return false;
+    const codesWrap = tr.querySelector(".wb-fbs-kiz-codes");
+    if (!codesWrap) return false;
+    const safePn = esc(pn);
+    const menuKey = _ozonFbsPostingMenuKey(pn);
+    const clearTitle = "Удалить строку КИЗ";
+    codesWrap.insertAdjacentHTML(
+      "beforeend",
+      `<div class="wb-fbs-kiz-code-block">
+          <div class="wb-fbs-kiz-code-row">
+            <span class="wb-fbs-kiz-code-idx">${idx + 1}</span>
+            <input id="ozonFbsKizCode_${menuKey}_${idx}"
+                   class="wb-fbs-kiz-code-input" type="text"
+                   data-posting="${safePn}" data-idx="${idx}"
+                   autocomplete="off"
+                   oninput="onOzonFbsKizCodeInput('${safePn}', event)"
+                   onblur="onOzonFbsKizCodeBlur('${safePn}', event)"
+                   onkeydown="onOzonFbsKizCodeKey('${safePn}', event)" />
+            <button type="button" class="wb-fbs-kiz-remove" title="${clearTitle}"
+                    aria-label="${clearTitle}"
+                    onclick="removeOzonFbsKizCode('${safePn}', ${idx})">×</button>
+          </div>
+        </div>`
+    );
+    const input = document.getElementById(`ozonFbsKizCode_${menuKey}_${idx}`);
+    if (input) input.value = String(mark || "");
+    tr.querySelectorAll(".wb-fbs-kiz-remove").forEach((btn) => {
+      btn.title = clearTitle;
+      btn.setAttribute("aria-label", clearTitle);
+    });
+    _ozonFbsKizUpdateScanCounter();
+    return true;
   }
 
   function onOzonFbsKizCodeInput(postingNumber, event) {
@@ -4210,8 +4382,10 @@
       }
       if (_wbFbsKizHasCyrillic(input.value)) {
         const idx = Number(input.dataset.idx);
-        const row = ozonFbsKizState.rows.find((r) => String(r.posting_number) === pn);
+        const row = _ozonFbsKizRowByPosting(pn);
         if (row && Array.isArray(row.kiz_codes) && Number.isFinite(idx) && idx >= 0) {
+          const prev = _ozonFbsNormalizeMark(row.kiz_codes[idx]);
+          if (prev) _ozonFbsKizIndexClearMark(prev);
           row.kiz_codes[idx] = "";
         }
         if (ozonFbsKizState.errors[pn]) delete ozonFbsKizState.errors[pn];
@@ -4222,7 +4396,7 @@
     }
     if (ozonFbsKizState.errors[pn]) delete ozonFbsKizState.errors[pn];
     _ozonFbsKizCollectFromDom();
-    const row = ozonFbsKizState.rows.find((r) => String(r.posting_number) === pn);
+    const row = _ozonFbsKizRowByPosting(pn);
     if (row) {
       const codes = _ozonFbsKizNormalizeCodesList(row.kiz_codes);
       if (!codes.length) {
@@ -4259,7 +4433,7 @@
   function addOzonFbsKizCode(postingNumber) {
     _ozonFbsKizCollectFromDom();
     const pn = String(postingNumber || "");
-    const row = ozonFbsKizState.rows.find((r) => String(r.posting_number) === pn);
+    const row = _ozonFbsKizRowByPosting(pn);
     if (!row) return;
     if (!Array.isArray(row.kiz_codes)) row.kiz_codes = [""];
     row.kiz_codes.push("");
@@ -4273,15 +4447,17 @@
     _ozonFbsKizCollectFromDom();
     const pn = String(postingNumber || "");
     const removeIdx = Number(idx);
-    const row = ozonFbsKizState.rows.find((r) => String(r.posting_number) === pn);
+    const row = _ozonFbsKizRowByPosting(pn);
     if (!row || !Number.isFinite(removeIdx)) return;
     if (!Array.isArray(row.kiz_codes)) row.kiz_codes = [""];
+    const removedMark = _ozonFbsNormalizeMark(row.kiz_codes[removeIdx]);
     if (row.kiz_codes.length <= 1) {
       row.kiz_codes = [""];
     } else {
       row.kiz_codes.splice(removeIdx, 1);
       if (!row.kiz_codes.length) row.kiz_codes = [""];
     }
+    if (removedMark) _ozonFbsKizIndexClearMark(removedMark);
     delete ozonFbsKizState.errors[pn];
     if (!_ozonFbsKizNormalizeCodesList(row.kiz_codes).length) {
       row.kiz_status = "empty";
@@ -4292,8 +4468,12 @@
 
   function clearOzonFbsKizRow(postingNumber) {
     const pn = String(postingNumber || "");
-    const row = ozonFbsKizState.rows.find((r) => String(r.posting_number) === pn);
+    const row = _ozonFbsKizRowByPosting(pn);
     if (!row) return;
+    for (const c of row.kiz_codes || []) {
+      const mark = _ozonFbsNormalizeMark(c);
+      if (mark) _ozonFbsKizIndexClearMark(mark);
+    }
     row.kiz_codes = [""];
     row.kiz_status = "empty";
     delete ozonFbsKizState.errors[pn];
@@ -4301,34 +4481,90 @@
     _ozonFbsKizScheduleLocalAutosave(pn, true);
   }
 
+  /**
+   * Queue a silent local save. Coalesces rapid scans into one batched PUT
+   * (debounce ~120ms) so hundreds of marks do not serialize one request each.
+   */
   function _ozonFbsKizScheduleLocalAutosave(postingNumber, clear) {
     const pn = String(postingNumber || "").trim();
     if (!pn) return;
-    if (!ozonFbsKizState.localAutosaveSeqByPosting) ozonFbsKizState.localAutosaveSeqByPosting = {};
-    const seq = (Number(ozonFbsKizState.localAutosaveSeqByPosting[pn]) || 0) + 1;
-    ozonFbsKizState.localAutosaveSeqByPosting[pn] = seq;
-    const run = () => _ozonFbsKizFlushLocalAutosave(pn, seq, !!clear);
+    if (!ozonFbsKizState.localAutosaveDirty) ozonFbsKizState.localAutosaveDirty = new Set();
+    if (!ozonFbsKizState.localAutosaveClearByPosting) ozonFbsKizState.localAutosaveClearByPosting = {};
+    ozonFbsKizState.localAutosaveDirty.add(pn);
+    if (clear) ozonFbsKizState.localAutosaveClearByPosting[pn] = true;
+    else delete ozonFbsKizState.localAutosaveClearByPosting[pn];
+    if (ozonFbsKizState.localAutosaveTimer) {
+      clearTimeout(ozonFbsKizState.localAutosaveTimer);
+    }
+    ozonFbsKizState.localAutosaveTimer = setTimeout(() => {
+      ozonFbsKizState.localAutosaveTimer = null;
+      _ozonFbsKizQueueDirtyAutosaveFlush();
+    }, 120);
+  }
+
+  function _ozonFbsKizQueueDirtyAutosaveFlush() {
+    const dirty = ozonFbsKizState.localAutosaveDirty;
+    if (!dirty || !dirty.size) return;
+    const postings = Array.from(dirty);
+    dirty.clear();
+    const clearFlags = { ...(ozonFbsKizState.localAutosaveClearByPosting || {}) };
+    ozonFbsKizState.localAutosaveClearByPosting = {};
+    const run = () => _ozonFbsKizFlushLocalAutosaveBatch(postings, clearFlags);
     ozonFbsKizState.localAutosaveChain = (ozonFbsKizState.localAutosaveChain || Promise.resolve())
       .then(run, run)
       .catch(() => {});
   }
 
-  async function _ozonFbsKizFlushLocalAutosave(postingNumber, seq, clear) {
-    const pn = String(postingNumber || "").trim();
-    if ((Number(ozonFbsKizState.localAutosaveSeqByPosting?.[pn]) || 0) !== seq) return;
+  function _ozonFbsKizAwaitLocalAutosaves() {
+    return (async () => {
+      if (ozonFbsKizState.localAutosaveTimer) {
+        clearTimeout(ozonFbsKizState.localAutosaveTimer);
+        ozonFbsKizState.localAutosaveTimer = null;
+        _ozonFbsKizQueueDirtyAutosaveFlush();
+      }
+      for (let i = 0; i < 40; i += 1) {
+        if (ozonFbsKizState.localAutosaveTimer) {
+          clearTimeout(ozonFbsKizState.localAutosaveTimer);
+          ozonFbsKizState.localAutosaveTimer = null;
+          _ozonFbsKizQueueDirtyAutosaveFlush();
+        }
+        const tip = ozonFbsKizState.localAutosaveChain || Promise.resolve();
+        try {
+          await tip;
+        } catch (_e) {
+          /* ignore — Save still covers drafts */
+        }
+        const latest = ozonFbsKizState.localAutosaveChain || tip;
+        const inflight = Number(ozonFbsKizState.localAutosaveInflight) || 0;
+        const dirtyLeft = ozonFbsKizState.localAutosaveDirty?.size || 0;
+        if (tip === latest && inflight <= 0 && dirtyLeft <= 0 && !ozonFbsKizState.localAutosaveTimer) {
+          return;
+        }
+      }
+    })();
+  }
+
+  async function _ozonFbsKizFlushLocalAutosaveBatch(postings, clearFlags) {
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
-    if (!sid || !sourceId) return;
-    const row = ozonFbsKizState.rows.find((r) => String(r.posting_number) === pn);
-    if (!row || _ozonFbsRowIsCancelled(row)) return;
-    const codes = (row.kiz_codes || []).map((c) => _ozonFbsNormalizeMark(c)).filter(Boolean);
-    const item = {
-      posting_number: pn,
-      kiz_codes: codes,
-      expected_saved_at: row.kiz_saved_at || "",
-      force: !!(ozonFbsKizState.forceSaveByPosting && ozonFbsKizState.forceSaveByPosting[pn]),
-      clear: !!clear && !codes.length,
-    };
+    if (!sid || !sourceId || !_ozonFbsKizModalIsOpen()) return;
+    const items = [];
+    for (const pn of postings || []) {
+      const row = _ozonFbsKizRowByPosting(pn);
+      if (!row || _ozonFbsRowIsCancelled(row)) continue;
+      const codes = (row.kiz_codes || []).map((c) => _ozonFbsNormalizeMark(c)).filter(Boolean);
+      const wantClear = !!(clearFlags && clearFlags[pn]) && !codes.length;
+      if (!codes.length && !wantClear) continue;
+      if (!wantClear && _ozonFbsKizBaselineEquals(pn, codes)) continue;
+      items.push({
+        posting_number: pn,
+        kiz_codes: codes,
+        expected_saved_at: row.kiz_saved_at || "",
+        force: !!(ozonFbsKizState.forceSaveByPosting && ozonFbsKizState.forceSaveByPosting[pn]),
+        clear: wantClear,
+      });
+    }
+    if (!items.length) return;
     ozonFbsKizState.localAutosaveInflight = (Number(ozonFbsKizState.localAutosaveInflight) || 0) + 1;
     try {
       const res = await fetch(
@@ -4336,27 +4572,35 @@
         {
           method: "PUT",
           headers: { "Content-Type": "application/json", ...jsonHeaders() },
-          body: JSON.stringify({ items: [item] }),
+          body: JSON.stringify({ items }),
           keepalive: true,
         }
       );
-      if ((Number(ozonFbsKizState.localAutosaveSeqByPosting?.[pn]) || 0) !== seq) return;
       const data = await res.json().catch(() => ({}));
       if (!res.ok) return;
-      const result = (data.results || []).find((r) => String(r.posting_number) === pn);
-      if (!result || !result.ok) {
-        if (result?.conflict) {
-          row.kiz_saved_at = String(result.kiz_saved_at || row.kiz_saved_at || "");
-          if (!ozonFbsKizState.forceSaveByPosting) ozonFbsKizState.forceSaveByPosting = {};
-          ozonFbsKizState.forceSaveByPosting[pn] = true;
+      for (const result of data.results || []) {
+        const pn = String(result?.posting_number || "").trim();
+        if (!pn) continue;
+        // Newer scan already queued for this posting — keep pending baseline.
+        if (ozonFbsKizState.localAutosaveDirty?.has(pn)) continue;
+        const row = _ozonFbsKizRowByPosting(pn);
+        if (!row) continue;
+        if (!result.ok) {
+          if (result.conflict) {
+            row.kiz_saved_at = String(result.kiz_saved_at || row.kiz_saved_at || "");
+            if (!ozonFbsKizState.forceSaveByPosting) ozonFbsKizState.forceSaveByPosting = {};
+            ozonFbsKizState.forceSaveByPosting[pn] = true;
+          }
+          continue;
         }
-        return;
+        row.kiz_saved_at = String(result.kiz_saved_at || row.kiz_saved_at || "");
+        if (!ozonFbsKizState.baselineByPosting) ozonFbsKizState.baselineByPosting = {};
+        ozonFbsKizState.baselineByPosting[pn] = (row.kiz_codes || [])
+          .map((c) => _ozonFbsNormalizeMark(c))
+          .filter(Boolean);
+        delete ozonFbsKizState.forceSaveByPosting?.[pn];
+        delete ozonFbsKizState.errors[pn];
       }
-      row.kiz_saved_at = String(result.kiz_saved_at || row.kiz_saved_at || "");
-      if (!ozonFbsKizState.baselineByPosting) ozonFbsKizState.baselineByPosting = {};
-      ozonFbsKizState.baselineByPosting[pn] = codes.slice();
-      delete ozonFbsKizState.forceSaveByPosting[pn];
-      delete ozonFbsKizState.errors[pn];
     } finally {
       ozonFbsKizState.localAutosaveInflight = Math.max(
         0,
@@ -4377,7 +4621,7 @@
       if (typeof _wbFbsKizBlockRuLayout === "function") _wbFbsKizBlockRuLayout(input);
       return;
     }
-    _ozonFbsKizCollectFromDom();
+    // State is source of truth during wedge scans — skip walking every input.
     const found = await _ozonFbsKizFindByStickerWithLookup(rawTyped);
     if (found.ambiguous) {
       const ids = (found.matches || []).map((r) => r.posting_number).slice(0, 5).join(", ");
@@ -4433,8 +4677,7 @@
     }
     const mark = _ozonFbsNormalizeMark(rawTyped);
     if (!mark) return;
-    _ozonFbsKizCollectFromDom();
-    const row = ozonFbsKizState.rows.find((r) => String(r.posting_number) === pn);
+    const row = _ozonFbsKizRowByPosting(pn);
     if (!row) {
       cancelOzonFbsKizMarkScan();
       return;
@@ -4472,22 +4715,23 @@
     }
     row.kiz_status = "pending";
     delete ozonFbsKizState.errors[pn];
+    _ozonFbsKizIndexSetMark(mark, pn);
     const emptyFilter = document.getElementById("ozonFbsKizFilterEmpty");
     const emptyFilterWasOn = !!emptyFilter?.checked;
     if (emptyFilter) emptyFilter.checked = false;
     cancelOzonFbsKizMarkScan();
-    const domKey = _ozonFbsPostingMenuKey(pn);
-    if (emptyFilterWasOn || addedSlot) {
+    if (
+      emptyFilterWasOn
+      || (addedSlot
+        ? !_ozonFbsKizAppendScannedCodeSlot(pn, placedIdx, mark)
+        : !_ozonFbsKizPatchScannedCode(pn, placedIdx, mark))
+    ) {
       renderOzonFbsKizTable({ skipCollect: true });
-    } else {
-      const codeInput = document.getElementById(`ozonFbsKizCode_${domKey}_${placedIdx}`);
-      if (codeInput) codeInput.value = mark;
-      _ozonFbsKizUpdateScanCounter();
     }
     _ozonFbsKizSetInfo(`КИЗ сохранён локально для ${pn}`, true);
     _ozonFbsKizScheduleLocalAutosave(pn, false);
     const rowEl = document.querySelector(`#ozonFbsKizTbody tr[data-posting="${pn}"]`);
-    if (rowEl) rowEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    if (rowEl) rowEl.scrollIntoView({ block: "nearest" });
   }
 
   function _ozonFbsKizApplySaveResults(results) {
@@ -4495,7 +4739,7 @@
       if (!r || !r.ok) return;
       const pn = String(r.posting_number || "").trim();
       if (!pn) return;
-      const row = (ozonFbsKizState.rows || []).find((x) => String(x.posting_number) === pn);
+      const row = _ozonFbsKizRowByPosting(pn);
       if (!row) return;
       if (Array.isArray(r.kiz_codes)) {
         row.kiz_codes = r.kiz_codes.length ? r.kiz_codes.slice() : [""];
@@ -4524,6 +4768,15 @@
     ozonFbsKizState.pendingPosting = null;
     ozonFbsKizState.baselineByPosting = {};
     ozonFbsKizState.forceSaveByPosting = {};
+    ozonFbsKizState.localAutosaveDirty = new Set();
+    ozonFbsKizState.localAutosaveClearByPosting = {};
+    if (ozonFbsKizState.localAutosaveTimer) {
+      clearTimeout(ozonFbsKizState.localAutosaveTimer);
+      ozonFbsKizState.localAutosaveTimer = null;
+    }
+    ozonFbsKizState.rowsByPosting = new Map();
+    ozonFbsKizState.markIndex = new Map();
+    ozonFbsKizState.stickerIndex = new Map();
     _ozonFbsKizSetFiltersReady(false);
     _ozonFbsKizSetInfo("");
     const tbody = document.getElementById("ozonFbsKizTbody");
@@ -4558,6 +4811,7 @@
       });
       _ozonFbsKizMergeOrderFlagsIntoDetail(data.order_kiz_flags || []);
       _ozonFbsKizCaptureBaseline();
+      _ozonFbsKizRebuildIndexes();
       renderOzonFbsKizTable();
       if (supplyDetailState.supply) {
         renderSupplyDetail();
@@ -4581,11 +4835,20 @@
     }
   }
 
-  function closeOzonFbsKizModal() {
+  async function closeOzonFbsKizModal() {
+    try {
+      await _ozonFbsKizAwaitLocalAutosaves();
+    } catch (_e) {
+      /* keep closing */
+    }
     if (typeof setModalVisibility === "function") setModalVisibility("ozonFbsKizModal", false);
     else document.getElementById("ozonFbsKizModal")?.classList.add("hidden");
     cancelOzonFbsKizMarkScan();
     ozonFbsKizState.rows = [];
+    ozonFbsKizState.rowsByPosting = new Map();
+    ozonFbsKizState.markIndex = new Map();
+    ozonFbsKizState.stickerIndex = new Map();
+    ozonFbsKizState.localAutosaveDirty = new Set();
     _ozonFbsKizSetInfo("");
   }
 
@@ -4599,7 +4862,7 @@
     if (saveBtn) saveBtn.disabled = true;
     _ozonFbsKizSetInfo("Сохранение…");
     try {
-      await ozonFbsKizState.localAutosaveChain;
+      await _ozonFbsKizAwaitLocalAutosaves();
       const items = (ozonFbsKizState.rows || [])
         .filter((r) => !_ozonFbsRowIsCancelled(r))
         .map((r) => ({
