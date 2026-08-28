@@ -113,6 +113,8 @@
     Д: "L", Ж: ":", Э: '"',
     Я: "Z", Ч: "X", С: "C", М: "V", И: "B", Т: "N", Ь: "M", Б: "<",
     Ю: ">", Ё: "~",
+    // Same physical keys as EN / and ? when OS layout is Russian (ЧЗ crypto is base64).
+    ".": "/", ",": "?",
   };
 
   function esc(v) {
