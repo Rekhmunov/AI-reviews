@@ -3717,11 +3717,7 @@
           log.push(`${n}. пропуск — пустой стикер или КИЗ`);
           continue;
         }
-        if (!_ozonFbsKizMarkLooksComplete(mark)) {
-          skipN += 1;
-          log.push(`${n}. ${stickerKey} — КИЗ без криптохвоста 91/92 (неполный код)`);
-          continue;
-        }
+        const incomplete = !_ozonFbsKizMarkLooksComplete(mark);
 
         const found = _ozonFbsKizFindBySticker(stickerKey);
         if (found.ambiguous) {
@@ -3796,7 +3792,11 @@
         void _ozonFbsPersistStickerForRow(row, stickerKey);
         _ozonFbsKizScheduleLocalAutosave(pn, false);
         okN += 1;
-        log.push(`${n}. ${stickerKey} → ${pn} — добавлен`);
+        log.push(
+          incomplete
+            ? `${n}. ${stickerKey} → ${pn} — добавлен (неполный КИЗ, без 91/92 — можно восстановить позже)`
+            : `${n}. ${stickerKey} → ${pn} — добавлен`
+        );
       }
 
       if (touched.size) {
