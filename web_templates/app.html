@@ -3114,18 +3114,17 @@
         <div id="ozonFbsKizImportModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
              aria-labelledby="ozonFbsKizImportTitle">
           <div class="modal-card ozon-fbs-kiz-import-modal">
-            <div class="wb-fbs-kiz-header">
+            <button type="button" class="icon-btn secondary ozon-fbs-kiz-import-close"
+                    onclick="closeOzonFbsKizImportModal()" aria-label="Закрыть">✕</button>
+            <div class="wb-fbs-kiz-header ozon-fbs-kiz-import-header">
               <div class="wb-fbs-kiz-header-main">
                 <h3 id="ozonFbsKizImportTitle" class="wb-fbs-kiz-title">Импорт маркировки</h3>
                 <p class="wb-fbs-kiz-sub">Вставьте список: стикер и КИЗ в одной строке через таб, или по очереди — стикер, следующей строкой КИЗ. Коды пишутся в открытую модалку «Маркировка».</p>
               </div>
-              <div class="wb-fbs-kiz-header-actions">
-                <button type="button" class="icon-btn secondary" onclick="closeOzonFbsKizImportModal()" aria-label="Закрыть">✕</button>
-              </div>
             </div>
             <div class="ozon-fbs-kiz-import">
               <label class="ozon-fbs-kiz-import-label" for="ozonFbsKizImportText">Список стикер + КИЗ</label>
-              <textarea id="ozonFbsKizImportText" class="ozon-fbs-kiz-import-text" rows="10"
+              <textarea id="ozonFbsKizImportText" class="ozon-fbs-kiz-import-text" rows="4"
                         spellcheck="false" autocomplete="off"
                         placeholder="202150211695000&#9;010467…91EE11…92…"></textarea>
               <div class="ozon-fbs-kiz-import-actions">

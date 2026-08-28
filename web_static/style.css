@@ -9996,11 +9996,21 @@ button.wb-fbs-sd-portal-btn:focus-visible {
   padding-right: 16px;
 }
 .ozon-fbs-kiz-import-modal {
-  width: min(720px, calc(100vw - 32px));
+  position: relative;
+  width: min(760px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+.ozon-fbs-kiz-import-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+}
+.ozon-fbs-kiz-import-header {
+  padding-right: 56px;
 }
 .ozon-fbs-kiz-import-modal .ozon-fbs-kiz-import {
   padding: 16px 24px 20px;
@@ -10022,8 +10032,9 @@ button.wb-fbs-sd-portal-btn:focus-visible {
 }
 .ozon-fbs-kiz-import-text {
   width: 100%;
-  min-height: 160px;
-  padding: 12px;
+  min-height: 72px;
+  max-height: 120px;
+  padding: 8px 12px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -10052,10 +10063,14 @@ button.wb-fbs-sd-portal-btn:focus-visible {
   border-radius: 8px;
   border: 1px solid transparent;
   padding: 8px 12px;
+  flex: 0 0 auto;
 }
 .ozon-fbs-kiz-import-log {
   margin: 0;
-  max-height: 220px;
+  flex: 1 1 auto;
+  min-height: 280px;
+  max-height: none;
+  height: min(52vh, 480px);
   overflow: auto;
   padding: 12px;
   border: 1px solid #e2e8f0;
