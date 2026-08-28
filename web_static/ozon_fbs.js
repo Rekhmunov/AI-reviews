@@ -3980,8 +3980,8 @@
     const msg = String(text || "").trim();
     el.hidden = !msg;
     el.textContent = msg;
+    el.classList.remove("is-warn");
     el.classList.toggle("is-ok", !!msg && !!ok);
-    if (!ok) el.classList.remove("is-warn");
   }
 
   function _ozonFbsPickSetInfo(text, ok) {
