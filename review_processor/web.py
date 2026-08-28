@@ -17359,31 +17359,64 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         request: Request,
         production_id: int = 0,
         date: str = "",
+        date_from: str = "",
+        date_to: str = "",
+        marketplace: str = "all",
+        include_zeros: int = 0,
     ) -> dict[str, object]:
-        """FBS sales (ship − reverse) for one day. Visible products only."""
+        """FBS sales (ship − reverse) for a day or inclusive period.
+
+        Visible products only. ``marketplace``: all | wb | ozon.
+        ``include_zeros=1`` also returns products with 0 sold in the range.
+        """
         user = _require_user(request)
         if not _can_view_supply_stock(user):
             raise HTTPException(status_code=403, detail="Нет доступа к остаткам")
         owner_id = _supply_owner_id(user)
         productions = _stock_productions_for_user(user)
         today = _moscow_today()
+        mp = str(marketplace or "all").strip().lower()
+        if mp not in {"all", "wb", "ozon"}:
+            mp = "all"
+        want_zeros = int(include_zeros or 0) != 0
         if not productions:
             return {
                 "today": today,
                 "date": today,
+                "date_from": today,
+                "date_to": today,
                 "production_id": None,
                 "rows": [],
                 "categories": [],
                 "productions": [],
+                "marketplace": mp,
+                "include_zeros": want_zeros,
                 "mode": "sales",
             }
         prod_ids = [int(p["id"]) for p in productions]
         pid = int(production_id or 0)
         if pid <= 0 or pid not in prod_ids:
             pid = prod_ids[0]
-        date_s = _parse_stock_date(str(date or "").strip(), today=today)
-        sold_map = repository.sum_supply_stock_sales_for_date(
-            user_id=owner_id, production_id=pid, movement_date=date_s
+        # Prefer explicit range; fall back to single ``date`` / today.
+        raw_from = str(date_from or "").strip() or str(date or "").strip()
+        raw_to = str(date_to or "").strip() or str(date or "").strip() or raw_from
+        if not raw_from and not raw_to:
+            raw_from = today
+            raw_to = today
+        elif not raw_from:
+            raw_from = raw_to
+        elif not raw_to:
+            raw_to = raw_from
+        from_s = _parse_stock_date(raw_from, today=today)
+        to_s = _parse_stock_date(raw_to, today=today)
+        if from_s > to_s:
+            from_s, to_s = to_s, from_s
+        sold_map = repository.sum_supply_stock_sales(
+            user_id=owner_id,
+            production_id=pid,
+            date_from=from_s,
+            date_to=to_s,
+            marketplace=mp,
         )
         vis_map = _stock_item_visible_map(owner_id)
         sort_map = {
@@ -17394,6 +17427,8 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         }
         products = repository.list_product_photos(user_id=owner_id)
         fbs_barcodes = repository.get_wb_fbs_barcodes_by_product_id(user_id=owner_id)
+        # Column key for the values map (period end, or single day).
+        col_key = to_s if from_s == to_s else f"{from_s}_{to_s}"
         product_rows: list[dict[str, object]] = []
         for p in products:
             pid_item = int(p.get("id") or 0)
@@ -17401,9 +17436,13 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                 continue
             if not vis_map.get(("product", pid_item), True):
                 continue
-            sold = sold_map.get(("product", pid_item))
-            if sold is None:
-                continue
+            sold_raw = sold_map.get(("product", pid_item))
+            if sold_raw is None:
+                if not want_zeros:
+                    continue
+                sold = 0.0
+            else:
+                sold = float(sold_raw)
             article = str(p.get("supplier_article") or "").strip()
             wb_nmid = str(p.get("wb_nmid") or "").strip()
             ozon_sku = str(p.get("ozon_sku") or "").strip()
@@ -17430,7 +17469,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                         else None
                     ),
                     "barcodes": barcodes,
-                    "values": {date_s: sold},
+                    "values": {col_key: sold},
                     "balance": sold,
                     "sold": sold,
                     "sort_order": sort_map.get(("product", pid_item), 10**9),
@@ -17465,14 +17504,18 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                 seen_cats.add(cat)
         return {
             "today": today,
-            "date": date_s,
-            "as_of": date_s,
+            "date": to_s,
+            "date_from": from_s,
+            "date_to": to_s,
+            "as_of": to_s,
             "production_id": pid,
-            "dates": [date_s],
+            "dates": [col_key],
             "history": False,
             "rows": product_rows,
             "categories": categories,
             "productions": productions,
+            "marketplace": mp,
+            "include_zeros": want_zeros,
             "mode": "sales",
             "can_edit": False,
             "ledger": True,

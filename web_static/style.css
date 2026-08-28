@@ -11307,8 +11307,8 @@ button.wb-fbs-kiz-add:disabled {
   }
 }
 .sb-asof-modal {
-  width: min(560px, 100%);
-  max-width: min(560px, 100%);
+  width: min(640px, 100%);
+  max-width: min(640px, 100%);
 }
 .sb-asof-fields {
   display: flex;
@@ -11317,6 +11317,26 @@ button.wb-fbs-kiz-add:disabled {
 }
 .sb-asof-fields .sb-doc-field {
   flex: 1 1 140px;
+}
+.sb-asof-check-field {
+  justify-content: flex-end;
+}
+.sb-asof-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 4px;
+  font-size: 15px;
+  color: #0f172a;
+  cursor: pointer;
+  user-select: none;
+}
+.sb-asof-check input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: #0f172a;
 }
 .sb-doc-body {
   padding: 20px 24px;

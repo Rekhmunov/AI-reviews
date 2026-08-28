@@ -179,6 +179,7 @@ def test_sum_supply_stock_sales_for_date_nets_ship_and_reverse() -> None:
 
         def execute(self, sql, params=()):
             assert "fbs_ship" in str(sql) and "fbs_reverse" in str(sql)
+            assert params[-2] == "2026-08-28"
             assert params[-1] == "2026-08-28"
             return _Cur()
 
@@ -188,4 +189,43 @@ def test_sum_supply_stock_sales_for_date_nets_ship_and_reverse() -> None:
     )
     assert sold[("product", 5)] == 3.0
     assert ("product", 9) not in sold
+
+
+def test_sum_supply_stock_sales_period_and_marketplace_filter() -> None:
+    repo = ReviewRepository.__new__(ReviewRepository)
+    repo._sql = lambda q: q  # type: ignore[method-assign]
+    repo._ensure_supply_balances_tables = lambda conn: None  # type: ignore[method-assign]
+    repo._row_to_dict = lambda r: dict(r)  # type: ignore[method-assign]
+    seen: list[tuple[str, tuple]] = []
+
+    class _Cur:
+        def fetchall(self):
+            return [{"item_type": "product", "item_id": 11, "delta": -4.0}]
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def execute(self, sql, params=()):
+            seen.append((str(sql), tuple(params)))
+            return _Cur()
+
+    repo._connect = lambda: _Conn()  # type: ignore[method-assign]
+    sold = ReviewRepository.sum_supply_stock_sales(
+        repo,
+        user_id=1,
+        production_id=2,
+        date_from="2026-08-01",
+        date_to="2026-08-28",
+        marketplace="ozon",
+    )
+    assert sold[("product", 11)] == 4.0
+    assert seen
+    sql, params = seen[0]
+    assert "ozon_fbs_posting" in sql
+    assert params[2] == "2026-08-01"
+    assert params[3] == "2026-08-28"
 

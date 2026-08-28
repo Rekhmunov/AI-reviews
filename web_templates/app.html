@@ -5986,16 +5986,38 @@
               <option value="__materials__">Материалы</option>
             </select>
           </label>
-          <label class="sb-doc-field" for="supplyStockAsOfDate">
-            <span>Дата</span>
-            <input type="date" id="supplyStockAsOfDate" />
+          <label class="sb-doc-field" for="supplyStockAsOfMarketplace" id="supplyStockAsOfMpWrap">
+            <span>Маркетплейс</span>
+            <select id="supplyStockAsOfMarketplace">
+              <option value="all">WB + Ozon</option>
+              <option value="wb">WB</option>
+              <option value="ozon">Ozon</option>
+            </select>
+          </label>
+        </div>
+        <div class="sb-asof-fields">
+          <label class="sb-doc-field" for="supplyStockAsOfDateFrom" id="supplyStockAsOfFromWrap">
+            <span id="supplyStockAsOfFromLabel">Дата с</span>
+            <input type="date" id="supplyStockAsOfDateFrom" />
+          </label>
+          <label class="sb-doc-field" for="supplyStockAsOfDateTo" id="supplyStockAsOfToWrap">
+            <span>Дата по</span>
+            <input type="date" id="supplyStockAsOfDateTo" />
+          </label>
+          <label class="sb-doc-field sb-asof-check-field" for="supplyStockAsOfHideZeros" id="supplyStockAsOfZerosWrap">
+            <span>Нули</span>
+            <label class="sb-asof-check">
+              <input type="checkbox" id="supplyStockAsOfHideZeros" checked />
+              <span>Скрыть нули</span>
+            </label>
           </label>
         </div>
         <p id="supplyStockAsOfLead" class="sb-sheet-lead sb-sheet-lead-inline">Таблица покажет остатки с учётом всех приходов, списаний FBS и корректировок на выбранную дату включительно.</p>
         <div id="supplyStockAsOfErr" class="sb-doc-err" hidden></div>
       </div>
       <div class="sb-sheet-footer">
-        <button type="button" class="secondary" onclick="resetSupplyStockAsOf()">Сбросить на сегодня</button>
+        <button type="button" class="secondary" onclick="resetSupplyStockAsOf()">Сбросить</button>
+        <button type="button" class="secondary" onclick="exportSupplyStockAsOfCsv()">Скачать CSV</button>
         <button type="button" onclick="applySupplyStockAsOf()">Показать</button>
       </div>
     </div>
@@ -6021,6 +6043,6 @@
   </div>
 
   <script src="/static/ozon_fbs.js?v=34"></script>
-  <script src="/static/app.js?v=508"></script>
+  <script src="/static/app.js?v=509"></script>
 </body>
 </html>

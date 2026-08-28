@@ -12896,26 +12896,66 @@ class ReviewRepository:
         user_id: int,
         production_id: int,
         movement_date: str,
+        marketplace: str = "all",
     ) -> dict[tuple[str, int], float]:
-        """Net FBS sales qty for one calendar day (positive = sold).
-
-        Uses ``fbs_ship`` (negative ledger) and ``fbs_reverse`` (positive) so
-        same-day reverses reduce the sold figure.
-        """
+        """Net FBS sales for one day. Wrapper around the date-range helper."""
         date_s = str(movement_date or "").strip()
         if not date_s:
             return {}
+        return self.sum_supply_stock_sales(
+            user_id=user_id,
+            production_id=production_id,
+            date_from=date_s,
+            date_to=date_s,
+            marketplace=marketplace,
+        )
+
+    def sum_supply_stock_sales(
+        self,
+        *,
+        user_id: int,
+        production_id: int,
+        date_from: str,
+        date_to: str,
+        marketplace: str = "all",
+    ) -> dict[tuple[str, int], float]:
+        """Net FBS sales qty for an inclusive date range (positive = sold).
+
+        Uses ``fbs_ship`` (negative ledger) and ``fbs_reverse`` (positive).
+        ``marketplace``: ``all`` | ``wb`` | ``ozon`` filters by source_type.
+        """
+        from_s = str(date_from or "").strip()
+        to_s = str(date_to or "").strip()
+        if not from_s or not to_s:
+            return {}
+        if from_s > to_s:
+            from_s, to_s = to_s, from_s
+        mp = str(marketplace or "all").strip().lower()
+        if mp not in {"all", "wb", "ozon"}:
+            mp = "all"
+        source_filter = ""
+        params: list[object] = [user_id, int(production_id), from_s, to_s]
+        if mp == "wb":
+            source_filter = (
+                "AND source_type IN ('wb_fbs_order', 'wb_fbs_order_reverse') "
+            )
+        elif mp == "ozon":
+            source_filter = (
+                "AND source_type IN ('ozon_fbs_posting', 'ozon_fbs_posting_reverse') "
+            )
         with self._connect() as conn:
             self._ensure_supply_balances_tables(conn)
             rows = conn.execute(
                 self._sql(
                     "SELECT item_type, item_id, COALESCE(SUM(qty), 0) AS delta "
                     "FROM supply_stock_movements "
-                    "WHERE user_id = ? AND production_id = ? AND movement_date = ? "
+                    "WHERE user_id = ? AND production_id = ? "
+                    "AND movement_date >= ? AND movement_date <= ? "
                     "AND kind IN ('fbs_ship', 'fbs_reverse') "
+                    f"{source_filter}"
                     "GROUP BY item_type, item_id"
                 ),
-                (user_id, int(production_id), date_s),
+                tuple(params),
             ).fetchall()
         out: dict[tuple[str, int], float] = {}
         for r in rows:
