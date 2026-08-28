@@ -3713,6 +3713,19 @@
     const mark = _ozonFbsNormalizeMark(last.kiz);
     // Wait until the wedge finished a Data Matrix (not only the sticker line).
     if (!/^01\d{14}21/.test(mark)) return;
+    // Do not accept truncated scans (typical cut right at GS before AI 91, ~31 chars).
+    // Keep the pair in the field so the operator can rescan; never silently store a stub.
+    if (!_ozonFbsKizMarkLooksComplete(mark)) {
+      _ozonFbsKizImportSetInfo(
+        `КИЗ обрезан / неполный (${mark.length} симв.) — пересканируйте маркировку целиком`
+      );
+      const info = document.getElementById("ozonFbsKizImportInfo");
+      if (info) {
+        info.classList.remove("is-ok");
+        info.classList.add("is-warn");
+      }
+      return;
+    }
     const remaining = pairs.slice(0, -1);
     ta.value = `${last.sticker}\t${last.kiz}`;
     try {
