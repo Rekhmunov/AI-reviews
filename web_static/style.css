@@ -11310,6 +11310,14 @@ button.wb-fbs-kiz-add:disabled {
   width: min(560px, 100%);
   max-width: min(560px, 100%);
 }
+.sb-asof-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.sb-asof-fields .sb-doc-field {
+  flex: 1 1 140px;
+}
 .sb-doc-body {
   padding: 20px 24px;
   overflow: auto;

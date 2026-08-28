@@ -17354,6 +17354,130 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             "ledger": True,
         }
 
+    @app.get("/api/supply-balances/sales")
+    def get_supply_balance_sales(
+        request: Request,
+        production_id: int = 0,
+        date: str = "",
+    ) -> dict[str, object]:
+        """FBS sales (ship − reverse) for one day. Visible products only."""
+        user = _require_user(request)
+        if not _can_view_supply_stock(user):
+            raise HTTPException(status_code=403, detail="Нет доступа к остаткам")
+        owner_id = _supply_owner_id(user)
+        productions = _stock_productions_for_user(user)
+        today = _moscow_today()
+        if not productions:
+            return {
+                "today": today,
+                "date": today,
+                "production_id": None,
+                "rows": [],
+                "categories": [],
+                "productions": [],
+                "mode": "sales",
+            }
+        prod_ids = [int(p["id"]) for p in productions]
+        pid = int(production_id or 0)
+        if pid <= 0 or pid not in prod_ids:
+            pid = prod_ids[0]
+        date_s = _parse_stock_date(str(date or "").strip(), today=today)
+        sold_map = repository.sum_supply_stock_sales_for_date(
+            user_id=owner_id, production_id=pid, movement_date=date_s
+        )
+        vis_map = _stock_item_visible_map(owner_id)
+        sort_map = {
+            (str(v.get("item_type") or ""), int(v.get("item_id") or 0)): int(
+                v.get("sort_order") or 0
+            )
+            for v in repository.list_supply_balance_visibility(user_id=owner_id)
+        }
+        products = repository.list_product_photos(user_id=owner_id)
+        fbs_barcodes = repository.get_wb_fbs_barcodes_by_product_id(user_id=owner_id)
+        product_rows: list[dict[str, object]] = []
+        for p in products:
+            pid_item = int(p.get("id") or 0)
+            if pid_item <= 0:
+                continue
+            if not vis_map.get(("product", pid_item), True):
+                continue
+            sold = sold_map.get(("product", pid_item))
+            if sold is None:
+                continue
+            article = str(p.get("supplier_article") or "").strip()
+            wb_nmid = str(p.get("wb_nmid") or "").strip()
+            ozon_sku = str(p.get("ozon_sku") or "").strip()
+            barcodes: list[str] = []
+            for b in fbs_barcodes.get(pid_item) or []:
+                text = str(b or "").strip()
+                if text and text != article and text not in barcodes:
+                    barcodes.append(text)
+            if ozon_sku and ozon_sku != article and ozon_sku not in barcodes:
+                barcodes.append(ozon_sku)
+            product_rows.append(
+                {
+                    "item_type": "product",
+                    "item_id": pid_item,
+                    "name": str(p.get("name") or ""),
+                    "unit": "шт",
+                    "supplier_article": article,
+                    "wb_nmid": wb_nmid,
+                    "ozon_sku": ozon_sku,
+                    "product_category": str(p.get("product_category") or "").strip(),
+                    "photo_url": (
+                        f"/api/products/photo/{pid_item}"
+                        if p.get("photo_path")
+                        else None
+                    ),
+                    "barcodes": barcodes,
+                    "values": {date_s: sold},
+                    "balance": sold,
+                    "sold": sold,
+                    "sort_order": sort_map.get(("product", pid_item), 10**9),
+                    "min_qty": None,
+                    "below_min": False,
+                }
+            )
+        product_rows.sort(
+            key=lambda r: repository.supply_balance_item_sort_key(
+                item_type="product",
+                item_id=int(r["item_id"]),
+                name=str(r.get("name") or ""),
+                sort_map=sort_map,
+            )
+        )
+        try:
+            cat_rows = repository.list_product_categories(
+                user_id=owner_id, seed_defaults=True
+            )
+        except Exception:
+            cat_rows = []
+        categories = [
+            str(c.get("name") or "").strip()
+            for c in cat_rows
+            if str(c.get("name") or "").strip()
+        ]
+        seen_cats = set(categories)
+        for pr in product_rows:
+            cat = str(pr.get("product_category") or "").strip()
+            if cat and cat not in seen_cats:
+                categories.append(cat)
+                seen_cats.add(cat)
+        return {
+            "today": today,
+            "date": date_s,
+            "as_of": date_s,
+            "production_id": pid,
+            "dates": [date_s],
+            "history": False,
+            "rows": product_rows,
+            "categories": categories,
+            "productions": productions,
+            "mode": "sales",
+            "can_edit": False,
+            "ledger": True,
+        }
+
     @app.post("/api/supply-balances/receipt")
     def post_supply_stock_receipt(
         request: Request, payload: SupplyStockReceiptRequest

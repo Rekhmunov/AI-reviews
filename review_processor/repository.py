@@ -12890,6 +12890,50 @@ class ReviewRepository:
             out[(item_type, item_id)] = bal
         return out
 
+    def sum_supply_stock_sales_for_date(
+        self,
+        *,
+        user_id: int,
+        production_id: int,
+        movement_date: str,
+    ) -> dict[tuple[str, int], float]:
+        """Net FBS sales qty for one calendar day (positive = sold).
+
+        Uses ``fbs_ship`` (negative ledger) and ``fbs_reverse`` (positive) so
+        same-day reverses reduce the sold figure.
+        """
+        date_s = str(movement_date or "").strip()
+        if not date_s:
+            return {}
+        with self._connect() as conn:
+            self._ensure_supply_balances_tables(conn)
+            rows = conn.execute(
+                self._sql(
+                    "SELECT item_type, item_id, COALESCE(SUM(qty), 0) AS delta "
+                    "FROM supply_stock_movements "
+                    "WHERE user_id = ? AND production_id = ? AND movement_date = ? "
+                    "AND kind IN ('fbs_ship', 'fbs_reverse') "
+                    "GROUP BY item_type, item_id"
+                ),
+                (user_id, int(production_id), date_s),
+            ).fetchall()
+        out: dict[tuple[str, int], float] = {}
+        for r in rows:
+            d = self._row_to_dict(r)
+            item_type = str(d.get("item_type") or "").strip().lower()
+            try:
+                item_id = int(d.get("item_id") or 0)
+                delta = float(d.get("delta") or 0)
+            except (TypeError, ValueError):
+                continue
+            if item_type not in {"material", "product"} or item_id <= 0:
+                continue
+            sold = -delta
+            if abs(sold) < 1e-12:
+                continue
+            out[(item_type, item_id)] = sold
+        return out
+
     def add_supply_stock_movements(
         self,
         *,

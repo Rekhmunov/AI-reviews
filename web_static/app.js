@@ -13451,6 +13451,8 @@ const supplyBalancesState = {
   search: "",
   // "" = all, "__materials__" = materials only, else product category name
   categoryFilter: "",
+  // "balance" = ledger snapshot; "sales" = FBS sold qty for asOf day
+  viewMode: "balance",
   // Default: one date column (as_of / today). Opt-in loads all movement dates.
   showHistory: false,
   filterBelowMin: false,
@@ -13551,6 +13553,7 @@ function _sbUpdateTodayBadge() {
   if (!badge) return;
   const today = String(supplyBalancesState.today || "").trim();
   const asOf = String(supplyBalancesState.asOf || today).trim();
+  const salesMode = supplyBalancesState.viewMode === "sales";
   if (!today) {
     badge.classList.add("hidden");
     badge.textContent = "";
@@ -13559,7 +13562,10 @@ function _sbUpdateTodayBadge() {
     badge.textContent = `Сегодня · ${_sbFormatDateLabel(today)}`;
   }
   if (asOfBadge) {
-    if (asOf && asOf !== today) {
+    if (salesMode) {
+      asOfBadge.classList.remove("hidden");
+      asOfBadge.textContent = `Продажи · ${_sbFormatDateLabel(asOf || today)}`;
+    } else if (asOf && asOf !== today) {
       asOfBadge.classList.remove("hidden");
       asOfBadge.textContent = `Срез · ${_sbFormatDateLabel(asOf)}`;
     } else {
@@ -13587,7 +13593,8 @@ function _sbSetDualBtnLabel(btn, fullText, shortText) {
 function _sbUpdateHistoryBtn() {
   const btn = document.getElementById("supplyBalancesHistoryBtn");
   if (!btn) return;
-  const on = !!supplyBalancesState.showHistory;
+  const salesMode = supplyBalancesState.viewMode === "sales";
+  const on = !!supplyBalancesState.showHistory && !salesMode;
   _sbSetDualBtnLabel(
     btn,
     on ? "Скрыть историю" : "История дат",
@@ -13595,9 +13602,12 @@ function _sbUpdateHistoryBtn() {
   );
   btn.setAttribute("aria-pressed", on ? "true" : "false");
   btn.classList.toggle("is-active", on);
-  btn.title = on
-    ? "Скрыть колонки прошлых дат"
-    : "Показать колонки по датам движений";
+  btn.disabled = salesMode;
+  btn.title = salesMode
+    ? "История дат недоступна в режиме «Продажи»"
+    : on
+      ? "Скрыть колонки прошлых дат"
+      : "Показать колонки по датам движений";
 }
 
 function _sbUpdateBelowMinBtn() {
@@ -13624,6 +13634,7 @@ function toggleSupplyBalancesBelowMin() {
 window.toggleSupplyBalancesBelowMin = toggleSupplyBalancesBelowMin;
 
 async function toggleSupplyBalancesHistory() {
+  if (supplyBalancesState.viewMode === "sales") return;
   supplyBalancesState.showHistory = !supplyBalancesState.showHistory;
   _sbUpdateHistoryBtn();
   await loadSupplyBalancesData();
@@ -13680,6 +13691,10 @@ window.addEventListener("resize", () => {
 async function loadSupplyBalancesData() {
   const pid = Number(supplyBalancesState.productionId || 0);
   if (!pid) return;
+  if (supplyBalancesState.viewMode === "sales") {
+    await loadSupplyBalancesSalesData();
+    return;
+  }
   try {
     const asOf = String(supplyBalancesState.asOf || supplyBalancesState.today || "").trim();
     const params = new URLSearchParams({ production_id: String(pid) });
@@ -13712,6 +13727,52 @@ async function loadSupplyBalancesData() {
       );
     } else {
       _sbSetStatus("Нет видимых материалов и товаров. Добавьте их в Настройки или включите в «Вывод в таблице».");
+    }
+  } catch (e) {
+    _sbSetStatus(String(e.message || e), "error");
+  }
+}
+
+async function loadSupplyBalancesSalesData() {
+  const pid = Number(supplyBalancesState.productionId || 0);
+  if (!pid) return;
+  try {
+    const day = String(supplyBalancesState.asOf || supplyBalancesState.today || "").trim();
+    const params = new URLSearchParams({ production_id: String(pid) });
+    if (day) params.set("date", day);
+    const res = await fetch(`/api/supply-balances/sales?${params.toString()}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Ошибка загрузки продаж");
+    supplyBalancesState.viewMode = "sales";
+    supplyBalancesState.showHistory = false;
+    supplyBalancesState.today = String(data.today || supplyBalancesState.today || "");
+    supplyBalancesState.asOf = String(data.date || data.as_of || day || supplyBalancesState.today || "");
+    supplyBalancesState.dates = Array.isArray(data.dates) && data.dates.length
+      ? data.dates
+      : [supplyBalancesState.asOf];
+    supplyBalancesState.rows = Array.isArray(data.rows) ? data.rows : [];
+    supplyBalancesState.categories = Array.isArray(data.categories) ? data.categories : [];
+    supplyBalancesState.productionId = Number(data.production_id || pid);
+    // Sales are products only — «Материалы» filter would always be empty.
+    if (supplyBalancesState.categoryFilter === "__materials__") {
+      supplyBalancesState.categoryFilter = "";
+    }
+    _sbUpdateTodayBadge();
+    _sbUpdateHistoryBtn();
+    _sbUpdateBelowMinBtn();
+    _sbSyncCategoryFilterOptions();
+    renderSupplyBalancesTable();
+    const dayLabel = _sbFormatDateLabel(supplyBalancesState.asOf);
+    if (supplyBalancesState.rows.length) {
+      const total = supplyBalancesState.rows.reduce((acc, r) => {
+        const n = Number(r.sold ?? r.balance ?? 0);
+        return acc + (Number.isFinite(n) ? n : 0);
+      }, 0);
+      _sbSetStatus(
+        `Продажи FBS за ${dayLabel}: позиций ${supplyBalancesState.rows.length}, всего ${_sbQtyText(total)} шт.`
+      );
+    } else {
+      _sbSetStatus(`За ${dayLabel} продаж FBS по видимым товарам нет.`);
     }
   } catch (e) {
     _sbSetStatus(String(e.message || e), "error");
@@ -13839,11 +13900,10 @@ function _sbSyncCategoryFilterOptions() {
   const cats = Array.isArray(supplyBalancesState.categories)
     ? supplyBalancesState.categories.map((c) => String(c || "").trim()).filter(Boolean)
     : [];
-  const opts = [
-    { value: "", label: "Все" },
-    { value: "__materials__", label: "Материалы" },
-    ...cats.map((name) => ({ value: name, label: name })),
-  ];
+  const salesMode = supplyBalancesState.viewMode === "sales";
+  const opts = [{ value: "", label: "Все" }];
+  if (!salesMode) opts.push({ value: "__materials__", label: "Материалы" });
+  cats.forEach((name) => opts.push({ value: name, label: name }));
   sel.innerHTML = opts.map((o) =>
     `<option value="${esc(o.value)}">${esc(o.label)}</option>`
   ).join("");
@@ -13961,14 +14021,16 @@ function renderSupplyBalancesTable() {
 
   thead.innerHTML = `<tr>
     <th class="sb-col-name sb-resizable" data-sb-col="name">
-      <span class="sb-th-label">Материал / Товар</span>
+      <span class="sb-th-label">${supplyBalancesState.viewMode === "sales" ? "Товар" : "Материал / Товар"}</span>
       <div class="sb-resize-handle" data-sb-resize="name" title="Изменить ширину"></div>
     </th>
     ${dates.map((d, i) => {
       const isAsOf = d === asOf;
       const isToday = d === today;
       let sub = "";
-      if (isAsOf && isToday) sub = "остаток";
+      if (supplyBalancesState.viewMode === "sales") {
+        sub = "продажи";
+      } else if (isAsOf && isToday) sub = "остаток";
       else if (isAsOf) sub = "срез";
       else if (isToday) sub = "сегодня";
       return `<th class="sb-resizable ${isAsOf ? "sb-col-today" : "sb-col-date"}" data-sb-col="date" data-sb-date="${esc(d)}" data-sb-date-idx="${i}">
@@ -14769,13 +14831,55 @@ async function saveSupplyStockAdjustment() {
 }
 window.saveSupplyStockAdjustment = saveSupplyStockAdjustment;
 
+function _sbFillAsOfCategorySelect() {
+  const sel = document.getElementById("supplyStockAsOfCategory");
+  if (!sel) return;
+  const mode = String(document.getElementById("supplyStockAsOfMode")?.value || "balance");
+  const current = String(sel.value || supplyBalancesState.categoryFilter || "");
+  const cats = Array.isArray(supplyBalancesState.categories)
+    ? supplyBalancesState.categories.map((c) => String(c || "").trim()).filter(Boolean)
+    : [];
+  const opts = [{ value: "", label: "Все" }];
+  if (mode !== "sales") opts.push({ value: "__materials__", label: "Материалы" });
+  cats.forEach((name) => opts.push({ value: name, label: name }));
+  sel.innerHTML = opts.map((o) =>
+    `<option value="${esc(o.value)}">${esc(o.label)}</option>`
+  ).join("");
+  sel.value = opts.some((o) => o.value === current) ? current : "";
+}
+
+function _sbUpdateAsOfLead() {
+  const lead = document.getElementById("supplyStockAsOfLead");
+  if (!lead) return;
+  const mode = String(document.getElementById("supplyStockAsOfMode")?.value || "balance");
+  lead.textContent = mode === "sales"
+    ? "Покажем количество, списанное в FBS (WB/Ozon) за выбранный день. Учитываются отгрузки и сторно. Материалы не входят в продажи."
+    : "Таблица покажет остатки с учётом всех приходов, списаний FBS и корректировок на выбранную дату включительно.";
+}
+
+function onSupplyStockAsOfModeChange() {
+  _sbFillAsOfCategorySelect();
+  _sbUpdateAsOfLead();
+}
+window.onSupplyStockAsOfModeChange = onSupplyStockAsOfModeChange;
+
 function openSupplyStockAsOfModal() {
   _sbSetDocErr("supplyStockAsOfErr", "");
   setModalVisibility("supplyStockAsOfModal", true);
   const dateEl = document.getElementById("supplyStockAsOfDate");
+  const modeEl = document.getElementById("supplyStockAsOfMode");
   if (dateEl) {
     dateEl.value = supplyBalancesState.asOf || supplyBalancesState.today || "";
   }
+  if (modeEl) {
+    modeEl.value = supplyBalancesState.viewMode === "sales" ? "sales" : "balance";
+    if (!modeEl.dataset.bound) {
+      modeEl.dataset.bound = "1";
+      modeEl.addEventListener("change", onSupplyStockAsOfModeChange);
+    }
+  }
+  _sbFillAsOfCategorySelect();
+  _sbUpdateAsOfLead();
 }
 window.openSupplyStockAsOfModal = openSupplyStockAsOfModal;
 
@@ -14786,13 +14890,24 @@ window.closeSupplyStockAsOfModal = closeSupplyStockAsOfModal;
 
 async function applySupplyStockAsOf() {
   const dateEl = document.getElementById("supplyStockAsOfDate");
+  const modeEl = document.getElementById("supplyStockAsOfMode");
+  const catEl = document.getElementById("supplyStockAsOfCategory");
   const val = String(dateEl?.value || "").trim();
+  const mode = String(modeEl?.value || "balance") === "sales" ? "sales" : "balance";
   _sbSetDocErr("supplyStockAsOfErr", "");
   if (!val) {
     _sbSetDocErr("supplyStockAsOfErr", "Укажите дату");
     return;
   }
   supplyBalancesState.asOf = val;
+  supplyBalancesState.viewMode = mode;
+  supplyBalancesState.categoryFilter = String(catEl?.value || "");
+  if (mode === "sales") {
+    supplyBalancesState.showHistory = false;
+    if (supplyBalancesState.categoryFilter === "__materials__") {
+      supplyBalancesState.categoryFilter = "";
+    }
+  }
   closeSupplyStockAsOfModal();
   await loadSupplyBalancesData();
 }
@@ -14800,6 +14915,8 @@ window.applySupplyStockAsOf = applySupplyStockAsOf;
 
 async function resetSupplyStockAsOf() {
   supplyBalancesState.asOf = supplyBalancesState.today || "";
+  supplyBalancesState.viewMode = "balance";
+  supplyBalancesState.categoryFilter = "";
   closeSupplyStockAsOfModal();
   await loadSupplyBalancesData();
 }

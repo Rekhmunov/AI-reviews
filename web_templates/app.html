@@ -3633,7 +3633,7 @@
                 <span class="sb-btn-short" aria-hidden="true">История</span>
               </button>
               <button type="button" class="secondary" onclick="openSupplyStockAsOfModal()"
-                      title="Сформировать остатки на дату">
+                      title="Сформировать остатки или продажи на дату">
                 <span class="sb-btn-full">Сформировать на дату</span>
                 <span class="sb-btn-short" aria-hidden="true">На дату</span>
               </button>
@@ -5960,22 +5960,38 @@
     </div>
   </div>
 
-  <!-- Supply stock: form balances on date -->
+  <!-- Supply stock: form balances / sales on date -->
   <div id="supplyStockAsOfModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
        aria-labelledby="supplyStockAsOfTitle">
     <div class="modal-card sb-sheet-modal sb-asof-modal">
       <div class="sb-sheet-header">
         <div class="sb-sheet-title-row">
-          <h3 id="supplyStockAsOfTitle" class="sb-sheet-title">Сформировать остатки на дату</h3>
+          <h3 id="supplyStockAsOfTitle" class="sb-sheet-title">Сформировать на дату</h3>
           <button type="button" class="icon-btn secondary" onclick="closeSupplyStockAsOfModal()" aria-label="Закрыть">✕</button>
         </div>
       </div>
       <div class="sb-doc-body">
-        <label class="sb-doc-field" for="supplyStockAsOfDate">
-          <span>Дата среза</span>
-          <input type="date" id="supplyStockAsOfDate" />
-        </label>
-        <p class="sb-sheet-lead sb-sheet-lead-inline">Таблица покажет остатки с учётом всех приходов, списаний FBS и корректировок на выбранную дату включительно.</p>
+        <div class="sb-asof-fields">
+          <label class="sb-doc-field" for="supplyStockAsOfMode">
+            <span>Показатель</span>
+            <select id="supplyStockAsOfMode">
+              <option value="balance">Остатки</option>
+              <option value="sales">Продажи</option>
+            </select>
+          </label>
+          <label class="sb-doc-field" for="supplyStockAsOfCategory">
+            <span>Категория</span>
+            <select id="supplyStockAsOfCategory">
+              <option value="">Все</option>
+              <option value="__materials__">Материалы</option>
+            </select>
+          </label>
+          <label class="sb-doc-field" for="supplyStockAsOfDate">
+            <span>Дата</span>
+            <input type="date" id="supplyStockAsOfDate" />
+          </label>
+        </div>
+        <p id="supplyStockAsOfLead" class="sb-sheet-lead sb-sheet-lead-inline">Таблица покажет остатки с учётом всех приходов, списаний FBS и корректировок на выбранную дату включительно.</p>
         <div id="supplyStockAsOfErr" class="sb-doc-err" hidden></div>
       </div>
       <div class="sb-sheet-footer">
@@ -6005,6 +6021,6 @@
   </div>
 
   <script src="/static/ozon_fbs.js?v=34"></script>
-  <script src="/static/app.js?v=507"></script>
+  <script src="/static/app.js?v=508"></script>
 </body>
 </html>

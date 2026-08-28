@@ -155,3 +155,37 @@ def test_allowed_stock_production_ids_helper() -> None:
         if pid > 0:
             out.append(pid)
     assert out == [3, 7]
+
+
+def test_sum_supply_stock_sales_for_date_nets_ship_and_reverse() -> None:
+    repo = ReviewRepository.__new__(ReviewRepository)
+    repo._sql = lambda q: q  # type: ignore[method-assign]
+    repo._ensure_supply_balances_tables = lambda conn: None  # type: ignore[method-assign]
+    repo._row_to_dict = lambda r: dict(r)  # type: ignore[method-assign]
+
+    class _Cur:
+        def fetchall(self):
+            return [
+                {"item_type": "product", "item_id": 5, "delta": -3.0},  # net ship
+                {"item_type": "product", "item_id": 9, "delta": 0.0},
+            ]
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def execute(self, sql, params=()):
+            assert "fbs_ship" in str(sql) and "fbs_reverse" in str(sql)
+            assert params[-1] == "2026-08-28"
+            return _Cur()
+
+    repo._connect = lambda: _Conn()  # type: ignore[method-assign]
+    sold = ReviewRepository.sum_supply_stock_sales_for_date(
+        repo, user_id=1, production_id=2, movement_date="2026-08-28"
+    )
+    assert sold[("product", 5)] == 3.0
+    assert ("product", 9) not in sold
+
