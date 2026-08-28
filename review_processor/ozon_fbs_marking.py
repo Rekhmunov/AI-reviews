@@ -86,7 +86,8 @@ def load_marking_map(
             continue
         out[pn] = {
             "codes": _parse_codes(d.get("marking_codes_json")),
-            "saved_at": str(d.get("marking_saved_at") or ""),
+            # Canonical UTC token — same as WB FBS (avoids false conflicts on PG round-trip).
+            "saved_at": wb._normalize_kiz_saved_at(d.get("marking_saved_at")),
             "ozon_synced": bool(d.get("marking_ozon_synced")),
         }
     return out
@@ -480,12 +481,20 @@ def update_posting_marking_codes(
     expected_saved_at: str | None = None,
     force: bool = False,
 ) -> dict[str, Any]:
+    """Persist marking codes locally (FeedPilot).
+
+    Optimistic concurrency matches WB FBS ``update_order_kiz_codes``:
+    refuse only when ``expected_saved_at`` is set, timestamps differ **and**
+    stored codes differ from the payload. Same codes / timestamp string
+    round-trips must not report «another operator».
+    """
     pn = str(posting_number or "").strip()
     if not pn:
-        return {"ok": False, "missing": True}
+        return {"ok": False, "missing": True, "conflict": False, "codes": [], "saved_at": ""}
     oz.ensure_ozon_fbs_tables(repo)
     clean = [_normalize_mark_code(c) for c in codes if _normalize_mark_code(c)]
-    now = datetime.now(UTC).isoformat()
+    now = datetime.now(UTC)
+    expected = wb._normalize_kiz_saved_at(expected_saved_at)
     with repo._connect() as conn:
         row = conn.execute(
             repo._sql(
@@ -498,18 +507,32 @@ def update_posting_marking_codes(
             (user_id, source_id, pn),
         ).fetchone()
         if not row:
-            return {"ok": False, "missing": True}
-        d = repo._row_to_dict(row)
-        prev_saved = str(d.get("marking_saved_at") or "").strip()
-        if (
-            expected_saved_at
-            and prev_saved
-            and prev_saved != expected_saved_at
-            and not force
-        ):
-            prev_codes = _parse_codes(d.get("marking_codes_json"))
             return {
                 "ok": False,
+                "missing": True,
+                "conflict": False,
+                "codes": clean,
+                "saved_at": "",
+            }
+        d = repo._row_to_dict(row)
+        prev_saved = wb._normalize_kiz_saved_at(d.get("marking_saved_at"))
+        prev_codes = _parse_codes(d.get("marking_codes_json"))
+        if (
+            not force
+            and expected
+            and prev_saved
+            and expected != prev_saved
+            and prev_codes != clean
+        ):
+            _log.info(
+                "ozon marking save conflict posting=%s expected=%r current=%r",
+                pn,
+                expected,
+                prev_saved,
+            )
+            return {
+                "ok": False,
+                "missing": False,
                 "conflict": True,
                 "codes": prev_codes,
                 "saved_at": prev_saved,
@@ -533,7 +556,13 @@ def update_posting_marking_codes(
                 pn,
             ),
         )
-    return {"ok": True, "codes": clean, "saved_at": now}
+    return {
+        "ok": True,
+        "missing": False,
+        "conflict": False,
+        "codes": clean,
+        "saved_at": wb._normalize_kiz_saved_at(now),
+    }
 
 
 def check_supply_marking_status(

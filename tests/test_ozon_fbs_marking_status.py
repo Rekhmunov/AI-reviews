@@ -45,6 +45,7 @@ def test_update_posting_marking_codes_normalizes_arrow() -> None:
     repo._connect.return_value.__exit__ = MagicMock(return_value=False)
     repo._sql = lambda s: s
     repo._row_to_dict = lambda row: row
+    repo._bool_db = lambda x: x
     conn.execute.return_value.fetchone.return_value = {
         "marking_codes_json": "[]",
         "marking_saved_at": "",
@@ -58,7 +59,98 @@ def test_update_posting_marking_codes_normalizes_arrow() -> None:
             codes=[f"010460123456789021{arrow}93ABC"],
         )
     assert res["codes"] == [f"010460123456789021{gs}93ABC"]
+    assert res["ok"] is True
+    assert res["conflict"] is False
 
+
+def test_update_posting_marking_codes_no_false_conflict_same_codes_timestamp_form() -> None:
+    """PG round-trip / Z vs +00:00 must not report «another operator» (WB parity)."""
+    import json
+
+    codes = ["010460123456789021\u001d93ABC"]
+    repo = MagicMock()
+    conn = MagicMock()
+    repo._connect.return_value.__enter__ = MagicMock(return_value=conn)
+    repo._connect.return_value.__exit__ = MagicMock(return_value=False)
+    repo._sql = lambda s: s
+    repo._row_to_dict = lambda row: row
+    repo._bool_db = lambda x: x
+    conn.execute.return_value.fetchone.return_value = {
+        "marking_codes_json": json.dumps(codes),
+        "marking_saved_at": "2026-08-14T09:00:00+00:00",
+    }
+    with patch("review_processor.ozon_fbs_marking.oz.ensure_ozon_fbs_tables"):
+        res = update_posting_marking_codes(
+            repo,
+            user_id=1,
+            source_id=2,
+            posting_number="P-1",
+            codes=codes,
+            expected_saved_at="2026-08-14T09:00:00.000Z",
+        )
+    assert res["ok"] is True
+    assert res["conflict"] is False
+    assert conn.execute.call_count >= 2  # SELECT + UPDATE
+
+
+def test_update_posting_marking_codes_allows_same_codes_with_stale_expected() -> None:
+    """Self-race / double PUT with identical codes must not conflict (WB parity)."""
+    import json
+
+    codes = ["010460123456789021\u001d93ABC"]
+    repo = MagicMock()
+    conn = MagicMock()
+    repo._connect.return_value.__enter__ = MagicMock(return_value=conn)
+    repo._connect.return_value.__exit__ = MagicMock(return_value=False)
+    repo._sql = lambda s: s
+    repo._row_to_dict = lambda row: row
+    repo._bool_db = lambda x: x
+    conn.execute.return_value.fetchone.return_value = {
+        "marking_codes_json": json.dumps(codes),
+        "marking_saved_at": "2026-08-14T09:00:00+00:00",
+    }
+    with patch("review_processor.ozon_fbs_marking.oz.ensure_ozon_fbs_tables"):
+        res = update_posting_marking_codes(
+            repo,
+            user_id=1,
+            source_id=2,
+            posting_number="P-1",
+            codes=codes,
+            expected_saved_at="2026-08-14T08:00:00+00:00",
+        )
+    assert res["ok"] is True
+    assert res["conflict"] is False
+
+
+def test_update_posting_marking_codes_conflict_when_codes_differ() -> None:
+    import json
+
+    repo = MagicMock()
+    conn = MagicMock()
+    repo._connect.return_value.__enter__ = MagicMock(return_value=conn)
+    repo._connect.return_value.__exit__ = MagicMock(return_value=False)
+    repo._sql = lambda s: s
+    repo._row_to_dict = lambda row: row
+    repo._bool_db = lambda x: x
+    old = ["010460123456789021\u001d93OLD"]
+    conn.execute.return_value.fetchone.return_value = {
+        "marking_codes_json": json.dumps(old),
+        "marking_saved_at": "2026-08-14T09:00:00+00:00",
+    }
+    with patch("review_processor.ozon_fbs_marking.oz.ensure_ozon_fbs_tables"):
+        res = update_posting_marking_codes(
+            repo,
+            user_id=1,
+            source_id=2,
+            posting_number="P-1",
+            codes=["010460123456789021\u001d93NEW"],
+            expected_saved_at="2026-08-14T08:00:00+00:00",
+        )
+    assert res["ok"] is False
+    assert res["conflict"] is True
+    assert res["codes"] == old
+    # Must not UPDATE on conflict
+    assert conn.execute.call_count == 1
 
 def test_check_supply_marking_status_ok_when_all_filled() -> None:
     detail = {

@@ -3335,7 +3335,7 @@
     /** @type {Set<string>} postings waiting for coalesced silent save */
     localAutosaveDirty: new Set(),
     localAutosaveClearByPosting: {},
-    localAutosaveTimer: null,
+    localAutosaveFlushQueued: false,
     /** @type {Map<string, object>} posting_number → row */
     rowsByPosting: new Map(),
     /** @type {Map<string, string>} normalized mark → posting_number */
@@ -4482,24 +4482,30 @@
   }
 
   /**
-   * Queue a silent local save. Coalesces rapid scans into one batched PUT
-   * (debounce ~120ms) so hundreds of marks do not serialize one request each.
+   * Silent local save after each scan (WB FBS parity).
+   * - Per-posting seq coalesces rapid re-scans of the same posting.
+   * - Microtask batches different postings touched in the same turn into one PUT.
+   * - Scan path never awaits; UI stays responsive under hundreds of marks.
+   * - Always adopt server kiz_saved_at on ok (even if a newer scan is pending)
+   *   so the next PUT does not false-conflict on stale expected_saved_at.
    */
   function _ozonFbsKizScheduleLocalAutosave(postingNumber, clear) {
     const pn = String(postingNumber || "").trim();
     if (!pn) return;
+    if (!ozonFbsKizState.localAutosaveSeqByPosting) ozonFbsKizState.localAutosaveSeqByPosting = {};
     if (!ozonFbsKizState.localAutosaveDirty) ozonFbsKizState.localAutosaveDirty = new Set();
     if (!ozonFbsKizState.localAutosaveClearByPosting) ozonFbsKizState.localAutosaveClearByPosting = {};
+    const seq = (Number(ozonFbsKizState.localAutosaveSeqByPosting[pn]) || 0) + 1;
+    ozonFbsKizState.localAutosaveSeqByPosting[pn] = seq;
     ozonFbsKizState.localAutosaveDirty.add(pn);
     if (clear) ozonFbsKizState.localAutosaveClearByPosting[pn] = true;
     else delete ozonFbsKizState.localAutosaveClearByPosting[pn];
-    if (ozonFbsKizState.localAutosaveTimer) {
-      clearTimeout(ozonFbsKizState.localAutosaveTimer);
-    }
-    ozonFbsKizState.localAutosaveTimer = setTimeout(() => {
-      ozonFbsKizState.localAutosaveTimer = null;
+    if (ozonFbsKizState.localAutosaveFlushQueued) return;
+    ozonFbsKizState.localAutosaveFlushQueued = true;
+    queueMicrotask(() => {
+      ozonFbsKizState.localAutosaveFlushQueued = false;
       _ozonFbsKizQueueDirtyAutosaveFlush();
-    }, 120);
+    });
   }
 
   function _ozonFbsKizQueueDirtyAutosaveFlush() {
@@ -4508,8 +4514,14 @@
     const postings = Array.from(dirty);
     dirty.clear();
     const clearFlags = { ...(ozonFbsKizState.localAutosaveClearByPosting || {}) };
-    ozonFbsKizState.localAutosaveClearByPosting = {};
-    const run = () => _ozonFbsKizFlushLocalAutosaveBatch(postings, clearFlags);
+    for (const pn of postings) {
+      delete ozonFbsKizState.localAutosaveClearByPosting?.[pn];
+    }
+    const seqSnapshot = {};
+    for (const pn of postings) {
+      seqSnapshot[pn] = Number(ozonFbsKizState.localAutosaveSeqByPosting?.[pn]) || 0;
+    }
+    const run = () => _ozonFbsKizFlushLocalAutosaveBatch(postings, clearFlags, seqSnapshot);
     ozonFbsKizState.localAutosaveChain = (ozonFbsKizState.localAutosaveChain || Promise.resolve())
       .then(run, run)
       .catch(() => {});
@@ -4517,15 +4529,13 @@
 
   function _ozonFbsKizAwaitLocalAutosaves() {
     return (async () => {
-      if (ozonFbsKizState.localAutosaveTimer) {
-        clearTimeout(ozonFbsKizState.localAutosaveTimer);
-        ozonFbsKizState.localAutosaveTimer = null;
+      if (ozonFbsKizState.localAutosaveFlushQueued) {
+        ozonFbsKizState.localAutosaveFlushQueued = false;
         _ozonFbsKizQueueDirtyAutosaveFlush();
       }
       for (let i = 0; i < 40; i += 1) {
-        if (ozonFbsKizState.localAutosaveTimer) {
-          clearTimeout(ozonFbsKizState.localAutosaveTimer);
-          ozonFbsKizState.localAutosaveTimer = null;
+        if (ozonFbsKizState.localAutosaveFlushQueued) {
+          ozonFbsKizState.localAutosaveFlushQueued = false;
           _ozonFbsKizQueueDirtyAutosaveFlush();
         }
         const tip = ozonFbsKizState.localAutosaveChain || Promise.resolve();
@@ -4537,35 +4547,43 @@
         const latest = ozonFbsKizState.localAutosaveChain || tip;
         const inflight = Number(ozonFbsKizState.localAutosaveInflight) || 0;
         const dirtyLeft = ozonFbsKizState.localAutosaveDirty?.size || 0;
-        if (tip === latest && inflight <= 0 && dirtyLeft <= 0 && !ozonFbsKizState.localAutosaveTimer) {
+        if (tip === latest && inflight <= 0 && dirtyLeft <= 0 && !ozonFbsKizState.localAutosaveFlushQueued) {
           return;
         }
       }
     })();
   }
 
-  async function _ozonFbsKizFlushLocalAutosaveBatch(postings, clearFlags) {
+  async function _ozonFbsKizFlushLocalAutosaveBatch(postings, clearFlags, seqSnapshot, attempt = 0) {
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
     if (!sid || !sourceId || !_ozonFbsKizModalIsOpen()) return;
+
     const items = [];
+    const codesByPosting = {};
     for (const pn of postings || []) {
+      const seq = Number(seqSnapshot?.[pn]) || 0;
+      // Newer scan already superseded this snapshot — skip obsolete write.
+      if ((Number(ozonFbsKizState.localAutosaveSeqByPosting?.[pn]) || 0) !== seq) continue;
       const row = _ozonFbsKizRowByPosting(pn);
       if (!row || _ozonFbsRowIsCancelled(row)) continue;
-      const codes = (row.kiz_codes || []).map((c) => _ozonFbsNormalizeMark(c)).filter(Boolean);
+      const codes = _ozonFbsKizNormalizeCodesList(row.kiz_codes);
       const wantClear = !!(clearFlags && clearFlags[pn]) && !codes.length;
       if (!codes.length && !wantClear) continue;
       if (!wantClear && _ozonFbsKizBaselineEquals(pn, codes)) continue;
+      codesByPosting[pn] = codes.slice();
       items.push({
         posting_number: pn,
         kiz_codes: codes,
-        expected_saved_at: row.kiz_saved_at || "",
+        expected_saved_at: String(row.kiz_saved_at || ""),
         force: !!(ozonFbsKizState.forceSaveByPosting && ozonFbsKizState.forceSaveByPosting[pn]),
         clear: wantClear,
       });
     }
     if (!items.length) return;
+
     ozonFbsKizState.localAutosaveInflight = (Number(ozonFbsKizState.localAutosaveInflight) || 0) + 1;
+    let retryPostings = null;
     try {
       const res = await fetch(
         `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/marking?source_id=${sourceId}`,
@@ -4577,36 +4595,86 @@
         }
       );
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) return;
+      if (!res.ok) {
+        if (attempt < 1) retryPostings = postings.slice();
+        return;
+      }
       for (const result of data.results || []) {
         const pn = String(result?.posting_number || "").trim();
         if (!pn) continue;
-        // Newer scan already queued for this posting — keep pending baseline.
-        if (ozonFbsKizState.localAutosaveDirty?.has(pn)) continue;
         const row = _ozonFbsKizRowByPosting(pn);
         if (!row) continue;
-        if (!result.ok) {
-          if (result.conflict) {
-            row.kiz_saved_at = String(result.kiz_saved_at || row.kiz_saved_at || "");
-            if (!ozonFbsKizState.forceSaveByPosting) ozonFbsKizState.forceSaveByPosting = {};
-            ozonFbsKizState.forceSaveByPosting[pn] = true;
+        const seq = Number(seqSnapshot?.[pn]) || 0;
+        const seqCurrent = (Number(ozonFbsKizState.localAutosaveSeqByPosting?.[pn]) || 0) === seq;
+        const stillDirty = !!ozonFbsKizState.localAutosaveDirty?.has(pn);
+
+        if (result.conflict) {
+          // Adopt server clock so the next write (often force) is consistent.
+          row.kiz_saved_at = String(result.kiz_saved_at || row.kiz_saved_at || "");
+          if (!ozonFbsKizState.forceSaveByPosting) ozonFbsKizState.forceSaveByPosting = {};
+          ozonFbsKizState.forceSaveByPosting[pn] = true;
+          if (seqCurrent && !stillDirty) {
+            _ozonFbsKizSetInfo(
+              result.error
+                || "Коды изменены другим оператором — проверьте КИЗ и сохраните снова"
+            );
           }
           continue;
         }
-        row.kiz_saved_at = String(result.kiz_saved_at || row.kiz_saved_at || "");
-        if (!ozonFbsKizState.baselineByPosting) ozonFbsKizState.baselineByPosting = {};
-        ozonFbsKizState.baselineByPosting[pn] = (row.kiz_codes || [])
-          .map((c) => _ozonFbsNormalizeMark(c))
-          .filter(Boolean);
-        delete ozonFbsKizState.forceSaveByPosting?.[pn];
-        delete ozonFbsKizState.errors[pn];
+        if (!result.ok) {
+          if (attempt < 1 && seqCurrent) {
+            if (!retryPostings) retryPostings = [];
+            if (!retryPostings.includes(pn)) retryPostings.push(pn);
+          }
+          continue;
+        }
+
+        // Server write succeeded — always refresh optimistic token (even if a
+        // newer scan is already queued). Prevents self false-conflicts.
+        if (result.kiz_saved_at) {
+          row.kiz_saved_at = String(result.kiz_saved_at);
+        }
+        if (seqCurrent && !stillDirty) {
+          if (!ozonFbsKizState.baselineByPosting) ozonFbsKizState.baselineByPosting = {};
+          ozonFbsKizState.baselineByPosting[pn] = (codesByPosting[pn] || []).slice();
+          delete ozonFbsKizState.forceSaveByPosting?.[pn];
+          delete ozonFbsKizState.errors[pn];
+        }
       }
+    } catch (_e) {
+      if (attempt < 1) retryPostings = (postings || []).slice();
     } finally {
       ozonFbsKizState.localAutosaveInflight = Math.max(
         0,
         (Number(ozonFbsKizState.localAutosaveInflight) || 1) - 1
       );
     }
+    if (retryPostings && retryPostings.length) {
+      await new Promise((r) => setTimeout(r, 120));
+      const still = retryPostings.filter((pn) => {
+        const seq = Number(seqSnapshot?.[pn]) || 0;
+        return (Number(ozonFbsKizState.localAutosaveSeqByPosting?.[pn]) || 0) === seq;
+      });
+      if (still.length) {
+        return _ozonFbsKizFlushLocalAutosaveBatch(still, clearFlags, seqSnapshot, attempt + 1);
+      }
+    }
+  }
+
+  function _ozonFbsKizSyncActiveCodeInput() {
+    const active = document.activeElement;
+    if (!active || !active.classList?.contains("wb-fbs-kiz-code-input")) return;
+    if (!active.closest?.("#ozonFbsKizTbody")) return;
+    const pn = String(active.dataset.posting || "").trim();
+    const idx = Number(active.dataset.idx);
+    const row = _ozonFbsKizRowByPosting(pn);
+    if (!row || !Number.isFinite(idx) || idx < 0) return;
+    if (!Array.isArray(row.kiz_codes)) row.kiz_codes = [];
+    const prev = _ozonFbsNormalizeMark(row.kiz_codes[idx]);
+    const next = _ozonFbsNormalizeMark(active.value);
+    row.kiz_codes[idx] = next;
+    if (prev && prev !== next) _ozonFbsKizIndexClearMark(prev);
+    if (next) _ozonFbsKizIndexSetMark(next, pn);
   }
 
   async function onOzonFbsKizStickerScanKey(event) {
@@ -4621,7 +4689,8 @@
       if (typeof _wbFbsKizBlockRuLayout === "function") _wbFbsKizBlockRuLayout(input);
       return;
     }
-    // State is source of truth during wedge scans — skip walking every input.
+    // Sync only the focused cell (if any) — avoid walking hundreds of inputs.
+    _ozonFbsKizSyncActiveCodeInput();
     const found = await _ozonFbsKizFindByStickerWithLookup(rawTyped);
     if (found.ambiguous) {
       const ids = (found.matches || []).map((r) => r.posting_number).slice(0, 5).join(", ");
@@ -4677,6 +4746,7 @@
     }
     const mark = _ozonFbsNormalizeMark(rawTyped);
     if (!mark) return;
+    _ozonFbsKizSyncActiveCodeInput();
     const row = _ozonFbsKizRowByPosting(pn);
     if (!row) {
       cancelOzonFbsKizMarkScan();
@@ -4770,10 +4840,8 @@
     ozonFbsKizState.forceSaveByPosting = {};
     ozonFbsKizState.localAutosaveDirty = new Set();
     ozonFbsKizState.localAutosaveClearByPosting = {};
-    if (ozonFbsKizState.localAutosaveTimer) {
-      clearTimeout(ozonFbsKizState.localAutosaveTimer);
-      ozonFbsKizState.localAutosaveTimer = null;
-    }
+    ozonFbsKizState.localAutosaveFlushQueued = false;
+    ozonFbsKizState.localAutosaveSeqByPosting = {};
     ozonFbsKizState.rowsByPosting = new Map();
     ozonFbsKizState.markIndex = new Map();
     ozonFbsKizState.stickerIndex = new Map();
