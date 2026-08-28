@@ -17352,6 +17352,14 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                 )
             except Exception:
                 settled = 0
+            try:
+                settled += repository.settle_open_ozon_fbs_postings_for_stock(
+                    user_id=owner_id,
+                    production_id=pid,
+                    reason=mode,
+                )
+            except Exception:
+                pass
             return {
                 "ok": True,
                 "saved": 0,
@@ -17381,6 +17389,14 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             )
         except Exception:
             settled = 0
+        try:
+            settled += repository.settle_open_ozon_fbs_postings_for_stock(
+                user_id=owner_id,
+                production_id=pid,
+                reason=mode,
+            )
+        except Exception:
+            pass
         return {
             "ok": True,
             "saved": saved,
