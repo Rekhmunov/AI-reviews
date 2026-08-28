@@ -211,6 +211,83 @@ def test_reconcile_ozon_skips_settled() -> None:
     assert stats["shipped"] == 0
 
 
+def test_reconcile_ozon_cancelled_does_not_reverse_after_ship() -> None:
+    """After delivering ship, cancelled/arbitration must NOT return qty to stock."""
+    repo = ReviewRepository.__new__(ReviewRepository)
+    repo._sql = lambda q: q  # type: ignore[method-assign]
+    repo._ensure_supply_balances_tables = lambda conn: None  # type: ignore[method-assign]
+    repo._row_to_dict = lambda r: dict(r)  # type: ignore[method-assign]
+    repo.get_product_id_by_ozon_keys_map = lambda *, user_id: {"ART-OZ": 77}  # type: ignore[method-assign]
+
+    ledger: list[dict] = [
+        {
+            "kind": "fbs_ship",
+            "source_type": "ozon_fbs_posting",
+            "source_id": "P-9:p77:s:1",
+            "qty": -1.0,
+        }
+    ]
+    inserts: list[tuple] = []
+
+    class _Cur:
+        rowcount = 1
+
+        def __init__(self, rows=None):
+            self._rows = rows or []
+
+        def fetchall(self):
+            return self._rows
+
+        def fetchone(self):
+            return None
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def execute(self, sql, params=()):
+            sql_s = str(sql)
+            inserts.append((sql_s, tuple(params)))
+            if "FROM supply_stock_movements" in sql_s and "SELECT" in sql_s:
+                return _Cur(
+                    [
+                        {
+                            "kind": r["kind"],
+                            "source_type": r["source_type"],
+                            "qty": r["qty"],
+                        }
+                        for r in ledger
+                    ]
+                )
+            if "INSERT INTO supply_stock_movements" in sql_s:
+                raise AssertionError("cancelled must not write stock movements")
+            return _Cur()
+
+    repo._connect = lambda: _Conn()  # type: ignore[method-assign]
+    for tab in ("cancelled", "arbitration"):
+        inserts.clear()
+        stats = ReviewRepository.reconcile_ozon_fbs_stock_postings(
+            repo,
+            user_id=1,
+            production_id=9,
+            postings=[
+                {
+                    "posting_number": "P-9",
+                    "tab": tab,
+                    "offer_id": "ART-OZ",
+                    "quantity": 1,
+                }
+            ],
+            movement_date="2026-08-28",
+        )
+        assert stats["shipped"] == 0
+        assert stats["reversed"] == 0
+        assert stats["ok"] >= 1
+
+
 def test_wb_reconcile_untouched_by_ozon_helpers() -> None:
     assert callable(getattr(ReviewRepository, "reconcile_wb_fbs_stock_orders"))
     assert callable(getattr(ReviewRepository, "reconcile_ozon_fbs_stock_postings"))
