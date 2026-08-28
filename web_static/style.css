@@ -10032,8 +10032,8 @@ button.wb-fbs-sd-portal-btn:focus-visible {
 }
 .ozon-fbs-kiz-import-text {
   width: 100%;
-  min-height: 120px;
-  max-height: 200px;
+  min-height: 160px;
+  max-height: 280px;
   padding: 8px 12px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
