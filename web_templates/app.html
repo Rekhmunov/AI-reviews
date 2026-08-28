@@ -3107,6 +3107,21 @@
                 <button type="button" class="secondary" onclick="toggleOzonFbsKizImportPanel(false)">Скрыть</button>
               </div>
               <pre id="ozonFbsKizImportLog" class="ozon-fbs-kiz-import-log" hidden></pre>
+              <div id="ozonFbsKizImportConflicts" class="ozon-fbs-kiz-import-conflicts" hidden>
+                <div class="ozon-fbs-kiz-import-conflicts-head">
+                  <div class="ozon-fbs-kiz-import-conflicts-title">Конфликты</div>
+                  <p class="ozon-fbs-kiz-import-conflicts-sub">
+                    У этих стикеров уже другой КИЗ. Отметьте строки и нажмите «Заменить выбранные» — иначе ничего не меняем.
+                  </p>
+                </div>
+                <div id="ozonFbsKizImportConflictsList" class="ozon-fbs-kiz-import-conflicts-list"></div>
+                <div class="ozon-fbs-kiz-import-actions">
+                  <button type="button" id="ozonFbsKizImportReplaceBtn" onclick="applyOzonFbsKizImportConflicts()">Заменить выбранные</button>
+                  <button type="button" class="secondary" onclick="selectAllOzonFbsKizImportConflicts(true)">Выбрать все</button>
+                  <button type="button" class="secondary" onclick="selectAllOzonFbsKizImportConflicts(false)">Снять все</button>
+                  <button type="button" class="secondary" onclick="dismissOzonFbsKizImportConflicts()">Не заменять</button>
+                </div>
+              </div>
             </div>
             <div id="ozonFbsKizInfo" class="wb-fbs-kiz-info" hidden></div>
             <div class="wb-fbs-kiz-table-wrap">

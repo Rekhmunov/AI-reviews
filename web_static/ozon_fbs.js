@@ -3385,6 +3385,8 @@
     stickerIndex: new Map(),
     statusRefreshing: false,
     statusRefreshGen: 0,
+    /** @type {Array<object>} conflicts from last import (sticker has other KIZ) */
+    importConflicts: [],
   };
 
   const ozonFbsPickState = {
@@ -3692,6 +3694,169 @@
     return _ozonFbsKizNormalizeCodesList(row?.kiz_codes);
   }
 
+  function _ozonFbsKizClearImportConflicts() {
+    ozonFbsKizState.importConflicts = [];
+    const wrap = document.getElementById("ozonFbsKizImportConflicts");
+    const list = document.getElementById("ozonFbsKizImportConflictsList");
+    if (wrap) wrap.hidden = true;
+    if (list) list.innerHTML = "";
+  }
+
+  function _ozonFbsKizRenderImportConflicts() {
+    const wrap = document.getElementById("ozonFbsKizImportConflicts");
+    const list = document.getElementById("ozonFbsKizImportConflictsList");
+    if (!wrap || !list) return;
+    const items = Array.isArray(ozonFbsKizState.importConflicts)
+      ? ozonFbsKizState.importConflicts
+      : [];
+    if (!items.length) {
+      wrap.hidden = true;
+      list.innerHTML = "";
+      return;
+    }
+    wrap.hidden = false;
+    list.innerHTML = items.map((c, idx) => {
+      const id = `ozonFbsKizImportConflict_${idx}`;
+      const had = (c.existing || []).map(_ozonFbsKizMarkPreview).join("; ");
+      const incoming = _ozonFbsKizMarkPreview(c.mark);
+      const incompleteNote = c.incomplete ? " · неполный КИЗ" : "";
+      return (
+        `<label class="ozon-fbs-kiz-import-conflict" for="${id}">` +
+          `<input type="checkbox" id="${id}" data-conflict-idx="${idx}" checked />` +
+          `<span class="ozon-fbs-kiz-import-conflict-meta">` +
+            `<strong>${esc(c.sticker)} → ${esc(c.posting_number)}</strong>` +
+            `<span class="ozon-fbs-kiz-import-conflict-codes">сейчас: ${esc(had)}</span>` +
+            `<span class="ozon-fbs-kiz-import-conflict-codes">импорт: ${esc(incoming)}${esc(incompleteNote)}</span>` +
+          `</span>` +
+        `</label>`
+      );
+    }).join("");
+  }
+
+  function selectAllOzonFbsKizImportConflicts(selected) {
+    const list = document.getElementById("ozonFbsKizImportConflictsList");
+    if (!list) return;
+    list.querySelectorAll('input[type="checkbox"][data-conflict-idx]').forEach((el) => {
+      el.checked = !!selected;
+    });
+  }
+
+  function dismissOzonFbsKizImportConflicts() {
+    _ozonFbsKizClearImportConflicts();
+    _ozonFbsKizSetInfo("Конфликты оставлены без замены", true);
+  }
+
+  async function applyOzonFbsKizImportConflicts() {
+    if (!_ozonFbsKizCanImport()) {
+      alert("Импорт маркировки доступен только главному пользователю");
+      return;
+    }
+    if (!ozonFbsKizState.rowsReady || !_ozonFbsKizModalIsOpen()) return;
+    const items = Array.isArray(ozonFbsKizState.importConflicts)
+      ? ozonFbsKizState.importConflicts
+      : [];
+    if (!items.length) return;
+
+    const list = document.getElementById("ozonFbsKizImportConflictsList");
+    const replaceBtn = document.getElementById("ozonFbsKizImportReplaceBtn");
+    const selectedIdx = new Set();
+    list?.querySelectorAll('input[type="checkbox"][data-conflict-idx]:checked').forEach((el) => {
+      const idx = Number(el.getAttribute("data-conflict-idx"));
+      if (Number.isFinite(idx)) selectedIdx.add(idx);
+    });
+    if (!selectedIdx.size) {
+      _ozonFbsKizSetInfo("Не выбрано ни одной строки для замены");
+      return;
+    }
+
+    if (replaceBtn) replaceBtn.disabled = true;
+    const log = [];
+    let okN = 0;
+    let skipN = 0;
+    const touched = new Set();
+    const remaining = [];
+
+    try {
+      for (let idx = 0; idx < items.length; idx += 1) {
+        const c = items[idx];
+        if (!selectedIdx.has(idx)) {
+          remaining.push(c);
+          continue;
+        }
+        const pn = String(c.posting_number || "").trim();
+        const mark = _ozonFbsNormalizeMark(c.mark);
+        const stickerKey = _ozonFbsNormalizeScan(c.sticker);
+        const row = _ozonFbsKizRowByPosting(pn);
+        if (!row || !mark || !pn) {
+          skipN += 1;
+          log.push(`${stickerKey || "—"} → ${pn || "—"} — не удалось заменить`);
+          remaining.push(c);
+          continue;
+        }
+        if (_ozonFbsRowIsCancelled(row)) {
+          skipN += 1;
+          log.push(`${stickerKey} → ${pn} — отправление отменено`);
+          remaining.push(c);
+          continue;
+        }
+        const check = _ozonFbsKizValidateMarkForOrder(mark, row);
+        if (!check.ok) {
+          skipN += 1;
+          log.push(`${stickerKey} → ${pn} — ${check.error || "КИЗ не совпадает с ШК"}`);
+          remaining.push(c);
+          continue;
+        }
+        const dup = _ozonFbsKizFindExistingMark(mark);
+        if (dup && String(dup.posting_number || "").trim() !== pn) {
+          skipN += 1;
+          log.push(
+            `${stickerKey} → ${pn} — КИЗ уже в отправлении ${dup.posting_number}`
+          );
+          remaining.push(c);
+          continue;
+        }
+
+        for (const old of _ozonFbsKizRowExistingCodes(row)) {
+          if (old && old !== mark) _ozonFbsKizIndexClearMark(old);
+        }
+        row.kiz_codes = [mark];
+        row.kiz_status = "pending";
+        delete ozonFbsKizState.errors[pn];
+        _ozonFbsKizIndexSetMark(mark, pn);
+        touched.add(pn);
+        void _ozonFbsPersistStickerForRow(row, stickerKey);
+        _ozonFbsKizScheduleLocalAutosave(pn, false);
+        okN += 1;
+        log.push(`${stickerKey} → ${pn} — заменён на ${_ozonFbsKizMarkPreview(mark)}`);
+      }
+
+      if (touched.size) {
+        renderOzonFbsKizTable({ skipCollect: true });
+        await _ozonFbsKizAwaitLocalAutosaves();
+      }
+
+      ozonFbsKizState.importConflicts = remaining;
+      _ozonFbsKizRenderImportConflicts();
+
+      const prevLog = document.getElementById("ozonFbsKizImportLog");
+      const prevText = prevLog && !prevLog.hidden ? String(prevLog.textContent || "") : "";
+      const extra = ["", "— Замена конфликтов —", ...log, "", `Заменено ${okN}, пропущено ${skipN}`];
+      _ozonFbsKizImportSetLog(
+        prevText ? prevText.split("\n").concat(extra) : extra
+      );
+      _ozonFbsKizSetInfo(`Замена: ${okN} ок, ${skipN} пропущено`, okN > 0 && skipN === 0);
+      if (okN > 0 && skipN > 0) {
+        const info = document.getElementById("ozonFbsKizInfo");
+        if (info) {
+          info.classList.remove("is-ok");
+          info.classList.add("is-warn");
+        }
+      }
+    } finally {
+      if (replaceBtn) replaceBtn.disabled = false;
+    }
+  }
+
   async function runOzonFbsKizImport() {
     if (!_ozonFbsKizCanImport()) {
       alert("Импорт маркировки доступен только главному пользователю");
@@ -3707,17 +3872,21 @@
     if (!pairs.length) {
       _ozonFbsKizImportSetLog(["Нет строк вида «стикер \\t КИЗ»"]);
       _ozonFbsKizSetInfo("Импорт: пустой список");
+      _ozonFbsKizClearImportConflicts();
       return;
     }
 
     if (runBtn) runBtn.disabled = true;
     _ozonFbsKizSyncActiveCodeInput();
+    _ozonFbsKizClearImportConflicts();
     const log = [];
     let okN = 0;
     let skipN = 0;
     const touched = new Set();
     /** Marks accepted earlier in this same paste — avoid double-add in one run. */
     const importedMarks = new Set();
+    /** @type {Map<string, object>} posting_number → conflict (last wins) */
+    const conflictsByPn = new Map();
 
     try {
       for (let i = 0; i < pairs.length; i += 1) {
@@ -3793,12 +3962,19 @@
         const filledN = existing.length;
         if (filledN >= qty) {
           skipN += 1;
-          // Sticker found, slots full, incoming KIZ differs — never overwrite.
           const had = existing.map(_ozonFbsKizMarkPreview).join("; ");
           log.push(
             `${n}. ${stickerKey} → ${pn} — конфликт: у стикера уже другой КИЗ ` +
-              `[${had}], импорт [${_ozonFbsKizMarkPreview(mark)}] — не заменяем`
+              `[${had}], импорт [${_ozonFbsKizMarkPreview(mark)}] — см. список ниже`
           );
+          conflictsByPn.set(pn, {
+            sticker: stickerKey,
+            posting_number: pn,
+            mark,
+            existing: existing.slice(),
+            incomplete: !!incomplete,
+            line: n,
+          });
           continue;
         }
 
@@ -3836,12 +4012,21 @@
         await _ozonFbsKizAwaitLocalAutosaves();
       }
 
+      const conflicts = Array.from(conflictsByPn.values());
+      ozonFbsKizState.importConflicts = conflicts;
+      _ozonFbsKizRenderImportConflicts();
+
       log.push("");
       log.push(`Итого: добавлено ${okN}, пропущено ${skipN}, строк ${pairs.length}`);
+      if (conflicts.length) {
+        log.push(`Конфликтов (другой КИЗ на стикере): ${conflicts.length} — отметьте и замените ниже, если нужно`);
+      }
       _ozonFbsKizImportSetLog(log);
-      const summary = `Импорт: добавлено ${okN}, пропущено ${skipN}`;
-      _ozonFbsKizSetInfo(summary, okN > 0 && skipN === 0);
-      if (okN > 0 && skipN > 0) {
+      const summary = conflicts.length
+        ? `Импорт: добавлено ${okN}, пропущено ${skipN}, конфликтов ${conflicts.length}`
+        : `Импорт: добавлено ${okN}, пропущено ${skipN}`;
+      _ozonFbsKizSetInfo(summary, okN > 0 && skipN === 0 && !conflicts.length);
+      if ((okN > 0 && skipN > 0) || conflicts.length) {
         const info = document.getElementById("ozonFbsKizInfo");
         if (info) {
           info.classList.remove("is-ok");
