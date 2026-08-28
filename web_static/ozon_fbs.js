@@ -2326,10 +2326,14 @@
 
   function _ozonFbsSyncOwnerOnlyGear() {
     const btn = document.getElementById("ozonFbsSyncSettingsBtn");
-    if (!btn) return;
-    const can = typeof isTenantOwner === "function" && isTenantOwner();
-    btn.hidden = !can;
-    btn.style.display = can ? "" : "none";
+    if (btn) {
+      const can = typeof isTenantOwner === "function" && isTenantOwner();
+      btn.hidden = !can;
+      btn.style.display = can ? "" : "none";
+    }
+    if (typeof _ozonFbsKizSyncImportBtn === "function") {
+      _ozonFbsKizSyncImportBtn();
+    }
   }
 
   function _ozonFbsSyncSettingsSetInfo(text, kind) {
@@ -3625,26 +3629,56 @@
     const can = _ozonFbsKizCanImport();
     btn.hidden = !can;
     btn.style.display = can ? "" : "none";
-    if (!can) {
-      const panel = document.getElementById("ozonFbsKizImportPanel");
-      if (panel) panel.hidden = true;
-    }
+    if (!can) closeOzonFbsKizImportModal();
   }
 
-  function toggleOzonFbsKizImportPanel(forceOpen) {
+  function _ozonFbsKizImportModalIsOpen() {
+    const modal = document.getElementById("ozonFbsKizImportModal");
+    return !!(modal && !modal.classList.contains("hidden"));
+  }
+
+  function openOzonFbsKizImportModal() {
     if (!_ozonFbsKizCanImport()) {
       alert("Импорт маркировки доступен только главному пользователю");
       return;
     }
-    _ozonFbsKizSyncImportBtn();
-    const panel = document.getElementById("ozonFbsKizImportPanel");
-    if (!panel) return;
-    const open = forceOpen === true ? true : forceOpen === false ? false : panel.hidden;
-    panel.hidden = !open;
-    if (open) {
-      const ta = document.getElementById("ozonFbsKizImportText");
-      if (ta) setTimeout(() => ta.focus(), 40);
+    if (!_ozonFbsKizModalIsOpen() || !ozonFbsKizState.rowsReady) {
+      alert("Сначала откройте модалку «Маркировка» и дождитесь загрузки");
+      return;
     }
+    _ozonFbsKizSyncImportBtn();
+    if (typeof setModalVisibility === "function") setModalVisibility("ozonFbsKizImportModal", true);
+    else document.getElementById("ozonFbsKizImportModal")?.classList.remove("hidden");
+    const ta = document.getElementById("ozonFbsKizImportText");
+    if (ta) setTimeout(() => ta.focus(), 40);
+  }
+
+  function closeOzonFbsKizImportModal() {
+    if (typeof setModalVisibility === "function") setModalVisibility("ozonFbsKizImportModal", false);
+    else document.getElementById("ozonFbsKizImportModal")?.classList.add("hidden");
+  }
+
+  /** @deprecated use openOzonFbsKizImportModal / closeOzonFbsKizImportModal */
+  function toggleOzonFbsKizImportPanel(forceOpen) {
+    if (forceOpen === false) {
+      closeOzonFbsKizImportModal();
+      return;
+    }
+    if (forceOpen === true || !_ozonFbsKizImportModalIsOpen()) openOzonFbsKizImportModal();
+    else closeOzonFbsKizImportModal();
+  }
+
+  function _ozonFbsKizImportSetInfo(text, ok) {
+    const el = document.getElementById("ozonFbsKizImportInfo");
+    if (!el) {
+      _ozonFbsKizSetInfo(text, ok);
+      return;
+    }
+    const msg = String(text || "").trim();
+    el.hidden = !msg;
+    el.textContent = msg;
+    el.classList.remove("is-warn");
+    el.classList.toggle("is-ok", !!msg && !!ok);
   }
 
   function _ozonFbsKizParseImportText(text) {
@@ -3744,7 +3778,7 @@
 
   function dismissOzonFbsKizImportConflicts() {
     _ozonFbsKizClearImportConflicts();
-    _ozonFbsKizSetInfo("Конфликты оставлены без замены", true);
+    _ozonFbsKizImportSetInfo("Конфликты оставлены без замены", true);
   }
 
   async function applyOzonFbsKizImportConflicts() {
@@ -3766,7 +3800,7 @@
       if (Number.isFinite(idx)) selectedIdx.add(idx);
     });
     if (!selectedIdx.size) {
-      _ozonFbsKizSetInfo("Не выбрано ни одной строки для замены");
+      _ozonFbsKizImportSetInfo("Не выбрано ни одной строки для замены");
       return;
     }
 
@@ -3845,9 +3879,9 @@
       _ozonFbsKizImportSetLog(
         prevText ? prevText.split("\n").concat(extra) : extra
       );
-      _ozonFbsKizSetInfo(`Замена: ${okN} ок, ${skipN} пропущено`, okN > 0 && skipN === 0);
+      _ozonFbsKizImportSetInfo(`Замена: ${okN} ок, ${skipN} пропущено`, okN > 0 && skipN === 0);
       if (okN > 0 && skipN > 0) {
-        const info = document.getElementById("ozonFbsKizInfo");
+        const info = document.getElementById("ozonFbsKizImportInfo");
         if (info) {
           info.classList.remove("is-ok");
           info.classList.add("is-warn");
@@ -3872,7 +3906,7 @@
     const pairs = _ozonFbsKizParseImportText(ta?.value || "");
     if (!pairs.length) {
       _ozonFbsKizImportSetLog(["Нет строк вида «стикер \\t КИЗ»"]);
-      _ozonFbsKizSetInfo("Импорт: пустой список");
+      _ozonFbsKizImportSetInfo("Импорт: пустой список");
       _ozonFbsKizClearImportConflicts();
       return;
     }
@@ -4026,6 +4060,15 @@
       const summary = conflicts.length
         ? `Импорт: добавлено ${okN}, пропущено ${skipN}, конфликтов ${conflicts.length}`
         : `Импорт: добавлено ${okN}, пропущено ${skipN}`;
+      _ozonFbsKizImportSetInfo(summary, okN > 0 && skipN === 0 && !conflicts.length);
+      if ((okN > 0 && skipN > 0) || conflicts.length) {
+        const info = document.getElementById("ozonFbsKizImportInfo");
+        if (info) {
+          info.classList.remove("is-ok");
+          info.classList.add("is-warn");
+        }
+      }
+      // Mirror short status into Marking modal too.
       _ozonFbsKizSetInfo(summary, okN > 0 && skipN === 0 && !conflicts.length);
       if ((okN > 0 && skipN > 0) || conflicts.length) {
         const info = document.getElementById("ozonFbsKizInfo");
@@ -5336,11 +5379,11 @@
     _ozonFbsKizSetFiltersReady(false);
     _ozonFbsKizSetInfo("");
     _ozonFbsKizSyncImportBtn();
-    const importPanel = document.getElementById("ozonFbsKizImportPanel");
-    if (importPanel) importPanel.hidden = true;
+    closeOzonFbsKizImportModal();
     const importText = document.getElementById("ozonFbsKizImportText");
     if (importText) importText.value = "";
     _ozonFbsKizImportSetLog([]);
+    _ozonFbsKizImportSetInfo("");
     _ozonFbsKizClearImportConflicts();
     const tbody = document.getElementById("ozonFbsKizTbody");
     if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">Загрузка…</td></tr>`;
@@ -5394,6 +5437,7 @@
     } finally {
       if (saveBtn) saveBtn.disabled = false;
       _ozonFbsKizSetFiltersReady(true);
+      _ozonFbsKizSyncImportBtn();
       if (loadOk && scan) setTimeout(() => scan.focus(), 50);
     }
   }
@@ -5407,6 +5451,7 @@
     if (typeof setModalVisibility === "function") setModalVisibility("ozonFbsKizModal", false);
     else document.getElementById("ozonFbsKizModal")?.classList.add("hidden");
     cancelOzonFbsKizMarkScan();
+    closeOzonFbsKizImportModal();
     ozonFbsKizState.rows = [];
     ozonFbsKizState.rowsByPosting = new Map();
     ozonFbsKizState.markIndex = new Map();
@@ -6239,6 +6284,8 @@
   window.onOzonFbsKizMarkScanKey = onOzonFbsKizMarkScanKey;
   window.cancelOzonFbsKizMarkScan = cancelOzonFbsKizMarkScan;
   window.clearOzonFbsKizRow = clearOzonFbsKizRow;
+  window.openOzonFbsKizImportModal = openOzonFbsKizImportModal;
+  window.closeOzonFbsKizImportModal = closeOzonFbsKizImportModal;
   window.toggleOzonFbsKizImportPanel = toggleOzonFbsKizImportPanel;
   window.runOzonFbsKizImport = runOzonFbsKizImport;
   window.applyOzonFbsKizImportConflicts = applyOzonFbsKizImportConflicts;

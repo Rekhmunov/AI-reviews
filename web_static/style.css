@@ -9995,10 +9995,22 @@ button.wb-fbs-sd-portal-btn:focus-visible {
   gap: 12px;
   padding-right: 16px;
 }
+.ozon-fbs-kiz-import-modal {
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.ozon-fbs-kiz-import-modal .ozon-fbs-kiz-import {
+  padding: 16px 24px 20px;
+  border-bottom: none;
+  background: #fff;
+  overflow: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
 .ozon-fbs-kiz-import {
-  padding: 12px 24px 16px;
-  border-bottom: 1px solid #e2e8f0;
-  background: #f8fafc;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -10010,7 +10022,7 @@ button.wb-fbs-sd-portal-btn:focus-visible {
 }
 .ozon-fbs-kiz-import-text {
   width: 100%;
-  min-height: 120px;
+  min-height: 160px;
   padding: 12px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
@@ -10036,6 +10048,11 @@ button.wb-fbs-sd-portal-btn:focus-visible {
   min-height: 40px;
   padding: 8px 16px;
 }
+.ozon-fbs-kiz-import #ozonFbsKizImportInfo {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 8px 12px;
+}
 .ozon-fbs-kiz-import-log {
   margin: 0;
   max-height: 220px;
@@ -10043,7 +10060,7 @@ button.wb-fbs-sd-portal-btn:focus-visible {
   padding: 12px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
-  background: #fff;
+  background: #f8fafc;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
   line-height: 1.45;

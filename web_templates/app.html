@@ -3051,7 +3051,7 @@
               </div>
               <div class="wb-fbs-kiz-header-actions">
                 <button type="button" id="ozonFbsKizImportBtn" class="secondary"
-                        onclick="toggleOzonFbsKizImportPanel()"
+                        onclick="openOzonFbsKizImportModal()"
                         title="Импорт списка стикер + КИЗ (только главный пользователь)">Импорт маркировки</button>
                 <button type="button" id="ozonFbsKizSaveBtn" onclick="saveOzonFbsKizModal()">Сохранить</button>
                 <button type="button" class="icon-btn secondary" onclick="closeOzonFbsKizModal()" aria-label="Закрыть">✕</button>
@@ -3095,34 +3095,6 @@
                         onclick="clearWbFbsKizScanField('ozonFbsKizStickerScan')">✕</button>
               </div>
             </div>
-            <div id="ozonFbsKizImportPanel" class="ozon-fbs-kiz-import" hidden>
-              <label class="ozon-fbs-kiz-import-label" for="ozonFbsKizImportText">
-                Список для импорта — по строке: стикер, затем таб, затем КИЗ
-              </label>
-              <textarea id="ozonFbsKizImportText" class="ozon-fbs-kiz-import-text" rows="6"
-                        spellcheck="false" autocomplete="off"
-                        placeholder="202150211695000&#9;010467…91EE11…92…"></textarea>
-              <div class="ozon-fbs-kiz-import-actions">
-                <button type="button" id="ozonFbsKizImportRunBtn" onclick="runOzonFbsKizImport()">Импортировать</button>
-                <button type="button" class="secondary" onclick="toggleOzonFbsKizImportPanel(false)">Скрыть</button>
-              </div>
-              <pre id="ozonFbsKizImportLog" class="ozon-fbs-kiz-import-log" hidden></pre>
-              <div id="ozonFbsKizImportConflicts" class="ozon-fbs-kiz-import-conflicts" hidden>
-                <div class="ozon-fbs-kiz-import-conflicts-head">
-                  <div class="ozon-fbs-kiz-import-conflicts-title">Конфликты</div>
-                  <p class="ozon-fbs-kiz-import-conflicts-sub">
-                    У этих стикеров уже другой КИЗ. Отметьте строки и нажмите «Заменить выбранные» — иначе ничего не меняем.
-                  </p>
-                </div>
-                <div id="ozonFbsKizImportConflictsList" class="ozon-fbs-kiz-import-conflicts-list"></div>
-                <div class="ozon-fbs-kiz-import-actions">
-                  <button type="button" id="ozonFbsKizImportReplaceBtn" onclick="applyOzonFbsKizImportConflicts()">Заменить выбранные</button>
-                  <button type="button" class="secondary" onclick="selectAllOzonFbsKizImportConflicts(true)">Выбрать все</button>
-                  <button type="button" class="secondary" onclick="selectAllOzonFbsKizImportConflicts(false)">Снять все</button>
-                  <button type="button" class="secondary" onclick="dismissOzonFbsKizImportConflicts()">Не заменять</button>
-                </div>
-              </div>
-            </div>
             <div id="ozonFbsKizInfo" class="wb-fbs-kiz-info" hidden></div>
             <div class="wb-fbs-kiz-table-wrap">
               <table class="wb-fbs-kiz-table" id="ozonFbsKizTable">
@@ -3144,6 +3116,49 @@
                   <tr><td colspan="4" class="wb-fbs-empty">Загрузка…</td></tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="ozonFbsKizImportModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsKizImportTitle"
+             onclick="if(event.target===this)closeOzonFbsKizImportModal()">
+          <div class="modal-card ozon-fbs-kiz-import-modal">
+            <div class="wb-fbs-kiz-header">
+              <div class="wb-fbs-kiz-header-main">
+                <h3 id="ozonFbsKizImportTitle" class="wb-fbs-kiz-title">Импорт маркировки</h3>
+                <p class="wb-fbs-kiz-sub">Вставьте список: стикер, таб, КИЗ — по одной паре на строку. Коды пишутся в открытую модалку «Маркировка».</p>
+              </div>
+              <div class="wb-fbs-kiz-header-actions">
+                <button type="button" class="icon-btn secondary" onclick="closeOzonFbsKizImportModal()" aria-label="Закрыть">✕</button>
+              </div>
+            </div>
+            <div class="ozon-fbs-kiz-import">
+              <label class="ozon-fbs-kiz-import-label" for="ozonFbsKizImportText">Список стикер + КИЗ</label>
+              <textarea id="ozonFbsKizImportText" class="ozon-fbs-kiz-import-text" rows="10"
+                        spellcheck="false" autocomplete="off"
+                        placeholder="202150211695000&#9;010467…91EE11…92…"></textarea>
+              <div class="ozon-fbs-kiz-import-actions">
+                <button type="button" id="ozonFbsKizImportRunBtn" onclick="runOzonFbsKizImport()">Импортировать</button>
+                <button type="button" class="secondary" onclick="closeOzonFbsKizImportModal()">Закрыть</button>
+              </div>
+              <div id="ozonFbsKizImportInfo" class="wb-fbs-kiz-info" hidden></div>
+              <pre id="ozonFbsKizImportLog" class="ozon-fbs-kiz-import-log" hidden></pre>
+              <div id="ozonFbsKizImportConflicts" class="ozon-fbs-kiz-import-conflicts" hidden>
+                <div class="ozon-fbs-kiz-import-conflicts-head">
+                  <div class="ozon-fbs-kiz-import-conflicts-title">Конфликты</div>
+                  <p class="ozon-fbs-kiz-import-conflicts-sub">
+                    У этих стикеров уже другой КИЗ. Отметьте строки и нажмите «Заменить выбранные» — иначе ничего не меняем.
+                  </p>
+                </div>
+                <div id="ozonFbsKizImportConflictsList" class="ozon-fbs-kiz-import-conflicts-list"></div>
+                <div class="ozon-fbs-kiz-import-actions">
+                  <button type="button" id="ozonFbsKizImportReplaceBtn" onclick="applyOzonFbsKizImportConflicts()">Заменить выбранные</button>
+                  <button type="button" class="secondary" onclick="selectAllOzonFbsKizImportConflicts(true)">Выбрать все</button>
+                  <button type="button" class="secondary" onclick="selectAllOzonFbsKizImportConflicts(false)">Снять все</button>
+                  <button type="button" class="secondary" onclick="dismissOzonFbsKizImportConflicts()">Не заменять</button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
