@@ -27354,8 +27354,11 @@ function _wbFbsKizRuLayoutSwallowKeys(event) {
   if (key === "Enter" || key === "Tab" || key.length === 1) {
     event.preventDefault();
     event.stopPropagation();
-    // Anomaly breadcrumb: scan while RU warning still open (incl. digit stickers).
-    if (typeof window._ozonFbsKizScanDiag === "function") {
+    // One breadcrumb per scan burst (Enter only) — never per digit/char.
+    if (
+      key === "Enter"
+      && typeof window._ozonFbsKizScanDiag === "function"
+    ) {
       const focusId = String(document.activeElement?.id || "");
       if (
         focusId === "ozonFbsKizStickerScan"
@@ -27363,8 +27366,8 @@ function _wbFbsKizRuLayoutSwallowKeys(event) {
         || focusId === "ozonFbsKizImportText"
       ) {
         window._ozonFbsKizScanDiag(
-          "ru_swallow_keydown",
-          `key=${key === "Enter" || key === "Tab" ? key : "char"} focus=${focusId}`
+          "ru_swallow_enter",
+          `focus=${focusId}`
         );
       }
     }
