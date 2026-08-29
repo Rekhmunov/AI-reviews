@@ -8857,6 +8857,25 @@ button.wb-fbs-select-all-link:disabled {
 }
 .wb-fbs-badge.time { background: #dcfce7; color: #166534; }
 .wb-fbs-badge.cargo { background: #e0f2fe; color: #075985; }
+.wb-fbs-badge.qty { background: #fef3c7; color: #92400e; }
+.wb-fbs-product-qty {
+  margin-top: 6px;
+}
+.wb-fbs-product-extra {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wb-fbs-product-extra-line {
+  font-size: 13px;
+  line-height: 1.35;
+  color: #475569;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .wb-fbs-product {
   display: flex;
   gap: 12px;
