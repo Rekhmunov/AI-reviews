@@ -274,8 +274,20 @@ def test_split_posting_persists_siblings_awaiting_packaging() -> None:
     assert out["ok"] is True
     assert out["posting_numbers"] == ["P-1", "P-1-1"]
     assert upsert.call_count == 2
-    assert upsert.call_args_list[0].kwargs["posting"]["status"] == "awaiting_packaging"
-    assert upsert.call_args_list[1].kwargs["posting"]["status"] == "awaiting_packaging"
+    parent_payload = upsert.call_args_list[0].kwargs["posting"]
+    sibling_payload = upsert.call_args_list[1].kwargs["posting"]
+    assert parent_payload["status"] == "awaiting_packaging"
+    assert sibling_payload["status"] == "awaiting_packaging"
+    assert parent_payload["products"] == [
+        {
+            "sku": 10,
+            "product_id": 10,
+            "quantity": 1,
+            "offer_id": "A",
+            "name": "",
+        }
+    ]
+    assert sibling_payload["products"][0]["quantity"] == 1
 
 
 def test_parse_split_empty_children_raises() -> None:
@@ -294,6 +306,58 @@ def test_parse_split_empty_children_raises() -> None:
         assert False, "expected error"
     except RuntimeError as exc:
         assert "не вернул номера" in str(exc).lower()
+
+
+def test_parse_split_unwraps_result_wrapper() -> None:
+    from review_processor.ozon_fbs_detail import _parse_split_response
+
+    plan = [
+        {"products": [{"product_id": 1, "quantity": 1}]},
+        {"products": [{"product_id": 2, "quantity": 1}]},
+    ]
+    parts = _parse_split_response(
+        {
+            "result": {
+                "parent_posting": {
+                    "posting_number": "P-1",
+                    "products": [{"product_id": 1, "quantity": 1}],
+                },
+                "postings": [
+                    {
+                        "posting_number": "P-1-1",
+                        "products": [{"product_id": 2, "quantity": 1}],
+                    }
+                ],
+            }
+        },
+        fallback_posting_number="P-1",
+        split_plan=plan,
+    )
+    assert [pn for pn, _ in parts] == ["P-1", "P-1-1"]
+
+
+def test_parse_split_skips_parent_listed_in_postings() -> None:
+    """If Ozon lists parent inside postings[], do not shift plan packages."""
+    from review_processor.ozon_fbs_detail import _parse_split_response
+
+    plan = [
+        {"products": [{"product_id": 10, "quantity": 1}]},
+        {"products": [{"product_id": 10, "quantity": 1}]},
+    ]
+    parts = _parse_split_response(
+        {
+            "parent_posting": {"posting_number": "P-1"},
+            "postings": [
+                {"posting_number": "P-1"},
+                {"posting_number": "P-1-1"},
+            ],
+        },
+        fallback_posting_number="P-1",
+        split_plan=plan,
+    )
+    assert [pn for pn, _ in parts] == ["P-1", "P-1-1"]
+    assert parts[0][1] == plan[0]
+    assert parts[1][1] == plan[1]
 
 
 def test_start_ship_all_rejects_second_run() -> None:

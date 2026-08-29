@@ -296,6 +296,20 @@ def _persist_shipped_postings_local(
                 )
 
 
+def _package_from_split_products(prods: object) -> dict[str, Any] | None:
+    if not isinstance(prods, list) or not prods:
+        return None
+    products = [
+        {
+            "product_id": p.get("product_id") or p.get("sku"),
+            "quantity": p.get("quantity") or 1,
+        }
+        for p in prods
+        if isinstance(p, dict)
+    ]
+    return {"products": products} if products else None
+
+
 def _parse_split_response(
     result: object,
     *,
@@ -313,47 +327,45 @@ def _parse_split_response(
     children: list[tuple[str, dict[str, Any] | None]] = []
 
     data = result if isinstance(result, dict) else {}
+    # Ozon often wraps the payload: {"result": {"parent_posting": ..., "postings": ...}}
+    wrapped = data.get("result")
+    if isinstance(wrapped, dict) and (
+        "parent_posting" in wrapped or "postings" in wrapped
+    ):
+        data = wrapped
     parent = data.get("parent_posting")
-    if isinstance(parent, dict):
+    if isinstance(parent, str) and parent.strip():
+        parent_pn = parent.strip()
+    elif isinstance(parent, dict):
         pn = str(parent.get("posting_number") or "").strip()
         if pn:
             parent_pn = pn
-        prods = parent.get("products")
-        if isinstance(prods, list) and prods:
-            parent_products = {
-                "products": [
-                    {
-                        "product_id": p.get("product_id") or p.get("sku"),
-                        "quantity": p.get("quantity") or 1,
-                    }
-                    for p in prods
-                    if isinstance(p, dict)
-                ]
-            }
+        pkg = _package_from_split_products(parent.get("products"))
+        if pkg is not None:
+            parent_products = pkg
 
     raw_children = data.get("postings")
+    sibling_plan_idx = 1  # split_plan[0] stays on parent
     if isinstance(raw_children, list):
-        for idx, item in enumerate(raw_children):
-            if not isinstance(item, dict):
+        for item in raw_children:
+            if isinstance(item, str):
+                pn = item.strip()
+                package = None
+            elif isinstance(item, dict):
+                pn = str(item.get("posting_number") or "").strip()
+                package = _package_from_split_products(item.get("products"))
+            else:
                 continue
-            pn = str(item.get("posting_number") or "").strip()
             if not pn:
                 continue
-            prods = item.get("products")
-            package: dict[str, Any] | None = None
-            if isinstance(prods, list) and prods:
-                package = {
-                    "products": [
-                        {
-                            "product_id": p.get("product_id") or p.get("sku"),
-                            "quantity": p.get("quantity") or 1,
-                        }
-                        for p in prods
-                        if isinstance(p, dict)
-                    ]
-                }
-            elif idx + 1 < len(split_plan):
-                package = split_plan[idx + 1]
+            # Response may list parent among postings — skip for sibling mapping.
+            if pn == parent_pn:
+                if package is not None:
+                    parent_products = package
+                continue
+            if package is None and sibling_plan_idx < len(split_plan):
+                package = split_plan[sibling_plan_idx]
+            sibling_plan_idx += 1
             children.append((pn, package))
 
     expected_extra = max(len(split_plan) - 1, 0)

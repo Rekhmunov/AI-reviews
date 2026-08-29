@@ -48,6 +48,7 @@
     pollTimer: null,
     progressText: "",
     lastOk: false,
+    lastSingleAfter: 0,
   };
 
   const supplyDetailState = {
@@ -307,8 +308,7 @@
     }
     if (shipBtn) {
       const blockedByMulti = multi > 0;
-      shipBtn.disabled =
-        !state.sourceId || n <= 0 || busy || blockedByMulti || !onPackaging;
+      shipBtn.disabled = !state.sourceId || n <= 0 || busy || blockedByMulti;
       if (blockedByMulti) {
         shipBtn.title = "Сначала нужно разделить мультизаказы";
       } else if (n > 0) {
@@ -1086,9 +1086,10 @@
 
   function closeSplitResultModal() {
     document.getElementById("ozonFbsSplitResultModal")?.classList.add("hidden");
-    const wasOk = !!splitState.lastOk;
+    const shouldRefresh = !!splitState.lastOk || Number(splitState.lastSingleAfter || 0) > 0;
     splitState.lastOk = false;
-    if (wasOk) {
+    splitState.lastSingleAfter = 0;
+    if (shouldRefresh) {
       // Local refresh of awaiting_packaging only — no full Ozon sync.
       if (state.tab !== "awaiting_packaging") setTab("awaiting_packaging");
       else loadPostings(true);
@@ -1104,12 +1105,14 @@
       return;
     }
     const ok = !!data?.ok;
+    const singleAfter = Number(data?.single_after || 0);
     splitState.lastOk = ok && !(data?.errors || []).length;
+    splitState.lastSingleAfter = singleAfter;
     if (title) title.textContent = ok ? "Разделение завершено" : "Есть проблемы";
     const details = Array.isArray(data?.details) ? data.details : [];
     const errors = Array.isArray(data?.errors) ? data.errors : [];
     let html = `<p class="${ok ? "wb-fbs-collect-mgt-result-ok" : "wb-fbs-collect-mgt-result-err"}">${esc(data?.message || "")}</p>`;
-    html += `<p>Было мультизаказов: ${esc(String(data?.multi_before ?? details.length))} · стало одинарных: ${esc(String(data?.single_after ?? 0))}</p>`;
+    html += `<p>Было мультизаказов: ${esc(String(data?.multi_before ?? details.length))} · стало одинарных: ${esc(String(singleAfter))}</p>`;
     if (details.length) {
       html += "<ul>" + details.map((d) => {
         const from = d.posting_number || "";
@@ -1243,12 +1246,13 @@
   }
 
   function shipSplitPreviewNote(preview) {
+    // Collect no longer splits on ship — multi must be split beforehand.
     const multi = Number(preview?.multi_posting_count || 0);
-    const extra = Number(preview?.extra_postings || 0);
-    const result = Number(preview?.result_posting_count || 0);
-    if (multi <= 0 || extra <= 0) return "";
-    return `Мультитоварных: ${multi} → станет +${extra} отправлений`
-      + (result > 0 ? ` (итого ${result}).` : ".");
+    if (multi <= 0 && !preview?.block_collect) return "";
+    if (multi > 0 || preview?.block_collect) {
+      return `Есть мультизаказы (${multi || "—"}) — сначала нажмите «Разделить мультизаказы».`;
+    }
+    return "";
   }
 
   function renderCollectModal(preview) {
@@ -1275,12 +1279,7 @@
       const mode = String(g.mode || "create");
       const label = String(g.label || "Склад");
       const count = Number(g.order_count || 0);
-      const resultCount = Number(g.result_posting_count || 0);
-      const extra = Number(g.extra_postings || 0);
       const metaParts = [`${count} отпр.`];
-      if (extra > 0 && resultCount > count) {
-        metaParts.push(`после разбиения ${resultCount}`);
-      }
       let inner = "";
       if (mode === "create") {
         const name = String(g.suggested_name || "");
@@ -1477,6 +1476,12 @@
       const res = await fetch(`/api/ozon-fbs/ship-all/preview?source_id=${encodeURIComponent(state.sourceId)}`);
       const preview = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(detailText(preview.detail) || "Не удалось подготовить сборку");
+      if (preview.block_collect || preview.ok === false) {
+        const msg = preview.message || "Сначала нужно разделить мультизаказы";
+        alert(msg);
+        await loadPostings(false);
+        return;
+      }
       if (!(preview.posting_count || preview.mgt_count)) {
         alert("Нет отправлений в «Ожидают сборки»");
         await loadPostings(false);

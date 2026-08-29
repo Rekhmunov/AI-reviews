@@ -679,6 +679,28 @@ def execute_ship_all_collect(
     """
     ensure_ozon_fbs_supply_schema(repo)
     preview = preview_ship_all_collect(repo, user_id=user_id, source_id=source_id)
+    if preview.get("block_collect"):
+        message = str(
+            preview.get("message")
+            or "Сначала разделите мультизаказы"
+        )
+        out = {
+            "ok": False,
+            "total": 0,
+            "shipped": 0,
+            "failed": 0,
+            "done": 0,
+            "created_supplies": [],
+            "errors": [{"posting_number": "—", "error": message}],
+            "message": message,
+            "goto_awaiting_deliver": False,
+            "shipped_numbers": [],
+            "group_lines": [],
+            "block_collect": True,
+        }
+        if progress:
+            progress(0, 0, message)
+        return out
     groups_by_key = {str(g.get("group_key")): g for g in preview.get("groups") or []}
     if not groups_by_key:
         out = {
@@ -1448,6 +1470,11 @@ def preview_selection_supply(
         default_supply_name(source_name=source_name), set(existing_names)
     )
     split = oz_detail.ship_split_preview(usable)
+    multi_n = int(split.get("multi_posting_count") or 0)
+    if multi_n > 0:
+        uniq.append(
+            f"Сначала разделите мультизаказы в выборе ({multi_n} шт.)"
+        )
     return {
         "ok": not uniq,
         "errors": uniq,
@@ -1458,6 +1485,7 @@ def preview_selection_supply(
         "multi_posting_count": split["multi_posting_count"],
         "result_posting_count": split["result_posting_count"],
         "extra_postings": split["extra_postings"],
+        "block_collect": multi_n > 0,
         "traits": traits,
         "suggested_name": suggested,
         "name_conflict": False,
