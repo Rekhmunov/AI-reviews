@@ -26,8 +26,9 @@ class OzonFbsClientStructureTests(unittest.TestCase):
 
 
 class OzonFbsLabelFetchTests(unittest.TestCase):
-    def test_batch_ozon_error_falls_back_to_one_by_one(self) -> None:
+    def test_batch_ozon_error_falls_back_to_split(self) -> None:
         client = MagicMock()
+        # Fail whole batch, then succeed each half (binary split).
         client.package_label_pdf.side_effect = [
             RuntimeError('Ozon HTTP 400: {"code":3,"message":"INVALID_ARGUMENT"}'),
             b"%PDF-one",
@@ -40,6 +41,37 @@ class OzonFbsLabelFetchTests(unittest.TestCase):
         self.assertEqual(out["A-1"], ["p1"])
         self.assertEqual(out["B-2"], ["p2"])
         self.assertEqual(client.package_label_pdf.call_count, 3)
+
+    def test_batch_poison_binary_split_keeps_good_half_batched(self) -> None:
+        """One bad posting must not force 20 individual Ozon calls."""
+        client = MagicMock()
+        good = [f"G-{i}" for i in range(19)]
+        bad = "BAD-1"
+        batch = good + [bad]
+
+        def side_effect(nums):
+            nums = list(nums)
+            if bad in nums and len(nums) > 1:
+                raise RuntimeError('Ozon HTTP 400: {"code":3,"message":"INVALID_ARGUMENT"}')
+            if nums == [bad]:
+                raise RuntimeError('Ozon HTTP 400: {"code":3,"message":"INVALID_ARGUMENT"}')
+            return b"%PDF-" + ",".join(nums).encode()
+
+        client.package_label_pdf.side_effect = side_effect
+
+        def fake_pages(pdf: bytes):
+            raw = pdf.decode("ascii", errors="ignore").removeprefix("%PDF-")
+            parts = [p for p in raw.split(",") if p]
+            return [f"img-{p}" for p in parts]
+
+        with patch.object(oz_sup, "_pdf_pages_to_png_b64", side_effect=fake_pages):
+            out = oz_sup._fetch_label_images(client, batch)
+
+        for pn in good:
+            self.assertEqual(out[pn], [f"img-{pn}"])
+        self.assertEqual(out[bad], [])
+        # Binary split: far fewer than 1 + 20 individual calls.
+        self.assertLess(client.package_label_pdf.call_count, 12)
 
     def test_fetch_merged_batches_over_20(self) -> None:
         client = MagicMock()

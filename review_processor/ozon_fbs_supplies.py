@@ -2863,6 +2863,8 @@ def render_picking_list_html(detail: dict[str, Any]) -> str:
 
 
 _OZON_LABEL_BATCH = 20
+# Parallel top-level batches (each ≤20). Keeps total wall time down for 500+ stickers.
+_OZON_LABEL_FETCH_WORKERS = 4
 _PRINTABLE_LABEL_TABS = frozenset(
     {
         oz.TAB_AWAITING_PACKAGING,
@@ -2914,44 +2916,92 @@ def _pdf_pages_to_png_b64(pdf_bytes: bytes) -> list[str]:
     return out
 
 
+def _assign_label_pages_to_batch(
+    batch: list[str], pages: list[str]
+) -> dict[str, list[str]]:
+    """Map rasterized PDF pages onto posting numbers (Ozon order = request order)."""
+    result: dict[str, list[str]] = {pn: [] for pn in batch}
+    if not batch:
+        return result
+    if len(pages) == len(batch):
+        for pn, page in zip(batch, pages):
+            result[pn] = [page]
+        return result
+    if not pages:
+        return result
+    idx = 0
+    for bi, pn in enumerate(batch):
+        remaining_postings = len(batch) - bi
+        remaining_pages = len(pages) - idx
+        take = max(1, remaining_pages // remaining_postings) if remaining_pages else 0
+        chunk = pages[idx : idx + take]
+        idx += take
+        result[pn] = chunk
+    if idx < len(pages):
+        result[batch[-1]] = (result.get(batch[-1]) or []) + pages[idx:]
+    return result
+
+
+def _fetch_label_images_for_batch(
+    client: oz.OzonFbsClient, batch: list[str]
+) -> dict[str, list[str]]:
+    """Fetch+rasterize one batch. On Ozon INVALID_ARGUMENT, binary-split (not 20×1)."""
+    clean = [str(p).strip() for p in batch if str(p).strip()]
+    if not clean:
+        return {}
+    if len(clean) == 1:
+        return {clean[0]: _fetch_label_pages_for_posting(client, clean[0])}
+    try:
+        pdf = client.package_label_pdf(clean)
+        pages = _pdf_pages_to_png_b64(pdf)
+        return _assign_label_pages_to_batch(clean, pages)
+    except Exception as exc:
+        if _is_pymupdf_setup_error(exc):
+            raise
+        _log.warning("ozon package-label batch failed (%s): %s", len(clean), exc)
+        mid = max(1, len(clean) // 2)
+        left = _fetch_label_images_for_batch(client, clean[:mid])
+        right = _fetch_label_images_for_batch(client, clean[mid:])
+        out = dict(left)
+        out.update(right)
+        return out
+
+
 def _fetch_label_images(
     client: oz.OzonFbsClient, posting_numbers: list[str]
 ) -> dict[str, list[str]]:
-    """Rasterize Ozon «Этикетка отправления» PDF pages (batch ≤20)."""
-    result: dict[str, list[str]] = {pn: [] for pn in posting_numbers}
-    for i in range(0, len(posting_numbers), _OZON_LABEL_BATCH):
-        batch = posting_numbers[i : i + _OZON_LABEL_BATCH]
-        if not batch:
-            continue
-        try:
-            pdf = client.package_label_pdf(batch)
-            pages = _pdf_pages_to_png_b64(pdf)
-        except Exception as exc:
-            if _is_pymupdf_setup_error(exc):
-                raise
-            _log.warning("ozon package-label batch failed (%s): %s", len(batch), exc)
-            for pn in batch:
-                result[pn] = _fetch_label_pages_for_posting(client, pn)
-            continue
-        # Ozon returns pages in request order; typically 1 page per posting.
-        if len(pages) == len(batch):
-            for pn, page in zip(batch, pages):
-                result[pn] = [page]
-        elif len(pages) == 0:
-            for pn in batch:
-                result[pn] = []
-        else:
-            # Uneven page count — assign sequentially, leftover pages on last.
-            idx = 0
-            for bi, pn in enumerate(batch):
-                remaining_postings = len(batch) - bi
-                remaining_pages = len(pages) - idx
-                take = max(1, remaining_pages // remaining_postings) if remaining_pages else 0
-                chunk = pages[idx : idx + take]
-                idx += take
-                result[pn] = chunk
-            if idx < len(pages) and batch:
-                result[batch[-1]] = (result.get(batch[-1]) or []) + pages[idx:]
+    """Rasterize Ozon «Этикетка отправления» PDF pages (batch ≤20, parallel)."""
+    nums = [str(p).strip() for p in posting_numbers if str(p).strip()]
+    result: dict[str, list[str]] = {pn: [] for pn in nums}
+    if not nums:
+        return result
+    batches = [
+        nums[i : i + _OZON_LABEL_BATCH]
+        for i in range(0, len(nums), _OZON_LABEL_BATCH)
+    ]
+    workers = min(_OZON_LABEL_FETCH_WORKERS, max(1, len(batches)))
+    t0 = time.monotonic()
+    if workers <= 1 or len(batches) == 1:
+        for batch in batches:
+            result.update(_fetch_label_images_for_batch(client, batch))
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futs = [
+                pool.submit(_fetch_label_images_for_batch, client, batch)
+                for batch in batches
+            ]
+            for fut in as_completed(futs):
+                result.update(fut.result())
+    loaded = sum(1 for pn in nums if result.get(pn))
+    _log.info(
+        "ozon package-label fetch done postings=%s batches=%s workers=%s "
+        "loaded=%s elapsed=%.1fs",
+        len(nums),
+        len(batches),
+        workers,
+        loaded,
+        time.monotonic() - t0,
+    )
     return result
 
 
