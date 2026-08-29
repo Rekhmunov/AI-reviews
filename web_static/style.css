@@ -10449,7 +10449,8 @@ button.wb-fbs-kiz-add:disabled {
   padding: 24px;
 }
 #wbFbsKizRuLayoutModal {
-  z-index: 1300;
+  /* Above nested Ozon/WB marking + import overlays (base 1200). */
+  z-index: 2500;
 }
 .wb-fbs-kiz-ru-layout-title {
   margin: 0 0 12px;

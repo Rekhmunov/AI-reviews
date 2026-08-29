@@ -3124,7 +3124,7 @@
             <div class="wb-fbs-kiz-header ozon-fbs-kiz-import-header">
               <div class="wb-fbs-kiz-header-main">
                 <h3 id="ozonFbsKizImportTitle" class="wb-fbs-kiz-title">Импорт маркировки</h3>
-                <p class="wb-fbs-kiz-sub">Сканируйте как в блокноте: стикер → Enter → КИЗ → Enter (пара применится сразу). Или вставьте список с ПК и нажмите «Импортировать». Форматы: в одной строке через пробел/таб, или стикер и КИЗ на разных строках (пустые строки между ними допустимы). Раскладка EN — при русских буквах покажем ошибку, текст не сотрём. КИЗ нормализуется (GS / ☻ / ↔).</p>
+                <p class="wb-fbs-kiz-sub">Сканируйте как в блокноте: стикер → Enter → КИЗ → Enter (пара применится сразу). Или вставьте список с ПК и нажмите «Импортировать». Форматы: в одной строке через пробел/таб, или стикер и КИЗ на разных строках (пустые строки между ними допустимы). Раскладка EN — при русской букве покажем ту же модалку, что в Маркировке; текст не сотрём. КИЗ нормализуется (GS / ☻ / ↔).</p>
               </div>
             </div>
             <div class="ozon-fbs-kiz-import">
@@ -3132,6 +3132,8 @@
               <textarea id="ozonFbsKizImportText" class="ozon-fbs-kiz-import-text" rows="8"
                         spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off"
                         inputmode="text"
+                        onbeforeinput="onOzonFbsKizImportTextBeforeInput(event)"
+                        onpaste="onOzonFbsKizImportTextPaste(event)"
                         oninput="onOzonFbsKizImportTextInput(event)"
                         onkeydown="onOzonFbsKizImportTextKey(event)"
                         placeholder="301945805894000&#10;010467…&lt;GS&gt;91EE12&lt;GS&gt;92…&#10;&#10;или в одной строке:&#10;301945805894000 010467…"></textarea>
