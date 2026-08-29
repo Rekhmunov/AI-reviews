@@ -1622,6 +1622,9 @@
           const hay = [
             o.posting_number, o.offer_id, o.sku, o.product_name, o.warehouse_label,
             ...(Array.isArray(o.barcodes) ? o.barcodes : []),
+            ...(Array.isArray(o.products_brief)
+              ? o.products_brief.flatMap((p) => [p.offer_id, p.sku, p.name])
+              : []),
           ].map((x) => String(x || "").toLowerCase()).join(" ");
           return hay.includes(searchQ);
         })
