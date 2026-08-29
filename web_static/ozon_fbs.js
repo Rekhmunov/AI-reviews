@@ -3764,6 +3764,8 @@
     stickerIndex: new Map(),
     statusRefreshing: false,
     statusRefreshGen: 0,
+    /** Bumped to abort in-flight marking resolve when modal closes / reopens. */
+    loadGen: 0,
     /** @type {Array<object>} conflicts from last import (sticker has other KIZ) */
     importConflicts: [],
   };
@@ -4864,21 +4866,20 @@
    * Load marking / pick-verify payloads in chunks until catalog КИЗ resolve is done.
    * Prevents nginx 504 on large supplies.
    */
-  async function _ozonFbsFetchResolvedChunks(url, { onProgress } = {}) {
+  async function _ozonFbsFetchResolvedChunks(url, { onProgress, onChunk, shouldAbort } = {}) {
     let data = null;
     let remaining = 1;
     let checkedTotal = 0;
     let guard = 0;
     while (remaining > 0 && guard < 200) {
-      guard += 1;
-      if (typeof onProgress === "function") {
-        onProgress({
-          checkedTotal,
-          remaining: checkedTotal ? remaining : null,
-          round: guard,
-        });
+      if (typeof shouldAbort === "function" && shouldAbort()) {
+        return data || {};
       }
+      guard += 1;
       const res = await fetch(url);
+      if (typeof shouldAbort === "function" && shouldAbort()) {
+        return data || {};
+      }
       data = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
@@ -4891,6 +4892,22 @@
       checkedTotal += checked;
       remaining = Number(mr.remaining || 0);
       if (remaining > 0 && checked <= 0) remaining = 0;
+      if (typeof onChunk === "function") {
+        onChunk(data, {
+          checkedTotal,
+          remaining,
+          round: guard,
+          done: remaining <= 0,
+        });
+      }
+      if (typeof onProgress === "function") {
+        onProgress({
+          checkedTotal,
+          remaining: checkedTotal ? remaining : null,
+          round: guard,
+          done: remaining <= 0,
+        });
+      }
     }
     return data || {};
   }
@@ -5965,6 +5982,70 @@
     }
   }
 
+  function _ozonFbsKizApplyLoadedPayload(data, { unlockScan = false, focusScan = false, resolveMsg = "" } = {}) {
+    const tbody = document.getElementById("ozonFbsKizTbody");
+    const saveBtn = document.getElementById("ozonFbsKizSaveBtn");
+    const scan = document.getElementById("ozonFbsKizStickerScan");
+    const dirty = ozonFbsKizState.localAutosaveDirty instanceof Set
+      ? ozonFbsKizState.localAutosaveDirty
+      : new Set();
+    const prevByPn = ozonFbsKizState.rowsByPosting instanceof Map
+      ? ozonFbsKizState.rowsByPosting
+      : new Map();
+
+    const incoming = (Array.isArray(data?.rows) ? data.rows : []).map((r) => {
+      const pn = String(r?.posting_number || "").trim();
+      const prev = pn ? prevByPn.get(pn) : null;
+      // Keep in-progress local scans while background resolve continues.
+      if (prev && (dirty.has(pn) || ozonFbsKizState.pendingPosting === pn)) {
+        return {
+          ...r,
+          kiz_codes: Array.isArray(prev.kiz_codes) ? prev.kiz_codes.slice() : [""],
+          kiz_status: prev.kiz_status,
+          kiz_saved_at: prev.kiz_saved_at,
+        };
+      }
+      const raw = Array.isArray(r.kiz_codes) ? r.kiz_codes : [];
+      const filled = raw.map((c) => String(c || "").trim()).filter(Boolean);
+      return {
+        ...r,
+        kiz_codes: filled.length ? filled.slice() : [""],
+      };
+    });
+
+    ozonFbsKizState.rows = incoming;
+    _ozonFbsKizMergeOrderFlagsIntoDetail(data?.order_kiz_flags || []);
+    if (!Object.keys(ozonFbsKizState.baselineByPosting || {}).length) {
+      _ozonFbsKizCaptureBaseline();
+    }
+    _ozonFbsKizRebuildIndexes();
+    renderOzonFbsKizTable();
+    if (supplyDetailState.supply) {
+      renderSupplyDetail();
+      _ozonFbsKizSplitSetTone(_ozonFbsKizToneFromSupply(supplyDetailState.supply));
+    }
+    if (saveBtn) saveBtn.disabled = false;
+    if (unlockScan) {
+      _ozonFbsKizSetFiltersReady(true);
+      _ozonFbsKizSyncImportBtn();
+      if (focusScan && scan && document.activeElement !== scan) {
+        setTimeout(() => {
+          if (_ozonFbsKizModalIsOpen()) scan.focus();
+        }, 40);
+      }
+    }
+    if (resolveMsg) {
+      _ozonFbsKizSetInfo(resolveMsg, true);
+    } else if (!ozonFbsKizState.rows.length) {
+      _ozonFbsKizSetInfo("В поставке нет отправлений, требующих маркировки");
+    } else {
+      _ozonFbsKizSetInfo("");
+    }
+    if (tbody && !ozonFbsKizState.rows.length && resolveMsg) {
+      tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">${esc(resolveMsg)}</td></tr>`;
+    }
+  }
+
   async function openOzonFbsKizModal() {
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
@@ -5972,6 +6053,7 @@
     if (typeof setModalVisibility === "function") setModalVisibility("ozonFbsKizModal", true);
     else document.getElementById("ozonFbsKizModal")?.classList.remove("hidden");
     ozonFbsKizColResizer.init();
+    const loadGen = (ozonFbsKizState.loadGen = Number(ozonFbsKizState.loadGen || 0) + 1);
     ozonFbsKizState.rows = [];
     ozonFbsKizState.errors = {};
     ozonFbsKizState.pendingPosting = null;
@@ -6000,64 +6082,98 @@
     const scan = document.getElementById("ozonFbsKizStickerScan");
     if (scan) scan.value = "";
     let loadOk = false;
+    let unlocked = false;
+    const stillThisLoad = () =>
+      Number(ozonFbsKizState.loadGen) === loadGen && _ozonFbsKizModalIsOpen();
     try {
       const params = new URLSearchParams({ source_id: String(sourceId) });
       _ozonFbsAppendPostingTab(params);
-      const data = await _ozonFbsFetchResolvedChunks(
+      await _ozonFbsFetchResolvedChunks(
         `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/marking?${params}`,
         {
-          onProgress: (p) => {
-            const msg = _ozonFbsResolveProgressText(p);
-            if (tbody) {
-              tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">${esc(msg)}</td></tr>`;
+          shouldAbort: () => !stillThisLoad(),
+          onChunk: (data, meta) => {
+            if (!stillThisLoad()) return;
+            const resolving = !meta?.done && Number(meta?.remaining || 0) > 0;
+            const resolveMsg = resolving ? _ozonFbsResolveProgressText(meta) : "";
+            if (!unlocked) {
+              // Unlock sticker scan on the first chunk — do not wait for full resolve
+              // (resolve can take minutes; readOnly field looks focused but swallows input).
+              _ozonFbsKizApplyLoadedPayload(data, {
+                unlockScan: true,
+                focusScan: true,
+                resolveMsg,
+              });
+              unlocked = true;
+              loadOk = true;
+              return;
             }
-            _ozonFbsKizSetInfo(msg, true);
+            // Background resolve: update KIZ flags only — do not rebuild the table
+            // (would steal focus / wipe in-progress scan).
+            _ozonFbsKizMergeOrderFlagsIntoDetail(data?.order_kiz_flags || []);
+            if (supplyDetailState.supply) {
+              renderSupplyDetail();
+              _ozonFbsKizSplitSetTone(_ozonFbsKizToneFromSupply(supplyDetailState.supply));
+            }
+            if (resolveMsg) _ozonFbsKizSetInfo(resolveMsg, true);
+            else if (ozonFbsKizState.rows.length) _ozonFbsKizSetInfo("");
           },
         }
       );
-      ozonFbsKizState.rows = (Array.isArray(data.rows) ? data.rows : []).map((r) => {
-        const raw = Array.isArray(r.kiz_codes) ? r.kiz_codes : [];
-        const filled = raw.map((c) => String(c || "").trim()).filter(Boolean);
-        return {
-          ...r,
-          kiz_codes: filled.length ? filled.slice() : [""],
-        };
-      });
-      _ozonFbsKizMergeOrderFlagsIntoDetail(data.order_kiz_flags || []);
-      _ozonFbsKizCaptureBaseline();
-      _ozonFbsKizRebuildIndexes();
-      renderOzonFbsKizTable();
-      if (supplyDetailState.supply) {
-        renderSupplyDetail();
-        _ozonFbsKizSplitSetTone(_ozonFbsKizToneFromSupply(supplyDetailState.supply));
-      }
-      if (!ozonFbsKizState.rows.length) {
-        _ozonFbsKizSetInfo("В поставке нет отправлений, требующих маркировки");
+      if (!stillThisLoad()) return;
+      if (!unlocked) {
+        _ozonFbsKizApplyLoadedPayload({}, { unlockScan: true, focusScan: true });
       } else {
-        _ozonFbsKizSetInfo("");
+        _ozonFbsKizSetInfo(
+          ozonFbsKizState.rows.length
+            ? ""
+            : "В поставке нет отправлений, требующих маркировки"
+        );
       }
-      loadOk = true;
     } catch (e) {
-      if (tbody) {
+      if (!stillThisLoad()) return;
+      if (tbody && !unlocked) {
         tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty" style="color:#b91c1c">${esc(e.message)}</td></tr>`;
       }
       _ozonFbsKizSetInfo(String(e.message || e));
     } finally {
+      if (!stillThisLoad()) return;
       if (saveBtn) saveBtn.disabled = false;
       _ozonFbsKizSetFiltersReady(true);
       _ozonFbsKizSyncImportBtn();
-      if (loadOk && scan) setTimeout(() => scan.focus(), 50);
+      if (loadOk && scan) setTimeout(() => {
+        if (stillThisLoad()) scan.focus();
+      }, 50);
     }
   }
 
   async function closeOzonFbsKizModal() {
+    ozonFbsKizState.loadGen = Number(ozonFbsKizState.loadGen || 0) + 1;
     try {
       await _ozonFbsKizAwaitLocalAutosaves();
     } catch (_e) {
       /* keep closing */
     }
-    if (typeof setModalVisibility === "function") setModalVisibility("ozonFbsKizModal", false);
-    else document.getElementById("ozonFbsKizModal")?.classList.add("hidden");
+    // Same cleanup as WB marking: drop RU-layout swallow so wedge scan works again.
+    try {
+      document.removeEventListener("keydown", _wbFbsKizRuLayoutSwallowKeys, true);
+    } catch (_e) {
+      /* ignore */
+    }
+    if (typeof setModalVisibility === "function") {
+      setModalVisibility("wbFbsKizRuLayoutModal", false);
+      setModalVisibility("ozonFbsKizScanPrompt", false);
+      setModalVisibility("ozonFbsKizModal", false);
+    } else {
+      document.getElementById("wbFbsKizRuLayoutModal")?.classList.add("hidden");
+      document.getElementById("ozonFbsKizScanPrompt")?.classList.add("hidden");
+      document.getElementById("ozonFbsKizModal")?.classList.add("hidden");
+    }
+    if (typeof wbFbsKizState === "object" && wbFbsKizState) {
+      wbFbsKizState.ruLayoutFocusId = null;
+      wbFbsKizState.ruLayoutPreserveValue = false;
+      wbFbsKizState.ruLayoutOpenedAt = 0;
+    }
     cancelOzonFbsKizMarkScan();
     closeOzonFbsKizImportModal();
     ozonFbsKizState.rows = [];
@@ -6065,6 +6181,7 @@
     ozonFbsKizState.markIndex = new Map();
     ozonFbsKizState.stickerIndex = new Map();
     ozonFbsKizState.localAutosaveDirty = new Set();
+    _ozonFbsKizSetFiltersReady(false);
     _ozonFbsKizSetInfo("");
   }
 
