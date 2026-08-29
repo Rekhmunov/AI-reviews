@@ -14,7 +14,7 @@ from review_processor.ozon_fbs_detail import (
 
 
 class OzonFbsShipAllTests(unittest.TestCase):
-    def test_build_ship_packages_one_unit_per_package(self) -> None:
+    def test_build_ship_packages_single_package_all_products(self) -> None:
         packages = build_ship_packages(
             {
                 "products_json": '[{"sku": 111, "quantity": 2}, {"sku": 222, "quantity": 1}]'
@@ -23,9 +23,12 @@ class OzonFbsShipAllTests(unittest.TestCase):
         self.assertEqual(
             packages,
             [
-                {"products": [{"product_id": 111, "quantity": 1}]},
-                {"products": [{"product_id": 111, "quantity": 1}]},
-                {"products": [{"product_id": 222, "quantity": 1}]},
+                {
+                    "products": [
+                        {"product_id": 111, "quantity": 2},
+                        {"product_id": 222, "quantity": 1},
+                    ]
+                }
             ],
         )
 
@@ -133,6 +136,7 @@ class OzonFbsShipAllTests(unittest.TestCase):
         self.assertFalse(kwargs["protect_status_downgrade"])
 
     def test_ship_posting_multi_package_upserts_siblings(self) -> None:
+        """Interactive ship still refreshes from Ozon (single package path)."""
         repo = MagicMock()
         client = MagicMock()
         client.get_posting.side_effect = [
@@ -145,15 +149,10 @@ class OzonFbsShipAllTests(unittest.TestCase):
             {
                 "posting_number": "P-1",
                 "status": "awaiting_deliver",
-                "products": [{"sku": 10, "quantity": 1}],
-            },
-            {
-                "posting_number": "P-1-1",
-                "status": "awaiting_deliver",
-                "products": [{"sku": 10, "quantity": 1}],
+                "products": [{"sku": 10, "quantity": 2}],
             },
         ]
-        client.ship_posting.return_value = {"result": ["P-1", "P-1-1"]}
+        client.ship_posting.return_value = {"result": ["P-1"]}
         with patch(
             "review_processor.ozon_fbs_detail.get_posting_row",
             return_value={
@@ -174,10 +173,11 @@ class OzonFbsShipAllTests(unittest.TestCase):
                 client=client,
             )
         self.assertTrue(out["ok"])
-        self.assertEqual(out["posting_numbers"], ["P-1", "P-1-1"])
+        self.assertEqual(out["posting_numbers"], ["P-1"])
         pkgs = client.ship_posting.call_args.args[1]
-        self.assertEqual(len(pkgs), 2)
-        self.assertEqual(upsert.call_count, 2)
+        self.assertEqual(len(pkgs), 1)
+        self.assertEqual(pkgs[0]["products"][0]["quantity"], 2)
+        upsert.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -67,6 +67,7 @@ _ozon_fbs_sync_state: dict[str, object] = {
     "sources": [],
     "pallet_summary": [],
     "pallet_summary_error": "",
+    "multi_summary": [],
     "cancel_requested": False,
 }
 
@@ -405,6 +406,18 @@ class OzonFbsClient:
         return self.post_json(
             "/v4/posting/fbs/ship",
             {"posting_number": str(posting_number), "packages": packages},
+        )
+
+    def split_posting(
+        self, posting_number: str, postings: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Split into separate postings without assembling (``/v1/posting/fbs/split``)."""
+        return self.post_json(
+            "/v1/posting/fbs/split",
+            {
+                "posting_number": str(posting_number),
+                "postings": postings,
+            },
         )
 
     def package_label_pdf(self, posting_numbers: list[str]) -> bytes:
@@ -1870,12 +1883,24 @@ def list_postings(
         d["price_display"] = f"{price:,}".replace(",", " ") + " ₽" if price else "—"
         d["warehouse_label"] = str(d.get("warehouse_name") or "").strip() or "—"
         items.append(d)
+    counts = _tab_counts(repo, user_id=user_id, source_id=source_id)
+    try:
+        from . import ozon_fbs_detail as oz_detail
+
+        multi_stats = oz_detail.count_awaiting_packaging_multi(
+            repo, user_id=user_id, source_id=int(source_id) if source_id is not None else None
+        )
+        counts["awaiting_packaging_multi"] = int(multi_stats.get("multi_posting_count") or 0)
+        counts["awaiting_packaging_multi_extra"] = int(multi_stats.get("extra_postings") or 0)
+    except Exception:
+        counts["awaiting_packaging_multi"] = 0
+        counts["awaiting_packaging_multi_extra"] = 0
     return {
         "items": items,
         "total": int(total_row["n"]) if total_row else 0,
         "page": safe_page,
         "page_size": safe_size,
-        "counts": _tab_counts(repo, user_id=user_id, source_id=source_id),
+        "counts": counts,
     }
 
 
@@ -2171,6 +2196,10 @@ def _copy_sync_state() -> dict[str, object]:
     st["pallet_summary_error"] = str(
         _ozon_fbs_sync_state.get("pallet_summary_error") or ""
     ).strip()
+    st["multi_summary"] = [
+        dict(x) if isinstance(x, dict) else x
+        for x in (_ozon_fbs_sync_state.get("multi_summary") or [])
+    ]
     return st
 
 
@@ -2226,6 +2255,7 @@ def start_sync_thread(
                 "sources": source_rows,
                 "pallet_summary": [],
                 "pallet_summary_error": "",
+                "multi_summary": [],
                 "cancel_requested": False,
             }
         )
@@ -2298,6 +2328,7 @@ def start_sync_thread(
                     _ozon_fbs_sync_state["synced"] = idx + 1
         finally:
             pallet_summary: list[dict[str, Any]] = []
+            multi_summary: list[dict[str, Any]] = []
             if synced_sources > 0:
                 try:
                     pallet_summary = compute_ozon_fbs_pallet_summary(
@@ -2312,12 +2343,36 @@ def start_sync_thread(
                     detail = str(exc).strip()
                     if detail and detail not in pallet_summary_error:
                         pallet_summary_error = f"{_PALLET_SUMMARY_ERROR} ({detail})"
+                try:
+                    from . import ozon_fbs_detail as oz_detail
+
+                    for job in jobs:
+                        sid = int(job.get("source_id") or 0)
+                        if not sid:
+                            continue
+                        stats = oz_detail.count_awaiting_packaging_multi(
+                            repo, user_id=user_id, source_id=sid
+                        )
+                        multi_summary.append(
+                            {
+                                "source_id": sid,
+                                "name": str(job.get("name") or f"Источник {sid}"),
+                                "multi_count": int(stats.get("multi_posting_count") or 0),
+                                "extra_postings": int(stats.get("extra_postings") or 0),
+                            }
+                        )
+                except Exception:
+                    _log.exception(
+                        "ozon_fbs multi summary failed user=%s", user_id
+                    )
+                    multi_summary = []
 
             with _ozon_fbs_sync_lock:
                 _ozon_fbs_sync_state["in_progress"] = False
                 _ozon_fbs_sync_state["errors"] = errors
                 _ozon_fbs_sync_state["pallet_summary"] = pallet_summary
                 _ozon_fbs_sync_state["pallet_summary_error"] = pallet_summary_error
+                _ozon_fbs_sync_state["multi_summary"] = multi_summary
                 stats_part = (
                     f"Источников: {synced_sources}/{len(jobs)} | "
                     f"Отправлений: {total_postings}"

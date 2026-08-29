@@ -83,11 +83,33 @@ def ship_split_preview(rows: list[dict[str, Any]]) -> dict[str, int]:
 
 
 def build_ship_packages(posting: dict[str, Any]) -> list[dict[str, Any]]:
-    """Build ``/v4/posting/fbs/ship`` packages — one package per product unit.
+    """Build ``/v4/posting/fbs/ship`` packages — one package with all products.
 
-    Multi-unit postings are split so the first unit keeps the original
-    ``posting_number`` and each following unit becomes a separate posting
-    (Ozon creates sibling numbers in ``result``).
+    Multi-unit orders must be split earlier via ``/v1/posting/fbs/split``;
+    ship does not divide postings.
+    """
+    products = _products_from_posting_payload(posting)
+    package_products: list[dict[str, Any]] = []
+    for p in products:
+        product_id = p.get("sku") if p.get("sku") is not None else p.get("product_id")
+        try:
+            pid = int(product_id)
+        except (TypeError, ValueError):
+            continue
+        try:
+            qty = int(p.get("quantity") or 1)
+        except (TypeError, ValueError):
+            qty = 1
+        package_products.append({"product_id": pid, "quantity": max(qty, 1)})
+    if not package_products:
+        raise RuntimeError("Нет товаров для сборки отправления")
+    return [{"products": package_products}]
+
+
+def build_split_postings(posting: dict[str, Any]) -> list[dict[str, Any]]:
+    """Build ``/v1/posting/fbs/split`` body — one posting entry per physical unit.
+
+    First entry stays on the original ``posting_number``; the rest become siblings.
     """
     products = _products_from_posting_payload(posting)
     units: list[dict[str, Any]] = []
@@ -102,10 +124,10 @@ def build_ship_packages(posting: dict[str, Any]) -> list[dict[str, Any]]:
         except (TypeError, ValueError):
             qty = 1
         for _ in range(max(qty, 1)):
-            units.append({"product_id": pid, "quantity": 1})
-    if not units:
-        raise RuntimeError("Нет товаров для сборки отправления")
-    return [{"products": [u]} for u in units]
+            units.append({"products": [{"product_id": pid, "quantity": 1}]})
+    if len(units) < 2:
+        raise RuntimeError("Отправление не является мультизаказом")
+    return units
 
 
 def _ship_result_posting_numbers(
@@ -164,8 +186,9 @@ def _compose_posting_from_package(
     package: dict[str, Any] | None,
     base: dict[str, Any],
     meta_by_sku: dict[int, dict[str, Any]],
+    status: str = oz.TAB_AWAITING_DELIVER,
 ) -> dict[str, Any]:
-    """Build a local posting payload after ship without calling Ozon get."""
+    """Build a local posting payload after ship/split without calling Ozon get."""
     products: list[dict[str, Any]] = []
     for p in list((package or {}).get("products") or []):
         if not isinstance(p, dict):
@@ -190,7 +213,7 @@ def _compose_posting_from_package(
         )
     payload: dict[str, Any] = {
         "posting_number": str(posting_number),
-        "status": oz.TAB_AWAITING_DELIVER,
+        "status": str(status or oz.TAB_AWAITING_DELIVER),
         "products": products,
     }
     if isinstance(base, dict):
@@ -240,9 +263,11 @@ def _persist_shipped_postings_local(
     posting_numbers: list[str],
     packages: list[dict[str, Any]],
     base: dict[str, Any],
+    status: str = oz.TAB_AWAITING_DELIVER,
 ) -> None:
-    """Upsert parent + siblings after multi-package ship without Ozon get calls."""
+    """Upsert parent + siblings locally without Ozon get calls."""
     meta = _product_meta_by_sku(base if isinstance(base, dict) else {})
+    tab_status = str(status or oz.TAB_AWAITING_DELIVER)
     for idx, pn in enumerate(posting_numbers):
         package = packages[idx] if idx < len(packages) else None
         payload = _compose_posting_from_package(
@@ -250,6 +275,7 @@ def _persist_shipped_postings_local(
             package=package,
             base=base if isinstance(base, dict) else {},
             meta_by_sku=meta,
+            status=tab_status,
         )
         try:
             oz.upsert_posting(
@@ -260,13 +286,155 @@ def _persist_shipped_postings_local(
                 protect_status_downgrade=False,
             )
         except Exception:
-            _force_local_awaiting_deliver(
-                repo,
-                user_id=user_id,
-                source_id=source_id,
-                posting_number=str(pn),
-                posting=payload,
-            )
+            if tab_status == oz.TAB_AWAITING_DELIVER:
+                _force_local_awaiting_deliver(
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    posting_number=str(pn),
+                    posting=payload,
+                )
+
+
+def _parse_split_response(
+    result: object,
+    *,
+    fallback_posting_number: str,
+    split_plan: list[dict[str, Any]],
+) -> list[tuple[str, dict[str, Any] | None]]:
+    """Map split API response → [(posting_number, products_package), ...].
+
+    Raises if Ozon did not return enough sibling numbers for a multi split.
+    """
+    parent_pn = str(fallback_posting_number).strip()
+    parent_products: dict[str, Any] | None = (
+        split_plan[0] if split_plan else None
+    )
+    children: list[tuple[str, dict[str, Any] | None]] = []
+
+    data = result if isinstance(result, dict) else {}
+    parent = data.get("parent_posting")
+    if isinstance(parent, dict):
+        pn = str(parent.get("posting_number") or "").strip()
+        if pn:
+            parent_pn = pn
+        prods = parent.get("products")
+        if isinstance(prods, list) and prods:
+            parent_products = {
+                "products": [
+                    {
+                        "product_id": p.get("product_id") or p.get("sku"),
+                        "quantity": p.get("quantity") or 1,
+                    }
+                    for p in prods
+                    if isinstance(p, dict)
+                ]
+            }
+
+    raw_children = data.get("postings")
+    if isinstance(raw_children, list):
+        for idx, item in enumerate(raw_children):
+            if not isinstance(item, dict):
+                continue
+            pn = str(item.get("posting_number") or "").strip()
+            if not pn:
+                continue
+            prods = item.get("products")
+            package: dict[str, Any] | None = None
+            if isinstance(prods, list) and prods:
+                package = {
+                    "products": [
+                        {
+                            "product_id": p.get("product_id") or p.get("sku"),
+                            "quantity": p.get("quantity") or 1,
+                        }
+                        for p in prods
+                        if isinstance(p, dict)
+                    ]
+                }
+            elif idx + 1 < len(split_plan):
+                package = split_plan[idx + 1]
+            children.append((pn, package))
+
+    expected_extra = max(len(split_plan) - 1, 0)
+    if expected_extra > 0 and len(children) < expected_extra:
+        raise RuntimeError(
+            "Ozon не вернул номера после разбиения — повторите или синхронизируйте"
+        )
+
+    out: list[tuple[str, dict[str, Any] | None]] = [(parent_pn, parent_products)]
+    seen = {parent_pn}
+    for pn, package in children:
+        if pn in seen:
+            continue
+        seen.add(pn)
+        out.append((pn, package))
+    return out
+
+
+def split_posting(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_number: str,
+    client_id: str,
+    api_key: str,
+    client: oz.OzonFbsClient | None = None,
+) -> dict[str, Any]:
+    """Split a multi-unit posting via ``/v1/posting/fbs/split`` (no assemble).
+
+    Status stays ``awaiting_packaging``. First unit keeps the original number.
+    """
+    row = get_posting_row(
+        repo, user_id=user_id, source_id=source_id, posting_number=posting_number
+    )
+    if not row:
+        raise RuntimeError("Отправление не найдено локально — синхронизируйте и повторите")
+
+    units = posting_ship_unit_count(row)
+    if units < 2:
+        return {
+            "ok": True,
+            "skipped": True,
+            "posting_number": str(posting_number),
+            "posting_numbers": [str(posting_number)],
+            "message": "Не мультизаказ",
+        }
+
+    api = client or oz.OzonFbsClient(client_id, api_key)
+    remote: dict[str, Any] = {}
+    try:
+        remote = api.get_posting(str(posting_number))
+    except Exception:
+        remote = {}
+    base = remote if remote else row
+    plan = build_split_postings(base)
+    result = api.split_posting(str(posting_number), plan)
+    parts = _parse_split_response(
+        result,
+        fallback_posting_number=str(posting_number),
+        split_plan=plan,
+    )
+    posting_numbers = [pn for pn, _ in parts]
+    packages = [pkg if pkg is not None else {} for _, pkg in parts]
+    _persist_shipped_postings_local(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        posting_numbers=posting_numbers,
+        packages=packages,
+        base=base if isinstance(base, dict) else {},
+        status=oz.TAB_AWAITING_PACKAGING,
+    )
+    return {
+        "ok": True,
+        "posting_number": str(posting_numbers[0] if posting_numbers else posting_number),
+        "posting_numbers": posting_numbers,
+        "from_units": units,
+        "to_count": len(posting_numbers),
+        "result": result,
+    }
 
 
 def _force_local_awaiting_deliver(
@@ -512,6 +680,61 @@ def ship_posting(
         "result": result,
         "posting_numbers": posting_numbers,
     }
+
+
+def count_awaiting_packaging_multi(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int | None,
+) -> dict[str, int]:
+    """How many multi-unit postings sit in «Ожидают сборки» (local)."""
+    oz.ensure_ozon_fbs_tables(repo)
+    if source_id is None:
+        return {"multi_posting_count": 0, "result_posting_count": 0, "extra_postings": 0}
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                """
+                SELECT products_json, quantity FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ? AND tab = ?
+                  AND COALESCE(supply_id, '') = ''
+                """
+            ),
+            (user_id, int(source_id), oz.TAB_AWAITING_PACKAGING),
+        ).fetchall()
+    items = [repo._row_to_dict(r) for r in rows]
+    return ship_split_preview(items)
+
+
+def list_awaiting_packaging_multi_numbers(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+) -> list[str]:
+    """Posting numbers in awaiting_packaging with more than one ship unit."""
+    oz.ensure_ozon_fbs_tables(repo)
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                """
+                SELECT * FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ? AND tab = ?
+                  AND COALESCE(supply_id, '') = ''
+                ORDER BY created_at_ozon DESC NULLS LAST, posting_number DESC
+                """
+            ),
+            (user_id, source_id, oz.TAB_AWAITING_PACKAGING),
+        ).fetchall()
+    out: list[str] = []
+    for row in rows:
+        d = repo._row_to_dict(row)
+        if posting_ship_unit_count(d) > 1:
+            pn = str(d.get("posting_number") or "").strip()
+            if pn:
+                out.append(pn)
+    return out
 
 
 def list_awaiting_packaging_numbers(

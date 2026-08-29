@@ -43,6 +43,13 @@
     pollTimer: null,
   };
 
+  const splitState = {
+    busy: false,
+    pollTimer: null,
+    progressText: "",
+    lastOk: false,
+  };
+
   const supplyDetailState = {
     supplyId: null,
     sourceId: null,
@@ -269,17 +276,52 @@
       const el = document.getElementById(TAB_COUNT_IDS[tab]);
       if (el) el.textContent = String(state.counts[tab] || 0);
     });
-    syncShipAllButton();
+    syncPackagingActionButtons();
+  }
+
+  function multiAwaitingCount() {
+    return Math.max(0, Number(state.counts.awaiting_packaging_multi || 0) || 0);
+  }
+
+  function syncPackagingActionButtons() {
+    const splitBtn = document.getElementById("ozonFbsSplitMultiBtn");
+    const shipBtn = document.getElementById("ozonFbsShipAllBtn");
+    const n = Number(state.counts.awaiting_packaging || 0);
+    const multi = multiAwaitingCount();
+    const busy =
+      Boolean(state.shipAllBusy) ||
+      Boolean(collectState.busy) ||
+      Boolean(splitState.busy);
+    const onPackaging = state.tab === "awaiting_packaging" && !isSuppliesTab();
+
+    if (splitBtn) {
+      const showSplit = onPackaging && multi > 0;
+      splitBtn.hidden = !showSplit;
+      splitBtn.disabled = !state.sourceId || !showSplit || busy;
+      splitBtn.title = showSplit
+        ? `Разделить мультизаказы (${multi}) на одинарные без сборки`
+        : "Нет мультизаказов в «Ожидают сборки»";
+      splitBtn.textContent = splitState.busy
+        ? (splitState.progressText || "Разделение…")
+        : "Разделить мультизаказы";
+    }
+    if (shipBtn) {
+      const blockedByMulti = multi > 0;
+      shipBtn.disabled =
+        !state.sourceId || n <= 0 || busy || blockedByMulti || !onPackaging;
+      if (blockedByMulti) {
+        shipBtn.title = "Сначала нужно разделить мультизаказы";
+      } else if (n > 0) {
+        shipBtn.title =
+          `Собрать все отправления в «Ожидают сборки» (${n}) и создать локальную поставку`;
+      } else {
+        shipBtn.title = "Нет отправлений в «Ожидают сборки»";
+      }
+    }
   }
 
   function syncShipAllButton() {
-    const btn = document.getElementById("ozonFbsShipAllBtn");
-    if (!btn) return;
-    const n = Number(state.counts.awaiting_packaging || 0);
-    btn.disabled = !state.sourceId || n <= 0 || Boolean(state.shipAllBusy) || Boolean(collectState.busy);
-    btn.title = n > 0
-      ? `Собрать все отправления в «Ожидают сборки» (${n}) и создать локальную поставку`
-      : "Нет отправлений в «Ожидают сборки»";
+    syncPackagingActionButtons();
   }
 
   function syncSelectAll() {
@@ -1040,6 +1082,115 @@
     defaultWidths: [24, 40, 36],
   });
 
+  /* ── Split multi (without assemble) ── */
+
+  function closeSplitResultModal() {
+    document.getElementById("ozonFbsSplitResultModal")?.classList.add("hidden");
+    const wasOk = !!splitState.lastOk;
+    splitState.lastOk = false;
+    if (wasOk) {
+      // Local refresh of awaiting_packaging only — no full Ozon sync.
+      if (state.tab !== "awaiting_packaging") setTab("awaiting_packaging");
+      else loadPostings(true);
+    }
+  }
+
+  function showSplitResult(data) {
+    const modal = document.getElementById("ozonFbsSplitResultModal");
+    const title = document.getElementById("ozonFbsSplitResultTitle");
+    const body = document.getElementById("ozonFbsSplitResultBody");
+    if (!modal || !body) {
+      alert(data?.message || "Готово");
+      return;
+    }
+    const ok = !!data?.ok;
+    splitState.lastOk = ok && !(data?.errors || []).length;
+    if (title) title.textContent = ok ? "Разделение завершено" : "Есть проблемы";
+    const details = Array.isArray(data?.details) ? data.details : [];
+    const errors = Array.isArray(data?.errors) ? data.errors : [];
+    let html = `<p class="${ok ? "wb-fbs-collect-mgt-result-ok" : "wb-fbs-collect-mgt-result-err"}">${esc(data?.message || "")}</p>`;
+    html += `<p>Было мультизаказов: ${esc(String(data?.multi_before ?? details.length))} · стало одинарных: ${esc(String(data?.single_after ?? 0))}</p>`;
+    if (details.length) {
+      html += "<ul>" + details.map((d) => {
+        const from = d.posting_number || "";
+        const to = Array.isArray(d.posting_numbers) ? d.posting_numbers : [];
+        return `<li>${formatOzonPostingNumberHtml(from)} → ${to.map((x) => formatOzonPostingNumberHtml(x)).join(", ")}</li>`;
+      }).join("") + "</ul>";
+    }
+    if (errors.length) {
+      html += `<p class="wb-fbs-collect-mgt-result-err">Ошибки:</p><ul class="wb-fbs-collect-mgt-result-err">` +
+        errors.map((e) => {
+          if (typeof e === "string") return `<li>${esc(e)}</li>`;
+          return `<li>${formatOzonPostingNumberHtml(e.posting_number || "")}: ${esc(e.error || "")}</li>`;
+        }).join("") + "</ul>";
+    }
+    body.innerHTML = html;
+    modal.classList.remove("hidden");
+  }
+
+  async function pollSplitStatus() {
+    try {
+      const res = await fetch("/api/ozon-fbs/split-multi/status");
+      const st = await res.json().catch(() => ({}));
+      const running = Boolean(st.in_progress);
+      const done = Number(st.done || 0);
+      const total = Number(st.total || 0);
+      splitState.progressText =
+        total > 0 ? `Разделение ${done}/${total}` : (st.message || "Разделение…");
+      showSyncInfo(running ? splitState.progressText : String(st.message || ""));
+      syncPackagingActionButtons();
+      if (running) {
+        splitState.pollTimer = setTimeout(pollSplitStatus, 1000);
+        return;
+      }
+      clearTimeout(splitState.pollTimer);
+      splitState.pollTimer = null;
+      splitState.busy = false;
+      splitState.progressText = "";
+      syncPackagingActionButtons();
+      showSplitResult({
+        ok: !!st?.ok && !(st?.errors || []).length,
+        message: String(st?.message || ""),
+        errors: Array.isArray(st?.errors) ? st.errors : [],
+        details: Array.isArray(st?.details) ? st.details : [],
+        multi_before: Number(st?.multi_before || 0),
+        single_after: Number(st?.single_after || 0),
+      });
+    } catch (_e) {
+      splitState.pollTimer = setTimeout(pollSplitStatus, 1500);
+    }
+  }
+
+  async function splitMulti() {
+    if (!state.sourceId || splitState.busy || collectState.busy || state.shipAllBusy) return;
+    if (multiAwaitingCount() <= 0) {
+      alert("Нет мультизаказов в «Ожидают сборки»");
+      return;
+    }
+    splitState.busy = true;
+    splitState.progressText = "Подготовка…";
+    syncPackagingActionButtons();
+    showSyncInfo("Запуск разделения мультизаказов…");
+    try {
+      const res = await fetch("/api/ozon-fbs/split-multi/execute", {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ source_id: Number(state.sourceId) }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(detailText(data.detail) || "Не удалось запустить разделение");
+      showSyncInfo("Разделение запущено…");
+      pollSplitStatus();
+    } catch (e) {
+      splitState.busy = false;
+      splitState.progressText = "";
+      syncPackagingActionButtons();
+      const err = e.message || String(e);
+      showSyncInfo(err, "error");
+      alert(err);
+    }
+  }
+
   /* ── Collect (ship-all + local supplies) ── */
 
   function closeCollectModal() {
@@ -1305,7 +1456,11 @@
   }
 
   async function shipAll() {
-    if (!state.sourceId || state.shipAllBusy || collectState.busy) return;
+    if (!state.sourceId || state.shipAllBusy || collectState.busy || splitState.busy) return;
+    if (multiAwaitingCount() > 0) {
+      alert("Сначала нужно разделить мультизаказы");
+      return;
+    }
     const n = Number(state.counts.awaiting_packaging || 0);
     if (n <= 0) {
       alert("Нет отправлений в «Ожидают сборки»");
@@ -2533,10 +2688,15 @@
     box.classList.remove("is-ok", "is-error");
     const textEl = document.getElementById("ozonFbsSyncInfoText");
     const palletsEl = document.getElementById("ozonFbsSyncInfoPallets");
+    const multiEl = document.getElementById("ozonFbsSyncInfoMulti");
     if (textEl) textEl.textContent = "";
     if (palletsEl) {
       palletsEl.innerHTML = "";
       palletsEl.hidden = true;
+    }
+    if (multiEl) {
+      multiEl.innerHTML = "";
+      multiEl.hidden = true;
     }
   }
 
@@ -2560,12 +2720,14 @@
     palletSummary = null,
     sourceRows = null,
     palletSummaryError = "",
+    multiSummary = null,
   ) {
     const info = document.getElementById("ozonFbsSyncInfo");
     if (!info) return;
     const msg = String(text || "").trim();
     const textEl = document.getElementById("ozonFbsSyncInfoText");
     const palletsEl = document.getElementById("ozonFbsSyncInfoPallets");
+    const multiEl = document.getElementById("ozonFbsSyncInfoMulti");
     const rowsSrc = Array.isArray(sourceRows) ? sourceRows : [];
 
     if (textEl) {
@@ -2622,7 +2784,33 @@
       }
     }
 
-    info.hidden = !(msg || rowsSrc.length || (palletErr && canShowPallets));
+    if (multiEl) {
+      const multiRows = Array.isArray(multiSummary) ? multiSummary : [];
+      const canShowMulti = kind === "ok" || /готово/i.test(msg);
+      const visible = multiRows.filter((row) => Number(row?.multi_count || 0) > 0);
+      if (canShowMulti && visible.length) {
+        multiEl.innerHTML = visible.map((row) => {
+          const name = esc(row?.name || `Источник ${row?.source_id || ""}`);
+          const n = Number(row.multi_count || 0);
+          return `<div class="wb-fbs-sync-info-multi-row">${name} — мультизаказов: ${esc(String(n))}</div>`;
+        }).join("");
+        multiEl.hidden = false;
+      } else if (canShowMulti && state.sourceId && multiAwaitingCount() > 0) {
+        multiEl.innerHTML =
+          `<div class="wb-fbs-sync-info-multi-row">Мультизаказов: ${esc(String(multiAwaitingCount()))}</div>`;
+        multiEl.hidden = false;
+      } else {
+        multiEl.innerHTML = "";
+        multiEl.hidden = true;
+      }
+    }
+
+    info.hidden = !(
+      msg ||
+      rowsSrc.length ||
+      (palletErr && canShowPallets) ||
+      (multiEl && !multiEl.hidden)
+    );
     info.classList.toggle("is-error", kind === "error");
     info.classList.toggle("is-ok", kind === "ok");
     info.style.color = "";
@@ -2657,9 +2845,12 @@
         ? st.pallet_summary
         : null;
       const palletErr = !running ? String(st.pallet_summary_error || "").trim() : "";
+      const multiSummary = (!running && Array.isArray(st.multi_summary))
+        ? st.multi_summary
+        : null;
       const sourceRows = syncSourceRows(st, msg);
       if (running && sourceRows) showSyncInfo(text, kind, null, sourceRows);
-      else showSyncInfo(text, kind, pallets, sourceRows, palletErr);
+      else showSyncInfo(text, kind, pallets, sourceRows, palletErr, multiSummary);
       if (running) {
         state.syncPollTimer = setTimeout(pollSyncStatus, 1500);
       } else {
@@ -6452,6 +6643,8 @@
   window.closeOzonFbsDetailModal = closeDetailModal;
   window.ozonFbsShipCurrent = shipCurrent;
   window.ozonFbsShipAll = shipAll;
+  window.ozonFbsSplitMulti = splitMulti;
+  window.ozonFbsCloseSplitResultModal = closeSplitResultModal;
   window.ozonFbsPrintCurrentSticker = printCurrentSticker;
   window.onOzonFbsCheckboxChange = onCheckboxChange;
   window.toggleSelectAllOzonFbs = toggleSelectAll;

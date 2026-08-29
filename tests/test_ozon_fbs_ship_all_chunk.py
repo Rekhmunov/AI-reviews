@@ -195,10 +195,10 @@ def test_execute_ship_all_collect_attaches_split_siblings() -> None:
 
 
 def test_ship_posting_fast_multi_split_skips_get_for_siblings() -> None:
-    """Bulk collect must not N×get_posting after multi-package ship."""
+    """Collect ships one package (no split); fast path skips post-ship get."""
     repo = MagicMock()
     client = MagicMock()
-    client.ship_posting.return_value = {"result": ["P-1", "P-1-1"]}
+    client.ship_posting.return_value = {"result": ["P-1"]}
     row = {
         "posting_number": "P-1",
         "tab": "awaiting_packaging",
@@ -210,7 +210,7 @@ def test_ship_posting_fast_multi_split_skips_get_for_siblings() -> None:
     }
     with (
         patch("review_processor.ozon_fbs_detail.get_posting_row", return_value=row),
-        patch("review_processor.ozon_fbs_detail.oz.upsert_posting") as upsert,
+        patch("review_processor.ozon_fbs_detail._force_local_awaiting_deliver") as force,
     ):
         out = ship_posting(
             repo,
@@ -223,14 +223,77 @@ def test_ship_posting_fast_multi_split_skips_get_for_siblings() -> None:
             fast=True,
         )
     assert out["ok"] is True
-    assert out["posting_numbers"] == ["P-1", "P-1-1"]
+    assert out["posting_numbers"] == ["P-1"]
     client.get_posting.assert_not_called()
-    assert upsert.call_count == 2
+    force.assert_called_once()
     pkgs = client.ship_posting.call_args.args[1]
-    assert len(pkgs) == 2
-    first_products = upsert.call_args_list[0].kwargs["posting"]["products"]
-    assert first_products[0]["quantity"] == 1
-    assert first_products[0]["sku"] == 10
+    assert len(pkgs) == 1
+    assert pkgs[0]["products"][0]["quantity"] == 2
+
+
+def test_split_posting_persists_siblings_awaiting_packaging() -> None:
+    from review_processor.ozon_fbs_detail import split_posting
+
+    repo = MagicMock()
+    client = MagicMock()
+    client.get_posting.return_value = {
+        "posting_number": "P-1",
+        "status": "awaiting_packaging",
+        "products": [{"sku": 10, "offer_id": "A", "quantity": 2}],
+    }
+    client.split_posting.return_value = {
+        "parent_posting": {
+            "posting_number": "P-1",
+            "products": [{"product_id": 10, "quantity": 1}],
+        },
+        "postings": [
+            {
+                "posting_number": "P-1-1",
+                "products": [{"product_id": 10, "quantity": 1}],
+            }
+        ],
+    }
+    row = {
+        "posting_number": "P-1",
+        "tab": "awaiting_packaging",
+        "products_json": '[{"sku": 10, "offer_id": "A", "quantity": 2}]',
+    }
+    with (
+        patch("review_processor.ozon_fbs_detail.get_posting_row", return_value=row),
+        patch("review_processor.ozon_fbs_detail.oz.upsert_posting") as upsert,
+    ):
+        out = split_posting(
+            repo,
+            user_id=1,
+            source_id=2,
+            posting_number="P-1",
+            client_id="c",
+            api_key="k",
+            client=client,
+        )
+    assert out["ok"] is True
+    assert out["posting_numbers"] == ["P-1", "P-1-1"]
+    assert upsert.call_count == 2
+    assert upsert.call_args_list[0].kwargs["posting"]["status"] == "awaiting_packaging"
+    assert upsert.call_args_list[1].kwargs["posting"]["status"] == "awaiting_packaging"
+
+
+def test_parse_split_empty_children_raises() -> None:
+    from review_processor.ozon_fbs_detail import _parse_split_response
+
+    plan = [
+        {"products": [{"product_id": 1, "quantity": 1}]},
+        {"products": [{"product_id": 1, "quantity": 1}]},
+    ]
+    try:
+        _parse_split_response(
+            {"parent_posting": {"posting_number": "P-1"}, "postings": []},
+            fallback_posting_number="P-1",
+            split_plan=plan,
+        )
+        assert False, "expected error"
+    except RuntimeError as exc:
+        assert "не вернул номера" in str(exc).lower()
 
 
 def test_start_ship_all_rejects_second_run() -> None:

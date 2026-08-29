@@ -2672,6 +2672,7 @@
             <div class="wb-fbs-sync-info-main">
               <div id="ozonFbsSyncInfoText" class="wb-fbs-sync-info-text"></div>
               <div id="ozonFbsSyncInfoPallets" class="wb-fbs-sync-info-pallets" hidden></div>
+              <div id="ozonFbsSyncInfoMulti" class="wb-fbs-sync-info-multi" hidden></div>
             </div>
             <button type="button" id="ozonFbsSyncInfoClose" class="wb-fbs-sync-info-close"
                     onclick="closeOzonFbsSyncInfo()" aria-label="Скрыть" title="Скрыть">✕</button>
@@ -2711,11 +2712,31 @@
             <button type="button" class="wb-fbs-tab" data-tab="delivered" onclick="setOzonFbsTab('delivered')" hidden style="display:none">Доставлены <span class="wb-fbs-tab-count" id="ozonFbsCountDelivered">0</span></button>
             <button type="button" class="wb-fbs-tab" data-tab="cancelled" onclick="setOzonFbsTab('cancelled')" hidden style="display:none">Отменены <span class="wb-fbs-tab-count" id="ozonFbsCountCancelled">0</span></button>
           </div>
-          <button type="button" id="ozonFbsShipAllBtn" class="ozon-fbs-ship-all-btn"
-                  onclick="ozonFbsShipAll()"
-                  title="Собрать все отправления в «Ожидают сборки» и создать локальную поставку">
-            Собрать все заказы
-          </button>
+          <div class="ozon-fbs-packaging-actions">
+            <button type="button" id="ozonFbsSplitMultiBtn" class="ozon-fbs-split-multi-btn secondary"
+                    onclick="ozonFbsSplitMulti()" hidden
+                    title="Разделить мультизаказы на одинарные без сборки">
+              Разделить мультизаказы
+            </button>
+            <button type="button" id="ozonFbsShipAllBtn" class="ozon-fbs-ship-all-btn"
+                    onclick="ozonFbsShipAll()"
+                    title="Собрать все отправления в «Ожидают сборки» и создать локальную поставку">
+              Собрать все заказы
+            </button>
+          </div>
+        </div>
+        <div id="ozonFbsSplitResultModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsSplitResultTitle">
+          <div class="modal-card wb-fbs-collect-mgt-modal">
+            <div class="wb-fbs-collect-mgt-header">
+              <h3 id="ozonFbsSplitResultTitle" class="wb-fbs-collect-mgt-title">Разделение мультизаказов</h3>
+              <button type="button" class="icon-btn secondary" onclick="ozonFbsCloseSplitResultModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <div id="ozonFbsSplitResultBody" class="wb-fbs-collect-mgt-body"></div>
+            <div class="wb-fbs-collect-mgt-footer">
+              <button type="button" onclick="ozonFbsCloseSplitResultModal()">Закрыть</button>
+            </div>
+          </div>
         </div>
 
         <div id="ozonFbsCollectModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
