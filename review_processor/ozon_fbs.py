@@ -1187,15 +1187,17 @@ def apply_catalog_marking_flags(
     posting: dict[str, Any],
     requires_kiz_map: dict[str, bool],
 ) -> dict[str, Any]:
-    """Set products_requiring_mandatory_mark from catalog checkbox (source of truth)."""
+    """Set products_requiring_mandatory_mark from catalog checkbox (source of truth).
+
+    Marketplace buyout lines are included: Feedback → Settings → Products
+    «Требует КИЗ» applies regardless of ``is_marketplace_buyout``.
+    """
     if not isinstance(posting, dict):
         return posting
     products = _products_from_posting(posting)
     required_ids: list[str] = []
     seen: set[str] = set()
     for p in products:
-        if bool(p.get("is_marketplace_buyout")):
-            continue
         offer = str(p.get("offer_id") or "").strip()
         sku_val = p.get("sku") if p.get("sku") is not None else p.get("product_id")
         sku_str = str(sku_val).strip() if sku_val is not None else ""
@@ -1228,15 +1230,14 @@ def posting_requires_marking(
     """True when posting needs Chestny ZNAK marking.
 
     When ``requires_kiz_map`` is provided (Ozon FBS UI), catalog checkbox is the
-    only gate — Ozon is-required false-positives are ignored.
+    only gate — including marketplace buyout postings. Ozon is-required
+    false-positives are ignored.
     """
     if requires_kiz_map is not None:
         posting = _posting_payload_from_row(row)
         products = _products_from_posting(posting) if posting else []
         if products:
             for p in products:
-                if bool(p.get("is_marketplace_buyout")):
-                    continue
                 sku_val = p.get("sku") if p.get("sku") is not None else p.get("product_id")
                 if catalog_requires_kiz(
                     offer_id=p.get("offer_id"),
@@ -1271,8 +1272,6 @@ def marked_products_for_posting(
     if requires_kiz_map is not None:
         out: list[dict[str, Any]] = []
         for p in products:
-            if bool(p.get("is_marketplace_buyout")):
-                continue
             sku_val = p.get("sku") if p.get("sku") is not None else p.get("product_id")
             if not catalog_requires_kiz(
                 offer_id=p.get("offer_id"),
