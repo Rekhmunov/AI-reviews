@@ -237,6 +237,39 @@ def test_apply_catalog_marking_flags_sets_requirements() -> None:
     assert req.get("marking_is_required_checked") is True
 
 
+def test_catalog_marking_includes_marketplace_buyout() -> None:
+    """Buyout flag must not hide catalog «Требует КИЗ» (real case 0137436990-0049-1)."""
+    posting = {
+        "posting_number": "0137436990-0049-1",
+        "products": [
+            {
+                "sku": 3575265379,
+                "quantity": 1,
+                "offer_id": "OOO_Uzori_160x200x30",
+                "is_marketplace_buyout": True,
+            }
+        ],
+        "requirements": {"products_requiring_mandatory_mark": []},
+    }
+    row = {
+        "posting_number": "0137436990-0049-1",
+        "offer_id": "OOO_Uzori_160x200x30",
+        "sku": "3575265379",
+        "is_mandatory_mark": False,
+        "raw_json": __import__("json").dumps(posting),
+    }
+    catalog = {"OOO_Uzori_160x200x30": True}
+    assert oz.posting_requires_marking(row, requires_kiz_map=catalog) is True
+    assert oz.posting_requires_marking(row, requires_kiz_map={}) is False
+    assert oz.posting_marking_quantity(row, requires_kiz_map=catalog) == 1
+    applied = oz.apply_catalog_marking_flags(posting, catalog)
+    req = applied.get("requirements") or {}
+    assert req.get("products_requiring_mandatory_mark") == ["3575265379"]
+    marked = oz.marked_products_for_posting(posting, requires_kiz_map=catalog)
+    assert len(marked) == 1
+    assert marked[0]["product_id"] == 3575265379
+
+
 def test_build_marking_payload_filters_required_only() -> None:
     detail = {
         "supply_id": "OZ-1",
