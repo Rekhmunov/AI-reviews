@@ -1502,8 +1502,6 @@ def upsert_posting(
     first = products[0] if products else {}
     offer_id = str(first.get("offer_id") or "").strip()
     product_name = str(first.get("name") or "").strip()
-    if len(products) > 1:
-        product_name = f"{product_name or offer_id or 'Товар'} (+{len(products) - 1})"
     sku_raw = first.get("sku")
     sku: int | None = None
     try:
@@ -1519,6 +1517,14 @@ def upsert_posting(
             qty += 1
     if qty <= 0:
         qty = 1
+    # Keep a searchable hint in stored product_name (list UI uses products_json).
+    base_label = product_name or offer_id or "Товар"
+    if len(products) > 1:
+        product_name = f"{base_label} (+{len(products) - 1})"
+    elif qty > 1:
+        product_name = f"{base_label} ×{qty}"
+    else:
+        product_name = base_label if product_name or offer_id else ""
     price = 0
     fin = posting.get("financial_data")
     if isinstance(fin, dict):
@@ -1672,9 +1678,10 @@ def _postings_filter_sql(
         like = f"%{q}%"
         clauses.append(
             "(posting_number ILIKE ? OR order_number ILIKE ? OR offer_id ILIKE ? "
-            "OR product_name ILIKE ? OR warehouse_name ILIKE ? OR barcodes_json ILIKE ?)"
+            "OR product_name ILIKE ? OR warehouse_name ILIKE ? OR barcodes_json ILIKE ? "
+            "OR products_json ILIKE ?)"
         )
-        params.extend([like, like, like, like, like, like])
+        params.extend([like, like, like, like, like, like, like])
     return " AND ".join(clauses), params
 
 
@@ -1701,6 +1708,91 @@ def resolve_product_display_name(
         or "—"
     )
     return str(name or "—").strip() or "—"
+
+
+def products_from_posting_row(row: dict[str, Any]) -> list[dict[str, Any]]:
+    """Product lines from an API posting dict or a DB row (``products_json``)."""
+    products = _products_from_posting(row)
+    if products:
+        return products
+    try:
+        parsed = json.loads(str(row.get("products_json") or "[]"))
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [p for p in parsed if isinstance(p, dict)]
+
+
+def enrich_posting_product_display(
+    row: dict[str, Any],
+    *,
+    name_by_article: dict[str, str],
+    name_by_ozon_sku: dict[str, str],
+) -> dict[str, Any]:
+    """Attach multi-unit / multi-SKU fields for list and supply-detail UI.
+
+    Catalog name for the first line stays in ``product_name`` /
+    ``product_name_display``. Composition is exposed via ``unit_count``,
+    ``line_count``, ``products_brief`` — the UI must not rely on a ``(+N)``
+    suffix in the title (that was overwritten by catalog resolve).
+    """
+    products = products_from_posting_row(row)
+    brief: list[dict[str, Any]] = []
+    unit_count = 0
+    for p in products:
+        offer = str(p.get("offer_id") or "").strip()
+        sku_raw = p.get("sku") if p.get("sku") is not None else p.get("product_id")
+        sku = str(sku_raw or "").strip()
+        try:
+            qty = max(int(p.get("quantity") or 1), 1)
+        except (TypeError, ValueError):
+            qty = 1
+        unit_count += qty
+        name = resolve_product_display_name(
+            offer_id=offer,
+            sku=sku,
+            name_by_article=name_by_article,
+            name_by_ozon_sku=name_by_ozon_sku,
+        )
+        brief.append(
+            {
+                "offer_id": offer,
+                "sku": sku,
+                "name": name,
+                "quantity": qty,
+            }
+        )
+    if not brief:
+        offer = str(row.get("offer_id") or "").strip()
+        sku = str(row.get("sku") or "").strip()
+        try:
+            unit_count = max(int(row.get("quantity") or 1), 1)
+        except (TypeError, ValueError):
+            unit_count = 1
+        name = resolve_product_display_name(
+            offer_id=offer,
+            sku=sku,
+            name_by_article=name_by_article,
+            name_by_ozon_sku=name_by_ozon_sku,
+        )
+        brief = [
+            {
+                "offer_id": offer,
+                "sku": sku,
+                "name": name,
+                "quantity": unit_count,
+            }
+        ]
+    first = brief[0]
+    row["product_name"] = first["name"]
+    row["product_name_display"] = first["name"]
+    row["unit_count"] = int(unit_count)
+    row["line_count"] = len(brief)
+    row["is_multi_unit"] = unit_count > 1
+    row["is_multi_sku"] = len(brief) > 1
+    row["products_brief"] = brief
+    return row
 
 
 def list_postings(
@@ -1745,15 +1837,18 @@ def list_postings(
         d = repo._row_to_dict(row)
         article = str(d.get("offer_id") or "").strip()
         sku = str(d.get("sku") or "").strip()
-        display_name = resolve_product_display_name(
-            offer_id=article,
-            sku=sku,
+        enrich_posting_product_display(
+            d,
             name_by_article=name_map,
             name_by_ozon_sku=ozon_sku_map,
         )
-        d["product_name"] = display_name
-        d["product_name_display"] = display_name
         d["product_photo"] = photo_map.get(article) or photo_map.get(sku) or ""
+        # Prefer photo of first brief line when stored columns miss article.
+        if not d["product_photo"] and d.get("products_brief"):
+            first = d["products_brief"][0]
+            fa = str(first.get("offer_id") or "").strip()
+            fs = str(first.get("sku") or "").strip()
+            d["product_photo"] = photo_map.get(fa) or photo_map.get(fs) or ""
         d["tab_label"] = TAB_LABELS.get(str(d.get("tab") or ""), str(d.get("tab") or ""))
         d["status_label"] = str(d.get("status") or "")
         try:

@@ -609,6 +609,48 @@
     updateBottomBar();
   }
 
+  function productCompositionHtml(row) {
+    const units = Math.max(0, Number(row?.unit_count || row?.quantity || 0) || 0);
+    const lines = Array.isArray(row?.products_brief) ? row.products_brief : [];
+    const lineCount = Math.max(
+      Number(row?.line_count || 0) || 0,
+      lines.length
+    );
+    const badges = [];
+    if (units > 1) {
+      badges.push(
+        `<span class="wb-fbs-badge qty" title="Единиц в отправлении">${esc(String(units))} шт.</span>`
+      );
+    }
+    if (lineCount > 1) {
+      badges.push(
+        `<span class="wb-fbs-badge cargo" title="Разных товарных позиций">${esc(String(lineCount))} поз.</span>`
+      );
+    }
+    const badgeHtml = badges.length
+      ? `<div class="wb-fbs-badges wb-fbs-product-qty">${badges.join("")}</div>`
+      : "";
+    let extraHtml = "";
+    if (lines.length > 1) {
+      extraHtml =
+        `<div class="wb-fbs-product-extra">` +
+        lines
+          .slice(1)
+          .map((p) => {
+            const offer = String(p.offer_id || "").trim();
+            const sku = String(p.sku || "").trim();
+            const art = offer || sku || "—";
+            const q = Math.max(1, Number(p.quantity) || 1);
+            const nm = String(p.name || art || "—").trim() || "—";
+            const qtyBit = q > 1 ? ` ×${q}` : "";
+            return `<div class="wb-fbs-product-extra-line" title="${esc(nm)}">+ ${esc(nm)}${esc(qtyBit)} <span class="wb-fbs-order-meta">Арт. ${esc(art)}</span></div>`;
+          })
+          .join("") +
+        `</div>`;
+    }
+    return badgeHtml + extraHtml;
+  }
+
   function renderTable(items) {
     const tbody = document.getElementById("ozonFbsOrdersTbody");
     if (!tbody) return;
@@ -641,6 +683,7 @@
       const offer = String(row.offer_id || "").trim();
       const sku = String(row.sku || "").trim();
       const productName = row.product_name_display || row.product_name || offer || "—";
+      const composition = productCompositionHtml(row);
       const whLabel = row.warehouse_label || row.warehouse_name || "—";
       const whId = row.warehouse_id != null && String(row.warehouse_id).trim()
         ? String(row.warehouse_id).trim()
@@ -659,6 +702,7 @@
           <div class="wb-fbs-product-text">
             <div class="wb-fbs-product-name" title="${esc(productName)}">${esc(productName)}</div>
             <div class="wb-fbs-product-sub">Арт. ${esc(offer || "—")}${sku ? " · SKU " + esc(sku) : ""}</div>
+            ${composition}
             ${barcodeHtml}
           </div>
         </div>
@@ -1658,6 +1702,7 @@
       const offer = String(o.offer_id || "").trim();
       const sku = String(o.sku || "").trim();
       const pname = o.product_name || offer || "—";
+      const composition = productCompositionHtml(o);
       const created = o.created_at_ozon || o.in_process_at || "";
       const ago = agoLabel(created);
       const badges = [];
@@ -1696,6 +1741,7 @@
             <div class="wb-fbs-product-text">
               <div class="wb-fbs-product-name" title="${esc(pname)}">${esc(pname)}</div>
               <div class="wb-fbs-product-sub">Арт. ${esc(offer || "—")}${sku ? " · SKU " + esc(sku) : ""}</div>
+              ${composition}
               ${barcodeHtml}
               ${cancelBadgeHtml(o)}
               ${kizBadgeHtml(o)}
@@ -1833,6 +1879,7 @@
             <div class="wb-fbs-product-text">
               <div class="wb-fbs-product-name" title="${esc(r.product_name || r.offer_id || "")}">${esc(r.product_name || r.offer_id || "—")}</div>
               <div class="wb-fbs-product-sub">${esc(offerArt || "—")}</div>
+              ${productCompositionHtml(r)}
               ${barcodeHtml}
               ${cancelBadgeHtml(r)}
             </div>

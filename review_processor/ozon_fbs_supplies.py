@@ -2574,9 +2574,8 @@ def get_supply_detail(
             d = repo._row_to_dict(row)
             article = str(d.get("offer_id") or "").strip()
             sku = str(d.get("sku") or "").strip()
-            d["product_name"] = oz.resolve_product_display_name(
-                offer_id=article,
-                sku=sku,
+            oz.enrich_posting_product_display(
+                d,
                 name_by_article=name_map,
                 name_by_ozon_sku=ozon_sku_map,
             )
@@ -2587,6 +2586,11 @@ def get_supply_detail(
                 fallback=_parse_json_list(d.get("barcodes_json")),
             )
             d["product_photo"] = photo_map.get(article) or photo_map.get(sku) or ""
+            if not d["product_photo"] and d.get("products_brief"):
+                first = d["products_brief"][0]
+                fa = str(first.get("offer_id") or "").strip()
+                fs = str(first.get("sku") or "").strip()
+                d["product_photo"] = photo_map.get(fa) or photo_map.get(fs) or ""
             d["warehouse_label"] = d.get("warehouse_name") or "—"
             cancel_label = oz.cancel_reason_label_from_row(d)
             d["cancel_reason_label"] = cancel_label
