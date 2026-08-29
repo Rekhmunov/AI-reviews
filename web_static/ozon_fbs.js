@@ -3803,6 +3803,9 @@
     loadGen: 0,
     /** @type {Array<object>} conflicts from last import (sticker has other KIZ) */
     importConflicts: [],
+    /** Rate-limit bucket for anomaly-only scan diagnostics (not on happy path). */
+    diagWindowMs: 0,
+    diagWindowCount: 0,
   };
 
   const ozonFbsPickState = {
@@ -3817,6 +3820,66 @@
     localAutosaveSeqByPosting: {},
     localAutosaveInflight: 0,
   };
+
+  /**
+   * Anomaly-only scan diagnostics → journal via tiny POST.
+   * Never called on successful sticker/КИЗ scan. Rate-limited; fire-and-forget.
+   */
+  function _ozonFbsKizScanDiag(reason, detail) {
+    const now = Date.now();
+    if (!ozonFbsKizState.diagWindowMs || now - ozonFbsKizState.diagWindowMs > 60000) {
+      ozonFbsKizState.diagWindowMs = now;
+      ozonFbsKizState.diagWindowCount = 0;
+    }
+    if (ozonFbsKizState.diagWindowCount >= 12) return;
+    ozonFbsKizState.diagWindowCount += 1;
+    const reasonKey = String(reason || "unknown").slice(0, 64);
+    const detailText = String(detail || "").slice(0, 360);
+    try {
+      console.warn("[ozon-fbs-scan]", reasonKey, detailText);
+    } catch (_e) {
+      /* ignore */
+    }
+    try {
+      const body = JSON.stringify({
+        area: "ozon_fbs_marking_scan",
+        reason: reasonKey,
+        detail: detailText,
+        supply_id: String(supplyDetailState.supplyId || ""),
+        source_id: Number(supplyDetailState.sourceId || state.sourceId || 0) || 0,
+      });
+      // keepalive + no await: must not slow or block the scan path.
+      void fetch("/api/ozon-fbs/client-diag", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+        credentials: "same-origin",
+        keepalive: true,
+      }).catch(() => {});
+    } catch (_e) {
+      /* ignore */
+    }
+  }
+  window._ozonFbsKizScanDiag = _ozonFbsKizScanDiag;
+
+  function _ozonFbsKizScanDiagSnapshot(input) {
+    const ruOpen =
+      typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen();
+    const prompt = document.getElementById("ozonFbsKizScanPrompt");
+    const promptOpen = !!(prompt && !prompt.classList.contains("hidden"));
+    const activeId = document.activeElement?.id || "";
+    return [
+      `ru=${ruOpen ? 1 : 0}`,
+      `ready=${ozonFbsKizState.rowsReady ? 1 : 0}`,
+      `ro=${input?.readOnly ? 1 : 0}`,
+      `dis=${input?.disabled ? 1 : 0}`,
+      `prompt=${promptOpen ? 1 : 0}`,
+      `pending=${String(ozonFbsKizState.pendingPosting || "")}`,
+      `focus=${activeId}`,
+      `valLen=${String(input?.value || "").length}`,
+      `rows=${(ozonFbsKizState.rows || []).length}`,
+    ].join(" ");
+  }
 
   function _ozonFbsNormalizeScan(value) {
     if (typeof _wbFbsKizNormalizeScan === "function") {
@@ -5871,12 +5934,29 @@
   async function onOzonFbsKizStickerScanKey(event) {
     if (!event || event.key !== "Enter") return;
     event.preventDefault();
-    if (typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen()) return;
     const input = event.target;
-    if (input?.disabled || input?.readOnly || !ozonFbsKizState.rowsReady) return;
+    if (typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen()) {
+      _ozonFbsKizScanDiag("sticker_enter_ru_modal", _ozonFbsKizScanDiagSnapshot(input));
+      return;
+    }
+    if (input?.disabled || input?.readOnly || !ozonFbsKizState.rowsReady) {
+      _ozonFbsKizScanDiag(
+        "sticker_enter_blocked",
+        _ozonFbsKizScanDiagSnapshot(input)
+      );
+      return;
+    }
     const rawTyped = String(input?.value || "").replace(/\s+/g, "").trim();
-    if (!rawTyped) return;
+    if (!rawTyped) {
+      // Digits never reached the field (swallow/readonly) or scanner sent bare Enter.
+      _ozonFbsKizScanDiag("sticker_enter_empty", _ozonFbsKizScanDiagSnapshot(input));
+      return;
+    }
     if (typeof _wbFbsKizHasCyrillic === "function" && _wbFbsKizHasCyrillic(rawTyped)) {
+      _ozonFbsKizScanDiag(
+        "sticker_enter_cyrillic",
+        `${_ozonFbsKizScanDiagSnapshot(input)} sampleLen=${rawTyped.length}`
+      );
       if (typeof _wbFbsKizBlockRuLayout === "function") _wbFbsKizBlockRuLayout(input);
       return;
     }
@@ -5926,12 +6006,25 @@
   function onOzonFbsKizMarkScanKey(event) {
     if (!event || event.key !== "Enter") return;
     event.preventDefault();
-    if (typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen()) return;
-    const pn = String(ozonFbsKizState.pendingPosting || "");
     const input = event.target;
+    if (typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen()) {
+      _ozonFbsKizScanDiag("mark_enter_ru_modal", _ozonFbsKizScanDiagSnapshot(input));
+      return;
+    }
+    const pn = String(ozonFbsKizState.pendingPosting || "");
     const rawTyped = String(input?.value || "");
-    if (!pn || !String(rawTyped || "").replace(/\s+/g, "")) return;
+    if (!pn || !String(rawTyped || "").replace(/\s+/g, "")) {
+      _ozonFbsKizScanDiag(
+        "mark_enter_empty",
+        `${_ozonFbsKizScanDiagSnapshot(input)} pn=${pn || "-"}`
+      );
+      return;
+    }
     if (typeof _wbFbsKizHasCyrillic === "function" && _wbFbsKizHasCyrillic(rawTyped)) {
+      _ozonFbsKizScanDiag(
+        "mark_enter_cyrillic",
+        `${_ozonFbsKizScanDiagSnapshot(input)} pn=${pn}`
+      );
       if (typeof _wbFbsKizBlockRuLayout === "function") _wbFbsKizBlockRuLayout(input);
       return;
     }

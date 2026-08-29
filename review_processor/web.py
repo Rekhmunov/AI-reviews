@@ -13171,6 +13171,52 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+    @app.post("/api/ozon-fbs/client-diag")
+    async def ozon_fbs_client_diag(request: Request) -> Response:
+        """Tiny client breadcrumb for marking-scan anomalies (journal only)."""
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        # Per-user soft rate limit — diagnostics must never become a hot path.
+        uid = int(user.get("id") or 0)
+        now = time.time()
+        bucket = getattr(app.state, "_ozon_fbs_client_diag_rl", None)
+        if not isinstance(bucket, dict):
+            bucket = {}
+            app.state._ozon_fbs_client_diag_rl = bucket
+        stamps = [t for t in bucket.get(uid, []) if now - float(t) < 60.0]
+        if len(stamps) >= 20:
+            return Response(status_code=204)
+        try:
+            payload = await request.json()
+        except Exception:
+            return Response(status_code=204)
+        if not isinstance(payload, dict):
+            return Response(status_code=204)
+        area = str(payload.get("area") or "")[:64]
+        reason = str(payload.get("reason") or "")[:64]
+        detail = str(payload.get("detail") or "")[:360]
+        supply_id = str(payload.get("supply_id") or "")[:80]
+        source_id = payload.get("source_id")
+        try:
+            source_id_i = int(source_id) if source_id is not None else 0
+        except (TypeError, ValueError):
+            source_id_i = 0
+        if not reason:
+            return Response(status_code=204)
+        stamps.append(now)
+        bucket[uid] = stamps[-20:]
+        _log.warning(
+            "ozon-fbs client-diag user=%s area=%s reason=%s supply=%s source=%s detail=%s",
+            uid,
+            area or "-",
+            reason,
+            supply_id or "-",
+            source_id_i or "-",
+            detail or "-",
+        )
+        return Response(status_code=204)
+
     @app.get("/api/ozon-fbs/supplies/{supply_id}/marking/status")
     def ozon_fbs_supply_marking_status(
         request: Request,

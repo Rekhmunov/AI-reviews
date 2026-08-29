@@ -27354,6 +27354,20 @@ function _wbFbsKizRuLayoutSwallowKeys(event) {
   if (key === "Enter" || key === "Tab" || key.length === 1) {
     event.preventDefault();
     event.stopPropagation();
+    // Anomaly breadcrumb: scan while RU warning still open (incl. digit stickers).
+    if (typeof window._ozonFbsKizScanDiag === "function") {
+      const focusId = String(document.activeElement?.id || "");
+      if (
+        focusId === "ozonFbsKizStickerScan"
+        || focusId === "ozonFbsKizMarkScan"
+        || focusId === "ozonFbsKizImportText"
+      ) {
+        window._ozonFbsKizScanDiag(
+          "ru_swallow_keydown",
+          `key=${key === "Enter" || key === "Tab" ? key : "char"} focus=${focusId}`
+        );
+      }
+    }
   }
 }
 
