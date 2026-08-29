@@ -3726,39 +3726,92 @@
   }
 
   function closeOzonFbsKizImportModal() {
+    // Unlock keyboard if RU warning was open for this textarea (do not wipe text).
+    try {
+      if (
+        typeof _wbFbsKizRuLayoutModalOpen === "function"
+        && _wbFbsKizRuLayoutModalOpen()
+        && typeof wbFbsKizState !== "undefined"
+        && wbFbsKizState.ruLayoutFocusId === "ozonFbsKizImportText"
+      ) {
+        document.removeEventListener("keydown", _wbFbsKizRuLayoutSwallowKeys, true);
+        if (typeof setModalVisibility === "function") {
+          setModalVisibility("wbFbsKizRuLayoutModal", false);
+        }
+        wbFbsKizState.ruLayoutFocusId = null;
+        wbFbsKizState.ruLayoutPreserveValue = false;
+        wbFbsKizState.ruLayoutOpenedAt = 0;
+      }
+    } catch (_e) {
+      /* ignore */
+    }
     if (typeof setModalVisibility === "function") setModalVisibility("ozonFbsKizImportModal", false);
     else document.getElementById("ozonFbsKizImportModal")?.classList.add("hidden");
   }
 
-  /** RU layout warning for import — same modal as Marking, but never wipe the textarea. */
+  /** Open the shared «Русская раскладка» modal; never wipe the import textarea. */
+  function _ozonFbsKizImportWarnRuLayout(inputEl) {
+    if (typeof _wbFbsKizBlockRuLayout !== "function") return;
+    if (typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen()) {
+      return;
+    }
+    _wbFbsKizBlockRuLayout(inputEl, { preserveValue: true });
+  }
+
+  /**
+   * Pre-input RU check (beforeinput): block Cyrillic before it lands in the field,
+   * show the same modal as Marking, keep existing text intact.
+   */
+  function onOzonFbsKizImportTextBeforeInput(event) {
+    if (!event) return;
+    const input = event.target;
+    if (!input) return;
+    const inputType = String(event.inputType || "");
+    if (typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen()) {
+      // While warning is open: block new inserts, allow Backspace/Delete to fix leftovers.
+      if (inputType.startsWith("insert")) {
+        event.preventDefault();
+      }
+      return;
+    }
+    // Paste is handled in onpaste (clipboardData is reliable there).
+    if (inputType === "insertFromPaste" || inputType === "insertFromDrop") return;
+    const data = String(event.data || "");
+    if (!data) return;
+    if (typeof _wbFbsKizHasCyrillic === "function" && _wbFbsKizHasCyrillic(data)) {
+      event.preventDefault();
+      _ozonFbsKizImportWarnRuLayout(input);
+    }
+  }
+
+  /** Paste path: reject clipboard with Cyrillic before it enters the textarea. */
+  function onOzonFbsKizImportTextPaste(event) {
+    if (!event) return;
+    const input = event.target;
+    if (!input) return;
+    if (typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen()) {
+      event.preventDefault();
+      return;
+    }
+    const text = String(event.clipboardData?.getData("text") || "");
+    if (typeof _wbFbsKizHasCyrillic === "function" && _wbFbsKizHasCyrillic(text)) {
+      event.preventDefault();
+      _ozonFbsKizImportWarnRuLayout(input);
+    }
+  }
+
+  /**
+   * Safety net if Cyrillic somehow got into the field (e.g. old buffer).
+   * Same modal as Marking; never wipe the textarea; no sticky bottom error.
+   */
   function onOzonFbsKizImportTextInput(event) {
     const input = event?.target;
     if (!input) return;
     if (typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen()) {
-      // Keep buffer: operator may have pasted a long list; only the warning matters.
       return;
     }
     if (typeof _wbFbsKizHasCyrillic === "function" && _wbFbsKizHasCyrillic(input.value)) {
-      const keep = String(input.value || "");
-      if (typeof _wbFbsKizBlockRuLayout === "function") {
-        _wbFbsKizBlockRuLayout(input);
-        // Restore paste/scan buffer — unlike Marking single-field scan.
-        input.value = keep;
-        try {
-          const len = keep.length;
-          input.setSelectionRange(len, len);
-        } catch (_e) {
-          /* ignore */
-        }
-      }
-      _ozonFbsKizImportSetInfo(
-        "Русская раскладка — переключите на EN. Поле не очищено: исправьте кириллицу или пересканируйте."
-      );
-      const info = document.getElementById("ozonFbsKizImportInfo");
-      if (info) {
-        info.classList.remove("is-ok");
-        info.classList.add("is-warn");
-      }
+      _ozonFbsKizImportWarnRuLayout(input);
     }
   }
 
@@ -3770,6 +3823,7 @@
     if (!event) return;
     if (typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen()) {
       // Swallow scanner tail while warning is open; do not wipe the field.
+      // Allow Backspace/Delete so leftover Cyrillic can be removed.
       const key = String(event.key || "");
       if (key === "Enter" || key === "Tab" || key.length === 1) {
         event.preventDefault();
@@ -4134,20 +4188,8 @@
     const runBtn = document.getElementById("ozonFbsKizImportRunBtn");
     const rawText = String(ta?.value || "");
     if (typeof _wbFbsKizHasCyrillic === "function" && _wbFbsKizHasCyrillic(rawText)) {
-      _ozonFbsKizImportSetInfo(
-        "В тексте есть русские буквы — переключите раскладку на EN и исправьте коды. Поле не очищено."
-      );
-      const info = document.getElementById("ozonFbsKizImportInfo");
-      if (info) {
-        info.classList.remove("is-ok");
-        info.classList.add("is-warn");
-      }
-      if (!liveScan && typeof _wbFbsKizBlockRuLayout === "function" && ta) {
-        const keep = ta.value;
-        if (typeof _wbFbsKizRuLayoutModalOpen === "function" && !_wbFbsKizRuLayoutModalOpen()) {
-          _wbFbsKizBlockRuLayout(ta);
-          ta.value = keep;
-        }
+      if (!liveScan && ta) {
+        _ozonFbsKizImportWarnRuLayout(ta);
       }
       return emptyResult;
     }
@@ -6544,6 +6586,8 @@
   window.closeOzonFbsKizImportModal = closeOzonFbsKizImportModal;
   window.toggleOzonFbsKizImportPanel = toggleOzonFbsKizImportPanel;
   window.onOzonFbsKizImportTextInput = onOzonFbsKizImportTextInput;
+  window.onOzonFbsKizImportTextBeforeInput = onOzonFbsKizImportTextBeforeInput;
+  window.onOzonFbsKizImportTextPaste = onOzonFbsKizImportTextPaste;
   window.onOzonFbsKizImportTextKey = onOzonFbsKizImportTextKey;
   window.runOzonFbsKizImport = runOzonFbsKizImport;
   window.applyOzonFbsKizImportConflicts = applyOzonFbsKizImportConflicts;

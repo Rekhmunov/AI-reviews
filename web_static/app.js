@@ -26929,6 +26929,11 @@ const wbFbsKizState = {
   statusRefreshGen: 0,
   /** Input id to refocus after RU-layout warning is dismissed. */
   ruLayoutFocusId: null,
+  /**
+   * When true, dismiss keeps the field value (Ozon import textarea).
+   * Marking scan fields clear on dismiss (default).
+   */
+  ruLayoutPreserveValue: false,
   /** Timestamp when RU-layout warning opened (ignore scanner Enter briefly). */
   ruLayoutOpenedAt: 0,
   /**
@@ -27313,11 +27318,19 @@ function _wbFbsKizHasCyrillic(value) {
   return /[а-яёА-ЯЁ]/.test(String(value || ""));
 }
 
-/** Block scan when RU layout produced Cyrillic; operator must switch to EN. */
-function _wbFbsKizBlockRuLayout(inputEl) {
+/**
+ * Block scan when RU layout produced Cyrillic; operator must switch to EN.
+ * @param {HTMLElement|null|undefined} inputEl
+ * @param {{ preserveValue?: boolean }|boolean} [opts] pass `{ preserveValue: true }`
+ *   (or legacy `true`) to keep the field text — used by Ozon KIZ import.
+ */
+function _wbFbsKizBlockRuLayout(inputEl, opts) {
+  const preserve =
+    opts === true || !!(opts && typeof opts === "object" && opts.preserveValue);
   const focusId = String(inputEl?.id || "");
-  if (inputEl) inputEl.value = "";
+  if (inputEl && !preserve) inputEl.value = "";
   wbFbsKizState.ruLayoutFocusId = focusId || null;
+  wbFbsKizState.ruLayoutPreserveValue = preserve;
   wbFbsKizState.ruLayoutOpenedAt = Date.now();
   setModalVisibility("wbFbsKizRuLayoutModal", true);
   // Do not focus OK: wedge scanners end with Enter and would auto-dismiss.
@@ -27350,11 +27363,13 @@ function dismissWbFbsKizRuLayoutWarning() {
   document.removeEventListener("keydown", _wbFbsKizRuLayoutSwallowKeys, true);
   setModalVisibility("wbFbsKizRuLayoutModal", false);
   const id = wbFbsKizState.ruLayoutFocusId;
+  const preserve = !!wbFbsKizState.ruLayoutPreserveValue;
   wbFbsKizState.ruLayoutFocusId = null;
+  wbFbsKizState.ruLayoutPreserveValue = false;
   wbFbsKizState.ruLayoutOpenedAt = 0;
   const el = id ? document.getElementById(id) : null;
   if (el) {
-    el.value = "";
+    if (!preserve) el.value = "";
     setTimeout(() => el.focus(), 40);
   }
 }
@@ -27608,6 +27623,7 @@ async function closeWbFbsKizModal(opts) {
   wbFbsKizState.errors = {};
   wbFbsKizState.pendingOrderId = null;
   wbFbsKizState.ruLayoutFocusId = null;
+  wbFbsKizState.ruLayoutPreserveValue = false;
   wbFbsKizState.ruLayoutOpenedAt = 0;
   wbFbsKizState.baselineByOrder = {};
   wbFbsKizState.forceSaveByOrder = {};
@@ -29009,6 +29025,9 @@ async function closeWbFbsPickVerifyModal(opts) {
   setModalVisibility("wbFbsKizRuLayoutModal", false);
   setModalVisibility("wbFbsPickScanPrompt", false);
   setModalVisibility("wbFbsPickVerifyModal", false);
+  wbFbsKizState.ruLayoutFocusId = null;
+  wbFbsKizState.ruLayoutPreserveValue = false;
+  wbFbsKizState.ruLayoutOpenedAt = 0;
   wbFbsPickState.rows = [];
   wbFbsPickState.errors = {};
   wbFbsPickState.pendingOrderId = null;
