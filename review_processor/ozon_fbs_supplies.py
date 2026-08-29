@@ -357,6 +357,7 @@ def preview_ship_all_collect(
             }
             for s in candidates
         ]
+        split = oz_detail.ship_split_preview(bucket)
         groups.append(
             {
                 "group_key": group_key,
@@ -365,6 +366,9 @@ def preview_ship_all_collect(
                 "label": label,
                 "posting_numbers": posting_numbers,
                 "order_count": len(posting_numbers),
+                "multi_posting_count": split["multi_posting_count"],
+                "result_posting_count": split["result_posting_count"],
+                "extra_postings": split["extra_postings"],
                 "suggested_name": suggested,
                 "name_conflict": False,
                 "compatible_supplies": compatible,
@@ -374,10 +378,14 @@ def preview_ship_all_collect(
         )
 
     needs_modal = any(g.get("mode") in ("create", "choose") for g in groups)
+    split_all = oz_detail.ship_split_preview(rows)
     return {
         "ok": True,
         "mgt_count": len(rows),
         "posting_count": len(rows),
+        "multi_posting_count": split_all["multi_posting_count"],
+        "result_posting_count": split_all["result_posting_count"],
+        "extra_postings": split_all["extra_postings"],
         "groups": groups,
         "needs_modal": needs_modal,
         "existing_names": sorted(existing_names),
@@ -656,6 +664,7 @@ def execute_ship_all_collect(
 
     client = oz.OzonFbsClient(client_id, api_key)
     shipped: list[str] = []
+    shipped_result: list[str] = []
     errors: list[dict[str, str]] = []
     created: list[dict[str, str]] = []
     group_lines: list[str] = []
@@ -700,7 +709,7 @@ def execute_ship_all_collect(
             if _stopped():
                 break
             try:
-                oz_detail.ship_posting(
+                ship_out = oz_detail.ship_posting(
                     repo,
                     user_id=user_id,
                     source_id=source_id,
@@ -710,8 +719,19 @@ def execute_ship_all_collect(
                     client=client,
                     fast=True,
                 )
+                result_pns = [
+                    str(x).strip()
+                    for x in (ship_out.get("posting_numbers") or [pn])
+                    if str(x).strip()
+                ]
+                if not result_pns:
+                    result_pns = [pn]
                 shipped.append(pn)
-                shipped_here.append(pn)
+                for rpn in result_pns:
+                    if rpn not in shipped_here:
+                        shipped_here.append(rpn)
+                    if rpn not in shipped_result:
+                        shipped_result.append(rpn)
             except Exception as exc:
                 errors.append({"posting_number": pn, "error": str(exc)})
                 _log.warning("ozon ship-all %s failed: %s", pn, exc)
@@ -783,8 +803,30 @@ def execute_ship_all_collect(
 
     shipped_n = len(shipped)
     failed_n = len(errors)
-    if shipped:
-        placeholders = ", ".join("?" for _ in shipped)
+    force_numbers = list(shipped_result) if shipped_result else list(shipped)
+    stopped = _stopped()
+    ok = shipped_n > 0 and failed_n == 0 and not stopped
+    split_extra = max(len(shipped_result) - shipped_n, 0) if shipped_result else 0
+    if stopped and shipped_n:
+        message = f"Остановлено. Собрано {shipped_n} из {total}"
+    elif stopped:
+        message = "Остановлено"
+    elif shipped_n and not failed_n:
+        if split_extra:
+            message = (
+                f"Собрано {shipped_n} → {len(shipped_result)} отправлений "
+                f"(+{split_extra} после разбиения) → «Ожидают отгрузки»"
+            )
+        else:
+            message = f"Собрано {shipped_n} отправлений → «Ожидают отгрузки»"
+    elif shipped_n:
+        message = f"Собрано {shipped_n}, ошибок {failed_n}"
+    else:
+        message = f"Не удалось собрать отправления ({failed_n})"
+    if progress:
+        progress(done, total, message)
+    if force_numbers:
+        placeholders = ", ".join("?" for _ in force_numbers)
         with repo._connect() as conn:
             conn.execute(
                 repo._sql(
@@ -801,32 +843,20 @@ def execute_ship_all_collect(
                     oz.TAB_AWAITING_DELIVER,
                     user_id,
                     source_id,
-                    *shipped,
+                    *force_numbers,
                     oz.TAB_AWAITING_PACKAGING,
                     oz.TAB_AWAITING_DELIVER,
                 ),
             )
-    stopped = _stopped()
-    ok = shipped_n > 0 and failed_n == 0 and not stopped
-    if stopped and shipped_n:
-        message = f"Остановлено. Собрано {shipped_n} из {total}"
-    elif stopped:
-        message = "Остановлено"
-    elif shipped_n and not failed_n:
-        message = f"Собрано {shipped_n} отправлений → «Ожидают отгрузки»"
-    elif shipped_n:
-        message = f"Собрано {shipped_n}, ошибок {failed_n}"
-    else:
-        message = f"Не удалось собрать отправления ({failed_n})"
-    if progress:
-        progress(done, total, message)
     return {
         "ok": ok,
         "total": total or int(preview.get("posting_count") or 0),
         "done": done,
         "shipped": shipped_n,
         "failed": failed_n,
-        "shipped_numbers": shipped,
+        "shipped_numbers": shipped_result or shipped,
+        "result_posting_count": len(shipped_result) if shipped_result else shipped_n,
+        "extra_postings": split_extra,
         "created_supplies": created,
         "group_lines": group_lines,
         "errors": errors,
@@ -1136,6 +1166,7 @@ def preview_selection_supply(
     suggested = _unique_supply_name(
         default_supply_name(source_name=source_name), set(existing_names)
     )
+    split = oz_detail.ship_split_preview(usable)
     return {
         "ok": not uniq,
         "errors": uniq,
@@ -1143,6 +1174,9 @@ def preview_selection_supply(
             str(r.get("posting_number") or "").strip() for r in usable
         ],
         "order_count": len(usable),
+        "multi_posting_count": split["multi_posting_count"],
+        "result_posting_count": split["result_posting_count"],
+        "extra_postings": split["extra_postings"],
         "traits": traits,
         "suggested_name": suggested,
         "name_conflict": False,
@@ -1166,7 +1200,7 @@ def _ship_selected_postings(
     errors: list[dict[str, str]] = []
     for pn in posting_numbers:
         try:
-            oz_detail.ship_posting(
+            ship_out = oz_detail.ship_posting(
                 repo,
                 user_id=user_id,
                 source_id=source_id,
@@ -1175,7 +1209,16 @@ def _ship_selected_postings(
                 api_key=api_key,
                 client=client,
             )
-            shipped.append(pn)
+            result_pns = [
+                str(x).strip()
+                for x in (ship_out.get("posting_numbers") or [pn])
+                if str(x).strip()
+            ]
+            if not result_pns:
+                result_pns = [pn]
+            for rpn in result_pns:
+                if rpn not in shipped:
+                    shipped.append(rpn)
         except Exception as exc:
             errors.append({"posting_number": pn, "error": str(exc)})
     return shipped, errors

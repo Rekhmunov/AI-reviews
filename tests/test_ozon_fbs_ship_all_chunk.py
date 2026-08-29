@@ -136,6 +136,64 @@ def test_execute_ship_all_collect_progress_and_fast_ship() -> None:
     assert progress_calls[-1][0] == 2
 
 
+def test_execute_ship_all_collect_attaches_split_siblings() -> None:
+    repo = MagicMock()
+    preview = {
+        "groups": [
+            {
+                "group_key": "wh1",
+                "mode": "create",
+                "suggested_name": "Склад 1",
+                "warehouse_id": 1,
+                "warehouse_name": "WH",
+                "posting_numbers": ["A-1"],
+            }
+        ],
+        "posting_count": 1,
+    }
+    with (
+        patch(
+            "review_processor.ozon_fbs_supplies.preview_ship_all_collect",
+            return_value=preview,
+        ),
+        patch(
+            "review_processor.ozon_fbs_supplies.list_open_supplies",
+            return_value=[],
+        ),
+        patch(
+            "review_processor.ozon_fbs_supplies._source_display_name",
+            return_value="OZ",
+        ),
+        patch(
+            "review_processor.ozon_fbs_supplies._create_local_supply",
+            return_value="OZ-FBS-1",
+        ) as create_supply,
+        patch("review_processor.ozon_fbs_supplies.oz.OzonFbsClient"),
+        patch("review_processor.ozon_fbs_supplies.oz_detail.ship_posting") as ship,
+    ):
+        ship.return_value = {
+            "ok": True,
+            "posting_numbers": ["A-1", "A-1-1", "A-1-2"],
+        }
+        out = execute_ship_all_collect(
+            repo,
+            user_id=1,
+            source_id=2,
+            client_id="c",
+            api_key="k",
+            decisions=[{"group_key": "wh1", "action": "create", "name": "Склад 1"}],
+            ship_pause_sec=0,
+        )
+    assert out["shipped"] == 1
+    assert out["extra_postings"] == 2
+    assert out["shipped_numbers"] == ["A-1", "A-1-1", "A-1-2"]
+    assert create_supply.call_args.kwargs["posting_numbers"] == [
+        "A-1",
+        "A-1-1",
+        "A-1-2",
+    ]
+
+
 def test_start_ship_all_rejects_second_run() -> None:
     import review_processor.ozon_fbs_supplies as mod
 

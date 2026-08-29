@@ -1047,6 +1047,15 @@
     modal.classList.remove("hidden");
   }
 
+  function shipSplitPreviewNote(preview) {
+    const multi = Number(preview?.multi_posting_count || 0);
+    const extra = Number(preview?.extra_postings || 0);
+    const result = Number(preview?.result_posting_count || 0);
+    if (multi <= 0 || extra <= 0) return "";
+    return `Мультитоварных: ${multi} → станет +${extra} отправлений`
+      + (result > 0 ? ` (итого ${result}).` : ".");
+  }
+
   function renderCollectModal(preview) {
     const body = document.getElementById("ozonFbsCollectBody");
     const lead = document.getElementById("ozonFbsCollectLead");
@@ -1061,7 +1070,9 @@
         .map((x) => String(x || "").trim()).filter(Boolean)
     );
     if (lead) {
-      lead.textContent = `Отправлений в «Ожидают сборки»: ${preview?.posting_count || preview?.mgt_count || 0}.`;
+      const base = `Отправлений в «Ожидают сборки»: ${preview?.posting_count || preview?.mgt_count || 0}.`;
+      const splitNote = shipSplitPreviewNote(preview);
+      lead.textContent = splitNote ? `${base} ${splitNote}` : base;
     }
     if (!body) return;
     body.innerHTML = groups.map((g, idx) => {
@@ -1069,6 +1080,12 @@
       const mode = String(g.mode || "create");
       const label = String(g.label || "Склад");
       const count = Number(g.order_count || 0);
+      const resultCount = Number(g.result_posting_count || 0);
+      const extra = Number(g.extra_postings || 0);
+      const metaParts = [`${count} отпр.`];
+      if (extra > 0 && resultCount > count) {
+        metaParts.push(`после разбиения ${resultCount}`);
+      }
       let inner = "";
       if (mode === "create") {
         const name = String(g.suggested_name || "");
@@ -1117,7 +1134,7 @@
       return `
         <section class="wb-fbs-collect-mgt-group" data-group-key="${esc(gkey)}" data-mode="${esc(mode)}">
           <h4 class="wb-fbs-collect-mgt-group-title">${esc(label)}</h4>
-          <p class="wb-fbs-collect-mgt-group-meta">${count} отпр.</p>
+          <p class="wb-fbs-collect-mgt-group-meta">${esc(metaParts.join(" · "))}</p>
           ${inner}
         </section>`;
     }).join("");
@@ -2694,6 +2711,10 @@
       );
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Ошибка сборки");
+      const resultPns = Array.isArray(data.posting_numbers) ? data.posting_numbers : [];
+      if (resultPns.length > 1) {
+        alert(`Собрано с разбиением: ${resultPns.length} отправлений`);
+      }
       closeDetailModal();
       await loadPostings(false);
     } catch (e) {
@@ -2771,9 +2792,11 @@
       confirmBtn.disabled = false;
     }
     const count = Number(preview.order_count || 0);
+    const splitNote = shipSplitPreviewNote(preview);
     if (lead) {
       lead.textContent =
-        `Отправления будут собраны на Ozon и попадут в новую локальную поставку на «Ожидают отгрузки» (${count} шт.).`;
+        `Отправления будут собраны на Ozon и попадут в новую локальную поставку на «Ожидают отгрузки» (${count} шт.).`
+        + (splitNote ? ` ${splitNote}` : "");
     }
     const name = String(preview.suggested_name || "");
     const existing = new Set(
@@ -2804,10 +2827,12 @@
     if (confirmBtn) confirmBtn.textContent = "Добавить";
     const count = Number(preview.order_count || 0);
     const supplies = Array.isArray(preview.compatible_supplies) ? preview.compatible_supplies : [];
+    const splitNote = shipSplitPreviewNote(preview);
     if (lead) {
-      lead.textContent = supplies.length
+      const base = supplies.length
         ? `Выберите открытую поставку для ${count} отпр. Показаны совместимые по складу.`
         : `Для ${count} отпр. нет совместимых открытых поставок.`;
+      lead.textContent = splitNote ? `${base} ${splitNote}` : base;
     }
     if (!body) return;
     if (!supplies.length) {
