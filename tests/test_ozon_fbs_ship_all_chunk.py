@@ -194,6 +194,45 @@ def test_execute_ship_all_collect_attaches_split_siblings() -> None:
     ]
 
 
+def test_ship_posting_fast_multi_split_skips_get_for_siblings() -> None:
+    """Bulk collect must not N×get_posting after multi-package ship."""
+    repo = MagicMock()
+    client = MagicMock()
+    client.ship_posting.return_value = {"result": ["P-1", "P-1-1"]}
+    row = {
+        "posting_number": "P-1",
+        "tab": "awaiting_packaging",
+        "warehouse_id": 7,
+        "warehouse_name": "WH",
+        "order_number": "ORD-1",
+        "products_json": '[{"sku": 10, "offer_id": "A1", "quantity": 2}]',
+        "analytics_data": {"warehouse": "WH", "warehouse_id": 7},
+    }
+    with (
+        patch("review_processor.ozon_fbs_detail.get_posting_row", return_value=row),
+        patch("review_processor.ozon_fbs_detail.oz.upsert_posting") as upsert,
+    ):
+        out = ship_posting(
+            repo,
+            user_id=1,
+            source_id=2,
+            posting_number="P-1",
+            client_id="c",
+            api_key="k",
+            client=client,
+            fast=True,
+        )
+    assert out["ok"] is True
+    assert out["posting_numbers"] == ["P-1", "P-1-1"]
+    client.get_posting.assert_not_called()
+    assert upsert.call_count == 2
+    pkgs = client.ship_posting.call_args.args[1]
+    assert len(pkgs) == 2
+    first_products = upsert.call_args_list[0].kwargs["posting"]["products"]
+    assert first_products[0]["quantity"] == 1
+    assert first_products[0]["sku"] == 10
+
+
 def test_start_ship_all_rejects_second_run() -> None:
     import review_processor.ozon_fbs_supplies as mod
 

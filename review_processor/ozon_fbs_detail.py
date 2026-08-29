@@ -141,6 +141,134 @@ def _ship_result_posting_numbers(
     return out or [str(fallback_posting_number).strip()]
 
 
+def _product_meta_by_sku(base: dict[str, Any]) -> dict[int, dict[str, Any]]:
+    """Map Ozon SKU → offer_id/name from the pre-ship posting (for local siblings)."""
+    out: dict[int, dict[str, Any]] = {}
+    for p in _products_from_posting_payload(base):
+        raw = p.get("sku") if p.get("sku") is not None else p.get("product_id")
+        try:
+            sku = int(raw)
+        except (TypeError, ValueError):
+            continue
+        out[sku] = {
+            "offer_id": str(p.get("offer_id") or "").strip(),
+            "name": str(p.get("name") or "").strip(),
+            "sku": sku,
+        }
+    return out
+
+
+def _compose_posting_from_package(
+    *,
+    posting_number: str,
+    package: dict[str, Any] | None,
+    base: dict[str, Any],
+    meta_by_sku: dict[int, dict[str, Any]],
+) -> dict[str, Any]:
+    """Build a local posting payload after ship without calling Ozon get."""
+    products: list[dict[str, Any]] = []
+    for p in list((package or {}).get("products") or []):
+        if not isinstance(p, dict):
+            continue
+        try:
+            sku = int(p.get("product_id") if p.get("product_id") is not None else p.get("sku"))
+        except (TypeError, ValueError):
+            continue
+        try:
+            qty = max(int(p.get("quantity") or 1), 1)
+        except (TypeError, ValueError):
+            qty = 1
+        meta = meta_by_sku.get(sku) or {}
+        products.append(
+            {
+                "sku": sku,
+                "product_id": sku,
+                "quantity": qty,
+                "offer_id": meta.get("offer_id") or "",
+                "name": meta.get("name") or "",
+            }
+        )
+    payload: dict[str, Any] = {
+        "posting_number": str(posting_number),
+        "status": oz.TAB_AWAITING_DELIVER,
+        "products": products,
+    }
+    if isinstance(base, dict):
+        for key in (
+            "order_id",
+            "order_number",
+            "warehouse_id",
+            "delivery_method",
+            "in_process_at",
+            "created_at",
+            "financial_data",
+        ):
+            if key in base and base.get(key) is not None:
+                payload[key] = base.get(key)
+        analytics = base.get("analytics_data")
+        if isinstance(analytics, dict):
+            payload["analytics_data"] = dict(analytics)
+        else:
+            payload["analytics_data"] = {}
+        wh_name = ""
+        if isinstance(analytics, dict):
+            wh_name = str(analytics.get("warehouse") or "").strip()
+        if not wh_name:
+            wh_name = str(base.get("warehouse_name") or "").strip()
+        if wh_name:
+            ad = payload.get("analytics_data")
+            if not isinstance(ad, dict):
+                ad = {}
+            else:
+                ad = dict(ad)
+            if not ad.get("warehouse"):
+                ad["warehouse"] = wh_name
+            if base.get("warehouse_id") is not None and ad.get("warehouse_id") is None:
+                ad["warehouse_id"] = base.get("warehouse_id")
+            payload["analytics_data"] = ad
+        req = base.get("requirements")
+        if isinstance(req, dict):
+            payload["requirements"] = dict(req)
+    return payload
+
+
+def _persist_shipped_postings_local(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_numbers: list[str],
+    packages: list[dict[str, Any]],
+    base: dict[str, Any],
+) -> None:
+    """Upsert parent + siblings after multi-package ship without Ozon get calls."""
+    meta = _product_meta_by_sku(base if isinstance(base, dict) else {})
+    for idx, pn in enumerate(posting_numbers):
+        package = packages[idx] if idx < len(packages) else None
+        payload = _compose_posting_from_package(
+            posting_number=str(pn),
+            package=package,
+            base=base if isinstance(base, dict) else {},
+            meta_by_sku=meta,
+        )
+        try:
+            oz.upsert_posting(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                posting=payload,
+                protect_status_downgrade=False,
+            )
+        except Exception:
+            _force_local_awaiting_deliver(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                posting_number=str(pn),
+                posting=payload,
+            )
+
+
 def _force_local_awaiting_deliver(
     repo: ReviewRepository,
     *,
@@ -307,24 +435,34 @@ def ship_posting(
         result, fallback_posting_number=str(posting_number)
     )
     multi_split = len(packages) > 1
+    base = remote or row
 
-    # Single-package fast path: keep previous cheap behaviour.
-    if fast and not multi_split:
-        _force_local_awaiting_deliver(
-            repo,
-            user_id=user_id,
-            source_id=source_id,
-            posting_number=str(posting_number),
-            posting=remote or row,
-        )
+    # Bulk collect (fast): never N×get_posting — upsert from ship result + packages.
+    if fast:
+        if multi_split:
+            _persist_shipped_postings_local(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                posting_numbers=posting_numbers,
+                packages=packages,
+                base=base if isinstance(base, dict) else {},
+            )
+        else:
+            _force_local_awaiting_deliver(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                posting_number=str(posting_number),
+                posting=base if isinstance(base, dict) else None,
+            )
         return {
             "ok": True,
             "result": result,
             "posting_numbers": posting_numbers,
         }
 
-    # After ship (esp. multi-package split): persist every resulting posting.
-    # Ozon get may lag; force awaiting_deliver when status is still packaging.
+    # Interactive / single ship: refresh each resulting posting from Ozon when possible.
     for idx, pn in enumerate(posting_numbers):
         refreshed: dict[str, Any] = {}
         try:
@@ -334,44 +472,15 @@ def ship_posting(
         except Exception:
             refreshed = {}
         if not refreshed.get("posting_number"):
-            refreshed["posting_number"] = str(pn)
-            # Fallback composition from the package we sent (same order as result).
-            if idx < len(packages):
-                pkg_products = list((packages[idx] or {}).get("products") or [])
-                refreshed["products"] = [
-                    {
-                        "sku": p.get("product_id"),
-                        "product_id": p.get("product_id"),
-                        "quantity": p.get("quantity") or 1,
-                    }
-                    for p in pkg_products
-                    if isinstance(p, dict)
-                ]
-            base = remote or row
-            if isinstance(base, dict):
-                for key in ("warehouse_id", "delivery_method", "analytics_data"):
-                    if key in base and key not in refreshed:
-                        refreshed[key] = base.get(key)
-                if isinstance(base.get("analytics_data"), dict) and not refreshed.get(
-                    "analytics_data"
-                ):
-                    refreshed["analytics_data"] = base.get("analytics_data")
-                wh_name = ""
-                analytics = base.get("analytics_data")
-                if isinstance(analytics, dict):
-                    wh_name = str(analytics.get("warehouse") or "").strip()
-                if not wh_name:
-                    wh_name = str(base.get("warehouse_name") or "").strip()
-                if wh_name and not refreshed.get("warehouse_name"):
-                    # upsert reads warehouse from analytics; keep name on row via analytics.
-                    ad = refreshed.get("analytics_data")
-                    if not isinstance(ad, dict):
-                        ad = {}
-                    else:
-                        ad = dict(ad)
-                    if not ad.get("warehouse"):
-                        ad["warehouse"] = wh_name
-                    refreshed["analytics_data"] = ad
+            package = packages[idx] if idx < len(packages) else None
+            refreshed = _compose_posting_from_package(
+                posting_number=str(pn),
+                package=package,
+                base=base if isinstance(base, dict) else {},
+                meta_by_sku=_product_meta_by_sku(
+                    base if isinstance(base, dict) else {}
+                ),
+            )
         remote_status = str(refreshed.get("status") or "").strip().lower()
         remote_tab = oz.compute_tab(remote_status)
         if remote_tab not in (
