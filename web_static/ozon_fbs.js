@@ -33,6 +33,7 @@
     detailPosting: null,
     detailPayload: null,
     shipAllBusy: false,
+    syncBusy: false,
     viewMode: "orders", // orders | supplies
   };
 
@@ -289,19 +290,26 @@
     const shipBtn = document.getElementById("ozonFbsShipAllBtn");
     const n = Number(state.counts.awaiting_packaging || 0);
     const multi = multiAwaitingCount();
+    const syncBusy = Boolean(state.syncBusy);
     const busy =
+      syncBusy ||
       Boolean(state.shipAllBusy) ||
       Boolean(collectState.busy) ||
       Boolean(splitState.busy);
     const onPackaging = state.tab === "awaiting_packaging" && !isSuppliesTab();
+    const syncTitle = "Идёт синхронизация, подождите";
 
     if (splitBtn) {
       const showSplit = onPackaging && multi > 0;
       splitBtn.hidden = !showSplit;
       splitBtn.disabled = !state.sourceId || !showSplit || busy;
-      splitBtn.title = showSplit
-        ? `Разделить мультизаказы (${multi}) на одинарные без сборки`
-        : "Нет мультизаказов в «Ожидают сборки»";
+      if (syncBusy && showSplit) {
+        splitBtn.title = syncTitle;
+      } else if (showSplit) {
+        splitBtn.title = `Разделить мультизаказы (${multi}) на одинарные без сборки`;
+      } else {
+        splitBtn.title = "Нет мультизаказов в «Ожидают сборки»";
+      }
       splitBtn.textContent = splitState.busy
         ? (splitState.progressText || "Разделение…")
         : "Разделить мультизаказы";
@@ -309,7 +317,9 @@
     if (shipBtn) {
       const blockedByMulti = multi > 0;
       shipBtn.disabled = !state.sourceId || n <= 0 || busy || blockedByMulti;
-      if (blockedByMulti) {
+      if (syncBusy) {
+        shipBtn.title = syncTitle;
+      } else if (blockedByMulti) {
         shipBtn.title = "Сначала нужно разделить мультизаказы";
       } else if (n > 0) {
         shipBtn.title =
@@ -1165,7 +1175,15 @@
   }
 
   async function splitMulti() {
-    if (!state.sourceId || splitState.busy || collectState.busy || state.shipAllBusy) return;
+    if (
+      !state.sourceId ||
+      state.syncBusy ||
+      splitState.busy ||
+      collectState.busy ||
+      state.shipAllBusy
+    ) {
+      return;
+    }
     if (multiAwaitingCount() <= 0) {
       alert("Нет мультизаказов в «Ожидают сборки»");
       return;
@@ -1455,7 +1473,15 @@
   }
 
   async function shipAll() {
-    if (!state.sourceId || state.shipAllBusy || collectState.busy || splitState.busy) return;
+    if (
+      !state.sourceId ||
+      state.syncBusy ||
+      state.shipAllBusy ||
+      collectState.busy ||
+      splitState.busy
+    ) {
+      return;
+    }
     if (multiAwaitingCount() > 0) {
       alert("Сначала нужно разделить мультизаказы");
       return;
@@ -2553,6 +2579,18 @@
     await loadSources();
     await loadPostings(true);
     syncShipAllButton();
+    // Resume sync UI if a sync is already running (reload / re-enter section).
+    try {
+      const res = await fetch("/api/ozon-fbs/sync/status");
+      const st = await res.json();
+      if (st?.in_progress) {
+        setSyncUi(true);
+        showSyncInfo(String(st.message || "Синхронизация…"));
+        pollSyncStatus();
+      }
+    } catch (_e) {
+      /* ignore */
+    }
   }
 
   function _ozonFbsSyncOwnerOnlyGear() {
@@ -2826,6 +2864,8 @@
     const syncBtn = document.getElementById("ozonFbsSyncBtn");
     if (stopBtn) stopBtn.classList.toggle("hidden", !running);
     if (syncBtn) syncBtn.disabled = running;
+    state.syncBusy = Boolean(running);
+    syncPackagingActionButtons();
   }
 
   async function pollSyncStatus() {
