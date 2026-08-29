@@ -1587,7 +1587,42 @@
 
   /* ── Supply detail modal ── */
 
+  function _ozonFbsClearRuLayoutGuard() {
+    // Document-level key swallow — must clear even if marking UI was bypassed.
+    try {
+      if (typeof _wbFbsKizRuLayoutSwallowKeys === "function") {
+        document.removeEventListener("keydown", _wbFbsKizRuLayoutSwallowKeys, true);
+      }
+    } catch (_e) {
+      /* ignore */
+    }
+    if (typeof setModalVisibility === "function") {
+      setModalVisibility("wbFbsKizRuLayoutModal", false);
+    } else {
+      document.getElementById("wbFbsKizRuLayoutModal")?.classList.add("hidden");
+    }
+    if (typeof wbFbsKizState === "object" && wbFbsKizState) {
+      wbFbsKizState.ruLayoutFocusId = null;
+      wbFbsKizState.ruLayoutPreserveValue = false;
+      wbFbsKizState.ruLayoutOpenedAt = 0;
+    }
+  }
+
+  function _ozonFbsPickModalIsOpen() {
+    const modal = document.getElementById("ozonFbsPickVerifyModal");
+    return !!(modal && !modal.classList.contains("hidden"));
+  }
+
   function closeSupplyDetailModal() {
+    // Nested marking first (async autosave) — same pattern as WB supply close.
+    // Closing supply alone used to leave RU-layout swallow active → wedge "dead".
+    if (typeof _ozonFbsKizModalIsOpen === "function" && _ozonFbsKizModalIsOpen()) {
+      return Promise.resolve(closeOzonFbsKizModal()).then(() => closeSupplyDetailModal());
+    }
+    if (_ozonFbsPickModalIsOpen()) {
+      closeOzonFbsPickVerifyModal();
+    }
+    _ozonFbsClearRuLayoutGuard();
     closeOzonFbsRowMenus();
     document.getElementById("ozonFbsSupplyDetailModal")?.classList.add("hidden");
     syncSupplyDetailReadOnlyMode(false);
@@ -5982,7 +6017,10 @@
     }
   }
 
-  function _ozonFbsKizApplyLoadedPayload(data, { unlockScan = false, focusScan = false, resolveMsg = "" } = {}) {
+  function _ozonFbsKizApplyLoadedPayload(
+    data,
+    { unlockScan = false, focusScan = false, preserveFocus = false, resolveMsg = "" } = {}
+  ) {
     const tbody = document.getElementById("ozonFbsKizTbody");
     const saveBtn = document.getElementById("ozonFbsKizSaveBtn");
     const scan = document.getElementById("ozonFbsKizStickerScan");
@@ -5992,6 +6030,14 @@
     const prevByPn = ozonFbsKizState.rowsByPosting instanceof Map
       ? ozonFbsKizState.rowsByPosting
       : new Map();
+    const active = preserveFocus ? document.activeElement : null;
+    const activeId = active && active.id ? String(active.id) : "";
+    const activePosting = active?.dataset?.posting
+      ? String(active.dataset.posting)
+      : "";
+    const activeIdx = active?.dataset?.idx != null ? String(active.dataset.idx) : "";
+    const activeWasScan = !!(scan && active === scan);
+    const activeScanValue = activeWasScan ? String(scan.value || "") : "";
 
     const incoming = (Array.isArray(data?.rows) ? data.rows : []).map((r) => {
       const pn = String(r?.posting_number || "").trim();
@@ -6028,11 +6074,37 @@
     if (unlockScan) {
       _ozonFbsKizSetFiltersReady(true);
       _ozonFbsKizSyncImportBtn();
-      if (focusScan && scan && document.activeElement !== scan) {
-        setTimeout(() => {
-          if (_ozonFbsKizModalIsOpen()) scan.focus();
-        }, 40);
-      }
+    }
+    if (preserveFocus && _ozonFbsKizModalIsOpen()) {
+      setTimeout(() => {
+        if (!_ozonFbsKizModalIsOpen()) return;
+        if (activeWasScan) {
+          const s = document.getElementById("ozonFbsKizStickerScan");
+          if (s) {
+            if (activeScanValue && !s.value) s.value = activeScanValue;
+            s.focus();
+          }
+          return;
+        }
+        if (activeId) {
+          const byId = document.getElementById(activeId);
+          if (byId) {
+            byId.focus();
+            return;
+          }
+        }
+        if (activePosting) {
+          const sel = activeIdx !== ""
+            ? `.wb-fbs-kiz-code-input[data-posting="${activePosting}"][data-idx="${activeIdx}"]`
+            : `.wb-fbs-kiz-code-input[data-posting="${activePosting}"]`;
+          const el = document.querySelector(sel);
+          if (el) el.focus();
+        }
+      }, 0);
+    } else if (focusScan && scan && document.activeElement !== scan) {
+      setTimeout(() => {
+        if (_ozonFbsKizModalIsOpen()) scan.focus();
+      }, 40);
     }
     if (resolveMsg) {
       _ozonFbsKizSetInfo(resolveMsg, true);
@@ -6108,8 +6180,35 @@
               loadOk = true;
               return;
             }
-            // Background resolve: update KIZ flags only — do not rebuild the table
-            // (would steal focus / wipe in-progress scan).
+            // Later chunks can add newly-resolved kiz_required rows. Merge them,
+            // but preserve focus / in-progress scan (dirty + pending kept in apply).
+            const prevKeys = new Set(
+              (ozonFbsKizState.rows || [])
+                .map((r) => String(r?.posting_number || "").trim())
+                .filter(Boolean)
+            );
+            const nextKeys = new Set(
+              (Array.isArray(data?.rows) ? data.rows : [])
+                .map((r) => String(r?.posting_number || "").trim())
+                .filter(Boolean)
+            );
+            let rowsChanged = prevKeys.size !== nextKeys.size;
+            if (!rowsChanged) {
+              for (const k of nextKeys) {
+                if (!prevKeys.has(k)) {
+                  rowsChanged = true;
+                  break;
+                }
+              }
+            }
+            if (rowsChanged || meta?.done) {
+              _ozonFbsKizApplyLoadedPayload(data, {
+                unlockScan: true,
+                preserveFocus: true,
+                resolveMsg,
+              });
+              return;
+            }
             _ozonFbsKizMergeOrderFlagsIntoDetail(data?.order_kiz_flags || []);
             if (supplyDetailState.supply) {
               renderSupplyDetail();
@@ -6155,24 +6254,13 @@
       /* keep closing */
     }
     // Same cleanup as WB marking: drop RU-layout swallow so wedge scan works again.
-    try {
-      document.removeEventListener("keydown", _wbFbsKizRuLayoutSwallowKeys, true);
-    } catch (_e) {
-      /* ignore */
-    }
+    _ozonFbsClearRuLayoutGuard();
     if (typeof setModalVisibility === "function") {
-      setModalVisibility("wbFbsKizRuLayoutModal", false);
       setModalVisibility("ozonFbsKizScanPrompt", false);
       setModalVisibility("ozonFbsKizModal", false);
     } else {
-      document.getElementById("wbFbsKizRuLayoutModal")?.classList.add("hidden");
       document.getElementById("ozonFbsKizScanPrompt")?.classList.add("hidden");
       document.getElementById("ozonFbsKizModal")?.classList.add("hidden");
-    }
-    if (typeof wbFbsKizState === "object" && wbFbsKizState) {
-      wbFbsKizState.ruLayoutFocusId = null;
-      wbFbsKizState.ruLayoutPreserveValue = false;
-      wbFbsKizState.ruLayoutOpenedAt = 0;
     }
     cancelOzonFbsKizMarkScan();
     closeOzonFbsKizImportModal();
@@ -6731,6 +6819,7 @@
   }
 
   function closeOzonFbsPickVerifyModal() {
+    _ozonFbsClearRuLayoutGuard();
     if (typeof setModalVisibility === "function") setModalVisibility("ozonFbsPickVerifyModal", false);
     else document.getElementById("ozonFbsPickVerifyModal")?.classList.add("hidden");
     cancelOzonFbsPickSkuScan();
