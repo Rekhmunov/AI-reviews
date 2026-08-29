@@ -8151,6 +8151,60 @@ button.ozon-fbs-ship-all-btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
+.ozon-fbs-packaging-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+button.ozon-fbs-split-multi-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 8px 16px;
+  margin: 0;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+}
+button.ozon-fbs-split-multi-btn:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+button.ozon-fbs-split-multi-btn:active {
+  background: #f1f5f9;
+}
+button.ozon-fbs-split-multi-btn:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+button.ozon-fbs-split-multi-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+button.ozon-fbs-split-multi-btn.hidden,
+button.ozon-fbs-split-multi-btn[hidden] {
+  display: none !important;
+}
+.wb-fbs-sync-info-multi {
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #92400e;
+}
+.wb-fbs-sync-info-multi-row {
+  margin-top: 4px;
+}
 
 /* Ozon FBS — «Отгрузки» modal (aligned with wb-fbs supply detail) */
 .ozon-fbs-shipments-sub {
@@ -8857,6 +8911,25 @@ button.wb-fbs-select-all-link:disabled {
 }
 .wb-fbs-badge.time { background: #dcfce7; color: #166534; }
 .wb-fbs-badge.cargo { background: #e0f2fe; color: #075985; }
+.wb-fbs-badge.qty { background: #fef3c7; color: #92400e; }
+.wb-fbs-product-qty {
+  margin-top: 6px;
+}
+.wb-fbs-product-extra {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wb-fbs-product-extra-line {
+  font-size: 13px;
+  line-height: 1.35;
+  color: #475569;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .wb-fbs-product {
   display: flex;
   gap: 12px;

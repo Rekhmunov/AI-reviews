@@ -12906,6 +12906,69 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         stopped = oz_sup.request_ship_all_collect_stop()
         return {"ok": True, "stopping": bool(stopped)}
 
+    @app.get("/api/ozon-fbs/split-multi/preview")
+    def ozon_fbs_split_multi_preview(request: Request, source_id: int) -> dict[str, object]:
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _ozon_fbs_source_credentials(owner_id, int(source_id))
+        return oz_sup.preview_split_multi(
+            repository, user_id=owner_id, source_id=int(source_id)
+        )
+
+    @app.post("/api/ozon-fbs/split-multi/execute")
+    async def ozon_fbs_split_multi_execute(request: Request) -> dict[str, object]:
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        source_id = int(body.get("source_id") or 0)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, source_id)
+        ok, message = oz_sup.start_split_multi_thread(
+            repo=repository,
+            user_id=owner_id,
+            source_id=source_id,
+            client_id=client_id,
+            api_key=api_key,
+        )
+        if not ok:
+            raise HTTPException(status_code=409, detail=message)
+        return {"ok": True, "started": True, "message": message}
+
+    @app.get("/api/ozon-fbs/split-multi/status")
+    def ozon_fbs_split_multi_status(request: Request) -> dict[str, object]:
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        return oz_sup.get_split_multi_state()
+
+    @app.post("/api/ozon-fbs/split-multi/stop")
+    def ozon_fbs_split_multi_stop(request: Request) -> dict[str, object]:
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        oz_sup.request_stop_split_multi()
+        return {"ok": True, "stopping": True}
+
     @app.get("/api/ozon-fbs/supplies")
     def ozon_fbs_list_supplies(
         request: Request, source_id: int, tab: str = "awaiting_deliver"

@@ -6,6 +6,7 @@ import unittest
 from review_processor.ozon_fbs import (
     _barcodes_from_posting,
     compute_tab,
+    enrich_posting_product_display,
     is_fbs_source_name,
     is_ozon_fbo_source,
     is_ozon_fbs_marketplace,
@@ -122,6 +123,44 @@ class OzonFbsMappingTests(unittest.TestCase):
             name_by_ozon_sku={},
         )
         self.assertEqual(name, "OFFER-9")
+
+    def test_enrich_multi_sku_and_qty(self) -> None:
+        row = {
+            "offer_id": "A1",
+            "sku": 10,
+            "products_json": (
+                '[{"offer_id":"A1","sku":10,"quantity":2},'
+                '{"offer_id":"B2","sku":20,"quantity":1}]'
+            ),
+        }
+        enrich_posting_product_display(
+            row,
+            name_by_article={"A1": "Первый", "B2": "Второй"},
+            name_by_ozon_sku={},
+        )
+        self.assertEqual(row["product_name_display"], "Первый")
+        self.assertEqual(row["unit_count"], 3)
+        self.assertEqual(row["line_count"], 2)
+        self.assertTrue(row["is_multi_unit"])
+        self.assertTrue(row["is_multi_sku"])
+        self.assertEqual(row["products_brief"][1]["name"], "Второй")
+        self.assertEqual(row["products_brief"][0]["quantity"], 2)
+
+    def test_enrich_same_sku_qty_only(self) -> None:
+        row = {
+            "offer_id": "A1",
+            "sku": 10,
+            "products_json": '[{"offer_id":"A1","sku":10,"quantity":3}]',
+        }
+        enrich_posting_product_display(
+            row,
+            name_by_article={"A1": "Товар"},
+            name_by_ozon_sku={},
+        )
+        self.assertEqual(row["unit_count"], 3)
+        self.assertEqual(row["line_count"], 1)
+        self.assertTrue(row["is_multi_unit"])
+        self.assertFalse(row["is_multi_sku"])
 
     def test_barcodes_from_posting_skips_offer_and_sku(self) -> None:
         codes = _barcodes_from_posting(

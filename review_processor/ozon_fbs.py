@@ -67,6 +67,7 @@ _ozon_fbs_sync_state: dict[str, object] = {
     "sources": [],
     "pallet_summary": [],
     "pallet_summary_error": "",
+    "multi_summary": [],
     "cancel_requested": False,
 }
 
@@ -405,6 +406,18 @@ class OzonFbsClient:
         return self.post_json(
             "/v4/posting/fbs/ship",
             {"posting_number": str(posting_number), "packages": packages},
+        )
+
+    def split_posting(
+        self, posting_number: str, postings: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Split into separate postings without assembling (``/v1/posting/fbs/split``)."""
+        return self.post_json(
+            "/v1/posting/fbs/split",
+            {
+                "posting_number": str(posting_number),
+                "postings": postings,
+            },
         )
 
     def package_label_pdf(self, posting_numbers: list[str]) -> bytes:
@@ -1502,8 +1515,6 @@ def upsert_posting(
     first = products[0] if products else {}
     offer_id = str(first.get("offer_id") or "").strip()
     product_name = str(first.get("name") or "").strip()
-    if len(products) > 1:
-        product_name = f"{product_name or offer_id or 'Товар'} (+{len(products) - 1})"
     sku_raw = first.get("sku")
     sku: int | None = None
     try:
@@ -1519,6 +1530,14 @@ def upsert_posting(
             qty += 1
     if qty <= 0:
         qty = 1
+    # Keep a searchable hint in stored product_name (list UI uses products_json).
+    base_label = product_name or offer_id or "Товар"
+    if len(products) > 1:
+        product_name = f"{base_label} (+{len(products) - 1})"
+    elif qty > 1:
+        product_name = f"{base_label} ×{qty}"
+    else:
+        product_name = base_label if product_name or offer_id else ""
     price = 0
     fin = posting.get("financial_data")
     if isinstance(fin, dict):
@@ -1672,9 +1691,10 @@ def _postings_filter_sql(
         like = f"%{q}%"
         clauses.append(
             "(posting_number ILIKE ? OR order_number ILIKE ? OR offer_id ILIKE ? "
-            "OR product_name ILIKE ? OR warehouse_name ILIKE ? OR barcodes_json ILIKE ?)"
+            "OR product_name ILIKE ? OR warehouse_name ILIKE ? OR barcodes_json ILIKE ? "
+            "OR products_json ILIKE ?)"
         )
-        params.extend([like, like, like, like, like, like])
+        params.extend([like, like, like, like, like, like, like])
     return " AND ".join(clauses), params
 
 
@@ -1701,6 +1721,91 @@ def resolve_product_display_name(
         or "—"
     )
     return str(name or "—").strip() or "—"
+
+
+def products_from_posting_row(row: dict[str, Any]) -> list[dict[str, Any]]:
+    """Product lines from an API posting dict or a DB row (``products_json``)."""
+    products = _products_from_posting(row)
+    if products:
+        return products
+    try:
+        parsed = json.loads(str(row.get("products_json") or "[]"))
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [p for p in parsed if isinstance(p, dict)]
+
+
+def enrich_posting_product_display(
+    row: dict[str, Any],
+    *,
+    name_by_article: dict[str, str],
+    name_by_ozon_sku: dict[str, str],
+) -> dict[str, Any]:
+    """Attach multi-unit / multi-SKU fields for list and supply-detail UI.
+
+    Catalog name for the first line stays in ``product_name`` /
+    ``product_name_display``. Composition is exposed via ``unit_count``,
+    ``line_count``, ``products_brief`` — the UI must not rely on a ``(+N)``
+    suffix in the title (that was overwritten by catalog resolve).
+    """
+    products = products_from_posting_row(row)
+    brief: list[dict[str, Any]] = []
+    unit_count = 0
+    for p in products:
+        offer = str(p.get("offer_id") or "").strip()
+        sku_raw = p.get("sku") if p.get("sku") is not None else p.get("product_id")
+        sku = str(sku_raw or "").strip()
+        try:
+            qty = max(int(p.get("quantity") or 1), 1)
+        except (TypeError, ValueError):
+            qty = 1
+        unit_count += qty
+        name = resolve_product_display_name(
+            offer_id=offer,
+            sku=sku,
+            name_by_article=name_by_article,
+            name_by_ozon_sku=name_by_ozon_sku,
+        )
+        brief.append(
+            {
+                "offer_id": offer,
+                "sku": sku,
+                "name": name,
+                "quantity": qty,
+            }
+        )
+    if not brief:
+        offer = str(row.get("offer_id") or "").strip()
+        sku = str(row.get("sku") or "").strip()
+        try:
+            unit_count = max(int(row.get("quantity") or 1), 1)
+        except (TypeError, ValueError):
+            unit_count = 1
+        name = resolve_product_display_name(
+            offer_id=offer,
+            sku=sku,
+            name_by_article=name_by_article,
+            name_by_ozon_sku=name_by_ozon_sku,
+        )
+        brief = [
+            {
+                "offer_id": offer,
+                "sku": sku,
+                "name": name,
+                "quantity": unit_count,
+            }
+        ]
+    first = brief[0]
+    row["product_name"] = first["name"]
+    row["product_name_display"] = first["name"]
+    row["unit_count"] = int(unit_count)
+    row["line_count"] = len(brief)
+    row["is_multi_unit"] = unit_count > 1
+    row["is_multi_sku"] = len(brief) > 1
+    row["products_brief"] = brief
+    return row
 
 
 def list_postings(
@@ -1745,15 +1850,18 @@ def list_postings(
         d = repo._row_to_dict(row)
         article = str(d.get("offer_id") or "").strip()
         sku = str(d.get("sku") or "").strip()
-        display_name = resolve_product_display_name(
-            offer_id=article,
-            sku=sku,
+        enrich_posting_product_display(
+            d,
             name_by_article=name_map,
             name_by_ozon_sku=ozon_sku_map,
         )
-        d["product_name"] = display_name
-        d["product_name_display"] = display_name
         d["product_photo"] = photo_map.get(article) or photo_map.get(sku) or ""
+        # Prefer photo of first brief line when stored columns miss article.
+        if not d["product_photo"] and d.get("products_brief"):
+            first = d["products_brief"][0]
+            fa = str(first.get("offer_id") or "").strip()
+            fs = str(first.get("sku") or "").strip()
+            d["product_photo"] = photo_map.get(fa) or photo_map.get(fs) or ""
         d["tab_label"] = TAB_LABELS.get(str(d.get("tab") or ""), str(d.get("tab") or ""))
         d["status_label"] = str(d.get("status") or "")
         try:
@@ -1775,12 +1883,24 @@ def list_postings(
         d["price_display"] = f"{price:,}".replace(",", " ") + " ₽" if price else "—"
         d["warehouse_label"] = str(d.get("warehouse_name") or "").strip() or "—"
         items.append(d)
+    counts = _tab_counts(repo, user_id=user_id, source_id=source_id)
+    try:
+        from . import ozon_fbs_detail as oz_detail
+
+        multi_stats = oz_detail.count_awaiting_packaging_multi(
+            repo, user_id=user_id, source_id=int(source_id) if source_id is not None else None
+        )
+        counts["awaiting_packaging_multi"] = int(multi_stats.get("multi_posting_count") or 0)
+        counts["awaiting_packaging_multi_extra"] = int(multi_stats.get("extra_postings") or 0)
+    except Exception:
+        counts["awaiting_packaging_multi"] = 0
+        counts["awaiting_packaging_multi_extra"] = 0
     return {
         "items": items,
         "total": int(total_row["n"]) if total_row else 0,
         "page": safe_page,
         "page_size": safe_size,
-        "counts": _tab_counts(repo, user_id=user_id, source_id=source_id),
+        "counts": counts,
     }
 
 
@@ -2076,6 +2196,10 @@ def _copy_sync_state() -> dict[str, object]:
     st["pallet_summary_error"] = str(
         _ozon_fbs_sync_state.get("pallet_summary_error") or ""
     ).strip()
+    st["multi_summary"] = [
+        dict(x) if isinstance(x, dict) else x
+        for x in (_ozon_fbs_sync_state.get("multi_summary") or [])
+    ]
     return st
 
 
@@ -2131,6 +2255,7 @@ def start_sync_thread(
                 "sources": source_rows,
                 "pallet_summary": [],
                 "pallet_summary_error": "",
+                "multi_summary": [],
                 "cancel_requested": False,
             }
         )
@@ -2203,6 +2328,7 @@ def start_sync_thread(
                     _ozon_fbs_sync_state["synced"] = idx + 1
         finally:
             pallet_summary: list[dict[str, Any]] = []
+            multi_summary: list[dict[str, Any]] = []
             if synced_sources > 0:
                 try:
                     pallet_summary = compute_ozon_fbs_pallet_summary(
@@ -2217,12 +2343,36 @@ def start_sync_thread(
                     detail = str(exc).strip()
                     if detail and detail not in pallet_summary_error:
                         pallet_summary_error = f"{_PALLET_SUMMARY_ERROR} ({detail})"
+                try:
+                    from . import ozon_fbs_detail as oz_detail
+
+                    for job in jobs:
+                        sid = int(job.get("source_id") or 0)
+                        if not sid:
+                            continue
+                        stats = oz_detail.count_awaiting_packaging_multi(
+                            repo, user_id=user_id, source_id=sid
+                        )
+                        multi_summary.append(
+                            {
+                                "source_id": sid,
+                                "name": str(job.get("name") or f"Источник {sid}"),
+                                "multi_count": int(stats.get("multi_posting_count") or 0),
+                                "extra_postings": int(stats.get("extra_postings") or 0),
+                            }
+                        )
+                except Exception:
+                    _log.exception(
+                        "ozon_fbs multi summary failed user=%s", user_id
+                    )
+                    multi_summary = []
 
             with _ozon_fbs_sync_lock:
                 _ozon_fbs_sync_state["in_progress"] = False
                 _ozon_fbs_sync_state["errors"] = errors
                 _ozon_fbs_sync_state["pallet_summary"] = pallet_summary
                 _ozon_fbs_sync_state["pallet_summary_error"] = pallet_summary_error
+                _ozon_fbs_sync_state["multi_summary"] = multi_summary
                 stats_part = (
                     f"Источников: {synced_sources}/{len(jobs)} | "
                     f"Отправлений: {total_postings}"

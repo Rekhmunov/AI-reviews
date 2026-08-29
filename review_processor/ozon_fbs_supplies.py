@@ -15,7 +15,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 from . import ozon_fbs as oz
@@ -52,6 +52,21 @@ _collect_state: dict[str, Any] = {
     "group_lines": [],
     "shipped_numbers": [],
     "goto_awaiting_deliver": False,
+    "ok": True,
+}
+
+_split_lock = threading.Lock()
+_split_state: dict[str, Any] = {
+    "in_progress": False,
+    "cancel_requested": False,
+    "source_id": 0,
+    "total": 0,
+    "done": 0,
+    "split": 0,
+    "failed": 0,
+    "message": "",
+    "errors": [],
+    "details": [],
     "ok": True,
 }
 
@@ -282,6 +297,27 @@ def preview_ship_all_collect(
     """Plan local supplies for «Собрать все заказы» (group by warehouse)."""
     ensure_ozon_fbs_supply_schema(repo)
     rows = _load_awaiting_packaging_rows(repo, user_id=user_id, source_id=source_id)
+    split_all = oz_detail.ship_split_preview(rows)
+    if int(split_all.get("multi_posting_count") or 0) > 0:
+        return {
+            "ok": False,
+            "mgt_count": len(rows),
+            "posting_count": len(rows),
+            "multi_posting_count": split_all["multi_posting_count"],
+            "result_posting_count": split_all["result_posting_count"],
+            "extra_postings": split_all["extra_postings"],
+            "groups": [],
+            "needs_modal": False,
+            "existing_names": [],
+            "source_name": _source_display_name(
+                repo, user_id=user_id, source_id=source_id
+            ),
+            "message": (
+                f"Сначала разделите мультизаказы "
+                f"({split_all['multi_posting_count']} шт.)"
+            ),
+            "block_collect": True,
+        }
     buckets: dict[Any, list[dict[str, Any]]] = {}
     for row in rows:
         wh = row.get("warehouse_id")
@@ -643,6 +679,28 @@ def execute_ship_all_collect(
     """
     ensure_ozon_fbs_supply_schema(repo)
     preview = preview_ship_all_collect(repo, user_id=user_id, source_id=source_id)
+    if preview.get("block_collect"):
+        message = str(
+            preview.get("message")
+            or "Сначала разделите мультизаказы"
+        )
+        out = {
+            "ok": False,
+            "total": 0,
+            "shipped": 0,
+            "failed": 0,
+            "done": 0,
+            "created_supplies": [],
+            "errors": [{"posting_number": "—", "error": message}],
+            "message": message,
+            "goto_awaiting_deliver": False,
+            "shipped_numbers": [],
+            "group_lines": [],
+            "block_collect": True,
+        }
+        if progress:
+            progress(0, 0, message)
+        return out
     groups_by_key = {str(g.get("group_key")): g for g in preview.get("groups") or []}
     if not groups_by_key:
         out = {
@@ -866,6 +924,249 @@ def execute_ship_all_collect(
     }
 
 
+def preview_split_multi(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> dict[str, Any]:
+    """Preview multi-unit postings waiting to be split (no assemble)."""
+    ensure_ozon_fbs_supply_schema(repo)
+    numbers = oz_detail.list_awaiting_packaging_multi_numbers(
+        repo, user_id=user_id, source_id=source_id
+    )
+    rows = _load_postings_by_numbers(
+        repo, user_id=user_id, source_id=source_id, posting_numbers=numbers
+    )
+    stats = oz_detail.ship_split_preview(rows)
+    return {
+        "ok": True,
+        "multi_posting_count": stats["multi_posting_count"],
+        "result_posting_count": stats["result_posting_count"],
+        "extra_postings": stats["extra_postings"],
+        "posting_numbers": numbers,
+        "posting_count": len(numbers),
+    }
+
+
+def execute_split_multi(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    client_id: str,
+    api_key: str,
+    progress: Callable[[int, int, str], None] | None = None,
+    stop_requested: Callable[[], bool] | None = None,
+    pause_sec: float = 0.15,
+) -> dict[str, Any]:
+    """Split all awaiting_packaging multi-unit postings via ``/v1/posting/fbs/split``."""
+    ensure_ozon_fbs_supply_schema(repo)
+    numbers = oz_detail.list_awaiting_packaging_multi_numbers(
+        repo, user_id=user_id, source_id=source_id
+    )
+    total = len(numbers)
+    if progress:
+        progress(0, total, f"Разделение… 0 из {total}" if total else "Нет мультизаказов")
+    if not numbers:
+        return {
+            "ok": True,
+            "total": 0,
+            "done": 0,
+            "split": 0,
+            "failed": 0,
+            "errors": [],
+            "details": [],
+            "message": "Нет мультизаказов в «Ожидают сборки»",
+            "multi_before": 0,
+            "single_after": 0,
+        }
+
+    client = oz.OzonFbsClient(client_id, api_key)
+    errors: list[dict[str, str]] = []
+    details: list[dict[str, Any]] = []
+    split_n = 0
+    single_after = 0
+    done = 0
+
+    def _stopped() -> bool:
+        return bool(stop_requested and stop_requested())
+
+    for pn in numbers:
+        if _stopped():
+            break
+        try:
+            out = oz_detail.split_posting(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                posting_number=pn,
+                client_id=client_id,
+                api_key=api_key,
+                client=client,
+            )
+            result_pns = [
+                str(x).strip()
+                for x in (out.get("posting_numbers") or [pn])
+                if str(x).strip()
+            ]
+            if not out.get("skipped"):
+                split_n += 1
+            single_after += len(result_pns)
+            details.append(
+                {
+                    "posting_number": pn,
+                    "posting_numbers": result_pns,
+                    "from_units": int(out.get("from_units") or len(result_pns)),
+                    "to_count": len(result_pns),
+                }
+            )
+        except Exception as exc:
+            errors.append({"posting_number": pn, "error": str(exc)})
+            _log.warning("ozon split-multi %s failed: %s", pn, exc)
+        done += 1
+        if progress:
+            progress(
+                done,
+                total,
+                f"Разделение… {done} из {total}"
+                + (f" · ошибок {len(errors)}" if errors else ""),
+            )
+        if pause_sec and pause_sec > 0:
+            time.sleep(float(pause_sec))
+
+    stopped = _stopped()
+    failed_n = len(errors)
+    ok = split_n > 0 and failed_n == 0 and not stopped
+    if stopped and split_n:
+        message = f"Остановлено. Разделено {split_n} из {total}"
+    elif stopped:
+        message = "Остановлено"
+    elif split_n and not failed_n:
+        message = (
+            f"Разделено {split_n} мультизаказов → {single_after} одинарных "
+            f"(«Ожидают сборки»)"
+        )
+    elif split_n:
+        message = f"Разделено {split_n}, ошибок {failed_n}"
+    else:
+        message = f"Не удалось разделить мультизаказы ({failed_n})"
+    if progress:
+        progress(done, total, message)
+    return {
+        "ok": ok,
+        "total": total,
+        "done": done,
+        "split": split_n,
+        "failed": failed_n,
+        "errors": errors,
+        "details": details,
+        "message": message,
+        "multi_before": total,
+        "single_after": single_after,
+        "stopped": stopped,
+    }
+
+
+def get_split_multi_state() -> dict[str, Any]:
+    with _split_lock:
+        st = dict(_split_state)
+        st["errors"] = [
+            dict(x) if isinstance(x, dict) else x for x in (_split_state.get("errors") or [])
+        ]
+        st["details"] = [
+            dict(x) if isinstance(x, dict) else x for x in (_split_state.get("details") or [])
+        ]
+        return st
+
+
+def request_stop_split_multi() -> None:
+    with _split_lock:
+        if _split_state.get("in_progress"):
+            _split_state["cancel_requested"] = True
+
+
+def start_split_multi_thread(
+    *,
+    repo: ReviewRepository,
+    user_id: int,
+    source_id: int,
+    client_id: str,
+    api_key: str,
+) -> tuple[bool, str]:
+    with _split_lock:
+        if _split_state.get("in_progress"):
+            return False, "Разделение уже выполняется"
+        if _collect_state.get("in_progress"):
+            return False, "Сначала дождитесь окончания сборки"
+        _split_state.update(
+            {
+                "in_progress": True,
+                "cancel_requested": False,
+                "source_id": int(source_id),
+                "total": 0,
+                "done": 0,
+                "split": 0,
+                "failed": 0,
+                "message": "Запуск разделения…",
+                "errors": [],
+                "details": [],
+                "ok": True,
+                "multi_before": 0,
+                "single_after": 0,
+            }
+        )
+
+    def _run() -> None:
+        def _progress(done: int, total: int, message: str) -> None:
+            with _split_lock:
+                _split_state["done"] = int(done)
+                _split_state["total"] = int(total)
+                _split_state["message"] = str(message or "")
+
+        def _stop() -> bool:
+            with _split_lock:
+                return bool(_split_state.get("cancel_requested"))
+
+        try:
+            result = execute_split_multi(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                client_id=client_id,
+                api_key=api_key,
+                progress=_progress,
+                stop_requested=_stop,
+            )
+            with _split_lock:
+                _split_state.update(
+                    {
+                        "in_progress": False,
+                        "total": int(result.get("total") or 0),
+                        "done": int(result.get("done") or result.get("total") or 0),
+                        "split": int(result.get("split") or 0),
+                        "failed": int(result.get("failed") or 0),
+                        "message": str(result.get("message") or ""),
+                        "errors": list(result.get("errors") or []),
+                        "details": list(result.get("details") or []),
+                        "ok": bool(result.get("ok")),
+                        "multi_before": int(result.get("multi_before") or 0),
+                        "single_after": int(result.get("single_after") or 0),
+                    }
+                )
+        except Exception as exc:
+            _log.exception("ozon split-multi thread failed")
+            with _split_lock:
+                _split_state.update(
+                    {
+                        "in_progress": False,
+                        "ok": False,
+                        "message": str(exc),
+                        "errors": [{"posting_number": "?", "error": str(exc)}],
+                    }
+                )
+
+    threading.Thread(target=_run, name="ozon-fbs-split-multi", daemon=True).start()
+    return True, "Разделение запущено"
+
+
 def start_ship_all_collect_thread(
     *,
     repo: ReviewRepository,
@@ -879,6 +1180,8 @@ def start_ship_all_collect_thread(
     with _collect_lock:
         if _collect_state.get("in_progress"):
             return False, "Сборка уже выполняется"
+        if _split_state.get("in_progress"):
+            return False, "Сначала дождитесь разделения мультизаказов"
         _collect_state.update(
             {
                 "in_progress": True,
@@ -1167,6 +1470,11 @@ def preview_selection_supply(
         default_supply_name(source_name=source_name), set(existing_names)
     )
     split = oz_detail.ship_split_preview(usable)
+    multi_n = int(split.get("multi_posting_count") or 0)
+    if multi_n > 0:
+        uniq.append(
+            f"Сначала разделите мультизаказы в выборе ({multi_n} шт.)"
+        )
     return {
         "ok": not uniq,
         "errors": uniq,
@@ -1177,6 +1485,7 @@ def preview_selection_supply(
         "multi_posting_count": split["multi_posting_count"],
         "result_posting_count": split["result_posting_count"],
         "extra_postings": split["extra_postings"],
+        "block_collect": multi_n > 0,
         "traits": traits,
         "suggested_name": suggested,
         "name_conflict": False,
@@ -2574,9 +2883,8 @@ def get_supply_detail(
             d = repo._row_to_dict(row)
             article = str(d.get("offer_id") or "").strip()
             sku = str(d.get("sku") or "").strip()
-            d["product_name"] = oz.resolve_product_display_name(
-                offer_id=article,
-                sku=sku,
+            oz.enrich_posting_product_display(
+                d,
                 name_by_article=name_map,
                 name_by_ozon_sku=ozon_sku_map,
             )
@@ -2587,6 +2895,11 @@ def get_supply_detail(
                 fallback=_parse_json_list(d.get("barcodes_json")),
             )
             d["product_photo"] = photo_map.get(article) or photo_map.get(sku) or ""
+            if not d["product_photo"] and d.get("products_brief"):
+                first = d["products_brief"][0]
+                fa = str(first.get("offer_id") or "").strip()
+                fs = str(first.get("sku") or "").strip()
+                d["product_photo"] = photo_map.get(fa) or photo_map.get(fs) or ""
             d["warehouse_label"] = d.get("warehouse_name") or "—"
             cancel_label = oz.cancel_reason_label_from_row(d)
             d["cancel_reason_label"] = cancel_label
