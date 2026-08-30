@@ -221,8 +221,9 @@ def record_posting_scan(
     if not pick_val and row and bool(row.get("pick_verified")):
         pick_val = str(row.get("pick_barcode") or "").strip()
     matched = matched_posting_numbers or ([pn] if pn else [])
+    supply_val = str(supply_id or row.get("supply_id") or "").strip()
     try:
-        return insert_posting_scan(
+        item = insert_posting_scan(
             repo,
             user_id=user_id,
             source_id=source_id,
@@ -232,9 +233,7 @@ def record_posting_scan(
                 "posting_number": pn,
                 "order_id": row.get("order_id") if row else None,
                 "order_number": str(row.get("order_number") or sticker.get("order_number") or ""),
-                "supply_id": str(
-                    supply_id or row.get("supply_id") or ""
-                ).strip(),
+                "supply_id": supply_val,
                 "sticker_barcode": str(
                     sticker.get("sticker_barcode") or raw
                 ).strip(),
@@ -250,3 +249,18 @@ def record_posting_scan(
     except Exception as exc:
         _log.warning("ozon posting scan journal: %s", exc)
         return None
+    try:
+        from . import ozon_fbs_ops_log as ops_log
+
+        ops_log.log_scan_event(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            scan_type=str(scan_type or ""),
+            scan_raw=raw,
+            posting_number=pn,
+            supply_id=supply_val,
+        )
+    except Exception:
+        pass
+    return item

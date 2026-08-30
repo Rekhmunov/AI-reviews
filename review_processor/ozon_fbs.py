@@ -2439,6 +2439,8 @@ def start_sync_thread(
     user_id: int,
     sources: list[dict[str, Any]],
     lookback_days: int = DEFAULT_LOOKBACK_DAYS,
+    actor_user_id: int | None = None,
+    actor_name: str = "",
 ) -> tuple[bool, str]:
     jobs: list[dict[str, Any]] = []
     for raw in sources:
@@ -2489,6 +2491,23 @@ def start_sync_thread(
                 "cancel_requested": False,
             }
         )
+
+    try:
+        from . import ozon_fbs_ops_log as ops_log
+
+        ops_log.append_event(
+            repo,
+            user_id=user_id,
+            action=ops_log.ACTION_SYNC_START,
+            message=(
+                f"Синхронизация запущена ({len(jobs)} ист., глубина {lookback_days} дн.)"
+            ),
+            actor_user_id=actor_user_id,
+            actor_name=actor_name,
+            details={"sources_count": len(jobs), "lookback_days": int(lookback_days)},
+        )
+    except Exception:
+        pass
 
     def _run() -> None:
         errors: list[str] = []
@@ -2609,12 +2628,38 @@ def start_sync_thread(
                 )
                 if stopped or _ozon_fbs_sync_state.get("cancel_requested"):
                     _ozon_fbs_sync_state["message"] = f"Остановлено. {stats_part}"
+                    done_action = "sync_stop"
+                    done_level = "warn"
                 elif errors:
                     _ozon_fbs_sync_state["message"] = (
                         f"Готово с ошибками. {stats_part}"
                     )
+                    done_action = "sync_done"
+                    done_level = "warn"
                 else:
                     _ozon_fbs_sync_state["message"] = f"Готово. {stats_part}"
+                    done_action = "sync_done"
+                    done_level = "info"
+                final_message = str(_ozon_fbs_sync_state.get("message") or "")
+            try:
+                from . import ozon_fbs_ops_log as ops_log
+
+                ops_log.append_event(
+                    repo,
+                    user_id=user_id,
+                    action=done_action,
+                    message=final_message,
+                    level=done_level,
+                    actor_user_id=actor_user_id,
+                    actor_name=actor_name,
+                    details={
+                        "synced_sources": synced_sources,
+                        "total_postings": total_postings,
+                        "errors_count": len(errors),
+                    },
+                )
+            except Exception:
+                pass
 
     threading.Thread(target=_run, name="ozon-fbs-sync", daemon=True).start()
     return True, f"Синхронизация запущена ({len(jobs)} источников)"

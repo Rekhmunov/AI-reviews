@@ -7793,6 +7793,148 @@ tr.dnd-over td {
   gap: 8px;
   padding: 20px 24px 24px;
 }
+.ozon-fbs-sync-settings-modal {
+  width: min(960px, 100%);
+  max-width: min(960px, 100%);
+  height: calc(100vh - 40px);
+  max-height: calc(100vh - 40px);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.ozon-fbs-sync-settings-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid #e2e8f0;
+  flex: 0 0 auto;
+}
+.ozon-fbs-sync-settings-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.3;
+}
+.ozon-fbs-sync-settings-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 24px;
+}
+.ozon-fbs-sync-settings-section {
+  flex: 0 0 auto;
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+}
+.ozon-fbs-sync-settings-lead {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: #64748b;
+}
+.ozon-fbs-sync-settings-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px 24px 20px;
+  border-top: 1px solid #e2e8f0;
+  flex: 0 0 auto;
+  background: #fff;
+}
+.ozon-fbs-ops-log-section {
+  flex: 1 1 auto;
+  min-height: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+.ozon-fbs-ops-log-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.ozon-fbs-ops-log-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.3;
+}
+.ozon-fbs-ops-log-meta {
+  font-size: 13px;
+  color: #64748b;
+}
+.ozon-fbs-ops-log-lead {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #64748b;
+}
+.ozon-fbs-ops-log-list {
+  flex: 1 1 auto;
+  min-height: 160px;
+  max-height: none;
+  overflow: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.ozon-fbs-ops-log-empty {
+  padding: 24px 16px;
+  color: #94a3b8;
+  text-align: left;
+  font-family: inherit;
+  font-size: 14px;
+}
+.ozon-fbs-ops-log-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 8px 12px;
+  padding: 6px 12px;
+  border-bottom: 1px solid #f1f5f9;
+  align-items: start;
+}
+.ozon-fbs-ops-log-row:last-child {
+  border-bottom: none;
+}
+.ozon-fbs-ops-log-time {
+  color: #64748b;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.ozon-fbs-ops-log-msg {
+  color: #0f172a;
+  word-break: break-word;
+}
+.ozon-fbs-ops-log-actor {
+  color: #64748b;
+}
+.ozon-fbs-ops-log-row.is-warn .ozon-fbs-ops-log-msg {
+  color: #b45309;
+}
+.ozon-fbs-ops-log-row.is-error .ozon-fbs-ops-log-msg {
+  color: #b91c1c;
+}
 .wb-fbs-auto-sync-section .wb-fbs-auto-sync-row,
 .wb-fbs-auto-collect-section .wb-fbs-auto-sync-row {
   margin: 16px 0 0;
@@ -13292,12 +13434,25 @@ button.wb-fbs-kiz-add:disabled {
 
   /* OZON modals */
   #ozonFbsSupplyDetailModal .wb-fbs-supply-detail-modal,
-  #ozonFbsShipmentsModal .wb-fbs-supply-detail-modal {
+  #ozonFbsShipmentsModal .wb-fbs-supply-detail-modal,
+  #ozonFbsSyncSettingsModal .ozon-fbs-sync-settings-modal {
     width: 100%;
     max-width: 100%;
     height: 100dvh;
     max-height: 100dvh;
     border-radius: 0;
+  }
+
+  #ozonFbsSyncSettingsModal .ozon-fbs-sync-settings-header,
+  #ozonFbsSyncSettingsModal .ozon-fbs-sync-settings-body,
+  #ozonFbsSyncSettingsModal .ozon-fbs-sync-settings-footer {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  #ozonFbsSyncSettingsModal .ozon-fbs-ops-log-row {
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 4px 8px;
   }
 
   #ozonFbsDetailModal .modal-card {

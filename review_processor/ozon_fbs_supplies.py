@@ -1090,6 +1090,8 @@ def start_split_multi_thread(
     source_id: int,
     client_id: str,
     api_key: str,
+    actor_user_id: int | None = None,
+    actor_name: str = "",
 ) -> tuple[bool, str]:
     with _split_lock:
         if _split_state.get("in_progress"):
@@ -1113,6 +1115,21 @@ def start_split_multi_thread(
                 "single_after": 0,
             }
         )
+
+    try:
+        from . import ozon_fbs_ops_log as ops_log
+
+        ops_log.append_event(
+            repo,
+            user_id=user_id,
+            action=ops_log.ACTION_SPLIT_START,
+            message="Разделение мультизаказов запущено",
+            actor_user_id=actor_user_id,
+            actor_name=actor_name,
+            source_id=int(source_id),
+        )
+    except Exception:
+        pass
 
     def _run() -> None:
         def _progress(done: int, total: int, message: str) -> None:
@@ -1151,6 +1168,27 @@ def start_split_multi_thread(
                         "single_after": int(result.get("single_after") or 0),
                     }
                 )
+                final_msg = str(_split_state.get("message") or "Разделение завершено")
+                ok_flag = bool(_split_state.get("ok"))
+            try:
+                from . import ozon_fbs_ops_log as ops_log
+
+                ops_log.append_event(
+                    repo,
+                    user_id=user_id,
+                    action=ops_log.ACTION_SPLIT_DONE,
+                    message=final_msg,
+                    level=ops_log.LEVEL_INFO if ok_flag else ops_log.LEVEL_WARN,
+                    actor_user_id=actor_user_id,
+                    actor_name=actor_name,
+                    source_id=int(source_id),
+                    details={
+                        "split": int(result.get("split") or 0),
+                        "failed": int(result.get("failed") or 0),
+                    },
+                )
+            except Exception:
+                pass
         except Exception as exc:
             _log.exception("ozon split-multi thread failed")
             with _split_lock:
@@ -1162,6 +1200,21 @@ def start_split_multi_thread(
                         "errors": [{"posting_number": "?", "error": str(exc)}],
                     }
                 )
+            try:
+                from . import ozon_fbs_ops_log as ops_log
+
+                ops_log.append_event(
+                    repo,
+                    user_id=user_id,
+                    action=ops_log.ACTION_SPLIT_DONE,
+                    message=f"Ошибка разделения: {exc}",
+                    level=ops_log.LEVEL_ERROR,
+                    actor_user_id=actor_user_id,
+                    actor_name=actor_name,
+                    source_id=int(source_id),
+                )
+            except Exception:
+                pass
 
     threading.Thread(target=_run, name="ozon-fbs-split-multi", daemon=True).start()
     return True, "Разделение запущено"
@@ -1175,6 +1228,8 @@ def start_ship_all_collect_thread(
     client_id: str,
     api_key: str,
     decisions: list[dict[str, Any]],
+    actor_user_id: int | None = None,
+    actor_name: str = "",
 ) -> tuple[bool, str]:
     """Background «Собрать все» — same UX pattern as Ozon FBS sync."""
     with _collect_lock:
@@ -1200,6 +1255,21 @@ def start_ship_all_collect_thread(
                 "ok": True,
             }
         )
+
+    try:
+        from . import ozon_fbs_ops_log as ops_log
+
+        ops_log.append_event(
+            repo,
+            user_id=user_id,
+            action=ops_log.ACTION_COLLECT_START,
+            message="Сборка запущена",
+            actor_user_id=actor_user_id,
+            actor_name=actor_name,
+            source_id=int(source_id),
+        )
+    except Exception:
+        pass
 
     def _run() -> None:
         def _progress(done: int, total: int, message: str) -> None:
@@ -1240,6 +1310,27 @@ def start_ship_all_collect_thread(
                         "ok": bool(result.get("ok")),
                     }
                 )
+                final_msg = str(_collect_state.get("message") or "Сборка завершена")
+                ok_flag = bool(_collect_state.get("ok"))
+            try:
+                from . import ozon_fbs_ops_log as ops_log
+
+                ops_log.append_event(
+                    repo,
+                    user_id=user_id,
+                    action=ops_log.ACTION_COLLECT_DONE,
+                    message=final_msg,
+                    level=ops_log.LEVEL_INFO if ok_flag else ops_log.LEVEL_WARN,
+                    actor_user_id=actor_user_id,
+                    actor_name=actor_name,
+                    source_id=int(source_id),
+                    details={
+                        "shipped": int(result.get("shipped") or 0),
+                        "failed": int(result.get("failed") or 0),
+                    },
+                )
+            except Exception:
+                pass
         except Exception as exc:
             _log.exception("ozon ship-all collect failed")
             with _collect_lock:
@@ -1251,6 +1342,21 @@ def start_ship_all_collect_thread(
                         "errors": [{"posting_number": "?", "error": str(exc)}],
                     }
                 )
+            try:
+                from . import ozon_fbs_ops_log as ops_log
+
+                ops_log.append_event(
+                    repo,
+                    user_id=user_id,
+                    action=ops_log.ACTION_COLLECT_DONE,
+                    message=f"Ошибка сборки: {exc}",
+                    level=ops_log.LEVEL_ERROR,
+                    actor_user_id=actor_user_id,
+                    actor_name=actor_name,
+                    source_id=int(source_id),
+                )
+            except Exception:
+                pass
 
     threading.Thread(target=_run, name="ozon-fbs-ship-all", daemon=True).start()
     return True, "Сборка запущена"

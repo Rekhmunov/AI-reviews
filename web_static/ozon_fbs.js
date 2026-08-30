@@ -3048,6 +3048,138 @@
     el.classList.toggle("is-ok", !!msg && kind === "ok");
   }
 
+  const opsLogState = {
+    timer: null,
+    lastId: 0,
+    retentionDays: 3,
+    stickToBottom: true,
+  };
+
+  function _opsLogFormatTime(iso) {
+    const raw = String(iso || "").trim();
+    if (!raw) return "—";
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) {
+      const m = raw.match(/T(\d{2}:\d{2})/);
+      return m ? m[1] : raw.slice(11, 16) || raw;
+    }
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    const ss = String(d.getSeconds()).padStart(2, "0");
+    return `${hh}:${mm}:${ss}`;
+  }
+
+  function _opsLogEscape(s) {
+    return String(s || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function _opsLogRenderRow(item) {
+    const level = String(item.level || "info");
+    const actor = String(item.actor_name || "").trim();
+    const msg = String(item.message || "").trim();
+    const actorHtml = actor
+      ? ` <span class="ozon-fbs-ops-log-actor">· ${_opsLogEscape(actor)}</span>`
+      : "";
+    return (
+      `<div class="ozon-fbs-ops-log-row${level === "error" ? " is-error" : level === "warn" ? " is-warn" : ""}" data-id="${_opsLogEscape(item.id)}">` +
+      `<span class="ozon-fbs-ops-log-time">${_opsLogEscape(_opsLogFormatTime(item.created_at))}</span>` +
+      `<span class="ozon-fbs-ops-log-msg">${_opsLogEscape(msg)}${actorHtml}</span>` +
+      `</div>`
+    );
+  }
+
+  function _opsLogSetMeta(text) {
+    const el = document.getElementById("ozonFbsOpsLogMeta");
+    if (el) el.textContent = String(text || "");
+  }
+
+  function _stopOpsLogPoll() {
+    if (opsLogState.timer) {
+      clearTimeout(opsLogState.timer);
+      opsLogState.timer = null;
+    }
+  }
+
+  function _scheduleOpsLogPoll(delayMs) {
+    _stopOpsLogPoll();
+    const modal = document.getElementById("ozonFbsSyncSettingsModal");
+    if (!modal || modal.classList.contains("hidden")) return;
+    opsLogState.timer = setTimeout(() => {
+      pollOzonFbsOpsLog().catch(() => {});
+    }, Math.max(500, Number(delayMs) || 2000));
+  }
+
+  async function pollOzonFbsOpsLog(reset) {
+    const modal = document.getElementById("ozonFbsSyncSettingsModal");
+    const list = document.getElementById("ozonFbsOpsLogList");
+    if (!modal || modal.classList.contains("hidden") || !list) {
+      _stopOpsLogPoll();
+      return;
+    }
+    if (reset) {
+      opsLogState.lastId = 0;
+      opsLogState.stickToBottom = true;
+      list.innerHTML = `<div class="ozon-fbs-ops-log-empty">Загрузка журнала…</div>`;
+    }
+    try {
+      const after = reset ? 0 : opsLogState.lastId;
+      const res = await fetch(
+        `/api/ozon-fbs/ops-log?after_id=${encodeURIComponent(after)}&limit=${after ? 100 : 200}`
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      const items = Array.isArray(data.items) ? data.items : [];
+      const retention = Number(data.retention_days || data.lookback_days) || opsLogState.retentionDays;
+      opsLogState.retentionDays = retention;
+      _opsLogSetMeta(`хранение ${retention} дн.`);
+
+      if (reset || after === 0) {
+        if (!items.length) {
+          list.innerHTML = `<div class="ozon-fbs-ops-log-empty">Пока нет записей</div>`;
+        } else {
+          list.innerHTML = items.map(_opsLogRenderRow).join("");
+        }
+      } else if (items.length) {
+        const empty = list.querySelector(".ozon-fbs-ops-log-empty");
+        if (empty) empty.remove();
+        const nearBottom =
+          list.scrollHeight - list.scrollTop - list.clientHeight < 48;
+        list.insertAdjacentHTML("beforeend", items.map(_opsLogRenderRow).join(""));
+        // Cap DOM rows to avoid unbounded growth while modal stays open.
+        const rows = list.querySelectorAll(".ozon-fbs-ops-log-row");
+        const maxRows = 500;
+        if (rows.length > maxRows) {
+          for (let i = 0; i < rows.length - maxRows; i += 1) {
+            rows[i].remove();
+          }
+        }
+        if (nearBottom || opsLogState.stickToBottom) {
+          list.scrollTop = list.scrollHeight;
+        }
+      }
+      if (items.length) {
+        const last = items[items.length - 1];
+        const lid = Number(last?.id) || 0;
+        if (lid > opsLogState.lastId) opsLogState.lastId = lid;
+      } else if (typeof data.last_id === "number" && data.last_id > opsLogState.lastId) {
+        opsLogState.lastId = data.last_id;
+      }
+      if (reset && items.length) {
+        list.scrollTop = list.scrollHeight;
+      }
+    } catch (e) {
+      if (reset) {
+        list.innerHTML = `<div class="ozon-fbs-ops-log-empty">${_opsLogEscape(String(e.message || e))}</div>`;
+      }
+      _opsLogSetMeta("ошибка обновления");
+    }
+    _scheduleOpsLogPoll(2000);
+  }
+
   async function openOzonFbsSyncSettings() {
     if (typeof isTenantOwner === "function" && !isTenantOwner()) {
       alert("Настройки синхронизации доступны только главному пользователю");
@@ -3060,6 +3192,7 @@
     const saveBtn = document.getElementById("ozonFbsSyncSettingsSaveBtn");
     const lookbackEl = document.getElementById("ozonFbsSyncLookback");
     if (saveBtn) saveBtn.disabled = true;
+    pollOzonFbsOpsLog(true).catch(() => {});
     try {
       const res = await fetch("/api/ozon-fbs/sync-settings");
       const data = await res.json().catch(() => ({}));
@@ -3073,6 +3206,8 @@
         if (!Number.isFinite(days)) days = 3;
         lookbackEl.value = String(Math.min(maxD, Math.max(minD, Math.round(days))));
         lookbackEl.disabled = data.can_edit === false;
+        opsLogState.retentionDays = Math.min(maxD, Math.max(minD, Math.round(days)));
+        _opsLogSetMeta(`хранение ${opsLogState.retentionDays} дн.`);
       }
       if (saveBtn) {
         saveBtn.disabled = data.can_edit === false;
@@ -3087,6 +3222,7 @@
   }
 
   function closeOzonFbsSyncSettings() {
+    _stopOpsLogPoll();
     const modal = document.getElementById("ozonFbsSyncSettingsModal");
     if (modal) modal.classList.add("hidden");
   }
@@ -3113,8 +3249,13 @@
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
-      _ozonFbsSyncSettingsSetInfo("Сохранено", "ok");
-      setTimeout(() => closeOzonFbsSyncSettings(), 500);
+      opsLogState.retentionDays = lookbackDays;
+      _opsLogSetMeta(`хранение ${lookbackDays} дн.`);
+      _ozonFbsSyncSettingsSetInfo(
+        `Сохранено. Журнал хранится ${lookbackDays} дн.`,
+        "ok"
+      );
+      pollOzonFbsOpsLog(true).catch(() => {});
     } catch (e) {
       _ozonFbsSyncSettingsSetInfo(String(e.message || e), "error");
     } finally {

@@ -12795,7 +12795,53 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         updated["can_edit"] = True
         updated["ok"] = True
+        try:
+            from . import ozon_fbs_ops_log as ops_log
+
+            ops_log.append_event(
+                repository,
+                user_id=owner_id,
+                action=ops_log.ACTION_SETTINGS,
+                message=f"Глубина синхронизации: {updated.get('lookback_days')} дн.",
+                actor_user_id=int(user.get("id") or 0) or None,
+                actor_name=ops_log.actor_label(user),
+                details={"lookback_days": updated.get("lookback_days")},
+            )
+            # Retention follows lookback — purge immediately after change.
+            ops_log.cleanup_old_events(
+                repository,
+                user_id=owner_id,
+                lookback_days=int(updated.get("lookback_days") or 3),
+                force=True,
+            )
+        except Exception:
+            pass
         return updated
+
+    @app.get("/api/ozon-fbs/ops-log")
+    def get_ozon_fbs_ops_log(
+        request: Request,
+        after_id: int = 0,
+        limit: int = 200,
+    ) -> dict[str, object]:
+        """Owner-only live operations journal (retention = sync lookback days)."""
+        from . import ozon_fbs_ops_log as ops_log
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        if not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Журнал операций доступен только главному пользователю",
+            )
+        owner_id = _supply_owner_id(user)
+        return ops_log.list_events(
+            repository,
+            user_id=owner_id,
+            after_id=int(after_id or 0),
+            limit=int(limit or 200),
+        )
 
     @app.post("/api/ozon-fbs/sync")
     def sync_ozon_fbs(request: Request, source_id: int | None = None) -> dict[str, object]:
@@ -12842,11 +12888,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             lookback_days = int(sync_settings.get("lookback_days") or 3)
         except Exception:
             lookback_days = 3
+        from . import ozon_fbs_ops_log as ops_log
+
         ok, message = ozon_fbs_mod.start_sync_thread(
             repo=repository,
             user_id=owner_id,
             sources=jobs,
             lookback_days=lookback_days,
+            actor_user_id=int(user.get("id") or 0) or None,
+            actor_name=ops_log.actor_label(user),
         )
         return {
             "ok": ok,
@@ -12976,6 +13026,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id")
         _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, source_id)
+        from . import ozon_fbs_ops_log as ops_log
+
         ok, message = oz_sup.start_ship_all_collect_thread(
             repo=repository,
             user_id=owner_id,
@@ -12983,6 +13035,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             client_id=client_id,
             api_key=api_key,
             decisions=decisions,
+            actor_user_id=int(user.get("id") or 0) or None,
+            actor_name=ops_log.actor_label(user),
         )
         if not ok:
             raise HTTPException(status_code=409, detail=message)
@@ -13040,12 +13094,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id")
         _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, source_id)
+        from . import ozon_fbs_ops_log as ops_log
+
         ok, message = oz_sup.start_split_multi_thread(
             repo=repository,
             user_id=owner_id,
             source_id=source_id,
             client_id=client_id,
             api_key=api_key,
+            actor_user_id=int(user.get("id") or 0) or None,
+            actor_name=ops_log.actor_label(user),
         )
         if not ok:
             raise HTTPException(status_code=409, detail=message)
@@ -13157,7 +13215,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not sid or not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
         try:
-            return oz_sup.move_supply_to_delivering(
+            result = oz_sup.move_supply_to_delivering(
                 repository,
                 user_id=owner_id,
                 source_id=int(source_id),
@@ -13167,6 +13225,27 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        try:
+            from . import ozon_fbs_ops_log as ops_log
+
+            moved = int(result.get("moved") or 0) if isinstance(result, dict) else 0
+            msg = str((result or {}).get("message") or "").strip() or (
+                f"В «Доставляются»: {sid}"
+            )
+            ops_log.append_event(
+                repository,
+                user_id=owner_id,
+                action=ops_log.ACTION_MOVE_DELIVERING,
+                message=msg,
+                actor_user_id=int(user.get("id") or 0) or None,
+                actor_name=ops_log.actor_label(user),
+                source_id=int(source_id),
+                supply_id=sid,
+                details={"moved": moved},
+            )
+        except Exception:
+            pass
+        return result
 
     @app.get("/api/ozon-fbs/supplies/{supply_id}/detail")
     def ozon_fbs_supply_detail(
@@ -13380,7 +13459,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if str(x).strip()
         }
         try:
-            return oz_mark.save_marking(
+            result = oz_mark.save_marking(
                 repository,
                 user_id=owner_id,
                 source_id=int(source_id),
@@ -13389,6 +13468,26 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             )
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            from . import ozon_fbs_ops_log as ops_log
+
+            saved = int(result.get("saved") or 0) if isinstance(result, dict) else 0
+            errs = int(result.get("errors") or 0) if isinstance(result, dict) else 0
+            ops_log.append_event(
+                repository,
+                user_id=owner_id,
+                action=ops_log.ACTION_MARKING_SAVE,
+                message=f"КИЗ сохранены: {saved}" + (f", ошибок: {errs}" if errs else ""),
+                level=ops_log.LEVEL_WARN if errs else ops_log.LEVEL_INFO,
+                actor_user_id=int(user.get("id") or 0) or None,
+                actor_name=ops_log.actor_label(user),
+                source_id=int(source_id),
+                supply_id=sid,
+                details={"saved": saved, "errors": errs},
+            )
+        except Exception:
+            pass
+        return result
 
     @app.get("/api/ozon-fbs/supplies/{supply_id}/pick-verify")
     def ozon_fbs_supply_pick_verify_list(
@@ -13473,7 +13572,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not allowed:
             raise HTTPException(status_code=404, detail="Поставка не найдена")
         try:
-            return oz_pick.save_pick_verify(
+            result = oz_pick.save_pick_verify(
                 repository,
                 user_id=owner_id,
                 source_id=int(source_id),
@@ -13484,6 +13583,27 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            from . import ozon_fbs_ops_log as ops_log
+
+            saved = int(result.get("saved") or 0) if isinstance(result, dict) else 0
+            errs = int(result.get("errors") or 0) if isinstance(result, dict) else 0
+            ops_log.append_event(
+                repository,
+                user_id=owner_id,
+                action=ops_log.ACTION_PICK_VERIFY,
+                message=f"Проверка ШК: сохранено {saved}"
+                + (f", ошибок: {errs}" if errs else ""),
+                level=ops_log.LEVEL_WARN if errs else ops_log.LEVEL_INFO,
+                actor_user_id=int(user.get("id") or 0) or None,
+                actor_name=ops_log.actor_label(user),
+                source_id=int(source_id),
+                supply_id=sid,
+                details={"saved": saved, "errors": errs},
+            )
+        except Exception:
+            pass
+        return result
 
     @app.get("/api/ozon-fbs/supplies/{supply_id}/shipments")
     def ozon_fbs_supply_shipments(

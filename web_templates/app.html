@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=244" />
+  <link rel="stylesheet" href="/static/style.css?v=245" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2680,25 +2680,38 @@
         </div>
         <div id="ozonFbsSyncSettingsModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
              aria-labelledby="ozonFbsSyncSettingsTitle">
-          <div class="modal-card wb-fbs-auto-sync-modal">
-            <div class="wb-fbs-auto-sync-header">
-              <h3 id="ozonFbsSyncSettingsTitle" class="wb-fbs-auto-sync-title">Настройки синхронизации</h3>
+          <div class="modal-card ozon-fbs-sync-settings-modal">
+            <div class="ozon-fbs-sync-settings-header">
+              <h3 id="ozonFbsSyncSettingsTitle" class="ozon-fbs-sync-settings-title">Настройки синхронизации</h3>
               <button type="button" class="icon-btn secondary" onclick="closeOzonFbsSyncSettings()" aria-label="Закрыть">✕</button>
             </div>
-            <div class="wb-fbs-auto-sync-section">
-              <p class="wb-fbs-auto-sync-section-lead">
-                Глубина загрузки заказов при ручной синхронизации Ozon FBS.
-              </p>
-              <div class="wb-fbs-auto-sync-field">
-                <label for="ozonFbsSyncLookback">Глубина синхронизации (дни)</label>
-                <input type="number" id="ozonFbsSyncLookback" min="1" max="30" step="1" value="3"
-                       inputmode="numeric" autocomplete="off" />
-                <span class="wb-fbs-auto-sync-field-hint">Сколько дней назад брать отправления из Ozon (по умолчанию 3, макс. 30).</span>
+            <div class="ozon-fbs-sync-settings-body">
+              <div class="ozon-fbs-sync-settings-section">
+                <p class="ozon-fbs-sync-settings-lead">
+                  Глубина загрузки заказов при ручной синхронизации Ozon FBS.
+                  Журнал операций хранится столько же дней.
+                </p>
+                <div class="wb-fbs-auto-sync-field">
+                  <label for="ozonFbsSyncLookback">Глубина синхронизации (дни)</label>
+                  <input type="number" id="ozonFbsSyncLookback" min="1" max="30" step="1" value="3"
+                         inputmode="numeric" autocomplete="off" />
+                  <span class="wb-fbs-auto-sync-field-hint">Сколько дней назад брать отправления из Ozon (по умолчанию 3, макс. 30). Логи старше этого срока удаляются.</span>
+                </div>
+              </div>
+              <div id="ozonFbsSyncSettingsInfo" class="wb-fbs-auto-sync-info" hidden></div>
+              <div class="ozon-fbs-ops-log-section">
+                <div class="ozon-fbs-ops-log-section-head">
+                  <h4 class="ozon-fbs-ops-log-title">Журнал операций</h4>
+                  <span id="ozonFbsOpsLogMeta" class="ozon-fbs-ops-log-meta"></span>
+                </div>
+                <p class="ozon-fbs-ops-log-lead">
+                  Живой лог синхронизации, сборки, разделения, КИЗ и переносов. Не блокирует других операторов.
+                </p>
+                <div id="ozonFbsOpsLogList" class="ozon-fbs-ops-log-list" role="log" aria-live="polite" aria-relevant="additions"></div>
               </div>
             </div>
-            <div id="ozonFbsSyncSettingsInfo" class="wb-fbs-auto-sync-info" hidden></div>
-            <div class="wb-fbs-auto-sync-footer">
-              <button type="button" class="secondary" onclick="closeOzonFbsSyncSettings()">Отмена</button>
+            <div class="ozon-fbs-sync-settings-footer">
+              <button type="button" class="secondary" onclick="closeOzonFbsSyncSettings()">Закрыть</button>
               <button type="button" id="ozonFbsSyncSettingsSaveBtn" onclick="saveOzonFbsSyncSettings()">Сохранить</button>
             </div>
           </div>
@@ -6154,7 +6167,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=44"></script>
+  <script src="/static/ozon_fbs.js?v=45"></script>
   <script src="/static/app.js?v=513"></script>
 </body>
 </html>
