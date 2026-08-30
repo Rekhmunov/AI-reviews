@@ -251,9 +251,20 @@ class SupplyGtdImportTests(unittest.TestCase):
         self.assertEqual(to_ins, [])
 
     def test_dmtx_page_limit_covers_typical_sticker_sheets(self) -> None:
-        # Real sticker PDFs are often 500 pages; old hard cap 400 truncated them.
-        self.assertGreaterEqual(gtd._DMTX_MAX_PAGES, 500)
-        self.assertGreaterEqual(gtd._DMTX_MAX_PAGES, 2500)
+        # Real sticker PDFs can reach ~10k pages; process in memory-safe chunks.
+        self.assertGreaterEqual(gtd._DMTX_MAX_PAGES, 10000)
+        self.assertGreaterEqual(gtd._DMTX_CHUNK_PAGES, 20)
+        self.assertLess(gtd._DMTX_ASYNC_PAGE_THRESHOLD, 500)
+
+    def test_files_need_async_by_page_threshold(self) -> None:
+        with patch.object(gtd, "pdf_page_count", return_value=500):
+            need, pages = gtd.files_need_async_import([("a.pdf", b"%PDF")])
+        self.assertTrue(need)
+        self.assertEqual(pages, 500)
+        with patch.object(gtd, "pdf_page_count", return_value=10):
+            need2, pages2 = gtd.files_need_async_import([("a.pdf", b"%PDF")])
+        self.assertFalse(need2)
+        self.assertEqual(pages2, 10)
 
 
 if __name__ == "__main__":

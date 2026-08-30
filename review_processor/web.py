@@ -11053,7 +11053,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not parsed_files:
             raise HTTPException(status_code=400, detail="Пустые файлы")
         try:
-            return gtd_mod.import_gtd_pdfs(
+            return gtd_mod.start_gtd_import_job(
                 repository,
                 user_id=_supply_owner_id(user),
                 files=parsed_files,
@@ -11064,6 +11064,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/supply-gtd/job-status")
+    def supply_gtd_job_status(request: Request) -> dict[str, object]:
+        from . import supply_gtd as gtd_mod
+
+        user = _require_user(request)
+        if not _can_view_supply_gtd(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        return gtd_mod.get_gtd_job_status(user_id=_supply_owner_id(user))
 
     @app.get("/api/supply-gtd/{gtd_id}")
     def get_supply_gtd(request: Request, gtd_id: int) -> dict[str, object]:
@@ -11106,7 +11115,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 raise HTTPException(status_code=400, detail=f"Нужен PDF: {name}")
             parsed_files.append((name, raw))
         try:
-            return gtd_mod.update_gtd(
+            return gtd_mod.start_gtd_update_job(
                 repository,
                 user_id=_supply_owner_id(user),
                 gtd_id=int(gtd_id),

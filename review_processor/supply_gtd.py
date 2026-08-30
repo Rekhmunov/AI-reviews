@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
+import uuid
 from typing import Any
 
 from psycopg.errors import UniqueViolation
@@ -39,14 +41,17 @@ _QTY_SHT_RE = re.compile(
     re.IGNORECASE,
 )
 
-_MAX_PDF_BYTES = 80 * 1024 * 1024  # 80 MB
+_MAX_PDF_BYTES = 250 * 1024 * 1024  # 250 MB — large sticker sheets (до ~10k стр.)
 _MAX_FILES_PER_IMPORT = 40
 _INSERT_BATCH = 1500
 # Sticker sheets: render DPI for Data Matrix decode (balance speed vs recall).
 _DMTX_DPI = 150
-# Hard cap for dmtx render/decode. Was 400 — real sticker PDFs are often 500/page.
-# Keep a high ceiling so runaway multi-thousand PDFs cannot hang the worker forever.
-_DMTX_MAX_PAGES = 2500
+# Hard cap: supports up to 10k sticker pages; beyond that ask to split/append.
+_DMTX_MAX_PAGES = 10000
+# Process this many pages then free pixmap/PIL buffers (keeps RSS bounded).
+_DMTX_CHUNK_PAGES = 80
+# Sync HTTP import is unsafe above this — use background job + progress poll.
+_DMTX_ASYNC_PAGE_THRESHOLD = 150
 
 
 def ensure_supply_gtd_tables(repo: ReviewRepository) -> None:
@@ -204,11 +209,21 @@ def _datamatrix_available() -> bool:
         return False
 
 
-def _extract_kiz_via_datamatrix(pdf_bytes: bytes) -> tuple[dict[str, str], int, str]:
+def _extract_kiz_via_datamatrix(
+    pdf_bytes: bytes,
+    *,
+    progress: Any | None = None,
+    progress_label: str = "",
+) -> tuple[dict[str, str], int, str]:
     """Render PDF pages and decode Data Matrix → short KIZ map.
+
+    Pages are processed in chunks of ``_DMTX_CHUNK_PAGES`` with explicit buffer
+    release so 5–10k sticker sheets do not balloon RSS / kill the worker.
 
     Returns ``(found, pages_scanned, warning_or_empty)``.
     """
+    import gc
+
     if not pdf_bytes:
         return {}, 0, ""
     try:
@@ -227,30 +242,40 @@ def _extract_kiz_via_datamatrix(pdf_bytes: bytes) -> tuple[dict[str, str], int, 
     except Exception as exc:
         return {}, 0, f"Не удалось открыть PDF для Data Matrix: {exc}"
 
+    label = str(progress_label or "PDF").strip() or "PDF"
     try:
         page_count = int(doc.page_count or 0)
         limit = min(page_count, _DMTX_MAX_PAGES)
         zoom = _DMTX_DPI / 72.0
         matrix = pymupdf.Matrix(zoom, zoom)
+        try:
+            from PIL import Image
+        except Exception as exc:
+            return {}, 0, f"Pillow недоступен для Data Matrix: {exc}"
+
+        chunk = max(int(_DMTX_CHUNK_PAGES), 1)
         for page_index in range(limit):
             page = doc[page_index]
             pages_scanned += 1
+            pix = None
+            pil = None
             try:
                 pix = page.get_pixmap(matrix=matrix, alpha=False)
-                img = pix.tobytes("png")
-            except Exception as exc:
-                _log.warning("gtd dmtx render page %s: %s", page_index, exc)
-                continue
-            try:
-                from io import BytesIO
-
-                from PIL import Image
-
-                pil = Image.open(BytesIO(img))
+                # Avoid PNG re-encode — samples → PIL RGB is much faster for 10k pages.
+                pil = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
                 results = dmtx_decode(pil)
             except Exception as exc:
-                _log.warning("gtd dmtx decode page %s: %s", page_index, exc)
-                continue
+                _log.warning("gtd dmtx page %s: %s", page_index, exc)
+                results = None
+            finally:
+                if pil is not None:
+                    try:
+                        pil.close()
+                    except Exception:
+                        pass
+                # Drop pixmap reference ASAP.
+                pix = None
+
             for item in results or []:
                 raw = ""
                 data = getattr(item, "data", None)
@@ -261,18 +286,67 @@ def _extract_kiz_via_datamatrix(pdf_bytes: bytes) -> tuple[dict[str, str], int, 
                 short = kiz_short_from_raw(raw)
                 if short:
                     found.setdefault(short, short)
+
+            if progress and (
+                pages_scanned % chunk == 0 or pages_scanned == limit
+            ):
+                try:
+                    progress(
+                        pages_scanned,
+                        limit,
+                        f"{label}: Data Matrix {pages_scanned} / {limit}"
+                        f" (КИЗ {len(found)})",
+                    )
+                except Exception:
+                    pass
+            # Bound memory between chunks.
+            if pages_scanned % chunk == 0:
+                gc.collect()
+
         warn = ""
         if page_count > _DMTX_MAX_PAGES:
             warn = (
                 f"Data Matrix: просканировано {_DMTX_MAX_PAGES} из {page_count} стр. "
-                f"(лимит сервера). Разбейте PDF или догрузите остаток через «Редактировать»."
+                f"(лимит сервера). Догрузите остаток через «Редактировать»."
             )
         return found, pages_scanned, warn
     finally:
         doc.close()
+        gc.collect()
 
 
-def parse_gtd_pdf(pdf_bytes: bytes) -> dict[str, Any]:
+def pdf_page_count(pdf_bytes: bytes) -> int:
+    """Cheap page count for async/sync routing (no decode)."""
+    if not pdf_bytes:
+        return 0
+    try:
+        import pymupdf
+
+        doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+        try:
+            return int(doc.page_count or 0)
+        finally:
+            doc.close()
+    except Exception:
+        return 0
+
+
+def files_need_async_import(files: list[tuple[str, bytes]]) -> tuple[bool, int]:
+    """True when total pages likely need long Data Matrix work."""
+    total = 0
+    for _name, raw in files or []:
+        total += pdf_page_count(raw)
+        if len(raw or b"") > 20 * 1024 * 1024:
+            return True, total
+    return total >= int(_DMTX_ASYNC_PAGE_THRESHOLD), total
+
+
+def parse_gtd_pdf(
+    pdf_bytes: bytes,
+    *,
+    progress: Any | None = None,
+    progress_label: str = "",
+) -> dict[str, Any]:
     """Parse DT / sticker PDF → gtd candidates + validated unique KIZ shorts.
 
     Prefer text-layer KI (DT box 31 or printed line under stickers). If no KIZ
@@ -280,8 +354,9 @@ def parse_gtd_pdf(pdf_bytes: bytes) -> dict[str, Any]:
     """
     if not pdf_bytes:
         raise ValueError("Пустой PDF")
+    max_mb = max(1, int(_MAX_PDF_BYTES // (1024 * 1024)))
     if len(pdf_bytes) > _MAX_PDF_BYTES:
-        raise ValueError("PDF слишком большой (макс. 80 МБ)")
+        raise ValueError(f"PDF слишком большой (макс. {max_mb} МБ)")
 
     text = ""
     page_count = 0
@@ -325,7 +400,11 @@ def parse_gtd_pdf(pdf_bytes: bytes) -> dict[str, Any]:
     codes_per_page = len(found) / float(max(int(page_count), 1))
     need_dmtx = (not found) or (codes_per_page < 2.0 and int(page_count) > 0)
     if need_dmtx:
-        dm_found, _, barcode_warning = _extract_kiz_via_datamatrix(pdf_bytes)
+        dm_found, _, barcode_warning = _extract_kiz_via_datamatrix(
+            pdf_bytes,
+            progress=progress,
+            progress_label=progress_label or "PDF",
+        )
         if dm_found:
             before = len(found)
             for ks, v in dm_found.items():
@@ -364,6 +443,8 @@ def parse_gtd_pdf(pdf_bytes: bytes) -> dict[str, Any]:
 
 def parse_gtd_pdfs(
     files: list[tuple[str, bytes]],
+    *,
+    progress: Any | None = None,
 ) -> dict[str, Any]:
     """Parse one or many PDFs; merge unique KIZ. ``files`` = (filename, bytes)."""
     if not files:
@@ -380,16 +461,39 @@ def parse_gtd_pdfs(
     warn_list: list[str] = []
     sources: list[str] = []
     names: list[str] = []
+    max_mb = max(1, int(_MAX_PDF_BYTES // (1024 * 1024)))
+    file_n = len([1 for _n, r in files if r])
 
-    for fname, raw in files:
+    for fi, (fname, raw) in enumerate(files):
         name = str(fname or "").strip() or "file.pdf"
         names.append(name)
         if not raw:
             warn_list.append(f"{name}: пустой файл — пропущен")
             continue
         if len(raw) > _MAX_PDF_BYTES:
-            raise ValueError(f"{name}: PDF слишком большой (макс. 80 МБ)")
-        parsed = parse_gtd_pdf(raw)
+            raise ValueError(f"{name}: PDF слишком большой (макс. {max_mb} МБ)")
+        if progress:
+            try:
+                progress(
+                    fi,
+                    max(file_n, 1),
+                    f"Файл {fi + 1}/{file_n}: {name}",
+                )
+            except Exception:
+                pass
+
+        def _file_progress(done: int, total: int, message: str) -> None:
+            if not progress:
+                return
+            # Map per-file page progress into a coarse overall bar.
+            base = fi / float(max(file_n, 1))
+            frac = (done / float(max(total, 1))) / float(max(file_n, 1))
+            overall = int(round((base + frac) * 1000))
+            progress(overall, 1000, message)
+
+        parsed = parse_gtd_pdf(
+            raw, progress=_file_progress if progress else None, progress_label=name
+        )
         page_count += int(parsed.get("page_count") or 0)
         rejected += int(parsed.get("kiz_rejected") or 0)
         for ks in parsed.get("kiz_list") or []:
@@ -667,6 +771,7 @@ def import_gtd_pdfs(
     files: list[tuple[str, bytes]],
     gtd_number: str,
     note: str = "",
+    progress: Any | None = None,
 ) -> dict[str, Any]:
     """Create GTD from one or many PDFs (DT and/or sticker sheets).
 
@@ -680,7 +785,7 @@ def import_gtd_pdfs(
             "Укажите номер ГТД в формате 12345678/010126/1234567"
         )
 
-    parsed = parse_gtd_pdfs(files)
+    parsed = parse_gtd_pdfs(files, progress=progress)
     warnings: list[str] = list(parsed.get("warnings") or [])
     pdf_gtd = normalize_gtd_number(parsed.get("gtd_number") or "")
     if pdf_gtd and pdf_gtd != manual:
@@ -809,6 +914,7 @@ def update_gtd(
     gtd_number: str,
     note: str = "",
     files: list[tuple[str, bytes]] | None = None,
+    progress: Any | None = None,
 ) -> dict[str, Any]:
     """Rename / change note / optionally append KIZ from extra PDFs."""
     ensure_supply_gtd_tables(repo)
@@ -837,7 +943,7 @@ def update_gtd(
     page_extra = 0
     new_names: list[str] = []
     if files:
-        parsed = parse_gtd_pdfs(files)
+        parsed = parse_gtd_pdfs(files, progress=progress)
         warnings.extend(list(parsed.get("warnings") or []))
         kiz_list = list(parsed.get("kiz_list") or [])
         page_extra = int(parsed.get("page_count") or 0)
@@ -1014,4 +1120,244 @@ def lookup_gtd_by_kiz(
         "kiz_short": short,
         "message": f"Найдена ГТД {item.get('gtd_number')}",
         "item": item,
+    }
+
+
+# ── Background import jobs (large sticker PDFs) ───────────────────────────
+
+_gtd_jobs_lock = threading.Lock()
+# user_id → job state (one active import/update per owner)
+_gtd_jobs: dict[int, dict[str, Any]] = {}
+
+
+def _empty_gtd_job() -> dict[str, Any]:
+    return {
+        "in_progress": False,
+        "job_id": "",
+        "kind": "",  # import | update
+        "done": 0,
+        "total": 0,
+        "message": "",
+        "ok": False,
+        "error": "",
+        "result": None,
+    }
+
+
+def get_gtd_job_status(*, user_id: int) -> dict[str, Any]:
+    with _gtd_jobs_lock:
+        st = dict(_gtd_jobs.get(int(user_id)) or _empty_gtd_job())
+    result = st.get("result")
+    if isinstance(result, dict):
+        st["result"] = dict(result)
+    return st
+
+
+def start_gtd_import_job(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    files: list[tuple[str, bytes]],
+    gtd_number: str,
+    note: str = "",
+) -> dict[str, Any]:
+    """Start background create-import. Returns immediately with job_id."""
+    uid = int(user_id)
+    need_async, pages = files_need_async_import(files)
+    # Small text DTs stay sync for snappy UX.
+    if not need_async:
+        out = import_gtd_pdfs(
+            repo,
+            user_id=uid,
+            files=files,
+            gtd_number=gtd_number,
+            note=note,
+        )
+        return {"ok": True, "started": False, "async": False, "result": out, "pages": pages}
+
+    job_id = uuid.uuid4().hex[:12]
+    with _gtd_jobs_lock:
+        cur = _gtd_jobs.get(uid) or {}
+        if cur.get("in_progress"):
+            raise ValueError(
+                "Уже идёт загрузка ГТД. Дождитесь окончания или обновите статус."
+            )
+        _gtd_jobs[uid] = {
+            **_empty_gtd_job(),
+            "in_progress": True,
+            "job_id": job_id,
+            "kind": "import",
+            "message": f"Старт… (~{pages} стр.)",
+            "total": max(pages, 1),
+        }
+
+    def _run() -> None:
+        def _progress(done: int, total: int, message: str) -> None:
+            with _gtd_jobs_lock:
+                st = _gtd_jobs.get(uid)
+                if not st or st.get("job_id") != job_id:
+                    return
+                st["done"] = int(done)
+                st["total"] = max(int(total), 1)
+                st["message"] = str(message or "")
+
+        try:
+            result = import_gtd_pdfs(
+                repo,
+                user_id=uid,
+                files=files,
+                gtd_number=gtd_number,
+                note=note,
+                progress=_progress,
+            )
+            with _gtd_jobs_lock:
+                st = _gtd_jobs.get(uid) or {}
+                if st.get("job_id") != job_id:
+                    return
+                st.update(
+                    {
+                        "in_progress": False,
+                        "ok": True,
+                        "error": "",
+                        "message": result.get("message") or "ГТД записана",
+                        "done": st.get("total") or 1,
+                        "result": result,
+                    }
+                )
+        except Exception as exc:
+            _log.exception("gtd import job failed user=%s", uid)
+            with _gtd_jobs_lock:
+                st = _gtd_jobs.get(uid) or {}
+                if st.get("job_id") != job_id:
+                    return
+                st.update(
+                    {
+                        "in_progress": False,
+                        "ok": False,
+                        "error": str(exc),
+                        "message": str(exc),
+                        "result": None,
+                    }
+                )
+
+    threading.Thread(target=_run, name=f"gtd-import-{uid}", daemon=True).start()
+    return {
+        "ok": True,
+        "started": True,
+        "async": True,
+        "job_id": job_id,
+        "pages": pages,
+        "message": f"Сканирование в фоне (~{pages} стр.). Не закрывайте вкладку.",
+    }
+
+
+def start_gtd_update_job(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    gtd_id: int,
+    gtd_number: str,
+    note: str = "",
+    files: list[tuple[str, bytes]] | None = None,
+) -> dict[str, Any]:
+    """Background update when appending large sticker PDFs; else sync."""
+    uid = int(user_id)
+    file_list = list(files or [])
+    if not file_list:
+        out = update_gtd(
+            repo,
+            user_id=uid,
+            gtd_id=gtd_id,
+            gtd_number=gtd_number,
+            note=note,
+            files=None,
+        )
+        return {"ok": True, "started": False, "async": False, "result": out}
+
+    need_async, pages = files_need_async_import(file_list)
+    if not need_async:
+        out = update_gtd(
+            repo,
+            user_id=uid,
+            gtd_id=gtd_id,
+            gtd_number=gtd_number,
+            note=note,
+            files=file_list,
+        )
+        return {"ok": True, "started": False, "async": False, "result": out}
+
+    job_id = uuid.uuid4().hex[:12]
+    with _gtd_jobs_lock:
+        cur = _gtd_jobs.get(uid) or {}
+        if cur.get("in_progress"):
+            raise ValueError(
+                "Уже идёт загрузка ГТД. Дождитесь окончания или обновите статус."
+            )
+        _gtd_jobs[uid] = {
+            **_empty_gtd_job(),
+            "in_progress": True,
+            "job_id": job_id,
+            "kind": "update",
+            "message": f"Старт догрузки… (~{pages} стр.)",
+            "total": max(pages, 1),
+        }
+
+    def _run() -> None:
+        def _progress(done: int, total: int, message: str) -> None:
+            with _gtd_jobs_lock:
+                st = _gtd_jobs.get(uid)
+                if not st or st.get("job_id") != job_id:
+                    return
+                st["done"] = int(done)
+                st["total"] = max(int(total), 1)
+                st["message"] = str(message or "")
+
+        try:
+            result = update_gtd(
+                repo,
+                user_id=uid,
+                gtd_id=gtd_id,
+                gtd_number=gtd_number,
+                note=note,
+                files=file_list,
+                progress=_progress,
+            )
+            with _gtd_jobs_lock:
+                st = _gtd_jobs.get(uid) or {}
+                if st.get("job_id") != job_id:
+                    return
+                st.update(
+                    {
+                        "in_progress": False,
+                        "ok": True,
+                        "error": "",
+                        "message": "ГТД обновлена",
+                        "done": st.get("total") or 1,
+                        "result": result,
+                    }
+                )
+        except Exception as exc:
+            _log.exception("gtd update job failed user=%s", uid)
+            with _gtd_jobs_lock:
+                st = _gtd_jobs.get(uid) or {}
+                if st.get("job_id") != job_id:
+                    return
+                st.update(
+                    {
+                        "in_progress": False,
+                        "ok": False,
+                        "error": str(exc),
+                        "message": str(exc),
+                        "result": None,
+                    }
+                )
+
+    threading.Thread(target=_run, name=f"gtd-update-{uid}", daemon=True).start()
+    return {
+        "ok": True,
+        "started": True,
+        "async": True,
+        "job_id": job_id,
+        "pages": pages,
+        "message": f"Догрузка в фоне (~{pages} стр.). Не закрывайте вкладку.",
     }

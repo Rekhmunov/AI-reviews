@@ -20965,6 +20965,27 @@ function showSupplyGtdImportResult(data) {
   modal.classList.remove("hidden");
 }
 
+async function _supplyGtdPollJobUntilDone(errEl, btn, busyLabel) {
+  const label = busyLabel || "Сканирование…";
+  for (let i = 0; i < 36000; i += 1) { // up to ~10h at 1s — safety for 10k pages
+    await new Promise((r) => setTimeout(r, 1000));
+    const res = await fetch("/api/supply-gtd/job-status", { headers: jsonHeaders() });
+    const st = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(_supplyGtdDetailError(st, `Ошибка ${res.status}`));
+    const msg = String(st.message || label);
+    if (btn) btn.textContent = msg.length > 48 ? `${msg.slice(0, 46)}…` : msg;
+    if (errEl) {
+      errEl.hidden = false;
+      errEl.style.color = "#64748b";
+      errEl.textContent = msg;
+    }
+    if (st.in_progress) continue;
+    if (st.ok && st.result) return st.result;
+    throw new Error(String(st.error || st.message || "Загрузка ГТД не удалась"));
+  }
+  throw new Error("Таймаут фоновой загрузки ГТД");
+}
+
 async function submitSupplyGtdImport() {
   if (_supplyGtdState.busy) return;
   const numEl = document.getElementById("supplyGtdNumberInput");
@@ -20974,7 +20995,7 @@ async function submitSupplyGtdImport() {
   const btn = document.getElementById("supplyGtdImportSubmitBtn");
   const gtdNumber = String(numEl?.value || "").trim();
   const fileList = fileEl?.files ? Array.from(fileEl.files) : [];
-  if (errEl) { errEl.hidden = true; errEl.textContent = ""; }
+  if (errEl) { errEl.hidden = true; errEl.textContent = ""; errEl.style.color = "#b91c1c"; }
   if (!gtdNumber) {
     if (errEl) { errEl.hidden = false; errEl.textContent = "Укажите номер ГТД"; }
     return;
@@ -21000,13 +21021,20 @@ async function submitSupplyGtdImport() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(_supplyGtdDetailError(data, `Ошибка ${res.status}`));
+    let result = data;
+    if (data.async && data.started) {
+      result = await _supplyGtdPollJobUntilDone(errEl, btn, data.message || "Сканирование…");
+    } else if (data.result && data.started === false) {
+      result = data.result;
+    }
     _supplyGtdState.busy = false;
     closeSupplyGtdImportModal();
-    showSupplyGtdImportResult(data);
+    showSupplyGtdImportResult(result);
     await loadSupplyGtdList(_supplyGtdState.kizQuery || "");
   } catch (e) {
     if (errEl) {
       errEl.hidden = false;
+      errEl.style.color = "#b91c1c";
       errEl.textContent = String(e.message || e);
     }
   } finally {
@@ -21057,7 +21085,7 @@ async function submitSupplyGtdEdit() {
   const btn = document.getElementById("supplyGtdEditSubmitBtn");
   const gtdNumber = String(numEl?.value || "").trim();
   const fileList = fileEl?.files ? Array.from(fileEl.files) : [];
-  if (errEl) { errEl.hidden = true; errEl.textContent = ""; }
+  if (errEl) { errEl.hidden = true; errEl.textContent = ""; errEl.style.color = "#b91c1c"; }
   if (!id) {
     if (errEl) { errEl.hidden = false; errEl.textContent = "Не выбрана ГТД"; }
     return;
@@ -21083,14 +21111,20 @@ async function submitSupplyGtdEdit() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(_supplyGtdDetailError(data, `Ошибка ${res.status}`));
+    let result = data;
+    if (data.async && data.started) {
+      result = await _supplyGtdPollJobUntilDone(errEl, btn, data.message || "Догрузка…");
+    } else if (data.result && data.started === false) {
+      result = data.result;
+    }
     _supplyGtdState.busy = false;
     closeSupplyGtdEditModal();
     showSupplyGtdImportResult({
-      ...data,
+      ...result,
       ok: true,
-      page_count: data.item?.page_count,
-      kiz_inserted: data.kiz_inserted_new,
-      kiz_parsed: data.kiz_parsed,
+      page_count: result.item?.page_count ?? result.page_count,
+      kiz_inserted: result.kiz_inserted_new ?? result.kiz_inserted,
+      kiz_parsed: result.kiz_parsed,
     });
     const title = document.getElementById("supplyGtdResultTitle");
     if (title) title.textContent = "ГТД обновлена";
@@ -21098,6 +21132,7 @@ async function submitSupplyGtdEdit() {
   } catch (e) {
     if (errEl) {
       errEl.hidden = false;
+      errEl.style.color = "#b91c1c";
       errEl.textContent = String(e.message || e);
     }
   } finally {
