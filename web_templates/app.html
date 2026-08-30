@@ -2189,12 +2189,18 @@
             </div>
             <div id="wbFbsSupplyDetailInfo" class="wb-fbs-sd-info" hidden></div>
             <div class="wb-fbs-sd-table-wrap">
-              <table class="wb-fbs-sd-table">
+              <table class="wb-fbs-sd-table" id="wbFbsSupplyDetailTable">
+                <colgroup id="wbFbsSupplyDetailColgroup">
+                  <col data-fixed="1" class="wb-fbs-sd-col-check" style="width:40px" />
+                  <col data-col="0" style="width:32%" />
+                  <col data-col="1" style="width:60%" />
+                  <col data-fixed="1" class="wb-fbs-sd-col-act" style="width:48px" />
+                </colgroup>
                 <thead>
                   <tr>
                     <th class="wb-fbs-sd-col-check"><input type="checkbox" id="wbFbsSupplyDetailSelectAll" onchange="toggleSelectAllWbFbsDetail(this.checked)" /></th>
-                    <th>Заказ</th>
-                    <th>Товар</th>
+                    <th data-col="0">Заказ<span class="col-resize-handle"></span></th>
+                    <th data-col="1">Товар<span class="col-resize-handle"></span></th>
                     <th class="wb-fbs-sd-col-act"></th>
                   </tr>
                 </thead>
@@ -6306,6 +6312,6 @@
   </div>
 
   <script src="/static/ozon_fbs.js?v=58"></script>
-  <script src="/static/app.js?v=523"></script>
+  <script src="/static/app.js?v=524"></script>
 </body>
 </html>
