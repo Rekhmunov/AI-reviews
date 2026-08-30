@@ -2161,10 +2161,17 @@ def _list_supplies_tab_response(
     items = _build_supply_items_for_tab(
         repo, user_id=user_id, source_id=source_id, tab=tab
     )
+    counts = dict(oz._tab_counts(repo, user_id=user_id, source_id=source_id) or {})
+    try:
+        counts["open_supplies"] = count_open_supplies(
+            repo, user_id=user_id, source_id=source_id
+        )
+    except Exception:
+        counts["open_supplies"] = 0
     return {
         "items": items,
         "total": len(items),
-        "counts": oz._tab_counts(repo, user_id=user_id, source_id=source_id),
+        "counts": counts,
         "adopted_orphans": int(adopt_info.get("adopted") or 0),
         "adopt_created_supplies": adopt_info.get("created_supplies") or [],
     }

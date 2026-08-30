@@ -383,12 +383,22 @@
         next.awaiting_packaging_multi_extra = state.counts.awaiting_packaging_multi_extra;
       }
     }
+    // Keep open supplies count — find/supplies payloads often omit it, and wiping
+    // it hides «Добавить к существующей» on the selection bottom bar.
+    if (
+      next.open_supplies == null &&
+      state.counts &&
+      state.counts.open_supplies != null
+    ) {
+      next.open_supplies = state.counts.open_supplies;
+    }
     state.counts = next;
     Object.keys(TAB_COUNT_IDS).forEach((tab) => {
       const el = document.getElementById(TAB_COUNT_IDS[tab]);
       if (el) el.textContent = String(state.counts[tab] || 0);
     });
     syncPackagingActionButtons();
+    updateBottomBar();
   }
 
   function multiAwaitingCount() {
@@ -542,6 +552,8 @@
     const packActions = document.getElementById("ozonFbsBottomPackagingActions");
     const addBtn = document.getElementById("ozonFbsAddToSupplyBtn");
     const n = state.selected.size;
+    // Same as WB «Новые»: selection bottom bar on packaging postings list
+    // (including exact posting-number lookup while that tab is active).
     const isPackaging = state.tab === "awaiting_packaging" && !isSuppliesTab();
     if (label) label.textContent = selectedCountLabel(n);
     if (packActions) packActions.classList.toggle("hidden", !isPackaging);

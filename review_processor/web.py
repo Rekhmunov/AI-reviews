@@ -12739,7 +12739,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             # Local find still works without keys; status refresh is skipped.
             pass
         allow_remote = bool(refresh) and bool(client_id and api_key)
-        return ozon_fbs_mod.lookup_posting_by_number(
+        result = ozon_fbs_mod.lookup_posting_by_number(
             repository,
             user_id=owner_id,
             source_id=int(source_id),
@@ -12748,6 +12748,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             api_key=api_key or None,
             allow_remote=allow_remote,
         )
+        # Bottom-bar «Добавить к существующей» needs open_supplies; find payloads
+        # previously omitted it and wiped the client-side count on updateTabCounts.
+        if isinstance(result, dict):
+            from . import ozon_fbs_supplies as oz_sup
+
+            counts = dict(result.get("counts") or {})
+            try:
+                counts["open_supplies"] = oz_sup.count_open_supplies(
+                    repository, user_id=owner_id, source_id=int(source_id)
+                )
+            except Exception:
+                counts["open_supplies"] = int(counts.get("open_supplies") or 0)
+            result["counts"] = counts
+        return result
 
     @app.post("/api/ozon-fbs/postings/persist-sticker")
     async def ozon_fbs_posting_persist_sticker(request: Request) -> dict[str, object]:
