@@ -10915,6 +10915,69 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         settings["can_edit"] = True
         return {"ok": True, "settings": settings}
 
+    def _can_view_supply_gtd(user: dict[str, object]) -> bool:
+        """GTD catalog lives next to ЧЗ in Настройки — owner/admin roles only."""
+        role = str(user.get("role") or ROLE_USER)
+        return role in ROLE_CAN_ACCESS_SETTINGS
+
+    @app.get("/api/supply-gtd")
+    def list_supply_gtd(request: Request, kiz: str | None = None) -> dict[str, object]:
+        from . import supply_gtd as gtd_mod
+
+        user = _require_user(request)
+        if not _can_view_supply_gtd(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        return gtd_mod.list_gtd_documents(
+            repository,
+            user_id=_supply_owner_id(user),
+            kiz_scan=kiz,
+        )
+
+    @app.get("/api/supply-gtd/lookup")
+    def lookup_supply_gtd_by_kiz(request: Request, kiz: str) -> dict[str, object]:
+        from . import supply_gtd as gtd_mod
+
+        user = _require_user(request)
+        if not _can_view_supply_gtd(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        return gtd_mod.lookup_gtd_by_kiz(
+            repository,
+            user_id=_supply_owner_id(user),
+            kiz_scan=str(kiz or ""),
+        )
+
+    @app.post("/api/supply-gtd/import")
+    async def import_supply_gtd(
+        request: Request,
+        file: UploadFile = File(...),
+        gtd_number: str = Form(...),
+        note: str = Form(""),
+    ) -> dict[str, object]:
+        from . import supply_gtd as gtd_mod
+
+        user = _require_user(request)
+        if not _can_view_supply_gtd(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        raw = await file.read()
+        if not raw:
+            raise HTTPException(status_code=400, detail="Пустой файл")
+        name = str(file.filename or "").strip()
+        if name and not name.lower().endswith(".pdf"):
+            raise HTTPException(status_code=400, detail="Нужен файл PDF")
+        try:
+            return gtd_mod.import_gtd_pdf(
+                repository,
+                user_id=_supply_owner_id(user),
+                pdf_bytes=raw,
+                gtd_number=str(gtd_number or ""),
+                note=str(note or ""),
+                filename=name,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     # ── WB FBS → Честный знак: вывод / возврат КИЗ (new block) ─────────────
 
     @app.get("/api/supply-chz-settings")

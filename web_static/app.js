@@ -16019,6 +16019,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (edoTab) edoTab.style.display = "none";
       const chzTab = document.getElementById("supplies-settings-tab-chz");
       if (chzTab) chzTab.style.display = "none";
+      const gtdTab = document.getElementById("supplies-settings-tab-gtd");
+      if (gtdTab) gtdTab.style.display = "none";
     }
     Promise.all([
       loadSupplySources(),
@@ -17459,8 +17461,8 @@ function _sstSave(key, widths) {
 
 window.showSuppliesSettingsTab = function(tab) {
   const permissions = getPermissions();
-  // Redirect manager (no settings access) away from sources/edo/chz tabs to drivers
-  if ((tab === "sources" || tab === "edo" || tab === "chz") && !permissions.can_view_settings) tab = "drivers";
+  // Redirect manager (no settings access) away from sources/edo/chz/gtd tabs to drivers
+  if ((tab === "sources" || tab === "edo" || tab === "chz" || tab === "gtd") && !permissions.can_view_settings) tab = "drivers";
   document.querySelectorAll("#section-supplies-settings .settings-tab-btn").forEach((b) => b.classList.remove("active"));
   document.getElementById(`supplies-settings-tab-${tab}`)?.classList.add("active");
   document.querySelectorAll("[id^='supplies-settings-pane-']").forEach((p) => { p.classList.add("hidden"); p.style.display = "none"; });
@@ -17468,6 +17470,7 @@ window.showSuppliesSettingsTab = function(tab) {
   if (pane) { pane.classList.remove("hidden"); pane.style.display = ""; }
   if (tab === "edo") loadSupplyEdoSettings();
   if (tab === "chz") loadSupplyChzSettings();
+  if (tab === "gtd") loadSupplyGtdList();
   // Init resizers after pane becomes visible
   requestAnimationFrame(initAllSettingResizers);
 };
@@ -20744,6 +20747,259 @@ async function runWbFbsKizCirculationChz() {
     if (btn) btn.disabled = false;
   }
 }
+
+// ── Supply settings → ГТД ────────────────────────────────────────────────
+
+let _supplyGtdState = {
+  items: [],
+  kizQuery: "",
+  busy: false,
+};
+
+function _supplyGtdEsc(s) {
+  const d = document.createElement("div");
+  d.textContent = String(s ?? "");
+  return d.innerHTML;
+}
+
+function _supplyGtdFmtDate(iso) {
+  const s = String(iso || "").trim();
+  if (!s) return "—";
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return s;
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function _supplyGtdSetInfo(text, ok) {
+  const el = document.getElementById("supplyGtdInfo");
+  if (!el) return;
+  el.textContent = text || "";
+  el.style.color = ok === true ? "#16a34a" : ok === false ? "#b91c1c" : "#64748b";
+}
+
+function _supplyGtdSetSearchInfo(text, ok) {
+  const el = document.getElementById("supplyGtdSearchInfo");
+  if (!el) return;
+  el.textContent = text || "";
+  el.style.color = ok === true ? "#16a34a" : ok === false ? "#b91c1c" : "#64748b";
+}
+
+function renderSupplyGtdTable(items) {
+  const tbody = document.getElementById("supplyGtdTbody");
+  if (!tbody) return;
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) {
+    tbody.innerHTML = `<tr><td colspan="6" class="wb-fbs-empty">${
+      _supplyGtdState.kizQuery
+        ? "По этому КИЗ ГТД не найдена"
+        : "ГТД ещё не загружены. Нажмите «Добавить ГТД»."
+    }</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = list.map((it, idx) => {
+    const num = String(it.gtd_number || "");
+    const note = String(it.note || "").trim() || "—";
+    const file = String(it.source_filename || "").trim() || "—";
+    const kizN = Number(it.kiz_count || it.kiz_inserted || 0) || 0;
+    return `<tr>
+      <td>${idx + 1}</td>
+      <td><strong title="Номер ГТД">${_supplyGtdEsc(num)}</strong></td>
+      <td>${_supplyGtdEsc(String(kizN))}</td>
+      <td>${_supplyGtdEsc(_supplyGtdFmtDate(it.created_at))}</td>
+      <td title="${_supplyGtdEsc(note)}">${_supplyGtdEsc(note)}</td>
+      <td title="${_supplyGtdEsc(file)}">${_supplyGtdEsc(file)}</td>
+    </tr>`;
+  }).join("");
+}
+
+async function loadSupplyGtdList(kizQuery) {
+  const q = kizQuery == null ? _supplyGtdState.kizQuery : String(kizQuery || "");
+  _supplyGtdState.kizQuery = q;
+  const params = new URLSearchParams();
+  if (q) params.set("kiz", q);
+  const url = `/api/supply-gtd${params.toString() ? `?${params}` : ""}`;
+  try {
+    const res = await fetch(url, { headers: jsonHeaders() });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || `Ошибка ${res.status}`);
+    _supplyGtdState.items = Array.isArray(data.items) ? data.items : [];
+    renderSupplyGtdTable(_supplyGtdState.items);
+    if (q) {
+      _supplyGtdSetSearchInfo(
+        data.kiz_resolved === false
+          ? "Не похоже на КИЗ — покажите полный код"
+          : (_supplyGtdState.items.length
+            ? `Найдено ГТД: ${_supplyGtdState.items.length}`
+            : "КИЗ в базе ГТД не найден"),
+        _supplyGtdState.items.length > 0
+      );
+      _supplyGtdSetInfo("");
+    } else {
+      _supplyGtdSetSearchInfo("");
+      _supplyGtdSetInfo(`Загружено ГТД: ${_supplyGtdState.items.length}`, true);
+    }
+  } catch (e) {
+    renderSupplyGtdTable([]);
+    _supplyGtdSetInfo(String(e.message || e), false);
+  }
+}
+
+async function searchSupplyGtdByKiz() {
+  const input = document.getElementById("supplyGtdKizSearch");
+  const raw = String(input?.value || "").trim();
+  if (!raw) {
+    _supplyGtdSetSearchInfo("Отсканируйте КИЗ", false);
+    return;
+  }
+  await loadSupplyGtdList(raw);
+}
+
+async function clearSupplyGtdKizSearch() {
+  const input = document.getElementById("supplyGtdKizSearch");
+  if (input) input.value = "";
+  _supplyGtdSetSearchInfo("");
+  await loadSupplyGtdList("");
+}
+
+function openSupplyGtdImportModal() {
+  const modal = document.getElementById("supplyGtdImportModal");
+  if (!modal) return;
+  const num = document.getElementById("supplyGtdNumberInput");
+  const note = document.getElementById("supplyGtdNoteInput");
+  const file = document.getElementById("supplyGtdPdfInput");
+  const err = document.getElementById("supplyGtdImportErr");
+  if (num) num.value = "";
+  if (note) note.value = "";
+  if (file) file.value = "";
+  if (err) { err.hidden = true; err.textContent = ""; }
+  modal.classList.remove("hidden");
+  setTimeout(() => num?.focus(), 40);
+}
+
+function closeSupplyGtdImportModal() {
+  if (_supplyGtdState.busy) return;
+  document.getElementById("supplyGtdImportModal")?.classList.add("hidden");
+}
+
+function closeSupplyGtdResultModal() {
+  document.getElementById("supplyGtdResultModal")?.classList.add("hidden");
+}
+
+function showSupplyGtdImportResult(data) {
+  const modal = document.getElementById("supplyGtdResultModal");
+  const body = document.getElementById("supplyGtdResultBody");
+  const title = document.getElementById("supplyGtdResultTitle");
+  if (!modal || !body) {
+    alert(data?.message || "Готово");
+    return;
+  }
+  if (title) title.textContent = data?.ok === false ? "Не загружено" : "ГТД записана";
+  const warnings = Array.isArray(data?.warnings) ? data.warnings : [];
+  const other = Array.isArray(data?.already_other_gtd_samples) ? data.already_other_gtd_samples : [];
+  let html = `<p class="${data?.ok === false ? "wb-fbs-collect-mgt-result-err" : "wb-fbs-collect-mgt-result-ok"}">${_supplyGtdEsc(data?.message || "")}</p>`;
+  html += "<ul>";
+  html += `<li>Номер ГТД: <strong>${_supplyGtdEsc(data?.gtd_number || "")}</strong></li>`;
+  html += `<li>Страниц PDF: ${_supplyGtdEsc(String(data?.page_count ?? "—"))}</li>`;
+  html += `<li>КИЗ распознано (уникальных): <strong>${_supplyGtdEsc(String(data?.kiz_parsed ?? 0))}</strong></li>`;
+  html += `<li>Добавлено новых в базу: <strong>${_supplyGtdEsc(String(data?.kiz_inserted ?? 0))}</strong></li>`;
+  html += `<li>Уже были в базе: ${_supplyGtdEsc(String(data?.kiz_already_in_db ?? 0))}`
+    + (data?.kiz_already_other_gtd
+      ? ` (из них в другой ГТД: ${Number(data.kiz_already_other_gtd) || 0})`
+      : "")
+    + "</li>";
+  if (data?.kiz_rejected_invalid) {
+    html += `<li>Отклонено как невалидные: ${_supplyGtdEsc(String(data.kiz_rejected_invalid))}</li>`;
+  }
+  if (data?.qty_hint_sht) {
+    html += `<li>Сумма «ШТ» в тексте ДТ (ориентир): ${_supplyGtdEsc(String(data.qty_hint_sht))}</li>`;
+  }
+  if (data?.note) {
+    html += `<li>Примечание: ${_supplyGtdEsc(data.note)}</li>`;
+  }
+  html += "</ul>";
+  if (warnings.length) {
+    html += `<p class="wb-fbs-collect-mgt-result-err">Предупреждения:</p><ul class="wb-fbs-collect-mgt-result-err">`
+      + warnings.map((w) => `<li>${_supplyGtdEsc(w)}</li>`).join("")
+      + "</ul>";
+  }
+  if (other.length) {
+    html += "<p>Примеры КИЗ, уже привязанных к другой ГТД (не затёрты):</p><ul>"
+      + other.map((o) => `<li><code>${_supplyGtdEsc(o.kiz_short || "")}</code> → ${_supplyGtdEsc(o.gtd_number || "")}</li>`).join("")
+      + "</ul>";
+  }
+  body.innerHTML = html;
+  modal.classList.remove("hidden");
+}
+
+async function submitSupplyGtdImport() {
+  if (_supplyGtdState.busy) return;
+  const numEl = document.getElementById("supplyGtdNumberInput");
+  const noteEl = document.getElementById("supplyGtdNoteInput");
+  const fileEl = document.getElementById("supplyGtdPdfInput");
+  const errEl = document.getElementById("supplyGtdImportErr");
+  const btn = document.getElementById("supplyGtdImportSubmitBtn");
+  const gtdNumber = String(numEl?.value || "").trim();
+  const file = fileEl?.files && fileEl.files[0] ? fileEl.files[0] : null;
+  if (errEl) { errEl.hidden = true; errEl.textContent = ""; }
+  if (!gtdNumber) {
+    if (errEl) { errEl.hidden = false; errEl.textContent = "Укажите номер ГТД"; }
+    return;
+  }
+  if (!file) {
+    if (errEl) { errEl.hidden = false; errEl.textContent = "Выберите PDF файл"; }
+    return;
+  }
+  const fd = new FormData();
+  fd.append("gtd_number", gtdNumber);
+  fd.append("note", String(noteEl?.value || ""));
+  fd.append("file", file, file.name || "gtd.pdf");
+  _supplyGtdState.busy = true;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Загрузка…";
+  }
+  try {
+    const csrf = typeof getCsrfToken === "function" ? getCsrfToken() : "";
+    const headers = {};
+    if (csrf) headers["X-CSRF-Token"] = csrf;
+    const res = await fetch("/api/supply-gtd/import", {
+      method: "POST",
+      headers,
+      body: fd,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const detail = data.detail;
+      const msg = typeof detail === "string"
+        ? detail
+        : (Array.isArray(detail) ? detail.map((x) => x.msg || x).join("; ") : (data.message || `Ошибка ${res.status}`));
+      throw new Error(msg);
+    }
+    closeSupplyGtdImportModal();
+    showSupplyGtdImportResult(data);
+    await loadSupplyGtdList(_supplyGtdState.kizQuery || "");
+  } catch (e) {
+    if (errEl) {
+      errEl.hidden = false;
+      errEl.textContent = String(e.message || e);
+    }
+  } finally {
+    _supplyGtdState.busy = false;
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Загрузить";
+    }
+  }
+}
+
+window.loadSupplyGtdList = loadSupplyGtdList;
+window.searchSupplyGtdByKiz = searchSupplyGtdByKiz;
+window.clearSupplyGtdKizSearch = clearSupplyGtdKizSearch;
+window.openSupplyGtdImportModal = openSupplyGtdImportModal;
+window.closeSupplyGtdImportModal = closeSupplyGtdImportModal;
+window.closeSupplyGtdResultModal = closeSupplyGtdResultModal;
+window.submitSupplyGtdImport = submitSupplyGtdImport;
 
 window.loadSupplyChzSettings = loadSupplyChzSettings;
 window.saveSupplyChzSettings = saveSupplyChzSettings;

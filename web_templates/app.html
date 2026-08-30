@@ -3749,6 +3749,7 @@
           <button id="supplies-settings-tab-sources" class="settings-tab-btn active" onclick="showSuppliesSettingsTab('sources')">Источники</button>
           <button id="supplies-settings-tab-edo" class="settings-tab-btn" onclick="showSuppliesSettingsTab('edo')">ЭДО</button>
           <button id="supplies-settings-tab-chz" class="settings-tab-btn" onclick="showSuppliesSettingsTab('chz')">ЧЗ</button>
+          <button id="supplies-settings-tab-gtd" class="settings-tab-btn" onclick="showSuppliesSettingsTab('gtd')">ГТД</button>
           <button id="supplies-settings-tab-drivers" class="settings-tab-btn" onclick="showSuppliesSettingsTab('drivers')">Водители</button>
           <button id="supplies-settings-tab-warehouses" class="settings-tab-btn" onclick="showSuppliesSettingsTab('warehouses')">Склады</button>
           <button id="supplies-settings-tab-legal" class="settings-tab-btn" onclick="showSuppliesSettingsTab('legal')">Юр. лица</button>
@@ -4346,6 +4347,95 @@
               <button type="button" onclick="saveSupplyChzSettings()">Сохранить</button>
               <button type="button" class="secondary" onclick="testSupplyChzSettings()">Проверить УКЭП</button>
               <span id="chzSettingsInfo" class="small"></span>
+            </div>
+          </div>
+        </div>
+
+        <div id="supplies-settings-pane-gtd" class="hidden">
+          <div class="panel">
+            <div class="row row-between" style="margin-bottom:16px;gap:12px;flex-wrap:wrap">
+              <div>
+                <h4 class="no-margin">ГТД (таможенные декларации)</h4>
+                <p class="small" style="margin:8px 0 0;color:#64748b;max-width:720px">
+                  Загрузите PDF декларации / дополнения к ДТ. Сохраняем номер ГТД и КИЗ из графы 31
+                  (короткий формат для ЧЗ). Повторная загрузка той же ГТД запрещена; уже известные КИЗ не затираются.
+                </p>
+              </div>
+              <button type="button" onclick="openSupplyGtdImportModal()">Добавить ГТД</button>
+            </div>
+            <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+              <label class="wfg-label" for="supplyGtdKizSearch" style="margin:0">Поиск по КИЗ</label>
+              <input id="supplyGtdKizSearch" type="text" autocomplete="off"
+                     placeholder="Отсканируйте или вставьте КИЗ"
+                     style="flex:1;min-width:220px;max-width:480px;height:36px"
+                     onkeydown="if(event.key==='Enter'){event.preventDefault();searchSupplyGtdByKiz();}" />
+              <button type="button" class="secondary" onclick="searchSupplyGtdByKiz()">Найти</button>
+              <button type="button" class="secondary" onclick="clearSupplyGtdKizSearch()">Сбросить</button>
+              <span id="supplyGtdSearchInfo" class="small"></span>
+            </div>
+            <div id="supplyGtdInfo" class="small" style="margin-bottom:8px"></div>
+            <div class="table-wrap">
+              <table class="supply-sources-table">
+                <thead>
+                  <tr>
+                    <th style="width:48px">№</th>
+                    <th style="width:200px">Номер ГТД</th>
+                    <th style="width:100px">КИЗ</th>
+                    <th style="width:160px">Загружено</th>
+                    <th>Примечание</th>
+                    <th style="width:160px">Файл</th>
+                  </tr>
+                </thead>
+                <tbody id="supplyGtdTbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="supplyGtdImportModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="supplyGtdImportTitle">
+          <div class="modal-card" style="width:min(560px,100%);max-width:560px">
+            <div class="row row-between" style="margin-bottom:16px;align-items:flex-start;gap:12px">
+              <h3 id="supplyGtdImportTitle" class="no-margin">Добавить ГТД</h3>
+              <button type="button" class="icon-btn secondary" onclick="closeSupplyGtdImportModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <div class="worker-form-grid">
+              <div class="wfg-field" style="grid-column:1 / -1">
+                <label class="wfg-label" for="supplyGtdNumberInput">Номер ГТД</label>
+                <input id="supplyGtdNumberInput" type="text" autocomplete="off"
+                       placeholder="10323010/250826/5101277" />
+              </div>
+              <div class="wfg-field" style="grid-column:1 / -1">
+                <label class="wfg-label" for="supplyGtdNoteInput">Примечание</label>
+                <textarea id="supplyGtdNoteInput" class="textarea-compact" rows="3"
+                          placeholder="Необязательно: поставщик, партия, склад…"></textarea>
+              </div>
+              <div class="wfg-field" style="grid-column:1 / -1">
+                <label class="wfg-label" for="supplyGtdPdfInput">PDF декларации / дополнения</label>
+                <input id="supplyGtdPdfInput" type="file" accept="application/pdf,.pdf" />
+                <span class="small" style="color:#64748b;margin-top:4px;display:block">
+                  Текстовый PDF (не скан-картинка). До ~20&nbsp;000 КИЗ.
+                </span>
+              </div>
+            </div>
+            <div id="supplyGtdImportErr" class="small" style="color:#b91c1c;margin-top:12px" hidden></div>
+            <div class="row" style="margin-top:16px;gap:8px;justify-content:flex-end">
+              <button type="button" class="secondary" onclick="closeSupplyGtdImportModal()">Отмена</button>
+              <button type="button" id="supplyGtdImportSubmitBtn" onclick="submitSupplyGtdImport()">Загрузить</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="supplyGtdResultModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="supplyGtdResultTitle">
+          <div class="modal-card" style="width:min(640px,100%);max-width:640px">
+            <div class="row row-between" style="margin-bottom:16px;align-items:flex-start;gap:12px">
+              <h3 id="supplyGtdResultTitle" class="no-margin">Результат загрузки</h3>
+              <button type="button" class="icon-btn secondary" onclick="closeSupplyGtdResultModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <div id="supplyGtdResultBody" class="wb-fbs-collect-mgt-result-body"></div>
+            <div class="row" style="margin-top:16px;gap:8px;justify-content:flex-end">
+              <button type="button" onclick="closeSupplyGtdResultModal()">Закрыть</button>
             </div>
           </div>
         </div>
@@ -6065,6 +6155,6 @@
   </div>
 
   <script src="/static/ozon_fbs.js?v=40"></script>
-  <script src="/static/app.js?v=511"></script>
+  <script src="/static/app.js?v=512"></script>
 </body>
 </html>
