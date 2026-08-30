@@ -480,6 +480,84 @@ class OzonFbsStickersPrintHtmlTests(unittest.TestCase):
             )
         self.assertFalse(render.call_args.kwargs.get("include_cover_and_separators"))
 
+    def test_build_stickers_print_category_keeps_cover(self) -> None:
+        detail = {
+            "supply_id": "OZ-1",
+            "name": "Тест",
+            "orders": [
+                {
+                    "posting_number": "P-1",
+                    "offer_id": "A",
+                    "product_name": "T",
+                    "tab": "awaiting_deliver",
+                    "barcodes": [],
+                },
+                {
+                    "posting_number": "P-2",
+                    "offer_id": "A",
+                    "product_name": "T",
+                    "tab": "awaiting_deliver",
+                    "barcodes": [],
+                },
+            ],
+        }
+        with (
+            patch(
+                "review_processor.ozon_fbs_supplies.get_supply_detail_for_print",
+                return_value=detail,
+            ),
+            patch(
+                "review_processor.ozon_fbs_supplies._fetch_label_images",
+                return_value={"P-1": ["QUJD"], "P-2": ["QUJD"]},
+            ),
+            patch(
+                "review_processor.ozon_fbs_supplies.render_stickers_print_html",
+                return_value="<html/>",
+            ) as render,
+        ):
+            oz_sup.build_stickers_print(
+                MagicMock(),
+                user_id=1,
+                source_id=2,
+                supply_id="OZ-1",
+                client_id="c",
+                api_key="k",
+                posting_numbers_filter=["P-1", "P-2"],
+                include_cover_and_separators=True,
+            )
+        self.assertTrue(render.call_args.kwargs.get("include_cover_and_separators"))
+        self.assertEqual(
+            render.call_args.kwargs.get("order_ids_filter"),
+            ["P-1", "P-2"],
+        )
+
+    def test_category_filter_html_includes_cover_and_separator(self) -> None:
+        detail = {
+            "supply_id": "OZ-1",
+            "name": "Поставка Кат",
+            "orders": [
+                {
+                    "posting_number": "P-1",
+                    "offer_id": "ART-1",
+                    "product_name": "Товар",
+                    "sku": 11,
+                    "tab": "awaiting_deliver",
+                    "barcodes": ["460001"],
+                }
+            ],
+        }
+        html = oz_sup.render_stickers_print_html(
+            detail,
+            source_name="Ozon FBS",
+            label_images={"P-1": ["QUJD"]},
+            order_ids_filter=["P-1"],
+            include_cover_and_separators=True,
+        )
+        self.assertIn('class="label cover"', html)
+        self.assertIn("Поставка Кат", html)
+        self.assertIn('class="label separator"', html)
+        self.assertIn('class="label sticker"', html)
+
 
 if __name__ == "__main__":
     unittest.main()

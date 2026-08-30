@@ -3897,6 +3897,7 @@ def build_stickers_print(
     posting_numbers_filter: list[str] | None = None,
     posting_tab: str | None = None,
     progress: Callable[[int, int, str], None] | None = None,
+    include_cover_and_separators: bool | None = None,
 ) -> StickersPrintResult:
     detail = get_supply_detail_for_print(
         repo,
@@ -3973,6 +3974,10 @@ def build_stickers_print(
             progress(len(nums), len(nums), f"Сборка листа {loaded}/{len(nums)}")
         except Exception:
             pass
+    if include_cover_and_separators is None:
+        # Default: full supply print gets cover+separators; filtered prints
+        # (row «⋮» sticker) stay labels-only unless caller opts in (categories).
+        include_cover_and_separators = posting_numbers_filter is None
     html = render_stickers_print_html(
         detail,
         source_name=source_name,
@@ -3980,9 +3985,7 @@ def build_stickers_print(
         order_ids_filter=posting_numbers_filter,
         missing_posting_numbers=missing,
         missing_reasons=missing_reasons,
-        # Cover + article separators only for full «Стикеры» print.
-        # Row menu / selected postings → posting labels only.
-        include_cover_and_separators=posting_numbers_filter is None,
+        include_cover_and_separators=bool(include_cover_and_separators),
     )
     return StickersPrintResult(
         html=html,
@@ -4052,6 +4055,7 @@ def start_stickers_print_job(
     source_name: str = "",
     posting_numbers_filter: list[str] | None = None,
     posting_tab: str | None = None,
+    include_cover_and_separators: bool | None = None,
 ) -> dict[str, Any]:
     """Background stickers fetch with progress for the supply-detail button."""
     uid = int(user_id)
@@ -4091,6 +4095,7 @@ def start_stickers_print_job(
                 posting_numbers_filter=posting_numbers_filter,
                 posting_tab=posting_tab,
                 progress=_progress,
+                include_cover_and_separators=include_cover_and_separators,
             )
             with _stickers_jobs_lock:
                 st = _stickers_jobs.get(uid) or {}

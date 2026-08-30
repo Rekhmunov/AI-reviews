@@ -14348,6 +14348,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         else:
             selected = []
         tab_key = str(body.get("posting_tab") or "").strip() or None
+        cover_raw = body.get("include_cover_and_separators", None)
+        include_cover: bool | None
+        if cover_raw is None:
+            include_cover = None
+        else:
+            include_cover = bool(cover_raw)
         try:
             return oz_sup.start_stickers_print_job(
                 repository,
@@ -14359,6 +14365,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 source_name=str(src_full.get("name") or ""),
                 posting_numbers_filter=selected or None,
                 posting_tab=tab_key,
+                include_cover_and_separators=include_cover,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

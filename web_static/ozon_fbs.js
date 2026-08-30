@@ -3117,7 +3117,7 @@
     caret.setAttribute("aria-expanded", willOpen ? "true" : "false");
   }
 
-  function openStickersPrint(postingNumbers) {
+  function openStickersPrint(postingNumbers, options) {
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
     if (!sid || !sourceId || !_ozonFbsSupplyActionsReady()) return;
@@ -3132,10 +3132,19 @@
     const ids = Array.isArray(postingNumbers)
       ? postingNumbers.map((x) => String(x || "").trim()).filter(Boolean)
       : [];
+    const opts = options && typeof options === "object" ? options : {};
+    // Full print (no filter) → cover+separators.
+    // Category print passes includeCoverAndSeparators: true.
+    // Row «⋮» single sticker keeps labels-only (default when filtered).
+    const includeCover =
+      typeof opts.includeCoverAndSeparators === "boolean"
+        ? opts.includeCoverAndSeparators
+        : ids.length === 0;
     const tab = String(supplyDetailState.postingTab || "").trim();
     const body = {
       source_id: Number(sourceId),
       order_ids: ids,
+      include_cover_and_separators: includeCover,
     };
     if (tab) body.posting_tab = tab;
 
@@ -3538,7 +3547,7 @@
     }
     if (!nums.length) return;
     closeStickersByCategoryModal();
-    openStickersPrint(nums);
+    openStickersPrint(nums, { includeCoverAndSeparators: true });
   }
 
   document.addEventListener(
