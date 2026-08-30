@@ -16023,7 +16023,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (gtdTab) gtdTab.style.display = "none";
     }
     // ГТД — только основной пользователь (admin), не менеджеры с доступом к настройкам.
-    if (!APP_BOOT?.is_admin) {
+    if (!getPermissions().is_admin) {
       const gtdTabOwner = document.getElementById("supplies-settings-tab-gtd");
       if (gtdTabOwner) gtdTabOwner.style.display = "none";
     }
@@ -17469,7 +17469,7 @@ window.showSuppliesSettingsTab = function(tab) {
   // Redirect manager (no settings access) away from sources/edo/chz/gtd tabs to drivers
   if ((tab === "sources" || tab === "edo" || tab === "chz" || tab === "gtd") && !permissions.can_view_settings) tab = "drivers";
   // ГТД — только основной пользователь
-  if (tab === "gtd" && !APP_BOOT?.is_admin) tab = permissions.can_view_settings ? "sources" : "drivers";
+  if (tab === "gtd" && !permissions.is_admin) tab = permissions.can_view_settings ? "sources" : "drivers";
   document.querySelectorAll("#section-supplies-settings .settings-tab-btn").forEach((b) => b.classList.remove("active"));
   document.getElementById(`supplies-settings-tab-${tab}`)?.classList.add("active");
   document.querySelectorAll("[id^='supplies-settings-pane-']").forEach((p) => { p.classList.add("hidden"); p.style.display = "none"; });

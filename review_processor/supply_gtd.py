@@ -317,13 +317,21 @@ def parse_gtd_pdf(pdf_bytes: bytes) -> dict[str, Any]:
     found, rejected = _collect_kiz_from_text(text)
     source = "text" if found else ""
     barcode_warning = ""
-    if not found:
+    # Data Matrix when text found nothing, or density looks like sticker sheets
+    # (~≤1–2 codes/page). DT supplements have many codes per page — skip dmtx.
+    codes_per_page = len(found) / float(max(int(page_count), 1))
+    need_dmtx = (not found) or (codes_per_page < 2.0 and int(page_count) > 0)
+    if need_dmtx:
         dm_found, _, barcode_warning = _extract_kiz_via_datamatrix(pdf_bytes)
         if dm_found:
-            found = dm_found
-            source = "datamatrix"
-            rejected = 0
-        elif text_error and not str(text or "").strip():
+            before = len(found)
+            for ks, v in dm_found.items():
+                found.setdefault(ks, v)
+            if not source:
+                source = "datamatrix"
+            elif len(found) > before:
+                source = "text+datamatrix"
+        elif not found and text_error and not str(text or "").strip():
             raise ValueError(
                 text_error
                 or "В PDF нет текстового слоя и не удалось прочитать Data Matrix. "
@@ -470,12 +478,19 @@ def _classify_existing_kiz(
     user_id: int,
     gtd_number: str,
     kiz_list: list[str],
+    gtd_id: int | None = None,
 ) -> tuple[list[str], list[dict[str, str]], list[str]]:
-    """Return (already_same, already_other, to_insert)."""
+    """Return (already_same, already_other, to_insert).
+
+    ``gtd_id`` (when set) is the authoritative same-document key — needed on
+    rename, when denormalized ``supply_gtd_kiz.gtd_number`` still holds the
+    old number until updated.
+    """
     already_same: list[str] = []
     already_other: list[dict[str, str]] = []
     if not kiz_list:
         return already_same, already_other, []
+    same_id = int(gtd_id) if gtd_id is not None and int(gtd_id) > 0 else 0
     with repo._connect() as conn:
         for i in range(0, len(kiz_list), _INSERT_BATCH):
             chunk = kiz_list[i : i + _INSERT_BATCH]
@@ -483,7 +498,7 @@ def _classify_existing_kiz(
             rows = conn.execute(
                 repo._sql(
                     f"""
-                    SELECT kiz_short, gtd_number FROM supply_gtd_kiz
+                    SELECT kiz_short, gtd_number, gtd_id FROM supply_gtd_kiz
                     WHERE user_id = ? AND kiz_short IN ({placeholders})
                     """
                 ),
@@ -493,7 +508,8 @@ def _classify_existing_kiz(
                 d = repo._row_to_dict(r)
                 ks = str(d.get("kiz_short") or "")
                 gn = str(d.get("gtd_number") or "")
-                if gn == gtd_number:
+                kid = int(d.get("gtd_id") or 0)
+                if (same_id and kid == same_id) or ((not same_id) and gn == gtd_number):
                     already_same.append(ks)
                 else:
                     already_other.append({"kiz_short": ks, "gtd_number": gn})
@@ -684,11 +700,17 @@ def import_gtd_pdfs(
 
     kiz_list: list[str] = list(parsed.get("kiz_list") or [])
     if not kiz_list:
-        raise ValueError(
-            "Ни одного валидного КИЗ в файлах не найдено — ГТД не создана. "
-            "Загрузите PDF декларации/дополнения или PDF со стикерами Честного ЗНАКа "
-            "(с текстом КИ или читаемым Data Matrix)."
-        )
+        detail = "Ни одного валидного КИЗ в файлах не найдено — ГТД не создана."
+        extra = [str(w) for w in warnings if str(w).strip()]
+        if extra:
+            detail = detail + " " + " ".join(extra[:5])
+        else:
+            detail = (
+                detail
+                + " Загрузите PDF декларации/дополнения или PDF со стикерами Честного ЗНАКа "
+                "(с текстом КИ или читаемым Data Matrix)."
+            )
+        raise ValueError(detail)
 
     qty_hint = parsed.get("qty_hint_sht")
     if isinstance(qty_hint, int) and qty_hint > 0:
@@ -706,6 +728,11 @@ def import_gtd_pdfs(
         repo, user_id=user_id, gtd_number=manual, kiz_list=kiz_list
     )
     already_set = {x for x in already_same} | {x["kiz_short"] for x in already_other}
+    if not to_insert and not already_same:
+        raise ValueError(
+            "Все найденные КИЗ уже привязаны к другим ГТД — новая ГТД не создана. "
+            f"Найдено: {len(kiz_list)}, в других ГТД: {len(already_other)}."
+        )
 
     with repo._connect() as conn:
         try:
@@ -827,7 +854,11 @@ def update_gtd(
     to_insert: list[str] = []
     if kiz_list:
         already_same, already_other, to_insert = _classify_existing_kiz(
-            repo, user_id=user_id, gtd_number=manual, kiz_list=kiz_list
+            repo,
+            user_id=user_id,
+            gtd_number=manual,
+            kiz_list=kiz_list,
+            gtd_id=int(gtd_id),
         )
 
     with repo._connect() as conn:

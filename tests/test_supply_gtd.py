@@ -220,6 +220,36 @@ class SupplyGtdImportTests(unittest.TestCase):
         self.assertEqual(out["kiz_deleted"], 12)
         conn.execute.assert_called()
 
+    def test_classify_same_by_gtd_id_after_rename(self) -> None:
+        """Codes already on this doc must count as same even if gtd_number lags."""
+        repo = MagicMock()
+        conn = MagicMock()
+        conn.__enter__ = MagicMock(return_value=conn)
+        conn.__exit__ = MagicMock(return_value=False)
+        row = MagicMock()
+        # Old denormalized number, but gtd_id matches the document being edited.
+        conn.execute.return_value.fetchall.return_value = [
+            {
+                "kiz_short": "0104670172422564215MpGb)qC19x29",
+                "gtd_number": "10323010/250826/5101277",
+                "gtd_id": 7,
+            }
+        ]
+        repo._connect.return_value = conn
+        repo._sql.side_effect = lambda q: q
+        repo._row_to_dict.side_effect = lambda r: dict(r)
+
+        same, other, to_ins = gtd._classify_existing_kiz(
+            repo,
+            user_id=1,
+            gtd_number="10323010/250826/5109999",  # new number
+            kiz_list=["0104670172422564215MpGb)qC19x29"],
+            gtd_id=7,
+        )
+        self.assertEqual(same, ["0104670172422564215MpGb)qC19x29"])
+        self.assertEqual(other, [])
+        self.assertEqual(to_ins, [])
+
 
 if __name__ == "__main__":
     unittest.main()
