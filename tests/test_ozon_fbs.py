@@ -362,6 +362,7 @@ class OzonFbsMappingTests(unittest.TestCase):
         self.assertFalse(out["status_refreshed"])
         self.assertEqual(out["source"], "local")
         self.assertIn("Статус из базы", out["message"])
+        self.assertNotIn("timeout", out["message"])
 
 
 if __name__ == "__main__":

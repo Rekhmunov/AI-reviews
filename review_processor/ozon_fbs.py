@@ -2115,7 +2115,7 @@ def lookup_posting_by_number(
             _log.warning(
                 "ozon_fbs lookup status refresh failed pn=%s: %s", pn, exc
             )
-            api_warning = f"Статус из базы (Ozon API: {exc})"
+            api_warning = "Статус из базы (Ozon API недоступен)"
 
     item = _enrich_posting_list_item(repo, user_id=user_id, row=local)
     source = "local+api" if status_refreshed else "local"

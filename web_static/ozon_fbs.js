@@ -945,16 +945,49 @@
     }
 
     const suppliesMode = isSuppliesTab();
+    const pnQuery = parsePostingNumberQuery(state.search);
     const params = new URLSearchParams({
       source_id: String(state.sourceId),
       tab: state.tab,
       page: String(state.page),
       page_size: String(state.pageSize),
     });
-    if (state.search && !suppliesMode) params.set("search", state.search);
+    if (state.search && !suppliesMode && !pnQuery) params.set("search", state.search);
     const seq = ++state.loadSeq;
 
     try {
+      // Full posting number → always /find (cross-tab + status refresh from Ozon).
+      // Skipping the tab list avoids stale status when the row is already on this tab.
+      if (pnQuery) {
+        if (tbody) {
+          tbody.innerHTML = `<tr><td colspan="${colspan()}" class="wb-fbs-empty">Ищем отправление ${esc(pnQuery)}…</td></tr>`;
+        }
+        const infoPending = document.getElementById("ozonFbsInfo");
+        if (infoPending) infoPending.textContent = `Поиск отправления ${pnQuery}…`;
+        const lookup = await lookupPostingByNumber(pnQuery, { seq });
+        if (seq !== state.loadSeq) return;
+        if (lookup && applyLookupResult(lookup, pnQuery)) return;
+        state.items = [];
+        state.total = 0;
+        if (lookup?.counts) updateTabCounts(lookup.counts);
+        syncTableMode();
+        if (suppliesMode) renderSuppliesTable([]);
+        else renderTable([]);
+        syncPackagingActionButtons();
+        const infoMiss = document.getElementById("ozonFbsInfo");
+        if (infoMiss) {
+          infoMiss.textContent = lookup?.message
+            || `Отправление ${pnQuery} не найдено в локальной базе`;
+        }
+        const pageInfoMiss = document.getElementById("ozonFbsPageInfo");
+        if (pageInfoMiss) pageInfoMiss.textContent = "1 / 1";
+        const prevMiss = document.getElementById("ozonFbsPrevBtn");
+        const nextMiss = document.getElementById("ozonFbsNextBtn");
+        if (prevMiss) prevMiss.disabled = true;
+        if (nextMiss) nextMiss.disabled = true;
+        return;
+      }
+
       const url = suppliesMode
         ? `/api/ozon-fbs/supplies?${params}`
         : `/api/ozon-fbs/postings?${params}`;
@@ -977,57 +1010,7 @@
 
       updateTabCounts(data.counts || {});
 
-      // Full posting number: prefer exact hit in current tab/page; else cross-tab local find.
-      const pnQuery = parsePostingNumberQuery(state.search);
-      if (pnQuery) {
-        let exactItems = [];
-        if (suppliesMode) {
-          exactItems = items.filter((s) => {
-            const nums = Array.isArray(s.posting_numbers) ? s.posting_numbers : [];
-            return nums.some((n) => String(n || "").trim().toLowerCase() === pnQuery.toLowerCase())
-              || String(s.supply_id || "").trim() === pnQuery
-              || String(s.name || "").toLowerCase().includes(pnQuery.toLowerCase());
-          });
-        } else {
-          exactItems = items.filter(
-            (o) => String(o.posting_number || "").trim().toLowerCase() === pnQuery.toLowerCase()
-          );
-        }
-        if (exactItems.length) {
-          items = exactItems;
-        } else {
-          if (tbody) {
-            tbody.innerHTML = `<tr><td colspan="${colspan()}" class="wb-fbs-empty">Ищем отправление ${esc(pnQuery)}…</td></tr>`;
-          }
-          const infoPending = document.getElementById("ozonFbsInfo");
-          if (infoPending) infoPending.textContent = `Поиск отправления ${pnQuery}…`;
-          const lookup = await lookupPostingByNumber(pnQuery, { seq });
-          if (seq !== state.loadSeq) return;
-          if (lookup && applyLookupResult(lookup, pnQuery)) return;
-          items = [];
-          state.items = [];
-          state.total = 0;
-          syncTableMode();
-          if (suppliesMode) renderSuppliesTable([]);
-          else renderTable([]);
-          syncPackagingActionButtons();
-          const infoMiss = document.getElementById("ozonFbsInfo");
-          if (infoMiss) {
-            infoMiss.textContent = lookup?.message
-              || `Отправление ${pnQuery} не найдено в локальной базе`;
-          }
-          const pageInfoMiss = document.getElementById("ozonFbsPageInfo");
-          if (pageInfoMiss) pageInfoMiss.textContent = "1 / 1";
-          const prevMiss = document.getElementById("ozonFbsPrevBtn");
-          const nextMiss = document.getElementById("ozonFbsNextBtn");
-          if (prevMiss) prevMiss.disabled = true;
-          if (nextMiss) nextMiss.disabled = true;
-          return;
-        }
-      }
-
-      if (seq !== state.loadSeq) return;
-      state.total = suppliesMode ? items.length : (pnQuery ? items.length : Number(data.total || 0));
+      state.total = suppliesMode ? items.length : Number(data.total || 0);
       if (suppliesMode) {
         const adopted = Number(data.adopted_orphans || 0);
         if (adopted > 0) {
