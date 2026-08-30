@@ -1301,6 +1301,170 @@
     document.getElementById("ozonFbsCollectResultModal")?.classList.add("hidden");
   }
 
+  /** Ozon /v4/posting/fbs/ship common errors → operator text + what to do. */
+  const OZON_SHIP_ERROR_HINTS = {
+    EXEMPLAR_INFO_NOT_FILLED_COMPLETELY: {
+      text: "Не заполнены данные экземпляров: нужен КИЗ («Честный ЗНАК») и/или ГТД.",
+      action:
+        "Откройте поставку с этим отправлением → «Маркировка», внесите коды (и ГТД, если требуется). Если поставки ещё нет — заполните маркировку и повторите «Собрать все заказы».",
+    },
+    EXEMPLAR_INFO_ALREADY_DEFINED: {
+      text: "Данные экземпляров по этому заказу уже переданы в Ozon.",
+      action: "Повторно вводить КИЗ не нужно. Обновите список (синхронизация) и при необходимости соберите снова.",
+    },
+    MANDATORY_MARK_REDUNDANT: {
+      text: "Для этого товара код маркировки передавать не нужно.",
+      action: "Уберите лишний КИЗ у отправления и повторите сборку.",
+    },
+    GTD_MUST_BE_SPECIFIED_FOR_PRODUCT_COUNTRY: {
+      text: "Не указан номер ГТД для товара.",
+      action: "В «Маркировке» укажите ГТД. Если декларации нет — отметьте, что ГТД отсутствует, и повторите сборку.",
+    },
+    GTD_IS_REQUIRED_ONLY_FOR_LEGAL_CUSTOMER: {
+      text: "ГТД для этого заказа передавать не нужно (покупатель не юрлицо).",
+      action: "Уберите ГТД у отправления и повторите сборку.",
+    },
+    POSTING_NOT_FOUND: {
+      text: "Отправления нет в кабинете Ozon.",
+      action: "Запустите синхронизацию. Если заказ исчез — он отменён или удалён в Ozon.",
+    },
+    POSTING_ALREADY_CANCELLED: {
+      text: "Заказ уже отменён в Ozon.",
+      action: "Собирать его не нужно. Обновите список синхронизацией.",
+    },
+    POSTING_ALREADY_SHIPPED: {
+      text: "Заказ уже собран в Ozon.",
+      action: "Синхронизируйте раздел — отправление должно появиться в «Ожидают отгрузки».",
+    },
+    HAS_INCORRECT_STATUS: {
+      text: "У заказа неподходящий статус для сборки.",
+      action: "Синхронизируйте раздел и соберите только отправления из «Ожидают сборки».",
+    },
+    HAS_INCORRECT_PRODUCT_QUANTITY: {
+      text: "Неверное количество товара или SKU в запросе сборки.",
+      action: "Синхронизируйте заказ и повторите сборку. Если ошибка останется — проверьте состав заказа в кабинете Ozon.",
+    },
+    UNKNOWN_PRODUCT_DEFINED: {
+      text: "Указан неверный идентификатор товара (SKU Ozon).",
+      action: "Синхронизируйте заказы. Если ошибка повторяется — проверьте карточку товара в кабинете Ozon.",
+    },
+    UNKNOW_PRODUCT: {
+      text: "Указан неверный идентификатор товара (SKU Ozon).",
+      action: "Синхронизируйте заказы. Если ошибка повторяется — проверьте карточку товара в кабинете Ozon.",
+    },
+    SHIP_FBP_POSTINGS_IS_FORBIDDEN: {
+      text: "Это отправление FBP — сборка FBS для него не нужна.",
+      action: "Пропустите этот заказ. При необходимости обновите список синхронизацией.",
+    },
+    TRANSITION_IS_NOT_POSSIBLE: {
+      text: "Нельзя перевести заказ в следующий статус (неверный порядок статусов).",
+      action: "Синхронизируйте раздел и проверьте статус заказа в кабинете Ozon.",
+    },
+    HAS_INCORRECT_TPL_INTEGRATION_TYPE: {
+      text: "Нельзя менять статус: доставка через интегрированную службу (rFBS).",
+      action: "С этим заказом работайте по правилам rFBS в кабинете Ozon.",
+    },
+    SHIP_NOT_AVAILABLE: {
+      text: "Сборка недоступна: Ozon ещё не принял данные экземпляров.",
+      action: "Проверьте «Маркировку» (КИЗ/ГТД), подождите немного и повторите «Собрать все заказы».",
+    },
+  };
+
+  function extractOzonApiErrorCode(raw) {
+    const s = String(raw || "");
+    if (!s) return "";
+    const fromJson = s.match(/"message"\s*:\s*"([^"]+)"/i);
+    if (fromJson) {
+      let code = String(fromJson[1] || "").trim().toUpperCase().replace(/\s+/g, "_");
+      if (code === "UNKNOWN_PRODUCT" || code === "UNKNOW_PRODUCT") {
+        return "UNKNOWN_PRODUCT_DEFINED";
+      }
+      if (OZON_SHIP_ERROR_HINTS[code]) return code;
+      const keys = Object.keys(OZON_SHIP_ERROR_HINTS).sort((a, b) => b.length - a.length);
+      for (const k of keys) {
+        if (code.includes(k)) return k;
+      }
+    }
+    const upper = s.toUpperCase();
+    const keys = Object.keys(OZON_SHIP_ERROR_HINTS).sort((a, b) => b.length - a.length);
+    for (const k of keys) {
+      if (upper.includes(k)) return k;
+    }
+    if (/UNKNOWN_PRODUCT|UNKNOW_PRODUCT/.test(upper)) return "UNKNOWN_PRODUCT_DEFINED";
+    if (/SHIP_NOT_AVAILABLE|SHIP-NOT-AVAILABLE/.test(upper)) return "SHIP_NOT_AVAILABLE";
+    return "";
+  }
+
+  function humanizeOzonCollectError(raw) {
+    const textRaw = String(raw || "").trim();
+    const code = extractOzonApiErrorCode(textRaw);
+    const hint = code ? OZON_SHIP_ERROR_HINTS[code] : null;
+    if (hint) {
+      return { code, text: hint.text, action: hint.action, raw: textRaw };
+    }
+    const httpMatch = textRaw.match(/^Ozon HTTP\s+(\d+):\s*([\s\S]+)$/i);
+    if (httpMatch) {
+      let body = String(httpMatch[2] || "").trim();
+      try {
+        const parsed = JSON.parse(body);
+        if (parsed && typeof parsed === "object" && parsed.message != null) {
+          body = String(parsed.message);
+        }
+      } catch (_e) {
+        /* keep body */
+      }
+      return {
+        code: "",
+        text: `Ошибка Ozon (HTTP ${httpMatch[1]}): ${body}`,
+        action:
+          "Проверьте статус отправления в кабинете Ozon, синхронизируйте раздел и повторите сборку.",
+        raw: textRaw,
+      };
+    }
+    if (/^ozon network error/i.test(textRaw)) {
+      return {
+        code: "",
+        text: "Нет связи с Ozon при сборке.",
+        action: "Проверьте интернет и повторите «Собрать все заказы».",
+        raw: textRaw,
+      };
+    }
+    return {
+      code: "",
+      text: textRaw || "Неизвестная ошибка",
+      action: textRaw ? "" : "Повторите сборку или обратитесь в поддержку.",
+      raw: textRaw,
+    };
+  }
+
+  function formatCollectErrorItemHtml(err) {
+    let posting = "";
+    let raw = "";
+    if (typeof err === "string") {
+      raw = err;
+      const m = err.match(/^(\S+):\s*([\s\S]+)$/);
+      if (m && /[-\d]/.test(m[1]) && /ozon|exemplar|posting|http|ошиб/i.test(m[2])) {
+        posting = m[1];
+        raw = m[2];
+      }
+    } else if (err && typeof err === "object") {
+      posting = String(err.posting_number || "").trim();
+      raw = String(err.error || err.message || "").trim();
+    }
+    const h = humanizeOzonCollectError(raw);
+    const pnHtml = posting && posting !== "—" && posting !== "?"
+      ? `${formatOzonPostingNumberHtml(posting)}: `
+      : "";
+    const tip = h.raw && h.raw !== h.text ? ` title="${esc(h.raw)}"` : "";
+    let html = `<li class="ozon-fbs-collect-err-item"${tip}>`;
+    html += `<div class="ozon-fbs-collect-err-main">${pnHtml}${esc(h.text)}</div>`;
+    if (h.action) {
+      html += `<div class="ozon-fbs-collect-err-action">Что сделать: ${esc(h.action)}</div>`;
+    }
+    html += "</li>";
+    return html;
+  }
+
   function showCollectResult(data) {
     const modal = document.getElementById("ozonFbsCollectResultModal");
     const title = document.getElementById("ozonFbsCollectResultTitle");
@@ -1324,11 +1488,8 @@
       ).join("") + "</ul>";
     }
     if (errors.length) {
-      html += `<p class="wb-fbs-collect-mgt-result-err">Ошибки:</p><ul class="wb-fbs-collect-mgt-result-err">` +
-        errors.map((e) => {
-          if (typeof e === "string") return `<li>${esc(e)}</li>`;
-          return `<li>${formatOzonPostingNumberHtml(e.posting_number || "")}: ${esc(e.error || "")}</li>`;
-        }).join("") + "</ul>";
+      html += `<p class="wb-fbs-collect-mgt-result-err">Ошибки:</p><ul class="wb-fbs-collect-mgt-result-err ozon-fbs-collect-err-list">` +
+        errors.map((e) => formatCollectErrorItemHtml(e)).join("") + "</ul>";
     }
     body.innerHTML = html;
     modal.classList.remove("hidden");

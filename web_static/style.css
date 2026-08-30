@@ -8685,6 +8685,27 @@ button.ozon-fbs-split-multi-btn[hidden] {
 }
 .wb-fbs-collect-mgt-result-ok { color: #166534; }
 .wb-fbs-collect-mgt-result-err { color: #b91c1c; }
+.ozon-fbs-collect-err-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ozon-fbs-collect-err-item {
+  list-style: disc;
+}
+.ozon-fbs-collect-err-main {
+  color: #b91c1c;
+  font-size: 16px;
+  line-height: 1.4;
+  font-weight: 600;
+}
+.ozon-fbs-collect-err-action {
+  margin-top: 4px;
+  color: #334155;
+  font-size: 14px;
+  line-height: 1.4;
+  font-weight: 400;
+}
 button.wb-fbs-bottom-add-existing.hidden {
   display: none !important;
 }
