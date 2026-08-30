@@ -3130,6 +3130,35 @@ def _fmt_posting_date(value: object) -> str:
     return text[:10] if len(text) >= 10 else text
 
 
+def sort_supply_detail_orders_oldest_first(
+    orders: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Oldest order time first — for the supply detail modal only.
+
+    Print paths (picking list / stickers) must keep calling ``get_supply_detail``
+    / ``get_supply_detail_for_print`` without this sort so their grouping order
+    stays unchanged.
+    """
+    rows = [o for o in (orders or []) if isinstance(o, dict)]
+
+    def _ts(o: dict[str, Any]) -> tuple[float, str]:
+        raw = str(o.get("created_at_ozon") or o.get("in_process_at") or "").strip()
+        pn = str(o.get("posting_number") or "")
+        if not raw:
+            return (float("inf"), pn)
+        try:
+            from datetime import datetime
+
+            # Ozon may send Z / offset; fromisoformat needs +00:00 for Z.
+            normalized = raw.replace("Z", "+00:00") if raw.endswith("Z") else raw
+            dt = datetime.fromisoformat(normalized)
+            return (dt.timestamp(), pn)
+        except Exception:
+            return (float("inf"), pn)
+
+    return sorted(rows, key=_ts)
+
+
 def _posting_row_payload(row: dict[str, Any]) -> dict[str, Any]:
     pn = str(row.get("posting_number") or "").strip()
     created = row.get("created_at_ozon") or row.get("in_process_at")

@@ -903,6 +903,22 @@ class OzonFbsDeliveringSuppliesTests(unittest.TestCase):
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["name"], "Переименованная поставка")
 
+    def test_sort_supply_detail_orders_oldest_first(self) -> None:
+        from review_processor.ozon_fbs_supplies import (
+            sort_supply_detail_orders_oldest_first,
+        )
+
+        rows = [
+            {"posting_number": "B", "created_at_ozon": "2026-08-30T12:00:00Z"},
+            {"posting_number": "A", "created_at_ozon": "2026-08-29T12:00:00Z"},
+            {"posting_number": "C", "in_process_at": "2026-08-28T12:00:00Z"},
+            {"posting_number": "Z"},
+        ]
+        out = sort_supply_detail_orders_oldest_first(rows)
+        self.assertEqual([o["posting_number"] for o in out], ["C", "A", "B", "Z"])
+        # Helper must not mutate the source list (print paths share dicts).
+        self.assertEqual(rows[0]["posting_number"], "B")
+
 
 if __name__ == "__main__":
     unittest.main()

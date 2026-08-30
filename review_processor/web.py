@@ -13717,7 +13717,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
         tab_key = str(posting_tab or "").strip() or None
         try:
-            return oz_sup.get_supply_detail(
+            detail = oz_sup.get_supply_detail(
                 repository,
                 user_id=owner_id,
                 source_id=int(source_id),
@@ -13727,6 +13727,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 api_key=api_key,
                 refresh_from_ozon=bool(refresh) and tab_key != "delivering",
             )
+            # Modal-only order: oldest postings first. Picking/stickers use
+            # get_supply_detail_for_print and keep the default DB order.
+            orders = oz_sup.sort_supply_detail_orders_oldest_first(
+                list(detail.get("orders") or [])
+            )
+            detail = dict(detail)
+            detail["orders"] = orders
+            detail["order_count"] = len(orders)
+            return detail
         except RuntimeError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 

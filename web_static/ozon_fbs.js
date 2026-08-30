@@ -200,6 +200,30 @@
     return `${days} дн назад`;
   }
 
+  /** Order time for supply-detail modal only (oldest → newest). */
+  function _ozonFbsOrderTimeMs(row) {
+    const raw = String(row?.created_at_ozon || row?.in_process_at || "").trim();
+    if (!raw) return Number.POSITIVE_INFINITY;
+    const t = Date.parse(raw);
+    return Number.isFinite(t) ? t : Number.POSITIVE_INFINITY;
+  }
+
+  /**
+   * Sort postings oldest-first for the supply detail modal table.
+   * Does not mutate the source array; picking lists / stickers use other APIs.
+   */
+  function sortSupplyDetailOrdersOldestFirst(rows) {
+    return (rows || []).slice().sort((a, b) => {
+      const da = _ozonFbsOrderTimeMs(a);
+      const db = _ozonFbsOrderTimeMs(b);
+      if (da !== db) return da - db;
+      return String(a?.posting_number || "").localeCompare(
+        String(b?.posting_number || ""),
+        "ru"
+      );
+    });
+  }
+
   function jsonHeaders() {
     const h = { "Content-Type": "application/json" };
     const csrf = typeof window.getCsrfToken === "function" ? window.getCsrfToken() : "";
@@ -2595,7 +2619,9 @@
         sid ? `<span class="wb-fbs-sd-chip">ID ${esc(sid)}</span>` : "",
       ].filter(Boolean).join("");
     }
-    const allOrders = Array.isArray(supply.orders) ? supply.orders : [];
+    const allOrdersRaw = Array.isArray(supply.orders) ? supply.orders : [];
+    // Modal-only: oldest orders on top. Print endpoints keep their own order.
+    const allOrders = sortSupplyDetailOrdersOldestFirst(allOrdersRaw);
     const kizSplit = document.getElementById("ozonFbsKizSplit");
     const kizBtn = document.getElementById("ozonFbsSupplyDetailKizBtn");
     const kizRefreshBtn = document.getElementById("ozonFbsSupplyDetailKizRefreshBtn");
