@@ -4427,8 +4427,9 @@
               <div>
                 <h4 class="no-margin">ГТД (таможенные декларации)</h4>
                 <p class="small" style="margin:8px 0 0;color:#64748b;max-width:720px">
-                  Загрузите PDF декларации / дополнения к ДТ. Сохраняем номер ГТД и КИЗ из графы 31
-                  (короткий формат для ЧЗ). Повторная загрузка той же ГТД запрещена; уже известные КИЗ не затираются.
+                  Загрузите PDF декларации / дополнения к ДТ или PDF со стикерами Честного ЗНАКа
+                  (текст КИ под Data Matrix). Сохраняем номер ГТД и короткие КИЗ для ЧЗ.
+                  Можно приложить несколько файлов. Уже известные КИЗ не затираются.
                 </p>
               </div>
               <button type="button" onclick="openSupplyGtdImportModal()">Добавить ГТД</button>
@@ -4454,6 +4455,7 @@
                     <th style="width:160px">Загружено</th>
                     <th>Примечание</th>
                     <th style="width:160px">Файл</th>
+                    <th style="width:88px"></th>
                   </tr>
                 </thead>
                 <tbody id="supplyGtdTbody"></tbody>
@@ -4481,10 +4483,10 @@
                           placeholder="Необязательно: поставщик, партия, склад…"></textarea>
               </div>
               <div class="wfg-field" style="grid-column:1 / -1">
-                <label class="wfg-label" for="supplyGtdPdfInput">PDF декларации / дополнения</label>
-                <input id="supplyGtdPdfInput" type="file" accept="application/pdf,.pdf" />
+                <label class="wfg-label" for="supplyGtdPdfInput">PDF (ДТ / дополнения / стикеры)</label>
+                <input id="supplyGtdPdfInput" type="file" accept="application/pdf,.pdf" multiple />
                 <span class="small" style="color:#64748b;margin-top:4px;display:block">
-                  Текстовый PDF (не скан-картинка). До ~20&nbsp;000 КИЗ.
+                  Можно несколько файлов. Текстовый PDF ДТ или стикеры с КИ / Data Matrix.
                 </span>
               </div>
             </div>
@@ -4492,6 +4494,60 @@
             <div class="row" style="margin-top:16px;gap:8px;justify-content:flex-end">
               <button type="button" class="secondary" onclick="closeSupplyGtdImportModal()">Отмена</button>
               <button type="button" id="supplyGtdImportSubmitBtn" onclick="submitSupplyGtdImport()">Загрузить</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="supplyGtdEditModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="supplyGtdEditTitle">
+          <div class="modal-card" style="width:min(560px,100%);max-width:560px">
+            <div class="row row-between" style="margin-bottom:16px;align-items:flex-start;gap:12px">
+              <h3 id="supplyGtdEditTitle" class="no-margin">Редактировать ГТД</h3>
+              <button type="button" class="icon-btn secondary" onclick="closeSupplyGtdEditModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <input type="hidden" id="supplyGtdEditId" value="" />
+            <div class="worker-form-grid">
+              <div class="wfg-field" style="grid-column:1 / -1">
+                <label class="wfg-label" for="supplyGtdEditNumberInput">Номер ГТД</label>
+                <input id="supplyGtdEditNumberInput" type="text" autocomplete="off"
+                       placeholder="10323010/250826/5101277" />
+              </div>
+              <div class="wfg-field" style="grid-column:1 / -1">
+                <label class="wfg-label" for="supplyGtdEditNoteInput">Примечание</label>
+                <textarea id="supplyGtdEditNoteInput" class="textarea-compact" rows="3"
+                          placeholder="Необязательно: поставщик, партия, склад…"></textarea>
+              </div>
+              <div class="wfg-field" style="grid-column:1 / -1">
+                <label class="wfg-label" for="supplyGtdEditPdfInput">Догрузить PDF с кодами</label>
+                <input id="supplyGtdEditPdfInput" type="file" accept="application/pdf,.pdf" multiple />
+                <span class="small" style="color:#64748b;margin-top:4px;display:block">
+                  Необязательно. Новые КИЗ добавятся к этой ГТД; уже известные не затираются.
+                </span>
+              </div>
+            </div>
+            <div id="supplyGtdEditErr" class="small" style="color:#b91c1c;margin-top:12px" hidden></div>
+            <div class="row" style="margin-top:16px;gap:8px;justify-content:flex-end">
+              <button type="button" class="secondary" onclick="closeSupplyGtdEditModal()">Отмена</button>
+              <button type="button" id="supplyGtdEditSubmitBtn" onclick="submitSupplyGtdEdit()">Сохранить</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="supplyGtdDeleteModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="supplyGtdDeleteTitle">
+          <div class="modal-card" style="width:min(480px,100%);max-width:480px">
+            <div class="row row-between" style="margin-bottom:16px;align-items:flex-start;gap:12px">
+              <h3 id="supplyGtdDeleteTitle" class="no-margin">Удалить ГТД?</h3>
+              <button type="button" class="icon-btn secondary" onclick="closeSupplyGtdDeleteModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <input type="hidden" id="supplyGtdDeleteId" value="" />
+            <p id="supplyGtdDeleteBody" class="small" style="margin:0;color:#334155;line-height:1.5"></p>
+            <div id="supplyGtdDeleteErr" class="small" style="color:#b91c1c;margin-top:12px" hidden></div>
+            <div class="row" style="margin-top:16px;gap:8px;justify-content:flex-end">
+              <button type="button" class="secondary" onclick="closeSupplyGtdDeleteModal()">Отмена</button>
+              <button type="button" id="supplyGtdDeleteConfirmBtn"
+                      style="background:#b91c1c;border-color:#b91c1c;color:#fff"
+                      onclick="confirmSupplyGtdDelete()">Удалить</button>
             </div>
           </div>
         </div>
@@ -6225,6 +6281,6 @@
   </div>
 
   <script src="/static/ozon_fbs.js?v=50"></script>
-  <script src="/static/app.js?v=514"></script>
+  <script src="/static/app.js?v=515"></script>
 </body>
 </html>

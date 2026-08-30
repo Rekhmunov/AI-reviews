@@ -10991,9 +10991,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
 
     def _can_view_supply_gtd(user: dict[str, object]) -> bool:
-        """GTD catalog lives next to ЧЗ in Настройки — owner/admin roles only."""
-        role = str(user.get("role") or ROLE_USER)
-        return role in ROLE_CAN_ACCESS_SETTINGS
+        """GTD catalog: owner (admin) only — not managers."""
+        return str(user.get("role") or "") == ROLE_ADMIN
 
     @app.get("/api/supply-gtd")
     def list_supply_gtd(request: Request, kiz: str | None = None) -> dict[str, object]:
@@ -11024,33 +11023,115 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.post("/api/supply-gtd/import")
     async def import_supply_gtd(
         request: Request,
-        file: UploadFile = File(...),
         gtd_number: str = Form(...),
         note: str = Form(""),
+        files: list[UploadFile] | None = File(None),
+        file: UploadFile | None = File(None),
     ) -> dict[str, object]:
         from . import supply_gtd as gtd_mod
 
         user = _require_user(request)
         if not _can_view_supply_gtd(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
-        raw = await file.read()
-        if not raw:
-            raise HTTPException(status_code=400, detail="Пустой файл")
-        name = str(file.filename or "").strip()
-        if name and not name.lower().endswith(".pdf"):
-            raise HTTPException(status_code=400, detail="Нужен файл PDF")
+        uploads: list[UploadFile] = []
+        if files:
+            uploads.extend([f for f in files if f is not None])
+        if file is not None:
+            uploads.append(file)
+        if not uploads:
+            raise HTTPException(status_code=400, detail="Выберите хотя бы один PDF")
+        parsed_files: list[tuple[str, bytes]] = []
+        for up in uploads:
+            raw = await up.read()
+            if not raw:
+                continue
+            name = str(up.filename or "").strip() or "gtd.pdf"
+            if not name.lower().endswith(".pdf"):
+                raise HTTPException(status_code=400, detail=f"Нужен PDF: {name}")
+            parsed_files.append((name, raw))
+        if not parsed_files:
+            raise HTTPException(status_code=400, detail="Пустые файлы")
         try:
-            return gtd_mod.import_gtd_pdf(
+            return gtd_mod.import_gtd_pdfs(
                 repository,
                 user_id=_supply_owner_id(user),
-                pdf_bytes=raw,
+                files=parsed_files,
                 gtd_number=str(gtd_number or ""),
                 note=str(note or ""),
-                filename=name,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/supply-gtd/{gtd_id}")
+    def get_supply_gtd(request: Request, gtd_id: int) -> dict[str, object]:
+        from . import supply_gtd as gtd_mod
+
+        user = _require_user(request)
+        if not _can_view_supply_gtd(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        item = gtd_mod.get_gtd_by_id(
+            repository,
+            user_id=_supply_owner_id(user),
+            gtd_id=int(gtd_id),
+        )
+        if not item:
+            raise HTTPException(status_code=404, detail="ГТД не найдена")
+        return {"ok": True, "item": item}
+
+    @app.post("/api/supply-gtd/{gtd_id}/update")
+    async def update_supply_gtd(
+        request: Request,
+        gtd_id: int,
+        gtd_number: str = Form(...),
+        note: str = Form(""),
+        files: list[UploadFile] | None = File(None),
+    ) -> dict[str, object]:
+        from . import supply_gtd as gtd_mod
+
+        user = _require_user(request)
+        if not _can_view_supply_gtd(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        parsed_files: list[tuple[str, bytes]] = []
+        for up in files or []:
+            if up is None:
+                continue
+            raw = await up.read()
+            if not raw:
+                continue
+            name = str(up.filename or "").strip() or "gtd.pdf"
+            if not name.lower().endswith(".pdf"):
+                raise HTTPException(status_code=400, detail=f"Нужен PDF: {name}")
+            parsed_files.append((name, raw))
+        try:
+            return gtd_mod.update_gtd(
+                repository,
+                user_id=_supply_owner_id(user),
+                gtd_id=int(gtd_id),
+                gtd_number=str(gtd_number or ""),
+                note=str(note or ""),
+                files=parsed_files or None,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/supply-gtd/{gtd_id}/delete")
+    def delete_supply_gtd(request: Request, gtd_id: int) -> dict[str, object]:
+        from . import supply_gtd as gtd_mod
+
+        user = _require_user(request)
+        if not _can_view_supply_gtd(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        try:
+            return gtd_mod.delete_gtd(
+                repository,
+                user_id=_supply_owner_id(user),
+                gtd_id=int(gtd_id),
+            )
+        except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # ── WB FBS → Честный знак: вывод / возврат КИЗ (new block) ─────────────

@@ -16022,6 +16022,11 @@ document.addEventListener("DOMContentLoaded", () => {
       const gtdTab = document.getElementById("supplies-settings-tab-gtd");
       if (gtdTab) gtdTab.style.display = "none";
     }
+    // ГТД — только основной пользователь (admin), не менеджеры с доступом к настройкам.
+    if (!APP_BOOT?.is_admin) {
+      const gtdTabOwner = document.getElementById("supplies-settings-tab-gtd");
+      if (gtdTabOwner) gtdTabOwner.style.display = "none";
+    }
     Promise.all([
       loadSupplySources(),
       loadSupplyDrivers(),
@@ -17463,6 +17468,8 @@ window.showSuppliesSettingsTab = function(tab) {
   const permissions = getPermissions();
   // Redirect manager (no settings access) away from sources/edo/chz/gtd tabs to drivers
   if ((tab === "sources" || tab === "edo" || tab === "chz" || tab === "gtd") && !permissions.can_view_settings) tab = "drivers";
+  // ГТД — только основной пользователь
+  if (tab === "gtd" && !APP_BOOT?.is_admin) tab = permissions.can_view_settings ? "sources" : "drivers";
   document.querySelectorAll("#section-supplies-settings .settings-tab-btn").forEach((b) => b.classList.remove("active"));
   document.getElementById(`supplies-settings-tab-${tab}`)?.classList.add("active");
   document.querySelectorAll("[id^='supplies-settings-pane-']").forEach((p) => { p.classList.add("hidden"); p.style.display = "none"; });
@@ -20754,6 +20761,8 @@ let _supplyGtdState = {
   items: [],
   kizQuery: "",
   busy: false,
+  editId: 0,
+  deleteId: 0,
 };
 
 function _supplyGtdEsc(s) {
@@ -20785,12 +20794,26 @@ function _supplyGtdSetSearchInfo(text, ok) {
   el.style.color = ok === true ? "#16a34a" : ok === false ? "#b91c1c" : "#64748b";
 }
 
+function _supplyGtdCsrfHeaders() {
+  const headers = {};
+  const csrf = typeof getCsrfToken === "function" ? getCsrfToken() : "";
+  if (csrf) headers["X-CSRF-Token"] = csrf;
+  return headers;
+}
+
+function _supplyGtdDetailError(data, fallback) {
+  const detail = data && data.detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) return detail.map((x) => x.msg || x).join("; ");
+  return (data && data.message) || fallback || "Ошибка";
+}
+
 function renderSupplyGtdTable(items) {
   const tbody = document.getElementById("supplyGtdTbody");
   if (!tbody) return;
   const list = Array.isArray(items) ? items : [];
   if (!list.length) {
-    tbody.innerHTML = `<tr><td colspan="6" class="wb-fbs-empty">${
+    tbody.innerHTML = `<tr><td colspan="7" class="wb-fbs-empty">${
       _supplyGtdState.kizQuery
         ? "По этому КИЗ ГТД не найдена"
         : "ГТД ещё не загружены. Нажмите «Добавить ГТД»."
@@ -20798,6 +20821,7 @@ function renderSupplyGtdTable(items) {
     return;
   }
   tbody.innerHTML = list.map((it, idx) => {
+    const id = Number(it.id) || 0;
     const num = String(it.gtd_number || "");
     const note = String(it.note || "").trim() || "—";
     const file = String(it.source_filename || "").trim() || "—";
@@ -20809,6 +20833,14 @@ function renderSupplyGtdTable(items) {
       <td>${_supplyGtdEsc(_supplyGtdFmtDate(it.created_at))}</td>
       <td title="${_supplyGtdEsc(note)}">${_supplyGtdEsc(note)}</td>
       <td title="${_supplyGtdEsc(file)}">${_supplyGtdEsc(file)}</td>
+      <td>
+        <div class="row" style="gap:4px;justify-content:flex-end;flex-wrap:nowrap">
+          <button type="button" class="icon-btn secondary" title="Редактировать"
+                  onclick="openSupplyGtdEditModal(${id})" aria-label="Редактировать">✎</button>
+          <button type="button" class="icon-btn danger" title="Удалить"
+                  onclick="openSupplyGtdDeleteModal(${id})" aria-label="Удалить">🗑</button>
+        </div>
+      </td>
     </tr>`;
   }).join("");
 }
@@ -20822,7 +20854,7 @@ async function loadSupplyGtdList(kizQuery) {
   try {
     const res = await fetch(url, { headers: jsonHeaders() });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || `Ошибка ${res.status}`);
+    if (!res.ok) throw new Error(_supplyGtdDetailError(data, `Ошибка ${res.status}`));
     _supplyGtdState.items = Array.isArray(data.items) ? data.items : [];
     renderSupplyGtdTable(_supplyGtdState.items);
     if (q) {
@@ -20901,8 +20933,8 @@ function showSupplyGtdImportResult(data) {
   html += "<ul>";
   html += `<li>Номер ГТД: <strong>${_supplyGtdEsc(data?.gtd_number || "")}</strong></li>`;
   html += `<li>Страниц PDF: ${_supplyGtdEsc(String(data?.page_count ?? "—"))}</li>`;
-  html += `<li>КИЗ распознано (уникальных): <strong>${_supplyGtdEsc(String(data?.kiz_parsed ?? 0))}</strong></li>`;
-  html += `<li>Добавлено новых в базу: <strong>${_supplyGtdEsc(String(data?.kiz_inserted ?? 0))}</strong></li>`;
+  html += `<li>КИЗ распознано (уникальных): <strong>${_supplyGtdEsc(String(data?.kiz_parsed ?? data?.kiz_count ?? 0))}</strong></li>`;
+  html += `<li>Добавлено новых в базу: <strong>${_supplyGtdEsc(String(data?.kiz_inserted ?? data?.kiz_inserted_new ?? 0))}</strong></li>`;
   html += `<li>Уже были в базе: ${_supplyGtdEsc(String(data?.kiz_already_in_db ?? 0))}`
     + (data?.kiz_already_other_gtd
       ? ` (из них в другой ГТД: ${Number(data.kiz_already_other_gtd) || 0})`
@@ -20940,44 +20972,33 @@ async function submitSupplyGtdImport() {
   const errEl = document.getElementById("supplyGtdImportErr");
   const btn = document.getElementById("supplyGtdImportSubmitBtn");
   const gtdNumber = String(numEl?.value || "").trim();
-  const file = fileEl?.files && fileEl.files[0] ? fileEl.files[0] : null;
+  const fileList = fileEl?.files ? Array.from(fileEl.files) : [];
   if (errEl) { errEl.hidden = true; errEl.textContent = ""; }
   if (!gtdNumber) {
     if (errEl) { errEl.hidden = false; errEl.textContent = "Укажите номер ГТД"; }
     return;
   }
-  if (!file) {
-    if (errEl) { errEl.hidden = false; errEl.textContent = "Выберите PDF файл"; }
+  if (!fileList.length) {
+    if (errEl) { errEl.hidden = false; errEl.textContent = "Выберите хотя бы один PDF"; }
     return;
   }
   const fd = new FormData();
   fd.append("gtd_number", gtdNumber);
   fd.append("note", String(noteEl?.value || ""));
-  fd.append("file", file, file.name || "gtd.pdf");
+  fileList.forEach((f) => fd.append("files", f, f.name || "gtd.pdf"));
   _supplyGtdState.busy = true;
   if (btn) {
     btn.disabled = true;
     btn.textContent = "Загрузка…";
   }
   try {
-    const csrf = typeof getCsrfToken === "function" ? getCsrfToken() : "";
-    const headers = {};
-    if (csrf) headers["X-CSRF-Token"] = csrf;
     const res = await fetch("/api/supply-gtd/import", {
       method: "POST",
-      headers,
+      headers: _supplyGtdCsrfHeaders(),
       body: fd,
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const detail = data.detail;
-      const msg = typeof detail === "string"
-        ? detail
-        : (Array.isArray(detail) ? detail.map((x) => x.msg || x).join("; ") : (data.message || `Ошибка ${res.status}`));
-      throw new Error(msg);
-    }
-    // Снимаем busy до close: иначе closeSupplyGtdImportModal() выходит рано и
-    // модалка импорта остаётся поверх результата.
+    if (!res.ok) throw new Error(_supplyGtdDetailError(data, `Ошибка ${res.status}`));
     _supplyGtdState.busy = false;
     closeSupplyGtdImportModal();
     showSupplyGtdImportResult(data);
@@ -20996,6 +21017,163 @@ async function submitSupplyGtdImport() {
   }
 }
 
+function openSupplyGtdEditModal(gtdId) {
+  const id = Number(gtdId) || 0;
+  const row = (_supplyGtdState.items || []).find((x) => Number(x.id) === id);
+  if (!id || !row) {
+    alert("ГТД не найдена в списке — обновите страницу");
+    return;
+  }
+  _supplyGtdState.editId = id;
+  const modal = document.getElementById("supplyGtdEditModal");
+  const idEl = document.getElementById("supplyGtdEditId");
+  const num = document.getElementById("supplyGtdEditNumberInput");
+  const note = document.getElementById("supplyGtdEditNoteInput");
+  const file = document.getElementById("supplyGtdEditPdfInput");
+  const err = document.getElementById("supplyGtdEditErr");
+  if (idEl) idEl.value = String(id);
+  if (num) num.value = String(row.gtd_number || "");
+  if (note) note.value = String(row.note || "");
+  if (file) file.value = "";
+  if (err) { err.hidden = true; err.textContent = ""; }
+  modal?.classList.remove("hidden");
+  setTimeout(() => num?.focus(), 40);
+}
+
+function closeSupplyGtdEditModal() {
+  if (_supplyGtdState.busy) return;
+  _supplyGtdState.editId = 0;
+  document.getElementById("supplyGtdEditModal")?.classList.add("hidden");
+}
+
+async function submitSupplyGtdEdit() {
+  if (_supplyGtdState.busy) return;
+  const id = Number(document.getElementById("supplyGtdEditId")?.value || _supplyGtdState.editId) || 0;
+  const numEl = document.getElementById("supplyGtdEditNumberInput");
+  const noteEl = document.getElementById("supplyGtdEditNoteInput");
+  const fileEl = document.getElementById("supplyGtdEditPdfInput");
+  const errEl = document.getElementById("supplyGtdEditErr");
+  const btn = document.getElementById("supplyGtdEditSubmitBtn");
+  const gtdNumber = String(numEl?.value || "").trim();
+  const fileList = fileEl?.files ? Array.from(fileEl.files) : [];
+  if (errEl) { errEl.hidden = true; errEl.textContent = ""; }
+  if (!id) {
+    if (errEl) { errEl.hidden = false; errEl.textContent = "Не выбрана ГТД"; }
+    return;
+  }
+  if (!gtdNumber) {
+    if (errEl) { errEl.hidden = false; errEl.textContent = "Укажите номер ГТД"; }
+    return;
+  }
+  const fd = new FormData();
+  fd.append("gtd_number", gtdNumber);
+  fd.append("note", String(noteEl?.value || ""));
+  fileList.forEach((f) => fd.append("files", f, f.name || "gtd.pdf"));
+  _supplyGtdState.busy = true;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Сохранение…";
+  }
+  try {
+    const res = await fetch(`/api/supply-gtd/${id}/update`, {
+      method: "POST",
+      headers: _supplyGtdCsrfHeaders(),
+      body: fd,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(_supplyGtdDetailError(data, `Ошибка ${res.status}`));
+    _supplyGtdState.busy = false;
+    closeSupplyGtdEditModal();
+    showSupplyGtdImportResult({
+      ...data,
+      ok: true,
+      page_count: data.item?.page_count,
+      kiz_inserted: data.kiz_inserted_new,
+      kiz_parsed: data.kiz_parsed,
+    });
+    const title = document.getElementById("supplyGtdResultTitle");
+    if (title) title.textContent = "ГТД обновлена";
+    await loadSupplyGtdList(_supplyGtdState.kizQuery || "");
+  } catch (e) {
+    if (errEl) {
+      errEl.hidden = false;
+      errEl.textContent = String(e.message || e);
+    }
+  } finally {
+    _supplyGtdState.busy = false;
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Сохранить";
+    }
+  }
+}
+
+function openSupplyGtdDeleteModal(gtdId) {
+  const id = Number(gtdId) || 0;
+  const row = (_supplyGtdState.items || []).find((x) => Number(x.id) === id);
+  if (!id || !row) {
+    alert("ГТД не найдена в списке — обновите страницу");
+    return;
+  }
+  _supplyGtdState.deleteId = id;
+  const modal = document.getElementById("supplyGtdDeleteModal");
+  const idEl = document.getElementById("supplyGtdDeleteId");
+  const body = document.getElementById("supplyGtdDeleteBody");
+  const err = document.getElementById("supplyGtdDeleteErr");
+  if (idEl) idEl.value = String(id);
+  if (body) {
+    const kizN = Number(row.kiz_count || row.kiz_inserted || 0) || 0;
+    body.textContent =
+      `Удалить ГТД ${row.gtd_number || id} и все её КИЗ из базы (${kizN} шт.)? `
+      + "Это действие нельзя отменить.";
+  }
+  if (err) { err.hidden = true; err.textContent = ""; }
+  modal?.classList.remove("hidden");
+}
+
+function closeSupplyGtdDeleteModal() {
+  if (_supplyGtdState.busy) return;
+  _supplyGtdState.deleteId = 0;
+  document.getElementById("supplyGtdDeleteModal")?.classList.add("hidden");
+}
+
+async function confirmSupplyGtdDelete() {
+  if (_supplyGtdState.busy) return;
+  const id = Number(document.getElementById("supplyGtdDeleteId")?.value || _supplyGtdState.deleteId) || 0;
+  const errEl = document.getElementById("supplyGtdDeleteErr");
+  const btn = document.getElementById("supplyGtdDeleteConfirmBtn");
+  if (!id) return;
+  if (errEl) { errEl.hidden = true; errEl.textContent = ""; }
+  _supplyGtdState.busy = true;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Удаление…";
+  }
+  try {
+    const res = await fetch(`/api/supply-gtd/${id}/delete`, {
+      method: "POST",
+      headers: { ...jsonHeaders(), ..._supplyGtdCsrfHeaders() },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(_supplyGtdDetailError(data, `Ошибка ${res.status}`));
+    _supplyGtdState.busy = false;
+    closeSupplyGtdDeleteModal();
+    _supplyGtdSetInfo(data.message || "ГТД удалена", true);
+    await loadSupplyGtdList(_supplyGtdState.kizQuery || "");
+  } catch (e) {
+    if (errEl) {
+      errEl.hidden = false;
+      errEl.textContent = String(e.message || e);
+    }
+  } finally {
+    _supplyGtdState.busy = false;
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Удалить";
+    }
+  }
+}
+
 window.loadSupplyGtdList = loadSupplyGtdList;
 window.searchSupplyGtdByKiz = searchSupplyGtdByKiz;
 window.clearSupplyGtdKizSearch = clearSupplyGtdKizSearch;
@@ -21003,6 +21181,12 @@ window.openSupplyGtdImportModal = openSupplyGtdImportModal;
 window.closeSupplyGtdImportModal = closeSupplyGtdImportModal;
 window.closeSupplyGtdResultModal = closeSupplyGtdResultModal;
 window.submitSupplyGtdImport = submitSupplyGtdImport;
+window.openSupplyGtdEditModal = openSupplyGtdEditModal;
+window.closeSupplyGtdEditModal = closeSupplyGtdEditModal;
+window.submitSupplyGtdEdit = submitSupplyGtdEdit;
+window.openSupplyGtdDeleteModal = openSupplyGtdDeleteModal;
+window.closeSupplyGtdDeleteModal = closeSupplyGtdDeleteModal;
+window.confirmSupplyGtdDelete = confirmSupplyGtdDelete;
 
 window.loadSupplyChzSettings = loadSupplyChzSettings;
 window.saveSupplyChzSettings = saveSupplyChzSettings;

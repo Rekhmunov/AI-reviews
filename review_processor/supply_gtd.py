@@ -1,11 +1,15 @@
-"""Supply settings → ГТД: import customs declaration PDF and store KIZ map.
+"""Supply settings → ГТД: import DT / sticker PDFs and store KIZ map.
 
-Parses text PDFs of «Декларация на товары» / «Дополнение к ДТ»:
-- GTD number ``NNNNNNNN/DDMMYY/NNNNNNN``
-- Identification marks from box 31 (short CHZ unit codes ``01``+GTIN14+``21``+serial)
+Sources:
+- Text PDFs of «Декларация на товары» / «Дополнение к ДТ» (box 31)
+- PDF sheets of Честный ЗНАК stickers (printed KI under Data Matrix and/or
+  decoded Data Matrix via pylibdmtx)
 
-No overwrite: existing GTD number is rejected; existing KIZ rows are kept
-and reported as already-in-db (same or other GTD).
+Stores short unit codes ``01``+GTIN14+``21``+serial (no crypto tail).
+
+Create refuses duplicate GTD numbers and refuses empty (zero KIZ) imports.
+Edit may rename GTD / change note / append more codes. Delete removes the
+document and all its KIZ (FK CASCADE).
 """
 from __future__ import annotations
 
@@ -26,7 +30,7 @@ _CSET82 = frozenset(
 )
 
 _GTD_RE = re.compile(r"\b(\d{8}/\d{6}/\d{7})\b")
-# Short unit KIZ as printed in DT box 31 (no crypto tail).
+# Short unit KIZ as printed in DT box 31 / under sticker Data Matrix.
 _KIZ_FIND_RE = re.compile(
     r"01(\d{14})21([!\"%&'()*+,\-./0-9:;<=>?A-Z_a-z]{6,20})"
 )
@@ -36,7 +40,11 @@ _QTY_SHT_RE = re.compile(
 )
 
 _MAX_PDF_BYTES = 80 * 1024 * 1024  # 80 MB
+_MAX_FILES_PER_IMPORT = 40
 _INSERT_BATCH = 1500
+# Sticker sheets: render DPI for Data Matrix decode (balance speed vs recall).
+_DMTX_DPI = 150
+_DMTX_MAX_PAGES = 400
 
 
 def ensure_supply_gtd_tables(repo: ReviewRepository) -> None:
@@ -172,47 +180,159 @@ def _extract_pdf_text(pdf_bytes: bytes) -> tuple[str, int]:
         doc.close()
 
 
-def parse_gtd_pdf(pdf_bytes: bytes) -> dict[str, Any]:
-    """Parse DT/supplement PDF → gtd candidates + validated unique KIZ shorts."""
-    if not pdf_bytes:
-        raise ValueError("Пустой PDF")
-    if len(pdf_bytes) > _MAX_PDF_BYTES:
-        raise ValueError("PDF слишком большой (макс. 80 МБ)")
-    text, page_count = _extract_pdf_text(pdf_bytes)
-    if not str(text or "").strip():
-        raise ValueError(
-            "В PDF нет текстового слоя. Нужен текстовый PDF из таможенной программы, не скан-картинка."
-        )
-
-    gtd_hits = _GTD_RE.findall(text)
-    gtd_preferred = ""
-    # Prefer number after «К ДТ N» / in header; else first hit.
-    m_dt = re.search(
-        r"(?:К\s*ДТ\s*N|ДТ\s*N|ДЕКЛАРАЦИЯ[^\n]{0,40})\s*[^\d]{0,12}(\d{8}/\d{6}/\d{7})",
-        text,
-        re.IGNORECASE,
-    )
-    if m_dt:
-        gtd_preferred = m_dt.group(1)
-    elif gtd_hits:
-        # Most common number in file usually is the declaration id.
-        counts: dict[str, int] = {}
-        for g in gtd_hits:
-            counts[g] = counts.get(g, 0) + 1
-        gtd_preferred = max(counts.items(), key=lambda kv: kv[1])[0]
-
+def _collect_kiz_from_text(text: str) -> tuple[dict[str, str], int]:
     found: dict[str, str] = {}
     rejected = 0
-    for m in _KIZ_FIND_RE.finditer(text):
+    for m in _KIZ_FIND_RE.finditer(text or ""):
         candidate = f"01{m.group(1)}21{m.group(2)}"
         short = kiz_short_from_raw(candidate)
         if not short:
             rejected += 1
             continue
         found.setdefault(short, short)
+    return found, rejected
+
+
+def _datamatrix_available() -> bool:
+    try:
+        from pylibdmtx.pylibdmtx import decode as _decode  # noqa: F401
+
+        return True
+    except Exception:
+        return False
+
+
+def _extract_kiz_via_datamatrix(pdf_bytes: bytes) -> tuple[dict[str, str], int, str]:
+    """Render PDF pages and decode Data Matrix → short KIZ map.
+
+    Returns ``(found, pages_scanned, warning_or_empty)``.
+    """
+    if not pdf_bytes:
+        return {}, 0, ""
+    try:
+        import pymupdf
+        from pylibdmtx.pylibdmtx import decode as dmtx_decode
+    except Exception as exc:
+        return {}, 0, (
+            "Декодирование Data Matrix недоступно "
+            f"(нужны pymupdf + pylibdmtx/libdmtx): {exc}"
+        )
+
+    found: dict[str, str] = {}
+    pages_scanned = 0
+    try:
+        doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+    except Exception as exc:
+        return {}, 0, f"Не удалось открыть PDF для Data Matrix: {exc}"
+
+    try:
+        page_count = int(doc.page_count or 0)
+        limit = min(page_count, _DMTX_MAX_PAGES)
+        zoom = _DMTX_DPI / 72.0
+        matrix = pymupdf.Matrix(zoom, zoom)
+        for page_index in range(limit):
+            page = doc[page_index]
+            pages_scanned += 1
+            try:
+                pix = page.get_pixmap(matrix=matrix, alpha=False)
+                img = pix.tobytes("png")
+            except Exception as exc:
+                _log.warning("gtd dmtx render page %s: %s", page_index, exc)
+                continue
+            try:
+                from io import BytesIO
+
+                from PIL import Image
+
+                pil = Image.open(BytesIO(img))
+                results = dmtx_decode(pil)
+            except Exception as exc:
+                _log.warning("gtd dmtx decode page %s: %s", page_index, exc)
+                continue
+            for item in results or []:
+                raw = ""
+                data = getattr(item, "data", None)
+                if isinstance(data, (bytes, bytearray)):
+                    raw = data.decode("utf-8", errors="ignore")
+                elif data is not None:
+                    raw = str(data)
+                short = kiz_short_from_raw(raw)
+                if short:
+                    found.setdefault(short, short)
+        warn = ""
+        if page_count > _DMTX_MAX_PAGES:
+            warn = (
+                f"Data Matrix: просканировано {_DMTX_MAX_PAGES} из {page_count} стр."
+            )
+        return found, pages_scanned, warn
+    finally:
+        doc.close()
+
+
+def parse_gtd_pdf(pdf_bytes: bytes) -> dict[str, Any]:
+    """Parse DT / sticker PDF → gtd candidates + validated unique KIZ shorts.
+
+    Prefer text-layer KI (DT box 31 or printed line under stickers). If no KIZ
+    found in text (image-only sticker sheet), fall back to Data Matrix decode.
+    """
+    if not pdf_bytes:
+        raise ValueError("Пустой PDF")
+    if len(pdf_bytes) > _MAX_PDF_BYTES:
+        raise ValueError("PDF слишком большой (макс. 80 МБ)")
+
+    text = ""
+    page_count = 0
+    text_error = ""
+    try:
+        text, page_count = _extract_pdf_text(pdf_bytes)
+    except RuntimeError as exc:
+        text_error = str(exc)
+        # Still try barcode path below.
+        try:
+            import pymupdf
+
+            doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+            try:
+                page_count = int(doc.page_count or 0)
+            finally:
+                doc.close()
+        except Exception:
+            page_count = 0
+
+    gtd_hits = _GTD_RE.findall(text) if text else []
+    gtd_preferred = ""
+    m_dt = re.search(
+        r"(?:К\s*ДТ\s*N|ДТ\s*N|ДЕКЛАРАЦИЯ[^\n]{0,40})\s*[^\d]{0,12}(\d{8}/\d{6}/\d{7})",
+        text,
+        re.IGNORECASE,
+    ) if text else None
+    if m_dt:
+        gtd_preferred = m_dt.group(1)
+    elif gtd_hits:
+        counts: dict[str, int] = {}
+        for g in gtd_hits:
+            counts[g] = counts.get(g, 0) + 1
+        gtd_preferred = max(counts.items(), key=lambda kv: kv[1])[0]
+
+    found, rejected = _collect_kiz_from_text(text)
+    source = "text" if found else ""
+    barcode_warning = ""
+    if not found:
+        dm_found, _, barcode_warning = _extract_kiz_via_datamatrix(pdf_bytes)
+        if dm_found:
+            found = dm_found
+            source = "datamatrix"
+            rejected = 0
+        elif text_error and not str(text or "").strip():
+            raise ValueError(
+                text_error
+                or "В PDF нет текстового слоя и не удалось прочитать Data Matrix. "
+                "Нужен текстовый PDF или стикеры с читаемым Data Matrix "
+                "(на сервере: pymupdf + pylibdmtx/libdmtx)."
+            )
 
     qty_hint = 0
-    for qm in _QTY_SHT_RE.finditer(text):
+    for qm in _QTY_SHT_RE.finditer(text or ""):
         try:
             qty_hint += int(float(str(qm.group(1)).replace(",", ".")))
         except (TypeError, ValueError):
@@ -226,6 +346,73 @@ def parse_gtd_pdf(pdf_bytes: bytes) -> dict[str, Any]:
         "kiz_parsed": len(found),
         "kiz_rejected": rejected,
         "qty_hint_sht": qty_hint if qty_hint > 0 else None,
+        "kiz_source": source,
+        "barcode_warning": barcode_warning,
+    }
+
+
+def parse_gtd_pdfs(
+    files: list[tuple[str, bytes]],
+) -> dict[str, Any]:
+    """Parse one or many PDFs; merge unique KIZ. ``files`` = (filename, bytes)."""
+    if not files:
+        raise ValueError("Выберите хотя бы один PDF")
+    if len(files) > _MAX_FILES_PER_IMPORT:
+        raise ValueError(f"Слишком много файлов (макс. {_MAX_FILES_PER_IMPORT})")
+
+    merged: dict[str, str] = {}
+    rejected = 0
+    page_count = 0
+    gtd_hits: list[str] = []
+    gtd_preferred = ""
+    qty_hint_total = 0
+    warn_list: list[str] = []
+    sources: list[str] = []
+    names: list[str] = []
+
+    for fname, raw in files:
+        name = str(fname or "").strip() or "file.pdf"
+        names.append(name)
+        if not raw:
+            warn_list.append(f"{name}: пустой файл — пропущен")
+            continue
+        if len(raw) > _MAX_PDF_BYTES:
+            raise ValueError(f"{name}: PDF слишком большой (макс. 80 МБ)")
+        parsed = parse_gtd_pdf(raw)
+        page_count += int(parsed.get("page_count") or 0)
+        rejected += int(parsed.get("kiz_rejected") or 0)
+        for ks in parsed.get("kiz_list") or []:
+            merged.setdefault(str(ks), str(ks))
+        src = str(parsed.get("kiz_source") or "")
+        if src:
+            sources.append(src)
+        pdf_gtd = normalize_gtd_number(parsed.get("gtd_number") or "")
+        if pdf_gtd:
+            gtd_hits.append(pdf_gtd)
+            if not gtd_preferred:
+                gtd_preferred = pdf_gtd
+        for c in parsed.get("gtd_candidates") or []:
+            gtd_hits.append(str(c))
+        qh = parsed.get("qty_hint_sht")
+        if isinstance(qh, int) and qh > 0:
+            qty_hint_total += qh
+        bw = str(parsed.get("barcode_warning") or "").strip()
+        if bw:
+            warn_list.append(f"{name}: {bw}")
+        if int(parsed.get("kiz_parsed") or 0) == 0:
+            warn_list.append(f"{name}: КИЗ не найдены")
+
+    return {
+        "gtd_number": gtd_preferred,
+        "gtd_candidates": sorted(set(gtd_hits)),
+        "page_count": page_count,
+        "kiz_list": sorted(merged.keys()),
+        "kiz_parsed": len(merged),
+        "kiz_rejected": rejected,
+        "qty_hint_sht": qty_hint_total if qty_hint_total > 0 else None,
+        "kiz_source": "+".join(sorted(set(sources))) if sources else "",
+        "warnings": warn_list,
+        "source_filenames": names,
     }
 
 
@@ -249,6 +436,133 @@ def get_gtd_by_number(
     return repo._row_to_dict(row) if row else None
 
 
+def get_gtd_by_id(
+    repo: ReviewRepository, *, user_id: int, gtd_id: int
+) -> dict[str, Any] | None:
+    ensure_supply_gtd_tables(repo)
+    gid = int(gtd_id or 0)
+    if gid <= 0:
+        return None
+    with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql(
+                """
+                SELECT d.*,
+                       (SELECT COUNT(*) FROM supply_gtd_kiz k
+                        WHERE k.gtd_id = d.id) AS kiz_count
+                FROM supply_gtd_documents d
+                WHERE d.user_id = ? AND d.id = ?
+                """
+            ),
+            (user_id, gid),
+        ).fetchone()
+    if not row:
+        return None
+    item = repo._row_to_dict(row)
+    item["kiz_count"] = int(item.get("kiz_count") or item.get("kiz_inserted") or 0)
+    item["created_at"] = str(item.get("created_at") or "")
+    return item
+
+
+def _classify_existing_kiz(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    gtd_number: str,
+    kiz_list: list[str],
+) -> tuple[list[str], list[dict[str, str]], list[str]]:
+    """Return (already_same, already_other, to_insert)."""
+    already_same: list[str] = []
+    already_other: list[dict[str, str]] = []
+    if not kiz_list:
+        return already_same, already_other, []
+    with repo._connect() as conn:
+        for i in range(0, len(kiz_list), _INSERT_BATCH):
+            chunk = kiz_list[i : i + _INSERT_BATCH]
+            placeholders = ",".join("?" for _ in chunk)
+            rows = conn.execute(
+                repo._sql(
+                    f"""
+                    SELECT kiz_short, gtd_number FROM supply_gtd_kiz
+                    WHERE user_id = ? AND kiz_short IN ({placeholders})
+                    """
+                ),
+                (user_id, *chunk),
+            ).fetchall()
+            for r in rows:
+                d = repo._row_to_dict(r)
+                ks = str(d.get("kiz_short") or "")
+                gn = str(d.get("gtd_number") or "")
+                if gn == gtd_number:
+                    already_same.append(ks)
+                else:
+                    already_other.append({"kiz_short": ks, "gtd_number": gn})
+    already_set = {x for x in already_same} | {x["kiz_short"] for x in already_other}
+    to_insert = [k for k in kiz_list if k not in already_set]
+    return already_same, already_other, to_insert
+
+
+def _insert_kiz_rows(
+    conn: Any,
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    gtd_id: int,
+    gtd_number: str,
+    to_insert: list[str],
+) -> int:
+    inserted = 0
+    for i in range(0, len(to_insert), _INSERT_BATCH):
+        chunk = to_insert[i : i + _INSERT_BATCH]
+        args: list[Any] = []
+        values_sql = []
+        for ks in chunk:
+            gtin = ks[2:16] if len(ks) >= 16 else ""
+            values_sql.append("(?, ?, ?, ?, ?)")
+            args.extend([user_id, gtd_id, gtd_number, ks, gtin])
+        if not values_sql:
+            continue
+        conn.execute(
+            repo._sql(
+                f"""
+                INSERT INTO supply_gtd_kiz (
+                    user_id, gtd_id, gtd_number, kiz_short, gtin
+                ) VALUES {", ".join(values_sql)}
+                ON CONFLICT (user_id, kiz_short) DO NOTHING
+                """
+            ),
+            tuple(args),
+        )
+        inserted += len(chunk)
+    return inserted
+
+
+def _recount_gtd_kiz(
+    conn: Any, repo: ReviewRepository, *, user_id: int, gtd_id: int
+) -> int:
+    cnt_row = conn.execute(
+        repo._sql(
+            """
+            SELECT COUNT(*) AS n FROM supply_gtd_kiz
+            WHERE user_id = ? AND gtd_id = ?
+            """
+        ),
+        (user_id, gtd_id),
+    ).fetchone()
+    real_n = int(cnt_row["n"] if hasattr(cnt_row, "keys") else cnt_row[0] or 0)
+    conn.execute(
+        repo._sql(
+            """
+            UPDATE supply_gtd_documents
+            SET kiz_inserted = ?
+            WHERE id = ? AND user_id = ?
+            """
+        ),
+        (real_n, gtd_id, user_id),
+    )
+    return real_n
+
+
 def list_gtd_documents(
     repo: ReviewRepository,
     *,
@@ -258,7 +572,6 @@ def list_gtd_documents(
     ensure_supply_gtd_tables(repo)
     scan = str(kiz_scan or "").strip()
     short = kiz_short_from_raw(scan) if scan else ""
-    # Also try raw extract if scan is already short / partial.
     if scan and not short:
         return {
             "items": [],
@@ -318,7 +631,29 @@ def import_gtd_pdf(
     note: str = "",
     filename: str = "",
 ) -> dict[str, Any]:
-    """Import PDF. Refuses if GTD number already exists for the tenant."""
+    """Import a single PDF (compat wrapper)."""
+    return import_gtd_pdfs(
+        repo,
+        user_id=user_id,
+        files=[(filename or "gtd.pdf", pdf_bytes)],
+        gtd_number=gtd_number,
+        note=note,
+    )
+
+
+def import_gtd_pdfs(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    files: list[tuple[str, bytes]],
+    gtd_number: str,
+    note: str = "",
+) -> dict[str, Any]:
+    """Create GTD from one or many PDFs (DT and/or sticker sheets).
+
+    Refuses duplicate GTD number. Refuses create when zero valid KIZ found.
+    Existing KIZ (same/other GTD) are not overwritten.
+    """
     ensure_supply_gtd_tables(repo)
     manual = normalize_gtd_number(gtd_number)
     if not manual:
@@ -326,9 +661,9 @@ def import_gtd_pdf(
             "Укажите номер ГТД в формате 12345678/010126/1234567"
         )
 
-    parsed = parse_gtd_pdf(pdf_bytes)
+    parsed = parse_gtd_pdfs(files)
+    warnings: list[str] = list(parsed.get("warnings") or [])
     pdf_gtd = normalize_gtd_number(parsed.get("gtd_number") or "")
-    warnings: list[str] = []
     if pdf_gtd and pdf_gtd != manual:
         warnings.append(
             f"В PDF найден номер {pdf_gtd}, в форме указан {manual}. "
@@ -344,14 +679,15 @@ def import_gtd_pdf(
         raise ValueError(
             f"ГТД {manual} уже загружена ранее "
             f"(id={existing.get('id')}, КИЗ={existing.get('kiz_inserted') or existing.get('kiz_parsed') or 0}). "
-            "Повторная загрузка с перезаписью запрещена."
+            "Откройте редактирование, чтобы изменить номер/примечание или догрузить коды."
         )
 
     kiz_list: list[str] = list(parsed.get("kiz_list") or [])
     if not kiz_list:
         raise ValueError(
-            "В PDF не найдено ни одного валидного КИЗ. "
-            "Проверьте, что это дополнение к ДТ с блоком «средства идентификации»."
+            "Ни одного валидного КИЗ в файлах не найдено — ГТД не создана. "
+            "Загрузите PDF декларации/дополнения или PDF со стикерами Честного ЗНАКа "
+            "(с текстом КИ или читаемым Data Matrix)."
         )
 
     qty_hint = parsed.get("qty_hint_sht")
@@ -363,35 +699,13 @@ def import_gtd_pdf(
             )
 
     note_s = str(note or "").strip()[:2000]
-    fname = str(filename or "").strip()[:255]
+    names = [str(n or "").strip() for n in (parsed.get("source_filenames") or []) if str(n or "").strip()]
+    fname = "; ".join(names)[:255]
 
-    # Pre-check which KIZ already exist (for report).
-    already_same: list[str] = []
-    already_other: list[dict[str, str]] = []
-    with repo._connect() as conn:
-        for i in range(0, len(kiz_list), _INSERT_BATCH):
-            chunk = kiz_list[i : i + _INSERT_BATCH]
-            placeholders = ",".join("?" for _ in chunk)
-            rows = conn.execute(
-                repo._sql(
-                    f"""
-                    SELECT kiz_short, gtd_number FROM supply_gtd_kiz
-                    WHERE user_id = ? AND kiz_short IN ({placeholders})
-                    """
-                ),
-                (user_id, *chunk),
-            ).fetchall()
-            for r in rows:
-                d = repo._row_to_dict(r)
-                ks = str(d.get("kiz_short") or "")
-                gn = str(d.get("gtd_number") or "")
-                if gn == manual:
-                    already_same.append(ks)
-                else:
-                    already_other.append({"kiz_short": ks, "gtd_number": gn})
-
+    already_same, already_other, to_insert = _classify_existing_kiz(
+        repo, user_id=user_id, gtd_number=manual, kiz_list=kiz_list
+    )
     already_set = {x for x in already_same} | {x["kiz_short"] for x in already_other}
-    to_insert = [k for k in kiz_list if k not in already_set]
 
     with repo._connect() as conn:
         try:
@@ -418,56 +732,19 @@ def import_gtd_pdf(
         except UniqueViolation as exc:
             raise ValueError(
                 f"ГТД {manual} уже загружена ранее. "
-                "Повторная загрузка с перезаписью запрещена."
+                "Откройте редактирование, чтобы догрузить коды."
             ) from exc
         row = cur.fetchone()
         gtd_id = int(row["id"] if hasattr(row, "keys") else row[0])
-
-        inserted = 0
-        for i in range(0, len(to_insert), _INSERT_BATCH):
-            chunk = to_insert[i : i + _INSERT_BATCH]
-            args: list[Any] = []
-            values_sql = []
-            for ks in chunk:
-                gtin = ks[2:16] if len(ks) >= 16 else ""
-                values_sql.append("(?, ?, ?, ?, ?)")
-                args.extend([user_id, gtd_id, manual, ks, gtin])
-            if not values_sql:
-                continue
-            conn.execute(
-                repo._sql(
-                    f"""
-                    INSERT INTO supply_gtd_kiz (
-                        user_id, gtd_id, gtd_number, kiz_short, gtin
-                    ) VALUES {", ".join(values_sql)}
-                    ON CONFLICT (user_id, kiz_short) DO NOTHING
-                    """
-                ),
-                tuple(args),
-            )
-            inserted += len(chunk)
-
-        # Re-count actual rows for this gtd (in case of race).
-        cnt_row = conn.execute(
-            repo._sql(
-                """
-                SELECT COUNT(*) AS n FROM supply_gtd_kiz
-                WHERE user_id = ? AND gtd_id = ?
-                """
-            ),
-            (user_id, gtd_id),
-        ).fetchone()
-        real_n = int(cnt_row["n"] if hasattr(cnt_row, "keys") else cnt_row[0] or 0)
-        conn.execute(
-            repo._sql(
-                """
-                UPDATE supply_gtd_documents
-                SET kiz_inserted = ?
-                WHERE id = ? AND user_id = ?
-                """
-            ),
-            (real_n, gtd_id, user_id),
+        _insert_kiz_rows(
+            conn,
+            repo,
+            user_id=user_id,
+            gtd_id=gtd_id,
+            gtd_number=manual,
+            to_insert=to_insert,
         )
+        real_n = _recount_gtd_kiz(conn, repo, user_id=user_id, gtd_id=gtd_id)
 
     other_preview = already_other[:20]
     return {
@@ -483,12 +760,184 @@ def import_gtd_pdf(
         "kiz_already_same_gtd": len(already_same),
         "kiz_already_other_gtd": len(already_other),
         "kiz_rejected_invalid": int(parsed.get("kiz_rejected") or 0),
+        "kiz_source": str(parsed.get("kiz_source") or ""),
         "qty_hint_sht": qty_hint,
         "warnings": warnings,
         "already_other_gtd_samples": other_preview,
         "message": (
-            f"ГТД {manual} записана. КИЗ в PDF: {len(kiz_list)}, "
+            f"ГТД {manual} записана. КИЗ в файлах: {len(kiz_list)}, "
             f"добавлено новых: {real_n}, уже были в базе: {len(already_set)}."
+        ),
+    }
+
+
+def update_gtd(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    gtd_id: int,
+    gtd_number: str,
+    note: str = "",
+    files: list[tuple[str, bytes]] | None = None,
+) -> dict[str, Any]:
+    """Rename / change note / optionally append KIZ from extra PDFs."""
+    ensure_supply_gtd_tables(repo)
+    current = get_gtd_by_id(repo, user_id=user_id, gtd_id=gtd_id)
+    if not current:
+        raise ValueError("ГТД не найдена")
+
+    manual = normalize_gtd_number(gtd_number)
+    if not manual:
+        raise ValueError(
+            "Укажите номер ГТД в формате 12345678/010126/1234567"
+        )
+    note_s = str(note or "").strip()[:2000]
+    old_number = str(current.get("gtd_number") or "")
+    warnings: list[str] = []
+
+    if manual != old_number:
+        clash = get_gtd_by_number(repo, user_id=user_id, gtd_number=manual)
+        if clash and int(clash.get("id") or 0) != int(gtd_id):
+            raise ValueError(
+                f"Номер {manual} уже занят другой ГТД "
+                f"(id={clash.get('id')}). Укажите другой номер."
+            )
+
+    kiz_list: list[str] = []
+    page_extra = 0
+    new_names: list[str] = []
+    if files:
+        parsed = parse_gtd_pdfs(files)
+        warnings.extend(list(parsed.get("warnings") or []))
+        kiz_list = list(parsed.get("kiz_list") or [])
+        page_extra = int(parsed.get("page_count") or 0)
+        new_names = [
+            str(n or "").strip()
+            for n in (parsed.get("source_filenames") or [])
+            if str(n or "").strip()
+        ]
+        if not kiz_list:
+            raise ValueError(
+                "В дополнительных файлах не найдено ни одного валидного КИЗ. "
+                "Номер и примечание не изменены — исправьте файлы или уберите их."
+            )
+
+    already_same: list[str] = []
+    already_other: list[dict[str, str]] = []
+    to_insert: list[str] = []
+    if kiz_list:
+        already_same, already_other, to_insert = _classify_existing_kiz(
+            repo, user_id=user_id, gtd_number=manual, kiz_list=kiz_list
+        )
+
+    with repo._connect() as conn:
+        try:
+            conn.execute(
+                repo._sql(
+                    """
+                    UPDATE supply_gtd_documents
+                    SET gtd_number = ?, note = ?,
+                        page_count = page_count + ?,
+                        source_filename = CASE
+                          WHEN ? = '' THEN source_filename
+                          WHEN COALESCE(source_filename, '') = '' THEN ?
+                          ELSE LEFT(source_filename || '; ' || ?, 255)
+                        END
+                    WHERE id = ? AND user_id = ?
+                    """
+                ),
+                (
+                    manual,
+                    note_s,
+                    page_extra,
+                    "; ".join(new_names),
+                    "; ".join(new_names)[:255],
+                    "; ".join(new_names)[:200],
+                    int(gtd_id),
+                    user_id,
+                ),
+            )
+        except UniqueViolation as exc:
+            raise ValueError(
+                f"Номер {manual} уже занят другой ГТД."
+            ) from exc
+
+        if manual != old_number:
+            conn.execute(
+                repo._sql(
+                    """
+                    UPDATE supply_gtd_kiz
+                    SET gtd_number = ?
+                    WHERE user_id = ? AND gtd_id = ?
+                    """
+                ),
+                (manual, user_id, int(gtd_id)),
+            )
+
+        if to_insert:
+            _insert_kiz_rows(
+                conn,
+                repo,
+                user_id=user_id,
+                gtd_id=int(gtd_id),
+                gtd_number=manual,
+                to_insert=to_insert,
+            )
+        real_n = _recount_gtd_kiz(conn, repo, user_id=user_id, gtd_id=int(gtd_id))
+
+    already_set = {x for x in already_same} | {x["kiz_short"] for x in already_other}
+    updated = get_gtd_by_id(repo, user_id=user_id, gtd_id=int(gtd_id)) or {}
+    msg_bits = [f"ГТД {manual} обновлена."]
+    if manual != old_number:
+        msg_bits.append(f"Номер изменён с {old_number}.")
+    if kiz_list:
+        msg_bits.append(
+            f"В файлах КИЗ: {len(kiz_list)}, добавлено новых: {len(to_insert)}, "
+            f"уже были: {len(already_set)}."
+        )
+    return {
+        "ok": True,
+        "gtd_id": int(gtd_id),
+        "gtd_number": manual,
+        "note": note_s,
+        "kiz_count": real_n,
+        "kiz_parsed": len(kiz_list),
+        "kiz_inserted_new": len(to_insert),
+        "kiz_already_in_db": len(already_set),
+        "kiz_already_other_gtd": len(already_other),
+        "warnings": warnings,
+        "already_other_gtd_samples": already_other[:20],
+        "item": updated,
+        "message": " ".join(msg_bits),
+    }
+
+
+def delete_gtd(
+    repo: ReviewRepository, *, user_id: int, gtd_id: int
+) -> dict[str, Any]:
+    """Delete GTD document and all its KIZ (CASCADE)."""
+    ensure_supply_gtd_tables(repo)
+    current = get_gtd_by_id(repo, user_id=user_id, gtd_id=gtd_id)
+    if not current:
+        raise ValueError("ГТД не найдена")
+    kiz_n = int(current.get("kiz_count") or 0)
+    with repo._connect() as conn:
+        conn.execute(
+            repo._sql(
+                """
+                DELETE FROM supply_gtd_documents
+                WHERE id = ? AND user_id = ?
+                """
+            ),
+            (int(gtd_id), user_id),
+        )
+    return {
+        "ok": True,
+        "gtd_id": int(gtd_id),
+        "gtd_number": str(current.get("gtd_number") or ""),
+        "kiz_deleted": kiz_n,
+        "message": (
+            f"ГТД {current.get('gtd_number')} удалена вместе с {kiz_n} КИЗ."
         ),
     }
 

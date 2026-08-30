@@ -124,6 +124,102 @@ class SupplyGtdImportTests(unittest.TestCase):
                 )
         self.assertIn("уже загружена", str(ctx.exception))
 
+    def test_import_refuses_empty_kiz(self) -> None:
+        repo = MagicMock()
+        with patch.object(gtd, "get_gtd_by_number", return_value=None), patch.object(
+            gtd,
+            "parse_gtd_pdfs",
+            return_value={
+                "gtd_number": "",
+                "kiz_list": [],
+                "page_count": 2,
+                "kiz_rejected": 0,
+                "qty_hint_sht": None,
+                "warnings": ["a.pdf: КИЗ не найдены"],
+                "source_filenames": ["a.pdf"],
+                "kiz_source": "",
+            },
+        ), patch.object(gtd, "ensure_supply_gtd_tables"):
+            with self.assertRaises(ValueError) as ctx:
+                gtd.import_gtd_pdfs(
+                    repo,
+                    user_id=1,
+                    files=[("a.pdf", b"%PDF")],
+                    gtd_number="10323010/250826/5101277",
+                )
+        self.assertIn("не найдено", str(ctx.exception).casefold())
+        self.assertIn("не создана", str(ctx.exception).casefold())
+
+    def test_parse_sticker_text_pdf(self) -> None:
+        text = (
+            "Наматрасник 140x200 (серый)\n"
+            "0104678434671071215Y%Eveoaz)LTT\n"
+            "1\n"
+        )
+        with patch.object(gtd, "_extract_pdf_text", return_value=(text, 1)), patch.object(
+            gtd, "_extract_kiz_via_datamatrix", return_value=({}, 0, "")
+        ):
+            out = gtd.parse_gtd_pdf(b"%PDF-stickers")
+        self.assertEqual(out["kiz_parsed"], 1)
+        self.assertEqual(out["kiz_source"], "text")
+        self.assertIn("0104678434671071215Y%Eveoaz)LTT", out["kiz_list"])
+
+    def test_parse_falls_back_to_datamatrix(self) -> None:
+        with patch.object(gtd, "_extract_pdf_text", return_value=("", 3)), patch.object(
+            gtd,
+            "_extract_kiz_via_datamatrix",
+            return_value=(
+                {"0104678434671071215Y%Eveoaz)LTT": "0104678434671071215Y%Eveoaz)LTT"},
+                3,
+                "",
+            ),
+        ):
+            out = gtd.parse_gtd_pdf(b"%PDF-image-only")
+        self.assertEqual(out["kiz_source"], "datamatrix")
+        self.assertEqual(out["kiz_parsed"], 1)
+
+    def test_update_rejects_number_clash(self) -> None:
+        repo = MagicMock()
+        with patch.object(
+            gtd,
+            "get_gtd_by_id",
+            return_value={"id": 1, "gtd_number": "10323010/250826/5101277", "kiz_count": 2},
+        ), patch.object(
+            gtd,
+            "get_gtd_by_number",
+            return_value={"id": 2, "gtd_number": "10323010/250826/5109999"},
+        ), patch.object(gtd, "ensure_supply_gtd_tables"):
+            with self.assertRaises(ValueError) as ctx:
+                gtd.update_gtd(
+                    repo,
+                    user_id=1,
+                    gtd_id=1,
+                    gtd_number="10323010/250826/5109999",
+                    note="",
+                )
+        self.assertIn("занят", str(ctx.exception).casefold())
+
+    def test_delete_gtd_ok(self) -> None:
+        repo = MagicMock()
+        conn = MagicMock()
+        conn.__enter__ = MagicMock(return_value=conn)
+        conn.__exit__ = MagicMock(return_value=False)
+        repo._connect.return_value = conn
+        repo._sql.side_effect = lambda q: q
+        with patch.object(
+            gtd,
+            "get_gtd_by_id",
+            return_value={
+                "id": 5,
+                "gtd_number": "10323010/250826/5101277",
+                "kiz_count": 12,
+            },
+        ), patch.object(gtd, "ensure_supply_gtd_tables"):
+            out = gtd.delete_gtd(repo, user_id=1, gtd_id=5)
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["kiz_deleted"], 12)
+        conn.execute.assert_called()
+
 
 if __name__ == "__main__":
     unittest.main()
