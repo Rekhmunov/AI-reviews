@@ -438,6 +438,8 @@ class OzonFbsStickersPrintHtmlTests(unittest.TestCase):
         self.assertIn("screen-status", html)
         self.assertIn(".toolbar, .warn-banner, .screen-status { display: none !important; }", html)
         self.assertIn("window.print()", html)
+        self.assertIn("var printed = false", html)
+        self.assertIn("if (printed) return", html)
 
     def test_build_stickers_print_skips_cover_when_filtered(self) -> None:
         detail = {

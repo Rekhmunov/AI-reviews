@@ -3819,7 +3819,10 @@ def render_stickers_print_html(
   {''.join(pages) if pages else '<p style="padding:12px">Нет стикеров для печати.</p>'}
   <script>
   (function() {{
+    var printed = false;
     function readyPrint() {{
+      if (printed) return;
+      printed = true;
       var st = document.getElementById('screenStatus');
       if (st) st.textContent = 'Готово. Открываем диалог печати…';
       setTimeout(function() {{ window.print(); }}, 200);
@@ -3839,7 +3842,7 @@ def render_stickers_print_html(
           img.addEventListener('error', done);
         }}
       }});
-      // Safety: huge sheets should not hang forever.
+      // Safety: huge sheets should not hang forever (printed guard prevents double dialog).
       setTimeout(function() {{ if (left > 0) readyPrint(); }}, 15000);
     }}
     if (document.readyState === 'complete') waitImages();

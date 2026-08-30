@@ -3191,8 +3191,9 @@
       }
       info.hidden = false;
       info.textContent = msg;
+      // ok → green, warn → amber, error → default red (.wb-fbs-sd-info)
       info.classList.toggle("is-ok", kind === "ok");
-      info.classList.toggle("is-warn", kind === "warn" || kind === "error");
+      info.classList.toggle("is-warn", kind === "warn");
     };
 
     const restoreBtn = () => {
