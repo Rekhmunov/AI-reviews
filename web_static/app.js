@@ -17273,6 +17273,7 @@ const _SST_TABLES = [
   { thead: "supplyLegalEntitiesThead",    key: "sst_legal_v2" },
   { thead: "supplyProductionsThead",      key: "sst_productions_v2" },
   { thead: "supplyContractorsThead",      key: "sst_contractors_v2" },
+  { thead: "supplyGtdThead",              key: "sst_gtd_v1" },
 ];
 const _sstInited = new Set();
 

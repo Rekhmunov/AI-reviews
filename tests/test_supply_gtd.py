@@ -250,6 +250,11 @@ class SupplyGtdImportTests(unittest.TestCase):
         self.assertEqual(other, [])
         self.assertEqual(to_ins, [])
 
+    def test_dmtx_page_limit_covers_typical_sticker_sheets(self) -> None:
+        # Real sticker PDFs are often 500 pages; old hard cap 400 truncated them.
+        self.assertGreaterEqual(gtd._DMTX_MAX_PAGES, 500)
+        self.assertGreaterEqual(gtd._DMTX_MAX_PAGES, 2500)
+
 
 if __name__ == "__main__":
     unittest.main()

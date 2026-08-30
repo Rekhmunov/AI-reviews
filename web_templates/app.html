@@ -4470,15 +4470,15 @@
             <div id="supplyGtdInfo" class="small" style="margin-bottom:8px"></div>
             <div class="table-wrap">
               <table class="supply-sources-table">
-                <thead>
+                <thead id="supplyGtdThead">
                   <tr>
-                    <th style="width:48px">№</th>
-                    <th style="width:200px">Номер ГТД</th>
-                    <th style="width:100px">КИЗ</th>
-                    <th style="width:160px">Загружено</th>
-                    <th>Примечание</th>
-                    <th style="width:160px">Файл</th>
-                    <th style="width:88px"></th>
+                    <th data-col="num" style="width:48px">№</th>
+                    <th data-col="gtd" style="width:200px">Номер ГТД</th>
+                    <th data-col="kiz" style="width:100px">КИЗ</th>
+                    <th data-col="loaded" style="width:160px">Загружено</th>
+                    <th data-col="note" style="width:220px">Примечание</th>
+                    <th data-col="file" style="width:180px">Файл</th>
+                    <th class="sst-actions-col" data-col="acts" style="width:88px"></th>
                   </tr>
                 </thead>
                 <tbody id="supplyGtdTbody"></tbody>
@@ -4510,6 +4510,7 @@
                 <input id="supplyGtdPdfInput" type="file" accept="application/pdf,.pdf" multiple />
                 <span class="small" style="color:#64748b;margin-top:4px;display:block">
                   Можно несколько файлов. Текстовый PDF ДТ или стикеры с КИ / Data Matrix.
+                  Стикерные PDF до 2500 стр. сканируются целиком; при большем объёме — догрузка через «Редактировать».
                 </span>
               </div>
             </div>
@@ -6304,6 +6305,6 @@
   </div>
 
   <script src="/static/ozon_fbs.js?v=52"></script>
-  <script src="/static/app.js?v=516"></script>
+  <script src="/static/app.js?v=517"></script>
 </body>
 </html>

@@ -44,7 +44,9 @@ _MAX_FILES_PER_IMPORT = 40
 _INSERT_BATCH = 1500
 # Sticker sheets: render DPI for Data Matrix decode (balance speed vs recall).
 _DMTX_DPI = 150
-_DMTX_MAX_PAGES = 400
+# Hard cap for dmtx render/decode. Was 400 — real sticker PDFs are often 500/page.
+# Keep a high ceiling so runaway multi-thousand PDFs cannot hang the worker forever.
+_DMTX_MAX_PAGES = 2500
 
 
 def ensure_supply_gtd_tables(repo: ReviewRepository) -> None:
@@ -262,7 +264,8 @@ def _extract_kiz_via_datamatrix(pdf_bytes: bytes) -> tuple[dict[str, str], int, 
         warn = ""
         if page_count > _DMTX_MAX_PAGES:
             warn = (
-                f"Data Matrix: просканировано {_DMTX_MAX_PAGES} из {page_count} стр."
+                f"Data Matrix: просканировано {_DMTX_MAX_PAGES} из {page_count} стр. "
+                f"(лимит сервера). Разбейте PDF или догрузите остаток через «Редактировать»."
             )
         return found, pages_scanned, warn
     finally:
