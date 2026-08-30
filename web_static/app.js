@@ -31305,13 +31305,17 @@ async function openWbFbsCollectMgt() {
     alert(e.message || String(e));
   } finally {
     wbFbsCollectMgtState.busy = false;
-    if (btn) btn.disabled = false;
+    _wbFbsSyncCollectMgtBtn(wbFbsState.counts || {});
   }
 }
 window.openWbFbsCollectMgt = openWbFbsCollectMgt;
 
 async function confirmWbFbsCollectMgt() {
   if (wbFbsCollectMgtState.busy) return;
+  if (wbFbsState.syncBusy) {
+    alert("Идёт синхронизация, подождите");
+    return;
+  }
   if (!wbFbsCollectMgtState.preview) return;
   if (!(
     wbFbsState.tab === "new"
