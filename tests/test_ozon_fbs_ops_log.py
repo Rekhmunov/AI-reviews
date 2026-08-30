@@ -106,7 +106,7 @@ class OzonFbsOpsLogTests(unittest.TestCase):
         self.assertEqual(out["retention_days"], 3)
         self.assertEqual(out["lookback_days"], 3)
         self.assertEqual(out["count"], 2)
-        # DESC fetch is reversed to chronological order
+        # Newest first (ORDER BY id DESC, no reverse)
         self.assertEqual([x["id"] for x in out["items"]], [2, 1])
         cleanup.assert_called()
         kwargs = cleanup.call_args.kwargs
