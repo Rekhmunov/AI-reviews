@@ -9389,6 +9389,12 @@ button.wb-fbs-select-all-link:disabled {
 .wb-fbs-supply-name.is-link:hover {
   text-decoration: underline;
 }
+.wb-fbs-supply-name.is-link.is-disabled,
+.wb-fbs-supply-name.is-link.is-disabled:hover {
+  color: #94a3b8;
+  cursor: not-allowed;
+  text-decoration: none;
+}
 .wb-fbs-supply-detail-modal {
   /* Cap at 1440px on large screens; never exceed overlay content box.
      Fixed height so Поставка / Маркировка / Проверка ШК match even with few rows. */

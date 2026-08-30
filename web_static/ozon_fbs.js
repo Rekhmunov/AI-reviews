@@ -311,6 +311,34 @@
     return 0;
   }
 
+  function isSupplyOpenBlocked() {
+    // Block opening local supplies only during split/collect — not during sync.
+    return Boolean(collectState.busy || splitState.busy || state.shipAllBusy);
+  }
+
+  function supplyOpenBlockedTitle() {
+    if (splitState.busy) return "Дождитесь окончания разделения мультизаказов";
+    if (collectState.busy || state.shipAllBusy) return "Дождитесь окончания сборки заказов";
+    return "Дождитесь окончания операции";
+  }
+
+  function syncSupplyOpenLinks() {
+    const blocked = isSupplyOpenBlocked();
+    const tip = blocked ? supplyOpenBlockedTitle() : "";
+    document.querySelectorAll("#ozonFbsOrdersTbody .wb-fbs-supply-name[data-supply-open]").forEach((el) => {
+      el.classList.toggle("is-disabled", blocked);
+      if (blocked) {
+        el.setAttribute("aria-disabled", "true");
+        el.setAttribute("title", tip);
+        el.removeAttribute("tabindex");
+      } else {
+        el.removeAttribute("aria-disabled");
+        el.removeAttribute("title");
+        el.setAttribute("tabindex", "0");
+      }
+    });
+  }
+
   function syncPackagingActionButtons() {
     const splitBtn = document.getElementById("ozonFbsSplitMultiBtn");
     const shipBtn = document.getElementById("ozonFbsShipAllBtn");
@@ -358,6 +386,7 @@
         shipBtn.title = "Нет отправлений в «Ожидают сборки»";
       }
     }
+    syncSupplyOpenLinks();
   }
 
   function syncShipAllButton() {
@@ -653,6 +682,8 @@
       return;
     }
     const canRename = !isDeliveringSuppliesTab();
+    const openBlocked = isSupplyOpenBlocked();
+    const openTip = openBlocked ? supplyOpenBlockedTitle() : "";
     tbody.innerHTML = state.items.map((s) => {
       const sid = String(s.supply_id || "").trim();
       const checked = state.selected.has(sid) ? "checked" : "";
@@ -665,10 +696,16 @@
       const actionsTd = canRename
         ? `<td class="wb-fbs-td-act">${_ozonFbsSupplyRowActionsHtml(sid)}</td>`
         : "";
+      const nameCls = openBlocked
+        ? "wb-fbs-supply-name is-link is-disabled"
+        : "wb-fbs-supply-name is-link";
+      const nameTitle = openBlocked ? ` title="${esc(openTip)}"` : "";
+      const nameTab = openBlocked ? "" : ' tabindex="0"';
+      const nameAria = openBlocked ? ' aria-disabled="true"' : ' role="button"';
       return `<tr>
         <td><input type="checkbox" class="wb-fbs-row-cb" data-supply-id="${esc(sid)}" ${checked} onchange="onOzonFbsCheckboxChange()" /></td>
         <td>
-          <div class="wb-fbs-supply-name is-link" role="button" tabindex="0"
+          <div class="${nameCls}" data-supply-open="1"${nameAria}${nameTab}${nameTitle}
                onclick="openOzonFbsSupplyDetailModal('${esc(sid)}')"
                onkeydown="if(event.key==='Enter')openOzonFbsSupplyDetailModal('${esc(sid)}')">${esc(s.name || ("Поставка " + sid))}</div>
           ${createdMeta}
@@ -2022,6 +2059,10 @@
   async function openSupplyDetailModal(supplyId) {
     const sid = String(supplyId || "").trim();
     if (!sid || !state.sourceId) return;
+    if (isSupplyOpenBlocked()) {
+      alert(supplyOpenBlockedTitle());
+      return;
+    }
     supplyDetailState.supplyId = sid;
     supplyDetailState.sourceId = state.sourceId;
     supplyDetailState.selected = new Set();
