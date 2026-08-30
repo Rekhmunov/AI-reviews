@@ -334,7 +334,7 @@
   }
 
   function colspan() {
-    if (!isSuppliesTab()) return 4;
+    if (!isSuppliesTab()) return state.lookupMode ? 5 : 4;
     return isDeliveringSuppliesTab() ? 6 : 7;
   }
 
@@ -564,7 +564,7 @@
     const supplies = isSuppliesTab();
     const nextMode = supplies
       ? (isDeliveringSuppliesTab() ? "supplies-delivering" : "supplies-awaiting")
-      : "orders";
+      : (state.lookupMode ? "orders-lookup" : "orders");
     const modeChanged = state.viewMode !== nextMode;
     state.viewMode = nextMode;
     const table = document.getElementById("ozonFbsOrdersTable");
@@ -603,17 +603,20 @@
         ${canRename ? '<th class="wb-fbs-th-act"></th>' : ""}
       `;
     } else {
+      const showAct = !!state.lookupMode;
       colgroup.innerHTML = `
         <col data-fixed="1" class="wb-fbs-col-check" style="width:40px" />
         <col data-col="0" class="wb-fbs-col-order" />
         <col data-col="1" class="wb-fbs-col-product" />
         <col data-col="2" class="wb-fbs-col-wh" />
+        ${showAct ? '<col data-fixed="1" class="wb-fbs-col-act" style="width:48px" />' : ""}
       `;
       thead.innerHTML = `
         <th class="wb-fbs-th-check"><input type="checkbox" id="ozonFbsSelectAll" onchange="toggleSelectAllOzonFbs(this.checked)" title="Выбрать все на странице" /></th>
         <th data-col="0">Отправление<span class="col-resize-handle"></span></th>
         <th data-col="1">Товар<span class="col-resize-handle"></span></th>
         <th data-col="2">Склад<span class="col-resize-handle"></span></th>
+        ${showAct ? '<th class="wb-fbs-th-act"></th>' : ""}
       `;
       initColumnResizer();
     }
@@ -866,6 +869,28 @@
     return badgeHtml + extraHtml;
   }
 
+  function _ozonFbsLookupRowActionsHtml(postingNumber) {
+    const pn = String(postingNumber || "").trim();
+    if (!pn || !state.lookupMode) return "";
+    const menuKey = _ozonFbsPostingMenuKey(`lookup_${pn}`);
+    return `<td class="wb-fbs-sd-col-act">
+      <div class="wb-fbs-row-menu-wrap" id="ozonFbsRowMenuWrap_${menuKey}">
+        <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
+                onclick="toggleOzonFbsRowMenu(event, '${menuKey}')" aria-haspopup="menu">⋮</button>
+        <div id="ozonFbsRowMenu_${menuKey}" class="wb-fbs-row-menu" data-posting="${esc(pn)}" role="menu">
+          <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
+                  onclick="openOzonFbsMovePostingModal('${esc(pn)}')">
+            Переместить в поставку
+          </button>
+          <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
+                  data-ozon-action="print-sticker" data-posting="${esc(pn)}">
+            Напечатать стикер
+          </button>
+        </div>
+      </div>
+    </td>`;
+  }
+
   function renderTable(items) {
     const tbody = document.getElementById("ozonFbsOrdersTbody");
     if (!tbody) return;
@@ -903,6 +928,7 @@
       const whId = row.warehouse_id != null && String(row.warehouse_id).trim()
         ? String(row.warehouse_id).trim()
         : "";
+      const actCell = _ozonFbsLookupRowActionsHtml(pnRaw);
       return `<tr data-posting="${pn}">
       <td><input type="checkbox" class="wb-fbs-row-cb" data-posting="${pn}" ${checked} onchange="onOzonFbsCheckboxChange()" /></td>
       <td>
@@ -926,6 +952,7 @@
         <div class="wb-fbs-wh-name" title="${esc(whLabel)}">${esc(whLabel)}</div>
         <div class="wb-fbs-order-meta">${whId ? "ID " + esc(whId) : ""}</div>
       </td>
+      ${actCell}
     </tr>`;
     }).join("");
     syncSelectAll();
@@ -4221,6 +4248,190 @@
         btn.removeAttribute("aria-disabled");
         btn.classList.remove("is-wait-orders");
       }
+    }
+  }
+
+  const movePostingState = {
+    postingNumber: "",
+    selectedSupplyId: "",
+    selectedTab: "",
+    items: [],
+  };
+
+  function closeOzonFbsMovePostingModal() {
+    movePostingState.postingNumber = "";
+    movePostingState.selectedSupplyId = "";
+    movePostingState.selectedTab = "";
+    movePostingState.items = [];
+    const err = document.getElementById("ozonFbsMovePostingErr");
+    if (err) {
+      err.hidden = true;
+      err.textContent = "";
+    }
+    if (typeof setModalVisibility === "function") {
+      setModalVisibility("ozonFbsMovePostingModal", false);
+    } else {
+      document.getElementById("ozonFbsMovePostingModal")?.classList.add("hidden");
+    }
+  }
+
+  function _ozonFbsMovePostingSetErr(text) {
+    const err = document.getElementById("ozonFbsMovePostingErr");
+    if (!err) return;
+    const msg = String(text || "").trim();
+    err.hidden = !msg;
+    err.textContent = msg;
+  }
+
+  function _ozonFbsMovePostingSelect(supplyId, tab) {
+    movePostingState.selectedSupplyId = String(supplyId || "").trim();
+    movePostingState.selectedTab = String(tab || "").trim();
+    const body = document.getElementById("ozonFbsMovePostingBody");
+    if (body) {
+      body.querySelectorAll(".ozon-fbs-move-supply-row").forEach((row) => {
+        const sid = String(row.getAttribute("data-supply-id") || "");
+        const t = String(row.getAttribute("data-tab") || "");
+        const on =
+          sid === movePostingState.selectedSupplyId &&
+          t === movePostingState.selectedTab;
+        row.classList.toggle("is-selected", on);
+        const inp = row.querySelector('input[type="radio"]');
+        if (inp) inp.checked = on;
+      });
+    }
+    const btn = document.getElementById("ozonFbsMovePostingConfirmBtn");
+    if (btn) btn.disabled = !movePostingState.selectedSupplyId;
+    _ozonFbsMovePostingSetErr("");
+  }
+
+  function _ozonFbsMovePostingRenderList(groups) {
+    const body = document.getElementById("ozonFbsMovePostingBody");
+    if (!body) return;
+    const sections = [
+      { key: "awaiting_deliver", title: "Ожидают отгрузки", items: groups.awaiting_deliver || [] },
+      { key: "delivering", title: "Доставляются", items: groups.delivering || [] },
+    ];
+    const flat = [];
+    let html = "";
+    for (const sec of sections) {
+      if (!sec.items.length) continue;
+      html += `<div class="ozon-fbs-move-section">`;
+      html += `<h4 class="ozon-fbs-move-section-title">${esc(sec.title)}</h4>`;
+      html += sec.items.map((s) => {
+        flat.push(s);
+        const sid = String(s.supply_id || "").trim();
+        const tab = String(s.tab || sec.key).trim();
+        const name = String(s.name || sid).trim() || sid;
+        const count = Number(s.order_count || 0) || 0;
+        const wh = String(s.warehouse_name || "").trim();
+        const id = `ozonFbsMoveSupply_${esc(tab)}_${esc(sid)}`;
+        return `<label class="ozon-fbs-move-supply-row" data-supply-id="${esc(sid)}" data-tab="${esc(tab)}" for="${id}">
+          <input type="radio" name="ozonFbsMoveSupply" id="${id}"
+                 onchange="selectOzonFbsMovePostingTarget('${esc(sid)}', '${esc(tab)}')" />
+          <span class="ozon-fbs-move-supply-main">
+            <span class="ozon-fbs-move-supply-name">${esc(name)}</span>
+            <span class="ozon-fbs-move-supply-meta">${esc(sid)} · ${esc(count)} отпр.${wh ? " · " + esc(wh) : ""}</span>
+          </span>
+        </label>`;
+      }).join("");
+      html += `</div>`;
+    }
+    movePostingState.items = flat;
+    if (!html) {
+      body.innerHTML = `<div class="wb-fbs-empty">Нет локальных поставок в «Ожидают отгрузки» и «Доставляются»</div>`;
+    } else {
+      body.innerHTML = html;
+    }
+    const btn = document.getElementById("ozonFbsMovePostingConfirmBtn");
+    if (btn) btn.disabled = true;
+  }
+
+  async function openOzonFbsMovePostingModal(postingNumber) {
+    closeOzonFbsRowMenus();
+    const pn = String(postingNumber || "").trim();
+    if (!pn || !state.sourceId) {
+      alert("Не удалось определить отправление или источник");
+      return;
+    }
+    movePostingState.postingNumber = pn;
+    movePostingState.selectedSupplyId = "";
+    movePostingState.selectedTab = "";
+    _ozonFbsMovePostingSetErr("");
+    const lead = document.getElementById("ozonFbsMovePostingLead");
+    if (lead) {
+      lead.textContent =
+        `Отправление ${pn}: выберите локальную поставку. В Ozon ничего не отправляется.`;
+    }
+    const body = document.getElementById("ozonFbsMovePostingBody");
+    if (body) body.innerHTML = `<div class="wb-fbs-empty">Загрузка поставок…</div>`;
+    const confirmBtn = document.getElementById("ozonFbsMovePostingConfirmBtn");
+    if (confirmBtn) confirmBtn.disabled = true;
+    if (typeof setModalVisibility === "function") {
+      setModalVisibility("ozonFbsMovePostingModal", true);
+    } else {
+      document.getElementById("ozonFbsMovePostingModal")?.classList.remove("hidden");
+    }
+    try {
+      const res = await fetch(
+        `/api/ozon-fbs/postings/move-targets?source_id=${encodeURIComponent(state.sourceId)}`
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      _ozonFbsMovePostingRenderList(data);
+    } catch (e) {
+      if (body) {
+        body.innerHTML = `<div class="wb-fbs-empty" style="color:#b91c1c">${esc(String(e.message || e))}</div>`;
+      }
+    }
+  }
+
+  function selectOzonFbsMovePostingTarget(supplyId, tab) {
+    _ozonFbsMovePostingSelect(supplyId, tab);
+  }
+
+  async function confirmOzonFbsMovePosting() {
+    const pn = String(movePostingState.postingNumber || "").trim();
+    const sid = String(movePostingState.selectedSupplyId || "").trim();
+    const tab = String(movePostingState.selectedTab || "").trim();
+    if (!pn || !sid || !state.sourceId) {
+      _ozonFbsMovePostingSetErr("Выберите поставку");
+      return;
+    }
+    const btn = document.getElementById("ozonFbsMovePostingConfirmBtn");
+    if (btn) btn.disabled = true;
+    _ozonFbsMovePostingSetErr("");
+    try {
+      const res = await fetch(
+        `/api/ozon-fbs/postings/${encodeURIComponent(pn)}/move-to-supply`,
+        {
+          method: "POST",
+          headers: jsonHeaders(),
+          body: JSON.stringify({
+            source_id: state.sourceId,
+            supply_id: sid,
+            target_tab: tab || undefined,
+          }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      closeOzonFbsMovePostingModal();
+      const msg = String(data.message || "Перенесено локально");
+      showSyncInfo(msg);
+      if (state.lookupMode && parsePostingNumberQuery(state.search) === pn) {
+        try {
+          const lookup = await lookupPostingByNumber(pn);
+          if (lookup) applyLookupResult(lookup, pn);
+        } catch (_e) {
+          /* ignore — move already succeeded */
+        }
+      } else {
+        await loadPostings(false);
+      }
+      alert(msg);
+    } catch (e) {
+      _ozonFbsMovePostingSetErr(String(e.message || e));
+      if (btn) btn.disabled = false;
     }
   }
 
@@ -7715,6 +7926,10 @@
   window.toggleOzonFbsRowMenu = toggleOzonFbsRowMenu;
   window.closeOzonFbsRowMenus = closeOzonFbsRowMenus;
   window.ozonFbsPrintOnePostingStickerFromDetail = printOnePostingStickerFromDetail;
+  window.openOzonFbsMovePostingModal = openOzonFbsMovePostingModal;
+  window.closeOzonFbsMovePostingModal = closeOzonFbsMovePostingModal;
+  window.selectOzonFbsMovePostingTarget = selectOzonFbsMovePostingTarget;
+  window.confirmOzonFbsMovePosting = confirmOzonFbsMovePosting;
   window.openOzonFbsCancelledOrdersModal = openOzonFbsCancelledOrdersModal;
   window.closeOzonFbsCancelledOrdersModal = closeOzonFbsCancelledOrdersModal;
   window.refreshOzonFbsCancelledOrders = refreshOzonFbsCancelledOrders;

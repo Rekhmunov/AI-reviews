@@ -13416,6 +13416,85 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             pass
         return result
 
+    @app.get("/api/ozon-fbs/postings/move-targets")
+    def ozon_fbs_posting_move_targets(
+        request: Request, source_id: int
+    ) -> dict[str, object]:
+        """List local supplies (awaiting_deliver + delivering) for local move modal."""
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _ozon_fbs_source_credentials(owner_id, int(source_id))
+        return oz_sup.list_supplies_for_local_move(
+            repository, user_id=owner_id, source_id=int(source_id)
+        )
+
+    @app.post("/api/ozon-fbs/postings/{posting_number}/move-to-supply")
+    async def ozon_fbs_posting_move_to_supply(
+        request: Request, posting_number: str
+    ) -> dict[str, object]:
+        """Locally assign posting to an existing supply. No Ozon API."""
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        pn = str(posting_number or "").strip()
+        if not pn:
+            raise HTTPException(status_code=400, detail="Укажите posting_number")
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        source_id = int(body.get("source_id") or 0)
+        supply_id = str(body.get("supply_id") or "").strip()
+        target_tab = str(body.get("target_tab") or "").strip() or None
+        if not source_id or not supply_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        _ozon_fbs_source_credentials(owner_id, source_id)
+        try:
+            result = oz_sup.move_posting_to_local_supply(
+                repository,
+                user_id=owner_id,
+                source_id=source_id,
+                posting_number=pn,
+                supply_id=supply_id,
+                target_tab=target_tab,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        try:
+            from . import ozon_fbs_ops_log as ops_log
+
+            ops_log.append_event(
+                repository,
+                user_id=owner_id,
+                action="move_to_supply",
+                message=str(result.get("message") or f"Перенос {pn} → {supply_id}"),
+                actor_user_id=int(user.get("id") or 0) or None,
+                actor_name=ops_log.actor_label(user),
+                source_id=source_id,
+                posting_number=pn,
+                supply_id=supply_id,
+                details={
+                    "tab": result.get("tab"),
+                    "from_supply_id": result.get("from_supply_id"),
+                },
+            )
+        except Exception:
+            pass
+        return result
+
     @app.get("/api/ozon-fbs/supplies/{supply_id}/detail")
     def ozon_fbs_supply_detail(
         request: Request,

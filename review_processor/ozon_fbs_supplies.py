@@ -3913,3 +3913,193 @@ def move_supply_to_delivering(
         "stock": stock_stats,
         "message": f"Перенесено в «Доставляются»: {len(to_move)} отпр.",
     }
+
+
+def list_supplies_for_local_move(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> dict[str, Any]:
+    """Local supplies on «Ожидают отгрузки» and «Доставляются» for move modal."""
+    ensure_ozon_fbs_supply_schema(repo)
+    awaiting = _build_supply_items_for_tab(
+        repo, user_id=user_id, source_id=source_id, tab=oz.TAB_AWAITING_DELIVER
+    )
+    delivering = _build_supply_items_for_tab(
+        repo, user_id=user_id, source_id=source_id, tab=oz.TAB_DELIVERING
+    )
+
+    def _slim(items: list[dict[str, Any]], tab: str) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for s in items:
+            sid = str(s.get("supply_id") or "").strip()
+            if not sid:
+                continue
+            out.append(
+                {
+                    "supply_id": sid,
+                    "name": str(s.get("name") or sid).strip() or sid,
+                    "tab": tab,
+                    "tab_label": oz.TAB_LABELS.get(tab, tab),
+                    "order_count": int(s.get("order_count") or 0),
+                    "warehouse_name": str(
+                        s.get("warehouse_label") or s.get("warehouse_name") or ""
+                    ).strip(),
+                }
+            )
+        return out
+
+    awaiting_items = _slim(awaiting, oz.TAB_AWAITING_DELIVER)
+    delivering_items = _slim(delivering, oz.TAB_DELIVERING)
+    return {
+        "ok": True,
+        "awaiting_deliver": awaiting_items,
+        "delivering": delivering_items,
+        "items": awaiting_items + delivering_items,
+        "total": len(awaiting_items) + len(delivering_items),
+    }
+
+
+def move_posting_to_local_supply(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_number: str,
+    supply_id: str,
+    target_tab: str | None = None,
+) -> dict[str, Any]:
+    """Locally assign one posting to an existing supply. No Ozon API calls.
+
+    Updates ``supply_id`` and sets ``tab``/``status`` to the supply's group tab
+    so the posting appears inside that supply card. Does not touch stock.
+    """
+    ensure_ozon_fbs_supply_schema(repo)
+    oz.ensure_ozon_fbs_tables(repo)
+    pn = str(posting_number or "").strip()
+    sid = str(supply_id or "").strip()
+    if not pn:
+        raise ValueError("Укажите posting_number")
+    if not sid:
+        raise ValueError("Укажите supply_id")
+
+    supply = get_supply(repo, user_id=user_id, source_id=source_id, supply_id=sid)
+    if not supply:
+        raise RuntimeError("Поставка не найдена")
+
+    tab_hint = str(target_tab or "").strip().lower()
+    if tab_hint not in {oz.TAB_AWAITING_DELIVER, oz.TAB_DELIVERING}:
+        # Infer from where this supply currently has postings.
+        with repo._connect() as conn:
+            row = conn.execute(
+                repo._sql(
+                    """
+                    SELECT tab, COUNT(*) AS n
+                    FROM ozon_fbs_postings
+                    WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                      AND tab IN (?, ?)
+                    GROUP BY tab
+                    ORDER BY n DESC
+                    """
+                ),
+                (
+                    user_id,
+                    source_id,
+                    sid,
+                    oz.TAB_AWAITING_DELIVER,
+                    oz.TAB_DELIVERING,
+                ),
+            ).fetchone()
+        if row:
+            tab_hint = str(
+                row["tab"] if hasattr(row, "keys") else row[0] or ""
+            ).strip().lower()
+        else:
+            tab_hint = oz.TAB_AWAITING_DELIVER
+    if tab_hint not in {oz.TAB_AWAITING_DELIVER, oz.TAB_DELIVERING}:
+        tab_hint = oz.TAB_AWAITING_DELIVER
+
+    with repo._connect() as conn:
+        prow = conn.execute(
+            repo._sql(
+                """
+                SELECT posting_number, supply_id, tab, status
+                FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ? AND posting_number = ?
+                """
+            ),
+            (user_id, source_id, pn),
+        ).fetchone()
+        if not prow:
+            raise RuntimeError("Отправление не найдено локально")
+        posting = repo._row_to_dict(prow)
+        old_sid = str(posting.get("supply_id") or "").strip()
+        old_tab = str(posting.get("tab") or "").strip()
+
+        if old_sid == sid and old_tab == tab_hint:
+            return {
+                "ok": True,
+                "posting_number": pn,
+                "supply_id": sid,
+                "supply_name": str(supply.get("name") or sid),
+                "tab": tab_hint,
+                "unchanged": True,
+                "message": "Отправление уже в этой поставке",
+            }
+
+        conn.execute(
+            repo._sql(
+                """
+                UPDATE ozon_fbs_postings
+                SET supply_id = ?, tab = ?, status = ?,
+                    synced_at = CURRENT_TIMESTAMP
+                WHERE user_id = ? AND source_id = ? AND posting_number = ?
+                """
+            ),
+            (sid, tab_hint, tab_hint, user_id, source_id, pn),
+        )
+
+    # Refresh membership lists outside the posting update transaction scope.
+    if old_sid and old_sid != sid:
+        old_supply = get_supply(
+            repo, user_id=user_id, source_id=source_id, supply_id=old_sid
+        )
+        if old_supply:
+            old_nums = [
+                str(x).strip()
+                for x in (old_supply.get("posting_numbers") or [])
+                if str(x).strip() and str(x).strip() != pn
+            ]
+            _set_supply_posting_numbers(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                supply_id=old_sid,
+                posting_numbers=old_nums,
+            )
+
+    new_nums = [
+        str(x).strip()
+        for x in (supply.get("posting_numbers") or [])
+        if str(x).strip()
+    ]
+    if pn not in new_nums:
+        new_nums.append(pn)
+    _set_supply_posting_numbers(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=sid,
+        posting_numbers=new_nums,
+    )
+
+    supply_name = str(supply.get("name") or sid).strip() or sid
+    tab_label = oz.TAB_LABELS.get(tab_hint, tab_hint)
+    return {
+        "ok": True,
+        "posting_number": pn,
+        "supply_id": sid,
+        "supply_name": supply_name,
+        "tab": tab_hint,
+        "from_supply_id": old_sid,
+        "unchanged": False,
+        "message": f"Перенесено в «{supply_name}» ({tab_label})",
+    }

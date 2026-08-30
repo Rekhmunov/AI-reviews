@@ -8835,6 +8835,69 @@ button.ozon-fbs-split-multi-btn[hidden] {
   flex-direction: column;
   gap: 20px;
 }
+.ozon-fbs-move-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ozon-fbs-move-section + .ozon-fbs-move-section {
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid #e2e8f0;
+}
+.ozon-fbs-move-section-title {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #334155;
+  letter-spacing: 0.01em;
+}
+.ozon-fbs-move-supply-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 0;
+  padding: 12px 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.ozon-fbs-move-supply-row:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+.ozon-fbs-move-supply-row.is-selected {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+.ozon-fbs-move-supply-row input[type="radio"] {
+  margin-top: 4px;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  accent-color: #2563eb;
+}
+.ozon-fbs-move-supply-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.ozon-fbs-move-supply-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #0f172a;
+  line-height: 1.35;
+  word-break: break-word;
+}
+.ozon-fbs-move-supply-meta {
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.35;
+  word-break: break-word;
+}
 .wb-fbs-collect-mgt-group {
   padding: 16px 0 0;
   border-top: 1px solid #e2e8f0;
@@ -13330,6 +13393,13 @@ button.wb-fbs-kiz-add:disabled {
     align-items: start;
   }
 
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable:not(.wb-fbs-table--supplies) tbody tr:has(td.wb-fbs-sd-col-act) {
+    grid-template-columns: 44px 1fr 44px;
+    grid-template-areas:
+      "check posting act"
+      "product product product";
+  }
+
   #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies tbody tr {
     grid-template-columns: 44px 1fr auto;
     grid-template-areas:
@@ -13373,6 +13443,12 @@ button.wb-fbs-kiz-add:disabled {
 
   #section-supplies-ozon-fbs #ozonFbsOrdersTable:not(.wb-fbs-table--supplies) tbody td:nth-child(4) {
     display: none;
+  }
+
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable:not(.wb-fbs-table--supplies) tbody td.wb-fbs-sd-col-act {
+    grid-area: act;
+    align-self: start;
+    justify-self: end;
   }
 
   #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies tbody td:nth-child(1) {

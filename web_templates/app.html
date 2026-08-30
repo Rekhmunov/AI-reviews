@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=246" />
+  <link rel="stylesheet" href="/static/style.css?v=247" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2922,6 +2922,27 @@
               <button type="button" class="secondary" onclick="closeOzonFbsSelectionSupplyModal()">Отмена</button>
               <button type="button" id="ozonFbsSelectionSupplyConfirmBtn" class="ozon-fbs-ship-all-btn"
                       onclick="confirmOzonFbsSelectionSupply()">Создать</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="ozonFbsMovePostingModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsMovePostingTitle">
+          <div class="modal-card wb-fbs-collect-mgt-modal">
+            <div class="wb-fbs-collect-mgt-header">
+              <h3 id="ozonFbsMovePostingTitle" class="wb-fbs-collect-mgt-title">Переместить в поставку</h3>
+              <button type="button" class="icon-btn secondary" onclick="closeOzonFbsMovePostingModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <p id="ozonFbsMovePostingLead" class="wb-fbs-collect-mgt-lead">
+              Локальный перенос — в Ozon ничего не отправляется. Можно выбрать поставку
+              из «Ожидают отгрузки» или «Доставляются», чтобы заново распечатать стикер.
+            </p>
+            <div id="ozonFbsMovePostingBody" class="wb-fbs-collect-mgt-body"></div>
+            <div id="ozonFbsMovePostingErr" class="wb-fbs-collect-mgt-err" hidden></div>
+            <div class="wb-fbs-collect-mgt-footer">
+              <button type="button" class="secondary" onclick="closeOzonFbsMovePostingModal()">Отмена</button>
+              <button type="button" id="ozonFbsMovePostingConfirmBtn" class="ozon-fbs-ship-all-btn"
+                      onclick="confirmOzonFbsMovePosting()" disabled>Переместить</button>
             </div>
           </div>
         </div>
@@ -6181,7 +6202,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=45"></script>
+  <script src="/static/ozon_fbs.js?v=46"></script>
   <script src="/static/app.js?v=514"></script>
 </body>
 </html>
