@@ -268,8 +268,8 @@ def list_events(
                 (int(user_id), lim),
             ).fetchall()
             items = [_row_to_api(repo, repo._row_to_dict(r)) for r in rows]
-            items.reverse()
-    last_id = int(items[-1]["id"]) if items else after
+            # Newest first (ORDER BY id DESC) — do not reverse for UI.
+    last_id = max((int(x["id"]) for x in items), default=after)
     return {
         "ok": True,
         "items": items,

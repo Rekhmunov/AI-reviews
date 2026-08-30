@@ -93,7 +93,7 @@ class WbFbsOpsLogTests(unittest.TestCase):
         ]
         out = ops.list_events(repo, user_id=9, after_id=0, limit=50)
         self.assertEqual(out["retention_days"], 5)
-        self.assertEqual([x["id"] for x in out["items"]], [1, 2])
+        self.assertEqual([x["id"] for x in out["items"]], [2, 1])
         self.assertEqual(cleanup.call_args.kwargs.get("lookback_days"), 5)
 
     def test_cleanup_sql_uses_lookback(self):

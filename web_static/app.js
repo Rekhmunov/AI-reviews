@@ -25249,6 +25249,7 @@ const wbFbsState = {
   selectAllMatching: false,
   lastSearch: "",
   pollTimer: null,
+  syncBusy: false,
   viewMode: "orders", // "orders" | "supplies-assembly" | "supplies-delivery"
   loadSeq: 0,
   loadAbort: null,
@@ -25435,6 +25436,22 @@ async function initWbFbsSection() {
   await loadWbFbsSources();
   if (_wbFbsCanViewOwnerTabs()) _wbFbsRefreshAutoSyncGear();
   await loadWbFbsOrders(true);
+  // Resume sync UI if a sync is already running (reload / re-enter section).
+  try {
+    const res = await fetch("/api/wb-fbs/sync/status");
+    const st = await res.json().catch(() => ({}));
+    if (st?.in_progress) {
+      const syncBtn = document.getElementById("wbFbsSyncBtn");
+      const stopBtn = document.getElementById("wbFbsStopBtn");
+      if (syncBtn) syncBtn.disabled = true;
+      if (stopBtn) stopBtn.classList.remove("hidden");
+      _wbFbsSetSyncBusy(true);
+      _wbFbsSetSyncInfo(String(st.message || "Синхронизация…"));
+      _wbFbsPollSync();
+    }
+  } catch (_e) {
+    /* ignore */
+  }
 }
 
 // ── WB FBS column resizer (per-user localStorage) ──
@@ -25916,7 +25933,14 @@ function _wbFbsSyncCollectMgtBtn(counts) {
     || wbFbsState.tab === "assembly"
     || wbFbsState.tab === "delivery";
   const show = tabOk && mgtNew > 0 && !!wbFbsState.sourceId;
+  const syncBusy = Boolean(wbFbsState.syncBusy);
   btn.classList.toggle("hidden", !show);
+  btn.disabled = !show || syncBusy || Boolean(wbFbsCollectMgtState.busy);
+  btn.title = syncBusy
+    ? "Идёт синхронизация, подождите"
+    : (show
+      ? `Собрать все МГТ заказы из «Новых» (${mgtNew})`
+      : "Нет МГТ заказов в «Новых»");
 }
 
 function closeWbFbsSyncInfo() {
@@ -31225,6 +31249,10 @@ async function _wbFbsCollectMgtExecute(decisions, sourceId) {
 
 async function openWbFbsCollectMgt() {
   if (wbFbsCollectMgtState.busy) return;
+  if (wbFbsState.syncBusy) {
+    alert("Идёт синхронизация, подождите");
+    return;
+  }
   if (!(
     wbFbsState.tab === "new"
     || wbFbsState.tab === "assembly"
@@ -32149,7 +32177,7 @@ const wbFbsOpsLogState = {
   timer: null,
   lastId: 0,
   retentionDays: 3,
-  stickToBottom: true,
+  stickToTop: true,
 };
 
 function _wbFbsOpsLogFormatTime(iso) {
@@ -32219,7 +32247,7 @@ async function pollWbFbsOpsLog(reset) {
   }
   if (reset) {
     wbFbsOpsLogState.lastId = 0;
-    wbFbsOpsLogState.stickToBottom = true;
+    wbFbsOpsLogState.stickToTop = true;
     list.innerHTML = `<div class="wb-fbs-ops-log-empty">Загрузка журнала…</div>`;
   }
   try {
@@ -32238,33 +32266,43 @@ async function pollWbFbsOpsLog(reset) {
       if (!items.length) {
         list.innerHTML = `<div class="wb-fbs-ops-log-empty">Пока нет записей</div>`;
       } else {
+        // API returns newest-first for initial load.
         list.innerHTML = items.map(_wbFbsOpsLogRenderRow).join("");
       }
     } else if (items.length) {
       const empty = list.querySelector(".wb-fbs-ops-log-empty");
       if (empty) empty.remove();
-      const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 48;
-      list.insertAdjacentHTML("beforeend", items.map(_wbFbsOpsLogRenderRow).join(""));
+      const nearTop = list.scrollTop < 48;
+      // Incremental batch is ASC; reverse so newest lands at the top.
+      const html = items
+        .slice()
+        .reverse()
+        .map(_wbFbsOpsLogRenderRow)
+        .join("");
+      list.insertAdjacentHTML("afterbegin", html);
       const rows = list.querySelectorAll(".wb-fbs-ops-log-row");
       const maxRows = 500;
       if (rows.length > maxRows) {
-        for (let i = 0; i < rows.length - maxRows; i += 1) {
+        for (let i = maxRows; i < rows.length; i += 1) {
           rows[i].remove();
         }
       }
-      if (nearBottom || wbFbsOpsLogState.stickToBottom) {
-        list.scrollTop = list.scrollHeight;
+      if (nearTop || wbFbsOpsLogState.stickToTop) {
+        list.scrollTop = 0;
       }
     }
     if (items.length) {
-      const last = items[items.length - 1];
-      const lid = Number(last?.id) || 0;
-      if (lid > wbFbsOpsLogState.lastId) wbFbsOpsLogState.lastId = lid;
+      let maxId = wbFbsOpsLogState.lastId;
+      for (const it of items) {
+        const lid = Number(it?.id) || 0;
+        if (lid > maxId) maxId = lid;
+      }
+      wbFbsOpsLogState.lastId = maxId;
     } else if (typeof data.last_id === "number" && data.last_id > wbFbsOpsLogState.lastId) {
       wbFbsOpsLogState.lastId = data.last_id;
     }
     if (reset && items.length) {
-      list.scrollTop = list.scrollHeight;
+      list.scrollTop = 0;
     }
   } catch (e) {
     if (reset) {
@@ -32384,6 +32422,11 @@ async function _wbFbsRefreshAutoSyncGear() {
   } catch (_) {}
 }
 
+function _wbFbsSetSyncBusy(running) {
+  wbFbsState.syncBusy = Boolean(running);
+  _wbFbsSyncCollectMgtBtn(wbFbsState.counts || {});
+}
+
 async function syncWbFbs() {
   // Sync every FBS source shown in the picker (name contains ФБС/FBS).
   if (!wbFbsState.sources.length) {
@@ -32394,6 +32437,7 @@ async function syncWbFbs() {
   const stopBtn = document.getElementById("wbFbsStopBtn");
   if (syncBtn) syncBtn.disabled = true;
   if (stopBtn) stopBtn.classList.remove("hidden");
+  _wbFbsSetSyncBusy(true);
   const n = wbFbsState.sources.length;
   _wbFbsSetSyncInfo(`Запуск синхронизации… источников: ${n}`);
   try {
@@ -32406,6 +32450,7 @@ async function syncWbFbs() {
       _wbFbsSetSyncInfo(data.message || data.detail || `Ошибка ${res.status || "сети"}`, "error");
       if (syncBtn) syncBtn.disabled = false;
       if (stopBtn) stopBtn.classList.add("hidden");
+      _wbFbsSetSyncBusy(false);
       return;
     }
     if (data.message) _wbFbsSetSyncInfo(String(data.message));
@@ -32414,6 +32459,7 @@ async function syncWbFbs() {
     _wbFbsSetSyncInfo(String(e.message || e), "error");
     if (syncBtn) syncBtn.disabled = false;
     if (stopBtn) stopBtn.classList.add("hidden");
+    _wbFbsSetSyncBusy(false);
   }
 }
 window.syncWbFbs = syncWbFbs;
@@ -32465,7 +32511,10 @@ function _wbFbsPollSync() {
         const stopBtn = document.getElementById("wbFbsStopBtn");
         if (syncBtn) syncBtn.disabled = false;
         if (stopBtn) stopBtn.classList.add("hidden");
+        _wbFbsSetSyncBusy(false);
         loadWbFbsOrders(false);
+      } else {
+        _wbFbsSetSyncBusy(true);
       }
     } catch (_) {}
   }, 1000);

@@ -3663,7 +3663,7 @@
     timer: null,
     lastId: 0,
     retentionDays: 3,
-    stickToBottom: true,
+    stickToTop: true,
   };
 
   function _opsLogFormatTime(iso) {
@@ -3733,7 +3733,7 @@
     }
     if (reset) {
       opsLogState.lastId = 0;
-      opsLogState.stickToBottom = true;
+      opsLogState.stickToTop = true;
       list.innerHTML = `<div class="ozon-fbs-ops-log-empty">Загрузка журнала…</div>`;
     }
     try {
@@ -3752,35 +3752,44 @@
         if (!items.length) {
           list.innerHTML = `<div class="ozon-fbs-ops-log-empty">Пока нет записей</div>`;
         } else {
+          // API returns newest-first for initial load.
           list.innerHTML = items.map(_opsLogRenderRow).join("");
         }
       } else if (items.length) {
         const empty = list.querySelector(".ozon-fbs-ops-log-empty");
         if (empty) empty.remove();
-        const nearBottom =
-          list.scrollHeight - list.scrollTop - list.clientHeight < 48;
-        list.insertAdjacentHTML("beforeend", items.map(_opsLogRenderRow).join(""));
+        const nearTop = list.scrollTop < 48;
+        // Incremental batch is ASC; reverse so newest lands at the top.
+        const html = items
+          .slice()
+          .reverse()
+          .map(_opsLogRenderRow)
+          .join("");
+        list.insertAdjacentHTML("afterbegin", html);
         // Cap DOM rows to avoid unbounded growth while modal stays open.
         const rows = list.querySelectorAll(".ozon-fbs-ops-log-row");
         const maxRows = 500;
         if (rows.length > maxRows) {
-          for (let i = 0; i < rows.length - maxRows; i += 1) {
+          for (let i = maxRows; i < rows.length; i += 1) {
             rows[i].remove();
           }
         }
-        if (nearBottom || opsLogState.stickToBottom) {
-          list.scrollTop = list.scrollHeight;
+        if (nearTop || opsLogState.stickToTop) {
+          list.scrollTop = 0;
         }
       }
       if (items.length) {
-        const last = items[items.length - 1];
-        const lid = Number(last?.id) || 0;
-        if (lid > opsLogState.lastId) opsLogState.lastId = lid;
+        let maxId = opsLogState.lastId;
+        for (const it of items) {
+          const lid = Number(it?.id) || 0;
+          if (lid > maxId) maxId = lid;
+        }
+        opsLogState.lastId = maxId;
       } else if (typeof data.last_id === "number" && data.last_id > opsLogState.lastId) {
         opsLogState.lastId = data.last_id;
       }
       if (reset && items.length) {
-        list.scrollTop = list.scrollHeight;
+        list.scrollTop = 0;
       }
     } catch (e) {
       if (reset) {
