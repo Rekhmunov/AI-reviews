@@ -942,11 +942,27 @@
         ? String(row.warehouse_id).trim()
         : "";
       const actCell = _ozonFbsLookupRowActionsHtml(pnRaw);
+      let exemplarBadge = "";
+      if (state.tab === "awaiting_packaging" && !isSuppliesTab()) {
+        const badge = String(row.pre_ship_exemplar_badge || "");
+        if (badge === "needed") {
+          exemplarBadge =
+            `<button type="button" class="wb-fbs-badge ozon-exemplar-needed"`
+            + ` onclick="openOzonFbsPackagingExemplarModal('${pn}')"`
+            + ` title="Нужны КИЗ и ГТД до сборки (юрлицо)">⚠ Маркировка не добавлена</button>`;
+        } else if (badge === "ok") {
+          exemplarBadge =
+            `<button type="button" class="wb-fbs-badge ozon-exemplar-ok"`
+            + ` onclick="openOzonFbsPackagingExemplarModal('${pn}')"`
+            + ` title="КИЗ и ГТД переданы в Ozon">Маркировка добавлена</button>`;
+        }
+      }
       return `<tr data-posting="${pn}">
       <td><input type="checkbox" class="wb-fbs-row-cb" data-posting="${pn}" ${checked} onchange="onOzonFbsCheckboxChange()" /></td>
       <td>
         <div class="wb-fbs-order-id">${formatOzonPostingNumberHtml(pnRaw)}</div>
         <div class="wb-fbs-order-meta">от ${esc(fmtDate(created))}</div>
+        ${exemplarBadge}
         ${badges.length ? `<div class="wb-fbs-badges">${badges.join("")}</div>` : ""}
         ${whLabel && whLabel !== "—" ? `<div class="ozon-fbs-mobile-wh">${esc(whLabel)}${whId ? " · ID " + esc(whId) : ""}</div>` : ""}
       </td>
@@ -1455,6 +1471,266 @@
     }
   }
 
+  /* ── Packaging exemplar (КИЗ+ГТД before ship, юрлица) ── */
+
+  const packagingExemplarState = {
+    postingNumber: "",
+    payload: null,
+    busy: false,
+    gtdManual: false,
+    gtdLookupHint: "",
+  };
+
+  function closeOzonFbsPackagingExemplarModal() {
+    if (packagingExemplarState.busy) return;
+    document.getElementById("ozonFbsPackagingExemplarModal")?.classList.add("hidden");
+    packagingExemplarState.postingNumber = "";
+    packagingExemplarState.payload = null;
+    packagingExemplarState.gtdManual = false;
+    packagingExemplarState.gtdLookupHint = "";
+  }
+
+  function _packagingExemplarSetInfo(text, tone) {
+    const el = document.getElementById("ozonFbsPackagingExemplarInfo");
+    if (!el) return;
+    const msg = String(text || "").trim();
+    el.hidden = !msg;
+    el.textContent = msg;
+    el.classList.toggle("is-ok", tone === "ok");
+    el.classList.toggle("is-error", tone === "error");
+  }
+
+  function _packagingExemplarRenderBody(data) {
+    const body = document.getElementById("ozonFbsPackagingExemplarBody");
+    const meta = document.getElementById("ozonFbsPackagingExemplarMeta");
+    if (meta) {
+      const pn = String(data.posting_number || "");
+      const name = String(data.product_name || "");
+      meta.innerHTML =
+        `<div class="pn">${formatOzonPostingNumberHtml(pn)}</div>`
+        + (name ? `<div class="name">${esc(name)}</div>` : "");
+    }
+    if (!body) return;
+    const qty = Math.max(Number(data.quantity || 1) || 1, 1);
+    const codes = Array.isArray(data.kiz_codes) ? data.kiz_codes.slice() : [];
+    while (codes.length < qty) codes.push("");
+    packagingExemplarState.payload = { ...data, kiz_codes: codes };
+    const gtd = String(data.gtd_number || "");
+    const readonly = packagingExemplarState.gtdManual ? "" : "readonly";
+    let kizHtml = "";
+    for (let i = 0; i < qty; i += 1) {
+      kizHtml += `<div class="ozon-fbs-packaging-exemplar-kiz-row">
+        <span class="idx">${i + 1}</span>
+        <input type="text" id="ozonFbsPackagingKiz_${i}" autocomplete="off"
+               value="${esc(codes[i] || "")}"
+               placeholder="Сканируйте КИЗ"
+               oninput="onOzonFbsPackagingExemplarKizInput(${i})" />
+      </div>`;
+    }
+    const hint = packagingExemplarState.gtdLookupHint
+      ? `<p class="ozon-fbs-packaging-exemplar-hint ${packagingExemplarState.gtdLookupHintTone || ""}">${esc(packagingExemplarState.gtdLookupHint)}</p>`
+      : `<p class="ozon-fbs-packaging-exemplar-hint">ГТД подставится из базы по короткому КИ после скана. Если не найдена — включите ручной ввод.</p>`;
+    body.innerHTML = `
+      <div class="ozon-fbs-packaging-exemplar-field">
+        <label>КИЗ (${qty})</label>
+        <div class="ozon-fbs-packaging-exemplar-kiz-list">${kizHtml}</div>
+      </div>
+      <div class="ozon-fbs-packaging-exemplar-field">
+        <label for="ozonFbsPackagingGtd">ГТД</label>
+        <input type="text" id="ozonFbsPackagingGtd" autocomplete="off"
+               value="${esc(gtd)}" ${readonly}
+               placeholder="Номер ГТД" />
+        <label class="ozon-fbs-packaging-exemplar-manual">
+          <input type="checkbox" id="ozonFbsPackagingGtdManual"
+                 ${packagingExemplarState.gtdManual ? "checked" : ""}
+                 onchange="onOzonFbsPackagingExemplarManualGtd(this)" />
+          Ввести ГТД вручную
+        </label>
+        ${hint}
+      </div>`;
+  }
+
+  async function _packagingExemplarLookupGtd(fromIdx) {
+    if (packagingExemplarState.gtdManual) return;
+    const input = document.getElementById(`ozonFbsPackagingKiz_${fromIdx}`);
+    const raw = String(input?.value || "").trim();
+    if (!raw || raw.length < 16) return;
+    try {
+      const res = await fetch(
+        `/api/supply-gtd/lookup?kiz=${encodeURIComponent(raw)}`
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+      const gtdInput = document.getElementById("ozonFbsPackagingGtd");
+      if (data.found && data.item && data.item.gtd_number) {
+        const num = String(data.item.gtd_number || "");
+        if (gtdInput) gtdInput.value = num;
+        if (packagingExemplarState.payload) {
+          packagingExemplarState.payload.gtd_number = num;
+        }
+        packagingExemplarState.gtdLookupHint = `Найдена ГТД ${num}`;
+        packagingExemplarState.gtdLookupHintTone = "is-ok";
+      } else {
+        packagingExemplarState.gtdLookupHint =
+          String(data.message || "КИЗ не найден в базе ГТД — включите ручной ввод");
+        packagingExemplarState.gtdLookupHintTone = "is-warn";
+      }
+      const hintEl = document.querySelector(
+        "#ozonFbsPackagingExemplarBody .ozon-fbs-packaging-exemplar-hint"
+      );
+      if (hintEl) {
+        hintEl.textContent = packagingExemplarState.gtdLookupHint;
+        hintEl.classList.toggle("is-ok", packagingExemplarState.gtdLookupHintTone === "is-ok");
+        hintEl.classList.toggle("is-warn", packagingExemplarState.gtdLookupHintTone === "is-warn");
+      }
+    } catch (_e) {
+      /* ignore lookup errors */
+    }
+  }
+
+  function onOzonFbsPackagingExemplarKizInput(idx) {
+    const input = document.getElementById(`ozonFbsPackagingKiz_${idx}`);
+    if (!input || !packagingExemplarState.payload) return;
+    const codes = Array.isArray(packagingExemplarState.payload.kiz_codes)
+      ? packagingExemplarState.payload.kiz_codes
+      : [];
+    codes[idx] = String(input.value || "");
+    packagingExemplarState.payload.kiz_codes = codes;
+    // Debounced lookup on longer scans.
+    clearTimeout(onOzonFbsPackagingExemplarKizInput._t);
+    onOzonFbsPackagingExemplarKizInput._t = setTimeout(() => {
+      _packagingExemplarLookupGtd(idx);
+    }, 280);
+  }
+
+  function onOzonFbsPackagingExemplarManualGtd(el) {
+    packagingExemplarState.gtdManual = !!(el && el.checked);
+    const gtdInput = document.getElementById("ozonFbsPackagingGtd");
+    if (gtdInput) {
+      if (packagingExemplarState.gtdManual) {
+        gtdInput.removeAttribute("readonly");
+        gtdInput.focus();
+      } else {
+        gtdInput.setAttribute("readonly", "readonly");
+      }
+    }
+  }
+
+  async function openOzonFbsPackagingExemplarModal(postingNumber) {
+    const pn = String(postingNumber || "").trim();
+    if (!pn || !state.sourceId) return;
+    const modal = document.getElementById("ozonFbsPackagingExemplarModal");
+    if (!modal) return;
+    packagingExemplarState.postingNumber = pn;
+    packagingExemplarState.gtdManual = false;
+    packagingExemplarState.gtdLookupHint = "";
+    packagingExemplarState.payload = null;
+    _packagingExemplarSetInfo("Загрузка…");
+    const body = document.getElementById("ozonFbsPackagingExemplarBody");
+    if (body) body.innerHTML = "";
+    const meta = document.getElementById("ozonFbsPackagingExemplarMeta");
+    if (meta) meta.innerHTML = "";
+    modal.classList.remove("hidden");
+    const saveBtn = document.getElementById("ozonFbsPackagingExemplarSaveBtn");
+    if (saveBtn) saveBtn.disabled = true;
+    try {
+      const res = await fetch(
+        `/api/ozon-fbs/postings/${encodeURIComponent(pn)}/packaging-exemplar`
+        + `?source_id=${encodeURIComponent(state.sourceId)}`
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(detailText(data.detail) || "Не удалось открыть маркировку");
+      }
+      packagingExemplarState.gtdManual = false;
+      _packagingExemplarRenderBody(data);
+      _packagingExemplarSetInfo("");
+      if (saveBtn) saveBtn.disabled = false;
+      const first = document.getElementById("ozonFbsPackagingKiz_0");
+      if (first) first.focus();
+    } catch (e) {
+      _packagingExemplarSetInfo(e.message || String(e), "error");
+      if (saveBtn) saveBtn.disabled = true;
+    }
+  }
+
+  async function saveOzonFbsPackagingExemplar() {
+    const pn = packagingExemplarState.postingNumber;
+    if (!pn || !state.sourceId || packagingExemplarState.busy) return;
+    const qty = Math.max(
+      Number(packagingExemplarState.payload?.quantity || 1) || 1,
+      1
+    );
+    const codes = [];
+    for (let i = 0; i < qty; i += 1) {
+      const el = document.getElementById(`ozonFbsPackagingKiz_${i}`);
+      const v = String(el?.value || "").trim();
+      if (v) codes.push(v);
+    }
+    if (codes.length < qty) {
+      _packagingExemplarSetInfo(`Заполните все поля КИЗ (${qty})`, "error");
+      return;
+    }
+    const gtd = String(
+      document.getElementById("ozonFbsPackagingGtd")?.value || ""
+    ).trim();
+    if (!gtd) {
+      _packagingExemplarSetInfo(
+        "Укажите ГТД (из базы по КИЗ или вручную)",
+        "error"
+      );
+      return;
+    }
+    const saveBtn = document.getElementById("ozonFbsPackagingExemplarSaveBtn");
+    packagingExemplarState.busy = true;
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.textContent = "Сохранение…";
+    }
+    _packagingExemplarSetInfo("Передаём в Ozon…");
+    try {
+      const res = await fetch(
+        `/api/ozon-fbs/postings/${encodeURIComponent(pn)}/packaging-exemplar`
+        + `?source_id=${encodeURIComponent(state.sourceId)}`,
+        {
+          method: "PUT",
+          headers: jsonHeaders(),
+          body: JSON.stringify({ kiz_codes: codes, gtd_number: gtd }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(detailText(data.detail) || "Ошибка сохранения");
+      }
+      _packagingExemplarSetInfo(data.message || "Сохранено", "ok");
+      // Update row badge in current list without full reload when possible.
+      const row = (state.items || []).find(
+        (r) => String(r.posting_number || "") === pn
+      );
+      if (row) {
+        row.pre_ship_exemplar_badge = "ok";
+        row.marking_ozon_synced = true;
+        row.marking_gtd_number = gtd;
+        row.pre_ship_gtd_required = true;
+        renderTable(state.items);
+      } else {
+        await loadPostings(false);
+      }
+      setTimeout(() => {
+        packagingExemplarState.busy = false;
+        closeOzonFbsPackagingExemplarModal();
+      }, 600);
+    } catch (e) {
+      _packagingExemplarSetInfo(e.message || String(e), "error");
+      packagingExemplarState.busy = false;
+    } finally {
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = "Сохранить";
+      }
+    }
+  }
+
   /* ── Collect (ship-all + local supplies) ── */
 
   function closeCollectModal() {
@@ -1478,7 +1754,12 @@
     EXEMPLAR_INFO_NOT_FILLED_COMPLETELY: {
       text: "Не заполнены данные экземпляров: нужен КИЗ («Честный ЗНАК») и/или ГТД.",
       action:
-        "Откройте поставку с этим отправлением → «Маркировка», внесите коды (и ГТД, если требуется). Если поставки ещё нет — заполните маркировку и повторите «Собрать все заказы».",
+        "На вкладке «Ожидают сборки» нажмите «⚠ Маркировка не добавлена» у заказа, внесите КИЗ и ГТД, сохраните — затем повторите «Собрать все заказы».",
+    },
+    PRE_SHIP_EXEMPLAR_REQUIRED: {
+      text: "Заказ юрлица пропущен: КИЗ/ГТД ещё не переданы в Ozon.",
+      action:
+        "Откройте бейдж «⚠ Маркировка не добавлена» у отправления, сохраните КИЗ и ГТД, затем соберите снова.",
     },
     EXEMPLAR_INFO_ALREADY_DEFINED: {
       text: "Данные экземпляров по этому заказу уже переданы в Ozon.",
@@ -1490,7 +1771,7 @@
     },
     GTD_MUST_BE_SPECIFIED_FOR_PRODUCT_COUNTRY: {
       text: "Не указан номер ГТД для товара.",
-      action: "В «Маркировке» укажите ГТД. Если декларации нет — отметьте, что ГТД отсутствует, и повторите сборку.",
+      action: "В модалке маркировки на сборке укажите ГТД. Если декларации нет в базе — включите ручной ввод.",
     },
     GTD_IS_REQUIRED_ONLY_FOR_LEGAL_CUSTOMER: {
       text: "ГТД для этого заказа передавать не нужно (покупатель не юрлицо).",
@@ -1538,7 +1819,7 @@
     },
     SHIP_NOT_AVAILABLE: {
       text: "Сборка недоступна: Ozon ещё не принял данные экземпляров.",
-      action: "Проверьте «Маркировку» (КИЗ/ГТД), подождите немного и повторите «Собрать все заказы».",
+      action: "Проверьте маркировку (КИЗ/ГТД) на сборке, подождите немного и повторите «Собрать все заказы».",
     },
   };
 
@@ -1612,18 +1893,27 @@
   function formatCollectErrorItemHtml(err) {
     let posting = "";
     let raw = "";
+    let forcedCode = "";
     if (typeof err === "string") {
       raw = err;
       const m = err.match(/^(\S+):\s*([\s\S]+)$/);
-      if (m && /[-\d]/.test(m[1]) && /ozon|exemplar|posting|http|ошиб/i.test(m[2])) {
+      if (m && /[-\d]/.test(m[1]) && /ozon|exemplar|posting|http|ошиб|пропущ/i.test(m[2])) {
         posting = m[1];
         raw = m[2];
       }
     } else if (err && typeof err === "object") {
       posting = String(err.posting_number || "").trim();
       raw = String(err.error || err.message || "").trim();
+      forcedCode = String(err.code || "").trim().toUpperCase();
     }
-    const h = humanizeOzonCollectError(raw);
+    const h = forcedCode && OZON_SHIP_ERROR_HINTS[forcedCode]
+      ? {
+          code: forcedCode,
+          text: OZON_SHIP_ERROR_HINTS[forcedCode].text,
+          action: OZON_SHIP_ERROR_HINTS[forcedCode].action,
+          raw,
+        }
+      : humanizeOzonCollectError(raw);
     const pnHtml = posting && posting !== "—" && posting !== "?"
       ? `${formatOzonPostingNumberHtml(posting)}: `
       : "";
@@ -6444,6 +6734,20 @@
               ? ""
               : `<button type="button" class="wb-fbs-kiz-add" onclick="addOzonFbsKizCode('${safePn}')">+ Добавить КИЗ</button>`
           }
+          ${
+            !isCancelled && r.gtd_required
+              ? `<div class="ozon-fbs-packaging-exemplar-field" style="margin-top:12px">
+                   <label for="ozonFbsKizGtd_${safePn}">ГТД (юрлицо)</label>
+                   <input id="ozonFbsKizGtd_${safePn}" type="text" class="ozon-fbs-kiz-gtd-input"
+                          data-posting="${safePn}" autocomplete="off"
+                          value="${esc(r.gtd_number || "")}"
+                          placeholder="Номер ГТД"
+                          oninput="onOzonFbsKizGtdInput('${safePn}', event)" />
+                 </div>`
+              : (r.gtd_number
+                  ? `<div class="wb-fbs-order-meta" style="margin-top:8px">ГТД: ${esc(r.gtd_number)}</div>`
+                  : "")
+          }
         </td>
         <td>
           <div class="wb-fbs-row-menu-wrap">
@@ -6530,6 +6834,13 @@
     });
     _ozonFbsKizUpdateScanCounter();
     return true;
+  }
+
+  function onOzonFbsKizGtdInput(postingNumber, event) {
+    const pn = String(postingNumber || "").trim();
+    const row = _ozonFbsKizRowByPosting(pn);
+    if (!row) return;
+    row.gtd_number = String(event?.target?.value || "").trim();
   }
 
   function onOzonFbsKizCodeInput(postingNumber, event) {
@@ -6735,6 +7046,7 @@
       items.push({
         posting_number: pn,
         kiz_codes: codes,
+        gtd_number: String(row.gtd_number || "").trim(),
         expected_saved_at: String(row.kiz_saved_at || ""),
         force: !!(ozonFbsKizState.forceSaveByPosting && ozonFbsKizState.forceSaveByPosting[pn]),
         clear: wantClear,
@@ -7288,6 +7600,7 @@
         .map((r) => ({
         posting_number: r.posting_number,
         kiz_codes: (r.kiz_codes || []).map((c) => _ozonFbsNormalizeMark(c)).filter(Boolean),
+        gtd_number: String(r.gtd_number || "").trim(),
         expected_saved_at: r.kiz_saved_at || "",
         force: !!(ozonFbsKizState.forceSaveByPosting && ozonFbsKizState.forceSaveByPosting[r.posting_number]),
       })).filter((it) => it.posting_number);
@@ -8049,6 +8362,11 @@
 
   window.closeOzonFbsCollectModal = closeCollectModal;
   window.closeOzonFbsCollectResultModal = closeCollectResultModal;
+  window.openOzonFbsPackagingExemplarModal = openOzonFbsPackagingExemplarModal;
+  window.closeOzonFbsPackagingExemplarModal = closeOzonFbsPackagingExemplarModal;
+  window.saveOzonFbsPackagingExemplar = saveOzonFbsPackagingExemplar;
+  window.onOzonFbsPackagingExemplarKizInput = onOzonFbsPackagingExemplarKizInput;
+  window.onOzonFbsPackagingExemplarManualGtd = onOzonFbsPackagingExemplarManualGtd;
   window.confirmOzonFbsCollect = confirmCollect;
   window.ozonFbsCollectNameInput = collectNameInput;
 
@@ -8098,6 +8416,7 @@
   window.onOzonFbsKizCodeInput = onOzonFbsKizCodeInput;
   window.onOzonFbsKizCodeBlur = onOzonFbsKizCodeBlur;
   window.onOzonFbsKizCodeKey = onOzonFbsKizCodeKey;
+  window.onOzonFbsKizGtdInput = onOzonFbsKizGtdInput;
   window.addOzonFbsKizCode = addOzonFbsKizCode;
   window.removeOzonFbsKizCode = removeOzonFbsKizCode;
   window.onOzonFbsKizFilterFilledChange = onOzonFbsKizFilterFilledChange;

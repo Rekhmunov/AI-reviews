@@ -87,7 +87,8 @@ def load_marking_map(
         rows = conn.execute(
             repo._sql(
                 f"""
-                SELECT posting_number, marking_codes_json, marking_saved_at, marking_ozon_synced
+                SELECT posting_number, marking_codes_json, marking_saved_at,
+                       marking_ozon_synced, marking_gtd_number
                 FROM ozon_fbs_postings
                 WHERE user_id = ? AND source_id = ?
                   AND posting_number IN ({placeholders})
@@ -106,6 +107,7 @@ def load_marking_map(
             # Canonical UTC token — same as WB FBS (avoids false conflicts on PG round-trip).
             "saved_at": wb._normalize_kiz_saved_at(d.get("marking_saved_at")),
             "ozon_synced": bool(d.get("marking_ozon_synced")),
+            "gtd_number": str(d.get("marking_gtd_number") or "").strip(),
         }
     return out
 
@@ -253,6 +255,7 @@ def build_marking_payload(
         # Drop empty second+ slots on open; keep all filled codes.
         codes = clean_open_kiz_codes(codes)
         status = _marking_status(codes=codes, required_qty=req_qty)
+        gtd_required = oz.posting_requires_pre_ship_gtd(o)
         rows.append(
             {
                 "posting_number": pn,
@@ -267,6 +270,8 @@ def build_marking_payload(
                 "kiz_saved_at": str(loc.get("saved_at") or ""),
                 "kiz_ozon_synced": bool(loc.get("ozon_synced")),
                 "kiz_status": status,
+                "gtd_required": gtd_required,
+                "gtd_number": str(loc.get("gtd_number") or "").strip(),
                 "cancel_reason_label": str(o.get("cancel_reason_label") or ""),
                 "cancelled": False,
                 "order_id": o.get("order_id"),
@@ -295,9 +300,11 @@ def _build_exemplar_set_products(
     *,
     create_result: dict[str, Any],
     codes: list[str],
+    gtd: str = "",
 ) -> list[dict[str, Any]]:
     products_out: list[dict[str, Any]] = []
     code_idx = 0
+    gtd_clean = str(gtd or "").strip()
     for prod in create_result.get("products") or []:
         if not isinstance(prod, dict):
             continue
@@ -316,10 +323,113 @@ def _build_exemplar_set_products(
             marks: list[dict[str, str]] = []
             if code:
                 marks.append({"mark": code, "mark_type": "mandatory_mark"})
-            exemplars_out.append({"exemplar_id": exemplar_id, "marks": marks})
+            ex_payload: dict[str, Any] = {
+                "exemplar_id": exemplar_id,
+                "marks": marks,
+            }
+            # GTD must be on set (v6) as well as validate — otherwise ship 400.
+            if gtd_clean:
+                ex_payload["gtd"] = gtd_clean
+                ex_payload["is_gtd_absent"] = False
+            elif bool(prod.get("is_gtd_needed")):
+                ex_payload["gtd"] = ""
+                ex_payload["is_gtd_absent"] = False
+            exemplars_out.append(ex_payload)
         if exemplars_out:
             products_out.append({"product_id": product_id, "exemplars": exemplars_out})
     return products_out
+
+
+def _error_text_has(exc: BaseException | str, token: str) -> bool:
+    return token.upper() in str(exc or "").upper()
+
+
+def _poll_exemplar_status(
+    client: oz.OzonFbsClient,
+    posting_number: str,
+    *,
+    attempts: int = 12,
+    delay_sec: float = 0.75,
+) -> dict[str, Any]:
+    """Wait until Ozon accepts exemplar data (or fail with a clear message)."""
+    import time as _time
+
+    pn = str(posting_number)
+    last: dict[str, Any] = {}
+    ok_tokens = (
+        "ship_available",
+        "ship_avail",
+        "success",
+        "ok",
+        "validated",
+        "passed",
+        "ready",
+    )
+    fail_tokens = ("error", "failed", "invalid", "reject")
+    for i in range(max(int(attempts), 1)):
+        try:
+            last = client.product_exemplar_status(pn)
+        except RuntimeError as exc:
+            # ALREADY_DEFINED / transient — keep polling a bit.
+            if _error_text_has(exc, "EXEMPLAR_INFO_ALREADY_DEFINED"):
+                return {"ok": True, "already_defined": True, "raw": {"error": str(exc)}}
+            if i >= attempts - 1:
+                raise
+            _time.sleep(delay_sec)
+            continue
+        if not isinstance(last, dict):
+            last = {}
+        status_raw = last.get("status")
+        if status_raw is None and isinstance(last.get("result"), dict):
+            status_raw = last["result"].get("status")
+        status = str(status_raw or "").strip().lower()
+        # Nested product-level check states.
+        products = last.get("products")
+        if not isinstance(products, list) and isinstance(last.get("result"), dict):
+            products = last["result"].get("products")
+        product_statuses: list[str] = []
+        side_hints: list[str] = []
+        if isinstance(products, list):
+            for p in products:
+                if not isinstance(p, dict):
+                    continue
+                st = str(p.get("status") or p.get("check_status") or "").strip().lower()
+                if st:
+                    product_statuses.append(st)
+                for key in ("errors", "error", "message"):
+                    val = p.get(key)
+                    if isinstance(val, list):
+                        for item in val:
+                            text = str(item or "").strip()
+                            if text:
+                                side_hints.append(text)
+                    elif val:
+                        text = str(val).strip()
+                        if text:
+                            side_hints.append(text)
+        combined = " ".join([status, *product_statuses, *side_hints]).lower()
+        if any(t in combined for t in ("country", "rnpt", "jw_uin")):
+            _log.warning(
+                "ozon exemplar status side-requirement posting=%s detail=%s",
+                pn,
+                combined[:400],
+            )
+        if status and any(t in status for t in ok_tokens):
+            return {"ok": True, "status": status, "raw": last}
+        if product_statuses and all(
+            any(t in st for t in ok_tokens) for st in product_statuses
+        ):
+            return {"ok": True, "status": status or "ok", "raw": last}
+        if status and any(t in status for t in fail_tokens):
+            raise RuntimeError(
+                f"Ozon не принял данные экземпляров (status={status}). "
+                "Проверьте КИЗ и ГТД."
+            )
+        # Empty / pending — wait.
+        if i < attempts - 1:
+            _time.sleep(delay_sec)
+    # Soft success when Ozon returns no clear status but set+validate already ran.
+    return {"ok": True, "status": "assumed_ok", "raw": last, "polled": True}
 
 
 def push_marking_to_ozon(
@@ -328,45 +438,380 @@ def push_marking_to_ozon(
     posting_number: str,
     posting: dict[str, Any],
     codes: list[str],
+    gtd: str = "",
     requires_kiz_map: dict[str, bool] | None = None,
-) -> None:
-    marked = oz.marked_products_for_posting(
-        posting, requires_kiz_map=requires_kiz_map
-    )
+    prefer_gtd_products: bool = False,
+) -> dict[str, Any]:
+    """create-or-get → set(КИЗ+ГТД) → validate(КИЗ+ГТД) → poll status.
+
+    Shared by packaging «Ожидают сборки» modal and supply «Маркировка».
+    ``EXEMPLAR_INFO_ALREADY_DEFINED`` is treated as success.
+    """
+    gtd_clean = str(gtd or "").strip()
+    if prefer_gtd_products or oz.posting_requires_pre_ship_gtd(posting):
+        marked = oz.pre_ship_exemplar_products(posting)
+    else:
+        marked = oz.marked_products_for_posting(
+            posting, requires_kiz_map=requires_kiz_map
+        )
     if not marked:
         raise RuntimeError("Отправление не требует маркировки")
     create_products = [
         {"product_id": int(p["product_id"]), "quantity": int(p["quantity"])}
         for p in marked
     ]
-    create_result = client.product_exemplar_create_or_get(
-        str(posting_number), create_products
+    already = False
+    try:
+        create_result = client.product_exemplar_create_or_get(
+            str(posting_number), create_products
+        )
+    except RuntimeError as exc:
+        if _error_text_has(exc, "EXEMPLAR_INFO_ALREADY_DEFINED"):
+            already = True
+            create_result = {"products": []}
+        else:
+            raise
+    if not already:
+        set_products = _build_exemplar_set_products(
+            create_result=create_result, codes=codes, gtd=gtd_clean
+        )
+        if not set_products:
+            raise RuntimeError(
+                "Не удалось сопоставить exemplars Ozon с кодами маркировки"
+            )
+        try:
+            client.product_exemplar_set(
+                str(posting_number),
+                multi_box_qty=1,
+                products=set_products,
+            )
+        except RuntimeError as exc:
+            if _error_text_has(exc, "EXEMPLAR_INFO_ALREADY_DEFINED"):
+                already = True
+            else:
+                raise
+        if not already:
+            validate_products = []
+            for prod in set_products:
+                pid = prod.get("product_id")
+                exemplars = []
+                for ex in prod.get("exemplars") or []:
+                    marks = ex.get("marks") or []
+                    mark_val = ""
+                    for m in marks:
+                        if isinstance(m, dict) and m.get("mark_type") == "mandatory_mark":
+                            mark_val = str(m.get("mark") or "")
+                            break
+                    if mark_val:
+                        exemplars.append(
+                            {
+                                "mandatory_mark": mark_val,
+                                "gtd": gtd_clean,
+                                "jw_uin": "",
+                            }
+                        )
+                if pid and exemplars:
+                    validate_products.append(
+                        {"product_id": pid, "exemplars": exemplars}
+                    )
+            if validate_products:
+                try:
+                    client.product_exemplar_validate(
+                        str(posting_number), validate_products
+                    )
+                except RuntimeError as exc:
+                    if _error_text_has(exc, "EXEMPLAR_INFO_ALREADY_DEFINED"):
+                        already = True
+                    else:
+                        raise
+    status_out = {"ok": True, "already_defined": already}
+    if not already:
+        try:
+            status_out = _poll_exemplar_status(client, str(posting_number))
+        except RuntimeError as exc:
+            if _error_text_has(exc, "EXEMPLAR_INFO_ALREADY_DEFINED"):
+                status_out = {"ok": True, "already_defined": True}
+            else:
+                raise
+    status_out["already_defined"] = bool(
+        status_out.get("already_defined") or already
     )
-    set_products = _build_exemplar_set_products(create_result=create_result, codes=codes)
-    if not set_products:
-        raise RuntimeError("Не удалось сопоставить exemplars Ozon с кодами маркировки")
-    client.product_exemplar_set(
-        str(posting_number),
-        multi_box_qty=1,
-        products=set_products,
+    return status_out
+
+
+def _load_posting_row(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_number: str,
+) -> dict[str, Any] | None:
+    pn = str(posting_number or "").strip()
+    if not pn:
+        return None
+    oz.ensure_ozon_fbs_tables(repo)
+    with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql(
+                """
+                SELECT * FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ? AND posting_number = ?
+                LIMIT 1
+                """
+            ),
+            (user_id, source_id, pn),
+        ).fetchone()
+    return repo._row_to_dict(row) if row else None
+
+
+def build_packaging_exemplar_payload(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_number: str,
+    client_id: str,
+    api_key: str,
+) -> dict[str, Any]:
+    """Modal payload for pre-ship КИЗ+ГТД on «Ожидают сборки»."""
+    row = _load_posting_row(
+        repo, user_id=user_id, source_id=source_id, posting_number=posting_number
     )
-    validate_products = []
-    for prod in set_products:
-        pid = prod.get("product_id")
-        exemplars = []
-        for ex in prod.get("exemplars") or []:
-            marks = ex.get("marks") or []
-            mark_val = ""
-            for m in marks:
-                if isinstance(m, dict) and m.get("mark_type") == "mandatory_mark":
-                    mark_val = str(m.get("mark") or "")
-                    break
-            if mark_val:
-                exemplars.append({"mandatory_mark": mark_val, "gtd": "", "jw_uin": ""})
-        if pid and exemplars:
-            validate_products.append({"product_id": pid, "exemplars": exemplars})
-    if validate_products:
-        client.product_exemplar_validate(str(posting_number), validate_products)
+    if not row:
+        raise RuntimeError("Отправление не найдено локально")
+    pn = str(row.get("posting_number") or "").strip()
+    posting = oz._posting_payload_from_row(row) or {}
+    client = oz.OzonFbsClient(client_id, api_key)
+    # Refresh requirements from Ozon get when possible (list may omit GTD).
+    try:
+        remote = client.get_posting(pn)
+        if isinstance(remote, dict) and remote.get("posting_number"):
+            posting = remote
+            try:
+                oz.upsert_posting(
+                    repo, user_id=user_id, source_id=source_id, posting=remote
+                )
+                row = _load_posting_row(
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    posting_number=pn,
+                ) or row
+            except Exception as exc:
+                _log.warning("packaging exemplar upsert %s: %s", pn, exc)
+    except Exception as exc:
+        _log.info("packaging exemplar get_posting %s: %s", pn, exc)
+
+    if not oz.posting_requires_pre_ship_gtd(posting if posting else row):
+        raise RuntimeError(
+            "Для этого отправления ГТД до сборки не требуется "
+            "(нет products_requiring_gtd)"
+        )
+
+    products = oz.pre_ship_exemplar_products(posting)
+    if not products:
+        raise RuntimeError("Не удалось определить товары для маркировки")
+    create_products = [
+        {"product_id": int(p["product_id"]), "quantity": int(p["quantity"])}
+        for p in products
+    ]
+    exemplar_count = sum(int(p["quantity"]) for p in products)
+    create_result: dict[str, Any] = {}
+    try:
+        create_result = client.product_exemplar_create_or_get(pn, create_products)
+        n = 0
+        for prod in create_result.get("products") or []:
+            if not isinstance(prod, dict):
+                continue
+            exemplars = prod.get("exemplars") or []
+            if isinstance(exemplars, list) and exemplars:
+                n += len(exemplars)
+            else:
+                try:
+                    n += int(prod.get("quantity") or 0)
+                except (TypeError, ValueError):
+                    pass
+        if n > 0:
+            exemplar_count = n
+        # Persist is_gtd_needed / mark flags from create-or-get.
+        gtd_ids: set[str] = set()
+        mark_ids: set[str] = set()
+        for prod in create_result.get("products") or []:
+            if not isinstance(prod, dict):
+                continue
+            pid = prod.get("product_id")
+            if pid is None:
+                continue
+            text = str(pid).strip()
+            if prod.get("is_gtd_needed"):
+                gtd_ids.add(text)
+            if prod.get("is_mandatory_mark_needed"):
+                mark_ids.add(text)
+        if gtd_ids or mark_ids:
+            enriched = posting
+            if mark_ids:
+                enriched = oz._merge_products_requiring_mandatory_mark(enriched, mark_ids)
+            if gtd_ids:
+                enriched = oz._merge_products_requiring_gtd(enriched, gtd_ids)
+            try:
+                oz.upsert_posting(
+                    repo, user_id=user_id, source_id=source_id, posting=enriched
+                )
+                posting = enriched
+            except Exception as exc:
+                _log.warning("packaging exemplar merge req %s: %s", pn, exc)
+    except RuntimeError as exc:
+        if not _error_text_has(exc, "EXEMPLAR_INFO_ALREADY_DEFINED"):
+            _log.warning("packaging create-or-get %s: %s", pn, exc)
+
+    local = load_marking_map(
+        repo, user_id=user_id, source_id=source_id, posting_numbers=[pn]
+    ).get(pn) or {}
+    saved_codes = list(local.get("codes") or [])
+    # Pad to exemplar_count empty slots for UI (unlike supply modal open-clean).
+    codes: list[str] = []
+    for i in range(max(exemplar_count, 1)):
+        codes.append(saved_codes[i] if i < len(saved_codes) else "")
+    if len(saved_codes) > len(codes):
+        codes.extend(saved_codes[len(codes) :])
+
+    name_map = repo.get_product_name_by_article(user_id=user_id)
+    ozon_sku_map = repo.get_product_name_by_ozon_sku(user_id=user_id)
+    photo_map = repo.get_product_photo_map(user_id=user_id)
+    display_row = dict(row)
+    oz.enrich_posting_product_display(
+        display_row,
+        name_by_article=name_map,
+        name_by_ozon_sku=ozon_sku_map,
+    )
+    article = str(display_row.get("offer_id") or "").strip()
+    sku = str(display_row.get("sku") or "").strip()
+    photo = photo_map.get(article) or photo_map.get(sku) or ""
+    return {
+        "ok": True,
+        "posting_number": pn,
+        "source_id": source_id,
+        "product_name": display_row.get("product_name_display")
+        or display_row.get("product_name")
+        or article
+        or "—",
+        "offer_id": article,
+        "sku": sku,
+        "product_photo": photo,
+        "quantity": exemplar_count,
+        "kiz_codes": codes,
+        "gtd_number": str(local.get("gtd_number") or "").strip(),
+        "gtd_required": True,
+        "marking_ozon_synced": bool(local.get("ozon_synced")),
+        "kiz_saved_at": str(local.get("saved_at") or ""),
+        "sticker_required": False,
+        "tab": str(row.get("tab") or ""),
+    }
+
+
+def save_packaging_exemplar(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_number: str,
+    client_id: str,
+    api_key: str,
+    kiz_codes: list[str],
+    gtd_number: str,
+) -> dict[str, Any]:
+    """Save КИЗ+ГТД locally and push to Ozon (packaging stage). No sticker required."""
+    from . import supply_gtd as gtd_mod
+
+    row = _load_posting_row(
+        repo, user_id=user_id, source_id=source_id, posting_number=posting_number
+    )
+    if not row:
+        raise RuntimeError("Отправление не найдено локально")
+    pn = str(row.get("posting_number") or "").strip()
+    posting = oz._posting_payload_from_row(row) or {}
+    if not oz.posting_requires_pre_ship_gtd(posting if posting else row):
+        raise RuntimeError("Для этого отправления ГТД до сборки не требуется")
+
+    codes = [
+        _normalize_mark_code(x)
+        for x in (kiz_codes or [])
+        if _normalize_mark_code(x)
+    ]
+    seen: set[str] = set()
+    uniq: list[str] = []
+    for c in codes:
+        if c in seen:
+            continue
+        seen.add(c)
+        uniq.append(c)
+    req_qty = max(oz.pre_ship_exemplar_quantity(row), 1)
+    if len(uniq) < req_qty:
+        raise RuntimeError(
+            f"Нужно {req_qty} код(ов) КИЗ — сейчас {len(uniq)}"
+        )
+    gtd_clean = gtd_mod.normalize_gtd_number(gtd_number) or str(gtd_number or "").strip()
+    if not gtd_clean:
+        raise RuntimeError("Укажите номер ГТД")
+
+    # Persist draft first so a failed push does not lose scanned codes.
+    local_res = update_posting_marking_codes(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        posting_number=pn,
+        codes=uniq,
+        gtd_number=gtd_clean,
+        ozon_synced=False,
+        force=True,
+    )
+
+    client = oz.OzonFbsClient(client_id, api_key)
+    try:
+        remote = client.get_posting(pn)
+        if isinstance(remote, dict) and remote.get("posting_number"):
+            posting = remote
+    except Exception:
+        pass
+
+    try:
+        push_out = push_marking_to_ozon(
+            client,
+            posting_number=pn,
+            posting=posting,
+            codes=uniq,
+            gtd=gtd_clean,
+            prefer_gtd_products=True,
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            f"Коды сохранены локально, но Ozon не принял данные: {exc}"
+        ) from exc
+
+    local_res = update_posting_marking_codes(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        posting_number=pn,
+        codes=uniq,
+        gtd_number=gtd_clean,
+        ozon_synced=True,
+        force=True,
+    )
+    return {
+        "ok": True,
+        "posting_number": pn,
+        "kiz_codes": list(local_res.get("codes") or uniq),
+        "gtd_number": gtd_clean,
+        "marking_ozon_synced": True,
+        "kiz_saved_at": str(local_res.get("saved_at") or ""),
+        "already_defined": bool(push_out.get("already_defined")),
+        "message": (
+            "Данные экземпляров уже были в Ozon — отметили как синхронизированные"
+            if push_out.get("already_defined")
+            else "Маркировка и ГТД переданы в Ozon"
+        ),
+    }
 
 
 def save_marking(
@@ -376,12 +821,19 @@ def save_marking(
     source_id: int,
     items: list[dict[str, Any]],
     allowed_posting_numbers: set[str] | None = None,
+    client_id: str | None = None,
+    api_key: str | None = None,
 ) -> dict[str, Any]:
-    """Save marking codes locally only. Never calls Ozon."""
+    """Save marking codes locally; push to Ozon when GTD/юрлицо row is complete."""
     results: list[dict[str, Any]] = []
     ok_n = 0
     err_n = 0
     skipped_n = 0
+    cid = str(client_id or "").strip()
+    key = str(api_key or "").strip()
+    client: oz.OzonFbsClient | None = (
+        oz.OzonFbsClient(cid, key) if cid and key else None
+    )
     candidate_pns = [
         str(raw.get("posting_number") or "").strip()
         for raw in items
@@ -431,12 +883,23 @@ def save_marking(
             continue
         expected_saved_at = str(raw.get("expected_saved_at") or "").strip()
         force_save = bool(raw.get("force"))
+        from . import supply_gtd as gtd_mod
+
+        gtd_raw = str(raw.get("gtd_number") or "").strip()
+        gtd_clean = gtd_mod.normalize_gtd_number(gtd_raw) or gtd_raw
+        row = _load_posting_row(
+            repo, user_id=user_id, source_id=source_id, posting_number=pn
+        ) or {}
+        gtd_required = oz.posting_requires_pre_ship_gtd(row)
+        if gtd_required and not gtd_clean:
+            gtd_clean = str(row.get("marking_gtd_number") or "").strip()
         local_res = update_posting_marking_codes(
             repo,
             user_id=user_id,
             source_id=source_id,
             posting_number=pn,
             codes=uniq,
+            gtd_number=gtd_clean if gtd_clean else None,
             ozon_synced=False,
             expected_saved_at=expected_saved_at or None,
             force=force_save,
@@ -466,18 +929,54 @@ def save_marking(
             )
             continue
         local_ok = bool(local_res.get("ok"))
+        push_error = ""
+        ozon_synced = False
+        if (
+            local_ok
+            and client
+            and gtd_required
+            and gtd_clean
+            and uniq
+        ):
+            posting = oz._posting_payload_from_row(row) or {}
+            try:
+                push_marking_to_ozon(
+                    client,
+                    posting_number=pn,
+                    posting=posting,
+                    codes=uniq,
+                    gtd=gtd_clean,
+                    prefer_gtd_products=True,
+                )
+                ozon_synced = True
+                update_posting_marking_codes(
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    posting_number=pn,
+                    codes=uniq,
+                    gtd_number=gtd_clean,
+                    ozon_synced=True,
+                    force=True,
+                )
+            except Exception as exc:
+                push_error = str(exc)
+                _log.warning("ozon supply marking push %s: %s", pn, exc)
         if local_ok:
             ok_n += 1
         else:
             err_n += 1
-        results.append(
-            {
-                "posting_number": pn,
-                "ok": local_ok,
-                "kiz_codes": list(local_res.get("codes") or uniq),
-                "kiz_saved_at": str(local_res.get("saved_at") or ""),
-            }
-        )
+        item_out: dict[str, Any] = {
+            "posting_number": pn,
+            "ok": local_ok,
+            "kiz_codes": list(local_res.get("codes") or uniq),
+            "kiz_saved_at": str(local_res.get("saved_at") or ""),
+            "gtd_number": gtd_clean,
+            "kiz_ozon_synced": ozon_synced,
+        }
+        if push_error:
+            item_out["push_warning"] = push_error
+        results.append(item_out)
     return {
         "ok": err_n == 0,
         "saved": ok_n,
@@ -497,6 +996,7 @@ def update_posting_marking_codes(
     ozon_synced: bool = False,
     expected_saved_at: str | None = None,
     force: bool = False,
+    gtd_number: str | None = None,
 ) -> dict[str, Any]:
     """Persist marking codes locally (FeedPilot).
 
@@ -512,11 +1012,13 @@ def update_posting_marking_codes(
     clean = [_normalize_mark_code(c) for c in codes if _normalize_mark_code(c)]
     now = datetime.now(UTC)
     expected = wb._normalize_kiz_saved_at(expected_saved_at)
+    gtd_set = gtd_number is not None
+    gtd_clean = str(gtd_number or "").strip() if gtd_set else ""
     with repo._connect() as conn:
         row = conn.execute(
             repo._sql(
                 """
-                SELECT marking_codes_json, marking_saved_at
+                SELECT marking_codes_json, marking_saved_at, marking_gtd_number
                 FROM ozon_fbs_postings
                 WHERE user_id = ? AND source_id = ? AND posting_number = ?
                 """
@@ -554,31 +1056,55 @@ def update_posting_marking_codes(
                 "codes": prev_codes,
                 "saved_at": prev_saved,
             }
-        conn.execute(
-            repo._sql(
-                """
-                UPDATE ozon_fbs_postings
-                SET marking_codes_json = ?,
-                    marking_saved_at = ?,
-                    marking_ozon_synced = ?
-                WHERE user_id = ? AND source_id = ? AND posting_number = ?
-                """
-            ),
-            (
-                json.dumps(clean, ensure_ascii=False),
-                now,
-                repo._bool_db(ozon_synced),
-                user_id,
-                source_id,
-                pn,
-            ),
-        )
+        if gtd_set:
+            conn.execute(
+                repo._sql(
+                    """
+                    UPDATE ozon_fbs_postings
+                    SET marking_codes_json = ?,
+                        marking_saved_at = ?,
+                        marking_ozon_synced = ?,
+                        marking_gtd_number = ?
+                    WHERE user_id = ? AND source_id = ? AND posting_number = ?
+                    """
+                ),
+                (
+                    json.dumps(clean, ensure_ascii=False),
+                    now,
+                    repo._bool_db(ozon_synced),
+                    gtd_clean,
+                    user_id,
+                    source_id,
+                    pn,
+                ),
+            )
+        else:
+            conn.execute(
+                repo._sql(
+                    """
+                    UPDATE ozon_fbs_postings
+                    SET marking_codes_json = ?,
+                        marking_saved_at = ?,
+                        marking_ozon_synced = ?
+                    WHERE user_id = ? AND source_id = ? AND posting_number = ?
+                    """
+                ),
+                (
+                    json.dumps(clean, ensure_ascii=False),
+                    now,
+                    repo._bool_db(ozon_synced),
+                    user_id,
+                    source_id,
+                    pn,
+                ),
+            )
     return {
         "ok": True,
         "missing": False,
         "conflict": False,
         "codes": clean,
         "saved_at": wb._normalize_kiz_saved_at(now),
+        "gtd_number": gtd_clean if gtd_set else str(d.get("marking_gtd_number") or ""),
     }
 
 

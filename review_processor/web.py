@@ -11012,7 +11012,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         from . import supply_gtd as gtd_mod
 
         user = _require_user(request)
-        if not _can_view_supply_gtd(user):
+        # Read-only lookup: FBS operators need it on packaging; CRUD stays admin-only.
+        if not (_can_view_supply_gtd(user) or _can_view_ozon_fbs(user)):
             raise HTTPException(status_code=403, detail="Нет доступа")
         return gtd_mod.lookup_gtd_by_kiz(
             repository,
@@ -13212,6 +13213,98 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             row.update(items[0])
         return oz_detail.posting_detail_payload(row)
 
+    @app.get("/api/ozon-fbs/postings/{posting_number}/packaging-exemplar")
+    def ozon_fbs_packaging_exemplar_get(
+        request: Request,
+        posting_number: str,
+        source_id: int,
+    ) -> dict[str, object]:
+        """Pre-ship КИЗ+ГТД modal payload for юрлица on «Ожидают сборки»."""
+        from . import ozon_fbs_marking as oz_mark
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
+        try:
+            return oz_mark.build_packaging_exemplar_payload(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                posting_number=str(posting_number),
+                client_id=client_id,
+                api_key=api_key,
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.put("/api/ozon-fbs/postings/{posting_number}/packaging-exemplar")
+    async def ozon_fbs_packaging_exemplar_save(
+        request: Request,
+        posting_number: str,
+        source_id: int,
+    ) -> dict[str, object]:
+        """Save КИЗ+ГТД and push to Ozon before ship (no sticker required)."""
+        from . import ozon_fbs_marking as oz_mark
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        try:
+            body = await request.json()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Некорректный JSON") from exc
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="Некорректный JSON")
+        kiz_codes = body.get("kiz_codes")
+        if not isinstance(kiz_codes, list):
+            raise HTTPException(status_code=400, detail="Укажите kiz_codes[]")
+        gtd_number = str(body.get("gtd_number") or "").strip()
+        _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
+        try:
+            result = oz_mark.save_packaging_exemplar(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                posting_number=str(posting_number),
+                client_id=client_id,
+                api_key=api_key,
+                kiz_codes=kiz_codes,
+                gtd_number=gtd_number,
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            from . import ozon_fbs_ops_log as ops_log
+
+            ops_log.append_event(
+                repository,
+                user_id=owner_id,
+                action=ops_log.ACTION_MARKING_SAVE,
+                message=(
+                    f"КИЗ+ГТД до сборки: {posting_number}"
+                    + (" (already defined)" if result.get("already_defined") else "")
+                ),
+                level=ops_log.LEVEL_INFO,
+                actor_user_id=int(user.get("id") or 0) or None,
+                actor_name=ops_log.actor_label(user),
+                source_id=int(source_id),
+                details={
+                    "posting_number": str(posting_number),
+                    "gtd": bool(gtd_number),
+                    "codes": len(kiz_codes),
+                },
+            )
+        except Exception:
+            pass
+        return result
+
     @app.post("/api/ozon-fbs/postings/{posting_number}/ship")
     def ozon_fbs_ship_posting(
         request: Request,
@@ -13808,12 +13901,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if str(x).strip()
         }
         try:
+            _, client_id, api_key = _ozon_fbs_source_credentials(
+                owner_id, int(source_id)
+            )
+        except Exception:
+            client_id, api_key = "", ""
+        try:
             result = oz_mark.save_marking(
                 repository,
                 user_id=owner_id,
                 source_id=int(source_id),
                 items=items,
                 allowed_posting_numbers=allowed,
+                client_id=client_id,
+                api_key=api_key,
             )
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

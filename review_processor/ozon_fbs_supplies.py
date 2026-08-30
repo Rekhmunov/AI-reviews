@@ -726,6 +726,7 @@ def execute_ship_all_collect(
     errors: list[dict[str, str]] = []
     created: list[dict[str, str]] = []
     group_lines: list[str] = []
+    skipped_exemplar = 0
 
     open_names = {
         str(s.get("name") or "").strip()
@@ -766,6 +767,52 @@ def execute_ship_all_collect(
         for pn in posting_numbers:
             if _stopped():
                 break
+            # Skip юрлицо / GTD postings that are not yet pushed to Ozon.
+            try:
+                local_row = None
+                with repo._connect() as conn:
+                    prow = conn.execute(
+                        repo._sql(
+                            """
+                            SELECT * FROM ozon_fbs_postings
+                            WHERE user_id = ? AND source_id = ? AND posting_number = ?
+                            LIMIT 1
+                            """
+                        ),
+                        (user_id, source_id, pn),
+                    ).fetchone()
+                if prow:
+                    local_row = repo._row_to_dict(prow)
+                if local_row and oz.posting_requires_pre_ship_gtd(local_row):
+                    if not oz.posting_pre_ship_exemplar_ready(local_row):
+                        skipped_exemplar += 1
+                        errors.append(
+                            {
+                                "posting_number": pn,
+                                "error": (
+                                    "Пропущено: не заполнены КИЗ/ГТД до сборки. "
+                                    "Нажмите «⚠ Маркировка не добавлена» у отправления."
+                                ),
+                                "skipped": True,
+                                "code": "PRE_SHIP_EXEMPLAR_REQUIRED",
+                            }
+                        )
+                        done += 1
+                        if progress:
+                            progress(
+                                done,
+                                total,
+                                f"Сборка… {done} из {total}"
+                                + (
+                                    f" · пропуск маркировки {skipped_exemplar}"
+                                    if skipped_exemplar
+                                    else ""
+                                )
+                                + (f" · ошибок {len(errors)}" if errors else ""),
+                            )
+                        continue
+            except Exception as exc:
+                _log.warning("ozon ship-all pre-ship check %s: %s", pn, exc)
             try:
                 ship_out = oz_detail.ship_posting(
                     repo,
@@ -799,6 +846,11 @@ def execute_ship_all_collect(
                     done,
                     total,
                     f"Сборка… {done} из {total}"
+                    + (
+                        f" · пропуск маркировки {skipped_exemplar}"
+                        if skipped_exemplar
+                        else ""
+                    )
                     + (f" · ошибок {len(errors)}" if errors else ""),
                 )
             if ship_pause_sec and ship_pause_sec > 0:
@@ -881,6 +933,12 @@ def execute_ship_all_collect(
         message = f"Собрано {shipped_n}, ошибок {failed_n}"
     else:
         message = f"Не удалось собрать отправления ({failed_n})"
+    if skipped_exemplar:
+        message = (
+            f"{message}. Пропущено без КИЗ/ГТД: {skipped_exemplar}"
+            if message
+            else f"Пропущено без КИЗ/ГТД: {skipped_exemplar}"
+        )
     if progress:
         progress(done, total, message)
     if force_numbers:
@@ -918,6 +976,7 @@ def execute_ship_all_collect(
         "created_supplies": created,
         "group_lines": group_lines,
         "errors": errors,
+        "skipped_exemplar": skipped_exemplar,
         "message": message,
         "goto_awaiting_deliver": shipped_n > 0,
         "stopped": stopped,

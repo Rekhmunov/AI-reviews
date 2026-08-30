@@ -2796,6 +2796,29 @@
           </div>
         </div>
 
+        <div id="ozonFbsPackagingExemplarModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsPackagingExemplarTitle"
+             onclick="if(event.target===this)closeOzonFbsPackagingExemplarModal()">
+          <div class="modal-card ozon-fbs-packaging-exemplar-modal">
+            <div class="ozon-fbs-packaging-exemplar-header">
+              <div>
+                <h3 id="ozonFbsPackagingExemplarTitle" class="ozon-fbs-packaging-exemplar-title">Маркировка и ГТД</h3>
+                <p class="ozon-fbs-packaging-exemplar-sub">
+                  Для юрлица нужны КИЗ и ГТД до сборки. Стикер Ozon на этом этапе не обязателен.
+                </p>
+              </div>
+              <button type="button" class="icon-btn secondary" onclick="closeOzonFbsPackagingExemplarModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <div id="ozonFbsPackagingExemplarMeta" class="ozon-fbs-packaging-exemplar-meta"></div>
+            <div id="ozonFbsPackagingExemplarBody" class="ozon-fbs-packaging-exemplar-body"></div>
+            <div id="ozonFbsPackagingExemplarInfo" class="ozon-fbs-packaging-exemplar-info" hidden></div>
+            <div class="ozon-fbs-packaging-exemplar-footer">
+              <button type="button" class="secondary" onclick="closeOzonFbsPackagingExemplarModal()">Отмена</button>
+              <button type="button" id="ozonFbsPackagingExemplarSaveBtn" onclick="saveOzonFbsPackagingExemplar()">Сохранить</button>
+            </div>
+          </div>
+        </div>
+
         <div id="ozonFbsRenameSupplyModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
              aria-labelledby="ozonFbsRenameSupplyTitle">
           <div class="modal-card wb-fbs-rename-modal">
@@ -6280,7 +6303,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=50"></script>
+  <script src="/static/ozon_fbs.js?v=51"></script>
   <script src="/static/app.js?v=516"></script>
 </body>
 </html>

@@ -774,6 +774,7 @@ def ensure_ozon_fbs_tables(repo: ReviewRepository) -> None:
             "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS marking_codes_json TEXT NOT NULL DEFAULT '[]'",
             "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS marking_saved_at TIMESTAMPTZ",
             "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS marking_ozon_synced BOOLEAN NOT NULL DEFAULT FALSE",
+            "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS marking_gtd_number TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS pick_verified BOOLEAN NOT NULL DEFAULT FALSE",
             "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS pick_barcode TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS pick_verified_at TIMESTAMPTZ",
@@ -1095,12 +1096,12 @@ def _product_has_mandatory_mark_flag(product: dict[str, Any]) -> bool:
     return bool(mm)
 
 
-def _mandatory_mark_sku_ids(posting: dict[str, Any]) -> set[str]:
-    """SKU/product_id values that Ozon marks as requiring Chestny ZNAK."""
+def _requirement_sku_ids(posting: dict[str, Any], key: str) -> set[str]:
+    """SKU/product_id values from ``requirements.<key>``."""
     ids: set[str] = set()
     req = posting.get("requirements")
     if isinstance(req, dict):
-        arr = req.get("products_requiring_mandatory_mark")
+        arr = req.get(key)
         if isinstance(arr, list):
             for x in arr:
                 text = str(x or "").strip()
@@ -1109,8 +1110,18 @@ def _mandatory_mark_sku_ids(posting: dict[str, Any]) -> set[str]:
     return ids
 
 
-def _merge_products_requiring_mandatory_mark(
-    posting: dict[str, Any], required_ids: set[str]
+def _mandatory_mark_sku_ids(posting: dict[str, Any]) -> set[str]:
+    """SKU/product_id values that Ozon marks as requiring Chestny ZNAK."""
+    return _requirement_sku_ids(posting, "products_requiring_mandatory_mark")
+
+
+def _products_requiring_gtd_ids(posting: dict[str, Any]) -> set[str]:
+    """SKU/product_id values that Ozon marks as requiring GTD (юрлица)."""
+    return _requirement_sku_ids(posting, "products_requiring_gtd")
+
+
+def _merge_requirement_sku_ids(
+    posting: dict[str, Any], *, key: str, required_ids: set[str]
 ) -> dict[str, Any]:
     if not required_ids:
         return posting
@@ -1119,15 +1130,133 @@ def _merge_products_requiring_mandatory_mark(
     if not isinstance(req, dict):
         req = {}
         out["requirements"] = req
-    existing = req.get("products_requiring_mandatory_mark")
+    existing = req.get(key)
     merged: list[str] = []
     if isinstance(existing, list):
         merged = [str(x).strip() for x in existing if str(x).strip()]
     for pid in sorted(required_ids):
         if pid not in merged:
             merged.append(pid)
-    req["products_requiring_mandatory_mark"] = merged
+    req[key] = merged
     return out
+
+
+def _merge_products_requiring_mandatory_mark(
+    posting: dict[str, Any], required_ids: set[str]
+) -> dict[str, Any]:
+    return _merge_requirement_sku_ids(
+        posting, key="products_requiring_mandatory_mark", required_ids=required_ids
+    )
+
+
+def _merge_products_requiring_gtd(
+    posting: dict[str, Any], required_ids: set[str]
+) -> dict[str, Any]:
+    return _merge_requirement_sku_ids(
+        posting, key="products_requiring_gtd", required_ids=required_ids
+    )
+
+
+def posting_requires_pre_ship_gtd(row: dict[str, Any]) -> bool:
+    """True when Ozon requires GTD before ship (legal-entity / юрлицо flow).
+
+    Source of truth: ``requirements.products_requiring_gtd`` in raw posting.
+    Catalog КИЗ alone does not trigger this — B2C mark-only orders stay on the
+    supply «Маркировка» path.
+    """
+    posting = _posting_payload_from_row(row) if isinstance(row, dict) else None
+    if not posting and isinstance(row, dict):
+        posting = row
+    if not isinstance(posting, dict):
+        return False
+    return bool(_products_requiring_gtd_ids(posting))
+
+
+def pre_ship_exemplar_products(posting: dict[str, Any]) -> list[dict[str, Any]]:
+    """Product lines that need exemplar set before ship for GTD/юрлицо orders.
+
+    Union of ``products_requiring_gtd`` and ``products_requiring_mandatory_mark``.
+    Falls back to all non-buyout lines when GTD is required but SKU lists empty.
+    """
+    if not isinstance(posting, dict):
+        return []
+    products = _products_from_posting(posting)
+    gtd_ids = _products_requiring_gtd_ids(posting)
+    mark_ids = _mandatory_mark_sku_ids(posting)
+    need_ids = gtd_ids | mark_ids
+    out: list[dict[str, Any]] = []
+    for p in products:
+        if bool(p.get("is_marketplace_buyout")):
+            continue
+        sku = p.get("sku") or p.get("product_id")
+        sku_str = str(sku).strip() if sku is not None else ""
+        if need_ids and sku_str not in need_ids:
+            continue
+        if not need_ids and not gtd_ids:
+            continue
+        try:
+            pid = int(sku)
+        except (TypeError, ValueError):
+            continue
+        try:
+            qty = int(p.get("quantity") or 1)
+        except (TypeError, ValueError):
+            qty = 1
+        out.append(
+            {
+                "product_id": pid,
+                "quantity": max(qty, 1),
+                "offer_id": p.get("offer_id"),
+            }
+        )
+    if out:
+        return out
+    if not gtd_ids:
+        return []
+    # GTD required but SKU list empty / mismatched — send all non-buyout lines.
+    for p in products:
+        if bool(p.get("is_marketplace_buyout")):
+            continue
+        sku = p.get("sku") or p.get("product_id")
+        try:
+            pid = int(sku)
+        except (TypeError, ValueError):
+            continue
+        try:
+            qty = int(p.get("quantity") or 1)
+        except (TypeError, ValueError):
+            qty = 1
+        out.append(
+            {
+                "product_id": pid,
+                "quantity": max(qty, 1),
+                "offer_id": p.get("offer_id"),
+            }
+        )
+    return out
+
+
+def pre_ship_exemplar_quantity(row: dict[str, Any]) -> int:
+    """How many KIZ slots a pre-ship GTD posting needs."""
+    posting = _posting_payload_from_row(row) if isinstance(row, dict) else None
+    if not posting and isinstance(row, dict):
+        posting = row
+    if not isinstance(posting, dict):
+        return 0
+    products = pre_ship_exemplar_products(posting)
+    if products:
+        return sum(int(p.get("quantity") or 1) for p in products)
+    try:
+        return max(int(row.get("quantity") or 1), 1) if posting_requires_pre_ship_gtd(row) else 0
+    except (TypeError, ValueError):
+        return 1 if posting_requires_pre_ship_gtd(row) else 0
+
+
+def posting_pre_ship_exemplar_ready(row: dict[str, Any]) -> bool:
+    """Locally ready to ship: GTD required and already pushed to Ozon."""
+    if not posting_requires_pre_ship_gtd(row):
+        return True
+    return bool(row.get("marking_ozon_synced"))
 
 
 def posting_marking_flags_resolved(posting: dict[str, Any]) -> bool:
@@ -1244,6 +1373,7 @@ def enrich_posting_marking_flags(
             resp = client.product_exemplar_create_or_get_v5(pn, payload_products)
         except RuntimeError:
             return posting
+    gtd_ids: set[str] = set()
     for item in resp.get("products") or []:
         if not isinstance(item, dict):
             continue
@@ -1253,9 +1383,18 @@ def enrich_posting_marking_flags(
                 text = str(pid).strip()
                 if text:
                     required_ids.add(text)
-    return _posting_with_marking_checked(
+        if item.get("is_gtd_needed"):
+            pid = item.get("product_id")
+            if pid is not None:
+                text = str(pid).strip()
+                if text:
+                    gtd_ids.add(text)
+    out = _posting_with_marking_checked(
         _merge_products_requiring_mandatory_mark(posting, required_ids)
     )
+    if gtd_ids:
+        out = _merge_products_requiring_gtd(out, gtd_ids)
+    return out
 
 
 def enrich_posting_marking_flags_light(
@@ -1992,6 +2131,17 @@ def list_postings(
             price = 0
         d["price_display"] = f"{price:,}".replace(",", " ") + " ₽" if price else "—"
         d["warehouse_label"] = str(d.get("warehouse_name") or "").strip() or "—"
+        # Pre-ship GTD/юрлицо badge for «Ожидают сборки» (no extra Ozon calls).
+        gtd_needed = posting_requires_pre_ship_gtd(d)
+        d["pre_ship_gtd_required"] = gtd_needed
+        d["marking_gtd_number"] = str(d.get("marking_gtd_number") or "").strip()
+        d["marking_ozon_synced"] = bool(d.get("marking_ozon_synced"))
+        if gtd_needed:
+            d["pre_ship_exemplar_badge"] = (
+                "ok" if d["marking_ozon_synced"] else "needed"
+            )
+        else:
+            d["pre_ship_exemplar_badge"] = ""
         items.append(d)
     counts = _tab_counts(repo, user_id=user_id, source_id=source_id)
     return {
