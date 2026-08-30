@@ -322,22 +322,23 @@
       Boolean(state.shipAllBusy) ||
       Boolean(collectState.busy) ||
       Boolean(splitState.busy);
-    const onPackaging = state.tab === "awaiting_packaging" && !isSuppliesTab();
+    // Visible on the three operational tabs when multi remain (same for all roles).
+    const onMainTabs =
+      state.tab === "awaiting_packaging" ||
+      state.tab === "awaiting_deliver" ||
+      state.tab === "delivering";
     const syncTitle = "Идёт синхронизация, подождите";
-    // Same rules for owner and managers: split visible on packaging, collect blocked while multi remain.
     if (splitBtn) {
-      const showSplit = onPackaging;
+      const showSplit = onMainTabs && multi > 0;
       splitBtn.hidden = !showSplit;
       splitBtn.style.display = showSplit ? "" : "none";
-      splitBtn.disabled = !state.sourceId || !showSplit || multi <= 0 || busy;
+      splitBtn.disabled = !state.sourceId || !showSplit || busy;
       if (syncBusy && showSplit) {
         splitBtn.title = syncTitle;
-      } else if (showSplit && multi > 0) {
-        splitBtn.title = `Разделить мультизаказы (${multi}) на одинарные без сборки`;
       } else if (showSplit) {
-        splitBtn.title = "Нет мультизаказов в «Ожидают сборки»";
+        splitBtn.title = `Разделить мультизаказы (${multi}) на одинарные без сборки`;
       } else {
-        splitBtn.title = "Разделить мультизаказы";
+        splitBtn.title = "Нет мультизаказов в «Ожидают сборки»";
       }
       splitBtn.textContent = splitState.busy
         ? (splitState.progressText || "Разделение…")
