@@ -331,10 +331,12 @@
         el.setAttribute("aria-disabled", "true");
         el.setAttribute("title", tip);
         el.removeAttribute("tabindex");
+        el.removeAttribute("role");
       } else {
         el.removeAttribute("aria-disabled");
         el.removeAttribute("title");
         el.setAttribute("tabindex", "0");
+        el.setAttribute("role", "button");
       }
     });
   }
@@ -1219,8 +1221,9 @@
       splitState.progressText =
         total > 0 ? `Разделение ${done}/${total}` : (st.message || "Разделение…");
       showSyncInfo(running ? splitState.progressText : String(st.message || ""));
-      syncPackagingActionButtons();
       if (running) {
+        splitState.busy = true;
+        syncPackagingActionButtons();
         splitState.pollTimer = setTimeout(pollSplitStatus, 1000);
         return;
       }
@@ -1521,6 +1524,9 @@
       const btn = document.getElementById("ozonFbsShipAllBtn");
       if (btn && running) btn.textContent = total > 0 ? `Сборка ${done}/${total}` : "Сборка…";
       if (running) {
+        collectState.busy = true;
+        state.shipAllBusy = true;
+        syncShipAllButton();
         collectState.pollTimer = setTimeout(pollCollectStatus, 1000);
         return;
       }
@@ -2694,6 +2700,33 @@
         setSyncUi(true);
         showSyncInfo(String(st.message || "Синхронизация…"));
         pollSyncStatus();
+      }
+    } catch (_e) {
+      /* ignore */
+    }
+    // Resume split/collect busy UI so supply links stay blocked after reload.
+    try {
+      const res = await fetch("/api/ozon-fbs/split-multi/status");
+      const st = await res.json().catch(() => ({}));
+      if (st?.in_progress) {
+        splitState.busy = true;
+        splitState.progressText = String(st.message || "Разделение…");
+        showSyncInfo(splitState.progressText);
+        syncPackagingActionButtons();
+        pollSplitStatus();
+      }
+    } catch (_e) {
+      /* ignore */
+    }
+    try {
+      const res = await fetch("/api/ozon-fbs/ship-all/status");
+      const st = await res.json().catch(() => ({}));
+      if (st?.in_progress) {
+        collectState.busy = true;
+        state.shipAllBusy = true;
+        showSyncInfo(String(st.message || "Сборка…"));
+        syncShipAllButton();
+        pollCollectStatus();
       }
     } catch (_e) {
       /* ignore */
