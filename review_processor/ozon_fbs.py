@@ -581,6 +581,93 @@ class OzonFbsClient:
             return [x for x in result if isinstance(x, dict)]
         return []
 
+
+_OZON_LABEL_STATUS_RU: dict[str, str] = {
+    TAB_AWAITING_PACKAGING: "Ожидает сборки",
+    TAB_AWAITING_DELIVER: "Ожидает отгрузки",
+    TAB_DELIVERING: "Доставляется",
+    TAB_DELIVERED: "Доставлено",
+    TAB_CANCELLED: "Отменено",
+    TAB_ARBITRATION: "Арбитраж",
+}
+
+
+def ozon_status_label_ru(status: object) -> str:
+    st = str(status or "").strip().lower()
+    if not st:
+        return "неизвестен"
+    return _OZON_LABEL_STATUS_RU.get(st, st)
+
+
+def explain_package_label_status_block(*, posting_number: str, status: object) -> str:
+    """Human-readable reason when Ozon will reject /v2/posting/fbs/package-label."""
+    pn = str(posting_number or "").strip() or "—"
+    st = str(status or "").strip().lower()
+    label = ozon_status_label_ru(st)
+    if st == TAB_AWAITING_PACKAGING:
+        return (
+            f"Отправление {pn} в статусе «{label}». "
+            "Сначала соберите заказ — этикетка Ozon доступна только после "
+            "перехода в «Ожидает отгрузки»."
+        )
+    if st in (TAB_DELIVERING, TAB_DELIVERED):
+        return (
+            f"Отправление {pn} уже в статусе «{label}». "
+            "Ozon API выдаёт этикетку только для «Ожидает отгрузки» — "
+            "повторная печать через API недоступна."
+        )
+    if st == TAB_CANCELLED or st in _CANCELLED_STATUSES:
+        return f"Отправление {pn} отменено — этикетка недоступна."
+    if st == TAB_ARBITRATION or st in _ARBITRATION_STATUSES:
+        return f"Отправление {pn} в арбитраже — этикетка недоступна."
+    return (
+        f"Отправление {pn}: статус «{label}». "
+        "Печать этикетки возможна только для «Ожидает отгрузки»."
+    )
+
+
+def format_ozon_package_label_error(exc: BaseException) -> str:
+    """Translate raw Ozon package-label errors into operator-facing Russian text."""
+    text = str(exc).strip() or "ошибка Ozon"
+    low = text.casefold()
+    if "invalid_argument" in low:
+        return (
+            "Ozon отклонил печать этикетки: она доступна только для статуса "
+            "«Ожидает отгрузки». Если заказ ещё на сборке — сначала соберите его. "
+            "Если уже отгружен или доставляется — Ozon больше не отдаёт этикетку через API."
+        )
+    if (
+        "aren't ready" in low
+        or "not ready" in low
+        or "не готов" in low
+        or "postings aren't ready" in low
+    ):
+        return (
+            "Этикетки ещё не готовы в Ozon. "
+            "Подождите 1–2 минуты после сборки и повторите печать."
+        )
+    return text
+
+
+def ensure_single_posting_label_printable(
+    client: "OzonFbsClient", posting_number: str
+) -> None:
+    """Raise a clear RuntimeError when Ozon status cannot yield a package label."""
+    pn = str(posting_number or "").strip()
+    if not pn:
+        raise RuntimeError("Не указаны отправления для печати")
+    try:
+        remote = client.get_posting(pn)
+    except Exception:
+        # Network / get failures: fall through to package-label and format its error.
+        return
+    status = str(remote.get("status") or "").strip().lower()
+    if status and status != TAB_AWAITING_DELIVER:
+        raise RuntimeError(
+            explain_package_label_status_block(posting_number=pn, status=status)
+        )
+
+
 _OZON_LABEL_BATCH = 20
 
 
@@ -592,7 +679,12 @@ def fetch_merged_package_label_pdf(
     if not nums:
         raise RuntimeError("Не указаны отправления для печати")
     if len(nums) == 1:
-        return client.package_label_pdf(nums)
+        try:
+            return client.package_label_pdf(nums)
+        except Exception as exc:
+            if isinstance(exc, ImportError) or "pymupdf" in str(exc).casefold():
+                raise
+            raise RuntimeError(format_ozon_package_label_error(exc)) from exc
     try:
         import pymupdf
     except ImportError as exc:
@@ -623,11 +715,15 @@ def fetch_merged_package_label_pdf(
                     except Exception as exc_one:
                         if isinstance(exc_one, ImportError) or "pymupdf" in str(exc_one).casefold():
                             raise
-                        err_text = str(exc_one).strip() or "ошибка Ozon"
+                        err_text = format_ozon_package_label_error(exc_one)
                         errors.append(f"{pn}: {err_text}")
         if merged.page_count == 0:
             if errors:
-                raise RuntimeError(errors[0])
+                # Prefer the formatted message without the posting prefix when alone.
+                first = errors[0]
+                if first.startswith(f"{nums[0]}: "):
+                    raise RuntimeError(first.split(": ", 1)[1])
+                raise RuntimeError(first)
             raise RuntimeError(
                 "Не удалось получить этикетки Ozon. "
                 "Проверьте, что отправления собраны и этикетки доступны."

@@ -880,4 +880,11 @@ def print_package_labels(
     if not nums:
         raise RuntimeError("Не указаны отправления для печати")
     client = oz.OzonFbsClient(client_id, api_key)
-    return oz.fetch_merged_package_label_pdf(client, nums)
+    # Search/kebab single-posting print: check Ozon status first so operators
+    # get a clear RU message instead of raw INVALID_ARGUMENT JSON.
+    if len(nums) == 1:
+        oz.ensure_single_posting_label_printable(client, nums[0])
+    try:
+        return oz.fetch_merged_package_label_pdf(client, nums)
+    except RuntimeError as exc:
+        raise RuntimeError(oz.format_ozon_package_label_error(exc)) from exc

@@ -2213,6 +2213,23 @@
     setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
   }
 
+  function _ozonFbsLookupSupplyIdForPosting(postingNumber) {
+    const pn = String(postingNumber || "").trim();
+    if (!pn) return "";
+    if (
+      state.lookupMode
+      && state.lookupMeta
+      && String(state.lookupMeta.posting_number || "").trim() === pn
+    ) {
+      const fromMeta = String(state.lookupMeta.supply_id || "").trim();
+      if (fromMeta) return fromMeta;
+    }
+    const row = (state.items || []).find(
+      (x) => String(x?.posting_number || "").trim() === pn
+    );
+    return String(row?.supply_id || "").trim();
+  }
+
   function printOnePostingStickerFromDetail(event, postingNumber) {
     if (event) {
       event.preventDefault();
@@ -2228,6 +2245,18 @@
     // Same HTML print flow as the supply «Стикеры» button (reliable in browsers).
     if (supplyDetailReady() && _ozonFbsSupplyActionsReady()) {
       openStickersPrint([pn]);
+      return;
+    }
+    // Search/lookup kebab: if posting is already in a local supply, use the same
+    // supply HTML stickers endpoint (soft-fail + missing headers) instead of the
+    // raw PDF path that surfaces Ozon INVALID_ARGUMENT as a browser alert.
+    const lookupSupplyId = _ozonFbsLookupSupplyIdForPosting(pn);
+    if (lookupSupplyId) {
+      const url =
+        `/api/ozon-fbs/supplies/${encodeURIComponent(lookupSupplyId)}/stickers-print` +
+        `?source_id=${sourceId}&order_ids=${encodeURIComponent(pn)}`;
+      openPrintHtml(url, "Разрешите всплывающие окна для стикера")
+        .catch((e) => alert(String(e.message || e)));
       return;
     }
     const url =
@@ -2680,11 +2709,21 @@
         ? missingRaw.split(",").slice(0, 5).join(", ")
         : "";
       const suffix = missingCount > 5 ? ` … (+${missingCount - 5})` : "";
-      alert(
-        `Загружено ${loaded} из ${expected} этикеток.\n`
-        + `Не загружено: ${missingCount}. Повторите печать стикеров через 1–2 мин.\n`
-        + (preview ? `Отправления: ${preview}${suffix}` : "")
-      );
+      if (Number(loaded) === 0) {
+        alert(
+          `Не удалось загрузить этикетки Ozon (${expected}).\n`
+          + `Печать доступна только для статуса «Ожидает отгрузки» на стороне Ozon. `
+          + `Если заказ ещё на сборке — сначала соберите его. `
+          + `Если уже доставляется — повторная печать через API недоступна.\n`
+          + (preview ? `Отправления: ${preview}${suffix}` : "")
+        );
+      } else {
+        alert(
+          `Загружено ${loaded} из ${expected} этикеток.\n`
+          + `Не загружено: ${missingCount}. Повторите печать стикеров через 1–2 мин.\n`
+          + (preview ? `Отправления: ${preview}${suffix}` : "")
+        );
+      }
     }
   }
 

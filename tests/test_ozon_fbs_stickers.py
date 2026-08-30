@@ -95,6 +95,75 @@ class OzonFbsLabelFetchTests(unittest.TestCase):
         self.assertEqual(len(client.package_label_pdf.call_args_list[0].args[0]), 20)
         self.assertEqual(len(client.package_label_pdf.call_args_list[1].args[0]), 5)
 
+    def test_single_invalid_argument_is_humanized(self) -> None:
+        client = MagicMock()
+        client.package_label_pdf.side_effect = RuntimeError(
+            'Ozon HTTP 400: {"code":3,"message":"INVALID_ARGUMENT"}'
+        )
+        with self.assertRaises(RuntimeError) as ctx:
+            oz.fetch_merged_package_label_pdf(client, ["0124861120-0199-1"])
+        msg = str(ctx.exception)
+        self.assertNotIn("INVALID_ARGUMENT", msg)
+        self.assertIn("Ожидает отгрузки", msg)
+
+
+class OzonFbsPackageLabelErrorTests(unittest.TestCase):
+    def test_format_invalid_argument(self) -> None:
+        msg = oz.format_ozon_package_label_error(
+            RuntimeError('Ozon HTTP 400: {"code":3,"message":"INVALID_ARGUMENT"}')
+        )
+        self.assertIn("Ожидает отгрузки", msg)
+        self.assertNotIn('"code":3', msg)
+
+    def test_format_not_ready(self) -> None:
+        msg = oz.format_ozon_package_label_error(
+            RuntimeError("The next postings aren't ready")
+        )
+        self.assertIn("не готовы", msg.casefold())
+
+    def test_explain_awaiting_packaging(self) -> None:
+        msg = oz.explain_package_label_status_block(
+            posting_number="0124861120-0199-1",
+            status="awaiting_packaging",
+        )
+        self.assertIn("Ожидает сборки", msg)
+        self.assertIn("Сначала соберите", msg)
+
+    def test_explain_delivering(self) -> None:
+        msg = oz.explain_package_label_status_block(
+            posting_number="0124861120-0199-1",
+            status="delivering",
+        )
+        self.assertIn("Доставляется", msg)
+        self.assertIn("повторная печать", msg.casefold())
+
+    def test_ensure_blocks_non_awaiting_deliver(self) -> None:
+        client = MagicMock()
+        client.get_posting.return_value = {"status": "awaiting_packaging"}
+        with self.assertRaises(RuntimeError) as ctx:
+            oz.ensure_single_posting_label_printable(client, "0124861120-0199-1")
+        self.assertIn("Ожидает сборки", str(ctx.exception))
+
+    def test_ensure_passes_awaiting_deliver(self) -> None:
+        client = MagicMock()
+        client.get_posting.return_value = {"status": "awaiting_deliver"}
+        oz.ensure_single_posting_label_printable(client, "0124861120-0199-1")
+
+    def test_print_package_labels_checks_status(self) -> None:
+        from review_processor import ozon_fbs_detail as oz_detail
+
+        with patch.object(oz, "OzonFbsClient") as client_cls:
+            client = client_cls.return_value
+            client.get_posting.return_value = {"status": "delivering"}
+            with self.assertRaises(RuntimeError) as ctx:
+                oz_detail.print_package_labels(
+                    client_id="cid",
+                    api_key="key",
+                    posting_numbers=["0124861120-0199-1"],
+                )
+        self.assertIn("Доставляется", str(ctx.exception))
+        client.package_label_pdf.assert_not_called()
+
 
 class OzonFbsStickerFieldsTests(unittest.TestCase):
     def test_sticker_parts_from_posting_number(self) -> None:
