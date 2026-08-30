@@ -20965,13 +20965,22 @@ function showSupplyGtdImportResult(data) {
   modal.classList.remove("hidden");
 }
 
-async function _supplyGtdPollJobUntilDone(errEl, btn, busyLabel) {
+async function _supplyGtdPollJobUntilDone(errEl, btn, busyLabel, expectJobId) {
   const label = busyLabel || "Сканирование…";
+  const wantId = String(expectJobId || "");
+  let sawJob = false;
   for (let i = 0; i < 36000; i += 1) { // up to ~10h at 1s — safety for 10k pages
-    await new Promise((r) => setTimeout(r, 1000));
+    await new Promise((r) => setTimeout(r, i === 0 ? 400 : 1000));
     const res = await fetch("/api/supply-gtd/job-status", { headers: jsonHeaders() });
     const st = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(_supplyGtdDetailError(st, `Ошибка ${res.status}`));
+    const jobId = String(st.job_id || "");
+    if (wantId && jobId && jobId !== wantId && !st.in_progress) {
+      // Stale finished job from a previous run — keep waiting briefly for ours.
+      if (i < 15) continue;
+    }
+    if (wantId && jobId === wantId) sawJob = true;
+    if (!wantId && (st.in_progress || st.ok || st.error)) sawJob = true;
     const msg = String(st.message || label);
     if (btn) btn.textContent = msg.length > 48 ? `${msg.slice(0, 46)}…` : msg;
     if (errEl) {
@@ -20980,7 +20989,9 @@ async function _supplyGtdPollJobUntilDone(errEl, btn, busyLabel) {
       errEl.textContent = msg;
     }
     if (st.in_progress) continue;
-    if (st.ok && st.result) return st.result;
+    if (st.ok && st.result && (!wantId || !jobId || jobId === wantId)) return st.result;
+    // Empty status right after start (rare) — retry a few times before failing.
+    if (!sawJob && i < 20 && !st.error) continue;
     throw new Error(String(st.error || st.message || "Загрузка ГТД не удалась"));
   }
   throw new Error("Таймаут фоновой загрузки ГТД");
@@ -21023,7 +21034,9 @@ async function submitSupplyGtdImport() {
     if (!res.ok) throw new Error(_supplyGtdDetailError(data, `Ошибка ${res.status}`));
     let result = data;
     if (data.async && data.started) {
-      result = await _supplyGtdPollJobUntilDone(errEl, btn, data.message || "Сканирование…");
+      result = await _supplyGtdPollJobUntilDone(
+        errEl, btn, data.message || "Сканирование…", data.job_id
+      );
     } else if (data.result && data.started === false) {
       result = data.result;
     }
@@ -21113,7 +21126,9 @@ async function submitSupplyGtdEdit() {
     if (!res.ok) throw new Error(_supplyGtdDetailError(data, `Ошибка ${res.status}`));
     let result = data;
     if (data.async && data.started) {
-      result = await _supplyGtdPollJobUntilDone(errEl, btn, data.message || "Догрузка…");
+      result = await _supplyGtdPollJobUntilDone(
+        errEl, btn, data.message || "Догрузка…", data.job_id
+      );
     } else if (data.result && data.started === false) {
       result = data.result;
     }

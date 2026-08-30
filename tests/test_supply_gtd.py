@@ -266,6 +266,18 @@ class SupplyGtdImportTests(unittest.TestCase):
         self.assertFalse(need2)
         self.assertEqual(pages2, 10)
 
+    def test_files_need_async_by_byte_size(self) -> None:
+        big = b"%PDF" + b"x" * (21 * 1024 * 1024)
+        with patch.object(gtd, "pdf_page_count", return_value=5):
+            need, _pages = gtd.files_need_async_import([("big.pdf", big)])
+        self.assertTrue(need)
+
+    def test_gtd_job_status_empty_default(self) -> None:
+        st = gtd.get_gtd_job_status(user_id=424242)
+        self.assertFalse(st.get("in_progress"))
+        self.assertFalse(st.get("ok"))
+        self.assertIsNone(st.get("result"))
+
 
 if __name__ == "__main__":
     unittest.main()

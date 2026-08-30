@@ -261,8 +261,17 @@ def _extract_kiz_via_datamatrix(
             pil = None
             try:
                 pix = page.get_pixmap(matrix=matrix, alpha=False)
-                # Avoid PNG re-encode — samples → PIL RGB is much faster for 10k pages.
-                pil = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+                # Avoid PNG re-encode — samples → PIL is much faster for 10k pages.
+                # alpha=False is usually RGB (n=3); harden gray/RGBA to keep recall.
+                nchan = int(getattr(pix, "n", 0) or 0)
+                if nchan == 1:
+                    pil = Image.frombytes("L", (pix.width, pix.height), pix.samples)
+                    pil = pil.convert("RGB")
+                elif nchan >= 4:
+                    pil = Image.frombytes("RGBA", (pix.width, pix.height), pix.samples)
+                    pil = pil.convert("RGB")
+                else:
+                    pil = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
                 results = dmtx_decode(pil)
             except Exception as exc:
                 _log.warning("gtd dmtx page %s: %s", page_index, exc)
@@ -275,6 +284,7 @@ def _extract_kiz_via_datamatrix(
                         pass
                 # Drop pixmap reference ASAP.
                 pix = None
+                page = None
 
             for item in results or []:
                 raw = ""
@@ -1163,6 +1173,20 @@ def start_gtd_import_job(
 ) -> dict[str, Any]:
     """Start background create-import. Returns immediately with job_id."""
     uid = int(user_id)
+    manual = normalize_gtd_number(gtd_number)
+    if not manual:
+        raise ValueError(
+            "Укажите номер ГТД в формате 12345678/010126/1234567"
+        )
+    # Fail fast before parking a large PDF in a worker thread.
+    existing = get_gtd_by_number(repo, user_id=uid, gtd_number=manual)
+    if existing:
+        raise ValueError(
+            f"ГТД {manual} уже загружена ранее "
+            f"(id={existing.get('id')}, КИЗ={existing.get('kiz_inserted') or existing.get('kiz_parsed') or 0}). "
+            "Откройте редактирование, чтобы изменить номер/примечание или догрузить коды."
+        )
+
     need_async, pages = files_need_async_import(files)
     # Small text DTs stay sync for snappy UX.
     if not need_async:
