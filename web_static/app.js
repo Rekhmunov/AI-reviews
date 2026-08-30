@@ -31835,6 +31835,7 @@ async function openWbFbsAutoSyncSettings() {
   const collectFromEl = document.getElementById("wbFbsAutoCollectFrom");
   const collectToEl = document.getElementById("wbFbsAutoCollectTo");
   if (saveBtn) saveBtn.disabled = true;
+  pollWbFbsOpsLog(true).catch(() => {});
   try {
     const res = await fetch("/api/wb-fbs/auto-sync-settings");
     const data = await res.json().catch(() => ({}));
@@ -31857,6 +31858,8 @@ async function openWbFbsAutoSyncSettings() {
       let days = Number(data.lookback_days);
       if (!Number.isFinite(days)) days = 3;
       lookbackEl.value = String(Math.min(maxD, Math.max(minD, Math.round(days))));
+      wbFbsOpsLogState.retentionDays = Math.min(maxD, Math.max(minD, Math.round(days)));
+      _wbFbsOpsLogSetMeta(`хранение ${wbFbsOpsLogState.retentionDays} дн.`);
     }
     if (syncFromEl) syncFromEl.value = String(data.active_from || "12:00");
     if (syncToEl) syncToEl.value = String(data.active_to || "06:00");
@@ -31906,7 +31909,138 @@ async function openWbFbsAutoSyncSettings() {
 }
 window.openWbFbsAutoSyncSettings = openWbFbsAutoSyncSettings;
 
+const wbFbsOpsLogState = {
+  timer: null,
+  lastId: 0,
+  retentionDays: 3,
+  stickToBottom: true,
+};
+
+function _wbFbsOpsLogFormatTime(iso) {
+  const raw = String(iso || "").trim();
+  if (!raw) return "—";
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) {
+    const m = raw.match(/T(\d{2}:\d{2})/);
+    return m ? m[1] : raw.slice(11, 16) || raw;
+  }
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  const ss = String(d.getSeconds()).padStart(2, "0");
+  return `${hh}:${mm}:${ss}`;
+}
+
+function _wbFbsOpsLogEscape(s) {
+  return String(s || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function _wbFbsOpsLogRenderRow(item) {
+  const level = String(item.level || "info");
+  const actor = String(item.actor_name || "").trim();
+  const msg = String(item.message || "").trim();
+  const actorHtml = actor
+    ? ` <span class="wb-fbs-ops-log-actor">· ${_wbFbsOpsLogEscape(actor)}</span>`
+    : "";
+  return (
+    `<div class="wb-fbs-ops-log-row${level === "error" ? " is-error" : level === "warn" ? " is-warn" : ""}" data-id="${_wbFbsOpsLogEscape(item.id)}">` +
+    `<span class="wb-fbs-ops-log-time">${_wbFbsOpsLogEscape(_wbFbsOpsLogFormatTime(item.created_at))}</span>` +
+    `<span class="wb-fbs-ops-log-msg">${_wbFbsOpsLogEscape(msg)}${actorHtml}</span>` +
+    `</div>`
+  );
+}
+
+function _wbFbsOpsLogSetMeta(text) {
+  const el = document.getElementById("wbFbsOpsLogMeta");
+  if (el) el.textContent = String(text || "");
+}
+
+function _stopWbFbsOpsLogPoll() {
+  if (wbFbsOpsLogState.timer) {
+    clearTimeout(wbFbsOpsLogState.timer);
+    wbFbsOpsLogState.timer = null;
+  }
+}
+
+function _scheduleWbFbsOpsLogPoll(delayMs) {
+  _stopWbFbsOpsLogPoll();
+  const modal = document.getElementById("wbFbsAutoSyncModal");
+  if (!modal || modal.classList.contains("hidden")) return;
+  wbFbsOpsLogState.timer = setTimeout(() => {
+    pollWbFbsOpsLog().catch(() => {});
+  }, Math.max(500, Number(delayMs) || 2000));
+}
+
+async function pollWbFbsOpsLog(reset) {
+  const modal = document.getElementById("wbFbsAutoSyncModal");
+  const list = document.getElementById("wbFbsOpsLogList");
+  if (!modal || modal.classList.contains("hidden") || !list) {
+    _stopWbFbsOpsLogPoll();
+    return;
+  }
+  if (reset) {
+    wbFbsOpsLogState.lastId = 0;
+    wbFbsOpsLogState.stickToBottom = true;
+    list.innerHTML = `<div class="wb-fbs-ops-log-empty">Загрузка журнала…</div>`;
+  }
+  try {
+    const after = reset ? 0 : wbFbsOpsLogState.lastId;
+    const res = await fetch(
+      `/api/wb-fbs/ops-log?after_id=${encodeURIComponent(after)}&limit=${after ? 100 : 200}`
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || `Ошибка ${res.status}`);
+    const items = Array.isArray(data.items) ? data.items : [];
+    const retention = Number(data.retention_days || data.lookback_days) || wbFbsOpsLogState.retentionDays;
+    wbFbsOpsLogState.retentionDays = retention;
+    _wbFbsOpsLogSetMeta(`хранение ${retention} дн.`);
+
+    if (reset || after === 0) {
+      if (!items.length) {
+        list.innerHTML = `<div class="wb-fbs-ops-log-empty">Пока нет записей</div>`;
+      } else {
+        list.innerHTML = items.map(_wbFbsOpsLogRenderRow).join("");
+      }
+    } else if (items.length) {
+      const empty = list.querySelector(".wb-fbs-ops-log-empty");
+      if (empty) empty.remove();
+      const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 48;
+      list.insertAdjacentHTML("beforeend", items.map(_wbFbsOpsLogRenderRow).join(""));
+      const rows = list.querySelectorAll(".wb-fbs-ops-log-row");
+      const maxRows = 500;
+      if (rows.length > maxRows) {
+        for (let i = 0; i < rows.length - maxRows; i += 1) {
+          rows[i].remove();
+        }
+      }
+      if (nearBottom || wbFbsOpsLogState.stickToBottom) {
+        list.scrollTop = list.scrollHeight;
+      }
+    }
+    if (items.length) {
+      const last = items[items.length - 1];
+      const lid = Number(last?.id) || 0;
+      if (lid > wbFbsOpsLogState.lastId) wbFbsOpsLogState.lastId = lid;
+    } else if (typeof data.last_id === "number" && data.last_id > wbFbsOpsLogState.lastId) {
+      wbFbsOpsLogState.lastId = data.last_id;
+    }
+    if (reset && items.length) {
+      list.scrollTop = list.scrollHeight;
+    }
+  } catch (e) {
+    if (reset) {
+      list.innerHTML = `<div class="wb-fbs-ops-log-empty">${_wbFbsOpsLogEscape(String(e.message || e))}</div>`;
+    }
+    _wbFbsOpsLogSetMeta("ошибка обновления");
+  }
+  _scheduleWbFbsOpsLogPoll(2000);
+}
+
 function closeWbFbsAutoSyncSettings() {
+  _stopWbFbsOpsLogPoll();
   const modal = document.getElementById("wbFbsAutoSyncModal");
   if (modal) modal.classList.add("hidden");
 }
@@ -31986,8 +32120,14 @@ async function saveWbFbsAutoSyncSettings() {
       settings.collect_mgt_last_status,
       settings.collect_mgt_last_detail
     );
-    _wbFbsAutoSyncSetInfo("Сохранено", "ok");
-    setTimeout(() => closeWbFbsAutoSyncSettings(), 400);
+    _wbFbsAutoSyncSetInfo(
+      `Сохранено. Журнал хранится ${lookbackDays} дн.`,
+      "ok"
+    );
+    wbFbsOpsLogState.retentionDays = lookbackDays;
+    _wbFbsOpsLogSetMeta(`хранение ${lookbackDays} дн.`);
+    pollWbFbsOpsLog(true).catch(() => {});
+    if (saveBtn) saveBtn.disabled = false;
   } catch (e) {
     _wbFbsAutoSyncSetInfo(String(e.message || e), "error");
     if (saveBtn) saveBtn.disabled = false;

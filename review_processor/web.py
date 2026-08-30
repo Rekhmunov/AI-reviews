@@ -10724,6 +10724,26 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             wb_detail.invalidate_supply_detail_cache(
                 user_id=owner_id, source_id=int(source_id), supply_id=sid
             )
+            try:
+                from . import wb_fbs_ops_log as ops_log
+
+                saved = int(result.get("saved") or 0) if isinstance(result, dict) else 0
+                errs = int(result.get("errors") or 0) if isinstance(result, dict) else 0
+                ops_log.append_event(
+                    repository,
+                    user_id=owner_id,
+                    action=ops_log.ACTION_MARKING_SAVE,
+                    message=f"КИЗ сохранены: {saved}"
+                    + (f", ошибок: {errs}" if errs else ""),
+                    level=ops_log.LEVEL_WARN if errs else ops_log.LEVEL_INFO,
+                    actor_user_id=int(user.get("id") or 0) or None,
+                    actor_name=ops_log.actor_label(user),
+                    source_id=int(source_id),
+                    supply_id=sid,
+                    details={"saved": saved, "errors": errs},
+                )
+            except Exception:
+                pass
         return result
 
     @app.get("/api/wb-fbs/supplies/{supply_id}/pick-verify")
@@ -10913,7 +10933,62 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Пользователь не найден")
         settings = repository.get_wb_fbs_auto_sync_settings(user_id=owner_id)
         settings["can_edit"] = True
+        try:
+            from . import wb_fbs_ops_log as ops_log
+
+            sync_on = "вкл" if settings.get("enabled") else "выкл"
+            collect_on = "вкл" if settings.get("collect_mgt_enabled") else "выкл"
+            days = int(settings.get("lookback_days") or 3)
+            ops_log.append_event(
+                repository,
+                user_id=owner_id,
+                action=ops_log.ACTION_SETTINGS,
+                message=(
+                    f"Настройки: автосинк {sync_on}, автосбор {collect_on}, "
+                    f"глубина {days} дн."
+                ),
+                actor_user_id=int(user.get("id") or 0) or None,
+                actor_name=ops_log.actor_label(user),
+                details={
+                    "lookback_days": days,
+                    "enabled": bool(settings.get("enabled")),
+                    "collect_mgt_enabled": bool(settings.get("collect_mgt_enabled")),
+                },
+            )
+            ops_log.cleanup_old_events(
+                repository,
+                user_id=owner_id,
+                lookback_days=days,
+                force=True,
+            )
+        except Exception:
+            pass
         return {"ok": True, "settings": settings}
+
+    @app.get("/api/wb-fbs/ops-log")
+    def get_wb_fbs_ops_log(
+        request: Request,
+        after_id: int = 0,
+        limit: int = 200,
+    ) -> dict[str, object]:
+        """Owner-only live WB FBS operations journal (retention = lookback days)."""
+        from . import wb_fbs_ops_log as ops_log
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        if not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Журнал операций доступен только главному пользователю",
+            )
+        owner_id = _supply_owner_id(user)
+        return ops_log.list_events(
+            repository,
+            user_id=owner_id,
+            after_id=int(after_id or 0),
+            limit=int(limit or 200),
+        )
 
     def _can_view_supply_gtd(user: dict[str, object]) -> bool:
         """GTD catalog lives next to ЧЗ in Настройки — owner/admin roles only."""
@@ -12143,10 +12218,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     "message": "Нет источников с «ФБС» в названии. Добавьте источник в Поставки → Настройки → Источники.",
                 }
             return {"ok": False, "message": wb_fbs_mod.SCOPE_ERROR_MESSAGE}
+        from . import wb_fbs_ops_log as ops_log
+
         ok, message = wb_fbs_mod.start_sync_thread(
             repo=repository,
             user_id=owner_id,
             sources=jobs,
+            actor_user_id=int(user.get("id") or 0) or None,
+            actor_name=ops_log.actor_label(user),
         )
         return {
             "ok": ok,
@@ -12203,6 +12282,25 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         # Manual collect is also a "last MGT collect" event (auto path updates separately).
         try:
             repository.mark_wb_fbs_collect_mgt_at(user_id=owner_id)
+        except Exception:
+            pass
+        try:
+            from . import wb_fbs_ops_log as ops_log
+
+            added = int(result.get("added") or result.get("shipped") or 0)
+            msg = str(result.get("message") or "").strip() or "Сбор МГТ завершён"
+            ok_flag = bool(result.get("ok", True))
+            ops_log.append_event(
+                repository,
+                user_id=owner_id,
+                action=ops_log.ACTION_COLLECT_DONE,
+                message=msg if added or msg else f"Сбор МГТ: {added}",
+                level=ops_log.LEVEL_INFO if ok_flag else ops_log.LEVEL_WARN,
+                actor_user_id=int(user.get("id") or 0) or None,
+                actor_name=ops_log.actor_label(user),
+                source_id=sid,
+                details={"added": added},
+            )
         except Exception:
             pass
         return result
@@ -12264,7 +12362,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         api_key = _wb_fbs_source_key(owner_id, sid)
         order_ids = _wb_fbs_parse_order_ids(payload)
         name = str(payload.get("name") or "").strip()
-        return wb_fbs_mod.create_supply_from_selection(
+        result = wb_fbs_mod.create_supply_from_selection(
             repository,
             user_id=owner_id,
             source_id=sid,
@@ -12272,6 +12370,27 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             order_ids=order_ids,
             name=name,
         )
+        try:
+            from . import wb_fbs_ops_log as ops_log
+
+            supply_id = str((result or {}).get("supply_id") or "").strip()
+            ops_log.append_event(
+                repository,
+                user_id=owner_id,
+                action=ops_log.ACTION_SUPPLY_CREATE,
+                message=(
+                    f"Создана поставка «{name or supply_id}» "
+                    f"({len(order_ids)} зак.)"
+                ),
+                actor_user_id=int(user.get("id") or 0) or None,
+                actor_name=ops_log.actor_label(user),
+                source_id=sid,
+                supply_id=supply_id,
+                details={"orders": len(order_ids)},
+            )
+        except Exception:
+            pass
+        return result
 
     @app.post("/api/wb-fbs/selection/add-to-supply")
     async def wb_fbs_selection_add_to_supply(request: Request) -> dict[str, object]:
@@ -12294,7 +12413,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         supply_id = str(payload.get("supply_id") or "").strip()
         if not supply_id:
             raise HTTPException(status_code=400, detail="Укажите supply_id")
-        return wb_fbs_mod.add_selection_to_supply(
+        result = wb_fbs_mod.add_selection_to_supply(
             repository,
             user_id=owner_id,
             source_id=sid,
@@ -12302,6 +12421,24 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             order_ids=order_ids,
             supply_id=supply_id,
         )
+        try:
+            from . import wb_fbs_ops_log as ops_log
+
+            added = int((result or {}).get("added") or len(order_ids))
+            ops_log.append_event(
+                repository,
+                user_id=owner_id,
+                action=ops_log.ACTION_SUPPLY_ADD,
+                message=f"В поставку {supply_id}: +{added} зак.",
+                actor_user_id=int(user.get("id") or 0) or None,
+                actor_name=ops_log.actor_label(user),
+                source_id=sid,
+                supply_id=supply_id,
+                details={"added": added},
+            )
+        except Exception:
+            pass
+        return result
 
     @app.delete("/api/wb-fbs/orders")
     def clear_wb_fbs_orders(request: Request, source_id: int) -> dict[str, object]:

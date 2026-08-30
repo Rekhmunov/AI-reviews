@@ -4291,6 +4291,8 @@ def start_sync_thread(
     sources: list[dict[str, Any]],
     is_auto: bool = False,
     lookback_days: int | None = None,
+    actor_user_id: int | None = None,
+    actor_name: str = "",
 ) -> tuple[bool, str]:
     """Sync all provided FBS sources in parallel (one thread per cabinet / token).
 
@@ -4362,6 +4364,28 @@ def start_sync_thread(
                 "pallet_summary_error": "",
             }
         )
+
+    try:
+        from . import wb_fbs_ops_log as ops_log
+
+        kind = "Автосинхронизация" if is_auto else "Синхронизация"
+        ops_log.append_event(
+            repo,
+            user_id=user_id,
+            action=ops_log.ACTION_AUTO_SYNC if is_auto else ops_log.ACTION_SYNC_START,
+            message=(
+                f"{kind} запущена ({len(jobs)} ист., глубина {effective_lookback} дн.)"
+            ),
+            actor_user_id=actor_user_id,
+            actor_name=actor_name or ("авто" if is_auto else ""),
+            details={
+                "sources_count": len(jobs),
+                "lookback_days": int(effective_lookback),
+                "is_auto": bool(is_auto),
+            },
+        )
+    except Exception:
+        pass
 
     def _run() -> None:
         def stop_requested() -> bool:
@@ -4592,6 +4616,8 @@ def start_sync_thread(
                     _wb_fbs_sync_state["message"] = SCOPE_ERROR_MESSAGE
                     _wb_fbs_sync_state["pallet_summary"] = []
                     _wb_fbs_sync_state["pallet_summary_error"] = ""
+                    done_action = "sync_done"
+                    done_level = "error"
                 else:
                     _wb_fbs_sync_state["errors"] = all_errors[:8]
                     stats_part = (
@@ -4601,12 +4627,39 @@ def start_sync_thread(
                     )
                     if stopped:
                         _wb_fbs_sync_state["message"] = f"Остановлено. {stats_part}"
+                        done_action = "sync_stop"
+                        done_level = "warn"
                     elif all_errors:
                         _wb_fbs_sync_state["message"] = (
                             f"Готово с ошибками. {stats_part}"
                         )
+                        done_action = "sync_done"
+                        done_level = "warn"
                     else:
                         _wb_fbs_sync_state["message"] = f"Готово. {stats_part}"
+                        done_action = "sync_done"
+                        done_level = "info"
+                final_message = str(_wb_fbs_sync_state.get("message") or "")
+            try:
+                from . import wb_fbs_ops_log as ops_log
+
+                prefix = "Авто: " if is_auto else ""
+                ops_log.append_event(
+                    repo,
+                    user_id=user_id,
+                    action=done_action,
+                    message=prefix + final_message,
+                    level=done_level,
+                    actor_user_id=actor_user_id,
+                    actor_name=actor_name or ("авто" if is_auto else ""),
+                    details={
+                        "synced_sources": synced_sources,
+                        "total_orders": total_orders,
+                        "is_auto": bool(is_auto),
+                    },
+                )
+            except Exception:
+                pass
         except Exception as exc:
             _log.exception("wb_fbs multi-source sync failed")
             with _wb_fbs_sync_lock:
@@ -4618,6 +4671,22 @@ def start_sync_thread(
                     _wb_fbs_sync_state["message"] = f"Ошибка: {exc}"
                 _wb_fbs_sync_state["pallet_summary"] = []
                 _wb_fbs_sync_state["pallet_summary_error"] = ""
+                err_message = str(_wb_fbs_sync_state.get("message") or "")
+            try:
+                from . import wb_fbs_ops_log as ops_log
+
+                ops_log.append_event(
+                    repo,
+                    user_id=user_id,
+                    action=ops_log.ACTION_SYNC_DONE,
+                    message=("Авто: " if is_auto else "") + err_message,
+                    level=ops_log.LEVEL_ERROR,
+                    actor_user_id=actor_user_id,
+                    actor_name=actor_name or ("авто" if is_auto else ""),
+                    details={"is_auto": bool(is_auto)},
+                )
+            except Exception:
+                pass
         finally:
             with _wb_fbs_sync_lock:
                 _wb_fbs_sync_state["in_progress"] = False
@@ -5081,6 +5150,25 @@ def run_auto_collect_mgt_for_owner(
         "sources": source_rows,
     }
     _persist(summary, detail)
+    try:
+        from . import wb_fbs_ops_log as ops_log
+
+        level = ops_log.LEVEL_INFO
+        if outcome == "error":
+            level = ops_log.LEVEL_ERROR
+        elif outcome in ("partial", "skipped"):
+            level = ops_log.LEVEL_WARN
+        ops_log.append_event(
+            repo,
+            user_id=user_id,
+            action=ops_log.ACTION_AUTO_COLLECT,
+            message=f"Автосбор МГТ: {summary}",
+            level=level,
+            actor_name="авто",
+            details={"outcome": outcome, "added_total": added_total},
+        )
+    except Exception:
+        pass
     return {
         "ok": not any_error or any_success,
         "ran": True,

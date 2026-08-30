@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=245" />
+  <link rel="stylesheet" href="/static/style.css?v=246" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1754,15 +1754,16 @@
         <div id="wbFbsAutoSyncModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
              aria-labelledby="wbFbsAutoSyncTitle"
              onclick="if(event.target===this)closeWbFbsAutoSyncSettings()">
-          <div class="modal-card wb-fbs-auto-sync-modal">
-            <div class="wb-fbs-auto-sync-header">
-              <h3 id="wbFbsAutoSyncTitle" class="wb-fbs-auto-sync-title">Настройки автоматики</h3>
+          <div class="modal-card wb-fbs-ops-settings-modal">
+            <div class="wb-fbs-ops-settings-header">
+              <h3 id="wbFbsAutoSyncTitle" class="wb-fbs-ops-settings-title">Настройки автоматики</h3>
               <button type="button" class="icon-btn secondary" onclick="closeWbFbsAutoSyncSettings()" aria-label="Закрыть">✕</button>
             </div>
 
+            <div class="wb-fbs-ops-settings-body">
             <div class="wb-fbs-auto-sync-section">
               <h4 class="wb-fbs-auto-sync-section-title">Автоматическая синхронизация</h4>
-              <p class="wb-fbs-auto-sync-section-lead">Ручная синхронизация работает всегда. Автозапуск — по выбранному периоду и окну активности (время — МСК) для всех источников ФБС.</p>
+              <p class="wb-fbs-auto-sync-section-lead">Ручная синхронизация работает всегда. Автозапуск — по выбранному периоду и окну активности (время — МСК) для всех источников ФБС. Журнал операций хранится столько же дней, сколько глубина загрузки.</p>
               <div class="wb-fbs-auto-sync-row">
                 <div class="wb-fbs-auto-sync-label">
                   <span>Автоматическая синхронизация</span>
@@ -1790,7 +1791,7 @@
                 <label for="wbFbsAutoSyncLookback">Глубина загрузки заказов (дни)</label>
                 <input type="number" id="wbFbsAutoSyncLookback" min="1" max="30" step="1" value="3"
                        inputmode="numeric" />
-                <span class="wb-fbs-auto-sync-field-hint">Сколько дней назад брать заказы из WB (макс. 30). Влияет на ручную и автоматическую синхронизацию.</span>
+                <span class="wb-fbs-auto-sync-field-hint">Сколько дней назад брать заказы из WB (макс. 30). Влияет на ручную и автоматическую синхронизацию. Логи старше этого срока удаляются.</span>
               </div>
               <div class="wb-fbs-auto-collect-window">
                 <div class="wb-fbs-auto-sync-field">
@@ -1856,8 +1857,21 @@
             </div>
 
             <div id="wbFbsAutoSyncInfo" class="wb-fbs-auto-sync-info" hidden></div>
-            <div class="wb-fbs-auto-sync-footer">
-              <button type="button" class="secondary" onclick="closeWbFbsAutoSyncSettings()">Отмена</button>
+
+            <div class="wb-fbs-ops-log-section">
+              <div class="wb-fbs-ops-log-section-head">
+                <h4 class="wb-fbs-ops-log-title">Журнал операций</h4>
+                <span id="wbFbsOpsLogMeta" class="wb-fbs-ops-log-meta"></span>
+              </div>
+              <p class="wb-fbs-ops-log-lead">
+                Живой лог синхронизации, автосбора, сбора МГТ, поставок и сохранения КИЗ. Не блокирует других операторов.
+              </p>
+              <div id="wbFbsOpsLogList" class="wb-fbs-ops-log-list" role="log" aria-live="polite" aria-relevant="additions"></div>
+            </div>
+            </div>
+
+            <div class="wb-fbs-ops-settings-footer">
+              <button type="button" class="secondary" onclick="closeWbFbsAutoSyncSettings()">Закрыть</button>
               <button type="button" id="wbFbsAutoSyncSaveBtn" onclick="saveWbFbsAutoSyncSettings()">Сохранить</button>
             </div>
           </div>
@@ -6168,6 +6182,6 @@
   </div>
 
   <script src="/static/ozon_fbs.js?v=45"></script>
-  <script src="/static/app.js?v=513"></script>
+  <script src="/static/app.js?v=514"></script>
 </body>
 </html>
