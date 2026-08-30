@@ -1663,6 +1663,19 @@ def _tab_counts(repo: ReviewRepository, *, user_id: int, source_id: int | None) 
         tab = str(row["tab"] or "")
         if tab in counts:
             counts[tab] = int(row["n"] or 0)
+    # Multi counts for every list/supplies response — managers and owner share the
+    # same payload so «Разделить» / collect-block stay in sync for all roles.
+    try:
+        from . import ozon_fbs_detail as oz_detail
+
+        multi_stats = oz_detail.count_awaiting_packaging_multi(
+            repo, user_id=user_id, source_id=int(source_id) if source_id is not None else None
+        )
+        counts["awaiting_packaging_multi"] = int(multi_stats.get("multi_posting_count") or 0)
+        counts["awaiting_packaging_multi_extra"] = int(multi_stats.get("extra_postings") or 0)
+    except Exception:
+        counts["awaiting_packaging_multi"] = 0
+        counts["awaiting_packaging_multi_extra"] = 0
     return counts
 
 
@@ -1884,17 +1897,6 @@ def list_postings(
         d["warehouse_label"] = str(d.get("warehouse_name") or "").strip() or "—"
         items.append(d)
     counts = _tab_counts(repo, user_id=user_id, source_id=source_id)
-    try:
-        from . import ozon_fbs_detail as oz_detail
-
-        multi_stats = oz_detail.count_awaiting_packaging_multi(
-            repo, user_id=user_id, source_id=int(source_id) if source_id is not None else None
-        )
-        counts["awaiting_packaging_multi"] = int(multi_stats.get("multi_posting_count") or 0)
-        counts["awaiting_packaging_multi_extra"] = int(multi_stats.get("extra_postings") or 0)
-    except Exception:
-        counts["awaiting_packaging_multi"] = 0
-        counts["awaiting_packaging_multi_extra"] = 0
     return {
         "items": items,
         "total": int(total_row["n"]) if total_row else 0,

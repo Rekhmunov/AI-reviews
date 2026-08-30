@@ -21,12 +21,19 @@ def test_tab_counts_exclude_cancelled_on_operational_tabs() -> None:
         {"tab": oz.TAB_AWAITING_DELIVER, "n": 2},
         {"tab": oz.TAB_CANCELLED, "n": 5},
     ]
-    counts = oz._tab_counts(repo, user_id=1, source_id=2)
-    sql = conn.execute.call_args[0][0]
-    assert "tab NOT IN" in sql
-    assert "cancelled_from_split_pending" in sql
+    with patch(
+        "review_processor.ozon_fbs_detail.count_awaiting_packaging_multi",
+        return_value={"multi_posting_count": 3, "extra_postings": 5, "result_posting_count": 9},
+    ):
+        counts = oz._tab_counts(repo, user_id=1, source_id=2)
+    sql_calls = [c[0][0] for c in conn.execute.call_args_list if c[0]]
+    count_sql = next(s for s in sql_calls if "GROUP BY tab" in s)
+    assert "tab NOT IN" in count_sql
+    assert "cancelled_from_split_pending" in count_sql
     assert counts[oz.TAB_AWAITING_PACKAGING] == 4
     assert counts[oz.TAB_CANCELLED] == 5
+    assert counts["awaiting_packaging_multi"] == 3
+    assert counts["awaiting_packaging_multi_extra"] == 5
 
 
 def test_picking_list_excludes_cancelled() -> None:

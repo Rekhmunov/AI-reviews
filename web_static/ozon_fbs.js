@@ -273,7 +273,22 @@
   }
 
   function updateTabCounts(counts) {
-    state.counts = counts || {};
+    const next = counts && typeof counts === "object" ? { ...counts } : {};
+    // Keep last known multi if a response omitted it (older payloads / supplies).
+    if (
+      next.awaiting_packaging_multi == null &&
+      state.counts &&
+      state.counts.awaiting_packaging_multi != null
+    ) {
+      next.awaiting_packaging_multi = state.counts.awaiting_packaging_multi;
+      if (
+        next.awaiting_packaging_multi_extra == null &&
+        state.counts.awaiting_packaging_multi_extra != null
+      ) {
+        next.awaiting_packaging_multi_extra = state.counts.awaiting_packaging_multi_extra;
+      }
+    }
+    state.counts = next;
     Object.keys(TAB_COUNT_IDS).forEach((tab) => {
       const el = document.getElementById(TAB_COUNT_IDS[tab]);
       if (el) el.textContent = String(state.counts[tab] || 0);
@@ -282,7 +297,18 @@
   }
 
   function multiAwaitingCount() {
-    return Math.max(0, Number(state.counts.awaiting_packaging_multi || 0) || 0);
+    const fromCounts = Math.max(0, Number(state.counts.awaiting_packaging_multi || 0) || 0);
+    if (fromCounts > 0) return fromCounts;
+    // Fallback: current packaging page rows (same for owner and managers).
+    if (state.tab === "awaiting_packaging" && !isSuppliesTab() && Array.isArray(state.items)) {
+      const fromItems = state.items.filter((row) => {
+        if (!row || row.supply_id) return false;
+        if (row.is_multi_unit === true) return true;
+        return Math.max(0, Number(row.unit_count || 0) || 0) > 1;
+      }).length;
+      if (fromItems > 0) return fromItems;
+    }
+    return 0;
   }
 
   function syncPackagingActionButtons() {
@@ -298,17 +324,20 @@
       Boolean(splitState.busy);
     const onPackaging = state.tab === "awaiting_packaging" && !isSuppliesTab();
     const syncTitle = "Идёт синхронизация, подождите";
-
+    // Same rules for owner and managers: split visible on packaging, collect blocked while multi remain.
     if (splitBtn) {
-      const showSplit = onPackaging && multi > 0;
+      const showSplit = onPackaging;
       splitBtn.hidden = !showSplit;
-      splitBtn.disabled = !state.sourceId || !showSplit || busy;
+      splitBtn.style.display = showSplit ? "" : "none";
+      splitBtn.disabled = !state.sourceId || !showSplit || multi <= 0 || busy;
       if (syncBusy && showSplit) {
         splitBtn.title = syncTitle;
-      } else if (showSplit) {
+      } else if (showSplit && multi > 0) {
         splitBtn.title = `Разделить мультизаказы (${multi}) на одинарные без сборки`;
-      } else {
+      } else if (showSplit) {
         splitBtn.title = "Нет мультизаказов в «Ожидают сборки»";
+      } else {
+        splitBtn.title = "Разделить мультизаказы";
       }
       splitBtn.textContent = splitState.busy
         ? (splitState.progressText || "Разделение…")
@@ -831,6 +860,7 @@
       } else {
         renderTable(items);
       }
+      syncPackagingActionButtons();
 
       const info = document.getElementById("ozonFbsInfo");
       if (info) {
