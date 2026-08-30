@@ -1287,6 +1287,23 @@ def start_gtd_update_job(
     """Background update when appending large sticker PDFs; else sync."""
     uid = int(user_id)
     file_list = list(files or [])
+    # Fail fast on missing doc / bad number before a long scan.
+    current = get_gtd_by_id(repo, user_id=uid, gtd_id=int(gtd_id))
+    if not current:
+        raise ValueError("ГТД не найдена")
+    manual = normalize_gtd_number(gtd_number)
+    if not manual:
+        raise ValueError(
+            "Укажите номер ГТД в формате 12345678/010126/1234567"
+        )
+    if manual != str(current.get("gtd_number") or ""):
+        clash = get_gtd_by_number(repo, user_id=uid, gtd_number=manual)
+        if clash and int(clash.get("id") or 0) != int(gtd_id):
+            raise ValueError(
+                f"Номер {manual} уже занят другой ГТД "
+                f"(id={clash.get('id')}). Укажите другой номер."
+            )
+
     if not file_list:
         out = update_gtd(
             repo,

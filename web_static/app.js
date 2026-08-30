@@ -20975,9 +20975,10 @@ async function _supplyGtdPollJobUntilDone(errEl, btn, busyLabel, expectJobId) {
     const st = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(_supplyGtdDetailError(st, `Ошибка ${res.status}`));
     const jobId = String(st.job_id || "");
-    if (wantId && jobId && jobId !== wantId && !st.in_progress) {
-      // Stale finished job from a previous run — keep waiting briefly for ours.
-      if (i < 15) continue;
+    // Never consume a previous job's success/error when we have an expected id.
+    if (wantId && jobId && jobId !== wantId) {
+      if (i < 30) continue;
+      throw new Error("Не дождались статуса фоновой загрузки ГТД");
     }
     if (wantId && jobId === wantId) sawJob = true;
     if (!wantId && (st.in_progress || st.ok || st.error)) sawJob = true;
@@ -20989,9 +20990,9 @@ async function _supplyGtdPollJobUntilDone(errEl, btn, busyLabel, expectJobId) {
       errEl.textContent = msg;
     }
     if (st.in_progress) continue;
-    if (st.ok && st.result && (!wantId || !jobId || jobId === wantId)) return st.result;
+    if (st.ok && st.result && (!wantId || jobId === wantId || !jobId)) return st.result;
     // Empty status right after start (rare) — retry a few times before failing.
-    if (!sawJob && i < 20 && !st.error) continue;
+    if (!sawJob && i < 30 && !String(st.error || "").trim()) continue;
     throw new Error(String(st.error || st.message || "Загрузка ГТД не удалась"));
   }
   throw new Error("Таймаут фоновой загрузки ГТД");

@@ -278,6 +278,36 @@ class SupplyGtdImportTests(unittest.TestCase):
         self.assertFalse(st.get("ok"))
         self.assertIsNone(st.get("result"))
 
+    def test_update_job_fail_fast_missing_gtd(self) -> None:
+        repo = MagicMock()
+        with patch.object(gtd, "get_gtd_by_id", return_value=None):
+            with self.assertRaises(ValueError) as ctx:
+                gtd.start_gtd_update_job(
+                    repo,
+                    user_id=1,
+                    gtd_id=99,
+                    gtd_number="10323010/250826/5109999",
+                    note="",
+                    files=[("a.pdf", b"%PDF" + b"x" * (21 * 1024 * 1024))],
+                )
+        self.assertIn("не найдена", str(ctx.exception).lower())
+
+    def test_update_job_fail_fast_bad_number(self) -> None:
+        repo = MagicMock()
+        with patch.object(
+            gtd, "get_gtd_by_id", return_value={"id": 7, "gtd_number": "10323010/250826/5109999"}
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                gtd.start_gtd_update_job(
+                    repo,
+                    user_id=1,
+                    gtd_id=7,
+                    gtd_number="bad",
+                    note="",
+                    files=None,
+                )
+        self.assertIn("формате", str(ctx.exception).lower())
+
 
 if __name__ == "__main__":
     unittest.main()
