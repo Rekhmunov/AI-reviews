@@ -107,6 +107,13 @@ class OzonFbsPrintOrderCheckTests(unittest.TestCase):
         ) as client_cls, patch(
             "review_processor.ozon_fbs_supplies._fetch_label_images",
             return_value={"A-1": [], "B-2": []},
+        ), patch(
+            "review_processor.ozon_fbs_supplies._retry_and_diagnose_missing_labels",
+            return_value=(
+                {"A-1": [], "B-2": []},
+                ["A-1", "B-2"],
+                ["A-1: уже доставляется", "B-2: этикетка не готова"],
+            ),
         ), patch("review_processor.ozon_fbs_supplies._log"):
             result = build_stickers_print(
                 repo,
@@ -121,8 +128,35 @@ class OzonFbsPrintOrderCheckTests(unittest.TestCase):
         self.assertEqual(result.expected_count, 2)
         self.assertEqual(result.loaded_count, 0)
         self.assertEqual(result.missing_posting_numbers, ["A-1", "B-2"])
+        self.assertEqual(len(result.missing_reasons or []), 2)
         self.assertIn("Нет этикетки", result.html)
         self.assertIn("Не загружено 2 этик.", result.html)
+
+    def test_batch_page_mismatch_splits_instead_of_misassign(self) -> None:
+        from review_processor.ozon_fbs_supplies import _fetch_label_images_for_batch
+
+        client = MagicMock()
+
+        def fake_pdf(nums: list[str]) -> bytes:
+            if len(nums) > 1:
+                return b"%PDF-BAD"
+            return b"%PDF-" + nums[0].encode()
+
+        client.package_label_pdf.side_effect = fake_pdf
+        with patch(
+            "review_processor.ozon_fbs_supplies._pdf_pages_to_png_b64"
+        ) as raster:
+
+            def pages(pdf: bytes) -> list[str]:
+                if b"BAD" in pdf:
+                    return ["only_one"]
+                return [pdf.decode()]
+
+            raster.side_effect = pages
+            out = _fetch_label_images_for_batch(client, ["61801002-0977-1", "64544636-0099-1"])
+        self.assertTrue(out["61801002-0977-1"])
+        self.assertTrue(out["64544636-0099-1"])
+        self.assertNotEqual(out["61801002-0977-1"], out["64544636-0099-1"])
 
 
 if __name__ == "__main__":

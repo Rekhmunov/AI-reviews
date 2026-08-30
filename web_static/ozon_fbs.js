@@ -3021,6 +3021,7 @@
       const expected = res.headers.get("X-Feedpilot-Stickers-Expected") || "?";
       const loaded = res.headers.get("X-Feedpilot-Stickers-Loaded") || "?";
       const missingRaw = String(res.headers.get("X-Feedpilot-Stickers-Missing") || "").trim();
+      const reason = String(res.headers.get("X-Feedpilot-Stickers-Missing-Reason") || "").trim();
       const preview = missingRaw
         ? missingRaw.split(",").slice(0, 5).join(", ")
         : "";
@@ -3031,13 +3032,15 @@
           + `Печать доступна только для статуса «Ожидает отгрузки» на стороне Ozon. `
           + `Если заказ ещё на сборке — сначала соберите его. `
           + `Если уже доставляется — повторная печать через API недоступна.\n`
-          + (preview ? `Отправления: ${preview}${suffix}` : "")
+          + (preview ? `Отправления: ${preview}${suffix}\n` : "")
+          + (reason ? `\n${reason}` : "")
         );
       } else {
         alert(
           `Загружено ${loaded} из ${expected} этикеток.\n`
           + `Не загружено: ${missingCount}. Повторите печать стикеров через 1–2 мин.\n`
-          + (preview ? `Отправления: ${preview}${suffix}` : "")
+          + (preview ? `Отправления: ${preview}${suffix}\n` : "")
+          + (reason ? `\nПричина: ${reason}` : "")
         );
       }
     }
@@ -3116,22 +3119,119 @@
     closeStickersMenu();
     const btn = document.getElementById("ozonFbsSupplyDetailStickersBtn");
     const caret = document.getElementById("ozonFbsSupplyDetailStickersMenuBtn");
-    if (btn) btn.disabled = true;
+    const btnLabel = btn ? String(btn.textContent || "Стикеры") : "Стикеры";
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Стикеры…";
+    }
     if (caret) caret.disabled = true;
     const ids = Array.isArray(postingNumbers)
       ? postingNumbers.map((x) => String(x || "").trim()).filter(Boolean)
       : [];
-    let url =
-      `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/stickers-print` +
-      `?source_id=${sourceId}${_ozonFbsSupplyPostingTabParam()}`;
-    if (ids.length) url += `&order_ids=${encodeURIComponent(ids.join(","))}`;
-    openPrintHtml(url, "Разрешите всплывающие окна для стикеров")
-      .catch((e) => alert(String(e.message || e)))
-      .finally(() => {
-        if (!_ozonFbsSupplyActionsReady()) return;
-        if (btn) btn.disabled = false;
-        if (caret) caret.disabled = false;
+    const tab = String(supplyDetailState.postingTab || "").trim();
+    const body = {
+      source_id: Number(sourceId),
+      order_ids: ids,
+    };
+    if (tab) body.posting_tab = tab;
+
+    const restoreBtn = () => {
+      if (!_ozonFbsSupplyActionsReady()) return;
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "Стикеры";
+      }
+      if (caret) caret.disabled = false;
+    };
+
+    const openResultHtml = async () => {
+      const res = await fetch("/api/ozon-fbs/stickers-print/result", {
+        credentials: "same-origin",
       });
+      if (!res.ok) {
+        let detail = "";
+        try {
+          const data = await res.json();
+          detail = detailText(data.detail);
+        } catch (_) {
+          detail = await res.text().catch(() => "");
+        }
+        throw new Error(detail || `Ошибка печати (${res.status})`);
+      }
+      const html = await res.text();
+      const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+      const blobUrl = URL.createObjectURL(blob);
+      const win = window.open(blobUrl, "_blank");
+      if (!win) {
+        URL.revokeObjectURL(blobUrl);
+        throw new Error("Разрешите всплывающие окна для стикеров");
+      }
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+      const missingCount = Number(res.headers.get("X-Feedpilot-Stickers-Missing-Count") || 0);
+      if (missingCount > 0) {
+        const expected = res.headers.get("X-Feedpilot-Stickers-Expected") || "?";
+        const loaded = res.headers.get("X-Feedpilot-Stickers-Loaded") || "?";
+        const missingRaw = String(res.headers.get("X-Feedpilot-Stickers-Missing") || "").trim();
+        const reason = String(res.headers.get("X-Feedpilot-Stickers-Missing-Reason") || "").trim();
+        const preview = missingRaw
+          ? missingRaw.split(",").slice(0, 5).join(", ")
+          : "";
+        const suffix = missingCount > 5 ? ` … (+${missingCount - 5})` : "";
+        alert(
+          `Загружено ${loaded} из ${expected} этикеток.\n`
+          + `Не загружено: ${missingCount}. Повторите печать стикеров через 1–2 мин.\n`
+          + (preview ? `Отправления: ${preview}${suffix}\n` : "")
+          + (reason ? `\nПричина: ${reason}` : "")
+        );
+      }
+    };
+
+    const poll = async () => {
+      for (let i = 0; i < 7200; i += 1) { // up to ~2h at 1s for huge supplies
+        await new Promise((r) => setTimeout(r, i === 0 ? 400 : 1000));
+        const res = await fetch("/api/ozon-fbs/stickers-print/status", {
+          credentials: "same-origin",
+        });
+        const st = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(detailText(st.detail) || `Ошибка ${res.status}`);
+        const done = Number(st.done || 0);
+        const total = Number(st.total || 0);
+        const msg = String(st.message || "Стикеры…");
+        if (btn) {
+          btn.textContent =
+            total > 0
+              ? `Стикеры ${Math.min(done, total)}/${total}`
+              : (msg.length > 28 ? `${msg.slice(0, 26)}…` : msg);
+        }
+        if (st.in_progress) continue;
+        if (st.ok) {
+          await openResultHtml();
+          return;
+        }
+        throw new Error(String(st.error || st.message || "Не удалось загрузить стикеры"));
+      }
+      throw new Error("Таймаут загрузки стикеров");
+    };
+
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/stickers-print/start`,
+          {
+            method: "POST",
+            headers: jsonHeaders(),
+            body: JSON.stringify(body),
+          }
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(detailText(data.detail) || "Не удалось начать загрузку стикеров");
+        await poll();
+      } catch (e) {
+        alert(String(e.message || e));
+      } finally {
+        restoreBtn();
+      }
+    })();
   }
 
   function _ozonFbsStickersCategorySetInfo(text, kind) {

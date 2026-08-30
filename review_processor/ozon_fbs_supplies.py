@@ -3478,33 +3478,26 @@ def _pdf_pages_to_png_b64(pdf_bytes: bytes) -> list[str]:
 def _assign_label_pages_to_batch(
     batch: list[str], pages: list[str]
 ) -> dict[str, list[str]]:
-    """Map rasterized PDF pages onto posting numbers (Ozon order = request order)."""
+    """Map rasterized PDF pages onto posting numbers when counts match 1:1."""
     result: dict[str, list[str]] = {pn: [] for pn in batch}
     if not batch:
         return result
     if len(pages) == len(batch):
         for pn, page in zip(batch, pages):
             result[pn] = [page]
-        return result
-    if not pages:
-        return result
-    idx = 0
-    for bi, pn in enumerate(batch):
-        remaining_postings = len(batch) - bi
-        remaining_pages = len(pages) - idx
-        take = max(1, remaining_pages // remaining_postings) if remaining_pages else 0
-        chunk = pages[idx : idx + take]
-        idx += take
-        result[pn] = chunk
-    if idx < len(pages):
-        result[batch[-1]] = (result.get(batch[-1]) or []) + pages[idx:]
     return result
 
 
 def _fetch_label_images_for_batch(
     client: oz.OzonFbsClient, batch: list[str]
 ) -> dict[str, list[str]]:
-    """Fetch+rasterize one batch. On Ozon INVALID_ARGUMENT, binary-split (not 20×1)."""
+    """Fetch+rasterize one batch.
+
+    On Ozon errors **or** PDF page-count ≠ posting count, binary-split (not a
+    fuzzy redistribute). Mis-assigning pages when Ozon returns an incomplete
+    multi-label PDF was marking the wrong postings as missing and could attach
+    the wrong sticker to a posting.
+    """
     clean = [str(p).strip() for p in batch if str(p).strip()]
     if not clean:
         return {}
@@ -3513,6 +3506,18 @@ def _fetch_label_images_for_batch(
     try:
         pdf = client.package_label_pdf(clean)
         pages = _pdf_pages_to_png_b64(pdf)
+        if len(pages) != len(clean):
+            _log.warning(
+                "ozon package-label page/posting mismatch batch=%s pages=%s — split",
+                len(clean),
+                len(pages),
+            )
+            mid = max(1, len(clean) // 2)
+            left = _fetch_label_images_for_batch(client, clean[:mid])
+            right = _fetch_label_images_for_batch(client, clean[mid:])
+            out = dict(left)
+            out.update(right)
+            return out
         return _assign_label_pages_to_batch(clean, pages)
     except Exception as exc:
         if _is_pymupdf_setup_error(exc):
@@ -3527,7 +3532,10 @@ def _fetch_label_images_for_batch(
 
 
 def _fetch_label_images(
-    client: oz.OzonFbsClient, posting_numbers: list[str]
+    client: oz.OzonFbsClient,
+    posting_numbers: list[str],
+    *,
+    progress: Callable[[int, int, str], None] | None = None,
 ) -> dict[str, list[str]]:
     """Rasterize Ozon «Этикетка отправления» PDF pages (batch ≤20, parallel)."""
     nums = [str(p).strip() for p in posting_numbers if str(p).strip()]
@@ -3540,17 +3548,39 @@ def _fetch_label_images(
     ]
     workers = min(_OZON_LABEL_FETCH_WORKERS, max(1, len(batches)))
     t0 = time.monotonic()
+    done_postings = 0
+    progress_lock = threading.Lock()
+
+    def _on_batch_done(batch: list[str], partial: dict[str, list[str]]) -> None:
+        nonlocal done_postings
+        result.update(partial)
+        with progress_lock:
+            done_postings += len(batch)
+            loaded = sum(1 for pn in nums if result.get(pn))
+            cur = min(done_postings, len(nums))
+            if progress:
+                try:
+                    progress(
+                        cur,
+                        len(nums),
+                        f"Этикетки {loaded}/{len(nums)}",
+                    )
+                except Exception:
+                    pass
+
     if workers <= 1 or len(batches) == 1:
         for batch in batches:
-            result.update(_fetch_label_images_for_batch(client, batch))
+            partial = _fetch_label_images_for_batch(client, batch)
+            _on_batch_done(batch, partial)
     else:
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            futs = [
-                pool.submit(_fetch_label_images_for_batch, client, batch)
+            futs = {
+                pool.submit(_fetch_label_images_for_batch, client, batch): batch
                 for batch in batches
-            ]
+            }
             for fut in as_completed(futs):
-                result.update(fut.result())
+                batch = futs[fut]
+                _on_batch_done(batch, fut.result())
     loaded = sum(1 for pn in nums if result.get(pn))
     _log.info(
         "ozon package-label fetch done postings=%s batches=%s workers=%s "
@@ -3562,6 +3592,49 @@ def _fetch_label_images(
         time.monotonic() - t0,
     )
     return result
+
+
+def _diagnose_missing_label(
+    client: oz.OzonFbsClient, posting_number: str
+) -> str:
+    """Best-effort reason for a posting whose package-label fetch returned empty."""
+    pn = str(posting_number or "").strip()
+    if not pn:
+        return "пустое отправление"
+    try:
+        remote = client.get_posting(pn)
+    except Exception as exc:
+        return f"не удалось проверить статус в Ozon ({exc})"
+    status = str(remote.get("status") or "").strip().lower()
+    if status and status != oz.TAB_AWAITING_DELIVER:
+        return oz.explain_package_label_status_block(
+            posting_number=pn, status=status
+        )
+    # Status looks printable — often label not ready yet after ship.
+    return (
+        f"Отправление {pn}: статус «ожидает отгрузки», но этикетка ещё не отдалась. "
+        "Повторите через 1–2 мин."
+    )
+
+
+def _retry_and_diagnose_missing_labels(
+    client: oz.OzonFbsClient,
+    *,
+    images: dict[str, list[str]],
+    missing: list[str],
+) -> tuple[dict[str, list[str]], list[str], list[str]]:
+    """One individual retry for missing labels, then status diagnosis."""
+    out = dict(images)
+    still: list[str] = []
+    reasons: list[str] = []
+    for pn in missing:
+        pages = _fetch_label_pages_for_posting(client, pn)
+        if pages:
+            out[pn] = pages
+            continue
+        still.append(pn)
+        reasons.append(_diagnose_missing_label(client, pn))
+    return out, still, reasons
 
 
 def render_stickers_print_html(
@@ -3734,6 +3807,7 @@ class StickersPrintResult:
     expected_count: int
     loaded_count: int
     missing_posting_numbers: list[str]
+    missing_reasons: list[str] | None = None
 
 
 def list_sticker_groups(detail: dict[str, Any]) -> dict[str, Any]:
@@ -3771,6 +3845,7 @@ def build_stickers_print(
     source_name: str = "",
     posting_numbers_filter: list[str] | None = None,
     posting_tab: str | None = None,
+    progress: Callable[[int, int, str], None] | None = None,
 ) -> StickersPrintResult:
     detail = get_supply_detail_for_print(
         repo,
@@ -3806,22 +3881,47 @@ def build_stickers_print(
             "Нет отправлений для печати этикеток. "
             "Этикетки доступны после сборки (ship) отправлений."
         )
+    if progress:
+        try:
+            progress(0, len(nums), f"Загрузка этикеток 0/{len(nums)}")
+        except Exception:
+            pass
     client = oz.OzonFbsClient(client_id, api_key)
-    images = _fetch_label_images(client, nums)
+    images = _fetch_label_images(client, nums, progress=progress)
     missing = [pn for pn in nums if not (images.get(pn) or [])]
+    missing_reasons: list[str] = []
+    if missing:
+        if progress:
+            try:
+                progress(
+                    len(nums) - len(missing),
+                    len(nums),
+                    f"Догрузка {len(missing)} этик.…",
+                )
+            except Exception:
+                pass
+        images, missing, missing_reasons = _retry_and_diagnose_missing_labels(
+            client, images=images, missing=missing
+        )
     loaded = sum(1 for pn in nums if (images.get(pn) or []))
     if missing:
         _log.warning(
-            "ozon stickers partial supply=%s source=%s expected=%s loaded=%s missing=%s",
+            "ozon stickers partial supply=%s source=%s expected=%s loaded=%s missing=%s reasons=%s",
             supply_id,
             source_id,
             len(nums),
             loaded,
             len(missing),
+            missing_reasons[:5],
         )
     detail = dict(detail)
     detail["orders"] = orders
     detail["order_count"] = len(orders)
+    if progress:
+        try:
+            progress(len(nums), len(nums), f"Сборка листа {loaded}/{len(nums)}")
+        except Exception:
+            pass
     html = render_stickers_print_html(
         detail,
         source_name=source_name,
@@ -3837,7 +3937,157 @@ def build_stickers_print(
         expected_count=len(nums),
         loaded_count=loaded,
         missing_posting_numbers=missing,
+        missing_reasons=missing_reasons,
     )
+
+
+# ── Background stickers print (progress like ship-all / split) ────────────
+
+_stickers_jobs_lock = threading.Lock()
+_stickers_jobs: dict[int, dict[str, Any]] = {}
+
+
+def _empty_stickers_job() -> dict[str, Any]:
+    return {
+        "in_progress": False,
+        "job_id": "",
+        "done": 0,
+        "total": 0,
+        "message": "",
+        "ok": False,
+        "error": "",
+        "html": "",
+        "expected_count": 0,
+        "loaded_count": 0,
+        "missing_posting_numbers": [],
+        "missing_reasons": [],
+    }
+
+
+def get_stickers_print_job_status(*, user_id: int) -> dict[str, Any]:
+    with _stickers_jobs_lock:
+        st = dict(_stickers_jobs.get(int(user_id)) or _empty_stickers_job())
+    # Never send huge HTML in the status poll.
+    st.pop("html", None)
+    return st
+
+
+def get_stickers_print_job_result(*, user_id: int) -> StickersPrintResult | None:
+    with _stickers_jobs_lock:
+        st = _stickers_jobs.get(int(user_id)) or {}
+        if st.get("in_progress") or not st.get("ok"):
+            return None
+        html = str(st.get("html") or "")
+        if not html:
+            return None
+        return StickersPrintResult(
+            html=html,
+            expected_count=int(st.get("expected_count") or 0),
+            loaded_count=int(st.get("loaded_count") or 0),
+            missing_posting_numbers=list(st.get("missing_posting_numbers") or []),
+            missing_reasons=list(st.get("missing_reasons") or []),
+        )
+
+
+def start_stickers_print_job(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    client_id: str,
+    api_key: str,
+    source_name: str = "",
+    posting_numbers_filter: list[str] | None = None,
+    posting_tab: str | None = None,
+) -> dict[str, Any]:
+    """Background stickers fetch with progress for the supply-detail button."""
+    uid = int(user_id)
+    job_id = secrets.token_hex(6)
+    with _stickers_jobs_lock:
+        cur = _stickers_jobs.get(uid) or {}
+        if cur.get("in_progress"):
+            raise ValueError(
+                "Уже идёт загрузка стикеров. Дождитесь окончания."
+            )
+        _stickers_jobs[uid] = {
+            **_empty_stickers_job(),
+            "in_progress": True,
+            "job_id": job_id,
+            "message": "Подготовка…",
+        }
+
+    def _run() -> None:
+        def _progress(done: int, total: int, message: str) -> None:
+            with _stickers_jobs_lock:
+                st = _stickers_jobs.get(uid)
+                if not st or st.get("job_id") != job_id:
+                    return
+                st["done"] = int(done)
+                st["total"] = max(int(total), 1)
+                st["message"] = str(message or "")
+
+        try:
+            result = build_stickers_print(
+                repo,
+                user_id=uid,
+                source_id=int(source_id),
+                supply_id=str(supply_id),
+                client_id=client_id,
+                api_key=api_key,
+                source_name=source_name,
+                posting_numbers_filter=posting_numbers_filter,
+                posting_tab=posting_tab,
+                progress=_progress,
+            )
+            with _stickers_jobs_lock:
+                st = _stickers_jobs.get(uid) or {}
+                if st.get("job_id") != job_id:
+                    return
+                st.update(
+                    {
+                        "in_progress": False,
+                        "ok": True,
+                        "error": "",
+                        "message": (
+                            f"Готово: {result.loaded_count}/{result.expected_count}"
+                        ),
+                        "done": int(result.expected_count or st.get("total") or 1),
+                        "total": int(result.expected_count or st.get("total") or 1),
+                        "html": result.html,
+                        "expected_count": result.expected_count,
+                        "loaded_count": result.loaded_count,
+                        "missing_posting_numbers": list(
+                            result.missing_posting_numbers or []
+                        ),
+                        "missing_reasons": list(result.missing_reasons or []),
+                    }
+                )
+        except Exception as exc:
+            _log.exception("ozon stickers job failed user=%s", uid)
+            with _stickers_jobs_lock:
+                st = _stickers_jobs.get(uid) or {}
+                if st.get("job_id") != job_id:
+                    return
+                st.update(
+                    {
+                        "in_progress": False,
+                        "ok": False,
+                        "error": str(exc),
+                        "message": str(exc),
+                        "html": "",
+                    }
+                )
+
+    threading.Thread(
+        target=_run, name=f"ozon-stickers-{uid}", daemon=True
+    ).start()
+    return {
+        "ok": True,
+        "started": True,
+        "job_id": job_id,
+        "message": "Загрузка стикеров…",
+    }
 
 
 def _ozon_fbs_stock_movement_date() -> str:

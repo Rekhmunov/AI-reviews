@@ -14305,6 +14305,104 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             headers["X-Feedpilot-Stickers-Missing"] = ",".join(
                 result.missing_posting_numbers[:50]
             )
+        reasons = list(result.missing_reasons or [])
+        if reasons:
+            # Header-safe short preview (UI also gets full text via async status).
+            headers["X-Feedpilot-Stickers-Missing-Reason"] = reasons[0][:300]
+        return Response(
+            content=result.html,
+            media_type="text/html; charset=utf-8",
+            headers=headers,
+        )
+
+    @app.post("/api/ozon-fbs/supplies/{supply_id}/stickers-print/start")
+    async def ozon_fbs_supply_stickers_print_start(
+        request: Request,
+        supply_id: str,
+    ) -> dict[str, object]:
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        source_id = int(body.get("source_id") or 0)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        src_full, client_id, api_key = _ozon_fbs_source_credentials(
+            owner_id, int(source_id)
+        )
+        raw_ids = body.get("order_ids") or body.get("posting_numbers") or []
+        if isinstance(raw_ids, str):
+            selected = [
+                p.strip()
+                for p in raw_ids.replace(";", ",").split(",")
+                if p.strip()
+            ]
+        elif isinstance(raw_ids, list):
+            selected = [str(p).strip() for p in raw_ids if str(p).strip()]
+        else:
+            selected = []
+        tab_key = str(body.get("posting_tab") or "").strip() or None
+        try:
+            return oz_sup.start_stickers_print_job(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                supply_id=str(supply_id),
+                client_id=client_id,
+                api_key=api_key,
+                source_name=str(src_full.get("name") or ""),
+                posting_numbers_filter=selected or None,
+                posting_tab=tab_key,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/ozon-fbs/stickers-print/status")
+    def ozon_fbs_stickers_print_status(request: Request) -> dict[str, object]:
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        return oz_sup.get_stickers_print_job_status(user_id=_supply_owner_id(user))
+
+    @app.get("/api/ozon-fbs/stickers-print/result")
+    def ozon_fbs_stickers_print_result(request: Request) -> Response:
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        result = oz_sup.get_stickers_print_job_result(user_id=_supply_owner_id(user))
+        if not result:
+            raise HTTPException(
+                status_code=404, detail="Результат печати стикеров не готов"
+            )
+        headers = {
+            "Cache-Control": "no-store",
+            "X-Feedpilot-Stickers-Expected": str(result.expected_count),
+            "X-Feedpilot-Stickers-Loaded": str(result.loaded_count),
+            "X-Feedpilot-Stickers-Missing-Count": str(
+                len(result.missing_posting_numbers)
+            ),
+        }
+        if result.missing_posting_numbers:
+            headers["X-Feedpilot-Stickers-Missing"] = ",".join(
+                result.missing_posting_numbers[:50]
+            )
+        reasons = list(result.missing_reasons or [])
+        if reasons:
+            headers["X-Feedpilot-Stickers-Missing-Reason"] = reasons[0][:300]
         return Response(
             content=result.html,
             media_type="text/html; charset=utf-8",
