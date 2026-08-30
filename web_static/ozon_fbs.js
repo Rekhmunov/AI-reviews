@@ -17,6 +17,15 @@
   /** Hidden in UI for now (sync still tracks counts). */
   const OZON_FBS_HIDDEN_TABS = new Set(["arbitration", "delivered", "cancelled"]);
 
+  const OZON_FBS_TAB_LABELS = {
+    awaiting_packaging: "Ожидают сборки",
+    awaiting_deliver: "Ожидают отгрузки",
+    delivering: "Доставляются",
+    arbitration: "Спорные",
+    delivered: "Доставлены",
+    cancelled: "Отменены",
+  };
+
   const state = {
     sources: [],
     sourceId: null,
@@ -35,6 +44,9 @@
     shipAllBusy: false,
     syncBusy: false,
     viewMode: "orders", // orders | supplies
+    /** Exact posting-number hit across tabs (WB-like toolbar escape hatch). */
+    lookupMode: false,
+    lookupMeta: null,
   };
 
   const collectState = {
@@ -194,7 +206,78 @@
   }
 
   function isSuppliesTab() {
+    // Exact posting lookup always renders a single order row, even on supply tabs.
+    if (state.lookupMode) return false;
     return state.tab === "awaiting_deliver" || state.tab === "delivering";
+  }
+
+  function parsePostingNumberQuery(search) {
+    const q = String(search || "").trim().replace(/\s+/g, "");
+    if (/^\d{6,}-\d{3,}-\d{1,4}$/.test(q)) return q;
+    return "";
+  }
+
+  function clearLookupMode() {
+    state.lookupMode = false;
+    state.lookupMeta = null;
+  }
+
+  async function lookupPostingByNumber(postingNumber) {
+    const params = new URLSearchParams({
+      source_id: String(state.sourceId),
+      posting_number: String(postingNumber),
+    });
+    const res = await fetch(`/api/ozon-fbs/postings/find?${params}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(detailText(data.detail) || "Не удалось найти отправление");
+    }
+    return data;
+  }
+
+  function applyLookupResult(data, postingNumber) {
+    const item = data && data.item;
+    if (!data?.found || !item) {
+      clearLookupMode();
+      return false;
+    }
+    const tab = String(data.tab || item.tab || "").trim();
+    state.lookupMode = true;
+    state.lookupMeta = {
+      posting_number: String(data.posting_number || postingNumber),
+      tab,
+      source: String(data.source || ""),
+      message: String(data.message || ""),
+    };
+    state.items = [item];
+    state.total = 1;
+    state.page = 1;
+    state.selected.clear();
+    if (data.counts) updateTabCounts(data.counts);
+    // Keep operator on a visible tab button; do not open hidden tabs.
+    if (tab && !OZON_FBS_HIDDEN_TABS.has(tab) && state.tab !== tab) {
+      state.tab = tab;
+      document.querySelectorAll("#ozonFbsTabs .wb-fbs-tab").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.tab === tab);
+      });
+    }
+    syncTableMode();
+    renderTable([item]);
+    syncPackagingActionButtons();
+    const info = document.getElementById("ozonFbsInfo");
+    if (info) {
+      const tabLabel = OZON_FBS_TAB_LABELS[tab] || tab || "—";
+      info.textContent = `Отправление ${postingNumber}: ${tabLabel} · найдено в базе`;
+    }
+    const pageInfo = document.getElementById("ozonFbsPageInfo");
+    if (pageInfo) pageInfo.textContent = "1 / 1";
+    const pager = document.querySelector("#section-ozon-fbs .supplies-pagination");
+    if (pager) pager.style.display = "";
+    const prev = document.getElementById("ozonFbsPrevBtn");
+    const next = document.getElementById("ozonFbsNextBtn");
+    if (prev) prev.disabled = true;
+    if (next) next.disabled = true;
+    return true;
   }
 
   function isDeliveringSuppliesTab() {
@@ -483,7 +566,7 @@
     }
     if (search) {
       search.placeholder = supplies
-        ? "Поиск по поставке, складу…"
+        ? "Поиск по поставке, складу или номеру отправления…"
         : "Поиск по отправлению, артикулу, ШК…";
     }
     if (!colgroup || !thead) return;
@@ -841,6 +924,7 @@
   async function loadPostings(resetPage) {
     if (!canView()) return;
     if (resetPage) state.page = 1;
+    clearLookupMode();
     syncTableMode();
     const tbody = document.getElementById("ozonFbsOrdersTbody");
     if (tbody) tbody.innerHTML = `<tr><td colspan="${colspan()}" class="wb-fbs-empty">Загрузка…</td></tr>`;
@@ -878,8 +962,57 @@
         });
       }
 
-      state.total = suppliesMode ? items.length : Number(data.total || 0);
       updateTabCounts(data.counts || {});
+
+      // Full posting number: prefer exact hit in current tab/page; else cross-tab local find.
+      const pnQuery = parsePostingNumberQuery(state.search);
+      if (pnQuery) {
+        let exactItems = [];
+        if (suppliesMode) {
+          exactItems = items.filter((s) => {
+            const nums = Array.isArray(s.posting_numbers) ? s.posting_numbers : [];
+            return nums.some((n) => String(n || "").trim().toLowerCase() === pnQuery.toLowerCase())
+              || String(s.supply_id || "").trim() === pnQuery
+              || String(s.name || "").toLowerCase().includes(pnQuery.toLowerCase());
+          });
+        } else {
+          exactItems = items.filter(
+            (o) => String(o.posting_number || "").trim().toLowerCase() === pnQuery.toLowerCase()
+          );
+        }
+        if (exactItems.length) {
+          items = exactItems;
+        } else {
+          if (tbody) {
+            tbody.innerHTML = `<tr><td colspan="${colspan()}" class="wb-fbs-empty">Ищем отправление ${esc(pnQuery)}…</td></tr>`;
+          }
+          const infoPending = document.getElementById("ozonFbsInfo");
+          if (infoPending) infoPending.textContent = `Поиск отправления ${pnQuery}…`;
+          const lookup = await lookupPostingByNumber(pnQuery);
+          if (lookup && applyLookupResult(lookup, pnQuery)) return;
+          items = [];
+          state.items = [];
+          state.total = 0;
+          syncTableMode();
+          if (suppliesMode) renderSuppliesTable([]);
+          else renderTable([]);
+          syncPackagingActionButtons();
+          const infoMiss = document.getElementById("ozonFbsInfo");
+          if (infoMiss) {
+            infoMiss.textContent = lookup?.message
+              || `Отправление ${pnQuery} не найдено в локальной базе`;
+          }
+          const pageInfoMiss = document.getElementById("ozonFbsPageInfo");
+          if (pageInfoMiss) pageInfoMiss.textContent = "1 / 1";
+          const prevMiss = document.getElementById("ozonFbsPrevBtn");
+          const nextMiss = document.getElementById("ozonFbsNextBtn");
+          if (prevMiss) prevMiss.disabled = true;
+          if (nextMiss) nextMiss.disabled = true;
+          return;
+        }
+      }
+
+      state.total = suppliesMode ? items.length : (pnQuery ? items.length : Number(data.total || 0));
       if (suppliesMode) {
         const adopted = Number(data.adopted_orphans || 0);
         if (adopted > 0) {

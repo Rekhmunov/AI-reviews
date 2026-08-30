@@ -12536,6 +12536,34 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             scan=str(scan).strip(),
         )
 
+    @app.get("/api/ozon-fbs/postings/find")
+    def ozon_fbs_posting_find(
+        request: Request,
+        source_id: int,
+        posting_number: str | None = None,
+        search: str | None = None,
+    ) -> dict[str, object]:
+        """Toolbar search: find one posting by number across all local tabs (WB-like)."""
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        raw = str(posting_number or search or "").strip()
+        pn = ozon_fbs_mod.parse_posting_number_query(raw)
+        if not pn:
+            raise HTTPException(
+                status_code=400,
+                detail="Укажите полный номер отправления (например 0124861120-0199-1)",
+            )
+        owner_id = _supply_owner_id(user)
+        return ozon_fbs_mod.lookup_posting_by_number(
+            repository,
+            user_id=owner_id,
+            source_id=int(source_id),
+            posting_number=pn,
+        )
+
     @app.post("/api/ozon-fbs/postings/persist-sticker")
     async def ozon_fbs_posting_persist_sticker(request: Request) -> dict[str, object]:
         """Bind scanned sticker QR to posting_number in local DB (Маркировка / Проверка ШК)."""

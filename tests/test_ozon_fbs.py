@@ -11,6 +11,8 @@ from review_processor.ozon_fbs import (
     is_ozon_fbo_source,
     is_ozon_fbs_marketplace,
     is_ozon_fbs_source,
+    lookup_posting_by_number,
+    parse_posting_number_query,
     resolve_product_barcodes,
     resolve_product_display_name,
     resolve_upsert_status,
@@ -188,6 +190,74 @@ class OzonFbsMappingTests(unittest.TestCase):
             fallback=["ART-1", "999", "460999"],
         )
         self.assertEqual(codes, ["460999"])
+
+    def test_parse_posting_number_query(self) -> None:
+        self.assertEqual(
+            parse_posting_number_query(" 0124861120-0199-1 "),
+            "0124861120-0199-1",
+        )
+        self.assertEqual(parse_posting_number_query("0124861120-0199-1"), "0124861120-0199-1")
+        self.assertEqual(parse_posting_number_query("art-sku"), "")
+        self.assertEqual(parse_posting_number_query("0124861120"), "")
+        self.assertEqual(parse_posting_number_query("123"), "")
+
+    def test_lookup_posting_by_number_local(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        repo = MagicMock()
+        row = {
+            "posting_number": "0124861120-0199-1",
+            "tab": TAB_AWAITING_DELIVER,
+            "status": "awaiting_deliver",
+            "offer_id": "ART-1",
+            "sku": 1,
+            "product_name": "Товар",
+            "barcodes_json": "[]",
+            "products_json": "[]",
+            "warehouse_name": "Склад",
+            "price": 100,
+        }
+        with patch(
+            "review_processor.ozon_fbs.get_posting_by_number", return_value=row
+        ), patch(
+            "review_processor.ozon_fbs._tab_counts",
+            return_value={TAB_AWAITING_DELIVER: 1},
+        ), patch(
+            "review_processor.ozon_fbs.ensure_ozon_fbs_tables"
+        ), patch(
+            "review_processor.ozon_fbs._enrich_posting_list_item",
+            return_value={**row, "warehouse_label": "Склад", "tab_label": "Ожидают отгрузки"},
+        ):
+            out = lookup_posting_by_number(
+                repo,
+                user_id=1,
+                source_id=2,
+                posting_number="0124861120-0199-1",
+            )
+        self.assertTrue(out["found"])
+        self.assertEqual(out["source"], "local")
+        self.assertEqual(out["tab"], TAB_AWAITING_DELIVER)
+        self.assertEqual(out["item"]["posting_number"], "0124861120-0199-1")
+
+    def test_lookup_posting_by_number_miss(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        repo = MagicMock()
+        with patch(
+            "review_processor.ozon_fbs.get_posting_by_number", return_value=None
+        ), patch(
+            "review_processor.ozon_fbs._tab_counts", return_value={}
+        ), patch(
+            "review_processor.ozon_fbs.ensure_ozon_fbs_tables"
+        ):
+            out = lookup_posting_by_number(
+                repo,
+                user_id=1,
+                source_id=2,
+                posting_number="0124861120-0199-1",
+            )
+        self.assertFalse(out["found"])
+        self.assertIn("не найдено", out["message"])
 
 
 if __name__ == "__main__":

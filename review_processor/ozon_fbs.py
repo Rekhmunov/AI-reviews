@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import re
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -1902,6 +1903,155 @@ def list_postings(
         "total": int(total_row["n"]) if total_row else 0,
         "page": safe_page,
         "page_size": safe_size,
+        "counts": counts,
+    }
+
+
+_POSTING_NUMBER_QUERY_RE = re.compile(r"^\d{6,}-\d{3,}-\d{1,4}$")
+
+
+def parse_posting_number_query(search: object) -> str:
+    """Return normalized posting number when search looks like a full Ozon id."""
+    q = re.sub(r"\s+", "", str(search or "").strip())
+    if not _POSTING_NUMBER_QUERY_RE.fullmatch(q):
+        return ""
+    return q
+
+
+def get_posting_by_number(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_number: str,
+) -> dict[str, Any] | None:
+    """Exact local lookup across all tabs by posting_number."""
+    ensure_ozon_fbs_tables(repo)
+    pn = str(posting_number or "").strip()
+    if not pn:
+        return None
+    with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql(
+                """
+                SELECT * FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ? AND posting_number ILIKE ?
+                LIMIT 1
+                """
+            ),
+            (user_id, int(source_id), pn),
+        ).fetchone()
+    if not row:
+        return None
+    d = repo._row_to_dict(row)
+    # Prefer exact casefold match if ILIKE returned a loose hit (should be exact).
+    if str(d.get("posting_number") or "").strip().casefold() != pn.casefold():
+        return None
+    return d
+
+
+def _enrich_posting_list_item(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    row: dict[str, Any],
+    name_map: dict[str, str] | None = None,
+    ozon_sku_map: dict[str, str] | None = None,
+    barcode_map: dict[str, list[str]] | None = None,
+    photo_map: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Same enrichment as ``list_postings`` for a single DB row."""
+    d = dict(row)
+    names = name_map if name_map is not None else repo.get_product_name_by_article(user_id=user_id)
+    sku_names = (
+        ozon_sku_map
+        if ozon_sku_map is not None
+        else repo.get_product_name_by_ozon_sku(user_id=user_id)
+    )
+    barcodes = (
+        barcode_map
+        if barcode_map is not None
+        else repo.get_product_barcodes_map(user_id=user_id)
+    )
+    photos = photo_map if photo_map is not None else repo.get_product_photo_map(user_id=user_id)
+    article = str(d.get("offer_id") or "").strip()
+    sku = str(d.get("sku") or "").strip()
+    enrich_posting_product_display(
+        d,
+        name_by_article=names,
+        name_by_ozon_sku=sku_names,
+    )
+    d["product_photo"] = photos.get(article) or photos.get(sku) or ""
+    if not d["product_photo"] and d.get("products_brief"):
+        first = d["products_brief"][0]
+        fa = str(first.get("offer_id") or "").strip()
+        fs = str(first.get("sku") or "").strip()
+        d["product_photo"] = photos.get(fa) or photos.get(fs) or ""
+    d["tab_label"] = TAB_LABELS.get(str(d.get("tab") or ""), str(d.get("tab") or ""))
+    d["status_label"] = str(d.get("status") or "")
+    try:
+        stored_barcodes = json.loads(d.get("barcodes_json") or "[]")
+    except json.JSONDecodeError:
+        stored_barcodes = []
+    if not isinstance(stored_barcodes, list):
+        stored_barcodes = []
+    d["barcodes"] = resolve_product_barcodes(
+        offer_id=article,
+        sku=sku,
+        barcode_map=barcodes,
+        fallback=stored_barcodes,
+    )
+    try:
+        price = int(d.get("price") or 0)
+    except (TypeError, ValueError):
+        price = 0
+    d["price_display"] = f"{price:,}".replace(",", " ") + " ₽" if price else "—"
+    d["warehouse_label"] = str(d.get("warehouse_name") or "").strip() or "—"
+    return d
+
+
+def lookup_posting_by_number(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_number: str,
+) -> dict[str, Any]:
+    """Find one posting locally across all tabs (toolbar search escape hatch)."""
+    ensure_ozon_fbs_tables(repo)
+    pn = parse_posting_number_query(posting_number) or str(posting_number or "").strip()
+    sid = int(source_id)
+    counts = _tab_counts(repo, user_id=user_id, source_id=sid)
+    if not pn:
+        return {
+            "found": False,
+            "source": "none",
+            "posting_number": "",
+            "tab": "",
+            "item": None,
+            "counts": counts,
+            "message": "Укажите номер отправления (например 0124861120-0199-1)",
+        }
+    local = get_posting_by_number(
+        repo, user_id=user_id, source_id=sid, posting_number=pn
+    )
+    if not local:
+        return {
+            "found": False,
+            "source": "none",
+            "posting_number": pn,
+            "tab": "",
+            "item": None,
+            "counts": counts,
+            "message": f"Отправление {pn} не найдено в локальной базе",
+        }
+    item = _enrich_posting_list_item(repo, user_id=user_id, row=local)
+    return {
+        "found": True,
+        "source": "local",
+        "posting_number": str(item.get("posting_number") or pn),
+        "tab": str(item.get("tab") or ""),
+        "item": item,
         "counts": counts,
     }
 
