@@ -337,11 +337,78 @@ def _build_exemplar_set_products(
             exemplars_out.append(ex_payload)
         if exemplars_out:
             products_out.append({"product_id": product_id, "exemplars": exemplars_out})
+    filled_codes = [c for c in codes if str(c or "").strip()]
+    if products_out and filled_codes and code_idx != len(filled_codes):
+        raise RuntimeError(
+            f"Число экземпляров Ozon ({code_idx}) не совпадает с числом КИЗ "
+            f"({len(filled_codes)}). Обновите заказ и повторите."
+        )
+    if products_out and filled_codes:
+        missing = 0
+        for prod in products_out:
+            for ex in prod.get("exemplars") or []:
+                marks = ex.get("marks") or []
+                if not any(
+                    isinstance(m, dict) and str(m.get("mark") or "").strip()
+                    for m in marks
+                ):
+                    missing += 1
+        if missing:
+            raise RuntimeError(
+                f"Не хватает КИЗ для {missing} экземпляр(ов) Ozon"
+            )
     return products_out
 
 
 def _error_text_has(exc: BaseException | str, token: str) -> bool:
     return token.upper() in str(exc or "").upper()
+
+
+def _status_is_ok(status: str) -> bool:
+    """Exact / normalized allowlist — avoid substring false positives (``ok`` in ``book``)."""
+    s = str(status or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if not s:
+        return False
+    ok_exact = {
+        "ship_available",
+        "ship_avail",
+        "success",
+        "ok",
+        "validated",
+        "passed",
+        "ready",
+        "complete",
+        "completed",
+        "done",
+    }
+    if s in ok_exact:
+        return True
+    # Ozon sometimes returns compound values.
+    return s.endswith("_available") or s.endswith("_ok") or s.endswith("_success")
+
+
+def _status_is_fail(status: str) -> bool:
+    s = str(status or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if not s:
+        return False
+    fail_exact = {
+        "error",
+        "failed",
+        "fail",
+        "invalid",
+        "rejected",
+        "reject",
+        "not_valid",
+        "validation_failed",
+    }
+    if s in fail_exact:
+        return True
+    return (
+        s.endswith("_error")
+        or s.endswith("_failed")
+        or s.endswith("_invalid")
+        or "reject" in s
+    )
 
 
 def _poll_exemplar_status(
@@ -356,16 +423,6 @@ def _poll_exemplar_status(
 
     pn = str(posting_number)
     last: dict[str, Any] = {}
-    ok_tokens = (
-        "ship_available",
-        "ship_avail",
-        "success",
-        "ok",
-        "validated",
-        "passed",
-        "ready",
-    )
-    fail_tokens = ("error", "failed", "invalid", "reject")
     for i in range(max(int(attempts), 1)):
         try:
             last = client.product_exemplar_status(pn)
@@ -414,22 +471,29 @@ def _poll_exemplar_status(
                 pn,
                 combined[:400],
             )
-        if status and any(t in status for t in ok_tokens):
+        if status and _status_is_ok(status):
             return {"ok": True, "status": status, "raw": last}
-        if product_statuses and all(
-            any(t in st for t in ok_tokens) for st in product_statuses
-        ):
+        if product_statuses and all(_status_is_ok(st) for st in product_statuses):
             return {"ok": True, "status": status or "ok", "raw": last}
-        if status and any(t in status for t in fail_tokens):
+        if status and _status_is_fail(status):
             raise RuntimeError(
                 f"Ozon не принял данные экземпляров (status={status}). "
+                "Проверьте КИЗ и ГТД."
+            )
+        if any(_status_is_fail(st) for st in product_statuses):
+            bad = next(st for st in product_statuses if _status_is_fail(st))
+            raise RuntimeError(
+                f"Ozon не принял данные экземпляров (status={bad}). "
                 "Проверьте КИЗ и ГТД."
             )
         # Empty / pending — wait.
         if i < attempts - 1:
             _time.sleep(delay_sec)
-    # Soft success when Ozon returns no clear status but set+validate already ran.
-    return {"ok": True, "status": "assumed_ok", "raw": last, "polled": True}
+    # Never soft-succeed: false marking_ozon_synced → ship fails later.
+    raise RuntimeError(
+        "Ozon ещё не подтвердил данные экземпляров (status timeout). "
+        "Подождите немного и сохраните снова, затем соберите заказ."
+    )
 
 
 def push_marking_to_ozon(
@@ -445,9 +509,10 @@ def push_marking_to_ozon(
     """create-or-get → set(КИЗ+ГТД) → validate(КИЗ+ГТД) → poll status.
 
     Shared by packaging «Ожидают сборки» modal and supply «Маркировка».
-    ``EXEMPLAR_INFO_ALREADY_DEFINED`` is treated as success.
+    ``EXEMPLAR_INFO_ALREADY_DEFINED`` is treated as success after status check.
     """
     gtd_clean = str(gtd or "").strip()
+    clean_codes = [c for c in codes if str(c or "").strip()]
     if prefer_gtd_products or oz.posting_requires_pre_ship_gtd(posting):
         marked = oz.pre_ship_exemplar_products(posting)
     else:
@@ -473,7 +538,7 @@ def push_marking_to_ozon(
             raise
     if not already:
         set_products = _build_exemplar_set_products(
-            create_result=create_result, codes=codes, gtd=gtd_clean
+            create_result=create_result, codes=clean_codes, gtd=gtd_clean
         )
         if not set_products:
             raise RuntimeError(
@@ -524,15 +589,31 @@ def push_marking_to_ozon(
                         already = True
                     else:
                         raise
-    status_out = {"ok": True, "already_defined": already}
-    if not already:
-        try:
+    # Always poll (also after ALREADY_DEFINED) so we don't mark synced blindly.
+    try:
+        if already:
+            status_out = _poll_exemplar_status(
+                client, str(posting_number), attempts=4, delay_sec=0.25
+            )
+        else:
             status_out = _poll_exemplar_status(client, str(posting_number))
-        except RuntimeError as exc:
-            if _error_text_has(exc, "EXEMPLAR_INFO_ALREADY_DEFINED"):
-                status_out = {"ok": True, "already_defined": True}
-            else:
-                raise
+    except RuntimeError as exc:
+        if _error_text_has(exc, "EXEMPLAR_INFO_ALREADY_DEFINED"):
+            status_out = {"ok": True, "already_defined": True}
+        elif already:
+            # Data already on Ozon; status endpoint empty/flaky — accept.
+            _log.warning(
+                "ozon exemplar status after ALREADY_DEFINED posting=%s: %s",
+                posting_number,
+                exc,
+            )
+            status_out = {
+                "ok": True,
+                "already_defined": True,
+                "status_warning": str(exc),
+            }
+        else:
+            raise
     status_out["already_defined"] = bool(
         status_out.get("already_defined") or already
     )
@@ -931,13 +1012,38 @@ def save_marking(
         local_ok = bool(local_res.get("ok"))
         push_error = ""
         ozon_synced = False
-        if (
-            local_ok
-            and client
-            and gtd_required
-            and gtd_clean
-            and uniq
-        ):
+        if local_ok and gtd_required and uniq:
+            if not gtd_clean:
+                local_ok = False
+                err_n += 1
+                results.append(
+                    {
+                        "posting_number": pn,
+                        "ok": False,
+                        "kiz_codes": list(local_res.get("codes") or uniq),
+                        "kiz_saved_at": str(local_res.get("saved_at") or ""),
+                        "gtd_number": "",
+                        "error": "Для юрлица укажите ГТД перед сохранением в Ozon",
+                    }
+                )
+                continue
+            if not client:
+                local_ok = False
+                err_n += 1
+                results.append(
+                    {
+                        "posting_number": pn,
+                        "ok": False,
+                        "kiz_codes": list(local_res.get("codes") or uniq),
+                        "kiz_saved_at": str(local_res.get("saved_at") or ""),
+                        "gtd_number": gtd_clean,
+                        "error": (
+                            "Коды сохранены локально, но нет доступа к API Ozon "
+                            "для передачи КИЗ/ГТД"
+                        ),
+                    }
+                )
+                continue
             posting = oz._posting_payload_from_row(row) or {}
             try:
                 push_marking_to_ozon(
@@ -962,6 +1068,20 @@ def save_marking(
             except Exception as exc:
                 push_error = str(exc)
                 _log.warning("ozon supply marking push %s: %s", pn, exc)
+                err_n += 1
+                results.append(
+                    {
+                        "posting_number": pn,
+                        "ok": False,
+                        "kiz_codes": list(local_res.get("codes") or uniq),
+                        "kiz_saved_at": str(local_res.get("saved_at") or ""),
+                        "gtd_number": gtd_clean,
+                        "kiz_ozon_synced": False,
+                        "error": f"Сохранено локально, Ozon не принял: {push_error}",
+                        "push_warning": push_error,
+                    }
+                )
+                continue
         if local_ok:
             ok_n += 1
         else:
@@ -974,8 +1094,6 @@ def save_marking(
             "gtd_number": gtd_clean,
             "kiz_ozon_synced": ozon_synced,
         }
-        if push_error:
-            item_out["push_warning"] = push_error
         results.append(item_out)
     return {
         "ok": err_n == 0,

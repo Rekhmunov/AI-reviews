@@ -94,17 +94,62 @@ class PushMarkingGtdTests(unittest.TestCase):
         client.product_exemplar_create_or_get.side_effect = RuntimeError(
             'Ozon HTTP 400: {"code":3,"message":"EXEMPLAR_INFO_ALREADY_DEFINED"}'
         )
-        out = marking.push_marking_to_ozon(
-            client,
-            posting_number="0123-001-1",
-            posting=_gtd_posting(),
-            codes=["0104670172422465215PBRvfYjmynXN"],
-            gtd="10323010/250826/5101277",
-            prefer_gtd_products=True,
-        )
+        client.product_exemplar_status.return_value = {"status": "ship_available"}
+        with patch("time.sleep", return_value=None):
+            out = marking.push_marking_to_ozon(
+                client,
+                posting_number="0123-001-1",
+                posting=_gtd_posting(),
+                codes=["0104670172422465215PBRvfYjmynXN"],
+                gtd="10323010/250826/5101277",
+                prefer_gtd_products=True,
+            )
         self.assertTrue(out.get("ok"))
         self.assertTrue(out.get("already_defined"))
         client.product_exemplar_set.assert_not_called()
+        client.product_exemplar_status.assert_called()
+
+    def test_poll_timeout_does_not_soft_succeed(self) -> None:
+        client = MagicMock()
+        client.product_exemplar_create_or_get.return_value = {
+            "products": [
+                {
+                    "product_id": 111,
+                    "is_gtd_needed": True,
+                    "exemplars": [{"exemplar_id": 9}],
+                }
+            ]
+        }
+        client.product_exemplar_status.return_value = {"status": "pending"}
+        with patch("time.sleep", return_value=None):
+            with self.assertRaises(RuntimeError) as ctx:
+                marking.push_marking_to_ozon(
+                    client,
+                    posting_number="0123-001-1",
+                    posting=_gtd_posting(),
+                    codes=["0104670172422465215PBRvfYjmynXN"],
+                    gtd="10323010/250826/5101277",
+                    prefer_gtd_products=True,
+                )
+        self.assertIn("timeout", str(ctx.exception).lower())
+
+    def test_exemplar_code_count_mismatch(self) -> None:
+        create = {
+            "products": [
+                {
+                    "product_id": 1,
+                    "is_gtd_needed": True,
+                    "exemplars": [{"exemplar_id": 10}],
+                }
+            ]
+        }
+        with self.assertRaises(RuntimeError) as ctx:
+            marking._build_exemplar_set_products(
+                create_result=create,
+                codes=["A", "B"],
+                gtd="10323010/250826/5101277",
+            )
+        self.assertIn("не совпадает", str(ctx.exception).lower())
 
     def test_build_set_products_n_codes(self) -> None:
         create = {
@@ -184,8 +229,11 @@ class ShipAllSkipExemplarTests(unittest.TestCase):
         ship.assert_not_called()
         self.assertEqual(out.get("skipped_exemplar"), 1)
         self.assertEqual(out.get("shipped"), 0)
+        self.assertEqual(out.get("failed"), 0)
+        self.assertFalse(out.get("ok"))
         self.assertTrue(out.get("errors"))
         self.assertEqual(out["errors"][0].get("code"), "PRE_SHIP_EXEMPLAR_REQUIRED")
+        self.assertIn("пропущен", str(out.get("message") or "").lower())
 
 
 if __name__ == "__main__":

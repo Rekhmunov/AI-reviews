@@ -6526,12 +6526,15 @@
 
   function _ozonFbsKizCaptureBaseline() {
     const map = {};
+    const gtdMap = {};
     for (const r of ozonFbsKizState.rows) {
       const pn = String(r.posting_number || "").trim();
       if (!pn) continue;
       map[pn] = _ozonFbsKizNormalizeCodesList(r.kiz_codes);
+      gtdMap[pn] = String(r.gtd_number || "").trim();
     }
     ozonFbsKizState.baselineByPosting = map;
+    ozonFbsKizState.baselineGtdByPosting = gtdMap;
   }
 
   function _ozonFbsKizBaselineEquals(postingNumber, codes) {
@@ -6841,6 +6844,8 @@
     const row = _ozonFbsKizRowByPosting(pn);
     if (!row) return;
     row.gtd_number = String(event?.target?.value || "").trim();
+    // Keep GTD in local autosave so it is not lost before «Сохранить».
+    _ozonFbsKizScheduleLocalAutosave(pn, false);
   }
 
   function onOzonFbsKizCodeInput(postingNumber, event) {
@@ -7040,13 +7045,16 @@
       if (!row || _ozonFbsRowIsCancelled(row)) continue;
       const codes = _ozonFbsKizNormalizeCodesList(row.kiz_codes);
       const wantClear = !!(clearFlags && clearFlags[pn]) && !codes.length;
-      if (!codes.length && !wantClear) continue;
-      if (!wantClear && _ozonFbsKizBaselineEquals(pn, codes)) continue;
+      const gtdNow = String(row.gtd_number || "").trim();
+      const gtdBase = String(ozonFbsKizState.baselineGtdByPosting?.[pn] || "").trim();
+      const gtdDirty = gtdNow !== gtdBase;
+      if (!codes.length && !wantClear && !gtdDirty) continue;
+      if (!wantClear && _ozonFbsKizBaselineEquals(pn, codes) && !gtdDirty) continue;
       codesByPosting[pn] = codes.slice();
       items.push({
         posting_number: pn,
         kiz_codes: codes,
-        gtd_number: String(row.gtd_number || "").trim(),
+        gtd_number: gtdNow,
         expected_saved_at: String(row.kiz_saved_at || ""),
         force: !!(ozonFbsKizState.forceSaveByPosting && ozonFbsKizState.forceSaveByPosting[pn]),
         clear: wantClear,

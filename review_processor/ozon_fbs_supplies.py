@@ -807,8 +807,7 @@ def execute_ship_all_collect(
                                     f" · пропуск маркировки {skipped_exemplar}"
                                     if skipped_exemplar
                                     else ""
-                                )
-                                + (f" · ошибок {len(errors)}" if errors else ""),
+                                ),
                             )
                         continue
             except Exception as exc:
@@ -841,6 +840,7 @@ def execute_ship_all_collect(
                 errors.append({"posting_number": pn, "error": str(exc)})
                 _log.warning("ozon ship-all %s failed: %s", pn, exc)
             done += 1
+            hard_errors = sum(1 for e in errors if not e.get("skipped"))
             if progress:
                 progress(
                     done,
@@ -851,7 +851,7 @@ def execute_ship_all_collect(
                         if skipped_exemplar
                         else ""
                     )
-                    + (f" · ошибок {len(errors)}" if errors else ""),
+                    + (f" · ошибок {hard_errors}" if hard_errors else ""),
                 )
             if ship_pause_sec and ship_pause_sec > 0:
                 time.sleep(float(ship_pause_sec))
@@ -912,9 +912,11 @@ def execute_ship_all_collect(
             errors.append({"posting_number": gkey, "error": str(exc)})
 
     shipped_n = len(shipped)
-    failed_n = len(errors)
+    hard_errors = [e for e in errors if not (isinstance(e, dict) and e.get("skipped"))]
+    failed_n = len(hard_errors)
     force_numbers = list(shipped_result) if shipped_result else list(shipped)
     stopped = _stopped()
+    # Skips are intentional — do not fail the whole collect when only skips remain.
     ok = shipped_n > 0 and failed_n == 0 and not stopped
     split_extra = max(len(shipped_result) - shipped_n, 0) if shipped_result else 0
     if stopped and shipped_n:
@@ -931,14 +933,14 @@ def execute_ship_all_collect(
             message = f"Собрано {shipped_n} отправлений → «Ожидают отгрузки»"
     elif shipped_n:
         message = f"Собрано {shipped_n}, ошибок {failed_n}"
+    elif skipped_exemplar and not failed_n:
+        message = f"Нечего собирать: все {skipped_exemplar} с КИЗ/ГТД пропущены"
     else:
         message = f"Не удалось собрать отправления ({failed_n})"
-    if skipped_exemplar:
-        message = (
-            f"{message}. Пропущено без КИЗ/ГТД: {skipped_exemplar}"
-            if message
-            else f"Пропущено без КИЗ/ГТД: {skipped_exemplar}"
-        )
+    if skipped_exemplar and shipped_n:
+        message = f"{message}. Пропущено без КИЗ/ГТД: {skipped_exemplar}"
+    elif skipped_exemplar and failed_n:
+        message = f"{message}. Пропущено без КИЗ/ГТД: {skipped_exemplar}"
     if progress:
         progress(done, total, message)
     if force_numbers:

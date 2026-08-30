@@ -13904,8 +13904,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             _, client_id, api_key = _ozon_fbs_source_credentials(
                 owner_id, int(source_id)
             )
-        except Exception:
-            client_id, api_key = "", ""
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Не удалось получить ключи Ozon: {exc}",
+            ) from exc
         try:
             result = oz_mark.save_marking(
                 repository,
