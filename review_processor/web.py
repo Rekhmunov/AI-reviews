@@ -12373,21 +12373,36 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         try:
             from . import wb_fbs_ops_log as ops_log
 
+            ok_flag = bool((result or {}).get("ok"))
+            added = int((result or {}).get("added") or 0)
             supply_id = str((result or {}).get("supply_id") or "").strip()
-            ops_log.append_event(
-                repository,
-                user_id=owner_id,
-                action=ops_log.ACTION_SUPPLY_CREATE,
-                message=(
-                    f"Создана поставка «{name or supply_id}» "
-                    f"({len(order_ids)} зак.)"
-                ),
-                actor_user_id=int(user.get("id") or 0) or None,
-                actor_name=ops_log.actor_label(user),
-                source_id=sid,
-                supply_id=supply_id,
-                details={"orders": len(order_ids)},
-            )
+            title = str((result or {}).get("supply_name") or name or supply_id).strip()
+            msg = str((result or {}).get("message") or "").strip()
+            if ok_flag and added > 0:
+                ops_log.append_event(
+                    repository,
+                    user_id=owner_id,
+                    action=ops_log.ACTION_SUPPLY_CREATE,
+                    message=f"Создана поставка «{title}» (+{added} зак.)",
+                    actor_user_id=int(user.get("id") or 0) or None,
+                    actor_name=ops_log.actor_label(user),
+                    source_id=sid,
+                    supply_id=supply_id,
+                    details={"added": added},
+                )
+            elif not ok_flag:
+                ops_log.append_event(
+                    repository,
+                    user_id=owner_id,
+                    action=ops_log.ACTION_SUPPLY_CREATE,
+                    message=msg or f"Не удалось создать поставку «{title or name}»",
+                    level=ops_log.LEVEL_WARN,
+                    actor_user_id=int(user.get("id") or 0) or None,
+                    actor_name=ops_log.actor_label(user),
+                    source_id=sid,
+                    supply_id=supply_id,
+                    details={"added": added, "ok": False},
+                )
         except Exception:
             pass
         return result
@@ -12424,18 +12439,35 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         try:
             from . import wb_fbs_ops_log as ops_log
 
-            added = int((result or {}).get("added") or len(order_ids))
-            ops_log.append_event(
-                repository,
-                user_id=owner_id,
-                action=ops_log.ACTION_SUPPLY_ADD,
-                message=f"В поставку {supply_id}: +{added} зак.",
-                actor_user_id=int(user.get("id") or 0) or None,
-                actor_name=ops_log.actor_label(user),
-                source_id=sid,
-                supply_id=supply_id,
-                details={"added": added},
-            )
+            ok_flag = bool((result or {}).get("ok"))
+            added = int((result or {}).get("added") or 0)
+            msg = str((result or {}).get("message") or "").strip()
+            if added > 0:
+                ops_log.append_event(
+                    repository,
+                    user_id=owner_id,
+                    action=ops_log.ACTION_SUPPLY_ADD,
+                    message=msg or f"В поставку {supply_id}: +{added} зак.",
+                    level=ops_log.LEVEL_INFO if ok_flag else ops_log.LEVEL_WARN,
+                    actor_user_id=int(user.get("id") or 0) or None,
+                    actor_name=ops_log.actor_label(user),
+                    source_id=sid,
+                    supply_id=supply_id,
+                    details={"added": added, "ok": ok_flag},
+                )
+            elif not ok_flag:
+                ops_log.append_event(
+                    repository,
+                    user_id=owner_id,
+                    action=ops_log.ACTION_SUPPLY_ADD,
+                    message=msg or f"Не удалось добавить в поставку {supply_id}",
+                    level=ops_log.LEVEL_WARN,
+                    actor_user_id=int(user.get("id") or 0) or None,
+                    actor_name=ops_log.actor_label(user),
+                    source_id=sid,
+                    supply_id=supply_id,
+                    details={"added": 0, "ok": False},
+                )
         except Exception:
             pass
         return result
