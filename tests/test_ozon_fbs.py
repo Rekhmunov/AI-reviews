@@ -13,6 +13,7 @@ from review_processor.ozon_fbs import (
     is_ozon_fbs_source,
     lookup_posting_by_number,
     parse_posting_number_query,
+    refresh_posting_status_only,
     resolve_product_barcodes,
     resolve_product_display_name,
     resolve_upsert_status,
@@ -70,6 +71,15 @@ class OzonFbsMappingTests(unittest.TestCase):
         )
         self.assertEqual(status, TAB_AWAITING_DELIVER)
         self.assertEqual(tab, TAB_AWAITING_DELIVER)
+
+    def test_resolve_upsert_blocks_awaiting_deliver_after_delivering(self) -> None:
+        status, tab = resolve_upsert_status(
+            local_status=TAB_DELIVERING,
+            local_tab=TAB_DELIVERING,
+            remote_status=TAB_AWAITING_DELIVER,
+        )
+        self.assertEqual(status, TAB_DELIVERING)
+        self.assertEqual(tab, TAB_DELIVERING)
 
     def test_resolve_upsert_allows_deliver_after_packaging(self) -> None:
         status, tab = resolve_upsert_status(
@@ -409,6 +419,101 @@ class OzonFbsMappingTests(unittest.TestCase):
         self.assertEqual(out["source"], "local")
         self.assertIn("Статус из базы", out["message"])
         self.assertNotIn("timeout", out["message"])
+
+    def test_refresh_status_does_not_regress_delivering_to_awaiting(self) -> None:
+        """Search must not bounce local delivering back to awaiting_deliver."""
+        from unittest.mock import MagicMock, patch
+
+        repo = MagicMock()
+        local = {
+            "posting_number": "0124861120-0199-1",
+            "tab": TAB_DELIVERING,
+            "status": TAB_DELIVERING,
+            "supply_id": "sup-delivering",
+        }
+        updates: list[tuple] = []
+
+        class _Conn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def execute(self, sql, params=()):
+                updates.append((str(sql), tuple(params)))
+                return MagicMock()
+
+        repo._connect.return_value = _Conn()
+        repo._sql.side_effect = lambda q: q
+
+        with patch(
+            "review_processor.ozon_fbs.ensure_ozon_fbs_tables"
+        ), patch(
+            "review_processor.ozon_fbs.get_posting_by_number", return_value=local
+        ):
+            out = refresh_posting_status_only(
+                repo,
+                user_id=1,
+                source_id=2,
+                posting_number="0124861120-0199-1",
+                remote_status=TAB_AWAITING_DELIVER,
+            )
+
+        self.assertEqual(out["tab"], TAB_DELIVERING)
+        self.assertEqual(out["status"], TAB_DELIVERING)
+        self.assertEqual(out["supply_id"], "sup-delivering")
+        self.assertEqual(updates, [])
+
+    def test_lookup_keeps_delivering_when_ozon_still_awaiting_deliver(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        repo = MagicMock()
+        local = {
+            "posting_number": "0124861120-0199-1",
+            "tab": TAB_DELIVERING,
+            "status": TAB_DELIVERING,
+            "supply_id": "sup-delivering",
+        }
+        client = MagicMock()
+        client.get_posting.return_value = {
+            "posting_number": "0124861120-0199-1",
+            "status": TAB_AWAITING_DELIVER,
+        }
+        with patch(
+            "review_processor.ozon_fbs.get_posting_by_number", return_value=local
+        ), patch(
+            "review_processor.ozon_fbs.refresh_posting_status_only",
+            wraps=refresh_posting_status_only,
+        ) as refresh_wrap, patch(
+            "review_processor.ozon_fbs._tab_counts",
+            return_value={TAB_DELIVERING: 1},
+        ), patch(
+            "review_processor.ozon_fbs.ensure_ozon_fbs_tables"
+        ), patch(
+            "review_processor.ozon_fbs.OzonFbsClient", return_value=client
+        ), patch(
+            "review_processor.ozon_fbs._enrich_posting_list_item",
+            side_effect=lambda repo, **kw: {
+                **kw["row"],
+                "warehouse_label": "—",
+                "tab_label": "Доставляются",
+            },
+        ):
+            # refresh_posting_status_only needs real get_posting; keep local stable.
+            out = lookup_posting_by_number(
+                repo,
+                user_id=1,
+                source_id=2,
+                posting_number="0124861120-0199-1",
+                client_id="cid",
+                api_key="key",
+                allow_remote=True,
+            )
+        self.assertTrue(out["found"])
+        self.assertEqual(out["tab"], TAB_DELIVERING)
+        self.assertEqual(out["item"]["supply_id"], "sup-delivering")
+        refresh_wrap.assert_called_once()
 
 
 if __name__ == "__main__":

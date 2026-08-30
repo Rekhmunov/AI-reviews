@@ -2018,17 +2018,39 @@ def refresh_posting_status_only(
     posting_number: str,
     remote_status: object,
 ) -> dict[str, Any] | None:
-    """Write only ``status`` / ``tab`` from Ozon. Never touch supply / marking / stickers."""
+    """Write only ``status`` / ``tab`` from Ozon. Never touch supply / marking / stickers.
+
+    Uses ``resolve_upsert_status`` so a stale Ozon ``awaiting_deliver`` cannot
+    bounce a locally advanced ``delivering`` posting back to «Ожидают отгрузки»
+    (same guard as sync upsert). Search-by-number must not create the illusion
+    of a new supply on awaiting_deliver for an unchanged supply_id.
+    """
     ensure_ozon_fbs_tables(repo)
     pn = str(posting_number or "").strip()
     if not pn:
         return None
-    status = str(remote_status or "").strip().lower()
-    if not status:
+    remote = str(remote_status or "").strip().lower()
+    if not remote:
         return get_posting_by_number(
             repo, user_id=user_id, source_id=source_id, posting_number=pn
         )
-    tab = compute_tab(status)
+
+    local = get_posting_by_number(
+        repo, user_id=user_id, source_id=source_id, posting_number=pn
+    )
+    if not local:
+        return None
+
+    status, tab = resolve_upsert_status(
+        local_status=local.get("status"),
+        local_tab=local.get("tab"),
+        remote_status=remote,
+    )
+    local_status = str(local.get("status") or "").strip().lower()
+    local_tab = str(local.get("tab") or "").strip().lower()
+    if status == local_status and tab == local_tab:
+        return local
+
     with repo._connect() as conn:
         conn.execute(
             repo._sql(
