@@ -3143,7 +3143,7 @@
       if (caret) caret.disabled = false;
     };
 
-    const openResultHtml = async () => {
+    const openResultHtml = async (statusMeta) => {
       const res = await fetch("/api/ozon-fbs/stickers-print/result", {
         credentials: "same-origin",
       });
@@ -3166,21 +3166,34 @@
         throw new Error("Разрешите всплывающие окна для стикеров");
       }
       setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
-      const missingCount = Number(res.headers.get("X-Feedpilot-Stickers-Missing-Count") || 0);
+      const missingCount = Number(
+        res.headers.get("X-Feedpilot-Stickers-Missing-Count")
+        || statusMeta?.missing_count
+        || 0
+      );
       if (missingCount > 0) {
-        const expected = res.headers.get("X-Feedpilot-Stickers-Expected") || "?";
-        const loaded = res.headers.get("X-Feedpilot-Stickers-Loaded") || "?";
-        const missingRaw = String(res.headers.get("X-Feedpilot-Stickers-Missing") || "").trim();
-        const reason = String(res.headers.get("X-Feedpilot-Stickers-Missing-Reason") || "").trim();
+        const expected = res.headers.get("X-Feedpilot-Stickers-Expected")
+          || statusMeta?.expected
+          || "?";
+        const loaded = res.headers.get("X-Feedpilot-Stickers-Loaded")
+          || statusMeta?.loaded
+          || "?";
+        const missingRaw = String(
+          res.headers.get("X-Feedpilot-Stickers-Missing")
+          || (statusMeta?.missing || []).join(",")
+          || ""
+        ).trim();
+        const reasons = Array.isArray(statusMeta?.reasons) ? statusMeta.reasons : [];
         const preview = missingRaw
           ? missingRaw.split(",").slice(0, 5).join(", ")
           : "";
         const suffix = missingCount > 5 ? ` … (+${missingCount - 5})` : "";
+        const reasonText = reasons.slice(0, 3).join("\n");
         alert(
           `Загружено ${loaded} из ${expected} этикеток.\n`
-          + `Не загружено: ${missingCount}. Повторите печать стикеров через 1–2 мин.\n`
+          + `Не загружено: ${missingCount}.\n`
           + (preview ? `Отправления: ${preview}${suffix}\n` : "")
-          + (reason ? `\nПричина: ${reason}` : "")
+          + (reasonText ? `\n${reasonText}` : "Повторите печать через 1–2 мин, если заказы не отменены.")
         );
       }
     };
@@ -3204,7 +3217,15 @@
         }
         if (st.in_progress) continue;
         if (st.ok) {
-          await openResultHtml();
+          await openResultHtml({
+            expected: st.expected_count,
+            loaded: st.loaded_count,
+            missing_count: Array.isArray(st.missing_posting_numbers)
+              ? st.missing_posting_numbers.length
+              : 0,
+            missing: st.missing_posting_numbers,
+            reasons: st.missing_reasons,
+          });
           return;
         }
         throw new Error(String(st.error || st.message || "Не удалось загрузить стикеры"));

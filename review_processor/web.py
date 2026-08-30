@@ -14305,10 +14305,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             headers["X-Feedpilot-Stickers-Missing"] = ",".join(
                 result.missing_posting_numbers[:50]
             )
-        reasons = list(result.missing_reasons or [])
-        if reasons:
-            # Header-safe short preview (UI also gets full text via async status).
-            headers["X-Feedpilot-Stickers-Missing-Reason"] = reasons[0][:300]
+        # Do not put Russian «missing_reasons» into HTTP headers — Starlette
+        # encodes header values as latin-1 and raises UnicodeEncodeError → 500.
         return Response(
             content=result.html,
             media_type="text/html; charset=utf-8",
@@ -14400,9 +14398,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             headers["X-Feedpilot-Stickers-Missing"] = ",".join(
                 result.missing_posting_numbers[:50]
             )
-        reasons = list(result.missing_reasons or [])
-        if reasons:
-            headers["X-Feedpilot-Stickers-Missing-Reason"] = reasons[0][:300]
+        # Reasons stay in /status JSON (UTF-8). Headers must remain latin-1.
         return Response(
             content=result.html,
             media_type="text/html; charset=utf-8",
