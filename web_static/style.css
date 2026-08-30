@@ -7506,6 +7506,70 @@ tr.dnd-over td {
 #wbFbsTrbxDeleteAllConfirmModal.modal-overlay {
   z-index: 1400;
 }
+#ozonFbsMoveDeliveringModal.modal-overlay {
+  z-index: 1450;
+}
+.ozon-fbs-move-delivering-modal {
+  max-width: 480px;
+  width: calc(100% - 32px);
+  padding: 24px;
+}
+.ozon-fbs-move-delivering-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.ozon-fbs-move-delivering-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.35;
+}
+.ozon-fbs-move-delivering-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ozon-fbs-move-delivering-lead,
+.ozon-fbs-move-delivering-text {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.45;
+  color: #334155;
+}
+.ozon-fbs-move-delivering-list {
+  margin: 0;
+  padding: 0 0 0 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 15px;
+  line-height: 1.45;
+  color: #475569;
+}
+.ozon-fbs-move-delivering-list li {
+  padding-left: 4px;
+}
+.ozon-fbs-move-delivering-modal.is-ok .ozon-fbs-move-delivering-text {
+  color: #166534;
+}
+.ozon-fbs-move-delivering-modal.is-error .ozon-fbs-move-delivering-text {
+  color: #b91c1c;
+}
+.ozon-fbs-move-delivering-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+}
+.ozon-fbs-move-delivering-footer .ozon-fbs-ship-all-btn,
+.ozon-fbs-move-delivering-footer .secondary {
+  min-height: 40px;
+  padding: 8px 20px;
+}
 .wb-fbs-trbx-delete-confirm-modal {
   max-width: 440px;
   width: calc(100% - 32px);

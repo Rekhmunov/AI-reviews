@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=247" />
+  <link rel="stylesheet" href="/static/style.css?v=248" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2945,6 +2945,26 @@
               <button type="button" class="secondary" onclick="closeOzonFbsMovePostingModal()">Отмена</button>
               <button type="button" id="ozonFbsMovePostingConfirmBtn" class="ozon-fbs-ship-all-btn"
                       onclick="confirmOzonFbsMovePosting()" disabled>Переместить</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="ozonFbsMoveDeliveringModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsMoveDeliveringTitle"
+             onclick="if(event.target===this)closeOzonFbsMoveDeliveringModal()">
+          <div class="modal-card ozon-fbs-move-delivering-modal">
+            <div class="ozon-fbs-move-delivering-header">
+              <h3 id="ozonFbsMoveDeliveringTitle" class="ozon-fbs-move-delivering-title">Перенести в доставку</h3>
+              <button type="button" class="icon-btn secondary" onclick="closeOzonFbsMoveDeliveringModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <div id="ozonFbsMoveDeliveringBody" class="ozon-fbs-move-delivering-body"></div>
+            <div class="ozon-fbs-move-delivering-footer">
+              <button type="button" class="secondary" id="ozonFbsMoveDeliveringCancelBtn"
+                      onclick="closeOzonFbsMoveDeliveringModal()">Отмена</button>
+              <button type="button" class="ozon-fbs-ship-all-btn" id="ozonFbsMoveDeliveringConfirmBtn"
+                      onclick="confirmOzonFbsMoveDelivering()">Перенести</button>
+              <button type="button" class="ozon-fbs-ship-all-btn" id="ozonFbsMoveDeliveringOkBtn" hidden
+                      onclick="closeOzonFbsMoveDeliveringModal()">Понятно</button>
             </div>
           </div>
         </div>
@@ -6204,7 +6224,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=47"></script>
+  <script src="/static/ozon_fbs.js?v=48"></script>
   <script src="/static/app.js?v=514"></script>
 </body>
 </html>
