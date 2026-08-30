@@ -13,6 +13,8 @@ import logging
 import re
 from typing import Any
 
+from psycopg.errors import UniqueViolation
+
 from .repository import ReviewRepository
 from .wb_fbs_kiz_restore import normalize_kiz_mark
 
@@ -392,26 +394,32 @@ def import_gtd_pdf(
     to_insert = [k for k in kiz_list if k not in already_set]
 
     with repo._connect() as conn:
-        cur = conn.execute(
-            repo._sql(
-                """
-                INSERT INTO supply_gtd_documents (
-                    user_id, gtd_number, note, source_filename, page_count,
-                    kiz_parsed, kiz_inserted
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                RETURNING id
-                """
-            ),
-            (
-                user_id,
-                manual,
-                note_s,
-                fname,
-                int(parsed.get("page_count") or 0),
-                len(kiz_list),
-                len(to_insert),
-            ),
-        )
+        try:
+            cur = conn.execute(
+                repo._sql(
+                    """
+                    INSERT INTO supply_gtd_documents (
+                        user_id, gtd_number, note, source_filename, page_count,
+                        kiz_parsed, kiz_inserted
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    RETURNING id
+                    """
+                ),
+                (
+                    user_id,
+                    manual,
+                    note_s,
+                    fname,
+                    int(parsed.get("page_count") or 0),
+                    len(kiz_list),
+                    len(to_insert),
+                ),
+            )
+        except UniqueViolation as exc:
+            raise ValueError(
+                f"ГТД {manual} уже загружена ранее. "
+                "Повторная загрузка с перезаписью запрещена."
+            ) from exc
         row = cur.fetchone()
         gtd_id = int(row["id"] if hasattr(row, "keys") else row[0])
 

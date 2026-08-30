@@ -83,6 +83,47 @@ class SupplyGtdImportTests(unittest.TestCase):
                 )
         self.assertIn("уже загружена", str(ctx.exception))
 
+    def test_import_maps_unique_violation_to_value_error(self) -> None:
+        from psycopg.errors import UniqueViolation
+
+        repo = MagicMock()
+        pre_conn = MagicMock()
+        pre_conn.__enter__ = MagicMock(return_value=pre_conn)
+        pre_conn.__exit__ = MagicMock(return_value=False)
+        empty = MagicMock()
+        empty.fetchall.return_value = []
+        pre_conn.execute.return_value = empty
+
+        ins_conn = MagicMock()
+        ins_conn.__enter__ = MagicMock(return_value=ins_conn)
+        ins_conn.__exit__ = MagicMock(return_value=False)
+        ins_conn.execute.side_effect = UniqueViolation("duplicate key")
+
+        repo._connect.side_effect = [pre_conn, ins_conn]
+        repo._sql.side_effect = lambda q: q
+
+        with patch.object(gtd, "get_gtd_by_number", return_value=None), patch.object(
+            gtd,
+            "parse_gtd_pdf",
+            return_value={
+                "gtd_number": "10323010/250826/5101277",
+                "kiz_list": ["0104670172422564215MpGb)qC19x29"],
+                "page_count": 1,
+                "kiz_rejected": 0,
+                "qty_hint_sht": None,
+            },
+        ), patch.object(gtd, "ensure_supply_gtd_tables"):
+            with self.assertRaises(ValueError) as ctx:
+                gtd.import_gtd_pdf(
+                    repo,
+                    user_id=1,
+                    pdf_bytes=b"%PDF",
+                    gtd_number="10323010/250826/5101277",
+                    note="",
+                    filename="a.pdf",
+                )
+        self.assertIn("уже загружена", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

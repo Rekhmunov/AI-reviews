@@ -20976,6 +20976,9 @@ async function submitSupplyGtdImport() {
         : (Array.isArray(detail) ? detail.map((x) => x.msg || x).join("; ") : (data.message || `Ошибка ${res.status}`));
       throw new Error(msg);
     }
+    // Снимаем busy до close: иначе closeSupplyGtdImportModal() выходит рано и
+    // модалка импорта остаётся поверх результата.
+    _supplyGtdState.busy = false;
     closeSupplyGtdImportModal();
     showSupplyGtdImportResult(data);
     await loadSupplyGtdList(_supplyGtdState.kizQuery || "");
