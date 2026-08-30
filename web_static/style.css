@@ -10291,6 +10291,16 @@ button.wb-fbs-sd-portal-btn:focus-visible {
   background: #fef2f2;
   border-bottom: 1px solid #fecaca;
 }
+.wb-fbs-sd-info.is-ok {
+  color: #166534;
+  background: #f0fdf4;
+  border-bottom-color: #bbf7d0;
+}
+.wb-fbs-sd-info.is-warn {
+  color: #92400e;
+  background: #fffbeb;
+  border-bottom-color: #fde68a;
+}
 .wb-fbs-sd-new-warn {
   display: flex;
   flex-direction: column;

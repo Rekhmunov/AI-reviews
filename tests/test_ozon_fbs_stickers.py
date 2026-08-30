@@ -422,6 +422,23 @@ class OzonFbsStickersPrintHtmlTests(unittest.TestCase):
         self.assertIn('class="label sticker"', html)
         self.assertEqual(html.count('class="label sticker"'), 1)
 
+    def test_missing_labels_show_screen_only_warn_banner(self) -> None:
+        html = oz_sup.render_stickers_print_html(
+            self._detail(),
+            source_name="Ozon FBS",
+            label_images={"P-1": ["QUJD"]},
+            missing_posting_numbers=["61801002-0977-1"],
+            missing_reasons=["cancelled on Ozon"],
+            include_cover_and_separators=True,
+        )
+        self.assertIn('class="warn-banner"', html)
+        self.assertIn("Печать готова.", html)
+        self.assertIn("61801002-0977-1", html)
+        self.assertIn("cancelled on Ozon", html)
+        self.assertIn("screen-status", html)
+        self.assertIn(".toolbar, .warn-banner, .screen-status { display: none !important; }", html)
+        self.assertIn("window.print()", html)
+
     def test_build_stickers_print_skips_cover_when_filtered(self) -> None:
         detail = {
             "supply_id": "OZ-1",

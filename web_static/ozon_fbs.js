@@ -3016,6 +3016,7 @@
       throw new Error(popupBlockedMsg || "Разрешите всплывающие окна");
     }
     setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+    try { win.focus(); } catch (_e) { /* ignore */ }
     const missingCount = Number(res.headers.get("X-Feedpilot-Stickers-Missing-Count") || 0);
     if (missingCount > 0) {
       const expected = res.headers.get("X-Feedpilot-Stickers-Expected") || "?";
@@ -3026,22 +3027,26 @@
         ? missingRaw.split(",").slice(0, 5).join(", ")
         : "";
       const suffix = missingCount > 5 ? ` … (+${missingCount - 5})` : "";
-      if (Number(loaded) === 0) {
-        alert(
-          `Не удалось загрузить этикетки Ozon (${expected}).\n`
-          + `Печать доступна только для статуса «Ожидает отгрузки» на стороне Ozon. `
-          + `Если заказ ещё на сборке — сначала соберите его. `
-          + `Если уже доставляется — повторная печать через API недоступна.\n`
-          + (preview ? `Отправления: ${preview}${suffix}\n` : "")
-          + (reason ? `\n${reason}` : "")
-        );
-      } else {
-        alert(
-          `Загружено ${loaded} из ${expected} этикеток.\n`
-          + `Не загружено: ${missingCount}. Повторите печать стикеров через 1–2 мин.\n`
-          + (preview ? `Отправления: ${preview}${suffix}\n` : "")
-          + (reason ? `\nПричина: ${reason}` : "")
-        );
+      const info = document.getElementById("ozonFbsSupplyDetailInfo");
+      if (info) {
+        const msg = Number(loaded) === 0
+          ? (
+            `Не удалось загрузить этикетки Ozon (${expected}). `
+            + `Печать открыта в соседней вкладке.`
+            + (preview ? ` Отправления: ${preview}${suffix}.` : "")
+            + (reason ? ` ${reason}` : "")
+          )
+          : (
+            `Стикеры: загружено ${loaded} из ${expected}. `
+            + `Пропущено ${missingCount}`
+            + (preview ? ` (${preview}${suffix})` : "")
+            + `. Печать открыта в соседней вкладке.`
+            + (reason ? ` ${reason}` : "")
+          );
+        info.hidden = false;
+        info.textContent = msg;
+        info.classList.toggle("is-ok", false);
+        info.classList.toggle("is-warn", true);
       }
     }
   }
@@ -3134,6 +3139,62 @@
     };
     if (tab) body.posting_tab = tab;
 
+    // Open print tab immediately (same user gesture) so the operator sees
+    // progress there — not a blank tab after a blocking alert on the modal.
+    const printWin = window.open("about:blank", "_blank");
+    if (!printWin) {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "Стикеры";
+      }
+      if (caret) caret.disabled = false;
+      alert("Разрешите всплывающие окна для стикеров");
+      return;
+    }
+    try {
+      printWin.document.open();
+      printWin.document.write(`<!doctype html><html lang="ru"><head><meta charset="utf-8"/>
+<title>Стикеры — загрузка</title>
+<style>
+  body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#f8fafc;color:#0f172a}
+  .box{max-width:520px;margin:48px auto;padding:24px;background:#fff;border:1px solid #e2e8f0;border-radius:12px}
+  h1{margin:0 0 8px;font-size:20px} p{margin:0 0 8px;line-height:1.45;color:#334155}
+  #st{font-size:18px;font-weight:700;color:#1d4ed8}
+  .hint{color:#64748b;font-size:14px}
+</style></head><body><div class="box">
+  <h1>Подготовка стикеров</h1>
+  <p id="st">Загрузка…</p>
+  <p class="hint">Не закрывайте эту вкладку. Диалог печати откроется здесь автоматически.</p>
+</div></body></html>`);
+      printWin.document.close();
+    } catch (_e) { /* cross-window write may fail in rare cases */ }
+
+    const setPrintStatus = (text) => {
+      try {
+        if (!printWin || printWin.closed) return;
+        const el = printWin.document.getElementById("st");
+        if (el) el.textContent = String(text || "");
+      } catch (_e) { /* ignore */ }
+    };
+
+    const setModalNotice = (text, kind) => {
+      const info = document.getElementById("ozonFbsSupplyDetailInfo");
+      if (!info) return;
+      const msg = String(text || "").trim();
+      if (!msg) {
+        if (!isSupplyDetailReadOnly()) {
+          info.hidden = true;
+          info.textContent = "";
+          info.classList.remove("is-ok", "is-warn");
+        }
+        return;
+      }
+      info.hidden = false;
+      info.textContent = msg;
+      info.classList.toggle("is-ok", kind === "ok");
+      info.classList.toggle("is-warn", kind === "warn" || kind === "error");
+    };
+
     const restoreBtn = () => {
       if (!_ozonFbsSupplyActionsReady()) return;
       if (btn) {
@@ -3141,6 +3202,16 @@
         btn.textContent = "Стикеры";
       }
       if (caret) caret.disabled = false;
+    };
+
+    const writePrintHtml = (html) => {
+      if (!printWin || printWin.closed) {
+        throw new Error("Вкладка печати была закрыта до готовности стикеров");
+      }
+      printWin.document.open();
+      printWin.document.write(html);
+      printWin.document.close();
+      try { printWin.focus(); } catch (_e) { /* ignore */ }
     };
 
     const openResultHtml = async (statusMeta) => {
@@ -3157,27 +3228,26 @@
         }
         throw new Error(detail || `Ошибка печати (${res.status})`);
       }
+      setPrintStatus("Формируем страницы печати…");
       const html = await res.text();
-      const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-      const blobUrl = URL.createObjectURL(blob);
-      const win = window.open(blobUrl, "_blank");
-      if (!win) {
-        URL.revokeObjectURL(blobUrl);
-        throw new Error("Разрешите всплывающие окна для стикеров");
-      }
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+      writePrintHtml(html);
+
       const missingCount = Number(
         res.headers.get("X-Feedpilot-Stickers-Missing-Count")
         || statusMeta?.missing_count
         || 0
       );
       if (missingCount > 0) {
-        const expected = res.headers.get("X-Feedpilot-Stickers-Expected")
+        const expected = Number(
+          res.headers.get("X-Feedpilot-Stickers-Expected")
           || statusMeta?.expected
-          || "?";
-        const loaded = res.headers.get("X-Feedpilot-Stickers-Loaded")
+          || 0
+        ) || "?";
+        const loaded = Number(
+          res.headers.get("X-Feedpilot-Stickers-Loaded")
           || statusMeta?.loaded
-          || "?";
+          || 0
+        ) || "?";
         const missingRaw = String(
           res.headers.get("X-Feedpilot-Stickers-Missing")
           || (statusMeta?.missing || []).join(",")
@@ -3187,19 +3257,25 @@
         const preview = missingRaw
           ? missingRaw.split(",").slice(0, 5).join(", ")
           : "";
-        const suffix = missingCount > 5 ? ` … (+${missingCount - 5})` : "";
-        const reasonText = reasons.slice(0, 3).join("\n");
-        alert(
-          `Загружено ${loaded} из ${expected} этикеток.\n`
-          + `Не загружено: ${missingCount}.\n`
-          + (preview ? `Отправления: ${preview}${suffix}\n` : "")
-          + (reasonText ? `\n${reasonText}` : "Повторите печать через 1–2 мин, если заказы не отменены.")
+        const reasonShort = reasons[0] ? ` ${reasons[0]}` : "";
+        setModalNotice(
+          `Стикеры: загружено ${loaded} из ${expected}. `
+          + `Пропущено ${missingCount}`
+          + (preview ? ` (${preview})` : "")
+          + `. Печать открыта в соседней вкладке.`
+          + reasonShort,
+          Number(loaded) > 0 ? "warn" : "error"
+        );
+      } else {
+        setModalNotice(
+          "Стикеры готовы — диалог печати открыт в соседней вкладке.",
+          "ok"
         );
       }
     };
 
     const poll = async () => {
-      for (let i = 0; i < 7200; i += 1) { // up to ~2h at 1s for huge supplies
+      for (let i = 0; i < 7200; i += 1) {
         await new Promise((r) => setTimeout(r, i === 0 ? 400 : 1000));
         const res = await fetch("/api/ozon-fbs/stickers-print/status", {
           credentials: "same-origin",
@@ -3209,12 +3285,16 @@
         const done = Number(st.done || 0);
         const total = Number(st.total || 0);
         const msg = String(st.message || "Стикеры…");
-        if (btn) {
-          btn.textContent =
-            total > 0
-              ? `Стикеры ${Math.min(done, total)}/${total}`
-              : (msg.length > 28 ? `${msg.slice(0, 26)}…` : msg);
-        }
+        const progressText =
+          total > 0
+            ? `Стикеры ${Math.min(done, total)}/${total}`
+            : (msg.length > 28 ? `${msg.slice(0, 26)}…` : msg);
+        if (btn) btn.textContent = progressText;
+        setPrintStatus(
+          total > 0
+            ? `Загружено ${Math.min(done, total)} из ${total}…`
+            : (msg || "Загрузка…")
+        );
         if (st.in_progress) continue;
         if (st.ok) {
           await openResultHtml({
@@ -3245,9 +3325,24 @@
         );
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(detailText(data.detail) || "Не удалось начать загрузку стикеров");
+        setPrintStatus("Скачивание этикеток с Ozon…");
         await poll();
       } catch (e) {
-        alert(String(e.message || e));
+        const err = String(e.message || e);
+        setModalNotice(err, "error");
+        setPrintStatus(err);
+        try {
+          if (printWin && !printWin.closed) {
+            printWin.document.open();
+            printWin.document.write(`<!doctype html><html lang="ru"><head><meta charset="utf-8"/>
+<title>Ошибка печати</title></head><body style="font-family:system-ui;padding:32px">
+<h1>Не удалось подготовить стикеры</h1>
+<p>${String(err).replace(/[<>&]/g, (c) => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]))}</p>
+<p>Можно закрыть эту вкладку и повторить на странице поставки.</p>
+</body></html>`);
+            printWin.document.close();
+          }
+        } catch (_e) { /* ignore */ }
       } finally {
         restoreBtn();
       }

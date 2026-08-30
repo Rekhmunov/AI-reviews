@@ -3644,6 +3644,7 @@ def render_stickers_print_html(
     label_images: dict[str, list[str]],
     order_ids_filter: list[str] | None = None,
     missing_posting_numbers: list[str] | None = None,
+    missing_reasons: list[str] | None = None,
     include_cover_and_separators: bool = True,
 ) -> str:
     """Render thermal sticker HTML.
@@ -3733,15 +3734,26 @@ def render_stickers_print_html(
         for x in (missing_posting_numbers or [])
         if str(x).strip()
     ]
+    reasons = [
+        str(x).strip()
+        for x in (missing_reasons or [])
+        if str(x).strip()
+    ]
     warn_html = ""
     if missing:
         preview = ", ".join(missing[:8])
         if len(missing) > 8:
             preview += f" … (+{len(missing) - 8})"
+        reason_bits = "".join(
+            f"<div class='warn-reason'>{_esc(r)}</div>" for r in reasons[:5]
+        )
         warn_html = (
             f'<div class="warn-banner" role="alert">'
+            f"<strong>Печать готова.</strong> "
             f"Не загружено {len(missing)} этик.: {_esc(preview)}. "
-            f"Дождитесь 1–2 мин после сборки и повторите печать стикеров."
+            f"Остальные стикеры ниже — диалог печати откроется автоматически. "
+            f"Это сообщение на бумагу не попадёт."
+            f"{reason_bits}"
             f"</div>"
         )
     return f"""<!doctype html>
@@ -3790,14 +3802,50 @@ def render_stickers_print_html(
     background: #fef2f2; color: #991b1b; font-size: 13px; line-height: 1.35;
     border-radius: 8px;
   }}
-  @media print {{ .toolbar, .warn-banner {{ display: none !important; }} }}
+  .warn-banner .warn-reason {{ margin-top: 4px; font-size: 12px; }}
+  .screen-status {{
+    margin: 0 12px 8px; padding: 8px 12px; border: 1px solid #bfdbfe;
+    background: #eff6ff; color: #1e40af; font-size: 13px; border-radius: 8px;
+  }}
+  @media print {{
+    .toolbar, .warn-banner, .screen-status {{ display: none !important; }}
+  }}
 </style></head><body>
-  <div class="toolbar"><button onclick="window.print()">Печать</button>
+  <div class="toolbar"><button type="button" id="printBtn" onclick="window.print()">Печать</button>
     <span style="margin-left:8px;color:#64748b;font-size:13px">58×40 · Этикетка отправления Ozon</span>
   </div>
+  <div class="screen-status" id="screenStatus">Подготовка страниц к печати…</div>
   {warn_html}
   {''.join(pages) if pages else '<p style="padding:12px">Нет стикеров для печати.</p>'}
-  <script>window.addEventListener('load',function(){{ setTimeout(function(){{ window.print(); }}, 300); }});</script>
+  <script>
+  (function() {{
+    function readyPrint() {{
+      var st = document.getElementById('screenStatus');
+      if (st) st.textContent = 'Готово. Открываем диалог печати…';
+      setTimeout(function() {{ window.print(); }}, 200);
+    }}
+    function waitImages() {{
+      var imgs = Array.prototype.slice.call(document.images || []);
+      if (!imgs.length) {{ readyPrint(); return; }}
+      var left = imgs.length;
+      var done = function() {{
+        left -= 1;
+        if (left <= 0) readyPrint();
+      }};
+      imgs.forEach(function(img) {{
+        if (img.complete) done();
+        else {{
+          img.addEventListener('load', done);
+          img.addEventListener('error', done);
+        }}
+      }});
+      // Safety: huge sheets should not hang forever.
+      setTimeout(function() {{ if (left > 0) readyPrint(); }}, 15000);
+    }}
+    if (document.readyState === 'complete') waitImages();
+    else window.addEventListener('load', waitImages);
+  }})();
+  </script>
 </body></html>"""
 
 
@@ -3928,6 +3976,7 @@ def build_stickers_print(
         label_images=images,
         order_ids_filter=posting_numbers_filter,
         missing_posting_numbers=missing,
+        missing_reasons=missing_reasons,
         # Cover + article separators only for full «Стикеры» print.
         # Row menu / selected postings → posting labels only.
         include_cover_and_separators=posting_numbers_filter is None,
