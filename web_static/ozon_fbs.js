@@ -3119,7 +3119,6 @@
     closeStickersMenu();
     const btn = document.getElementById("ozonFbsSupplyDetailStickersBtn");
     const caret = document.getElementById("ozonFbsSupplyDetailStickersMenuBtn");
-    const btnLabel = btn ? String(btn.textContent || "Стикеры") : "Стикеры";
     if (btn) {
       btn.disabled = true;
       btn.textContent = "Стикеры…";
