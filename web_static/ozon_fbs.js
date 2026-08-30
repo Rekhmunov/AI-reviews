@@ -47,6 +47,8 @@
     /** Exact posting-number hit across tabs (WB-like toolbar escape hatch). */
     lookupMode: false,
     lookupMeta: null,
+    /** Guards stale async search/lookup results. */
+    loadSeq: 0,
   };
 
   const collectState = {
@@ -222,13 +224,14 @@
     state.lookupMeta = null;
   }
 
-  async function lookupPostingByNumber(postingNumber) {
+  async function lookupPostingByNumber(postingNumber, { seq } = {}) {
     const params = new URLSearchParams({
       source_id: String(state.sourceId),
       posting_number: String(postingNumber),
     });
     const res = await fetch(`/api/ozon-fbs/postings/find?${params}`);
     const data = await res.json().catch(() => ({}));
+    if (seq != null && seq !== state.loadSeq) return null;
     if (!res.ok) {
       throw new Error(detailText(data.detail) || "Не удалось найти отправление");
     }
@@ -242,12 +245,14 @@
       return false;
     }
     const tab = String(data.tab || item.tab || "").trim();
+    const supplyId = String(item.supply_id || "").trim();
     state.lookupMode = true;
     state.lookupMeta = {
       posting_number: String(data.posting_number || postingNumber),
       tab,
       source: String(data.source || ""),
       message: String(data.message || ""),
+      supply_id: supplyId,
     };
     state.items = [item];
     state.total = 1;
@@ -267,7 +272,8 @@
     const info = document.getElementById("ozonFbsInfo");
     if (info) {
       const tabLabel = OZON_FBS_TAB_LABELS[tab] || tab || "—";
-      info.textContent = `Отправление ${postingNumber}: ${tabLabel} · найдено в базе`;
+      const supplyBit = supplyId ? ` · поставка ${supplyId}` : "";
+      info.textContent = `Отправление ${postingNumber}: ${tabLabel}${supplyBit} · найдено в базе`;
     }
     const pageInfo = document.getElementById("ozonFbsPageInfo");
     if (pageInfo) pageInfo.textContent = "1 / 1";
@@ -941,6 +947,7 @@
       page_size: String(state.pageSize),
     });
     if (state.search && !suppliesMode) params.set("search", state.search);
+    const seq = ++state.loadSeq;
 
     try {
       const url = suppliesMode
@@ -948,6 +955,7 @@
         : `/api/ozon-fbs/postings?${params}`;
       const res = await fetch(url);
       const data = await res.json();
+      if (seq !== state.loadSeq) return;
       if (!res.ok) throw new Error(detailText(data.detail) || "Ошибка загрузки");
 
       let items = data.items || [];
@@ -988,7 +996,8 @@
           }
           const infoPending = document.getElementById("ozonFbsInfo");
           if (infoPending) infoPending.textContent = `Поиск отправления ${pnQuery}…`;
-          const lookup = await lookupPostingByNumber(pnQuery);
+          const lookup = await lookupPostingByNumber(pnQuery, { seq });
+          if (seq !== state.loadSeq) return;
           if (lookup && applyLookupResult(lookup, pnQuery)) return;
           items = [];
           state.items = [];
@@ -1012,6 +1021,7 @@
         }
       }
 
+      if (seq !== state.loadSeq) return;
       state.total = suppliesMode ? items.length : (pnQuery ? items.length : Number(data.total || 0));
       if (suppliesMode) {
         const adopted = Number(data.adopted_orphans || 0);
@@ -1056,6 +1066,7 @@
         if (next) next.disabled = state.page >= maxPage;
       }
     } catch (e) {
+      if (seq !== state.loadSeq) return;
       if (tbody) {
         tbody.innerHTML = `<tr><td colspan="${colspan()}" class="wb-fbs-empty" style="color:#b91c1c">${esc(e.message)}</td></tr>`;
       }
