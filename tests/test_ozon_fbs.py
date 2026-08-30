@@ -325,6 +325,52 @@ class OzonFbsMappingTests(unittest.TestCase):
             refresh_mock.call_args.kwargs["remote_status"], "delivering"
         )
 
+    def test_lookup_skips_remote_when_allow_remote_false(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        repo = MagicMock()
+        local = {
+            "posting_number": "0124861120-0199-1",
+            "tab": TAB_AWAITING_DELIVER,
+            "status": "awaiting_deliver",
+            "supply_id": "sup-local",
+        }
+        client = MagicMock()
+        with patch(
+            "review_processor.ozon_fbs.get_posting_by_number", return_value=local
+        ), patch(
+            "review_processor.ozon_fbs.refresh_posting_status_only"
+        ) as refresh_mock, patch(
+            "review_processor.ozon_fbs._tab_counts",
+            return_value={TAB_AWAITING_DELIVER: 1},
+        ), patch(
+            "review_processor.ozon_fbs.ensure_ozon_fbs_tables"
+        ), patch(
+            "review_processor.ozon_fbs.OzonFbsClient", return_value=client
+        ), patch(
+            "review_processor.ozon_fbs._enrich_posting_list_item",
+            return_value={
+                **local,
+                "warehouse_label": "—",
+                "tab_label": "Ожидают отгрузки",
+            },
+        ):
+            out = lookup_posting_by_number(
+                repo,
+                user_id=1,
+                source_id=2,
+                posting_number="0124861120-0199-1",
+                client_id="cid",
+                api_key="key",
+                allow_remote=False,
+            )
+        self.assertTrue(out["found"])
+        self.assertFalse(out["status_refreshed"])
+        self.assertEqual(out["tab"], TAB_AWAITING_DELIVER)
+        self.assertEqual(out["item"]["supply_id"], "sup-local")
+        refresh_mock.assert_not_called()
+        client.get_posting.assert_not_called()
+
     def test_lookup_keeps_local_when_api_fails(self) -> None:
         from unittest.mock import MagicMock, patch
 

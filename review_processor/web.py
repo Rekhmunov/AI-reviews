@@ -12711,8 +12711,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         source_id: int,
         posting_number: str | None = None,
         search: str | None = None,
+        refresh: bool = True,
     ) -> dict[str, object]:
-        """Toolbar search: find one posting by number across all local tabs (WB-like)."""
+        """Toolbar search: find one posting by number across all local tabs (WB-like).
+
+        ``refresh=false`` skips Ozon status pull — used after local-only edits
+        (e.g. move to supply) so local ``tab`` is not immediately overwritten.
+        """
         user = _require_user(request)
         if not _can_view_ozon_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
@@ -12733,6 +12738,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except HTTPException:
             # Local find still works without keys; status refresh is skipped.
             pass
+        allow_remote = bool(refresh) and bool(client_id and api_key)
         return ozon_fbs_mod.lookup_posting_by_number(
             repository,
             user_id=owner_id,
@@ -12740,7 +12746,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             posting_number=pn,
             client_id=client_id or None,
             api_key=api_key or None,
-            allow_remote=bool(client_id and api_key),
+            allow_remote=allow_remote,
         )
 
     @app.post("/api/ozon-fbs/postings/persist-sticker")
@@ -13479,7 +13485,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             ops_log.append_event(
                 repository,
                 user_id=owner_id,
-                action="move_to_supply",
+                action=ops_log.ACTION_MOVE_TO_SUPPLY,
                 message=str(result.get("message") or f"Перенос {pn} → {supply_id}"),
                 actor_user_id=int(user.get("id") or 0) or None,
                 actor_name=ops_log.actor_label(user),

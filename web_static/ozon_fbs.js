@@ -224,11 +224,12 @@
     state.lookupMeta = null;
   }
 
-  async function lookupPostingByNumber(postingNumber, { seq } = {}) {
+  async function lookupPostingByNumber(postingNumber, { seq, refresh = true } = {}) {
     const params = new URLSearchParams({
       source_id: String(state.sourceId),
       posting_number: String(postingNumber),
     });
+    if (!refresh) params.set("refresh", "0");
     const res = await fetch(`/api/ozon-fbs/postings/find?${params}`);
     const data = await res.json().catch(() => ({}));
     if (seq != null && seq !== state.loadSeq) return null;
@@ -4420,7 +4421,9 @@
       showSyncInfo(msg);
       if (state.lookupMode && parsePostingNumberQuery(state.search) === pn) {
         try {
-          const lookup = await lookupPostingByNumber(pn);
+          // Local-only reload: remote status refresh would overwrite the tab
+          // we just set for reprint / re-ship workflow.
+          const lookup = await lookupPostingByNumber(pn, { refresh: false });
           if (lookup) applyLookupResult(lookup, pn);
         } catch (_e) {
           /* ignore — move already succeeded */
