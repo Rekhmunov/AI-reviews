@@ -25455,13 +25455,37 @@ async function initWbFbsSection() {
 }
 
 // ── WB FBS column resizer (per-user localStorage) ──
-const WB_FBS_COL_WIDTHS_PREFIX = "wb_fbs_col_widths_v2";
-const WB_FBS_DEFAULT_WIDTHS = [24, 56, 20]; // order, product, warehouse (price column hidden in UI)
+const WB_FBS_COL_WIDTHS_PREFIX = "wb_fbs_col_widths_v3";
+const WB_FBS_COL_WIDTHS_ORDERS_V2 = "wb_fbs_col_widths_v2"; // migrate orders widths
+const WB_FBS_DEFAULT_WIDTHS_ORDERS = [24, 56, 20]; // order, product, warehouse
+const WB_FBS_DEFAULT_WIDTHS_SUPPLIES_ASSEMBLY = [26, 16, 14, 16, 24];
+const WB_FBS_DEFAULT_WIDTHS_SUPPLIES_DELIVERY = [20, 14, 14, 14, 14, 18];
 let _wbFbsColResizerInited = false;
 
-function _wbFbsColWidthsKey() {
+function _wbFbsColWidthsMode() {
+  if (_wbFbsIsSuppliesTab()) {
+    return wbFbsState.tab === "assembly" ? "supplies-assembly" : "supplies-delivery";
+  }
+  return "orders";
+}
+
+function _wbFbsDefaultColWidths() {
+  const mode = _wbFbsColWidthsMode();
+  if (mode === "supplies-assembly") return WB_FBS_DEFAULT_WIDTHS_SUPPLIES_ASSEMBLY.slice();
+  if (mode === "supplies-delivery") return WB_FBS_DEFAULT_WIDTHS_SUPPLIES_DELIVERY.slice();
+  return WB_FBS_DEFAULT_WIDTHS_ORDERS.slice();
+}
+
+function _wbFbsColWidthsKey(mode) {
+  const m = mode || _wbFbsColWidthsMode();
   const email = String(document.querySelector(".sidebar-user-email")?.textContent || "").trim().toLowerCase();
-  return email ? `${WB_FBS_COL_WIDTHS_PREFIX}:${email}` : WB_FBS_COL_WIDTHS_PREFIX;
+  const base = email ? `${WB_FBS_COL_WIDTHS_PREFIX}:${m}:${email}` : `${WB_FBS_COL_WIDTHS_PREFIX}:${m}`;
+  return base;
+}
+
+function _wbFbsOrdersLegacyKey() {
+  const email = String(document.querySelector(".sidebar-user-email")?.textContent || "").trim().toLowerCase();
+  return email ? `${WB_FBS_COL_WIDTHS_ORDERS_V2}:${email}` : WB_FBS_COL_WIDTHS_ORDERS_V2;
 }
 
 function _applyWbFbsColWidths(widths) {
@@ -25472,23 +25496,34 @@ function _applyWbFbsColWidths(widths) {
 }
 
 function _getWbFbsColWidths() {
+  const defaults = _wbFbsDefaultColWidths();
   const cols = Array.from(document.querySelectorAll("#wbFbsColgroup col")).filter((c) => !c.dataset.fixed);
-  return cols.map((col, i) => parseFloat(col.style.width) || WB_FBS_DEFAULT_WIDTHS[i] || 10);
+  return cols.map((col, i) => parseFloat(col.style.width) || defaults[i] || 10);
+}
+
+function _loadWbFbsSavedColWidths() {
+  const defaults = _wbFbsDefaultColWidths();
+  const mode = _wbFbsColWidthsMode();
+  try {
+    let saved = JSON.parse(localStorage.getItem(_wbFbsColWidthsKey(mode)) || "null");
+    // Migrate previous orders widths (v2, no mode suffix).
+    if ((!Array.isArray(saved) || saved.length !== defaults.length) && mode === "orders") {
+      saved = JSON.parse(localStorage.getItem(_wbFbsOrdersLegacyKey()) || "null");
+    }
+    if (Array.isArray(saved) && saved.length === defaults.length) {
+      return saved.map((n, i) => {
+        const v = Number(n);
+        return Number.isFinite(v) && v > 0 ? v : defaults[i];
+      });
+    }
+  } catch (_) {}
+  return defaults;
 }
 
 function initWbFbsColumnResizer() {
   const table = document.getElementById("wbFbsOrdersTable");
   if (!table) return;
-  // Supplies table has fixed columns; only restore widths in orders mode.
-  if (!_wbFbsIsSuppliesTab()) {
-    let widths = WB_FBS_DEFAULT_WIDTHS.slice();
-    try {
-      const saved = JSON.parse(localStorage.getItem(_wbFbsColWidthsKey()) || "null");
-      if (Array.isArray(saved) && saved.length === widths.length) widths = saved;
-      else if (Array.isArray(saved)) localStorage.removeItem(_wbFbsColWidthsKey());
-    } catch (_) {}
-    _applyWbFbsColWidths(widths);
-  }
+  _applyWbFbsColWidths(_loadWbFbsSavedColWidths());
 
   if (_wbFbsColResizerInited) return;
   _wbFbsColResizerInited = true;
@@ -25500,7 +25535,7 @@ function initWbFbsColumnResizer() {
 
   function onMouseMove(e) {
     const tableEl = document.getElementById("wbFbsOrdersTable");
-    if (!tableEl || _wbFbsIsSuppliesTab()) return;
+    if (!tableEl) return;
     const tableW = tableEl.offsetWidth || 1;
     const deltaPct = ((e.clientX - startX) / tableW) * 100;
     const newWidths = startWidths.slice();
@@ -25523,7 +25558,6 @@ function initWbFbsColumnResizer() {
     document.body.style.userSelect = "";
     if (activeHandle) activeHandle.classList.remove("dragging");
     activeHandle = null;
-    if (_wbFbsIsSuppliesTab()) return;
     try {
       localStorage.setItem(_wbFbsColWidthsKey(), JSON.stringify(_getWbFbsColWidths()));
     } catch (_) {}
@@ -25531,13 +25565,14 @@ function initWbFbsColumnResizer() {
 
   table.addEventListener("mousedown", (e) => {
     const handle = e.target?.closest?.(".col-resize-handle");
-    if (!handle || _wbFbsIsSuppliesTab()) return;
+    if (!handle) return;
     e.preventDefault();
     e.stopPropagation();
     const th = handle.parentElement;
     colIdx = parseInt(th.getAttribute("data-col") || "0", 10);
     startX = e.clientX;
     startWidths = _getWbFbsColWidths();
+    if (!startWidths.length || colIdx < 0 || colIdx >= startWidths.length) return;
     activeHandle = handle;
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseup", onMouseUp);
@@ -25659,41 +25694,43 @@ function _wbFbsSyncTableMode() {
     // No ⋮ column — WB API cannot rename supplies; QR is only after delivery.
     colgroup.innerHTML = `
       <col data-fixed="1" class="wb-fbs-col-check" style="width:40px" />
-      <col data-col="0" class="wb-fbs-col-supply" style="width:26%" />
-      <col data-col="1" class="wb-fbs-col-qr" style="width:16%" />
-      <col data-col="2" class="wb-fbs-col-orders" style="width:14%" />
-      <col data-col="3" class="wb-fbs-col-status" style="width:16%" />
-      <col data-col="4" class="wb-fbs-col-wh" style="width:24%" />
+      <col data-col="0" class="wb-fbs-col-supply" />
+      <col data-col="1" class="wb-fbs-col-qr" />
+      <col data-col="2" class="wb-fbs-col-orders" />
+      <col data-col="3" class="wb-fbs-col-status" />
+      <col data-col="4" class="wb-fbs-col-wh" />
     `;
     thead.innerHTML = `
       <th class="wb-fbs-th-check"><input type="checkbox" id="wbFbsSelectAll" onchange="toggleSelectAllWbFbs(this.checked)" title="Выбрать все на странице" /></th>
-      <th data-col="0">Поставка</th>
-      <th data-col="1">QR-код поставки</th>
-      <th data-col="2">Заказы и грузоместа</th>
-      <th data-col="3">Этап сборки</th>
-      <th data-col="4">Склад</th>
+      <th data-col="0">Поставка<span class="col-resize-handle"></span></th>
+      <th data-col="1">QR-код поставки<span class="col-resize-handle"></span></th>
+      <th data-col="2">Заказы и грузоместа<span class="col-resize-handle"></span></th>
+      <th data-col="3">Этап сборки<span class="col-resize-handle"></span></th>
+      <th data-col="4">Склад<span class="col-resize-handle"></span></th>
     `;
+    initWbFbsColumnResizer();
   } else if (supplies) {
     colgroup.innerHTML = `
       <col data-fixed="1" class="wb-fbs-col-check" style="width:40px" />
-      <col data-col="0" class="wb-fbs-col-supply" style="width:20%" />
-      <col data-col="1" class="wb-fbs-col-qr" style="width:14%" />
-      <col data-col="2" class="wb-fbs-col-status" style="width:14%" />
-      <col data-col="3" class="wb-fbs-col-scan" style="width:14%" />
-      <col data-col="4" class="wb-fbs-col-orders" style="width:14%" />
-      <col data-col="5" class="wb-fbs-col-wh" style="width:18%" />
+      <col data-col="0" class="wb-fbs-col-supply" />
+      <col data-col="1" class="wb-fbs-col-qr" />
+      <col data-col="2" class="wb-fbs-col-status" />
+      <col data-col="3" class="wb-fbs-col-scan" />
+      <col data-col="4" class="wb-fbs-col-orders" />
+      <col data-col="5" class="wb-fbs-col-wh" />
       <col data-fixed="1" class="wb-fbs-col-act" style="width:48px" />
     `;
     thead.innerHTML = `
       <th class="wb-fbs-th-check"><input type="checkbox" id="wbFbsSelectAll" onchange="toggleSelectAllWbFbs(this.checked)" title="Выбрать все на странице" /></th>
-      <th data-col="0">Поставка</th>
-      <th data-col="1">QR-код поставки</th>
-      <th data-col="2">Статус</th>
-      <th data-col="3">Время сканирования QR-кода поставки</th>
-      <th data-col="4">Заказы и грузоместа</th>
-      <th data-col="5">Склад</th>
+      <th data-col="0">Поставка<span class="col-resize-handle"></span></th>
+      <th data-col="1">QR-код поставки<span class="col-resize-handle"></span></th>
+      <th data-col="2">Статус<span class="col-resize-handle"></span></th>
+      <th data-col="3">Время сканирования QR-кода поставки<span class="col-resize-handle"></span></th>
+      <th data-col="4">Заказы и грузоместа<span class="col-resize-handle"></span></th>
+      <th data-col="5">Склад<span class="col-resize-handle"></span></th>
       <th class="wb-fbs-th-act"></th>
     `;
+    initWbFbsColumnResizer();
   } else {
     colgroup.innerHTML = `
       <col data-fixed="1" class="wb-fbs-col-check" style="width:40px" />
