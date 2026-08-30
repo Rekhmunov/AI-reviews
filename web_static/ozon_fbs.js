@@ -273,7 +273,12 @@
     if (info) {
       const tabLabel = OZON_FBS_TAB_LABELS[tab] || tab || "—";
       const supplyBit = supplyId ? ` · поставка ${supplyId}` : "";
-      info.textContent = `Отправление ${postingNumber}: ${tabLabel}${supplyBit} · найдено в базе`;
+      const via = data.status_refreshed || data.source === "local+api"
+        ? "статус из Ozon"
+        : (data.message && String(data.message).startsWith("Статус из базы")
+          ? "статус из базы (API недоступен)"
+          : "найдено в базе");
+      info.textContent = `Отправление ${postingNumber}: ${tabLabel}${supplyBit} · ${via}`;
     }
     const pageInfo = document.getElementById("ozonFbsPageInfo");
     if (pageInfo) pageInfo.textContent = "1 / 1";

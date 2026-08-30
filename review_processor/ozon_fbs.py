@@ -2010,14 +2010,56 @@ def _enrich_posting_list_item(
     return d
 
 
+def refresh_posting_status_only(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_number: str,
+    remote_status: object,
+) -> dict[str, Any] | None:
+    """Write only ``status`` / ``tab`` from Ozon. Never touch supply / marking / stickers."""
+    ensure_ozon_fbs_tables(repo)
+    pn = str(posting_number or "").strip()
+    if not pn:
+        return None
+    status = str(remote_status or "").strip().lower()
+    if not status:
+        return get_posting_by_number(
+            repo, user_id=user_id, source_id=source_id, posting_number=pn
+        )
+    tab = compute_tab(status)
+    with repo._connect() as conn:
+        conn.execute(
+            repo._sql(
+                """
+                UPDATE ozon_fbs_postings
+                SET status = ?, tab = ?, synced_at = ?
+                WHERE user_id = ? AND source_id = ? AND posting_number ILIKE ?
+                """
+            ),
+            (status, tab, _utc_now(), user_id, int(source_id), pn),
+        )
+    return get_posting_by_number(
+        repo, user_id=user_id, source_id=source_id, posting_number=pn
+    )
+
+
 def lookup_posting_by_number(
     repo: ReviewRepository,
     *,
     user_id: int,
     source_id: int,
     posting_number: str,
+    client_id: str | None = None,
+    api_key: str | None = None,
+    allow_remote: bool = True,
 ) -> dict[str, Any]:
-    """Find one posting locally across all tabs (toolbar search escape hatch)."""
+    """Find posting locally; refresh status from Ozon API when credentials allow.
+
+    Local sticker / marking / supply_id are kept. Only ``status`` and ``tab``
+    are updated from ``/v3/posting/fbs/get``.
+    """
     ensure_ozon_fbs_tables(repo)
     pn = parse_posting_number_query(posting_number) or str(posting_number or "").strip()
     sid = int(source_id)
@@ -2030,6 +2072,7 @@ def lookup_posting_by_number(
             "tab": "",
             "item": None,
             "counts": counts,
+            "status_refreshed": False,
             "message": "Укажите номер отправления (например 0124861120-0199-1)",
         }
     local = get_posting_by_number(
@@ -2043,16 +2086,51 @@ def lookup_posting_by_number(
             "tab": "",
             "item": None,
             "counts": counts,
+            "status_refreshed": False,
             "message": f"Отправление {pn} не найдено в локальной базе",
         }
+
+    status_refreshed = False
+    api_warning = ""
+    cid = str(client_id or "").strip()
+    key = str(api_key or "").strip()
+    if allow_remote and cid and key:
+        try:
+            client = OzonFbsClient(cid, key)
+            remote = client.get_posting(pn)
+            remote_status = str(remote.get("status") or "").strip()
+            if remote_status:
+                updated = refresh_posting_status_only(
+                    repo,
+                    user_id=user_id,
+                    source_id=sid,
+                    posting_number=pn,
+                    remote_status=remote_status,
+                )
+                if updated:
+                    local = updated
+                    status_refreshed = True
+                    counts = _tab_counts(repo, user_id=user_id, source_id=sid)
+        except Exception as exc:
+            _log.warning(
+                "ozon_fbs lookup status refresh failed pn=%s: %s", pn, exc
+            )
+            api_warning = f"Статус из базы (Ozon API: {exc})"
+
     item = _enrich_posting_list_item(repo, user_id=user_id, row=local)
+    source = "local+api" if status_refreshed else "local"
+    message = api_warning
+    if status_refreshed:
+        message = "Статус обновлён из Ozon"
     return {
         "found": True,
-        "source": "local",
+        "source": source,
         "posting_number": str(item.get("posting_number") or pn),
         "tab": str(item.get("tab") or ""),
         "item": item,
         "counts": counts,
+        "status_refreshed": status_refreshed,
+        "message": message,
     }
 
 

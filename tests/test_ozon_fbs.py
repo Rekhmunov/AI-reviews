@@ -233,9 +233,11 @@ class OzonFbsMappingTests(unittest.TestCase):
                 user_id=1,
                 source_id=2,
                 posting_number="0124861120-0199-1",
+                allow_remote=False,
             )
         self.assertTrue(out["found"])
         self.assertEqual(out["source"], "local")
+        self.assertFalse(out["status_refreshed"])
         self.assertEqual(out["tab"], TAB_AWAITING_DELIVER)
         self.assertEqual(out["item"]["posting_number"], "0124861120-0199-1")
 
@@ -255,9 +257,111 @@ class OzonFbsMappingTests(unittest.TestCase):
                 user_id=1,
                 source_id=2,
                 posting_number="0124861120-0199-1",
+                allow_remote=False,
             )
         self.assertFalse(out["found"])
         self.assertIn("не найдено", out["message"])
+
+    def test_lookup_refreshes_status_from_api(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        repo = MagicMock()
+        local = {
+            "posting_number": "0124861120-0199-1",
+            "tab": TAB_AWAITING_PACKAGING,
+            "status": "awaiting_packaging",
+            "supply_id": "sup-1",
+            "marking_codes_json": '["01abc"]',
+            "sticker_barcode": "STICKER",
+        }
+        refreshed = {
+            **local,
+            "tab": TAB_DELIVERING,
+            "status": "delivering",
+        }
+        client = MagicMock()
+        client.get_posting.return_value = {
+            "posting_number": "0124861120-0199-1",
+            "status": "delivering",
+        }
+        with patch(
+            "review_processor.ozon_fbs.get_posting_by_number",
+            side_effect=[local, refreshed],
+        ), patch(
+            "review_processor.ozon_fbs.refresh_posting_status_only",
+            return_value=refreshed,
+        ) as refresh_mock, patch(
+            "review_processor.ozon_fbs._tab_counts",
+            return_value={TAB_DELIVERING: 1},
+        ), patch(
+            "review_processor.ozon_fbs.ensure_ozon_fbs_tables"
+        ), patch(
+            "review_processor.ozon_fbs.OzonFbsClient", return_value=client
+        ), patch(
+            "review_processor.ozon_fbs._enrich_posting_list_item",
+            side_effect=lambda repo, **kw: {
+                **kw["row"],
+                "warehouse_label": "—",
+                "tab_label": "Доставляются",
+            },
+        ):
+            out = lookup_posting_by_number(
+                repo,
+                user_id=1,
+                source_id=2,
+                posting_number="0124861120-0199-1",
+                client_id="cid",
+                api_key="key",
+                allow_remote=True,
+            )
+        self.assertTrue(out["found"])
+        self.assertTrue(out["status_refreshed"])
+        self.assertEqual(out["source"], "local+api")
+        self.assertEqual(out["tab"], TAB_DELIVERING)
+        self.assertEqual(out["item"]["supply_id"], "sup-1")
+        self.assertEqual(out["item"]["sticker_barcode"], "STICKER")
+        refresh_mock.assert_called_once()
+        self.assertEqual(
+            refresh_mock.call_args.kwargs["remote_status"], "delivering"
+        )
+
+    def test_lookup_keeps_local_when_api_fails(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        repo = MagicMock()
+        local = {
+            "posting_number": "0124861120-0199-1",
+            "tab": TAB_AWAITING_DELIVER,
+            "status": "awaiting_deliver",
+            "supply_id": "sup-1",
+        }
+        client = MagicMock()
+        client.get_posting.side_effect = RuntimeError("timeout")
+        with patch(
+            "review_processor.ozon_fbs.get_posting_by_number", return_value=local
+        ), patch(
+            "review_processor.ozon_fbs._tab_counts",
+            return_value={TAB_AWAITING_DELIVER: 1},
+        ), patch(
+            "review_processor.ozon_fbs.ensure_ozon_fbs_tables"
+        ), patch(
+            "review_processor.ozon_fbs.OzonFbsClient", return_value=client
+        ), patch(
+            "review_processor.ozon_fbs._enrich_posting_list_item",
+            return_value={**local, "warehouse_label": "—", "tab_label": "Ожидают отгрузки"},
+        ):
+            out = lookup_posting_by_number(
+                repo,
+                user_id=1,
+                source_id=2,
+                posting_number="0124861120-0199-1",
+                client_id="cid",
+                api_key="key",
+            )
+        self.assertTrue(out["found"])
+        self.assertFalse(out["status_refreshed"])
+        self.assertEqual(out["source"], "local")
+        self.assertIn("Статус из базы", out["message"])
 
 
 if __name__ == "__main__":

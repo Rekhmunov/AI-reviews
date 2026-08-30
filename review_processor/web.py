@@ -12557,11 +12557,21 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 detail="Укажите полный номер отправления (например 0124861120-0199-1)",
             )
         owner_id = _supply_owner_id(user)
+        client_id = ""
+        api_key = ""
+        try:
+            _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
+        except HTTPException:
+            # Local find still works without keys; status refresh is skipped.
+            pass
         return ozon_fbs_mod.lookup_posting_by_number(
             repository,
             user_id=owner_id,
             source_id=int(source_id),
             posting_number=pn,
+            client_id=client_id or None,
+            api_key=api_key or None,
+            allow_remote=bool(client_id and api_key),
         )
 
     @app.post("/api/ozon-fbs/postings/persist-sticker")
