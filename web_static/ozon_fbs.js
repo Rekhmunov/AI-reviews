@@ -7219,6 +7219,7 @@
 
   /**
    * Silent local save after each scan (WB FBS parity).
+   * - Persists to FeedPilot only (`local_only`) — never waits on Ozon API.
    * - Per-posting seq coalesces rapid re-scans of the same posting.
    * - Microtask batches different postings touched in the same turn into one PUT.
    * - Scan path never awaits; UI stays responsive under hundreds of marks.
@@ -7330,7 +7331,7 @@
         {
           method: "PUT",
           headers: { "Content-Type": "application/json", ...jsonHeaders() },
-          body: JSON.stringify({ items }),
+          body: JSON.stringify({ items, local_only: true }),
           keepalive: true,
         }
       );
@@ -7897,7 +7898,7 @@
         const force = !!(ozonFbsKizState.forceSaveByPosting && ozonFbsKizState.forceSaveByPosting[pn]);
         const codesDirty = !_ozonFbsKizBaselineEquals(pn, codes);
         const needsOzonPush = gtdRequired && codes.length > 0 && !!gtdNow && !r.kiz_ozon_synced;
-        // After per-scan autosave, final Save only sends what still needs work.
+        // Autosave already wrote local DB; final Save only sends what still needs work.
         if (!force && !codesDirty && !gtdDirty && !needsOzonPush) continue;
         if (!codes.length && !force) continue;
         items.push({
@@ -7917,40 +7918,54 @@
             `Не сохранено: заполните КИЗ/ГТД у ${incomplete.length} отправлений`
           );
         } else {
-          _ozonFbsKizSetInfo("Уже сохранено — изменений нет", true);
+          _ozonFbsKizSetInfo("Готово", true);
         }
         return;
       }
-      const res = await fetch(
-        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/marking?source_id=${sourceId}`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json", ...jsonHeaders() },
-          body: JSON.stringify({ items }),
+      // Chunk Ozon pushes so nginx 60s default cannot 504 a bulk юрлицо save.
+      const CHUNK = 15;
+      const allResults = [];
+      let savedTotal = 0;
+      let errTotal = 0;
+      for (let i = 0; i < items.length; i += CHUNK) {
+        const chunk = items.slice(i, i + CHUNK);
+        if (items.length > CHUNK) {
+          _ozonFbsKizSetInfo(
+            `Сохранение… ${Math.min(i + CHUNK, items.length)}/${items.length}`
+          );
         }
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
-      const errs = (data.results || []).filter((r) => r && !r.ok);
+        const res = await fetch(
+          `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/marking?source_id=${sourceId}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json", ...jsonHeaders() },
+            body: JSON.stringify({ items: chunk }),
+          }
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+        allResults.push(...(data.results || []));
+        savedTotal += Number(data.saved) || 0;
+        errTotal += Number(data.errors) || 0;
+      }
+      const errs = allResults.filter((r) => r && !r.ok);
       if (errs.length || incomplete.length) {
         errs.forEach((e) => {
           if (e.posting_number) ozonFbsKizState.errors[e.posting_number] = e.error || "ошибка";
         });
         renderOzonFbsKizTable();
         const parts = [];
-        if (data.saved) parts.push(`сохранено ${data.saved}`);
+        if (savedTotal) parts.push(`сохранено ${savedTotal}`);
         if (errs.length) parts.push(`ошибок ${errs.length}`);
         if (incomplete.length) parts.push(`не заполнено ${incomplete.length}`);
         _ozonFbsKizSetInfo(`Сохранено частично (${parts.join(", ")}).`);
       } else {
-        const unchanged = (data.results || []).filter((r) => r && r.unchanged).length;
-        if (unchanged && unchanged === (data.results || []).length) {
-          _ozonFbsKizSetInfo("Уже сохранено — изменений нет", true);
-        } else {
-          _ozonFbsKizSetInfo(`Сохранено: ${data.saved || 0} отправлений`, true);
-        }
+        _ozonFbsKizSetInfo(
+          savedTotal ? `Сохранено: ${savedTotal}` : "Готово",
+          true
+        );
       }
-      _ozonFbsKizApplySaveResults(data.results || []);
+      _ozonFbsKizApplySaveResults(allResults);
     } catch (e) {
       _ozonFbsKizSetInfo(String(e.message || e));
     } finally {

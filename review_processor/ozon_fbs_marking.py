@@ -904,11 +904,15 @@ def save_marking(
     allowed_posting_numbers: set[str] | None = None,
     client_id: str | None = None,
     api_key: str | None = None,
+    skip_ozon_push: bool = False,
 ) -> dict[str, Any]:
     """Save marking codes locally; push to Ozon when GTD/юрлицо row is complete.
 
     Unchanged payloads that were already autosaved (and synced to Ozon when
     required) are returned as ``unchanged`` without rewriting DB or re-pushing.
+
+    ``skip_ozon_push`` (per-scan autosave): persist locally only — fast, silent,
+    never drops codes if Ozon is slow. Final «Сохранить» pushes unsynced rows.
     """
     results: list[dict[str, Any]] = []
     ok_n = 0
@@ -917,7 +921,9 @@ def save_marking(
     cid = str(client_id or "").strip()
     key = str(api_key or "").strip()
     client: oz.OzonFbsClient | None = (
-        oz.OzonFbsClient(cid, key) if cid and key else None
+        None
+        if skip_ozon_push
+        else (oz.OzonFbsClient(cid, key) if cid and key else None)
     )
     candidate_pns = [
         str(raw.get("posting_number") or "").strip()
@@ -994,7 +1000,7 @@ def save_marking(
         # Autosave already persisted (+ pushed for юрлицо). Final «Сохранить»
         # must not wipe marking_ozon_synced and re-push every posting to Ozon.
         if not clear and codes_same and gtd_same:
-            if not (gtd_required and uniq):
+            if skip_ozon_push or not (gtd_required and uniq):
                 ok_n += 1
                 results.append(
                     {
@@ -1101,6 +1107,8 @@ def save_marking(
                     }
                 )
             continue
+        # Keep prior Ozon sync bit when local payload is unchanged except we are
+        # rewriting — codes/gtd changed ⇒ must clear synced until push succeeds.
         local_res = update_posting_marking_codes(
             repo,
             user_id=user_id,
@@ -1139,6 +1147,21 @@ def save_marking(
         local_ok = bool(local_res.get("ok"))
         push_error = ""
         ozon_synced = False
+        if local_ok and skip_ozon_push:
+            # Per-scan autosave: codes are safe in FeedPilot DB; Ozon later.
+            ok_n += 1
+            results.append(
+                {
+                    "posting_number": pn,
+                    "ok": True,
+                    "kiz_codes": list(local_res.get("codes") or uniq),
+                    "kiz_saved_at": str(local_res.get("saved_at") or ""),
+                    "gtd_number": gtd_clean,
+                    "kiz_ozon_synced": False,
+                    "local_only": True,
+                }
+            )
+            continue
         if local_ok and gtd_required and uniq:
             if not gtd_clean:
                 local_ok = False

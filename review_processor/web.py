@@ -13908,6 +13908,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         items = body.get("items") if isinstance(body, dict) else None
         if not isinstance(items, list) or not items:
             raise HTTPException(status_code=400, detail="Укажите items[]")
+        local_only = bool(body.get("local_only")) if isinstance(body, dict) else False
         supply = oz_sup.get_supply(
             repository, user_id=owner_id, source_id=int(source_id), supply_id=sid
         )
@@ -13938,28 +13939,31 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 allowed_posting_numbers=allowed,
                 client_id=client_id,
                 api_key=api_key,
+                skip_ozon_push=local_only,
             )
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        try:
-            from . import ozon_fbs_ops_log as ops_log
+        # Autosave is silent — do not spam ops log on every scan.
+        if not local_only:
+            try:
+                from . import ozon_fbs_ops_log as ops_log
 
-            saved = int(result.get("saved") or 0) if isinstance(result, dict) else 0
-            errs = int(result.get("errors") or 0) if isinstance(result, dict) else 0
-            ops_log.append_event(
-                repository,
-                user_id=owner_id,
-                action=ops_log.ACTION_MARKING_SAVE,
-                message=f"КИЗ сохранены: {saved}" + (f", ошибок: {errs}" if errs else ""),
-                level=ops_log.LEVEL_WARN if errs else ops_log.LEVEL_INFO,
-                actor_user_id=int(user.get("id") or 0) or None,
-                actor_name=ops_log.actor_label(user),
-                source_id=int(source_id),
-                supply_id=sid,
-                details={"saved": saved, "errors": errs},
-            )
-        except Exception:
-            pass
+                saved = int(result.get("saved") or 0) if isinstance(result, dict) else 0
+                errs = int(result.get("errors") or 0) if isinstance(result, dict) else 0
+                ops_log.append_event(
+                    repository,
+                    user_id=owner_id,
+                    action=ops_log.ACTION_MARKING_SAVE,
+                    message=f"КИЗ сохранены: {saved}" + (f", ошибок: {errs}" if errs else ""),
+                    level=ops_log.LEVEL_WARN if errs else ops_log.LEVEL_INFO,
+                    actor_user_id=int(user.get("id") or 0) or None,
+                    actor_name=ops_log.actor_label(user),
+                    source_id=int(source_id),
+                    supply_id=sid,
+                    details={"saved": saved, "errors": errs},
+                )
+            except Exception:
+                pass
         return result
 
     @app.get("/api/ozon-fbs/supplies/{supply_id}/pick-verify")
