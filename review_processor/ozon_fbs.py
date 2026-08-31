@@ -1732,8 +1732,11 @@ def upsert_posting(
     source_id: int,
     posting: dict[str, Any],
     protect_status_downgrade: bool = True,
+    ensure_tables: bool = True,
 ) -> None:
-    ensure_ozon_fbs_tables(repo)
+    # Full sync calls ensure once up front; skip per-row DDL there (disk-heavy).
+    if ensure_tables:
+        ensure_ozon_fbs_tables(repo)
     posting_number = str(posting.get("posting_number") or "").strip()
     if not posting_number:
         return
@@ -2477,7 +2480,11 @@ def sync_ozon_fbs_source(
                 if not pn:
                     continue
                 upsert_posting(
-                    repo, user_id=user_id, source_id=source_id, posting=posting
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    posting=posting,
+                    ensure_tables=False,
                 )
                 seen.add(pn)
             pages += 1
