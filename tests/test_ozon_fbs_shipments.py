@@ -364,12 +364,76 @@ class OzonFbsShipmentsHelpersTests(unittest.TestCase):
         self.assertEqual(view["barcode"]["barcode_text"], "1020005028015630")
         self.assertTrue(view["barcode"]["barcode_label_base64"])
         self.assertEqual(
+            view["blocks"][0]["carriages"][0]["barcode"]["barcode_text"],
+            "1020005028015630",
+        )
+        self.assertEqual(
             view["blocks"][0]["carriages"][0]["status_label"], "Сформирована"
         )
         client.carriage_delivery_list.assert_called_once()
         args = client.carriage_delivery_list.call_args.kwargs
         self.assertEqual(args["delivery_method_id"], 22)
         self.assertEqual(args["departure_date"], "2026-08-25")
+
+    def test_build_shipments_view_barcode_per_formed_carriage(self) -> None:
+        from io import BytesIO
+        import base64 as b64mod
+
+        from PIL import Image
+
+        client = MagicMock()
+        client.delivery_method_list.return_value = {
+            "delivery_methods": [
+                {"id": 22, "name": "Доставка на ОЗОН самостоятельно", "status": "ACTIVE"}
+            ],
+            "has_next": False,
+        }
+        client.carriage_delivery_list.return_value = {
+            "methods": [
+                {
+                    "delivery_method_id": 22,
+                    "departure_date": "2026-08-25",
+                    "dropoff_point_type": "SortCenter",
+                    "first_mile_type": "dropoff",
+                    "carriages": [
+                        {"id": 100, "postings_count": 10, "status": "formed"},
+                        {"id": 200, "postings_count": 5, "status": "formed"},
+                        {"id": 0, "postings_count": 3, "status": ""},
+                    ],
+                }
+            ]
+        }
+        client.carriage_get.side_effect = lambda **kw: {
+            "status": "formed",
+            "carriage_id": kw["carriage_id"],
+        }
+
+        def _text(**kw):
+            return {"result": f"BC-{kw['carriage_id']}"}
+
+        def _img(**kw):
+            buf = BytesIO()
+            Image.new("RGB", (120, 40), (0, 0, 0)).save(buf, format="PNG")
+            return {
+                "file_content": b64mod.b64encode(buf.getvalue()).decode("ascii"),
+                "content_type": "image/png",
+            }
+
+        client.fbs_act_get_barcode_text.side_effect = _text
+        client.fbs_act_get_barcode.side_effect = _img
+
+        view = build_shipments_view(
+            client=client,
+            warehouse_id=1,
+            warehouse_name="Склад А",
+            departure=date(2026, 8, 25),
+        )
+        carriages = view["blocks"][0]["carriages"]
+        self.assertEqual(carriages[0]["barcode"]["barcode_text"], "BC-100")
+        self.assertEqual(carriages[1]["barcode"]["barcode_text"], "BC-200")
+        self.assertIsNone(carriages[2].get("barcode"))
+        self.assertEqual(view["barcode"]["barcode_text"], "BC-100")
+        self.assertEqual(client.fbs_act_get_barcode_text.call_count, 2)
 
     def test_build_shipments_view_surfaces_open_carriage_other_day(self) -> None:
         client = MagicMock()

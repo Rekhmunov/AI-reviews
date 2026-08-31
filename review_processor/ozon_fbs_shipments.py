@@ -780,18 +780,20 @@ def build_shipments_view(
             if not c.get("is_formed") or not c.get("carriage_id"):
                 continue
             try:
-                barcode = fetch_carriage_barcode(
+                fetched = fetch_carriage_barcode(
                     client, carriage_id=int(c["carriage_id"])
                 )
             except Exception as exc:
                 _log.warning("barcode fetch skipped: %s", exc)
-                barcode = None
-            if barcode and (
-                barcode.get("barcode_text") or barcode.get("barcode_image_base64")
+                fetched = None
+            if not fetched or not (
+                fetched.get("barcode_text") or fetched.get("barcode_image_base64")
             ):
-                break
-        if barcode and (barcode.get("barcode_text") or barcode.get("barcode_image_base64")):
-            break
+                continue
+            # One ШК per carriage_id (Seller API get-barcode takes a single act id).
+            c["barcode"] = fetched
+            if barcode is None:
+                barcode = fetched
 
     return {
         "ok": True,
@@ -804,6 +806,7 @@ def build_shipments_view(
         "warehouse_id": warehouse_id,
         "warehouse_name": warehouse_name or "",
         "blocks": blocks,
+        # Convenience default = first formed carriage barcode (UI may switch).
         "barcode": barcode,
         "has_open_carriages_blocking": bool(blocking),
     }
@@ -945,14 +948,24 @@ def form_shipment(
         departure_date=day.isoformat(),
         delivery_method_id=int(mid),
     )
-    # Prefer barcode for the act we just created.
+    # Prefer barcode for the act we just created; attach to that carriage row too.
     try:
         barcode = fetch_carriage_barcode(client, carriage_id=act_id)
         if barcode.get("barcode_text") or barcode.get("barcode_image_base64"):
             refreshed["barcode"] = barcode
+            for block in refreshed.get("blocks") or []:
+                for c in block.get("carriages") or []:
+                    try:
+                        cid = int(c.get("carriage_id") or 0)
+                    except (TypeError, ValueError):
+                        cid = 0
+                    if cid == int(act_id):
+                        c["barcode"] = barcode
+                        break
     except Exception:
         pass
     refreshed["formed_act_id"] = act_id
+    refreshed["selected_carriage_id"] = int(act_id)
     refreshed["form_status"] = status or "in_process"
     refreshed["message"] = (
         "Отгрузка сформирована"
