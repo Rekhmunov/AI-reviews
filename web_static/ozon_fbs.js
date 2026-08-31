@@ -443,11 +443,14 @@
   }
 
   function isSupplyOpenBlocked() {
-    // Block opening local supplies only during split/collect — not during sync.
-    return Boolean(collectState.busy || splitState.busy || state.shipAllBusy);
+    // Block opening local supplies during sync/split/collect/ship-all.
+    return Boolean(
+      state.syncBusy || collectState.busy || splitState.busy || state.shipAllBusy
+    );
   }
 
   function supplyOpenBlockedTitle() {
+    if (state.syncBusy) return "Дождитесь окончания синхронизации";
     if (splitState.busy) return "Дождитесь окончания разделения мультизаказов";
     if (collectState.busy || state.shipAllBusy) return "Дождитесь окончания сборки заказов";
     return "Дождитесь окончания операции";
