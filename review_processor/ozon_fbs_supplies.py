@@ -22,6 +22,7 @@ from . import ozon_fbs as oz
 from . import ozon_fbs_detail as oz_detail
 from . import wb_fbs as wb
 from .repository import ReviewRepository
+from .wb_fbs_detail import _portal_title_sort_key
 
 _log = logging.getLogger(__name__)
 
@@ -3348,6 +3349,30 @@ def _orders_excluding_cancelled(orders: list[dict[str, Any]]) -> list[dict[str, 
     ]
 
 
+def _sort_groups_by_product_name(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Same group order as WB FBS picking list: catalog product name, then article.
+
+    Uses the numeric-aware title key from WB (digits compared as numbers,
+    text case-insensitive). Name is the one enriched in our service
+    (``product_name`` from Settings / catalog maps), not posting number.
+    """
+    for g in groups:
+        orders = list(g.get("orders") or [])
+        orders.sort(key=lambda o: str(o.get("posting_number") or ""))
+        g["orders"] = orders
+        g["qty"] = len(orders)
+    groups.sort(
+        key=lambda g: (
+            _portal_title_sort_key(
+                g.get("product_name") or g.get("article") or ""
+            ),
+            str(g.get("article") or "").casefold(),
+            str(g.get("nm_id") or ""),
+        )
+    )
+    return groups
+
+
 def _group_postings_by_article(orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
     groups: dict[str, dict[str, Any]] = {}
     order_list: list[str] = []
@@ -3366,11 +3391,15 @@ def _group_postings_by_article(orders: list[dict[str, Any]]) -> list[dict[str, A
         g = groups[article]
         g["orders"].append(o)
         g["qty"] = len(g["orders"])
-        if not g.get("product_name"):
-            g["product_name"] = o.get("product_name") or article
+        pname = str(o.get("product_name") or "").strip()
+        if pname and (
+            not str(g.get("product_name") or "").strip()
+            or str(g.get("product_name") or "").strip() == article
+        ):
+            g["product_name"] = pname
         if not g.get("barcodes") and o.get("barcodes"):
             g["barcodes"] = list(o.get("barcodes") or [])
-    return [groups[k] for k in order_list]
+    return _sort_groups_by_product_name([groups[k] for k in order_list])
 
 
 def render_picking_list_html(detail: dict[str, Any]) -> str:
