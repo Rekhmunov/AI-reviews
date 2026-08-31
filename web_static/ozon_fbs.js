@@ -4590,9 +4590,8 @@
     }).join("");
   }
 
-  function renderShipmentsBarcode(data) {
+  function renderShipmentsBarcodePanel(data) {
     const barcode = data?.barcode || null;
-    const whName = esc(data?.warehouse_name || "склада");
     const text = String(barcode?.barcode_text || "").trim();
     const labelB64 = String(barcode?.barcode_label_base64 || "").trim();
     const b64 = String(barcode?.barcode_image_base64 || "").trim();
@@ -4607,49 +4606,67 @@
         : (text
           ? `<div class="ozon-fbs-shipments-barcode-empty">ШК: ${esc(text)}</div>`
           : `<div class="ozon-fbs-shipments-barcode-empty">Штрихкод появится после формирования отгрузки</div>`));
-    // Composed label already includes digits under the bars.
     const textHtml = (!hasLabel && text)
       ? `<div class="ozon-fbs-shipments-barcode-text">${esc(text)}</div>`
       : "";
     return `
-      <section class="ozon-fbs-shipments-barcode-card">
-        <div class="ozon-fbs-shipments-barcode-head">
-          <h4 class="ozon-fbs-shipments-barcode-title">Штрихкод для склада ${whName}</h4>
+      <div class="ozon-fbs-shipments-barcode-main">
+        <div class="ozon-fbs-shipments-barcode-visual">
+          ${visual}
+          ${textHtml}
         </div>
-        <div class="ozon-fbs-shipments-barcode-main">
-          <div class="ozon-fbs-shipments-barcode-visual">
-            ${visual}
-            ${textHtml}
-          </div>
-          <div class="ozon-fbs-shipments-barcode-actions">
-            <button type="button" class="ozon-fbs-shipments-icon-btn" ${canPrint ? "" : "disabled"}
-                    onclick="ozonFbsShipmentsPrintBarcode()" title="Печать" aria-label="Печать штрихкода">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M7 9V4h10v5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M7 17H5a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <rect x="7" y="13" width="10" height="7" rx="1" stroke="currentColor" stroke-width="2"/>
-              </svg>
-            </button>
-            <button type="button" class="ozon-fbs-shipments-icon-btn" ${canPrint ? "" : "disabled"}
-                    onclick="ozonFbsShipmentsDownloadBarcode()" title="Скачать" aria-label="Скачать штрихкод">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M12 4v10M8 10l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M5 19h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-              </svg>
-            </button>
-          </div>
+        <div class="ozon-fbs-shipments-barcode-actions">
+          <button type="button" class="ozon-fbs-shipments-icon-btn" ${canPrint ? "" : "disabled"}
+                  onclick="ozonFbsShipmentsPrintBarcode()" title="Печать" aria-label="Печать штрихкода">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M7 9V4h10v5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M7 17H5a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <rect x="7" y="13" width="10" height="7" rx="1" stroke="currentColor" stroke-width="2"/>
+            </svg>
+          </button>
+          <button type="button" class="ozon-fbs-shipments-icon-btn" ${canPrint ? "" : "disabled"}
+                  onclick="ozonFbsShipmentsDownloadBarcode()" title="Скачать" aria-label="Скачать штрихкод">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M12 4v10M8 10l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M5 19h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </button>
         </div>
-      </section>`;
+      </div>`;
   }
 
-  function renderShipmentsBlocks(data) {
-    const blocks = Array.isArray(data?.blocks) ? data.blocks : [];
-    if (!blocks.length) {
+  function renderShipmentsMetaColumn(block, data) {
+    if (!block) {
+      return `<div class="ozon-fbs-shipments-meta-col"><div class="ozon-fbs-shipments-meta-empty">Нет данных отгрузки</div></div>`;
+    }
+    const rows = [
+      ["Склад", block.warehouse_name || data?.warehouse_name || "—"],
+      ["Пункт", block.dropoff_point_type_label || "Сортировочный центр"],
+      ["Способ отгрузки", block.shipment_method_label || "В пункт приема"],
+      ["Адрес", block.dropoff_address || "—"],
+      ["Собрано заказов", block.collected_label || "—"],
+      ["Приём отправлений", block.acceptance_label || "—"],
+    ];
+    const rowsHtml = rows.map(([label, value]) => `
+      <div class="ozon-fbs-shipments-meta-item">
+        <span class="ozon-fbs-shipments-meta-label">${esc(label)}</span>
+        <span class="ozon-fbs-shipments-meta-value">${esc(value)}</span>
+      </div>`).join("");
+    return `
+      <div class="ozon-fbs-shipments-meta-col">
+        <h4 class="ozon-fbs-shipments-block-title">${esc(block.day_label || "Ozon")}</h4>
+        ${rowsHtml}
+      </div>`;
+  }
+
+  function renderShipmentsCarriages(blocks) {
+    const list = Array.isArray(blocks) ? blocks : [];
+    if (!list.length) {
       return `<div class="ozon-fbs-shipments-loading">Нет данных отгрузки на выбранную дату</div>`;
     }
-    return blocks.map((block) => {
+    return list.map((block) => {
       const carriages = Array.isArray(block.carriages) ? block.carriages : [];
-      const carriageHtml = carriages.map((c) => {
+      return carriages.map((c) => {
         const formed = Boolean(c.is_formed);
         const statusLabel = String(c.status_label || "Не сформирована");
         const awaiting = statusLabel.toLowerCase().includes("ожидает");
@@ -4678,37 +4695,6 @@
             </div>
           </div>`;
       }).join("");
-      return `
-        <section class="ozon-fbs-shipments-block">
-          <h4 class="ozon-fbs-shipments-block-title">${esc(block.day_label || "Ozon")}</h4>
-          <div class="ozon-fbs-shipments-meta">
-            <div class="ozon-fbs-shipments-meta-item">
-              <span class="ozon-fbs-shipments-meta-label">Склад</span>
-              <span class="ozon-fbs-shipments-meta-value">${esc(block.warehouse_name || data.warehouse_name || "—")}</span>
-            </div>
-            <div class="ozon-fbs-shipments-meta-item">
-              <span class="ozon-fbs-shipments-meta-label">Пункт</span>
-              <span class="ozon-fbs-shipments-meta-value">${esc(block.dropoff_point_type_label || "Сортировочный центр")}</span>
-            </div>
-            <div class="ozon-fbs-shipments-meta-item">
-              <span class="ozon-fbs-shipments-meta-label">Способ отгрузки</span>
-              <span class="ozon-fbs-shipments-meta-value">${esc(block.shipment_method_label || "В пункт приема")}</span>
-            </div>
-            <div class="ozon-fbs-shipments-meta-item">
-              <span class="ozon-fbs-shipments-meta-label">Адрес</span>
-              <span class="ozon-fbs-shipments-meta-value">${esc(block.dropoff_address || "—")}</span>
-            </div>
-            <div class="ozon-fbs-shipments-meta-item">
-              <span class="ozon-fbs-shipments-meta-label">Собрано заказов</span>
-              <span class="ozon-fbs-shipments-meta-value">${esc(block.collected_label || "—")}</span>
-            </div>
-            <div class="ozon-fbs-shipments-meta-item">
-              <span class="ozon-fbs-shipments-meta-label">Приём отправлений</span>
-              <span class="ozon-fbs-shipments-meta-value">${esc(block.acceptance_label || "—")}</span>
-            </div>
-          </div>
-          ${carriageHtml}
-        </section>`;
     }).join("");
   }
 
@@ -4723,7 +4709,18 @@
       body.innerHTML = `<div class="ozon-fbs-shipments-error">${esc(data.message)}</div>`;
       return;
     }
-    body.innerHTML = `${renderShipmentsBarcode(data)}${renderShipmentsBlocks(data)}`;
+    const blocks = Array.isArray(data.blocks) ? data.blocks : [];
+    const primary = blocks[0] || null;
+    body.innerHTML = `
+      <section class="ozon-fbs-shipments-card">
+        <div class="ozon-fbs-shipments-top">
+          ${renderShipmentsBarcodePanel(data)}
+          ${renderShipmentsMetaColumn(primary, data)}
+        </div>
+        <div class="ozon-fbs-shipments-carriages">
+          ${renderShipmentsCarriages(blocks)}
+        </div>
+      </section>`;
   }
 
   async function loadShipments() {
