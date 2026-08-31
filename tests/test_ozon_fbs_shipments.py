@@ -227,7 +227,6 @@ class OzonFbsShipmentsHelpersTests(unittest.TestCase):
         self.assertEqual(block["collected_label"], "16 из 18")
         self.assertEqual(block["acceptance_label"], "до 21:00 (Кинешма)")
         self.assertEqual(block["hint"], "")
-        self.assertIn("журнале регистрации", block["journal_hint"])
         self.assertEqual(len(block["carriages"]), 1)
         self.assertEqual(block["carriages"][0]["status_label"], "Не сформирована")
         self.assertTrue(block["carriages"][0]["can_form"])
@@ -352,7 +351,7 @@ class OzonFbsShipmentsHelpersTests(unittest.TestCase):
         )
         self.assertTrue(view["ok"])
         self.assertTrue(view["has_open_carriages_blocking"])
-        self.assertIn("незакрытые отгрузки", view["message"].casefold())
+        self.assertFalse(view["message"])
         self.assertFalse(view["blocks"][0]["carriages"][0]["can_form"])
 
     def test_build_shipments_view_uses_fallback_delivery_method(self) -> None:

@@ -8862,7 +8862,6 @@ button.ozon-fbs-split-multi-btn[hidden] {
   display: none;
 }
 @media (max-width: 720px) {
-  .ozon-fbs-shipments-barcode-grid,
   .ozon-fbs-shipments-meta {
     grid-template-columns: 1fr;
   }

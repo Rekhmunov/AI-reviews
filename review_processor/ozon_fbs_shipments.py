@@ -206,9 +206,9 @@ _OPEN_CARRIAGE_STATUSES = frozenset(
     }
 )
 
-_JOURNAL_HINT = (
-    "Отметьтесь в журнале регистрации, как только приедете на СЦ. "
-    "От этого зависит скидка на тариф отгрузки или штраф"
+_OPEN_CARRIAGE_BLOCK_HINT = (
+    "По этому методу есть незакрытые отгрузки. "
+    "Закройте их перед формированием на другую дату."
 )
 
 
@@ -648,7 +648,6 @@ def _normalize_block(
         "tpl_provider_name": str(block.get("tpl_provider_name") or "").strip(),
         "carriages": carriages,
         "hint": "",
-        "journal_hint": _JOURNAL_HINT,
     }
 
 
@@ -690,7 +689,6 @@ def build_shipments_view(
             "selected_delivery_method_id": None,
             "blocks": [],
             "barcode": None,
-            "journal_hint": _JOURNAL_HINT,
         }
 
     dep_iso = _departure_iso(departure)
@@ -706,7 +704,7 @@ def build_shipments_view(
     raw_blocks = _carriage_delivery_blocks(raw)
     matched = [b for b in raw_blocks if _block_matches_departure(b, departure)]
     other_day = [b for b in raw_blocks if not _block_matches_departure(b, departure)]
-    blocking_message = ""
+    blocking = False
     force_no_form = False
 
     # Ozon often keeps returning the open carriage day even when another date is
@@ -714,17 +712,7 @@ def build_shipments_view(
     # fails with there_are_incomplete_carriages.
     if not matched and other_day:
         force_no_form = True
-        dates: list[str] = []
-        for b in other_day:
-            d = _block_departure_date(b)
-            if d is not None:
-                dates.append(d.isoformat())
-        date_txt = ", ".join(sorted(set(dates))) or "другой день"
-        blocking_message = (
-            f"По этому методу есть незакрытые отгрузки на {date_txt}. "
-            "Подтвердите или закройте их (на портале Ozon / в этой модалке на той дате), "
-            "иначе сформировать отгрузку на выбранную дату нельзя."
-        )
+        blocking = True
         blocks = [
             _normalize_block(b, client=client, force_no_form=True) for b in other_day
         ]
@@ -735,16 +723,7 @@ def build_shipments_view(
         if other_day:
             # Same method still has open acts on another day — disable form.
             force_no_form = True
-            dates = []
-            for b in other_day:
-                d = _block_departure_date(b)
-                if d is not None:
-                    dates.append(d.isoformat())
-            date_txt = ", ".join(sorted(set(dates))) or "другой день"
-            blocking_message = (
-                f"По этому методу есть незакрытые отгрузки на {date_txt}. "
-                "Новую отгрузку на выбранную дату можно сформировать только после их закрытия."
-            )
+            blocking = True
             for block in blocks:
                 for c in block.get("carriages") or []:
                     c["can_form"] = False
@@ -799,7 +778,7 @@ def build_shipments_view(
 
     return {
         "ok": True,
-        "message": blocking_message,
+        "message": "",
         "departure_date": departure.isoformat(),
         "departure_date_api": dep_iso,
         "delivery_methods": methods,
@@ -809,8 +788,7 @@ def build_shipments_view(
         "warehouse_name": warehouse_name or "",
         "blocks": blocks,
         "barcode": barcode,
-        "journal_hint": _JOURNAL_HINT,
-        "has_open_carriages_blocking": bool(blocking_message),
+        "has_open_carriages_blocking": bool(blocking),
     }
 
 
@@ -887,13 +865,7 @@ def form_shipment(
     if mid is None:
         raise RuntimeError(view.get("message") or "Нет метода доставки")
     if view.get("has_open_carriages_blocking"):
-        raise RuntimeError(
-            str(view.get("message") or "").strip()
-            or (
-                "По этому методу доставки есть незакрытые отгрузки. "
-                "Закройте их перед формированием на другую дату."
-            )
-        )
+        raise RuntimeError(_OPEN_CARRIAGE_BLOCK_HINT)
     any_can_form = any(
         bool(c.get("can_form"))
         for block in (view.get("blocks") or [])
