@@ -7874,7 +7874,6 @@
     try {
       await _ozonFbsKizAwaitLocalAutosaves();
       _ozonFbsKizCollectFromDom();
-      const incomplete = [];
       const items = [];
       for (const r of ozonFbsKizState.rows || []) {
         if (_ozonFbsRowIsCancelled(r)) continue;
@@ -7882,51 +7881,38 @@
         if (!pn) continue;
         const codes = (r.kiz_codes || []).map((c) => _ozonFbsNormalizeMark(c)).filter(Boolean);
         const gtdNow = String(r.gtd_number || "").trim();
-        const needQty = Math.max(Number(r.quantity) || 1, 1);
         const gtdRequired = !!r.gtd_required;
-        if (codes.length < needQty) {
-          incomplete.push(pn);
-          ozonFbsKizState.errors[pn] = `Нужно КИЗ: ${needQty}, заполнено: ${codes.length}`;
-        } else if (gtdRequired && !gtdNow) {
-          incomplete.push(pn);
-          ozonFbsKizState.errors[pn] = "Укажите ГТД";
-        } else if (ozonFbsKizState.errors[pn]) {
-          delete ozonFbsKizState.errors[pn];
-        }
         const gtdBase = String(ozonFbsKizState.baselineGtdByPosting?.[pn] || "").trim();
         const gtdDirty = gtdNow !== gtdBase;
         const force = !!(ozonFbsKizState.forceSaveByPosting && ozonFbsKizState.forceSaveByPosting[pn]);
+        const baseCodes = Array.isArray(ozonFbsKizState.baselineByPosting?.[pn])
+          ? ozonFbsKizState.baselineByPosting[pn]
+          : null;
+        const baseHadCodes = Array.isArray(baseCodes) && baseCodes.length > 0;
+        // Empty rows are fine — skip. Only clear when codes existed and were removed.
+        const wantClear = !codes.length && baseHadCodes;
         const codesDirty = !_ozonFbsKizBaselineEquals(pn, codes);
         const needsOzonPush = gtdRequired && codes.length > 0 && !!gtdNow && !r.kiz_ozon_synced;
-        // Autosave already wrote local DB; final Save only sends what still needs work.
-        if (!force && !codesDirty && !gtdDirty && !needsOzonPush) continue;
-        if (!codes.length && !force) continue;
+        if (!force && !codesDirty && !gtdDirty && !needsOzonPush && !wantClear) continue;
+        if (!codes.length && !wantClear && !gtdDirty && !force) continue;
+        if (ozonFbsKizState.errors[pn]) delete ozonFbsKizState.errors[pn];
         items.push({
           posting_number: pn,
           kiz_codes: codes,
           gtd_number: gtdNow,
           expected_saved_at: r.kiz_saved_at || "",
           force,
+          clear: wantClear,
         });
       }
-      if (incomplete.length) {
-        renderOzonFbsKizTable();
-      }
       if (!items.length) {
-        if (incomplete.length) {
-          _ozonFbsKizSetInfo(
-            `Не сохранено: заполните КИЗ/ГТД у ${incomplete.length} отправлений`
-          );
-        } else {
-          _ozonFbsKizSetInfo("Готово", true);
-        }
+        _ozonFbsKizSetInfo("Готово", true);
         return;
       }
       // Chunk Ozon pushes so nginx 60s default cannot 504 a bulk юрлицо save.
       const CHUNK = 15;
       const allResults = [];
       let savedTotal = 0;
-      let errTotal = 0;
       for (let i = 0; i < items.length; i += CHUNK) {
         const chunk = items.slice(i, i + CHUNK);
         if (items.length > CHUNK) {
@@ -7946,18 +7932,16 @@
         if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
         allResults.push(...(data.results || []));
         savedTotal += Number(data.saved) || 0;
-        errTotal += Number(data.errors) || 0;
       }
       const errs = allResults.filter((r) => r && !r.ok);
-      if (errs.length || incomplete.length) {
+      if (errs.length) {
         errs.forEach((e) => {
           if (e.posting_number) ozonFbsKizState.errors[e.posting_number] = e.error || "ошибка";
         });
         renderOzonFbsKizTable();
         const parts = [];
         if (savedTotal) parts.push(`сохранено ${savedTotal}`);
-        if (errs.length) parts.push(`ошибок ${errs.length}`);
-        if (incomplete.length) parts.push(`не заполнено ${incomplete.length}`);
+        parts.push(`ошибок ${errs.length}`);
         _ozonFbsKizSetInfo(`Сохранено частично (${parts.join(", ")}).`);
       } else {
         _ozonFbsKizSetInfo(
