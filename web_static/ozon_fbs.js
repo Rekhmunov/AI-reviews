@@ -4613,8 +4613,8 @@
       : null;
     if (want && Number.isFinite(want) && want > 0) {
       const hit = formed.find((x) => Number(x.carriage.carriage_id) === want);
-      if (hit?.barcode) return hit.barcode;
-      if (hit) return data?.barcode || null;
+      // Never fall back to another carriage's ШК — API is per carriage_id.
+      if (hit) return hit.barcode || null;
     }
     const withBc = formed.find((x) => x.barcode);
     if (withBc?.barcode) return withBc.barcode;
@@ -5289,19 +5289,26 @@
     const day = String(dateEl?.value || todayIsoDate());
     const methodId = String(methodEl?.value || shipmentsState.data?.selected_delivery_method_id || "").trim();
     const cid = Number(carriageId || shipmentsState.selectedCarriageId || 0);
-    if (cid > 0) {
+    if (cid > 0 && cid !== Number(shipmentsState.selectedCarriageId || 0)) {
+      shipmentsState.selectedCarriageId = cid;
+      renderShipmentsView(shipmentsState.data);
+    } else if (cid > 0) {
       shipmentsState.selectedCarriageId = cid;
     }
     const barcode = resolveShipmentsBarcode(shipmentsState.data, cid || shipmentsState.selectedCarriageId);
     const barcodeCarriageId = String(
-      (barcode && barcode.carriage_id) || cid || shipmentsState.selectedCarriageId || ""
+      cid || (barcode && barcode.carriage_id) || shipmentsState.selectedCarriageId || ""
     ).trim();
+    if (!barcodeCarriageId) {
+      alert("Выберите сформированную отгрузку со штрихкодом");
+      return;
+    }
     const qs = new URLSearchParams({
       source_id: String(sourceId),
       departure_date: day,
+      carriage_id: barcodeCarriageId,
     });
     if (methodId) qs.set("delivery_method_id", methodId);
-    if (barcodeCarriageId) qs.set("carriage_id", barcodeCarriageId);
     const url =
       `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/shipments/barcode-print?${qs.toString()}`;
     openPrintHtml(url, "Разрешите всплывающие окна для печати штрихкода")
@@ -5310,13 +5317,17 @@
 
   function shipmentsDownloadBarcode(carriageId) {
     const cid = Number(carriageId || shipmentsState.selectedCarriageId || 0);
-    if (cid > 0) shipmentsState.selectedCarriageId = cid;
+    if (cid > 0 && cid !== Number(shipmentsState.selectedCarriageId || 0)) {
+      shipmentsState.selectedCarriageId = cid;
+      renderShipmentsView(shipmentsState.data);
+    } else if (cid > 0) {
+      shipmentsState.selectedCarriageId = cid;
+    }
     const barcode = resolveShipmentsBarcode(shipmentsState.data, cid || shipmentsState.selectedCarriageId) || {};
     const labelB64 = String(barcode.barcode_label_base64 || "").trim();
     const b64 = String(barcode.barcode_image_base64 || "").trim();
     const text = String(barcode.barcode_text || "").trim();
     const suffix = text || (cid > 0 ? String(cid) : "label");
-    // Prefer composed label (bars + digits), matching Ozon seller sticker.
     const payload = labelB64 || b64;
     if (payload) {
       const a = document.createElement("a");
@@ -5333,7 +5344,9 @@
       a.download = `ozon-shipment-barcode-${text}.txt`;
       a.click();
       URL.revokeObjectURL(url);
+      return;
     }
+    alert("Штрихкод для этой отгрузки ещё недоступен");
   }
 
   const ozonFbsKizState = {
