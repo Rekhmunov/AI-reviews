@@ -905,7 +905,11 @@ def save_marking(
     client_id: str | None = None,
     api_key: str | None = None,
 ) -> dict[str, Any]:
-    """Save marking codes locally; push to Ozon when GTD/юрлицо row is complete."""
+    """Save marking codes locally; push to Ozon when GTD/юрлицо row is complete.
+
+    Unchanged payloads that were already autosaved (and synced to Ozon when
+    required) are returned as ``unchanged`` without rewriting DB or re-pushing.
+    """
     results: list[dict[str, Any]] = []
     ok_n = 0
     err_n = 0
@@ -921,6 +925,12 @@ def save_marking(
         if isinstance(raw, dict) and str(raw.get("posting_number") or "").strip()
     ]
     cancelled_map = _load_posting_cancelled_map(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        posting_numbers=candidate_pns,
+    )
+    prev_map = load_marking_map(
         repo,
         user_id=user_id,
         source_id=source_id,
@@ -974,6 +984,123 @@ def save_marking(
         gtd_required = oz.posting_requires_pre_ship_gtd(row)
         if gtd_required and not gtd_clean:
             gtd_clean = str(row.get("marking_gtd_number") or "").strip()
+        prev = prev_map.get(pn) or {}
+        prev_codes = list(prev.get("codes") or [])
+        prev_gtd = str(prev.get("gtd_number") or "").strip()
+        prev_synced = bool(prev.get("ozon_synced"))
+        prev_saved = str(prev.get("saved_at") or "")
+        codes_same = prev_codes == uniq
+        gtd_same = prev_gtd == str(gtd_clean or "")
+        # Autosave already persisted (+ pushed for юрлицо). Final «Сохранить»
+        # must not wipe marking_ozon_synced and re-push every posting to Ozon.
+        if not clear and codes_same and gtd_same:
+            if not (gtd_required and uniq):
+                ok_n += 1
+                results.append(
+                    {
+                        "posting_number": pn,
+                        "ok": True,
+                        "kiz_codes": uniq,
+                        "kiz_saved_at": prev_saved,
+                        "gtd_number": gtd_clean,
+                        "kiz_ozon_synced": bool(prev_synced),
+                        "unchanged": True,
+                    }
+                )
+                continue
+            if not gtd_clean:
+                err_n += 1
+                results.append(
+                    {
+                        "posting_number": pn,
+                        "ok": False,
+                        "kiz_codes": uniq,
+                        "kiz_saved_at": prev_saved,
+                        "gtd_number": "",
+                        "kiz_ozon_synced": False,
+                        "error": "Для юрлица укажите ГТД перед сохранением в Ozon",
+                    }
+                )
+                continue
+            if prev_synced:
+                ok_n += 1
+                results.append(
+                    {
+                        "posting_number": pn,
+                        "ok": True,
+                        "kiz_codes": uniq,
+                        "kiz_saved_at": prev_saved,
+                        "gtd_number": gtd_clean,
+                        "kiz_ozon_synced": True,
+                        "unchanged": True,
+                    }
+                )
+                continue
+            # Local payload unchanged, Ozon not synced yet — push only.
+            if not client:
+                err_n += 1
+                results.append(
+                    {
+                        "posting_number": pn,
+                        "ok": False,
+                        "kiz_codes": uniq,
+                        "kiz_saved_at": prev_saved,
+                        "gtd_number": gtd_clean,
+                        "kiz_ozon_synced": False,
+                        "error": (
+                            "Коды сохранены локально, но нет доступа к API Ozon "
+                            "для передачи КИЗ/ГТД"
+                        ),
+                    }
+                )
+                continue
+            posting = oz._posting_payload_from_row(row) or {}
+            try:
+                push_marking_to_ozon(
+                    client,
+                    posting_number=pn,
+                    posting=posting,
+                    codes=uniq,
+                    gtd=gtd_clean,
+                    prefer_gtd_products=True,
+                )
+                synced_res = update_posting_marking_codes(
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    posting_number=pn,
+                    codes=uniq,
+                    gtd_number=gtd_clean,
+                    ozon_synced=True,
+                    force=True,
+                )
+                ok_n += 1
+                results.append(
+                    {
+                        "posting_number": pn,
+                        "ok": True,
+                        "kiz_codes": list(synced_res.get("codes") or uniq),
+                        "kiz_saved_at": str(synced_res.get("saved_at") or prev_saved),
+                        "gtd_number": gtd_clean,
+                        "kiz_ozon_synced": True,
+                    }
+                )
+            except Exception as exc:
+                _log.warning("ozon supply marking push %s: %s", pn, exc)
+                err_n += 1
+                results.append(
+                    {
+                        "posting_number": pn,
+                        "ok": False,
+                        "kiz_codes": uniq,
+                        "kiz_saved_at": prev_saved,
+                        "gtd_number": gtd_clean,
+                        "kiz_ozon_synced": False,
+                        "error": f"Сохранено локально, Ozon не принял: {exc}",
+                        "push_warning": str(exc),
+                    }
+                )
+            continue
         local_res = update_posting_marking_codes(
             repo,
             user_id=user_id,

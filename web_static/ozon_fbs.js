@@ -7377,6 +7377,11 @@
         if (seqCurrent && !stillDirty) {
           if (!ozonFbsKizState.baselineByPosting) ozonFbsKizState.baselineByPosting = {};
           ozonFbsKizState.baselineByPosting[pn] = (codesByPosting[pn] || []).slice();
+          if (!ozonFbsKizState.baselineGtdByPosting) ozonFbsKizState.baselineGtdByPosting = {};
+          ozonFbsKizState.baselineGtdByPosting[pn] = String(row.gtd_number || "").trim();
+          if (typeof result.kiz_ozon_synced === "boolean") {
+            row.kiz_ozon_synced = !!result.kiz_ozon_synced;
+          }
           delete ozonFbsKizState.forceSaveByPosting?.[pn];
           delete ozonFbsKizState.errors[pn];
         }
@@ -7585,6 +7590,10 @@
         row.kiz_codes = r.kiz_codes.length ? r.kiz_codes.slice() : [""];
       }
       if (r.kiz_saved_at) row.kiz_saved_at = String(r.kiz_saved_at);
+      if (typeof r.kiz_ozon_synced === "boolean") {
+        row.kiz_ozon_synced = !!r.kiz_ozon_synced;
+      }
+      if (r.gtd_number != null) row.gtd_number = String(r.gtd_number || "").trim();
       row.kiz_status = _ozonFbsKizStatusFromRow(row);
     });
     _ozonFbsKizCaptureBaseline();
@@ -7863,15 +7872,55 @@
     _ozonFbsKizSetInfo("Сохранение…");
     try {
       await _ozonFbsKizAwaitLocalAutosaves();
-      const items = (ozonFbsKizState.rows || [])
-        .filter((r) => !_ozonFbsRowIsCancelled(r))
-        .map((r) => ({
-        posting_number: r.posting_number,
-        kiz_codes: (r.kiz_codes || []).map((c) => _ozonFbsNormalizeMark(c)).filter(Boolean),
-        gtd_number: String(r.gtd_number || "").trim(),
-        expected_saved_at: r.kiz_saved_at || "",
-        force: !!(ozonFbsKizState.forceSaveByPosting && ozonFbsKizState.forceSaveByPosting[r.posting_number]),
-      })).filter((it) => it.posting_number);
+      _ozonFbsKizCollectFromDom();
+      const incomplete = [];
+      const items = [];
+      for (const r of ozonFbsKizState.rows || []) {
+        if (_ozonFbsRowIsCancelled(r)) continue;
+        const pn = String(r.posting_number || "").trim();
+        if (!pn) continue;
+        const codes = (r.kiz_codes || []).map((c) => _ozonFbsNormalizeMark(c)).filter(Boolean);
+        const gtdNow = String(r.gtd_number || "").trim();
+        const needQty = Math.max(Number(r.quantity) || 1, 1);
+        const gtdRequired = !!r.gtd_required;
+        if (codes.length < needQty) {
+          incomplete.push(pn);
+          ozonFbsKizState.errors[pn] = `Нужно КИЗ: ${needQty}, заполнено: ${codes.length}`;
+        } else if (gtdRequired && !gtdNow) {
+          incomplete.push(pn);
+          ozonFbsKizState.errors[pn] = "Укажите ГТД";
+        } else if (ozonFbsKizState.errors[pn]) {
+          delete ozonFbsKizState.errors[pn];
+        }
+        const gtdBase = String(ozonFbsKizState.baselineGtdByPosting?.[pn] || "").trim();
+        const gtdDirty = gtdNow !== gtdBase;
+        const force = !!(ozonFbsKizState.forceSaveByPosting && ozonFbsKizState.forceSaveByPosting[pn]);
+        const codesDirty = !_ozonFbsKizBaselineEquals(pn, codes);
+        const needsOzonPush = gtdRequired && codes.length > 0 && !!gtdNow && !r.kiz_ozon_synced;
+        // After per-scan autosave, final Save only sends what still needs work.
+        if (!force && !codesDirty && !gtdDirty && !needsOzonPush) continue;
+        if (!codes.length && !force) continue;
+        items.push({
+          posting_number: pn,
+          kiz_codes: codes,
+          gtd_number: gtdNow,
+          expected_saved_at: r.kiz_saved_at || "",
+          force,
+        });
+      }
+      if (incomplete.length) {
+        renderOzonFbsKizTable();
+      }
+      if (!items.length) {
+        if (incomplete.length) {
+          _ozonFbsKizSetInfo(
+            `Не сохранено: заполните КИЗ/ГТД у ${incomplete.length} отправлений`
+          );
+        } else {
+          _ozonFbsKizSetInfo("Уже сохранено — изменений нет", true);
+        }
+        return;
+      }
       const res = await fetch(
         `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/marking?source_id=${sourceId}`,
         {
@@ -7883,14 +7932,23 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
       const errs = (data.results || []).filter((r) => r && !r.ok);
-      if (errs.length) {
+      if (errs.length || incomplete.length) {
         errs.forEach((e) => {
           if (e.posting_number) ozonFbsKizState.errors[e.posting_number] = e.error || "ошибка";
         });
         renderOzonFbsKizTable();
-        _ozonFbsKizSetInfo(`Сохранено частично (${data.saved || 0}).`);
+        const parts = [];
+        if (data.saved) parts.push(`сохранено ${data.saved}`);
+        if (errs.length) parts.push(`ошибок ${errs.length}`);
+        if (incomplete.length) parts.push(`не заполнено ${incomplete.length}`);
+        _ozonFbsKizSetInfo(`Сохранено частично (${parts.join(", ")}).`);
       } else {
-        _ozonFbsKizSetInfo(`Сохранено локально: ${data.saved || 0} отправлений`, true);
+        const unchanged = (data.results || []).filter((r) => r && r.unchanged).length;
+        if (unchanged && unchanged === (data.results || []).length) {
+          _ozonFbsKizSetInfo("Уже сохранено — изменений нет", true);
+        } else {
+          _ozonFbsKizSetInfo(`Сохранено: ${data.saved || 0} отправлений`, true);
+        }
       }
       _ozonFbsKizApplySaveResults(data.results || []);
     } catch (e) {
