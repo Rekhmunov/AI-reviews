@@ -402,29 +402,60 @@ def _acceptance_label(block: dict[str, Any]) -> str:
     return "—"
 
 
+def _as_nonneg_int(value: object) -> int:
+    try:
+        n = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0
+    return n if n > 0 else 0
+
+
+def _draft_postings_count(block: dict[str, Any]) -> int:
+    """Postings in draft/unformed slots (carriage id missing or ≤0)."""
+    carriages = block.get("carriages") if isinstance(block.get("carriages"), list) else []
+    total = 0
+    for c in carriages:
+        if not isinstance(c, dict):
+            continue
+        cid = c.get("id") if c.get("id") is not None else c.get("carriage_id")
+        try:
+            carriage_id = int(cid) if cid is not None and str(cid).strip() != "" else 0
+        except (TypeError, ValueError):
+            carriage_id = 0
+        if carriage_id > 0:
+            continue
+        total += _as_nonneg_int(c.get("postings_count"))
+    return total
+
+
 def _collected_label(block: dict[str, Any]) -> str:
-    packaged = block.get("mandatory_packaged_count")
-    total = block.get("mandatory_postings_count")
-    try:
-        p = int(packaged) if packaged is not None else None
-        t = int(total) if total is not None else None
-    except (TypeError, ValueError):
-        p, t = None, None
-    if p is not None and t is not None and t > 0:
-        return f"{p} из {t}"
-    # Optional carriages: packaged optional + postings in carriages.
-    try:
-        opt = int(block.get("optional_packaged_count") or 0)
-    except (TypeError, ValueError):
-        opt = 0
-    try:
-        carriage_n = int(block.get("carriage_postings_count") or 0)
-    except (TypeError, ValueError):
-        carriage_n = 0
-    if carriage_n > 0:
-        return f"{opt or carriage_n} из {carriage_n}" if opt else str(carriage_n)
-    if t is not None:
-        return f"0 из {t}"
+    """Seller-style «Собрано заказов: X из Y».
+
+    Ozon v2 ``/v2/carriage/delivery/list`` splits progress into mandatory and
+    optional pools:
+
+    - ``mandatory_packaged_count`` / ``mandatory_postings_count``
+    - ``optional_packaged_count``
+    - ``postings_for_another_carriage_count`` (optional pool total), else draft
+      carriages (id ≤ 0), else ``carriage_postings_count`` when mandatory is empty
+    """
+    mand_pack = _as_nonneg_int(block.get("mandatory_packaged_count"))
+    mand_total = _as_nonneg_int(block.get("mandatory_postings_count"))
+    opt_pack = _as_nonneg_int(block.get("optional_packaged_count"))
+    for_next = _as_nonneg_int(block.get("postings_for_another_carriage_count"))
+    carriage_n = _as_nonneg_int(block.get("carriage_postings_count"))
+    draft_n = _draft_postings_count(block)
+
+    packaged = mand_pack + opt_pack
+    optional_pool = for_next or draft_n
+    total = mand_total + optional_pool
+    # Optional-only days: progress lives in formed/new carriages, not mandatory_*.
+    if total <= 0 and carriage_n > 0:
+        total = carriage_n
+    if total <= 0 and packaged > 0:
+        total = packaged
+    if total > 0:
+        return f"{packaged} из {total}"
     return "—"
 
 
@@ -461,10 +492,19 @@ def fetch_carriage_barcode(
                     image_b64 = base64.b64encode(text_raw.encode("latin-1")).decode("ascii")
     except Exception as exc:
         _log.warning("ozon fbs barcode image failed id=%s: %s", carriage_id, exc)
+    label_b64 = ""
+    if image_b64 and text:
+        composed = compose_shipment_barcode_label_png(
+            barcode_image_base64=image_b64, barcode_text=text
+        )
+        if composed:
+            label_b64 = base64.b64encode(composed).decode("ascii")
     return {
         "carriage_id": int(carriage_id),
         "barcode_text": text,
         "barcode_image_base64": image_b64,
+        # Full sticker (bars + digits) for download / print fallback.
+        "barcode_label_base64": label_b64,
         "content_type": content_type,
     }
 
@@ -934,6 +974,73 @@ def form_shipment(
     return refreshed
 
 
+def compose_shipment_barcode_label_png(
+    *,
+    barcode_image_base64: str,
+    barcode_text: str,
+) -> bytes | None:
+    """Build a PNG with Code128 bars + human-readable digits underneath."""
+    b64 = str(barcode_image_base64 or "").strip()
+    text = str(barcode_text or "").strip()
+    if not b64 or not text:
+        return None
+    try:
+        from io import BytesIO
+
+        from PIL import Image, ImageDraw, ImageFont
+    except Exception as exc:
+        _log.warning("barcode compose: Pillow unavailable: %s", exc)
+        return None
+    try:
+        raw = base64.b64decode(b64, validate=False)
+        bars = Image.open(BytesIO(raw)).convert("RGB")
+    except Exception as exc:
+        _log.debug("barcode compose: bad image: %s", exc)
+        return None
+
+    # Target label proportions close to Ozon seller sticker (wide bars + HRI).
+    target_w = max(int(bars.width), 420)
+    # Scale bars to nearly full width while keeping a readable bar height.
+    bar_h = max(72, min(140, int(round(target_w * 0.22))))
+    scaled = bars.resize((target_w, bar_h), Image.Resampling.NEAREST)
+
+    pad_x = 12
+    pad_top = 10
+    pad_bottom = 10
+    gap = 8
+    text_h = 28
+    out_w = target_w + pad_x * 2
+    out_h = pad_top + bar_h + gap + text_h + pad_bottom
+    canvas = Image.new("RGB", (out_w, out_h), (255, 255, 255))
+    canvas.paste(scaled, (pad_x, pad_top))
+
+    draw = ImageDraw.Draw(canvas)
+    font = None
+    for path in (
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ):
+        try:
+            font = ImageFont.truetype(path, 22)
+            break
+        except OSError:
+            continue
+    if font is None:
+        font = ImageFont.load_default()
+    text_y = pad_top + bar_h + gap
+    draw.text(
+        (out_w / 2, text_y + text_h / 2),
+        text,
+        fill=(15, 23, 42),
+        font=font,
+        anchor="mm",
+    )
+    buf = BytesIO()
+    canvas.save(buf, format="PNG", optimize=True)
+    return buf.getvalue()
+
+
 def render_shipment_barcode_print_html(
     *,
     supply_name: str,
@@ -946,13 +1053,27 @@ def render_shipment_barcode_print_html(
 
     title = _esc(supply_name or "Поставка")
     wh = _esc(warehouse_name or "")
-    text = _esc(barcode_text or "")
+    text_raw = str(barcode_text or "").strip()
+    text = _esc(text_raw)
     b64 = str(barcode_image_base64 or "").strip()
-    ctype = _esc(content_type or "image/png")
-    if b64:
+    ctype = "image/png"
+    # Prefer a composed label (bars + digits) so print matches Ozon seller format.
+    composed = compose_shipment_barcode_label_png(
+        barcode_image_base64=b64, barcode_text=text_raw
+    )
+    if composed:
+        b64 = base64.b64encode(composed).decode("ascii")
+        body = f"""
+        <section class="label barcode">
+          <img src="data:{ctype};base64,{b64}" alt="ШК поставки {text}" />
+        </section>"""
+    elif b64:
+        ctype = _esc(content_type or "image/png")
+        text_block = f'<div class="code">{text}</div>' if text else ""
         body = f"""
         <section class="label barcode">
           <img src="data:{ctype};base64,{b64}" alt="ШК поставки" />
+          {text_block}
         </section>"""
     elif text:
         body = f"""
@@ -975,10 +1096,16 @@ def render_shipment_barcode_print_html(
   }}
   .label.barcode {{
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    padding: 2mm;
+    padding: 2mm 2mm 1.5mm;
+    gap: 1.5mm;
   }}
   .label.barcode img {{
-    width: 56mm; max-height: 34mm; object-fit: contain;
+    width: 54mm; max-height: 28mm; object-fit: contain; object-position: center;
+  }}
+  .label.barcode .code {{
+    font-family: "DejaVu Sans Mono", "Courier New", monospace;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-align: center;
+    line-height: 1.1; color: #0f172a;
   }}
   .label.barcode.text-only .code {{
     font-size: 14px; font-weight: 800; letter-spacing: 0.04em; text-align: center;

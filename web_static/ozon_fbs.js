@@ -4594,21 +4594,26 @@
     const barcode = data?.barcode || null;
     const whName = esc(data?.warehouse_name || "склада");
     const text = String(barcode?.barcode_text || "").trim();
+    const labelB64 = String(barcode?.barcode_label_base64 || "").trim();
     const b64 = String(barcode?.barcode_image_base64 || "").trim();
     const ctype = String(barcode?.content_type || "image/png").trim() || "image/png";
+    const hasLabel = Boolean(labelB64);
     const hasImg = Boolean(b64);
-    const canPrint = Boolean(hasImg || text);
+    const canPrint = Boolean(hasLabel || hasImg || text);
     const journalHint = String(
       data?.journal_hint
       || (Array.isArray(data?.blocks) && data.blocks[0]?.journal_hint)
       || "Отметьтесь в журнале регистрации, как только приедете на СЦ. От этого зависит скидка на тариф отгрузки или штраф"
     ).trim();
-    const visual = hasImg
-      ? `<img id="ozonFbsShipmentsBarcodeImg" src="data:${esc(ctype)};base64,${b64}" alt="Штрихкод поставки" />`
-      : (text
-        ? `<div class="ozon-fbs-shipments-barcode-empty">ШК: ${esc(text)}</div>`
-        : `<div class="ozon-fbs-shipments-barcode-empty">Штрихкод появится после формирования отгрузки</div>`);
-    const textHtml = text
+    const visual = hasLabel
+      ? `<img id="ozonFbsShipmentsBarcodeImg" src="data:image/png;base64,${labelB64}" alt="Штрихкод поставки ${esc(text)}" />`
+      : (hasImg
+        ? `<img id="ozonFbsShipmentsBarcodeImg" src="data:${esc(ctype)};base64,${b64}" alt="Штрихкод поставки" />`
+        : (text
+          ? `<div class="ozon-fbs-shipments-barcode-empty">ШК: ${esc(text)}</div>`
+          : `<div class="ozon-fbs-shipments-barcode-empty">Штрихкод появится после формирования отгрузки</div>`));
+    // Composed label already includes digits under the bars.
+    const textHtml = (!hasLabel && text)
       ? `<div class="ozon-fbs-shipments-barcode-text">${esc(text)}</div>`
       : "";
     return `
@@ -5211,12 +5216,14 @@
 
   function shipmentsDownloadBarcode() {
     const barcode = shipmentsState.data?.barcode || {};
+    const labelB64 = String(barcode.barcode_label_base64 || "").trim();
     const b64 = String(barcode.barcode_image_base64 || "").trim();
     const text = String(barcode.barcode_text || "").trim();
-    if (b64) {
-      const ctype = String(barcode.content_type || "image/png");
+    // Prefer composed label (bars + digits), matching Ozon seller sticker.
+    const payload = labelB64 || b64;
+    if (payload) {
       const a = document.createElement("a");
-      a.href = `data:${ctype};base64,${b64}`;
+      a.href = `data:image/png;base64,${payload}`;
       a.download = `ozon-shipment-barcode-${text || "label"}.png`;
       a.click();
       return;

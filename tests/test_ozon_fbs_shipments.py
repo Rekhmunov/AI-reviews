@@ -18,6 +18,7 @@ from review_processor.ozon_fbs_shipments import (
     _merge_delivery_methods,
     _normalize_block,
     build_shipments_view,
+    compose_shipment_barcode_label_png,
     pick_default_delivery_method,
     render_shipment_barcode_print_html,
 )
@@ -106,6 +107,50 @@ class OzonFbsShipmentsHelpersTests(unittest.TestCase):
             "16 из 18",
         )
 
+    def test_collected_label_includes_optional_pool(self) -> None:
+        # Seller portal: mandatory 1249/1249 + optional 317 of 541 → 1566 из 1790.
+        self.assertEqual(
+            _collected_label(
+                {
+                    "mandatory_packaged_count": 1249,
+                    "mandatory_postings_count": 1249,
+                    "optional_packaged_count": 317,
+                    "postings_for_another_carriage_count": 541,
+                }
+            ),
+            "1566 из 1790",
+        )
+
+    def test_collected_label_optional_only_uses_carriage_postings(self) -> None:
+        self.assertEqual(
+            _collected_label(
+                {
+                    "mandatory_packaged_count": 0,
+                    "mandatory_postings_count": 0,
+                    "optional_packaged_count": 275,
+                    "carriage_postings_count": 401,
+                }
+            ),
+            "275 из 401",
+        )
+
+    def test_collected_label_draft_carriage_as_optional_pool(self) -> None:
+        self.assertEqual(
+            _collected_label(
+                {
+                    "mandatory_packaged_count": 1249,
+                    "mandatory_postings_count": 1249,
+                    "optional_packaged_count": 317,
+                    "carriage_postings_count": 1249,
+                    "carriages": [
+                        {"id": 1, "postings_count": 1249, "status": "formed"},
+                        {"id": 0, "postings_count": 541, "status": ""},
+                    ],
+                }
+            ),
+            "1566 из 1790",
+        )
+
     def test_pick_self_delivery_method(self) -> None:
         methods = [
             {"id": 1, "name": "Курьер Ozon"},
@@ -140,7 +185,26 @@ class OzonFbsShipmentsHelpersTests(unittest.TestCase):
             barcode_image_base64="abc",
         )
         self.assertIn("58mm 40mm", html)
-        self.assertIn("abc", html)
+        # Invalid/tiny base64 cannot be composed — digits still rendered under bars.
+        self.assertIn("123", html)
+        self.assertIn('class="code"', html)
+
+    def test_compose_barcode_label_includes_digits(self) -> None:
+        from io import BytesIO
+
+        from PIL import Image
+
+        buf = BytesIO()
+        Image.new("RGB", (200, 60), (0, 0, 0)).save(buf, format="PNG")
+        b64 = __import__("base64").b64encode(buf.getvalue()).decode("ascii")
+        composed = compose_shipment_barcode_label_png(
+            barcode_image_base64=b64, barcode_text="1020005028015630"
+        )
+        self.assertIsNotNone(composed)
+        assert composed is not None
+        out = Image.open(BytesIO(composed))
+        self.assertGreater(out.height, 60)
+        self.assertGreaterEqual(out.width, 200)
 
     def test_normalize_empty_carriages_draft(self) -> None:
         block = _normalize_block(
@@ -226,8 +290,15 @@ class OzonFbsShipmentsHelpersTests(unittest.TestCase):
         }
         client.carriage_get.return_value = {"status": "formed", "carriage_id": 100}
         client.fbs_act_get_barcode_text.return_value = {"result": "1020005028015630"}
+        from io import BytesIO
+        import base64 as b64mod
+
+        from PIL import Image
+
+        png_buf = BytesIO()
+        Image.new("RGB", (180, 50), (0, 0, 0)).save(png_buf, format="PNG")
         client.fbs_act_get_barcode.return_value = {
-            "file_content": "aaa",
+            "file_content": b64mod.b64encode(png_buf.getvalue()).decode("ascii"),
             "content_type": "image/png",
         }
 
@@ -240,6 +311,7 @@ class OzonFbsShipmentsHelpersTests(unittest.TestCase):
         self.assertTrue(view["ok"])
         self.assertEqual(view["selected_delivery_method_id"], 22)
         self.assertEqual(view["barcode"]["barcode_text"], "1020005028015630")
+        self.assertTrue(view["barcode"]["barcode_label_base64"])
         self.assertEqual(
             view["blocks"][0]["carriages"][0]["status_label"], "Сформирована"
         )

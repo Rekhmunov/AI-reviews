@@ -8679,27 +8679,30 @@ button.ozon-fbs-split-multi-btn[hidden] {
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  padding: 12px;
-  background: #f8fafc;
+  padding: 16px 12px;
+  background: #fff;
   border-radius: 8px;
   border: 1px solid #e2e8f0;
-  min-height: 96px;
+  min-height: 120px;
   justify-content: center;
   width: 100%;
 }
 .ozon-fbs-shipments-barcode-visual img {
-  max-width: 100%;
+  width: 100%;
+  max-width: 280px;
   height: auto;
-  max-height: 96px;
+  max-height: 140px;
   object-fit: contain;
+  object-position: center;
 }
 .ozon-fbs-shipments-barcode-text {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
   color: #0f172a;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.06em;
   text-align: center;
+  line-height: 1.2;
 }
 .ozon-fbs-shipments-journal-callout {
   margin: 0;
