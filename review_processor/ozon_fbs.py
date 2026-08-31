@@ -434,29 +434,47 @@ class OzonFbsClient:
         status: str = "ACTIVE",
         limit: int = 50,
         offset: int = 0,
+        cursor: str | None = None,
     ) -> dict[str, Any]:
-        del status  # v2 rejects string status filters; v1 is obsolete (Apr 2026).
+        """POST /v2/delivery-method/list — filter.warehouse_ids + cursor pagination."""
+        del offset  # v2 uses cursor, not offset.
         filt: dict[str, Any] = {}
         if warehouse_id is not None:
-            filt["warehouse_id"] = int(warehouse_id)
-        body = {
+            filt["warehouse_ids"] = [str(int(warehouse_id))]
+        st = str(status or "").strip().upper()
+        if st:
+            filt["status"] = [st]
+        body: dict[str, Any] = {
             "filter": filt,
-            "limit": min(max(int(limit), 1), 50),
-            "offset": max(int(offset), 0),
+            "limit": min(max(int(limit), 1), 100),
         }
+        cur = str(cursor or "").strip()
+        if cur:
+            body["cursor"] = cur
         return self.post_json("/v2/delivery-method/list", body)
 
     def carriage_delivery_list(
-        self, *, delivery_method_id: int, departure_date: str, limit: int = 100
+        self,
+        *,
+        delivery_method_id: int,
+        departure_date: str,
+        limit: int = 100,
+        cursor: str | None = None,
     ) -> dict[str, Any]:
+        """POST /v2/carriage/delivery/list — body uses ``filter`` + ``limit``/``cursor``."""
         dep = str(departure_date or "").strip()
         if "T" in dep:
             dep = dep.split("T", 1)[0]
-        body = {
-            "delivery_method_id": int(delivery_method_id),
-            "departure_date": dep,
+        body: dict[str, Any] = {
             "limit": min(max(int(limit), 1), 1000),
+            "filter": {
+                "delivery_method_id": int(delivery_method_id),
+                "departure_date": dep,
+            },
         }
+        cur = str(cursor or "").strip()
+        if cur:
+            body["cursor"] = cur
         return self.post_json("/v2/carriage/delivery/list", body)
 
     def carriage_get(self, *, carriage_id: int) -> dict[str, Any]:

@@ -1,12 +1,13 @@
 """Ozon FBS «Отгрузки» (carriage / act) — Seller API wrappers for the supply modal.
 
 Key Seller API methods (docs.ozon.ru):
-- ``POST /v2/delivery-method/list`` (fallback ``/v1/…``) — методы доставки склада
-- ``POST /v2/carriage/delivery/list`` (fallback ``/v1/…``) — карточка отгрузки на дату + метод
+- ``POST /v2/delivery-method/list`` — методы доставки склада (``filter.warehouse_ids``, cursor)
+- ``POST /v2/carriage/delivery/list`` — карточка отгрузки на дату + метод (``filter`` + cursor)
 - ``POST /v2/posting/fbs/act/create`` — кнопка «Сформировать»
 - ``POST /v2/posting/fbs/act/check-status`` — статус формирования документов
 - ``POST /v2/posting/fbs/act/get-barcode`` — изображение ШК поставки
 - ``POST /v2/posting/fbs/act/get-barcode/text`` — текст ШК поставки
+- ``POST /v1/carriage/get`` — актуальный статус отгрузки
 """
 from __future__ import annotations
 
@@ -47,16 +48,16 @@ def _friendly_ozon_api_error(exc: Exception) -> RuntimeError:
     return RuntimeError(text)
 
 
-def _delivery_method_rows(data: dict[str, Any]) -> tuple[list[dict[str, Any]], bool]:
-    """Normalize v2 delivery-method/list payloads."""
+def _delivery_method_rows(data: dict[str, Any]) -> tuple[list[dict[str, Any]], bool, str]:
+    """Normalize v2 delivery-method/list payloads → (rows, has_next, cursor)."""
     top = data.get("delivery_methods")
     if isinstance(top, list):
         rows = [x for x in top if isinstance(x, dict)]
-        return rows, bool(data.get("has_next"))
+        return rows, bool(data.get("has_next")), str(data.get("cursor") or "")
     result = data.get("result")
     if isinstance(result, list):
         rows = [x for x in result if isinstance(x, dict)]
-        return rows, bool(data.get("has_next"))
+        return rows, bool(data.get("has_next")), str(data.get("cursor") or "")
     if isinstance(result, dict):
         nested = (
             result.get("delivery_methods")
@@ -67,8 +68,9 @@ def _delivery_method_rows(data: dict[str, Any]) -> tuple[list[dict[str, Any]], b
         if isinstance(nested, list):
             rows = [x for x in nested if isinstance(x, dict)]
             has_next = bool(result.get("has_next") or data.get("has_next"))
-            return rows, has_next
-    return [], False
+            cursor = str(result.get("cursor") or data.get("cursor") or "")
+            return rows, has_next, cursor
+    return [], False, ""
 
 
 def _parse_delivery_method_row(raw: dict[str, Any]) -> dict[str, Any] | None:
@@ -245,15 +247,18 @@ def list_delivery_methods(
 ) -> list[dict[str, Any]]:
     methods: list[dict[str, Any]] = []
     seen: set[int] = set()
-    offset = 0
+    cursor: str | None = None
     for _ in range(20):
         try:
             data = client.delivery_method_list(
-                warehouse_id=warehouse_id, status="ACTIVE", limit=50, offset=offset
+                warehouse_id=warehouse_id,
+                status="ACTIVE",
+                limit=50,
+                cursor=cursor,
             )
         except RuntimeError as exc:
             raise _friendly_ozon_api_error(exc) from exc
-        batch, has_next = _delivery_method_rows(data)
+        batch, has_next, next_cursor = _delivery_method_rows(data)
         for raw in batch:
             parsed = _parse_delivery_method_row(raw)
             if not parsed:
@@ -265,7 +270,9 @@ def list_delivery_methods(
             methods.append(parsed)
         if not has_next or not batch:
             break
-        offset += len(batch)
+        cursor = next_cursor.strip() or None
+        if not cursor:
+            break
     methods.sort(
         key=lambda m: (-_method_score(str(m.get("name") or "")), str(m.get("name") or ""))
     )
@@ -447,7 +454,7 @@ def _collected_label(block: dict[str, Any]) -> str:
     draft_n = _draft_postings_count(block)
 
     packaged = mand_pack + opt_pack
-    optional_pool = for_next or draft_n
+    optional_pool = draft_n or for_next
     total = mand_total + optional_pool
     # Optional-only days: progress lives in formed/new carriages, not mandatory_*.
     if total <= 0 and carriage_n > 0:
@@ -551,7 +558,9 @@ def _normalize_carriage(
         # Act exists but list status was empty/unknown — treat as formed draft on portal.
         status_label = "Сформирована"
         open_act = True
-    label = f"Отгрузка{carriage_id}" if carriage_id is not None else f"Отгрузка {idx}"
+    label = f"Отгрузка {carriage_id}" if carriage_id is not None else f"Отгрузка {idx}"
+    available = c.get("available_actions") if isinstance(c.get("available_actions"), list) else []
+    available_norm = {str(a).strip().casefold() for a in available if str(a).strip()}
     return {
         "carriage_id": carriage_id,
         "index": idx,
@@ -561,6 +570,7 @@ def _normalize_carriage(
         "status_label": status_label,
         "is_formed": open_act,
         "can_form": (not open_act) and (not force_no_form),
+        "has_assembly_list": "get_assembly_list" in available_norm or not available_norm,
     }
 
 
@@ -595,6 +605,7 @@ def _normalize_block(
                 "status_label": "Не сформирована",
                 "is_formed": False,
                 "can_form": not force_no_form,
+                "has_assembly_list": True,
             }
         )
 
@@ -625,6 +636,12 @@ def _normalize_block(
         except (ValueError, IndexError):
             day_label = departure
 
+    # v2 has no assembly_list_availability — infer from carriage available_actions.
+    if "assembly_list_availability" in block:
+        assembly_ok = bool(block.get("assembly_list_availability"))
+    else:
+        assembly_ok = any(bool(c.get("has_assembly_list", True)) for c in carriages)
+
     return {
         "delivery_method_id": block.get("delivery_method_id"),
         "delivery_method_name": str(block.get("delivery_method_name") or "").strip(),
@@ -640,7 +657,7 @@ def _normalize_block(
         "collected_label": _collected_label(block),
         "mandatory_packaged_count": block.get("mandatory_packaged_count"),
         "mandatory_postings_count": block.get("mandatory_postings_count"),
-        "assembly_list_availability": bool(block.get("assembly_list_availability")),
+        "assembly_list_availability": assembly_ok,
         "can_create_another_carriage": bool(block.get("can_create_another_carriage")),
         "has_entrusted_acceptance": bool(block.get("has_entrusted_acceptance")),
         "departure_date": departure,

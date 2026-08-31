@@ -30,16 +30,18 @@ class OzonFbsShipmentsHelpersTests(unittest.TestCase):
         self.assertEqual(_carriage_departure_date(date(2026, 8, 25)), "2026-08-25")
 
     def test_delivery_method_rows_v2_top_level(self) -> None:
-        rows, has_next = _delivery_method_rows(
+        rows, has_next, cursor = _delivery_method_rows(
             {
                 "delivery_methods": [
                     {"delivery_method_id": 5, "name": "Метод 5"},
                 ],
                 "has_next": False,
+                "cursor": "abc",
             }
         )
         self.assertEqual(len(rows), 1)
         self.assertFalse(has_next)
+        self.assertEqual(cursor, "abc")
 
     def test_carriage_blocks_v2_methods(self) -> None:
         blocks = _carriage_delivery_blocks(
@@ -63,7 +65,7 @@ class OzonFbsShipmentsHelpersTests(unittest.TestCase):
         )
 
     def test_delivery_method_rows_v2(self) -> None:
-        rows, has_next = _delivery_method_rows(
+        rows, has_next, cursor = _delivery_method_rows(
             {
                 "result": {
                     "delivery_methods": [
@@ -75,6 +77,7 @@ class OzonFbsShipmentsHelpersTests(unittest.TestCase):
         )
         self.assertEqual(len(rows), 1)
         self.assertFalse(has_next)
+        self.assertEqual(cursor, "")
 
     def test_carriage_blocks_v2_nested(self) -> None:
         blocks = _carriage_delivery_blocks(
@@ -248,11 +251,60 @@ class OzonFbsShipmentsHelpersTests(unittest.TestCase):
             client=client,
         )
         c = block["carriages"][0]
-        self.assertEqual(c["label"], "Отгрузка119882557")
+        self.assertEqual(c["label"], "Отгрузка 119882557")
         self.assertEqual(c["status_label"], "Сформирована")
         self.assertTrue(c["is_formed"])
         self.assertFalse(c["can_form"])
         client.carriage_get.assert_called_once_with(carriage_id=119882557)
+
+    def test_normalize_v2_defaults_assembly_list_true(self) -> None:
+        block = _normalize_block(
+            {
+                "dropoff_point_type": "SortCenter",
+                "first_mile_type": "dropoff",
+                "carriages": [
+                    {
+                        "id": 1,
+                        "status": "formed",
+                        "postings_count": 2,
+                        "available_actions": ["get_details", "get_assembly_list"],
+                    }
+                ],
+            },
+            client=None,
+        )
+        self.assertTrue(block["assembly_list_availability"])
+
+    def test_client_v2_request_bodies(self) -> None:
+        from unittest.mock import MagicMock
+
+        from review_processor.ozon_fbs import OzonFbsClient
+
+        client = OzonFbsClient.__new__(OzonFbsClient)
+        client.post_json = MagicMock(return_value={})
+        OzonFbsClient.delivery_method_list(
+            client, warehouse_id=1020005028015630, status="ACTIVE", limit=50
+        )
+        dm_body = client.post_json.call_args.args[1]
+        self.assertEqual(dm_body["filter"]["warehouse_ids"], ["1020005028015630"])
+        self.assertEqual(dm_body["filter"]["status"], ["ACTIVE"])
+        self.assertNotIn("offset", dm_body)
+
+        client.post_json.reset_mock()
+        OzonFbsClient.carriage_delivery_list(
+            client,
+            delivery_method_id=1020005028015630,
+            departure_date="2026-08-31T00:00:00.000Z",
+        )
+        cdl_body = client.post_json.call_args.args[1]
+        self.assertEqual(
+            cdl_body["filter"],
+            {
+                "delivery_method_id": 1020005028015630,
+                "departure_date": "2026-08-31",
+            },
+        )
+        self.assertNotIn("delivery_method_id", cdl_body)
 
     def test_build_shipments_view_prefers_self_delivery(self) -> None:
         client = MagicMock()
