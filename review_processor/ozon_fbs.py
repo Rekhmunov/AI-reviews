@@ -57,9 +57,6 @@ SYNC_STATUSES = [
 ]
 
 DEFAULT_LOOKBACK_DAYS = 3
-# Full sync page size for /v3/posting/fbs/list (API allows up to 1000).
-# Kept moderate to limit peak JSON/DB burst on small VPS hosts.
-SYNC_LIST_PAGE_LIMIT = 200
 
 _ozon_fbs_sync_lock = threading.Lock()
 _ozon_fbs_sync_state: dict[str, object] = {
@@ -2466,7 +2463,7 @@ def sync_ozon_fbs_source(
                     status=status,
                     since=date_from,
                     to=date_to,
-                    limit=SYNC_LIST_PAGE_LIMIT,
+                    limit=50,
                     offset=offset,
                 )
             except Exception as exc:
