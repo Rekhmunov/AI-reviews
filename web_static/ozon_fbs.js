@@ -129,40 +129,19 @@
     return d.innerHTML;
   }
 
-  /** Ozon sticker: large 4 digits before «-0210-1» block (e.g. 2363 in 0101152363-0210-1). */
+  /** Ozon sticker: always highlight 4 chars immediately left of the first «-». */
   function formatOzonPostingNumberHtml(postingNumber) {
     const s = String(postingNumber || "").trim();
     if (!s) return "—";
-    const parts = s.split("-");
     const hi = (text) => `<span class="ozon-fbs-posting-tail">${esc(text)}</span>`;
-
-    if (parts.length >= 2) {
-      const head = String(parts[0] || "");
-      const tail = parts.length > 1 ? `-${parts.slice(1).map((p) => esc(p)).join("-")}` : "";
-      // Order + suffix glued in first segment (0101152363-0210-1 → 2363 on sticker).
-      if (head.length > 8 && /^\d+$/.test(head)) {
-        return `${esc(head.slice(0, -4))}${hi(head.slice(-4))}${tail}`;
+    const dash = s.indexOf("-");
+    if (dash > 0) {
+      const head = s.slice(0, dash);
+      const tail = s.slice(dash); // includes leading «-…»
+      if (head.length >= 4) {
+        return `${esc(head.slice(0, -4))}${hi(head.slice(-4))}${esc(tail)}`;
       }
-      // Explicit 4-digit segment after order (33720345-0046-1, 010115-2363-0210-1).
-      if (/^\d{4}$/.test(parts[1])) {
-        const after = parts.length > 2 ? `-${parts.slice(2).map((p) => esc(p)).join("-")}` : "";
-        return `${esc(parts[0])}-${hi(parts[1])}${after}`;
-      }
-    }
-
-    let seen = 0;
-    let cut = -1;
-    for (let i = s.length - 1; i >= 0; i -= 1) {
-      if (/\d/.test(s[i])) {
-        seen += 1;
-        if (seen === 4) {
-          cut = i;
-          break;
-        }
-      }
-    }
-    if (cut >= 0) {
-      return `${esc(s.slice(0, cut))}${hi(s.slice(cut))}`;
+      return `${hi(head)}${esc(tail)}`;
     }
     if (s.length > 4) {
       return `${esc(s.slice(0, -4))}${hi(s.slice(-4))}`;
