@@ -1375,14 +1375,14 @@
   const ozonFbsKizColResizer = createOzonFbsModalColResizer({
     tableId: "ozonFbsKizTable",
     colgroupId: "ozonFbsKizColgroup",
-    storagePrefix: "ozon_fbs_kiz_col_widths_v1",
-    defaultWidths: [22, 38, 34],
+    storagePrefix: "ozon_fbs_kiz_col_widths_v2",
+    defaultWidths: [18, 30, 28, 18],
   });
   const ozonFbsPickColResizer = createOzonFbsModalColResizer({
     tableId: "ozonFbsPickTable",
     colgroupId: "ozonFbsPickColgroup",
-    storagePrefix: "ozon_fbs_pick_col_widths_v1",
-    defaultWidths: [24, 40, 36],
+    storagePrefix: "ozon_fbs_pick_col_widths_v2",
+    defaultWidths: [18, 30, 26, 18],
   });
 
   /* ── Split multi (without assemble) ── */
