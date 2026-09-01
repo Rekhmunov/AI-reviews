@@ -182,7 +182,8 @@
   }
 
   function gmUiVisibleAny() {
-    return gmUiVisible("kiz") || gmUiVisible("pick");
+    if (state.hasContainers) return true;
+    return rowsHaveContainerBinds("kiz") || rowsHaveContainerBinds("pick");
   }
 
   function notifyContainerLoadError(mode, message) {
@@ -296,9 +297,10 @@
   function syncCheckboxUi(mode) {
     const els = activeContainerEls(mode);
     const isKiz = mode === "kiz";
-    const show = gmUiVisible(mode);
-    if (els.row) els.row.hidden = !show;
-    if (els.check && !show) els.check.checked = false;
+    const showRow = gmUiVisible(mode);
+    const showCols = gmUiVisibleAny();
+    if (els.row) els.row.hidden = !showRow;
+    if (els.check && !showRow) els.check.checked = false;
     // Mirror Marking / Pick Verify wait lock while rows are still loading.
     const rowsReady = isKiz
       ? !!window.ozonFbsKizState?.rowsReady
@@ -326,7 +328,8 @@
       }
     }
     updateActiveContainerUi(mode);
-    setContainerColumnsVisible(show);
+    // Column is shared markup in both modals — never hide it for one mode only.
+    setContainerColumnsVisible(showCols);
   }
 
   function updateContainerCounters() {

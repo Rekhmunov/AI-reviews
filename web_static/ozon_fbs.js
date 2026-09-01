@@ -8845,7 +8845,7 @@
       _ozonFbsKizSetFiltersReady(true);
       _ozonFbsKizSyncImportBtn();
       if (typeof _ozonFbsContainerPrepareModal === "function") {
-        void _ozonFbsContainerPrepareModal("kiz");
+        await _ozonFbsContainerPrepareModal("kiz");
       }
       if (loadOk && scan) setTimeout(() => {
         if (stillThisLoad()) scan.focus();
@@ -9579,7 +9579,7 @@
       if (saveBtn) saveBtn.disabled = false;
       _ozonFbsPickSetFiltersReady(true);
       if (typeof _ozonFbsContainerPrepareModal === "function") {
-        void _ozonFbsContainerPrepareModal("pick");
+        await _ozonFbsContainerPrepareModal("pick");
       }
       if (loadOk && scan) setTimeout(() => scan.focus(), 50);
     }
