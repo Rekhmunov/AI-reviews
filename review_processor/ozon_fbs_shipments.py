@@ -544,7 +544,7 @@ def fetch_carriage_barcode(
     )
 
 
-def render_code128_barcode_png(barcode_text: str) -> bytes | None:
+def render_code128_barcode_png(barcode_text: str, *, for_print: bool = False) -> bytes | None:
     """Render Code128 bars only (no HRI) for warehouse / act stickers."""
     text = str(barcode_text or "").strip()
     if not text:
@@ -561,9 +561,9 @@ def render_code128_barcode_png(barcode_text: str) -> bytes | None:
             buf,
             options={
                 "write_text": False,
-                "module_height": 14,
-                "module_width": 0.28,
-                "quiet_zone": 3,
+                "module_height": 16 if for_print else 14,
+                "module_width": 0.38 if for_print else 0.28,
+                "quiet_zone": 2 if for_print else 3,
             },
         )
         return buf.getvalue()
@@ -1088,6 +1088,7 @@ def compose_shipment_barcode_label_png(
     *,
     barcode_image_base64: str,
     barcode_text: str,
+    for_print: bool = False,
 ) -> bytes | None:
     """Build a PNG with Code128 bars + human-readable digits underneath."""
     b64 = str(barcode_image_base64 or "").strip()
@@ -1109,16 +1110,19 @@ def compose_shipment_barcode_label_png(
         return None
 
     # Target label proportions close to Ozon seller sticker (wide bars + HRI).
-    target_w = max(int(bars.width), 420)
+    target_w = max(int(bars.width), 520 if for_print else 420)
     # Scale bars to nearly full width while keeping a readable bar height.
-    bar_h = max(72, min(140, int(round(target_w * 0.22))))
+    bar_h = max(
+        88 if for_print else 72,
+        min(156 if for_print else 140, int(round(target_w * (0.24 if for_print else 0.22)))),
+    )
     scaled = bars.resize((target_w, bar_h), Image.Resampling.NEAREST)
 
-    pad_x = 12
-    pad_top = 10
-    pad_bottom = 10
-    gap = 8
-    text_h = 28
+    pad_x = 4 if for_print else 12
+    pad_top = 8 if for_print else 10
+    pad_bottom = 8 if for_print else 10
+    gap = 6 if for_print else 8
+    text_h = 26 if for_print else 28
     out_w = target_w + pad_x * 2
     out_h = pad_top + bar_h + gap + text_h + pad_bottom
     canvas = Image.new("RGB", (out_w, out_h), (255, 255, 255))
@@ -1174,6 +1178,13 @@ def render_shipment_barcode_print_html(
     text = _esc(text_raw)
     label_b64 = str(ensured.get("barcode_label_base64") or "").strip()
     b64 = str(ensured.get("barcode_image_base64") or "").strip()
+    print_label = compose_shipment_barcode_label_png(
+        barcode_image_base64=b64,
+        barcode_text=text_raw,
+        for_print=True,
+    )
+    if print_label:
+        label_b64 = base64.b64encode(print_label).decode("ascii")
     ctype = "image/png"
     if label_b64:
         body = f"""
@@ -1209,11 +1220,11 @@ def render_shipment_barcode_print_html(
   }}
   .label.barcode {{
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    padding: 2mm 2mm 1.5mm;
-    gap: 1.5mm;
+    padding: 1mm 0.5mm;
+    gap: 1mm;
   }}
   .label.barcode img {{
-    width: 56mm; height: 38mm; max-height: none;
+    width: 57mm; height: auto; max-height: 38mm;
     object-fit: contain; object-position: center;
   }}
   .label.barcode .code {{

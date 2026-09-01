@@ -5146,30 +5146,34 @@
     return "Штрихкод для склада";
   }
 
-  function composeOzonFbsShipmentBarcodeLabelDataUrl(text) {
+  function composeOzonFbsShipmentBarcodeLabelDataUrl(text, options) {
     const value = String(text || "").trim();
     if (!value || typeof JsBarcode === "undefined") return "";
+    const forPrint = !!(options && options.forPrint);
     const bcCanvas = document.createElement("canvas");
     try {
       JsBarcode(bcCanvas, value, {
         format: "CODE128",
-        width: 2,
-        height: 80,
+        width: forPrint ? 3.5 : 2,
+        height: forPrint ? 96 : 80,
         displayValue: false,
-        margin: 8,
+        margin: forPrint ? 2 : 8,
         background: "#ffffff",
         lineColor: "#000000",
       });
     } catch (_e) {
       return "";
     }
-    const targetW = Math.max(bcCanvas.width, 420);
-    const barH = Math.max(72, Math.min(140, Math.round(targetW * 0.22)));
-    const padX = 12;
-    const padTop = 10;
-    const padBottom = 10;
-    const gap = 8;
-    const textH = 28;
+    const targetW = forPrint ? 540 : Math.max(bcCanvas.width, 420);
+    const barH = Math.max(
+      forPrint ? 88 : 72,
+      Math.min(forPrint ? 156 : 140, Math.round(targetW * (forPrint ? 0.24 : 0.22)))
+    );
+    const padX = forPrint ? 4 : 12;
+    const padTop = forPrint ? 8 : 10;
+    const padBottom = forPrint ? 8 : 10;
+    const gap = forPrint ? 6 : 8;
+    const textH = forPrint ? 26 : 28;
     const outW = targetW + padX * 2;
     const outH = padTop + barH + gap + textH + padBottom;
     const out = document.createElement("canvas");
@@ -5220,7 +5224,8 @@
   }
 
   function openOzonFbsShipmentBarcodePrintWindow(text, warehouseName) {
-    const dataUrl = getOzonFbsShipmentBarcodeLabelDataUrl({ barcode_text: text });
+    const dataUrl = composeOzonFbsShipmentBarcodeLabelDataUrl(text, { forPrint: true })
+      || getOzonFbsShipmentBarcodeLabelDataUrl({ barcode_text: text });
     if (!dataUrl) throw new Error("Не удалось сформировать штрихкод для печати");
     const wh = esc(warehouseName || "");
     const html = `<!doctype html>
@@ -5234,10 +5239,11 @@
   .label {
     width: 58mm; height: 40mm; page-break-after: always;
     overflow: hidden; display: flex; align-items: center; justify-content: center;
-    padding: 2mm;
+    padding: 1mm 0.5mm;
   }
   .label img {
-    width: 56mm; height: 38mm; object-fit: contain; object-position: center;
+    width: 57mm; height: auto; max-height: 38mm;
+    object-fit: contain; object-position: center;
   }
   .toolbar { padding: 8px 12px; }
   @media print { .toolbar { display: none !important; } }
@@ -5302,13 +5308,10 @@
   }
 
   function renderShipmentsMetaColumn(block, data) {
-    if (!block) {
-      return `<div class="ozon-fbs-shipments-meta-col"><div class="ozon-fbs-shipments-meta-empty">Нет данных отгрузки</div></div>`;
-    }
     const rows = [
-      ["Пункт", block.dropoff_point_type_label || "Сортировочный центр"],
-      ["Способ отгрузки", block.shipment_method_label || "В пункт приема"],
-      ["Адрес", block.dropoff_address || "—"],
+      ["Пункт", block?.dropoff_point_type_label || "Сортировочный центр"],
+      ["Способ отгрузки", block?.shipment_method_label || "В пункт приема"],
+      ["Адрес", block?.dropoff_address || "—"],
     ];
     const rowsHtml = rows.map(([label, value]) => `
       <div class="ozon-fbs-shipments-meta-item">
