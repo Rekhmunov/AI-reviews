@@ -29885,8 +29885,10 @@ async function refreshWbFbsPickVerifyStatus(event) {
     const st = String(data.status || "");
     if (st === "ok") {
       _wbFbsPickSplitSetTone("ok");
+    } else {
+      // Incomplete / bad — stay default secondary (also clears stale green).
+      _wbFbsPickSplitSetTone("");
     }
-    // empty / incomplete / bad — keep default secondary styling
   } catch (e) {
     if (
       wbFbsDetailState.supplyId === sid
