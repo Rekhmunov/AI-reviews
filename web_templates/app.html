@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=259" />
+  <link rel="stylesheet" href="/static/style.css?v=260" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -3111,8 +3111,9 @@
                         title="Проверка ШК товаров без маркировки (только главный пользователь)">
                   Проверка ШК
                 </button>
-                <button type="button" class="secondary ozon-fbs-stub-btn" id="ozonFbsSupplyDetailTrbxBtn" hidden disabled
-                        title="Скоро">Грузоместа</button>
+                <button type="button" class="secondary" id="ozonFbsSupplyDetailTrbxBtn"
+                        onclick="openOzonFbsContainersModal()"
+                        title="Грузоместа Ozon FBS: паллеты, печать ШК, удаление">Грузоместа</button>
                 <button type="button" class="secondary" id="ozonFbsSupplyDetailCancelledBtn"
                         onclick="openOzonFbsCancelledOrdersModal()"
                         title="Проверить отменённые отправления в поставке">Отмененные заказы</button>
@@ -3414,6 +3415,60 @@
             </div>
             <div class="row wb-fbs-kiz-scan-prompt-actions">
               <button type="button" class="secondary" onclick="cancelOzonFbsPickSkuScan()">Отмена</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="ozonFbsContainersModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsContainersTitle"
+             onclick="if(event.target===this)closeOzonFbsContainersModal()">
+          <div class="modal-card wb-fbs-create-trbx-modal ozon-fbs-containers-modal">
+            <div class="wb-fbs-create-trbx-header">
+              <h3 id="ozonFbsContainersTitle" class="wb-fbs-create-trbx-title">Грузоместа</h3>
+              <button type="button" class="icon-btn secondary" onclick="closeOzonFbsContainersModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <div class="wb-fbs-create-trbx-body">
+              <p class="wb-fbs-create-trbx-lead">
+                Паллеты Ozon FBS для склада поставки. Список подтягивается из Ozon
+                (в том числе созданные в личном кабинете). Показываются только ещё не отгруженные.
+              </p>
+              <div class="wb-fbs-create-trbx-controls ozon-fbs-containers-controls">
+                <div class="wb-fbs-trbx-stepper" role="group" aria-label="Количество грузомест">
+                  <button type="button" class="secondary wb-fbs-trbx-stepper-btn" onclick="ozonFbsContainersStep(-1)" aria-label="Меньше">−</button>
+                  <input id="ozonFbsContainersAmount" class="wb-fbs-trbx-stepper-input" type="number"
+                         min="1" max="100" step="1" value="1" inputmode="numeric"
+                         aria-label="Количество грузомест" />
+                  <button type="button" class="secondary wb-fbs-trbx-stepper-btn" onclick="ozonFbsContainersStep(1)" aria-label="Больше">+</button>
+                </div>
+                <label class="ozon-fbs-containers-field">
+                  <span class="ozon-fbs-containers-field-label">Тип</span>
+                  <select id="ozonFbsContainersSortType" class="ozon-fbs-containers-select" aria-label="Сортировка">
+                    <option value="sort" selected>Сортируемое</option>
+                    <option value="non-sort">Несортируемое</option>
+                  </select>
+                </label>
+                <button type="button" id="ozonFbsContainersCreateBtn" onclick="createOzonFbsContainers()">Создать</button>
+                <button type="button" class="secondary" id="ozonFbsContainersRefreshBtn"
+                        onclick="refreshOzonFbsContainers()" title="Обновить список из Ozon">Обновить</button>
+              </div>
+              <div id="ozonFbsContainersInfo" class="wb-fbs-create-trbx-info" hidden></div>
+              <div class="wb-fbs-trbx-print-section ozon-fbs-containers-table-section">
+                <div class="wb-fbs-trbx-boxes-wrap">
+                  <table class="wb-fbs-trbx-boxes-table ozon-fbs-containers-table" aria-label="Грузоместа">
+                    <thead>
+                      <tr>
+                        <th>Грузоместо</th>
+                        <th class="ozon-fbs-containers-col-orders">Заказы</th>
+                        <th class="ozon-fbs-containers-col-meta">Статус</th>
+                        <th class="wb-fbs-trbx-boxes-col-act">Действия</th>
+                      </tr>
+                    </thead>
+                    <tbody id="ozonFbsContainersTbody">
+                      <tr><td colspan="4" class="wb-fbs-trbx-boxes-empty">Загрузка…</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -6372,7 +6427,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=71"></script>
+  <script src="/static/ozon_fbs.js?v=72"></script>
   <script src="/static/app.js?v=528"></script>
 </body>
 </html>

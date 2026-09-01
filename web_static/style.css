@@ -7744,6 +7744,54 @@ tr.dnd-over td {
   color: #64748b;
   text-align: left;
 }
+.ozon-fbs-containers-controls {
+  align-items: flex-end;
+}
+.ozon-fbs-containers-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+}
+.ozon-fbs-containers-field-label {
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.2;
+}
+.ozon-fbs-containers-select {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 14px;
+  color: #0f172a;
+}
+.ozon-fbs-containers-table-section {
+  display: block;
+  margin-top: 16px;
+}
+.ozon-fbs-containers-col-orders {
+  width: 72px;
+  text-align: center;
+}
+.ozon-fbs-containers-col-meta {
+  min-width: 120px;
+}
+.ozon-fbs-containers-table td.ozon-fbs-containers-col-orders {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.ozon-fbs-containers-id {
+  font-weight: 600;
+  color: #0f172a;
+  word-break: break-all;
+}
+.ozon-fbs-containers-sub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #64748b;
+}
 .wb-fbs-auto-sync-modal {
   max-width: 480px;
   width: calc(100% - 32px);

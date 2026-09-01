@@ -3114,6 +3114,7 @@ def get_supply_detail(
         "supply_id": supply.get("supply_id"),
         "name": supply.get("name"),
         "warehouse_label": supply.get("warehouse_name") or "—",
+        "warehouse_id": supply.get("warehouse_id"),
         "order_count": len(orders),
         "orders": orders,
         "source_id": source_id,

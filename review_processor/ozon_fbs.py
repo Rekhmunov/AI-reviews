@@ -538,6 +538,76 @@ class OzonFbsClient:
             "/v2/posting/fbs/act/get-barcode/text", {"id": int(carriage_id)}
         )
 
+    def carriage_container_list(self, body: dict[str, Any]) -> dict[str, Any]:
+        """POST /v1/carriage/container/list — грузоместа склада."""
+        return self.post_json("/v1/carriage/container/list", body)
+
+    def carriage_container_create(
+        self,
+        *,
+        warehouse_id: int,
+        containers_count: int,
+        sort_type: str,
+        cargo_type: str,
+    ) -> dict[str, Any]:
+        """POST /v1/carriage/container/create."""
+        return self.post_json(
+            "/v1/carriage/container/create",
+            {
+                "warehouse_id": int(warehouse_id),
+                "containers_count": int(containers_count),
+                "sort_type": str(sort_type),
+                "cargo_type": str(cargo_type),
+            },
+        )
+
+    def carriage_container_get(self, *, container_id: int) -> dict[str, Any]:
+        return self.post_json(
+            "/v1/carriage/container/get", {"container_id": int(container_id)}
+        )
+
+    def carriage_container_cancel(self, *, container_ids: list[int]) -> dict[str, Any]:
+        """POST /v1/carriage/container/cancel — удаление грузомест."""
+        return self.post_json(
+            "/v1/carriage/container/cancel",
+            {"container_ids": [int(x) for x in container_ids]},
+        )
+
+    def carriage_container_approve(self, *, container_ids: list[int]) -> dict[str, Any]:
+        return self.post_json(
+            "/v1/carriage/container/approve",
+            {"container_ids": [int(x) for x in container_ids]},
+        )
+
+    def carriage_container_fill(
+        self, *, container_id: int, posting_numbers: list[str]
+    ) -> dict[str, Any]:
+        return self.post_json(
+            "/v1/carriage/container/fill",
+            {
+                "container_id": int(container_id),
+                "posting_numbers": list(posting_numbers),
+            },
+        )
+
+    def carriage_container_remove_postings(
+        self, *, container_id: int, posting_numbers: list[str]
+    ) -> dict[str, Any]:
+        return self.post_json(
+            "/v1/carriage/container/remove-postings",
+            {
+                "container_id": int(container_id),
+                "posting_numbers": list(posting_numbers),
+            },
+        )
+
+    def carriage_container_label_get(self, *, container_ids: list[int]) -> dict[str, Any]:
+        """POST /v1/carriage/container/label/get — PDF этикеток."""
+        return self.post_json(
+            "/v1/carriage/container/label/get",
+            {"container_ids": [int(x) for x in container_ids]},
+        )
+
     def product_exemplar_create_or_get(
         self, posting_number: str, products: list[dict[str, Any]]
     ) -> dict[str, Any]:

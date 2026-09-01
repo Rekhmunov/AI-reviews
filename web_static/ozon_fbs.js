@@ -114,6 +114,15 @@
     selectedCarriageId: null,
   };
 
+  const containersState = {
+    supplyId: null,
+    sourceId: null,
+    warehouseId: null,
+    items: [],
+    loading: false,
+    busy: false,
+  };
+
   function permissions() {
     return window.APP_PERMISSIONS || {};
   }
@@ -4562,6 +4571,326 @@
   function closeShipmentsModal() {
     document.getElementById("ozonFbsShipmentsModal")?.classList.add("hidden");
     shipmentsState.forming = false;
+  }
+
+  function _ozonFbsContainersModalOpen() {
+    const modal = document.getElementById("ozonFbsContainersModal");
+    return Boolean(modal && !modal.classList.contains("hidden"));
+  }
+
+  function _ozonFbsContainersSetVisible(show) {
+    if (typeof setModalVisibility === "function") {
+      setModalVisibility("ozonFbsContainersModal", !!show);
+      return;
+    }
+    const modal = document.getElementById("ozonFbsContainersModal");
+    if (modal) modal.classList.toggle("hidden", !show);
+  }
+
+  function _ozonFbsContainersSetInfo(text, kind) {
+    const el = document.getElementById("ozonFbsContainersInfo");
+    if (!el) return;
+    const msg = String(text || "").trim();
+    if (!msg) {
+      el.hidden = true;
+      el.textContent = "";
+      el.classList.remove("is-ok", "is-error");
+      return;
+    }
+    el.hidden = false;
+    el.textContent = msg;
+    el.classList.toggle("is-ok", kind === "ok");
+    el.classList.toggle("is-error", kind === "error");
+  }
+
+  function _ozonFbsContainersAmountValue() {
+    const input = document.getElementById("ozonFbsContainersAmount");
+    let n = Number(input?.value || 1);
+    if (!Number.isFinite(n)) n = 1;
+    n = Math.max(1, Math.min(100, Math.round(n)));
+    if (input) input.value = String(n);
+    return n;
+  }
+
+  function ozonFbsContainersStep(delta) {
+    if (containersState.busy) return;
+    const input = document.getElementById("ozonFbsContainersAmount");
+    if (!input) return;
+    const next = _ozonFbsContainersAmountValue() + Number(delta || 0);
+    input.value = String(Math.max(1, Math.min(100, next)));
+  }
+
+  function _ozonFbsContainersSyncBusyUi() {
+    const busy = !!containersState.busy || !!containersState.loading;
+    const createBtn = document.getElementById("ozonFbsContainersCreateBtn");
+    const refreshBtn = document.getElementById("ozonFbsContainersRefreshBtn");
+    const amount = document.getElementById("ozonFbsContainersAmount");
+    const sortSel = document.getElementById("ozonFbsContainersSortType");
+    if (createBtn) {
+      createBtn.disabled = busy;
+      createBtn.textContent = containersState.busy ? "Создание…" : "Создать";
+    }
+    if (refreshBtn) {
+      refreshBtn.disabled = busy;
+      refreshBtn.textContent = containersState.loading ? "Обновление…" : "Обновить";
+    }
+    if (amount) amount.disabled = busy;
+    if (sortSel) sortSel.disabled = busy;
+    document.querySelectorAll("#ozonFbsContainersModal .wb-fbs-trbx-stepper-btn").forEach((btn) => {
+      btn.disabled = busy;
+    });
+  }
+
+  function renderOzonFbsContainersTable(items) {
+    const tbody = document.getElementById("ozonFbsContainersTbody");
+    if (!tbody) return;
+    const rows = Array.isArray(items) ? items : [];
+    containersState.items = rows;
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-trbx-boxes-empty">Нет активных грузомест</td></tr>`;
+      return;
+    }
+    const busy = containersState.busy ? "disabled" : "";
+    tbody.innerHTML = rows.map((c) => {
+      const cid = String(c.container_id || "").trim();
+      const num = Number(c.container_number || 0);
+      const orders = Number(c.order_count || 0);
+      const status = esc(c.status_label || c.status || "—");
+      const sortLabel = esc(c.sort_type_label || "");
+      const cargoLabel = esc(c.cargo_type_label || "");
+      const meta = [sortLabel, cargoLabel].filter(Boolean).join(" · ");
+      const canDelete = c.can_delete !== false;
+      const safeJs = JSON.stringify(cid);
+      return `<tr>
+        <td>
+          <div class="ozon-fbs-containers-id">${esc(cid)}</div>
+          <div class="ozon-fbs-containers-sub">№ ${esc(String(num || "—"))}${meta ? ` · ${meta}` : ""}</div>
+        </td>
+        <td class="ozon-fbs-containers-col-orders">${esc(String(orders))}</td>
+        <td class="ozon-fbs-containers-col-meta">${status}</td>
+        <td class="wb-fbs-trbx-boxes-col-act">
+          <div class="wb-fbs-trbx-box-actions">
+            <button type="button" class="wb-fbs-trbx-box-print" title="Печать этикетки"
+                    aria-label="Печать ${esc(cid)}" ${busy}
+                    onclick='printOzonFbsContainerLabel(${safeJs})'>⎙</button>
+            <button type="button" class="wb-fbs-trbx-box-delete" title="Удалить грузоместо"
+                    aria-label="Удалить ${esc(cid)}" ${(busy || !canDelete) ? "disabled" : ""}
+                    onclick='deleteOzonFbsContainer(${safeJs})'>✕</button>
+          </div>
+        </td>
+      </tr>`;
+    }).join("");
+  }
+
+  async function loadOzonFbsContainers({ keepInfo = false } = {}) {
+    const sid = String(containersState.supplyId || supplyDetailState.supplyId || "").trim();
+    const sourceId = containersState.sourceId || supplyDetailState.sourceId || state.sourceId;
+    if (!sid || !sourceId) return null;
+    containersState.loading = true;
+    _ozonFbsContainersSyncBusyUi();
+    if (!keepInfo) _ozonFbsContainersSetInfo("Загружаем грузоместа из Ozon…");
+    try {
+      const params = new URLSearchParams({ source_id: String(sourceId) });
+      const res = await fetch(
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/containers?${params}`,
+        { headers: jsonHeaders() }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!_ozonFbsContainersModalOpen() || String(containersState.supplyId || "") !== sid) {
+        return null;
+      }
+      if (!res.ok || data.ok === false) {
+        throw new Error(detailText(data.detail) || data.message || `Ошибка ${res.status}`);
+      }
+      containersState.warehouseId = data.warehouse_id || null;
+      renderOzonFbsContainersTable(data.items || []);
+      const total = Number(data.total || (data.items || []).length || 0);
+      const wh = String(data.warehouse_name || "").trim();
+      if (!keepInfo) {
+        _ozonFbsContainersSetInfo(
+          total
+            ? `Активных грузомест: ${total}${wh ? ` · ${wh}` : ""}`
+            : `Нет активных грузомест${wh ? ` · ${wh}` : ""}`,
+          "ok"
+        );
+      }
+      return data;
+    } catch (e) {
+      if (_ozonFbsContainersModalOpen()) {
+        _ozonFbsContainersSetInfo(e.message || String(e), "error");
+        if (!containersState.items.length) {
+          renderOzonFbsContainersTable([]);
+        }
+      }
+      return null;
+    } finally {
+      containersState.loading = false;
+      _ozonFbsContainersSyncBusyUi();
+    }
+  }
+
+  function openOzonFbsContainersModal() {
+    const sid = String(supplyDetailState.supplyId || "").trim();
+    const sourceId = supplyDetailState.sourceId || state.sourceId;
+    if (!sid || !sourceId) {
+      alert("Откройте поставку");
+      return;
+    }
+    containersState.supplyId = sid;
+    containersState.sourceId = sourceId;
+    containersState.items = [];
+    containersState.busy = false;
+    const amount = document.getElementById("ozonFbsContainersAmount");
+    if (amount) amount.value = "1";
+    const sortSel = document.getElementById("ozonFbsContainersSortType");
+    if (sortSel) sortSel.value = "sort";
+    renderOzonFbsContainersTable([]);
+    _ozonFbsContainersSetInfo("");
+    _ozonFbsContainersSetVisible(true);
+    _ozonFbsContainersSyncBusyUi();
+    loadOzonFbsContainers();
+  }
+
+  function closeOzonFbsContainersModal() {
+    if (containersState.busy) return;
+    _ozonFbsContainersSetVisible(false);
+    containersState.supplyId = null;
+    containersState.items = [];
+    _ozonFbsContainersSetInfo("");
+  }
+
+  function refreshOzonFbsContainers() {
+    if (containersState.busy || containersState.loading) return;
+    loadOzonFbsContainers();
+  }
+
+  async function createOzonFbsContainers() {
+    const sid = String(containersState.supplyId || "").trim();
+    const sourceId = containersState.sourceId;
+    if (!sid || !sourceId || containersState.busy) return;
+    const amount = _ozonFbsContainersAmountValue();
+    const sortType = String(document.getElementById("ozonFbsContainersSortType")?.value || "sort");
+    containersState.busy = true;
+    _ozonFbsContainersSyncBusyUi();
+    _ozonFbsContainersSetInfo("Создаём грузоместа в Ozon…");
+    try {
+      const res = await fetch(
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/containers`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...jsonHeaders() },
+          body: JSON.stringify({
+            source_id: sourceId,
+            containers_count: amount,
+            sort_type: sortType,
+            cargo_type: "pallet",
+          }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        throw new Error(detailText(data.detail) || data.message || `Ошибка ${res.status}`);
+      }
+      renderOzonFbsContainersTable(data.items || []);
+      _ozonFbsContainersSetInfo(
+        String(data.message || `Создано: ${data.created || amount}`),
+        "ok"
+      );
+    } catch (e) {
+      _ozonFbsContainersSetInfo(e.message || String(e), "error");
+    } finally {
+      containersState.busy = false;
+      _ozonFbsContainersSyncBusyUi();
+    }
+  }
+
+  async function deleteOzonFbsContainer(containerId) {
+    const sid = String(containersState.supplyId || "").trim();
+    const sourceId = containersState.sourceId;
+    const cid = String(containerId || "").trim();
+    if (!sid || !sourceId || !cid || containersState.busy) return;
+    if (!window.confirm(`Удалить грузоместо ${cid}?`)) return;
+    containersState.busy = true;
+    _ozonFbsContainersSyncBusyUi();
+    renderOzonFbsContainersTable(containersState.items);
+    _ozonFbsContainersSetInfo("Удаляем грузоместо…");
+    try {
+      const res = await fetch(
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/containers/delete`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...jsonHeaders() },
+          body: JSON.stringify({
+            source_id: sourceId,
+            container_ids: [Number(cid) || cid],
+          }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        const errs = Array.isArray(data.errors) ? data.errors : [];
+        const errLine = errs.map((e) => e.error || e).filter(Boolean).join("; ");
+        throw new Error(detailText(data.detail) || errLine || data.message || `Ошибка ${res.status}`);
+      }
+      renderOzonFbsContainersTable(data.items || []);
+      _ozonFbsContainersSetInfo(String(data.message || "Удалено"), "ok");
+    } catch (e) {
+      _ozonFbsContainersSetInfo(e.message || String(e), "error");
+      await loadOzonFbsContainers({ keepInfo: true });
+    } finally {
+      containersState.busy = false;
+      _ozonFbsContainersSyncBusyUi();
+      renderOzonFbsContainersTable(containersState.items);
+    }
+  }
+
+  async function printOzonFbsContainerLabel(containerId) {
+    const sid = String(containersState.supplyId || "").trim();
+    const sourceId = containersState.sourceId;
+    const cid = String(containerId || "").trim();
+    if (!sid || !sourceId || !cid || containersState.busy) return;
+    containersState.busy = true;
+    _ozonFbsContainersSyncBusyUi();
+    renderOzonFbsContainersTable(containersState.items);
+    try {
+      const res = await fetch(
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/containers/labels`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...jsonHeaders() },
+          body: JSON.stringify({
+            source_id: sourceId,
+            container_ids: [Number(cid) || cid],
+          }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        throw new Error(detailText(data.detail) || data.message || `Ошибка ${res.status}`);
+      }
+      const b64 = String(data.file_content || "").trim();
+      if (!b64) throw new Error("Ozon не вернул PDF этикетки");
+      const byteChars = atob(b64);
+      const bytes = new Uint8Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i += 1) bytes[i] = byteChars.charCodeAt(i);
+      const blob = new Blob([bytes], { type: String(data.content_type || "application/pdf") });
+      const url = URL.createObjectURL(blob);
+      const win = window.open(url, "_blank");
+      if (!win) {
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `ozon-container-${cid}.pdf`;
+        a.click();
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      _ozonFbsContainersSetInfo(`Этикетка ${cid} готова`, "ok");
+    } catch (e) {
+      _ozonFbsContainersSetInfo(e.message || String(e), "error");
+    } finally {
+      containersState.busy = false;
+      _ozonFbsContainersSyncBusyUi();
+      renderOzonFbsContainersTable(containersState.items);
+    }
   }
 
   function fillShipmentsMethods(methods, selectedId, selectedName) {
@@ -9055,6 +9384,13 @@
   window.ozonFbsShipmentsSelectCarriage = selectShipmentsCarriage;
   window.ozonFbsShipmentsPrintBarcode = shipmentsPrintBarcode;
   window.ozonFbsShipmentsDownloadBarcode = shipmentsDownloadBarcode;
+  window.openOzonFbsContainersModal = openOzonFbsContainersModal;
+  window.closeOzonFbsContainersModal = closeOzonFbsContainersModal;
+  window.refreshOzonFbsContainers = refreshOzonFbsContainers;
+  window.createOzonFbsContainers = createOzonFbsContainers;
+  window.deleteOzonFbsContainer = deleteOzonFbsContainer;
+  window.printOzonFbsContainerLabel = printOzonFbsContainerLabel;
+  window.ozonFbsContainersStep = ozonFbsContainersStep;
   window.moveOzonFbsSupplyToDelivering = moveOzonFbsSupplyToDelivering;
   window.closeOzonFbsMoveDeliveringModal = closeOzonFbsMoveDeliveringModal;
   window.confirmOzonFbsMoveDelivering = confirmOzonFbsMoveDelivering;

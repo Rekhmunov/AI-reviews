@@ -14180,6 +14180,167 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             pass
         return result
 
+    @app.get("/api/ozon-fbs/supplies/{supply_id}/containers")
+    def ozon_fbs_supply_containers_list(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+    ) -> dict[str, object]:
+        """List active Ozon FBS cargo places (containers) for the supply warehouse."""
+        from . import ozon_fbs as ozon_fbs_mod
+        from . import ozon_fbs_containers as oz_ct
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
+        client = ozon_fbs_mod.OzonFbsClient(client_id=client_id, api_key=api_key)
+        try:
+            wh_id, wh_name = oz_ct.resolve_supply_warehouse_id(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                supply_id=str(supply_id),
+            )
+            out = oz_ct.list_containers(client, warehouse_id=wh_id)
+            out["warehouse_name"] = wh_name
+            out["supply_id"] = str(supply_id)
+            return out
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/ozon-fbs/supplies/{supply_id}/containers")
+    async def ozon_fbs_supply_containers_create(
+        request: Request, supply_id: str
+    ) -> dict[str, object]:
+        """Create Ozon FBS cargo places for the supply warehouse."""
+        from . import ozon_fbs as ozon_fbs_mod
+        from . import ozon_fbs_containers as oz_ct
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        try:
+            source_id = int(body.get("source_id") or 0)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Укажите source_id") from exc
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, source_id)
+        client = ozon_fbs_mod.OzonFbsClient(client_id=client_id, api_key=api_key)
+        try:
+            wh_id, _wh_name = oz_ct.resolve_supply_warehouse_id(
+                repository,
+                user_id=owner_id,
+                source_id=source_id,
+                supply_id=str(supply_id),
+            )
+            created = oz_ct.create_containers(
+                client,
+                warehouse_id=wh_id,
+                containers_count=body.get("containers_count") or body.get("amount") or 1,
+                sort_type=str(body.get("sort_type") or "sort"),
+                cargo_type=str(body.get("cargo_type") or "pallet"),
+            )
+            listed = oz_ct.list_containers(client, warehouse_id=wh_id)
+            return {**created, "items": listed.get("items") or [], "total": listed.get("total") or 0}
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/ozon-fbs/supplies/{supply_id}/containers/delete")
+    async def ozon_fbs_supply_containers_delete(
+        request: Request, supply_id: str
+    ) -> dict[str, object]:
+        """Delete (cancel) Ozon FBS cargo places."""
+        from . import ozon_fbs as ozon_fbs_mod
+        from . import ozon_fbs_containers as oz_ct
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        try:
+            source_id = int(body.get("source_id") or 0)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Укажите source_id") from exc
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        ids_raw = body.get("container_ids") or body.get("ids") or []
+        if not isinstance(ids_raw, list):
+            ids_raw = [ids_raw]
+        _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, source_id)
+        client = ozon_fbs_mod.OzonFbsClient(client_id=client_id, api_key=api_key)
+        try:
+            deleted = oz_ct.delete_containers(client, container_ids=ids_raw)
+            wh_id, _ = oz_ct.resolve_supply_warehouse_id(
+                repository,
+                user_id=owner_id,
+                source_id=source_id,
+                supply_id=str(supply_id),
+            )
+            listed = oz_ct.list_containers(client, warehouse_id=wh_id)
+            return {**deleted, "items": listed.get("items") or [], "total": listed.get("total") or 0}
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/ozon-fbs/supplies/{supply_id}/containers/labels")
+    async def ozon_fbs_supply_containers_labels(
+        request: Request, supply_id: str
+    ) -> dict[str, object]:
+        """PDF labels for one or more Ozon FBS cargo places."""
+        from . import ozon_fbs as ozon_fbs_mod
+        from . import ozon_fbs_containers as oz_ct
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        try:
+            source_id = int(body.get("source_id") or 0)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Укажите source_id") from exc
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        ids_raw = body.get("container_ids") or body.get("ids") or []
+        if not isinstance(ids_raw, list):
+            ids_raw = [ids_raw]
+        _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, source_id)
+        client = ozon_fbs_mod.OzonFbsClient(client_id=client_id, api_key=api_key)
+        try:
+            return oz_ct.get_container_labels_pdf(client, container_ids=ids_raw)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.get("/api/ozon-fbs/supplies/{supply_id}/shipments")
     def ozon_fbs_supply_shipments(
         request: Request,
