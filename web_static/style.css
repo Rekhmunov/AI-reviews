@@ -14257,6 +14257,19 @@ button.wb-fbs-kiz-add:disabled {
   color: #475569;
 }
 .ozon-fbs-container-count[hidden] { display: none !important; }
+.ozon-fbs-kiz-counters {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+#ozonFbsKizModal .ozon-fbs-kiz-counters .wb-fbs-kiz-scan-count {
+  text-align: left;
+}
+#ozonFbsKizModal .ozon-fbs-kiz-counters .ozon-fbs-container-count {
+  margin-top: 0;
+  color: #0f172a;
+}
 .wb-fbs-kiz-col-container {
   min-width: 140px;
 }
