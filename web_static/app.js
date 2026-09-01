@@ -2248,7 +2248,8 @@ function renderSupplySourcesTable() {
       ? new Date(src.last_synced_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" })
       : "—";
     const fullPreview = src.api_key_preview || "—";
-    const shortPreview = fullPreview.length > 18 ? fullPreview.slice(0, 14) + "…" : fullPreview;
+    // Backend already returns a short mask (ab••••••cd); keep UI compact.
+    const shortPreview = fullPreview.length > 12 ? `${fullPreview.slice(0, 2)}••••${fullPreview.slice(-2)}` : fullPreview;
     const mpRaw = (src.marketplace || "wb").toLowerCase();
     const mpLabel = (mpRaw === "ozon" || mpRaw === "ozon_fbs")
       ? '<span style="color:#005bff;font-weight:600">ОЗОН</span>'
@@ -2263,7 +2264,8 @@ function renderSupplySourcesTable() {
       <td>${src.is_enabled ? '<span style="color:#16a34a;font-weight:600">Да</span>' : '<span style="color:#9ca3af">Нет</span>'}</td>
       <td class="small" style="color:#64748b">${lastSync}</td>
       <td>
-        <div class="row" style="gap:6px;flex-wrap:nowrap">
+        <div class="row supply-src-actions">
+          <button class="secondary small-btn" onclick="openEditSupplySourceKeyModal(${src.id})" title="Обновить API-ключ">Ключ</button>
           <button class="secondary small-btn" onclick="toggleSupplySource(${src.id}, ${!src.is_enabled})">${src.is_enabled ? "Отключить" : "Включить"}</button>
           <button class="secondary small-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deleteSupplySource(${src.id})">Удалить</button>
         </div>
@@ -2271,6 +2273,82 @@ function renderSupplySourcesTable() {
     `;
     tbody.appendChild(tr);
   });
+}
+
+function openEditSupplySourceKeyModal(sourceId) {
+  const modal = document.getElementById("editSupplySourceKeyModal");
+  const idEl = document.getElementById("editSupplySourceKeyId");
+  const nameEl = document.getElementById("editSupplySourceKeyName");
+  const previewEl = document.getElementById("editSupplySourceKeyPreview");
+  const keyEl = document.getElementById("editSupplySourceApiKey");
+  const info = document.getElementById("editSupplySourceKeyInfo");
+  if (!modal || !idEl || !keyEl) return;
+  const src = (suppliesState.sources || []).find((s) => Number(s.id) === Number(sourceId));
+  idEl.value = String(sourceId);
+  if (nameEl) nameEl.textContent = src?.name || `Источник #${sourceId}`;
+  if (previewEl) {
+    const preview = src?.api_key_preview || "—";
+    previewEl.textContent = preview.length > 12
+      ? `${preview.slice(0, 2)}••••${preview.slice(-2)}`
+      : preview;
+    previewEl.title = preview;
+  }
+  keyEl.value = "";
+  if (info) { info.textContent = ""; info.style.color = ""; }
+  modal.classList.remove("hidden");
+  modal.setAttribute("aria-hidden", "false");
+  keyEl.focus();
+}
+
+function closeEditSupplySourceKeyModal() {
+  const modal = document.getElementById("editSupplySourceKeyModal");
+  if (!modal) return;
+  modal.classList.add("hidden");
+  modal.setAttribute("aria-hidden", "true");
+  const keyEl = document.getElementById("editSupplySourceApiKey");
+  if (keyEl) keyEl.value = "";
+}
+
+async function saveEditSupplySourceKey() {
+  const idEl = document.getElementById("editSupplySourceKeyId");
+  const keyEl = document.getElementById("editSupplySourceApiKey");
+  const info = document.getElementById("editSupplySourceKeyInfo");
+  const sourceId = Number(idEl?.value || 0);
+  const api_key = (keyEl?.value || "").trim();
+  if (!sourceId) {
+    if (info) { info.textContent = "Источник не выбран"; info.style.color = "#b91c1c"; }
+    return;
+  }
+  if (!api_key) {
+    if (info) { info.textContent = "Введите новый API-ключ"; info.style.color = "#b91c1c"; }
+    return;
+  }
+  if (info) { info.textContent = "Сохранение..."; info.style.color = ""; }
+  const res = await fetch(`/api/supply-sources/${sourceId}/api-key`, {
+    method: "PATCH",
+    headers: jsonHeaders(),
+    body: JSON.stringify({ api_key }),
+  }).catch(() => null);
+  if (!res) {
+    if (info) { info.textContent = "Ошибка сети"; info.style.color = "#b91c1c"; }
+    return;
+  }
+  if (!res.ok) {
+    const rawText = await res.text().catch(() => "");
+    let msg = "Ошибка " + res.status;
+    try {
+      const err = JSON.parse(rawText);
+      const detail = err.detail;
+      msg = Array.isArray(detail)
+        ? detail.map((e) => e.msg || JSON.stringify(e)).join("; ")
+        : String(detail || msg);
+    } catch (_) {}
+    if (info) { info.textContent = msg; info.style.color = "#b91c1c"; }
+    return;
+  }
+  if (info) { info.textContent = "Ключ обновлён"; info.style.color = "#16a34a"; }
+  await loadSupplySources();
+  closeEditSupplySourceKeyModal();
 }
 
 async function createSupplySource() {
@@ -2322,7 +2400,7 @@ async function toggleSupplySource(sourceId, isEnabled) {
 }
 
 async function deleteSupplySource(sourceId) {
-  if (!confirm("Удалить источник? Все данные о поставках из него будут удалены.")) return;
+  if (!confirm("Удалить источник? Все данные о поставках из него будут удалены.\n\nЕсли нужно только сменить токен — используйте «Ключ», данные сохранятся.")) return;
   await fetch(`/api/supply-sources/${sourceId}`, { method: "DELETE", headers: jsonHeaders() }).catch(() => null);
   await loadSupplySources();
 }
@@ -16074,6 +16152,9 @@ window.toggleAddSupplySourceForm = toggleAddSupplySourceForm;
 window.createSupplySource = createSupplySource;
 window.toggleSupplySource = toggleSupplySource;
 window.deleteSupplySource = deleteSupplySource;
+window.openEditSupplySourceKeyModal = openEditSupplySourceKeyModal;
+window.closeEditSupplySourceKeyModal = closeEditSupplySourceKeyModal;
+window.saveEditSupplySourceKey = saveEditSupplySourceKey;
 window.syncSupplies = syncSupplies;
 window.clearSupplies = clearSupplies;
 window.loadSupplies = loadSupplies;

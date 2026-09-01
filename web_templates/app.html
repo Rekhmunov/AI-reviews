@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=255" />
+  <link rel="stylesheet" href="/static/style.css?v=256" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -4597,6 +4597,29 @@
           </div>
         </div>
 
+        <div id="editSupplySourceKeyModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-hidden="true" onclick="if(event.target===this)closeEditSupplySourceKeyModal()">
+          <div class="modal-card" style="max-width:480px">
+            <div class="row row-between">
+              <h4 class="no-margin">Обновить API-ключ</h4>
+              <button type="button" class="secondary" onclick="closeEditSupplySourceKeyModal()">✕</button>
+            </div>
+            <p class="small" style="margin:12px 0 4px;color:#64748b">Источник: <strong id="editSupplySourceKeyName">—</strong></p>
+            <p class="small" style="margin:0 0 12px;color:#64748b">Текущий ключ: <code id="editSupplySourceKeyPreview">—</code></p>
+            <input type="hidden" id="editSupplySourceKeyId" value="" />
+            <div class="row" style="margin-bottom:12px">
+              <textarea id="editSupplySourceApiKey" class="textarea-compact" rows="3"
+                placeholder="Новый API-ключ / токен" autocomplete="off" style="width:100%"></textarea>
+            </div>
+            <p class="small" style="margin:0 0 12px;color:#64748b">Данные поставок и FBS не удаляются — меняется только ключ доступа.</p>
+            <div class="row" style="gap:8px;align-items:center">
+              <button type="button" onclick="saveEditSupplySourceKey()">Сохранить ключ</button>
+              <button type="button" class="secondary" onclick="closeEditSupplySourceKeyModal()">Отмена</button>
+              <span id="editSupplySourceKeyInfo" class="small"></span>
+            </div>
+          </div>
+        </div>
+
         <div id="supplies-settings-pane-sources">
           <div class="panel">
             <div class="row row-between">
@@ -6312,6 +6335,6 @@
   </div>
 
   <script src="/static/ozon_fbs.js?v=69"></script>
-  <script src="/static/app.js?v=524"></script>
+  <script src="/static/app.js?v=525"></script>
 </body>
 </html>

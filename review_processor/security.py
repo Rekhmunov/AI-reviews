@@ -41,10 +41,10 @@ def decrypt_secret(value: str | None) -> str | None:
 
 
 def mask_secret(value: str | None) -> str:
+    """Short UI-safe preview (never echoes secret length via long **** runs)."""
     if not value:
         return ""
     clean = str(value)
     if len(clean) <= 4:
-        return "*" * len(clean)
-    middle = "*" * max(len(clean) - 4, 1)
-    return f"{clean[:2]}{middle}{clean[-2:]}"
+        return "•" * len(clean)
+    return f"{clean[:2]}••••••{clean[-2:]}"

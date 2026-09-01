@@ -10205,6 +10205,66 @@ class ReviewRepository:
             )
         return bool(result.rowcount)
 
+    def update_supply_source_api_key(
+        self,
+        *,
+        user_id: int,
+        source_id: int,
+        api_key: str,
+        analytics_api_key: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Replace marketplace API key (and optionally analytics key) without wiping data."""
+        clean = str(api_key or "").strip()
+        if not clean:
+            raise ValueError("API-ключ не может быть пустым")
+        sets = ["api_key_encrypted = ?"]
+        params: list[Any] = [encrypt_secret(clean)]
+        if analytics_api_key is not None:
+            analytics_clean = str(analytics_api_key or "").strip()
+            sets.append("analytics_api_key_encrypted = ?")
+            params.append(encrypt_secret(analytics_clean) if analytics_clean else None)
+        params.extend([user_id, source_id])
+        with self._connect() as conn:
+            result = conn.execute(
+                self._sql(
+                    f"""
+                    UPDATE supply_sources
+                    SET {", ".join(sets)}
+                    WHERE user_id = ? AND id = ?
+                    """
+                ),
+                tuple(params),
+            )
+            if not result.rowcount:
+                return None
+            row = conn.execute(
+                self._sql("SELECT * FROM supply_sources WHERE user_id = ? AND id = ?"),
+                (user_id, source_id),
+            ).fetchone()
+        if row is None:
+            return None
+        d = self._row_to_dict(row)
+        d.pop("api_key_encrypted", None)
+        d.pop("analytics_api_key_encrypted", None)
+        d["api_key_preview"] = mask_secret(clean)
+        d["has_api_key"] = True
+        if analytics_api_key is not None:
+            analytics_clean = str(analytics_api_key or "").strip()
+            d["has_analytics_api_key"] = bool(analytics_clean)
+            d["analytics_api_key_preview"] = (
+                mask_secret(analytics_clean) if analytics_clean else ""
+            )
+        else:
+            # Keep flags consistent with list_supply_sources shape when analytics untouched.
+            full = self.get_supply_source_with_key(user_id=user_id, source_id=source_id) or {}
+            analytics_existing = str(full.get("analytics_api_key") or "").strip()
+            d["has_analytics_api_key"] = bool(analytics_existing)
+            d["analytics_api_key_preview"] = (
+                mask_secret(analytics_existing) if analytics_existing else ""
+            )
+        d["is_enabled"] = bool(d.get("is_enabled"))
+        return d
+
     def toggle_supply_source(self, *, user_id: int, source_id: int, is_enabled: bool) -> bool:
         with self._connect() as conn:
             result = conn.execute(

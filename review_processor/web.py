@@ -499,6 +499,11 @@ class UpdateSupplySourceAnalyticsKeyRequest(BaseModel):
     analytics_api_key: str = ""
 
 
+class UpdateSupplySourceApiKeyRequest(BaseModel):
+    api_key: str
+    analytics_api_key: str | None = None
+
+
 class UpsertSupplyEdoSettingsRequest(BaseModel):
     api_url: str = "https://logist-api.kontur.ru/"
     api_key: str | None = None  # None = keep previous
@@ -8605,6 +8610,33 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not ok:
             raise HTTPException(status_code=404, detail="Источник не найден")
         return {"ok": True, "source_id": source_id}
+
+    @app.patch("/api/supply-sources/{source_id}/api-key")
+    def update_supply_source_api_key(
+        request: Request,
+        source_id: int,
+        payload: UpdateSupplySourceApiKeyRequest,
+    ) -> dict[str, object]:
+        """Replace source API key without deleting local supply/FBS data."""
+        user = _require_user(request)
+        if str(user.get("role") or "") not in ROLE_CAN_ACCESS_SETTINGS:
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        clean = str(payload.api_key or "").strip()
+        if not clean:
+            raise HTTPException(status_code=400, detail="API-ключ не может быть пустым")
+        repository._ensure_supply_tables()
+        try:
+            updated = repository.update_supply_source_api_key(
+                user_id=int(user["id"]),
+                source_id=int(source_id),
+                api_key=clean,
+                analytics_api_key=payload.analytics_api_key,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if not updated:
+            raise HTTPException(status_code=404, detail="Источник не найден")
+        return {"ok": True, "source": updated}
 
     @app.delete("/api/supply-sources/{source_id}")
     def delete_supply_source(request: Request, source_id: int) -> dict[str, object]:

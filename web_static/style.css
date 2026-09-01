@@ -5350,21 +5350,31 @@ body.sst-col-resizing * {
 .supply-sources-table tr:last-child td { border-bottom: none; }
 /* Column widths — must sum to 100% */
 .supply-sources-table col.col-num   { width: 4%; }
-.supply-sources-table col.col-name  { width: 28%; }
-.supply-sources-table col.col-key   { width: 18%; }
+.supply-sources-table col.col-name  { width: 26%; }
+.supply-sources-table col.col-key   { width: 12%; }
 .supply-sources-table col.col-act   { width: 10%; }
-.supply-sources-table col.col-sync  { width: 20%; }
-.supply-sources-table col.col-acts  { width: 20%; }
+.supply-sources-table col.col-sync  { width: 18%; }
+.supply-sources-table col.col-acts  { width: 30%; }
 
-.supply-src-key-cell { }
+.supply-src-key-cell {
+  max-width: 120px;
+  overflow: hidden;
+}
 .supply-src-key-text {
-  font-family: monospace;
-  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
   color: #475569;
-  display: block;
+  display: inline-block;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+.supply-src-actions {
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 /* ── Supply Details Modal ──────────────────────────────────────── */
