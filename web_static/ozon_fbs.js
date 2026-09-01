@@ -7168,15 +7168,6 @@
   function _ozonFbsModalRowMenuItemsHtml(row, mode) {
     const pn = String(row?.posting_number || "").trim();
     const safePn = esc(pn);
-    const hasContainers = typeof _ozonFbsContainerGmUiVisible === "function"
-      ? _ozonFbsContainerGmUiVisible(mode)
-      : !!window.ozonFbsContainerBindState?.hasContainers;
-    const containerManualItem = hasContainers
-      ? `<button type="button" class="wb-fbs-row-menu-item" role="menuitem"
-                onclick="openOzonFbsContainerManualEntry('${esc(mode)}', '${safePn}')">
-           Указать ШК грузоместа
-         </button>`
-      : "";
     const canMove = typeof _ozonFbsContainerRowCanMove === "function"
       && _ozonFbsContainerRowCanMove(row);
     const moveItem = canMove
@@ -7186,7 +7177,6 @@
          </button>`
       : "";
     return (
-      containerManualItem +
       moveItem +
       `<button type="button" class="wb-fbs-row-menu-item" role="menuitem"
               onclick="ozonFbsPrintOnePostingStickerFromDetail(event, '${safePn}')">
