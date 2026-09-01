@@ -5308,17 +5308,14 @@
   }
 
   function renderShipmentsMetaColumn(block, data) {
-    const rows = [
-      ["Пункт", block?.dropoff_point_type_label || "Сортировочный центр"],
-      ["Способ отгрузки", block?.shipment_method_label || "В пункт приема"],
-      ["Адрес", block?.dropoff_address || "—"],
-    ];
-    const rowsHtml = rows.map(([label, value]) => `
-      <div class="ozon-fbs-shipments-meta-item">
-        <span class="ozon-fbs-shipments-meta-label">${esc(label)}</span>
-        <span class="ozon-fbs-shipments-meta-value">${esc(value)}</span>
-      </div>`).join("");
-    return `<div class="ozon-fbs-shipments-meta-col">${rowsHtml}</div>`;
+    const address = String(block?.dropoff_address || "").trim() || "—";
+    return `
+      <div class="ozon-fbs-shipments-meta-col">
+        <div class="ozon-fbs-shipments-meta-item">
+          <span class="ozon-fbs-shipments-meta-label">Адрес</span>
+          <span class="ozon-fbs-shipments-meta-value">${esc(address)}</span>
+        </div>
+      </div>`;
   }
 
   function renderShipmentsView(data) {
