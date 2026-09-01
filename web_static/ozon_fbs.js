@@ -2455,7 +2455,22 @@
     menu.style.left = "";
     const wrapId = menu.dataset.wrapId;
     const wrap = wrapId ? document.getElementById(wrapId) : null;
-    if (wrap && menu.parentElement !== wrap) wrap.appendChild(menu);
+    if (wrap) {
+      wrap.querySelectorAll(`#${CSS.escape(menu.id)}`).forEach((el) => {
+        if (el !== menu) el.remove();
+      });
+      if (menu.parentElement !== wrap) wrap.appendChild(menu);
+    }
+  }
+
+  /** Drop ported row menus before table re-render (prevents duplicate ⋮ menus). */
+  function _ozonFbsPrepareRowMenuRender() {
+    closeOzonFbsRowMenus();
+    document.querySelectorAll(".wb-fbs-row-menu[data-ported='1']").forEach((menu) => {
+      menu.dataset.ported = "";
+      menu.classList.remove("open");
+      menu.remove();
+    });
   }
 
   function closeOzonFbsRowMenus(exceptKey = null) {
@@ -6982,6 +6997,35 @@
       `</div>`;
   }
 
+  /** Row ⋮ menu for Marking / Pick Verify modals (text-only items, no icons). */
+  function _ozonFbsModalRowActionsHtml(row, mode) {
+    const pn = String(row?.posting_number || "").trim();
+    if (!pn || _ozonFbsRowIsCancelled(row)) {
+      return `<div class="wb-fbs-row-menu-wrap wb-fbs-row-menu-wrap--empty" aria-hidden="true"></div>`;
+    }
+    const menuKey = _ozonFbsPostingMenuKey(pn);
+    const safePn = esc(pn);
+    const canMove = typeof _ozonFbsContainerRowCanMove === "function"
+      && _ozonFbsContainerRowCanMove(row);
+    const moveItem = canMove
+      ? `<button type="button" class="wb-fbs-row-menu-item" role="menuitem"
+                onclick="openOzonFbsMoveContainerPicker('${esc(mode)}', '${safePn}')">
+           Переместить в другое ГМ
+         </button>`
+      : "";
+    return `<div class="wb-fbs-row-menu-wrap" id="ozonFbsRowMenuWrap_${menuKey}">
+      <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
+              onclick="toggleOzonFbsRowMenu(event, '${menuKey}')" aria-haspopup="menu">⋮</button>
+      <div id="ozonFbsRowMenu_${menuKey}" class="wb-fbs-row-menu" data-posting="${safePn}" role="menu">
+        ${moveItem}
+        <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
+                onclick="ozonFbsPrintOnePostingStickerFromDetail(event, '${safePn}')">
+          Напечатать стикер
+        </button>
+      </div>
+    </div>`;
+  }
+
   /** First column like supply detail: posting number + date (no duplicate sticker line). */
   function _ozonFbsModalPostingColHtml(row, { quantity } = {}) {
     const pn = String(row?.posting_number || "").trim();
@@ -7648,6 +7692,7 @@
     if (!opts?.skipCollect) _ozonFbsKizCollectFromDom();
     const tbody = document.getElementById("ozonFbsKizTbody");
     if (!tbody) return;
+    _ozonFbsPrepareRowMenuRender();
     const q = String(document.getElementById("ozonFbsKizSearchFilter")?.value || "")
       .trim()
       .toLowerCase();
@@ -7731,7 +7776,6 @@
           ${err && String(code || "").trim() ? `<div class="wb-fbs-kiz-code-status is-error">${esc(err)}</div>` : ""}
         </div>`;
       }).join("");
-      const menuIcon = typeof _wbFbsQrMenuIconHtml === "function" ? _wbFbsQrMenuIconHtml() : "";
       return `<tr class="wb-fbs-kiz-row${pending === pn ? " is-active" : ""}${isCancelled ? " is-cancelled" : ""}" data-posting="${safePn}">
         <td>
           ${_ozonFbsModalPostingColHtml(r)}
@@ -7775,17 +7819,7 @@
             : "—"
         }</td>
         <td>
-          <div class="wb-fbs-row-menu-wrap">
-            <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
-                    onclick="toggleOzonFbsRowMenu(event, '${menuKey}')" aria-haspopup="menu">⋮</button>
-            <div id="ozonFbsRowMenu_${menuKey}" class="wb-fbs-row-menu" data-order-id="${menuKey}" role="menu">
-              <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
-                      onclick="ozonFbsPrintOnePostingStickerFromDetail(event, '${safePn}')">
-                ${menuIcon}
-                Напечатать стикер
-              </button>
-            </div>
-          </div>
+          ${_ozonFbsModalRowActionsHtml(r, "kiz")}
         </td>
       </tr>`;
     }).join("");
@@ -8960,6 +8994,7 @@
   function renderOzonFbsPickVerifyTable() {
     const tbody = document.getElementById("ozonFbsPickTbody");
     if (!tbody) return;
+    _ozonFbsPrepareRowMenuRender();
     const q = String(document.getElementById("ozonFbsPickSearchFilter")?.value || "")
       .trim()
       .toLowerCase();
@@ -8983,7 +9018,7 @@
       return hay.includes(q);
     });
     if (!rows.length) {
-      tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">${
+      tbody.innerHTML = `<tr><td colspan="5" class="wb-fbs-empty">${
         ozonFbsPickState.rows?.length ? "Нет строк по фильтру" : "Нет отправлений без маркировки"
       }</td></tr>`;
       _ozonFbsPickUpdateScanCounter();
@@ -9023,6 +9058,9 @@
             ? _ozonFbsContainerCellHtml(r, "pick")
             : "—"
         }</td>
+        <td>
+          ${_ozonFbsModalRowActionsHtml(r, "pick")}
+        </td>
       </tr>`;
     }).join("");
     _ozonFbsPickUpdateScanCounter();
@@ -9305,7 +9343,7 @@
     _ozonFbsPickSetFiltersReady(false);
     _ozonFbsPickSetInfo("");
     const tbody = document.getElementById("ozonFbsPickTbody");
-    if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">Загрузка…</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="wb-fbs-empty">Загрузка…</td></tr>`;
     const saveBtn = document.getElementById("ozonFbsPickVerifySaveBtn");
     if (saveBtn) saveBtn.disabled = true;
     const scan = document.getElementById("ozonFbsPickStickerScan");
@@ -9320,7 +9358,7 @@
           onProgress: (p) => {
             const msg = _ozonFbsResolveProgressText(p);
             if (tbody) {
-              tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">${esc(msg)}</td></tr>`;
+              tbody.innerHTML = `<tr><td colspan="5" class="wb-fbs-empty">${esc(msg)}</td></tr>`;
             }
             _ozonFbsPickSetInfo(msg, true);
           },
