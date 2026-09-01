@@ -8256,21 +8256,29 @@ class ReviewRepository:
         )
         self._backfill_supply_source_identity(conn)
         # One active (non-deleted) source per tenant + channel + cabinet.
-        conn.execute(
-            """
-            CREATE UNIQUE INDEX IF NOT EXISTS uq_supply_sources_active_cabinet
-            ON supply_sources (user_id, channel, external_account_id)
-            WHERE deleted_at IS NULL
-              AND channel IS NOT NULL
-              AND external_account_id IS NOT NULL
-            """
-        )
-        conn.execute(
-            self._sql(
-                "CREATE INDEX IF NOT EXISTS idx_supply_sources_cabinet "
-                "ON supply_sources(user_id, channel, external_account_id)"
+        # Never fail the whole migration (listing/sync) if the index cannot be
+        # built yet — sources must stay visible.
+        try:
+            conn.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_supply_sources_active_cabinet
+                ON supply_sources (user_id, channel, external_account_id)
+                WHERE deleted_at IS NULL
+                  AND channel IS NOT NULL
+                  AND external_account_id IS NOT NULL
+                """
             )
-        )
+        except Exception:
+            pass
+        try:
+            conn.execute(
+                self._sql(
+                    "CREATE INDEX IF NOT EXISTS idx_supply_sources_cabinet "
+                    "ON supply_sources(user_id, channel, external_account_id)"
+                )
+            )
+        except Exception:
+            pass
         conn.execute(
             "ALTER TABLE supply_legal_entities ADD COLUMN IF NOT EXISTS signatories TEXT"
         )
@@ -10121,7 +10129,11 @@ class ReviewRepository:
     # ── Supply Sources CRUD ──
 
     def _backfill_supply_source_identity(self, conn) -> None:
-        """Fill channel + external_account_id for existing rows; resolve collisions."""
+        """Fill channel + external_account_id for existing rows; resolve collisions.
+
+        Channel always follows the source name (ФБС/FBS marker) — operators mark
+        FBS keys in the title; we do not hide legacy rows without a cabinet id.
+        """
         try:
             rows = conn.execute(
                 self._sql(
@@ -10134,80 +10146,116 @@ class ReviewRepository:
             ).fetchall()
         except Exception:
             return
-        # First pass: fill missing identity fields.
+
+        # Occupied cabinet bindings among active rows (for collision-safe fills).
+        occupied: set[tuple[int, str, str]] = set()
         for row in rows:
             d = self._row_to_dict(row)
-            channel = str(d.get("channel") or "").strip() or None
-            ext = str(d.get("external_account_id") or "").strip() or None
-            if channel and ext:
+            if d.get("deleted_at"):
                 continue
+            ch0 = str(d.get("channel") or "").strip()
+            ext0 = str(d.get("external_account_id") or "").strip()
+            if ch0 and ext0:
+                occupied.add((int(d["user_id"]), ch0, ext0))
+
+        # First pass: reconcile channel from name; fill cabinet id when safe.
+        for row in rows:
+            d = self._row_to_dict(row)
             mp = d.get("marketplace") or "wb"
             name = d.get("name")
-            if not channel:
-                channel = supply_identity.resolve_supply_channel(
-                    marketplace=mp, name=name
-                )
+            user_id = int(d["user_id"])
+            row_id = int(d["id"])
+            stored_channel = str(d.get("channel") or "").strip() or None
+            stored_ext = str(d.get("external_account_id") or "").strip() or None
+
+            # Name is the source of truth for FBO/FBS (no UI dropdown).
+            channel = supply_identity.resolve_supply_channel(
+                marketplace=mp, name=name
+            ) or stored_channel
+
+            ext = stored_ext
             if not ext:
                 key = decrypt_secret(str(d.get("api_key_encrypted") or "") or None)
-                ext = supply_identity.resolve_external_account_id(
+                candidate = supply_identity.resolve_external_account_id(
                     marketplace=mp,
                     api_key=key or "",
                     client_id=d.get("client_id") or "",
                 )
-            if channel or ext:
-                # For WB legacy rows: also persist cabinet id into client_id so the
-                # settings form can show/edit it (API does not use client_id for WB).
-                stored_client = str(d.get("client_id") or "").strip()
-                client_to_set = stored_client or (
-                    ext if str(mp or "").lower() in ("wb", "wildberries") else None
-                )
+                if candidate and channel:
+                    bind = (user_id, str(channel), str(candidate))
+                    # Do not re-bind a cabinet already taken by another active row —
+                    # that used to raise unique_violation and break listing.
+                    if bind in occupied:
+                        candidate = None
+                    else:
+                        occupied.add(bind)
+                ext = candidate
+
+            stored_client = str(d.get("client_id") or "").strip()
+            client_to_set = stored_client or (
+                ext if str(mp or "").lower() in ("wb", "wildberries") else None
+            )
+
+            if (
+                channel == stored_channel
+                and ext == stored_ext
+                and (client_to_set or None) == (stored_client or None)
+            ):
+                continue
+            try:
                 conn.execute(
                     self._sql(
                         """
                         UPDATE supply_sources
-                        SET channel = COALESCE(NULLIF(TRIM(COALESCE(channel, '')), ''), ?),
-                            external_account_id = COALESCE(
-                                NULLIF(TRIM(COALESCE(external_account_id, '')), ''), ?
-                            ),
+                        SET channel = ?,
+                            external_account_id = ?,
                             client_id = COALESCE(
                                 NULLIF(TRIM(COALESCE(client_id, '')), ''), ?
                             )
                         WHERE id = ?
                         """
                     ),
-                    (channel, ext, client_to_set, int(d["id"])),
+                    (channel, ext, client_to_set, row_id),
                 )
+            except Exception:
+                # Unique index or lock — leave row visible, skip binding.
+                continue
 
         # Second pass: among active rows, keep one cabinet binding per channel.
-        active = conn.execute(
-            self._sql(
-                """
-                SELECT id, user_id, channel, external_account_id, last_synced_at, created_at
-                FROM supply_sources
-                WHERE deleted_at IS NULL
-                  AND channel IS NOT NULL
-                  AND external_account_id IS NOT NULL
-                ORDER BY user_id ASC, channel ASC, external_account_id ASC,
-                         last_synced_at DESC NULLS LAST, id ASC
-                """
-            )
-        ).fetchall()
+        try:
+            active = conn.execute(
+                self._sql(
+                    """
+                    SELECT id, user_id, channel, external_account_id, last_synced_at, created_at
+                    FROM supply_sources
+                    WHERE deleted_at IS NULL
+                      AND channel IS NOT NULL
+                      AND external_account_id IS NOT NULL
+                    ORDER BY user_id ASC, channel ASC, external_account_id ASC,
+                             last_synced_at DESC NULLS LAST, id ASC
+                    """
+                )
+            ).fetchall()
+        except Exception:
+            return
         seen: set[tuple[int, str, str]] = set()
         for row in active:
             d = self._row_to_dict(row)
             key = (int(d["user_id"]), str(d["channel"]), str(d["external_account_id"]))
             if key in seen:
-                # Drop binding on duplicates so unique index can be created.
-                conn.execute(
-                    self._sql(
-                        """
-                        UPDATE supply_sources
-                        SET external_account_id = NULL
-                        WHERE id = ?
-                        """
-                    ),
-                    (int(d["id"]),),
-                )
+                try:
+                    conn.execute(
+                        self._sql(
+                            """
+                            UPDATE supply_sources
+                            SET external_account_id = NULL
+                            WHERE id = ?
+                            """
+                        ),
+                        (int(d["id"]),),
+                    )
+                except Exception:
+                    pass
             else:
                 seen.add(key)
 
@@ -10243,20 +10291,39 @@ class ReviewRepository:
 
     def list_supply_sources(self, *, user_id: int) -> list[dict[str, Any]]:
         with self._connect() as conn:
-            self._migrate_supply_tables(conn)
-            rows = conn.execute(
-                self._sql(
-                    """
-                    SELECT * FROM supply_sources
-                    WHERE user_id = ? AND deleted_at IS NULL
-                    ORDER BY id ASC
-                    """
-                ),
-                (user_id,),
-            ).fetchall()
+            # Migration must never hide sources — tolerate identity/index errors.
+            try:
+                self._migrate_supply_tables(conn)
+            except Exception:
+                pass
+            try:
+                rows = conn.execute(
+                    self._sql(
+                        """
+                        SELECT * FROM supply_sources
+                        WHERE user_id = ? AND deleted_at IS NULL
+                        ORDER BY id ASC
+                        """
+                    ),
+                    (user_id,),
+                ).fetchall()
+            except Exception:
+                # Older DBs without deleted_at: still return every source.
+                rows = conn.execute(
+                    self._sql(
+                        """
+                        SELECT * FROM supply_sources
+                        WHERE user_id = ?
+                        ORDER BY id ASC
+                        """
+                    ),
+                    (user_id,),
+                ).fetchall()
         result = []
         for row in rows:
             d = self._row_to_dict(row)
+            if d.get("deleted_at"):
+                continue
             encrypted = str(d.pop("api_key_encrypted", "") or "")
             key = decrypt_secret(encrypted) if encrypted else None
             analytics_enc = str(d.pop("analytics_api_key_encrypted", "") or "")
@@ -10339,44 +10406,31 @@ class ReviewRepository:
         clean_key = api_key.strip()
         clean_client = supply_identity.normalize_client_id(client_id)
         clean_analytics = str(analytics_api_key or "").strip()
+        clean_name = str(name or "").strip()
+        if not clean_name:
+            raise ValueError("Название не может быть пустым")
 
-        # Prefer explicit fulfillment/channel from UI; name is legacy fallback only.
+        # Channel follows the name (ФБС/FBS marker). Fulfillment/channel args are
+        # kept for API compatibility but are not required — rights live on the key.
         resolved_channel = supply_identity.resolve_supply_channel(
             marketplace=mp,
-            name=name,
+            name=clean_name,
             fulfillment=fulfillment,
             channel=channel,
         )
         if not resolved_channel:
             raise ValueError(
                 "Не удалось определить тип источника (FBO/FBS). "
-                "Укажите тип явно или добавьте «ФБС» в название."
+                "Добавьте «ФБС» в название для FBS или оставьте без маркера для FBO."
             )
 
-        try:
-            clean_name = supply_identity.ensure_name_matches_fulfillment(
-                name=str(name or "").strip(),
-                channel=resolved_channel,
-            )
-        except ValueError:
-            raise
-        if not clean_name:
-            raise ValueError("Название не может быть пустым")
-
+        # Cabinet id is optional: legacy sources stay visible without it;
+        # operators can add/edit the id later via «Ключ».
         external_account_id = supply_identity.resolve_external_account_id(
             marketplace=mp,
             api_key=clean_key,
             client_id=clean_client,
         )
-        if mp.startswith("ozon") and not external_account_id:
-            raise ValueError("Для Ozon укажите Client-ID кабинета")
-        if mp in ("wb", "wildberries") and not clean_client:
-            raise ValueError(
-                "Для Wildberries укажите ID кабинета "
-                "(на подключение не влияет, нужен для привязки данных)."
-            )
-        if mp in ("wb", "wildberries") and not external_account_id:
-            raise ValueError("Для Wildberries укажите ID кабинета")
 
         analytics_enc = encrypt_secret(clean_analytics) if clean_analytics else None
         api_enc = encrypt_secret(clean_key)
@@ -10592,13 +10646,7 @@ class ReviewRepository:
             old_ext = str(current.get("external_account_id") or "").strip() or None
             if client_id is None and old_ext and not stored_client:
                 new_ext = old_ext
-            if mp.startswith("ozon") and not new_ext:
-                raise ValueError("У источника не задан Client-ID кабинета")
-            if mp in ("wb", "wildberries") and not new_ext:
-                raise ValueError(
-                    "Укажите ID кабинета WB (поле в форме). "
-                    "На API-подключение не влияет, нужен для привязки данных."
-                )
+            # Cabinet id may stay empty — sources remain usable; id can be filled later.
             if new_ext and channel and new_ext != old_ext:
                 clash = conn.execute(
                     self._sql(

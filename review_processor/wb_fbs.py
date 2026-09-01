@@ -383,18 +383,17 @@ def is_fbs_source_name(name: object) -> bool:
 
 
 def is_wb_fbs_source(source: Mapping[str, Any] | None) -> bool:
-    """True for WB FBS sources. Prefers stored ``channel``, falls back to name."""
+    """True for WB FBS sources. Name marker «ФБС»/FBS is the primary signal."""
     if not source:
         return False
     mp = str(source.get("marketplace") or "wb").strip().lower()
     if mp not in ("wb", "wildberries"):
         return False
+    if is_fbs_source_name(source.get("name")):
+        return True
     from . import supply_source_identity as supply_identity
 
-    ch = str(source.get("channel") or "").strip().lower()
-    if ch:
-        return supply_identity.source_is_fbs(source)
-    return is_fbs_source_name(source.get("name"))
+    return supply_identity.source_is_fbs(source)
 
 
 def is_marketplace_scope_error(exc: object) -> bool:

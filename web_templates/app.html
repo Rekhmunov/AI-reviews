@@ -4718,23 +4718,19 @@
                   <option value="wb">ВБ</option>
                   <option value="ozon">ОЗОН</option>
                 </select>
-                <select id="newSupplySourceFulfillment" style="height:36px" title="Тип поставок">
-                  <option value="fbo">FBO</option>
-                  <option value="fbs">FBS</option>
-                </select>
               </div>
               <div class="row">
-                <input id="newSupplySourceName" type="text" placeholder="Название источника" />
+                <input id="newSupplySourceName" type="text" placeholder="Название (для FBS добавьте «ФБС»)" />
               </div>
               <div id="newSupplySourceCabinetIdRow" class="row">
-                <input id="newSupplySourceClientId" type="text" placeholder="ID кабинета WB" autocomplete="off" />
+                <input id="newSupplySourceClientId" type="text" placeholder="ID кабинета WB (необязательно)" autocomplete="off" />
               </div>
               <div class="row">
                 <textarea id="newSupplySourceApiKey" class="textarea-compact" placeholder="Токен WB Поставки" rows="3" autocomplete="off"></textarea>
               </div>
               <p class="small" style="margin:0 0 8px;color:#64748b">
-                Тип FBO/FBS и ID кабинета нужны для привязки данных. При удалении данные сохраняются;
-                повторное добавление с тем же типом и ID восстановит источник.
+                FBS определяется по слову «ФБС» в названии. ID кабинета можно указать сейчас или позже в «Ключ».
+                Права на ключ выдаются в кабинете маркетплейса. При удалении данные сохраняются.
               </p>
               <div class="row">
                 <button onclick="createSupplySource()">Сохранить источник</button>

@@ -92,41 +92,38 @@ def is_ozon_fbs_marketplace(marketplace: object) -> bool:
 def is_ozon_fbs_source(source: Mapping[str, Any] | None) -> bool:
     """True for Ozon FBS cabinets.
 
-    Prefers stored ``channel``; falls back to marketplace=ozon_fbs or «ФБС» in name.
+    Name marker «ФБС»/FBS is the primary signal (same as before cabinet-id work);
+    then marketplace=ozon_fbs or stored channel.
     """
     if not source:
         return False
     mp = str(source.get("marketplace") or "").strip().lower()
     if mp not in ("ozon", "ozon_fbs", "ozon_fbo"):
         return False
-    from . import supply_source_identity as supply_identity
-
-    ch = str(source.get("channel") or "").strip().lower()
-    if ch:
-        return supply_identity.source_is_fbs(source)
+    if is_fbs_source_name(source.get("name")):
+        return True
     if mp == "ozon_fbs":
         return True
-    return is_fbs_source_name(source.get("name"))
+    from . import supply_source_identity as supply_identity
+
+    return supply_identity.source_is_fbs(source)
 
 
 def is_ozon_fbo_source(source: Mapping[str, Any] | None) -> bool:
     """True for Ozon FBO cabinets.
 
-    Prefers stored ``channel``; falls back to marketplace=ozon without «ФБС» in name.
+    Name marker «ФБС»/FBS excludes from FBO; otherwise channel / marketplace.
     """
     if not source:
         return False
     mp = str(source.get("marketplace") or "").strip().lower()
     if mp not in ("ozon", "ozon_fbo"):
         return False
-    if mp == "ozon_fbs":
+    if mp == "ozon_fbs" or is_fbs_source_name(source.get("name")):
         return False
     from . import supply_source_identity as supply_identity
 
-    ch = str(source.get("channel") or "").strip().lower()
-    if ch:
-        return supply_identity.source_is_fbo(source)
-    return not is_fbs_source_name(source.get("name"))
+    return supply_identity.source_is_fbo(source)
 
 
 def compute_tab(status: object) -> str:

@@ -166,22 +166,25 @@ def fulfillment_of_channel(channel: object) -> str | None:
 
 
 def source_is_fbs(source: Mapping[str, Any] | None) -> bool:
-    """Prefer stored ``channel``; fall back to marketplace/name heuristics."""
+    """FBS detection: name marker (ФБС/FBS) wins; then channel / marketplace."""
     if not source:
         return False
+    # Operators mark FBS keys in the title — this is the primary signal.
+    if is_fbs_source_name(source.get("name")):
+        return True
     ch = str(source.get("channel") or "").strip().lower()
     if ch in (CHANNEL_WB_FBS, CHANNEL_OZON_FBS) or ch.endswith("_fbs"):
         return True
     if ch in (CHANNEL_WB_FBO, CHANNEL_OZON_FBO) or ch.endswith("_fbo"):
         return False
     mp = str(source.get("marketplace") or "").strip().lower()
-    if mp == "ozon_fbs":
-        return True
-    return is_fbs_source_name(source.get("name"))
+    return mp == "ozon_fbs"
 
 
 def source_is_fbo(source: Mapping[str, Any] | None) -> bool:
     if not source:
+        return False
+    if is_fbs_source_name(source.get("name")):
         return False
     ch = str(source.get("channel") or "").strip().lower()
     if ch in (CHANNEL_WB_FBO, CHANNEL_OZON_FBO) or ch.endswith("_fbo"):
@@ -192,7 +195,7 @@ def source_is_fbo(source: Mapping[str, Any] | None) -> bool:
     if mp == "ozon_fbs":
         return False
     if mp in ("ozon", "ozon_fbo", "wb", "wildberries"):
-        return not is_fbs_source_name(source.get("name"))
+        return True
     return False
 
 

@@ -89,16 +89,20 @@ def test_resolve_external_account_wb_jwt_fallback() -> None:
     ) == "39682584"
 
 
-def test_source_is_fbs_prefers_channel_over_name() -> None:
+def test_source_is_fbs_name_marker_wins_over_channel() -> None:
+    # Explicit channel still works when name has no marker.
     assert ident.source_is_fbs(
         {"marketplace": "wb", "name": "Без маркера", "channel": "wb_fbs"}
     )
-    assert not ident.source_is_fbs(
+    # Name marker «ФБС» wins even if a stale channel says FBO.
+    assert ident.source_is_fbs(
         {"marketplace": "wb", "name": "Склад ФБС", "channel": "wb_fbo"}
     )
-    # Legacy fallback when channel empty.
     assert ident.source_is_fbs({"marketplace": "wb", "name": "ФБС склад"})
     assert not ident.source_is_fbs({"marketplace": "wb", "name": "Основной"})
+    assert not ident.source_is_fbs(
+        {"marketplace": "wb", "name": "Основной", "channel": "wb_fbo"}
+    )
 
 
 def test_sibling_channel() -> None:

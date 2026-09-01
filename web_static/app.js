@@ -2189,11 +2189,11 @@ function onSupplySourceMarketplaceChange() {
   if (clientIdRow) clientIdRow.style.display = "";
   if (clientIdEl) {
     clientIdEl.placeholder = mp === "ozon"
-      ? "Client-ID (OZON)"
-      : "ID кабинета WB";
+      ? "Client-ID (OZON, необязательно)"
+      : "ID кабинета WB (необязательно)";
     clientIdEl.title = mp === "ozon"
-      ? "Client-Id из личного кабинета Ozon (нужен для API)"
-      : "ID кабинета WB (на подключение не влияет, нужен для привязки данных)";
+      ? "Client-Id из личного кабинета Ozon — можно добавить позже в «Ключ»"
+      : "ID кабинета WB — на подключение не влияет, можно добавить позже в «Ключ»";
   }
   if (apiKeyPlaceholder) {
     apiKeyPlaceholder.placeholder = mp === "ozon"
@@ -2213,12 +2213,10 @@ function toggleAddSupplySourceForm(show) {
     const keyEl = document.getElementById("newSupplySourceApiKey");
     const mpEl = document.getElementById("newSupplySourceMarketplace");
     const cidEl = document.getElementById("newSupplySourceClientId");
-    const ffEl = document.getElementById("newSupplySourceFulfillment");
     if (nameEl) nameEl.value = "";
     if (keyEl) keyEl.value = "";
     if (mpEl) mpEl.value = "wb";
     if (cidEl) cidEl.value = "";
-    if (ffEl) ffEl.value = "fbo";
     onSupplySourceMarketplaceChange();
   }
 }
@@ -2411,22 +2409,18 @@ async function createSupplySource() {
   const keyEl = document.getElementById("newSupplySourceApiKey");
   const mpEl = document.getElementById("newSupplySourceMarketplace");
   const cidEl = document.getElementById("newSupplySourceClientId");
-  const ffEl = document.getElementById("newSupplySourceFulfillment");
   const info = document.getElementById("addSupplySourceInfo");
   const name = (nameEl?.value || "").trim();
   const api_key = (keyEl?.value || "").trim();
   const marketplace = mpEl?.value || "wb";
   const client_id = (cidEl?.value || "").trim();
-  const fulfillment = (ffEl?.value || "fbo").trim().toLowerCase() || "fbo";
   if (!name) { if (info) { info.textContent = "Введите название"; info.style.color = "#b91c1c"; } return; }
   if (!api_key) { if (info) { info.textContent = "Введите API-ключ"; info.style.color = "#b91c1c"; } return; }
-  if (marketplace === "ozon" && !client_id) { if (info) { info.textContent = "Введите Client-ID"; info.style.color = "#b91c1c"; } return; }
-  if (marketplace === "wb" && !client_id) { if (info) { info.textContent = "Введите ID кабинета"; info.style.color = "#b91c1c"; } return; }
   if (info) { info.textContent = "Сохранение..."; info.style.color = ""; }
   const res = await fetch("/api/supply-sources", {
     method: "POST",
     headers: jsonHeaders(),
-    body: JSON.stringify({ name, api_key, marketplace, client_id, fulfillment }),
+    body: JSON.stringify({ name, api_key, marketplace, client_id }),
   }).catch(() => null);
   if (!res) { if (info) { info.textContent = "Ошибка сети"; info.style.color = "#b91c1c"; } return; }
   if (!res.ok) {
@@ -2477,18 +2471,14 @@ async function toggleSupplySource(sourceId, isEnabled) {
 
 async function deleteSupplySource(sourceId) {
   const src = (suppliesState.sources || []).find((s) => Number(s.id) === Number(sourceId));
-  const fulfillment = String(src?.fulfillment || "").toUpperCase()
-    || (String(src?.channel || "").endsWith("_fbs") ? "FBS"
-      : String(src?.channel || "").endsWith("_fbo") ? "FBO" : "FBO/FBS");
-  const cabinet = String(src?.client_id || src?.external_account_id || "").trim() || "тот же ID";
+  const cabinet = String(src?.client_id || src?.external_account_id || "").trim();
+  const restoreHint = cabinet
+    ? `Чтобы восстановить — добавьте источник снова с тем же ID кабинета (${cabinet}).\n\n`
+    : "Чтобы восстановить — добавьте источник снова с тем же ключом (и ID кабинета, если указывали).\n\n";
   if (!confirm(
     "Удалить источник из списка?\n\n"
     + "Данные поставок и FBS сохранятся.\n"
-    + "Чтобы восстановить — добавьте источник снова с тем же типом ("
-    + fulfillment
-    + ") и тем же ID кабинета ("
-    + cabinet
-    + ").\n\n"
+    + restoreHint
     + "Если нужно только сменить токен — используйте «Ключ»."
   )) return;
   await fetch(`/api/supply-sources/${sourceId}`, { method: "DELETE", headers: jsonHeaders() }).catch(() => null);
