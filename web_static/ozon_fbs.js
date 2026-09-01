@@ -5102,16 +5102,12 @@
       }];
     }
     if (!list.length) {
-      sel.innerHTML = `<option value="">Нет активных методов</option>`;
+      sel.value = "";
       return;
     }
     const selectedKey = String(selectedId ?? "");
-    sel.innerHTML = list.map((m) => {
-      const id = String(m.id ?? "");
-      const name = esc(m.name || `Метод ${id}`);
-      const selected = selectedKey === id ? " selected" : "";
-      return `<option value="${esc(id)}"${selected}>${name}</option>`;
-    }).join("");
+    const picked = list.find((m) => String(m.id ?? "") === selectedKey) || list[0];
+    sel.value = String(picked?.id ?? "");
   }
 
   function listShipmentsFormedCarriages(data) {
@@ -5269,7 +5265,6 @@
     const labelB64 = String(barcode?.barcode_label_base64 || "").trim();
     const b64 = String(barcode?.barcode_image_base64 || "").trim();
     const canPrint = Boolean(labelB64 || b64 || text);
-    const caption = esc(shipmentsWarehouseCaption(data));
     let visual = `<div class="ozon-fbs-shipments-barcode-empty">Не удалось загрузить штрихкод склада</div>`;
     if (labelB64) {
       visual = `<img id="ozonFbsShipmentsBarcodeImg" class="ozon-fbs-shipments-barcode-label" src="data:image/png;base64,${labelB64}" alt="Штрихкод поставки ${esc(text)}" data-ready="1" />`;
@@ -5283,7 +5278,6 @@
     }
     return `
       <div class="ozon-fbs-shipments-barcode-main">
-        <div class="ozon-fbs-shipments-barcode-caption">${caption}</div>
         <div class="ozon-fbs-shipments-barcode-visual">
           ${visual}
         </div>
@@ -5312,23 +5306,16 @@
       return `<div class="ozon-fbs-shipments-meta-col"><div class="ozon-fbs-shipments-meta-empty">Нет данных отгрузки</div></div>`;
     }
     const rows = [
-      ["Склад", block.warehouse_name || data?.warehouse_name || "—"],
       ["Пункт", block.dropoff_point_type_label || "Сортировочный центр"],
       ["Способ отгрузки", block.shipment_method_label || "В пункт приема"],
       ["Адрес", block.dropoff_address || "—"],
-      ["Собрано заказов", block.collected_label || "—"],
-      ["Приём отправлений", block.acceptance_label || "—"],
     ];
     const rowsHtml = rows.map(([label, value]) => `
       <div class="ozon-fbs-shipments-meta-item">
         <span class="ozon-fbs-shipments-meta-label">${esc(label)}</span>
         <span class="ozon-fbs-shipments-meta-value">${esc(value)}</span>
       </div>`).join("");
-    return `
-      <div class="ozon-fbs-shipments-meta-col">
-        <h4 class="ozon-fbs-shipments-block-title">${esc(block.day_label || "Ozon")}</h4>
-        ${rowsHtml}
-      </div>`;
+    return `<div class="ozon-fbs-shipments-meta-col">${rowsHtml}</div>`;
   }
 
   function renderShipmentsView(data) {
@@ -5345,12 +5332,10 @@
     const blocks = Array.isArray(data.blocks) ? data.blocks : [];
     const primary = blocks[0] || null;
     body.innerHTML = `
-      <section class="ozon-fbs-shipments-card">
-        <div class="ozon-fbs-shipments-top">
-          ${renderShipmentsBarcodePanel(data)}
-          ${renderShipmentsMetaColumn(primary, data)}
-        </div>
-      </section>`;
+      <div class="ozon-fbs-shipments-compact">
+        ${renderShipmentsBarcodePanel(data)}
+        ${renderShipmentsMetaColumn(primary, data)}
+      </div>`;
     paintShipmentsBarcodeLabel();
   }
 
@@ -5364,7 +5349,7 @@
     const day = String(dateEl?.value || todayIsoDate());
     const methodId = String(methodEl?.value || "").trim();
     shipmentsState.loading = true;
-    if (body) body.innerHTML = `<div class="ozon-fbs-shipments-loading">Загрузка отгрузок…</div>`;
+    if (body) body.innerHTML = `<div class="ozon-fbs-shipments-loading">Загрузка…</div>`;
     try {
       const qs = new URLSearchParams({
         source_id: String(sourceId),
@@ -5407,7 +5392,7 @@
     const dateEl = document.getElementById("ozonFbsShipmentsDate");
     const methodEl = document.getElementById("ozonFbsShipmentsMethod");
     if (dateEl && !dateEl.value) dateEl.value = todayIsoDate();
-    if (methodEl) methodEl.innerHTML = `<option value="">Загрузка…</option>`;
+    if (methodEl) methodEl.value = "";
     if (modal) modal.classList.remove("hidden");
     await loadShipments();
   }

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=273" />
+  <link rel="stylesheet" href="/static/style.css?v=274" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -3558,31 +3558,16 @@
 
         <div id="ozonFbsShipmentsModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
              aria-labelledby="ozonFbsShipmentsTitle">
-          <div class="modal-card wb-fbs-supply-detail-modal">
-            <div class="wb-fbs-sd-header">
-              <div class="wb-fbs-sd-title-row">
-                <h3 id="ozonFbsShipmentsTitle" class="wb-fbs-sd-title">ШК поставки</h3>
-                <button type="button" class="icon-btn secondary wb-fbs-sd-close"
-                        onclick="closeOzonFbsShipmentsModal()" aria-label="Закрыть">✕</button>
-              </div>
-              <p class="ozon-fbs-shipments-sub">Дата отгрузки — по часовому поясу склада</p>
-              <div class="ozon-fbs-shipments-filters">
-                <label class="ozon-fbs-shipments-field">
-                  <span>Дата</span>
-                  <input type="date" id="ozonFbsShipmentsDate" class="ozon-fbs-shipments-input"
-                         onchange="reloadOzonFbsShipments()" />
-                </label>
-                <label class="ozon-fbs-shipments-field ozon-fbs-shipments-field-grow">
-                  <span>Метод</span>
-                  <select id="ozonFbsShipmentsMethod" class="ozon-fbs-shipments-input"
-                          onchange="reloadOzonFbsShipments()">
-                    <option value="">Загрузка…</option>
-                  </select>
-                </label>
-              </div>
+          <div class="modal-card ozon-fbs-shipments-modal-card">
+            <div class="ozon-fbs-shipments-header">
+              <h3 id="ozonFbsShipmentsTitle" class="ozon-fbs-shipments-title">ШК поставки</h3>
+              <button type="button" class="icon-btn secondary ozon-fbs-shipments-close"
+                      onclick="closeOzonFbsShipmentsModal()" aria-label="Закрыть">✕</button>
             </div>
-            <div id="ozonFbsShipmentsBody" class="wb-fbs-sd-table-wrap ozon-fbs-shipments-body">
-              <div class="ozon-fbs-shipments-loading">Загрузка отгрузок…</div>
+            <input type="hidden" id="ozonFbsShipmentsDate" />
+            <input type="hidden" id="ozonFbsShipmentsMethod" />
+            <div id="ozonFbsShipmentsBody" class="ozon-fbs-shipments-body">
+              <div class="ozon-fbs-shipments-loading">Загрузка…</div>
             </div>
           </div>
         </div>
@@ -6531,7 +6516,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=94"></script>
+  <script src="/static/ozon_fbs.js?v=95"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=14"></script>
   <script src="/static/app.js?v=528"></script>
 </body>
