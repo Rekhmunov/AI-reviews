@@ -628,15 +628,19 @@ def unbind_posting_from_container(
         repo, user_id=user_id, source_id=source_id, posting_numbers=[pn]
     ).get(pn) or {}
     cid = int(container_id or existing.get("container_id") or 0)
-    sync_error = ""
     if client is not None and cid > 0:
         try:
             client.carriage_container_remove_postings(
                 container_id=cid, posting_numbers=[pn]
             )
         except Exception as exc:
-            sync_error = _friendly_ozon_error(exc)
-            _log.warning("ozon container remove-postings cid=%s pn=%s: %s", cid, pn, sync_error)
+            # Local clear still proceeds; Ozon mismatch is only logged.
+            _log.warning(
+                "ozon container remove-postings cid=%s pn=%s: %s",
+                cid,
+                pn,
+                _friendly_ozon_error(exc),
+            )
     local = _set_local_container_bind(
         repo,
         user_id=user_id,
@@ -645,9 +649,9 @@ def unbind_posting_from_container(
         container_id=None,
         container_barcode="",
         synced=False,
-        sync_error=sync_error,
+        sync_error="",
     )
-    return {"ok": True, "error": sync_error, **local}
+    return {"ok": True, "error": "", **local}
 
 
 def container_bind_fields_from_map(

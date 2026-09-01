@@ -80,6 +80,37 @@ class ContainerBindLocalTests(unittest.TestCase):
         self.assertEqual(out["error"], "")
         self.assertTrue(set_local.call_args.kwargs["synced"])
 
+    def test_unbind_clears_local_even_if_ozon_remove_fails(self) -> None:
+        repo = MagicMock()
+        client = MagicMock()
+        client.carriage_container_remove_postings.side_effect = RuntimeError("gone")
+        with (
+            patch.object(
+                ct,
+                "load_container_bind_map",
+                return_value={"1-1-1": {"container_id": 10}},
+            ),
+            patch.object(ct, "_set_local_container_bind") as set_local,
+        ):
+            set_local.return_value = {
+                "posting_number": "1-1-1",
+                "container_id": None,
+                "container_barcode": "",
+                "container_synced": False,
+                "container_sync_error": "",
+            }
+            out = ct.unbind_posting_from_container(
+                client,
+                repo,
+                user_id=1,
+                source_id=2,
+                posting_number="1-1-1",
+            )
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["error"], "")
+        self.assertEqual(set_local.call_args.kwargs["sync_error"], "")
+        self.assertIsNone(set_local.call_args.kwargs["container_id"])
+
 
 class MarkingStatusContainerErrorTests(unittest.TestCase):
     def test_status_error_when_container_sync_fails(self) -> None:
