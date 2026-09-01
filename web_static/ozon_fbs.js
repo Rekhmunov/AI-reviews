@@ -1374,14 +1374,14 @@
   const ozonFbsKizColResizer = createOzonFbsModalColResizer({
     tableId: "ozonFbsKizTable",
     colgroupId: "ozonFbsKizColgroup",
-    storagePrefix: "ozon_fbs_kiz_col_widths_v2",
-    defaultWidths: [18, 30, 28, 18],
+    storagePrefix: "ozon_fbs_kiz_col_widths_v1",
+    defaultWidths: [22, 38, 34],
   });
   const ozonFbsPickColResizer = createOzonFbsModalColResizer({
     tableId: "ozonFbsPickTable",
     colgroupId: "ozonFbsPickColgroup",
-    storagePrefix: "ozon_fbs_pick_col_widths_v2",
-    defaultWidths: [18, 30, 26, 18],
+    storagePrefix: "ozon_fbs_pick_col_widths_v1",
+    defaultWidths: [24, 40, 36],
   });
 
   /* ── Split multi (without assemble) ── */
@@ -2511,6 +2511,7 @@
     const btn = event?.currentTarget || event?.target?.closest?.(".wb-fbs-row-menu-btn");
     const menu = document.getElementById(`ozonFbsRowMenu_${key}`);
     if (!menu || !btn) return;
+    _ozonFbsSyncRowMenuContent(menu);
     const willOpen = !menu.classList.contains("open");
     closeOzonFbsRowMenus(willOpen ? key : null);
     if (!willOpen) {
@@ -6998,12 +6999,8 @@
   }
 
   /** Row ⋮ menu for Marking / Pick Verify modals (text-only items, no icons). */
-  function _ozonFbsModalRowActionsHtml(row, mode) {
+  function _ozonFbsModalRowMenuItemsHtml(row, mode) {
     const pn = String(row?.posting_number || "").trim();
-    if (!pn || _ozonFbsRowIsCancelled(row)) {
-      return `<div class="wb-fbs-row-menu-wrap wb-fbs-row-menu-wrap--empty" aria-hidden="true"></div>`;
-    }
-    const menuKey = _ozonFbsPostingMenuKey(pn);
     const safePn = esc(pn);
     const canMove = typeof _ozonFbsContainerRowCanMove === "function"
       && _ozonFbsContainerRowCanMove(row);
@@ -7013,15 +7010,41 @@
            Переместить в другое ГМ
          </button>`
       : "";
+    return (
+      moveItem +
+      `<button type="button" class="wb-fbs-row-menu-item" role="menuitem"
+              onclick="ozonFbsPrintOnePostingStickerFromDetail(event, '${safePn}')">
+         Напечатать стикер
+       </button>`
+    );
+  }
+
+  function _ozonFbsSyncRowMenuContent(menu) {
+    if (!menu) return;
+    const mode = String(menu.dataset.mode || "").trim();
+    const pn = String(menu.dataset.posting || "").trim();
+    if (mode !== "kiz" && mode !== "pick") return;
+    if (!pn) return;
+    const rows = mode === "pick"
+      ? (ozonFbsPickState?.rows || [])
+      : (ozonFbsKizState?.rows || []);
+    const row = rows.find((r) => String(r?.posting_number || "").trim() === pn);
+    if (!row) return;
+    menu.innerHTML = _ozonFbsModalRowMenuItemsHtml(row, mode);
+  }
+
+  function _ozonFbsModalRowActionsHtml(row, mode) {
+    const pn = String(row?.posting_number || "").trim();
+    if (!pn || _ozonFbsRowIsCancelled(row)) {
+      return `<div class="wb-fbs-row-menu-wrap wb-fbs-row-menu-wrap--empty" aria-hidden="true"></div>`;
+    }
+    const menuKey = _ozonFbsPostingMenuKey(pn);
+    const safePn = esc(pn);
     return `<div class="wb-fbs-row-menu-wrap" id="ozonFbsRowMenuWrap_${menuKey}">
       <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
               onclick="toggleOzonFbsRowMenu(event, '${menuKey}')" aria-haspopup="menu">⋮</button>
-      <div id="ozonFbsRowMenu_${menuKey}" class="wb-fbs-row-menu" data-posting="${safePn}" role="menu">
-        ${moveItem}
-        <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
-                onclick="ozonFbsPrintOnePostingStickerFromDetail(event, '${safePn}')">
-          Напечатать стикер
-        </button>
+      <div id="ozonFbsRowMenu_${menuKey}" class="wb-fbs-row-menu" data-posting="${safePn}" data-mode="${esc(mode)}" role="menu">
+        ${_ozonFbsModalRowMenuItemsHtml(row, mode)}
       </div>
     </div>`;
   }
