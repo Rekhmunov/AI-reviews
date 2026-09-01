@@ -57,7 +57,7 @@ def test_web_py_has_tsd_routes_and_builder() -> None:
     assert "/api/wb-fbs/tsd/supplies/{supply_id}/pick-verify" in src
     assert "/api/wb-fbs/tsd/supplies/{supply_id}/summary" in src
     assert "def _can_view_wb_fbs_tsd" in src
-    assert "ozon_fbs_mod.is_fbs_source_name" in src
+    assert "ozon_fbs_mod.is_ozon_fbs_source" in src
     assert "build_ozon_tsd_hub_progress" in src
     assert re.search(r'CAN_VIEW_WB_FBS_TSD["\']:\s*"true" if can_view_wb_fbs_tsd', src)
 
