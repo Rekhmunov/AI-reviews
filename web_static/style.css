@@ -7776,12 +7776,41 @@ tr.dnd-over td {
   color: #0f172a;
 }
 .ozon-fbs-containers-table-section {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   margin-top: 16px;
 }
 .ozon-fbs-containers-show-sc {
-  display: flex;
-  margin-top: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  min-height: 32px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 500;
+  color: #334155;
+  cursor: pointer;
+  user-select: none;
+  align-self: flex-start;
+}
+.ozon-fbs-containers-show-sc input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: #2563eb;
+  cursor: pointer;
+}
+.ozon-fbs-containers-show-sc.is-wait-rows {
+  opacity: 0.5;
+  cursor: not-allowed;
+  color: #64748b;
+}
+.ozon-fbs-containers-show-sc.is-wait-rows input {
+  cursor: not-allowed;
 }
 .ozon-fbs-containers-col-orders {
   width: 72px;

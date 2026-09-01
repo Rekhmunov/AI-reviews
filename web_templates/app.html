@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=269" />
+  <link rel="stylesheet" href="/static/style.css?v=270" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -3506,12 +3506,6 @@
               <button type="button" class="icon-btn secondary" onclick="closeOzonFbsContainersModal()" aria-label="Закрыть">✕</button>
             </div>
             <div class="wb-fbs-create-trbx-body">
-              <p class="wb-fbs-create-trbx-lead">
-                Паллеты Ozon FBS для склада поставки. Список подтягивается из Ozon
-                (в том числе созданные в личном кабинете). Показываются только ещё не отгруженные;
-                принятые на СЦ скрыты — включите чекбокс ниже, чтобы их увидеть.
-                После подтверждения в грузоместо нельзя добавить заказы.
-              </p>
               <div class="wb-fbs-create-trbx-controls ozon-fbs-containers-controls">
                 <div class="wb-fbs-trbx-stepper" role="group" aria-label="Количество грузомест">
                   <button type="button" class="secondary wb-fbs-trbx-stepper-btn" onclick="ozonFbsContainersStep(-1)" aria-label="Меньше">−</button>
@@ -3532,12 +3526,12 @@
                         onclick="refreshOzonFbsContainers()" title="Обновить список из Ozon">Обновить</button>
               </div>
               <div id="ozonFbsContainersInfo" class="wb-fbs-create-trbx-info" hidden></div>
-              <label class="ozon-fbs-containers-show-sc ozon-fbs-container-scan-check">
-                <input type="checkbox" id="ozonFbsContainersShowScAccepted"
-                       onchange="onOzonFbsContainersShowScChange()" />
-                Показать принятые на СЦ
-              </label>
               <div class="wb-fbs-trbx-print-section ozon-fbs-containers-table-section">
+                <label class="ozon-fbs-containers-show-sc" for="ozonFbsContainersShowScAccepted">
+                  <input type="checkbox" id="ozonFbsContainersShowScAccepted"
+                         onchange="onOzonFbsContainersShowScChange()" />
+                  <span>Показать принятые на СЦ</span>
+                </label>
                 <div class="wb-fbs-trbx-boxes-wrap">
                   <table class="wb-fbs-trbx-boxes-table ozon-fbs-containers-table" aria-label="Грузоместа">
                     <thead>
