@@ -466,6 +466,36 @@ def _collected_label(block: dict[str, Any]) -> str:
     return "—"
 
 
+def fetch_warehouse_barcode(
+    client: oz.OzonFbsClient, *, warehouse_id: int
+) -> dict[str, Any]:
+    """Permanent «Штрихкод для склада» — always the same for a given FBS warehouse.
+
+    Ozon Seller API uses the same ``/v2/posting/fbs/act/get-barcode`` endpoints with
+    ``warehouse_id`` as ``id`` (portal label «Штрихкод для склада …»). The text value
+    equals ``warehouse_id`` (e.g. 1020005028015630).
+    """
+    wid = int(warehouse_id)
+    if wid <= 0:
+        return {}
+    fetched = fetch_carriage_barcode(client, carriage_id=wid)
+    text = str(fetched.get("barcode_text") or "").strip() or str(wid)
+    fetched["barcode_text"] = text
+    fetched["warehouse_id"] = wid
+    fetched["kind"] = "warehouse"
+    if fetched.get("barcode_image_base64") and not fetched.get("barcode_label_base64"):
+        composed = compose_shipment_barcode_label_png(
+            barcode_image_base64=str(fetched.get("barcode_image_base64") or ""),
+            barcode_text=text,
+        )
+        if composed:
+            fetched["barcode_label_base64"] = base64.b64encode(composed).decode("ascii")
+    elif not fetched.get("barcode_image_base64") and text:
+        # API image can fail while text is still known — keep digits for UI/print.
+        fetched.setdefault("content_type", "image/png")
+    return fetched
+
+
 def fetch_carriage_barcode(
     client: oz.OzonFbsClient, *, carriage_id: int
 ) -> dict[str, Any]:
@@ -855,6 +885,29 @@ def get_supply_shipments(
     )
     view["supply_id"] = supply.get("supply_id")
     view["supply_name"] = supply.get("name") or supply.get("supply_id")
+    warehouse_barcode: dict[str, Any] | None = None
+    if warehouse_id is not None and int(warehouse_id) > 0:
+        try:
+            warehouse_barcode = fetch_warehouse_barcode(
+                client, warehouse_id=int(warehouse_id)
+            )
+        except Exception as exc:
+            _log.warning("warehouse barcode fetch wh=%s: %s", warehouse_id, exc)
+        if not warehouse_barcode or not str(
+            warehouse_barcode.get("barcode_text") or ""
+        ).strip():
+            warehouse_barcode = {
+                "warehouse_id": int(warehouse_id),
+                "barcode_text": str(int(warehouse_id)),
+                "kind": "warehouse",
+            }
+    view["warehouse_barcode"] = warehouse_barcode
+    # Default sticker in UI/print = permanent warehouse barcode (not act/carriage).
+    if warehouse_barcode and (
+        warehouse_barcode.get("barcode_text")
+        or warehouse_barcode.get("barcode_image_base64")
+    ):
+        view["barcode"] = warehouse_barcode
     return view
 
 
@@ -1144,14 +1197,22 @@ def build_shipment_barcode_print(
         departure_date=departure_date,
         delivery_method_id=delivery_method_id,
     )
-    barcode = view.get("barcode") if isinstance(view.get("barcode"), dict) else None
+    barcode = view.get("warehouse_barcode")
+    if not isinstance(barcode, dict):
+        barcode = view.get("barcode") if isinstance(view.get("barcode"), dict) else None
     cid = None
     if carriage_id is not None and str(carriage_id).strip() != "":
         try:
             cid = int(carriage_id)
         except (TypeError, ValueError) as exc:
             raise RuntimeError("Некорректный carriage_id") from exc
-    if cid and cid > 0:
+    wh_id = view.get("warehouse_id")
+    try:
+        wh_int = int(wh_id) if wh_id is not None else 0
+    except (TypeError, ValueError):
+        wh_int = 0
+    # Explicit carriage_id overrides only when it is not the warehouse sticker id.
+    if cid and cid > 0 and cid != wh_int:
         try:
             fetched = fetch_carriage_barcode(client, carriage_id=cid)
             if fetched.get("barcode_text") or fetched.get("barcode_image_base64"):
@@ -1161,7 +1222,7 @@ def build_shipment_barcode_print(
     if not barcode or not (
         barcode.get("barcode_text") or barcode.get("barcode_image_base64")
     ):
-        raise RuntimeError("Штрихкод появится после формирования отгрузки")
+        raise RuntimeError("Не удалось получить штрихкод склада")
     return render_shipment_barcode_print_html(
         supply_name=str(view.get("supply_name") or supply_id),
         warehouse_name=str(view.get("warehouse_name") or ""),
