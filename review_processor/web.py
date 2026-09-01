@@ -14344,6 +14344,57 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.post("/api/ozon-fbs/supplies/{supply_id}/containers/approve")
+    async def ozon_fbs_supply_containers_approve(
+        request: Request, supply_id: str
+    ) -> dict[str, object]:
+        """Confirm cargo-place contents (Ozon ``/v1/carriage/container/approve``).
+
+        After confirm Ozon locks the container: no more fill / remove-postings.
+        """
+        from . import ozon_fbs as ozon_fbs_mod
+        from . import ozon_fbs_containers as oz_ct
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        try:
+            source_id = int(body.get("source_id") or 0)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Укажите source_id") from exc
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        ids_raw = body.get("container_ids") or body.get("ids") or []
+        if not isinstance(ids_raw, list):
+            ids_raw = [ids_raw]
+        _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, source_id)
+        client = ozon_fbs_mod.OzonFbsClient(client_id=client_id, api_key=api_key)
+        try:
+            approved = oz_ct.approve_containers(client, container_ids=ids_raw)
+            wh_id, _ = oz_ct.resolve_supply_warehouse_id(
+                repository,
+                user_id=owner_id,
+                source_id=source_id,
+                supply_id=str(supply_id),
+            )
+            listed = oz_ct.list_containers(client, warehouse_id=wh_id)
+            return {
+                **approved,
+                "items": listed.get("items") or [],
+                "total": listed.get("total") or 0,
+            }
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.post("/api/ozon-fbs/supplies/{supply_id}/containers/labels")
     async def ozon_fbs_supply_containers_labels(
         request: Request, supply_id: str

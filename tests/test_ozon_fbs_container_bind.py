@@ -80,6 +80,32 @@ class ContainerBindLocalTests(unittest.TestCase):
         self.assertEqual(out["error"], "")
         self.assertTrue(set_local.call_args.kwargs["synced"])
 
+    def test_bind_rejects_approved_container(self) -> None:
+        repo = MagicMock()
+        client = MagicMock()
+        client.carriage_container_get.return_value = {
+            "container": {
+                "container_id": 10,
+                "container_number": 1,
+                "status": "approved",
+                "available_actions": ["get_label_container"],
+                "count_of_postings": 1,
+            }
+        }
+        with patch.object(ct, "_set_local_container_bind") as set_local:
+            with self.assertRaises(ValueError) as ctx:
+                ct.bind_posting_to_container(
+                    client,
+                    repo,
+                    user_id=1,
+                    source_id=2,
+                    posting_number="1-1-1",
+                    container_id=10,
+                )
+        self.assertIn("подтверждено", str(ctx.exception).lower())
+        client.carriage_container_fill.assert_not_called()
+        set_local.assert_not_called()
+
     def test_unbind_clears_local_even_if_ozon_remove_fails(self) -> None:
         repo = MagicMock()
         client = MagicMock()

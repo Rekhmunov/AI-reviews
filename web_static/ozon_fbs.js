@@ -4660,8 +4660,9 @@
       const sortLabel = esc(c.sort_type_label || "");
       const cargoLabel = esc(c.cargo_type_label || "");
       const meta = [sortLabel, cargoLabel].filter(Boolean).join(" · ");
-      const canDelete = c.can_delete !== false;
+      const canDelete = c.can_delete === true;
       const canPrint = c.can_print !== false;
+      const canApprove = c.can_approve === true;
       const safeJs = JSON.stringify(cid);
       return `<tr>
         <td>
@@ -4672,6 +4673,9 @@
         <td class="ozon-fbs-containers-col-meta">${status}</td>
         <td class="wb-fbs-trbx-boxes-col-act">
           <div class="wb-fbs-trbx-box-actions">
+            <button type="button" class="wb-fbs-trbx-box-approve" title="Подтвердить состав грузоместа"
+                    aria-label="Подтвердить ${esc(cid)}" ${(busy || !canApprove) ? "disabled" : ""}
+                    onclick='approveOzonFbsContainer(${safeJs})'>✓</button>
             <button type="button" class="wb-fbs-trbx-box-print" title="Печать этикетки"
                     aria-label="Печать ${esc(cid)}" ${(busy || !canPrint) ? "disabled" : ""}
                     onclick='printOzonFbsContainerLabel(${safeJs})'>⎙</button>
@@ -4836,6 +4840,54 @@
       }
       renderOzonFbsContainersTable(data.items || []);
       _ozonFbsContainersSetInfo(String(data.message || "Удалено"), "ok");
+      if (typeof window._ozonFbsContainerInvalidate === "function") {
+        void window._ozonFbsContainerInvalidate();
+      }
+    } catch (e) {
+      _ozonFbsContainersSetInfo(e.message || String(e), "error");
+      await loadOzonFbsContainers({ keepInfo: true });
+    } finally {
+      containersState.busy = false;
+      _ozonFbsContainersSyncBusyUi();
+      renderOzonFbsContainersTable(containersState.items);
+    }
+  }
+
+  async function approveOzonFbsContainer(containerId) {
+    const sid = String(containersState.supplyId || "").trim();
+    const sourceId = containersState.sourceId;
+    const cid = String(containerId || "").trim();
+    if (!sid || !sourceId || !cid || containersState.busy) return;
+    if (!window.confirm(
+      `Подтвердить грузоместо ${cid}?\n\nПосле подтверждения в него больше нельзя будет сканировать заказы.`
+    )) return;
+    containersState.busy = true;
+    _ozonFbsContainersSyncBusyUi();
+    renderOzonFbsContainersTable(containersState.items);
+    _ozonFbsContainersSetInfo("Подтверждаем грузоместо…");
+    try {
+      const res = await fetch(
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/containers/approve`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...jsonHeaders() },
+          body: JSON.stringify({
+            source_id: sourceId,
+            container_ids: [Number(cid) || cid],
+          }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        const errs = Array.isArray(data.errors) ? data.errors : [];
+        const errLine = errs.map((e) => e.error || e).filter(Boolean).join("; ");
+        throw new Error(detailText(data.detail) || errLine || data.message || `Ошибка ${res.status}`);
+      }
+      renderOzonFbsContainersTable(data.items || []);
+      _ozonFbsContainersSetInfo(String(data.message || "Подтверждено"), "ok");
+      if (typeof window._ozonFbsContainerInvalidate === "function") {
+        void window._ozonFbsContainerInvalidate();
+      }
     } catch (e) {
       _ozonFbsContainersSetInfo(e.message || String(e), "error");
       await loadOzonFbsContainers({ keepInfo: true });
@@ -9570,6 +9622,7 @@
   window.refreshOzonFbsContainers = refreshOzonFbsContainers;
   window.createOzonFbsContainers = createOzonFbsContainers;
   window.deleteOzonFbsContainer = deleteOzonFbsContainer;
+  window.approveOzonFbsContainer = approveOzonFbsContainer;
   window.printOzonFbsContainerLabel = printOzonFbsContainerLabel;
   window.ozonFbsContainersStep = ozonFbsContainersStep;
   window.moveOzonFbsSupplyToDelivering = moveOzonFbsSupplyToDelivering;

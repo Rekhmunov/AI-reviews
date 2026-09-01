@@ -145,3 +145,76 @@ def test_friendly_ozon_error() -> None:
         RuntimeError('Ozon HTTP 400: {"code":3,"message":"FORBIDDEN_TO_CREATE_SORT_BOX"}')
     )
     assert msg == "FORBIDDEN_TO_CREATE_SORT_BOX"
+
+
+def test_container_accepts_fill_and_can_approve() -> None:
+    open_row = ct._normalize_container(
+        {
+            "container_id": 1,
+            "container_number": 1,
+            "status": "new",
+            "available_actions": ["approve", "delete", "get_label_container"],
+            "count_of_postings": 2,
+        }
+    )
+    assert open_row is not None
+    assert open_row["can_approve"] is True
+    assert open_row["can_fill"] is True
+    assert ct.container_accepts_fill(open_row) is True
+
+    locked = ct._normalize_container(
+        {
+            "container_id": 2,
+            "container_number": 2,
+            "status": "approved",
+            "available_actions": ["get_label_container"],
+            "count_of_postings": 2,
+        }
+    )
+    assert locked is not None
+    assert locked["can_approve"] is False
+    assert locked["can_fill"] is False
+    assert locked["can_print"] is True
+    assert ct.container_accepts_fill(locked) is False
+    assert ct.is_active_container(locked) is True
+
+
+def test_approve_containers_success_and_errors() -> None:
+    class _ApproveClient(_FakeClient):
+        def __init__(self):
+            super().__init__()
+            self.approved = []
+            self.tasks = []
+            self.approve_resp = {"task_id": 42, "error_containers": []}
+            self.task_resp = {"status": "completed", "error_message": ""}
+
+        def carriage_container_approve(self, *, container_ids):
+            self.approved.append(list(container_ids))
+            return dict(self.approve_resp)
+
+        def carriage_container_task_info(self, *, task_id):
+            self.tasks.append(int(task_id))
+            return dict(self.task_resp)
+
+    client = _ApproveClient()
+    out = ct.approve_containers(client, container_ids=[111])
+    assert out["ok"] is True
+    assert out["approved"] == 1
+    assert client.approved == [[111]]
+    assert client.tasks == [42]
+    assert "Подтверждено" in out["message"]
+
+    client.approve_resp = {
+        "task_id": 0,
+        "error_containers": [{"container_id": 111, "error_message": "CONTAINER_EMPTY"}],
+    }
+    out_err = ct.approve_containers(client, container_ids=[111])
+    assert out_err["ok"] is False
+    assert out_err["approved"] == 0
+    assert out_err["errors"][0]["error"] == "CONTAINER_EMPTY"
+
+    client.approve_resp = {"task_id": 7, "error_containers": []}
+    client.task_resp = {"status": "failed", "error_message": "APPROVE_FAILED"}
+    out_fail = ct.approve_containers(client, container_ids=[111])
+    assert out_fail["ok"] is False
+    assert any("APPROVE_FAILED" in (e.get("error") or "") for e in out_fail["errors"])

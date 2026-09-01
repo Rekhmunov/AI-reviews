@@ -73,6 +73,17 @@
     });
   }
 
+  function containerAcceptsFill(c) {
+    if (!c || typeof c !== "object") return false;
+    if (c.can_fill === false) return false;
+    if (c.can_fill === true) return true;
+    const st = String(c.status || "").trim().toLowerCase();
+    if (["approved", "formed", "ready", "shipped", "closed", "cancelled", "canceled", "deleted"].includes(st)) {
+      return false;
+    }
+    return true;
+  }
+
   function matchContainer(scan) {
     const key = normalizeScan(scan);
     if (!key) return null;
@@ -188,6 +199,9 @@
       if (!state.hasContainers) {
         setActive(null);
         state.usedInSession = false;
+      } else if (state.activeId) {
+        const cur = state.byId.get(String(state.activeId));
+        if (!cur || !containerAcceptsFill(cur)) setActive(null);
       }
       return state.hasContainers;
     } catch (_e) {
@@ -254,6 +268,16 @@
     if (!found) {
       if (typeof setInfo === "function") {
         setInfo(`Грузоместо «${rawScan}» не найдено в этой поставке`, false);
+      }
+      if (input) input.select();
+      return false;
+    }
+    if (!containerAcceptsFill(found)) {
+      if (typeof setInfo === "function") {
+        setInfo(
+          `Грузоместо ${found.container_id} уже подтверждено — в него нельзя сканировать заказы`,
+          false
+        );
       }
       if (input) input.select();
       return false;
@@ -391,6 +415,18 @@
    */
   async function maybeBindAfterPostingIdentified(mode, postingNumber) {
     if (!state.hasContainers || !state.activeId) return true;
+    const active = state.byId.get(String(state.activeId));
+    if (active && !containerAcceptsFill(active)) {
+      setActive(null);
+      const setInfo = mode === "kiz" ? window._ozonFbsKizSetInfo : window._ozonFbsPickSetInfo;
+      if (typeof setInfo === "function") {
+        setInfo(
+          `Грузоместо ${active.container_id} уже подтверждено — выберите другое`,
+          false
+        );
+      }
+      return true;
+    }
     const row = findRow(mode, postingNumber);
     if (!row) return true;
     const prevId = Number(row.container_id || 0) || 0;
@@ -457,6 +493,17 @@
       if (typeof setInfo === "function") {
         setInfo(`Грузоместо «${raw}» не найдено в этой поставке`, false);
       }
+      return;
+    }
+    if (!containerAcceptsFill(found)) {
+      const setInfo = mode === "kiz" ? window._ozonFbsKizSetInfo : window._ozonFbsPickSetInfo;
+      if (typeof setInfo === "function") {
+        setInfo(
+          `Грузоместо ${found.container_id} уже подтверждено — в него нельзя добавить заказ`,
+          false
+        );
+      }
+      input.value = String(findRow(mode, postingNumber)?.container_barcode || "");
       return;
     }
     const row = findRow(mode, postingNumber);
@@ -526,6 +573,9 @@
     // Active cargo place must still belong to this supply's container list.
     if (state.activeId && !state.byId.has(String(state.activeId))) {
       setActive(null);
+    } else if (state.activeId) {
+      const cur = state.byId.get(String(state.activeId));
+      if (!cur || !containerAcceptsFill(cur)) setActive(null);
     }
     resetForModal(mode);
   }
@@ -544,6 +594,10 @@
       .join("\n");
   }
 
+  async function invalidateContainersCache() {
+    return ensureContainersLoaded(true);
+  }
+
   // ── exports (names must match ozon_fbs.js / app.html hooks) ───────────────
   window.ozonFbsContainerBindState = state;
   window._ozonFbsContainerCellHtml = containerCellHtml;
@@ -553,6 +607,7 @@
   window._ozonFbsContainerHandleScan = handleContainerScan;
   window._ozonFbsContainerMaybeBind = maybeBindAfterPostingIdentified;
   window._ozonFbsContainerErrorsTooltip = containerErrorsTooltip;
+  window._ozonFbsContainerInvalidate = invalidateContainersCache;
   window.onOzonFbsContainerScanCheckChange = onContainerScanCheckChange;
   window.clearOzonFbsContainerBind = clearBind;
   window.onOzonFbsContainerCellKey = onContainerCellKey;

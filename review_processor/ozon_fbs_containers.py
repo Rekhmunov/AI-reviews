@@ -77,6 +77,19 @@ def status_label(status: object) -> str:
     return _STATUS_LABELS.get(key, key)
 
 
+# Actions that mean postings can still be added into the cargo place.
+_FILL_ACTIONS = frozenset({"fill", "place_posting_into_container"})
+# Statuses where Ozon no longer accepts new postings into the container.
+_LOCKED_FILL_STATUSES = frozenset(
+    {
+        "approved",
+        "formed",
+        "ready",
+        *_SHIPPED_OR_GONE_STATUSES,
+    }
+)
+
+
 def is_active_container(row: dict[str, Any]) -> bool:
     """True if container should appear in the working modal (not yet shipped)."""
     st = str(row.get("status") or "").strip().lower()
@@ -85,11 +98,32 @@ def is_active_container(row: dict[str, Any]) -> bool:
     actions = row.get("available_actions") or []
     if isinstance(actions, list):
         acts = {str(a).strip().lower() for a in actions}
-        # Still editable / printable → keep.
-        if acts & {"delete", "approve", "get_label_container", "fill"}:
+        # Still editable / printable / confirmable → keep.
+        if acts & {
+            "delete",
+            "approve",
+            "get_label_container",
+            "fill",
+            "place_posting_into_container",
+        }:
             return True
     # Unknown status without actions: keep unless clearly terminal.
     return st not in _SHIPPED_OR_GONE_STATUSES
+
+
+def container_accepts_fill(row: dict[str, Any]) -> bool:
+    """True when postings can still be scanned/bound into this cargo place."""
+    st = str(row.get("status") or "").strip().lower()
+    if st in _LOCKED_FILL_STATUSES:
+        return False
+    actions = row.get("available_actions") or []
+    acts_l = {str(a).strip().lower() for a in actions} if isinstance(actions, list) else set()
+    if acts_l & _FILL_ACTIONS:
+        return True
+    # Brand-new / retryable containers are still open even if Ozon omits fill in actions.
+    if st in {"new", "approve_failed"} and ("approve" in acts_l or not acts_l):
+        return True
+    return False
 
 
 def _normalize_container(raw: dict[str, Any]) -> dict[str, Any] | None:
@@ -112,16 +146,18 @@ def _normalize_container(raw: dict[str, Any]) -> dict[str, Any] | None:
     status = str(raw.get("status") or "").strip().lower()
     sort_type = str(raw.get("sort_type") or "").strip().lower()
     cargo_type = str(raw.get("cargo_type") or "").strip().lower()
+    actions_raw = raw.get("available_actions") or raw.get("available_actions") or []
     actions = [
         str(a).strip()
-        for a in (raw.get("available_actions") or [])
+        for a in (actions_raw if isinstance(actions_raw, list) else [])
         if str(a).strip()
     ]
-    can_delete = "delete" in {a.lower() for a in actions}
     acts_l = {a.lower() for a in actions}
+    can_delete = "delete" in acts_l
     # Label is available while Ozon exposes get_label_container (or brand-new «new»).
-    can_print = ("get_label_container" in acts_l) or (status in {"new", "approve_failed"})
-    return {
+    can_print = ("get_label_container" in acts_l) or (status in {"new", "approve_failed", "approved"})
+    can_approve = "approve" in acts_l and status not in _LOCKED_FILL_STATUSES
+    base = {
         "container_id": cid,
         "container_number": number,
         "status": status,
@@ -138,8 +174,10 @@ def _normalize_container(raw: dict[str, Any]) -> dict[str, Any] | None:
         "available_actions": actions,
         "can_delete": can_delete,
         "can_print": bool(can_print),
-        "can_approve": "approve" in acts_l,
+        "can_approve": bool(can_approve),
     }
+    base["can_fill"] = container_accepts_fill(base)
+    return base
 
 
 def _friendly_ozon_error(exc: Exception) -> str:
@@ -376,6 +414,132 @@ def delete_containers(
     }
 
 
+def _wait_container_task(
+    client: oz.OzonFbsClient,
+    *,
+    task_id: int,
+    timeout_sec: float = 20.0,
+    poll_sec: float = 0.7,
+) -> dict[str, Any]:
+    """Poll ``/v1/carriage/container/task/info`` until completed/failed or timeout."""
+    import time
+
+    tid = int(task_id or 0)
+    if tid <= 0:
+        return {"ok": True, "status": "", "error_message": ""}
+    deadline = time.monotonic() + max(1.0, float(timeout_sec))
+    last_status = ""
+    last_error = ""
+    while time.monotonic() < deadline:
+        try:
+            info = client.carriage_container_task_info(task_id=tid)
+        except Exception as exc:
+            _log.warning("ozon container task/info task_id=%s: %s", tid, exc)
+            return {
+                "ok": False,
+                "status": "failed",
+                "error_message": _friendly_ozon_error(exc),
+            }
+        if not isinstance(info, dict):
+            info = {}
+        last_status = str(info.get("status") or "").strip().lower()
+        last_error = str(info.get("error_message") or "").strip()
+        if last_status in {"completed", "complete", "success", "done"}:
+            return {"ok": True, "status": last_status, "error_message": ""}
+        if last_status in {"failed", "error"}:
+            return {
+                "ok": False,
+                "status": last_status,
+                "error_message": last_error or "Ошибка подтверждения грузоместа",
+            }
+        time.sleep(max(0.2, float(poll_sec)))
+    # Timeout: not fatal — caller refreshes list; Ozon may still finish.
+    return {
+        "ok": True,
+        "status": last_status or "pending",
+        "error_message": last_error,
+        "timed_out": True,
+    }
+
+
+def approve_containers(
+    client: oz.OzonFbsClient, *, container_ids: list[int]
+) -> dict[str, Any]:
+    """Confirm cargo-place contents via ``POST /v1/carriage/container/approve``.
+
+    After success Ozon locks the container: no more fill / remove-postings.
+    """
+    ids: list[int] = []
+    for x in container_ids or []:
+        try:
+            n = int(x)
+        except (TypeError, ValueError):
+            continue
+        if n > 0:
+            ids.append(n)
+    # API allows a batch; keep a sane upper bound for UI actions.
+    ids = ids[:100]
+    if not ids:
+        raise ValueError("Укажите ID грузомест")
+    try:
+        data = client.carriage_container_approve(container_ids=ids)
+    except RuntimeError as exc:
+        raise RuntimeError(_friendly_ozon_error(exc)) from exc
+    errors: list[dict[str, Any]] = []
+    if isinstance(data, dict):
+        for err in data.get("error_containers") or []:
+            if not isinstance(err, dict):
+                continue
+            errors.append(
+                {
+                    "container_id": err.get("container_id"),
+                    "error": str(
+                        err.get("error_message") or err.get("message") or ""
+                    ).strip(),
+                }
+            )
+    task_id = 0
+    if isinstance(data, dict):
+        try:
+            task_id = int(data.get("task_id") or 0)
+        except (TypeError, ValueError):
+            task_id = 0
+    task_info: dict[str, Any] = {"ok": True, "status": "", "error_message": ""}
+    if task_id > 0 and not errors:
+        task_info = _wait_container_task(client, task_id=task_id)
+        if not task_info.get("ok") and task_info.get("error_message"):
+            # Surface async failure as a container-level error when Ozon gave no per-id errors.
+            errors.append(
+                {
+                    "container_id": ids[0] if len(ids) == 1 else None,
+                    "error": str(task_info.get("error_message") or "Ошибка подтверждения"),
+                }
+            )
+    ok_n = max(0, len(ids) - len(errors))
+    ok = ok_n > 0 and not errors
+    if ok and task_info.get("timed_out"):
+        message = (
+            f"Подтверждение запущено ({ok_n}). Обновите список через несколько секунд."
+        )
+    elif ok:
+        message = f"Подтверждено грузомест: {ok_n}"
+    elif ok_n > 0:
+        message = f"Подтверждено: {ok_n}, ошибок {len(errors)}"
+    else:
+        message = (
+            "; ".join(e["error"] for e in errors if e.get("error"))
+            or "Не удалось подтвердить грузоместо"
+        )
+    return {
+        "ok": ok,
+        "approved": ok_n,
+        "errors": errors,
+        "task_id": task_id or None,
+        "task_status": task_info.get("status") or "",
+        "message": message,
+    }
+
+
 def get_container_labels_pdf(
     client: oz.OzonFbsClient, *, container_ids: list[int]
 ) -> dict[str, Any]:
@@ -549,6 +713,28 @@ def _set_local_container_bind(
     }
 
 
+def _fetch_container_row(
+    client: oz.OzonFbsClient, *, container_id: int
+) -> dict[str, Any] | None:
+    """Normalize one container from ``/v1/carriage/container/get`` (best-effort)."""
+    try:
+        data = client.carriage_container_get(container_id=int(container_id))
+    except Exception as exc:
+        _log.warning("ozon container get cid=%s: %s", container_id, exc)
+        return None
+    raw = data
+    if isinstance(data, dict):
+        nested = data.get("container") or data.get("result")
+        if isinstance(nested, dict):
+            raw = nested
+    if not isinstance(raw, dict):
+        return None
+    # Ensure id present for normalize when Ozon omits it in nested payload.
+    if not raw.get("container_id"):
+        raw = {**raw, "container_id": int(container_id)}
+    return _normalize_container(raw)
+
+
 def bind_posting_to_container(
     client: oz.OzonFbsClient,
     repo: ReviewRepository,
@@ -563,6 +749,7 @@ def bind_posting_to_container(
     """Local bind + Ozon fill (and remove from previous if needed).
 
     Local binding is kept even when Ozon fails; sync_error is stored.
+    Confirmed (approved) cargo places reject new fills before calling Ozon.
     """
     pn = str(posting_number or "").strip()
     try:
@@ -572,6 +759,12 @@ def bind_posting_to_container(
     if not pn or cid <= 0:
         raise ValueError("Укажите отправление и грузоместо")
     barcode = normalize_container_scan(container_barcode) or str(cid)
+    # Guard: confirmed / locked containers must not accept new postings.
+    meta = _fetch_container_row(client, container_id=cid)
+    if meta is not None and not container_accepts_fill(meta):
+        raise ValueError(
+            f"Грузоместо {cid} уже подтверждено — в него нельзя добавить заказы"
+        )
     prev = int(previous_container_id or 0)
     sync_error = ""
     synced = False

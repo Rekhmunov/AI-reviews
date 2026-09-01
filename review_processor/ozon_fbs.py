@@ -571,9 +571,17 @@ class OzonFbsClient:
         )
 
     def carriage_container_approve(self, *, container_ids: list[int]) -> dict[str, Any]:
+        """POST /v1/carriage/container/approve — подтвердить состав грузоместа."""
         return self.post_json(
             "/v1/carriage/container/approve",
             {"container_ids": [int(x) for x in container_ids]},
+        )
+
+    def carriage_container_task_info(self, *, task_id: int) -> dict[str, Any]:
+        """POST /v1/carriage/container/task/info — статус async-задачи fill/approve."""
+        return self.post_json(
+            "/v1/carriage/container/task/info",
+            {"task_id": int(task_id)},
         )
 
     def carriage_container_fill(

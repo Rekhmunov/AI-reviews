@@ -7701,7 +7701,8 @@ tr.dnd-over td {
   gap: 8px;
 }
 .wb-fbs-trbx-box-print,
-.wb-fbs-trbx-box-delete {
+.wb-fbs-trbx-box-delete,
+.wb-fbs-trbx-box-approve {
   flex: 0 0 auto;
   min-width: 40px;
   min-height: 40px;
@@ -7718,23 +7719,30 @@ tr.dnd-over td {
   border-radius: 8px;
 }
 .wb-fbs-trbx-box-print:hover:not(:disabled),
-.wb-fbs-trbx-box-delete:hover:not(:disabled) {
+.wb-fbs-trbx-box-delete:hover:not(:disabled),
+.wb-fbs-trbx-box-approve:hover:not(:disabled) {
   background: #f1f5f9;
 }
 .wb-fbs-trbx-box-print:active:not(:disabled),
-.wb-fbs-trbx-box-delete:active:not(:disabled) {
+.wb-fbs-trbx-box-delete:active:not(:disabled),
+.wb-fbs-trbx-box-approve:active:not(:disabled) {
   background: #e2e8f0;
 }
 .wb-fbs-trbx-box-print:focus-visible,
-.wb-fbs-trbx-box-delete:focus-visible {
+.wb-fbs-trbx-box-delete:focus-visible,
+.wb-fbs-trbx-box-approve:focus-visible {
   outline: 2px solid #2563eb;
   outline-offset: 2px;
+}
+.wb-fbs-trbx-box-approve {
+  color: #047857;
 }
 .wb-fbs-trbx-box-delete {
   color: #b91c1c;
 }
 .wb-fbs-trbx-box-delete:disabled,
-.wb-fbs-trbx-box-print:disabled {
+.wb-fbs-trbx-box-print:disabled,
+.wb-fbs-trbx-box-approve:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
