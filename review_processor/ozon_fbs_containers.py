@@ -42,10 +42,14 @@ _SHIPPED_OR_GONE_STATUSES = frozenset(
     }
 )
 
+# Accepted at Ozon sorting center — hidden from the working modal unless explicitly requested.
+_SC_ACCEPTED_STATUSES = frozenset({"acceptance_in_progress"})
+
 _STATUS_LABELS = {
     "new": "Новое",
     "approved": "Подтверждено",
     "approve_failed": "Ошибка подтверждения",
+    "acceptance_in_progress": "Принято на СЦ",
     "formed": "Сформировано",
     "ready": "Готово",
     "in_progress": "В работе",
@@ -84,6 +88,7 @@ _FILL_ACTIONS = frozenset({"fill", "place_posting_into_container"})
 _LOCKED_FILL_STATUSES = frozenset(
     {
         "approved",
+        "acceptance_in_progress",
         "formed",
         "ready",
         *_SHIPPED_OR_GONE_STATUSES,
@@ -91,9 +96,17 @@ _LOCKED_FILL_STATUSES = frozenset(
 )
 
 
+def is_sc_accepted_container(row: dict[str, Any]) -> bool:
+    """True when Ozon has accepted the cargo place at the sorting center."""
+    st = str(row.get("status") or "").strip().lower()
+    return st in _SC_ACCEPTED_STATUSES
+
+
 def is_active_container(row: dict[str, Any]) -> bool:
     """True if container should appear in the working modal (not yet shipped)."""
     st = str(row.get("status") or "").strip().lower()
+    if st in _SC_ACCEPTED_STATUSES:
+        return False
     if st in _SHIPPED_OR_GONE_STATUSES:
         return False
     actions = row.get("available_actions") or []
@@ -256,6 +269,7 @@ def list_containers(
     warehouse_id: int,
     lookback_days: int = 30,
     include_shipped: bool = False,
+    include_sc_accepted: bool = False,
 ) -> dict[str, Any]:
     wh = int(warehouse_id or 0)
     if wh <= 0:
@@ -296,8 +310,12 @@ def list_containers(
                 row_wh = 0
             if row_wh and row_wh != wh:
                 continue
-            if not include_shipped and not is_active_container(norm):
+            sc_accepted = is_sc_accepted_container(norm)
+            if sc_accepted and not include_sc_accepted:
                 continue
+            if not include_shipped and not is_active_container(norm):
+                if not (include_sc_accepted and sc_accepted):
+                    continue
             items.append(norm)
         cursor = str((data or {}).get("cursor") or "").strip()
         if not cursor:

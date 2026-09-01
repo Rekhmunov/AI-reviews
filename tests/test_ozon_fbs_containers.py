@@ -39,6 +39,16 @@ class _FakeClient:
                     "warehouse_id": 5,
                 },
                 {
+                    "container_id": 444,
+                    "container_number": 4,
+                    "status": "acceptance_in_progress",
+                    "cargo_type": "pallet",
+                    "sort_type": "sort",
+                    "count_of_postings": 2,
+                    "available_actions": [],
+                    "warehouse_id": 5,
+                },
+                {
                     "container_id": 333,
                     "container_number": 3,
                     "status": "new",
@@ -81,12 +91,30 @@ def test_list_containers_filters_shipped_and_other_warehouse() -> None:
     assert client.list_body["filter"]["warehouse_id"] == 5
 
 
+def test_list_containers_include_sc_accepted() -> None:
+    client = _FakeClient()
+    hidden = ct.list_containers(client, warehouse_id=5)
+    assert [x["container_id"] for x in hidden["items"]] == [111]
+
+    shown = ct.list_containers(client, warehouse_id=5, include_sc_accepted=True)
+    ids = [x["container_id"] for x in shown["items"]]
+    assert ids == [444, 111]
+    sc_row = next(x for x in shown["items"] if x["container_id"] == 444)
+    assert sc_row["status_label"] == "Принято на СЦ"
+    assert sc_row["can_fill"] is False
+
+
 def test_is_active_container() -> None:
     assert ct.is_active_container(
         {"status": "new", "available_actions": ["delete"]}
     )
     assert not ct.is_active_container({"status": "shipped", "available_actions": []})
     assert not ct.is_active_container({"status": "cancelled", "available_actions": []})
+    assert not ct.is_active_container(
+        {"status": "acceptance_in_progress", "available_actions": []}
+    )
+    assert ct.is_sc_accepted_container({"status": "acceptance_in_progress"})
+    assert ct.status_label("acceptance_in_progress") == "Принято на СЦ"
 
 
 def test_create_containers_validation() -> None:

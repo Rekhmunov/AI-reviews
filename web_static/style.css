@@ -7779,6 +7779,10 @@ tr.dnd-over td {
   display: block;
   margin-top: 16px;
 }
+.ozon-fbs-containers-show-sc {
+  display: flex;
+  margin-top: 12px;
+}
 .ozon-fbs-containers-col-orders {
   width: 72px;
   text-align: center;

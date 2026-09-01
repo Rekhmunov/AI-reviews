@@ -122,6 +122,7 @@
     items: [],
     loading: false,
     busy: false,
+    showScAccepted: false,
   };
 
   function permissions() {
@@ -4640,6 +4641,31 @@
     input.value = String(Math.max(1, Math.min(100, next)));
   }
 
+  function _ozonFbsContainersListParams(sourceId) {
+    const params = new URLSearchParams({ source_id: String(sourceId) });
+    if (containersState.showScAccepted) {
+      params.set("include_sc_accepted", "1");
+    }
+    return params;
+  }
+
+  function _ozonFbsContainersSyncShowScUi() {
+    const cb = document.getElementById("ozonFbsContainersShowScAccepted");
+    if (!cb) return;
+    cb.checked = !!containersState.showScAccepted;
+    const busy = !!containersState.busy || !!containersState.loading;
+    cb.disabled = busy;
+    const label = cb.closest(".ozon-fbs-containers-show-sc");
+    if (label) label.classList.toggle("is-wait-rows", busy);
+  }
+
+  function onOzonFbsContainersShowScChange() {
+    if (containersState.busy || containersState.loading) return;
+    const cb = document.getElementById("ozonFbsContainersShowScAccepted");
+    containersState.showScAccepted = !!cb?.checked;
+    loadOzonFbsContainers();
+  }
+
   function _ozonFbsContainersSyncBusyUi() {
     const busy = !!containersState.busy || !!containersState.loading;
     const createBtn = document.getElementById("ozonFbsContainersCreateBtn");
@@ -4659,6 +4685,7 @@
     document.querySelectorAll("#ozonFbsContainersModal .wb-fbs-trbx-stepper-btn").forEach((btn) => {
       btn.disabled = busy;
     });
+    _ozonFbsContainersSyncShowScUi();
   }
 
   function renderOzonFbsContainersTable(items) {
@@ -4715,7 +4742,7 @@
     _ozonFbsContainersSyncBusyUi();
     if (!keepInfo) _ozonFbsContainersSetInfo("Загружаем грузоместа из Ozon…");
     try {
-      const params = new URLSearchParams({ source_id: String(sourceId) });
+      const params = _ozonFbsContainersListParams(sourceId);
       const res = await fetch(
         `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/containers?${params}`,
         { headers: jsonHeaders() }
@@ -4732,10 +4759,11 @@
       const total = Number(data.total || (data.items || []).length || 0);
       const wh = String(data.warehouse_name || "").trim();
       if (!keepInfo) {
+        const scHint = containersState.showScAccepted ? " · включая принятые на СЦ" : "";
         _ozonFbsContainersSetInfo(
           total
-            ? `Активных грузомест: ${total}${wh ? ` · ${wh}` : ""}`
-            : `Нет активных грузомест${wh ? ` · ${wh}` : ""}`,
+            ? `Активных грузомест: ${total}${scHint}${wh ? ` · ${wh}` : ""}`
+            : `Нет активных грузомест${scHint}${wh ? ` · ${wh}` : ""}`,
           "ok"
         );
       }
@@ -4765,10 +4793,12 @@
     containersState.sourceId = sourceId;
     containersState.items = [];
     containersState.busy = false;
+    containersState.showScAccepted = false;
     const amount = document.getElementById("ozonFbsContainersAmount");
     if (amount) amount.value = "1";
     const sortSel = document.getElementById("ozonFbsContainersSortType");
     if (sortSel) sortSel.value = "sort";
+    _ozonFbsContainersSyncShowScUi();
     renderOzonFbsContainersTable([]);
     _ozonFbsContainersSetInfo("");
     _ozonFbsContainersSetVisible(true);
@@ -4816,11 +4846,11 @@
       if (!res.ok || data.ok === false) {
         throw new Error(detailText(data.detail) || data.message || `Ошибка ${res.status}`);
       }
-      renderOzonFbsContainersTable(data.items || []);
       _ozonFbsContainersSetInfo(
         String(data.message || `Создано: ${data.created || amount}`),
         "ok"
       );
+      await loadOzonFbsContainers({ keepInfo: true });
     } catch (e) {
       _ozonFbsContainersSetInfo(e.message || String(e), "error");
     } finally {
@@ -4857,8 +4887,8 @@
         const errLine = errs.map((e) => e.error || e).filter(Boolean).join("; ");
         throw new Error(detailText(data.detail) || errLine || data.message || `Ошибка ${res.status}`);
       }
-      renderOzonFbsContainersTable(data.items || []);
       _ozonFbsContainersSetInfo(String(data.message || "Удалено"), "ok");
+      await loadOzonFbsContainers({ keepInfo: true });
       if (typeof window._ozonFbsContainerInvalidate === "function") {
         void window._ozonFbsContainerInvalidate();
       }
@@ -4986,8 +5016,8 @@
               detailText(data2.detail) || errLine2 || data2.message || `Ошибка ${res2.status}`
             );
           }
-          renderOzonFbsContainersTable(data2.items || []);
           _ozonFbsContainersSetInfo(String(data2.message || "Подтверждено"), "ok");
+          await loadOzonFbsContainers({ keepInfo: true });
           if (typeof window._ozonFbsContainerInvalidate === "function") {
             void window._ozonFbsContainerInvalidate();
           }
@@ -4997,8 +5027,8 @@
         const errLine = errs.map((e) => e.error || e).filter(Boolean).join("; ");
         throw new Error(detailText(data.detail) || errLine || data.message || `Ошибка ${res.status}`);
       }
-      renderOzonFbsContainersTable(data.items || []);
       _ozonFbsContainersSetInfo(String(data.message || "Подтверждено"), "ok");
+      await loadOzonFbsContainers({ keepInfo: true });
       if (typeof window._ozonFbsContainerInvalidate === "function") {
         void window._ozonFbsContainerInvalidate();
       }
@@ -9694,6 +9724,7 @@
   window.approveOzonFbsContainer = approveOzonFbsContainer;
   window.printOzonFbsContainerLabel = printOzonFbsContainerLabel;
   window.ozonFbsContainersStep = ozonFbsContainersStep;
+  window.onOzonFbsContainersShowScChange = onOzonFbsContainersShowScChange;
   window.moveOzonFbsSupplyToDelivering = moveOzonFbsSupplyToDelivering;
   window.closeOzonFbsMoveDeliveringModal = closeOzonFbsMoveDeliveringModal;
   window.confirmOzonFbsMoveDelivering = confirmOzonFbsMoveDelivering;
