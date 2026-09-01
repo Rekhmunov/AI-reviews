@@ -502,6 +502,8 @@ class UpdateSupplySourceAnalyticsKeyRequest(BaseModel):
 class UpdateSupplySourceApiKeyRequest(BaseModel):
     api_key: str
     analytics_api_key: str | None = None
+    # Ozon Client-Id / WB cabinet id (metadata for WB; required for Ozon API).
+    client_id: str | None = None
 
 
 class UpsertSupplyEdoSettingsRequest(BaseModel):
@@ -8633,6 +8635,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 source_id=int(source_id),
                 api_key=clean,
                 analytics_api_key=payload.analytics_api_key,
+                client_id=payload.client_id,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

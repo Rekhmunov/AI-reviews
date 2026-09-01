@@ -1,4 +1,4 @@
-"""Tests for supply source cabinet identity (WB uid / Ozon Client-Id)."""
+"""Tests for supply source cabinet identity (WB cabinet id / Ozon Client-Id)."""
 
 from __future__ import annotations
 
@@ -28,7 +28,17 @@ def test_resolve_channel_ozon() -> None:
     assert ident.resolve_supply_channel(marketplace="ozon_fbs", name="x") == ident.CHANNEL_OZON_FBS
 
 
-def test_resolve_external_account_wb_uid() -> None:
+def test_resolve_external_account_wb_prefers_manual_cabinet_id() -> None:
+    token = _fake_wb_jwt(uid=39682584)
+    assert (
+        ident.resolve_external_account_id(
+            marketplace="wb", api_key=token, client_id="111"
+        )
+        == "111"
+    )
+
+
+def test_resolve_external_account_wb_jwt_fallback() -> None:
     token = _fake_wb_jwt(uid=39682584)
     assert ident.resolve_external_account_id(
         marketplace="wb", api_key=token, client_id=""
@@ -56,7 +66,7 @@ def test_public_identity_fields_labels() -> None:
             "external_account_id": "99",
         }
     )
-    assert wb["cabinet_label"] == "uid 99"
+    assert wb["cabinet_label"] == "ID кабинета 99"
     oz = ident.public_identity_fields(
         {
             "marketplace": "ozon",

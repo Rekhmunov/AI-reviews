@@ -50,12 +50,19 @@ def resolve_external_account_id(
     api_key: object,
     client_id: object = "",
 ) -> str | None:
-    """WB: JWT ``uid``; Ozon: Client-Id. Returns None when unavailable."""
+    """Stable cabinet id for binding.
+
+    - Ozon: Client-Id (required for API and binding).
+    - WB: manual cabinet id stored in ``client_id`` (preferred);
+      JWT ``uid`` is only a fallback for legacy rows / auto-fill.
+    """
     mp = str(marketplace or "").strip().lower() or "wb"
+    explicit = normalize_client_id(client_id)
     if mp in ("ozon", "ozon_fbo", "ozon_fbs"):
-        cid = normalize_client_id(client_id)
-        return cid or None
+        return explicit or None
     if mp in ("wb", "wildberries"):
+        if explicit:
+            return explicit
         # Lazy import avoids circular dependency with repository ↔ wb_fbs.
         from .wb_fbs import wb_jwt_uid
 
@@ -91,17 +98,22 @@ def public_identity_fields(source: Mapping[str, Any] | None) -> dict[str, Any]:
             name=source.get("name"),
         )
     if not ext:
-        mp = str(source.get("marketplace") or "").strip().lower()
-        if mp.startswith("ozon"):
-            ext = normalize_client_id(source.get("client_id")) or None
+        # Prefer stored client_id (Ozon Client-Id / WB cabinet id).
+        ext = normalize_client_id(source.get("client_id")) or None
     label = ""
     if ext:
         if channel and channel.startswith("wb"):
-            label = f"uid {ext}"
+            label = f"ID кабинета {ext}"
         elif channel and channel.startswith("ozon"):
             label = f"Client-Id {ext}"
         else:
-            label = ext
+            mp = str(source.get("marketplace") or "").strip().lower()
+            if mp.startswith("ozon"):
+                label = f"Client-Id {ext}"
+            elif mp in ("wb", "wildberries"):
+                label = f"ID кабинета {ext}"
+            else:
+                label = ext
     return {
         "channel": channel,
         "external_account_id": ext,

@@ -2183,9 +2183,18 @@ let suppliesState = {
 
 function onSupplySourceMarketplaceChange() {
   const mp = document.getElementById("newSupplySourceMarketplace")?.value || "wb";
-  const clientIdRow = document.getElementById("newSupplyOzonClientIdRow");
+  const clientIdRow = document.getElementById("newSupplySourceCabinetIdRow");
+  const clientIdEl = document.getElementById("newSupplySourceClientId");
   const apiKeyPlaceholder = document.getElementById("newSupplySourceApiKey");
-  if (clientIdRow) clientIdRow.style.display = mp === "ozon" ? "" : "none";
+  if (clientIdRow) clientIdRow.style.display = "";
+  if (clientIdEl) {
+    clientIdEl.placeholder = mp === "ozon"
+      ? "Client-ID (OZON)"
+      : "ID кабинета WB";
+    clientIdEl.title = mp === "ozon"
+      ? "Client-Id из личного кабинета Ozon (нужен для API)"
+      : "ID кабинета WB (на подключение не влияет, нужен для привязки данных)";
+  }
   if (apiKeyPlaceholder) {
     apiKeyPlaceholder.placeholder = mp === "ozon"
       ? "API-ключ OZON (из личного кабинета продавца)"
@@ -2285,6 +2294,8 @@ function openEditSupplySourceKeyModal(sourceId) {
   const nameEl = document.getElementById("editSupplySourceKeyName");
   const previewEl = document.getElementById("editSupplySourceKeyPreview");
   const keyEl = document.getElementById("editSupplySourceApiKey");
+  const cabinetEl = document.getElementById("editSupplySourceCabinetId");
+  const cabinetHint = document.getElementById("editSupplySourceCabinetHint");
   const info = document.getElementById("editSupplySourceKeyInfo");
   if (!modal || !idEl || !keyEl) return;
   const src = (suppliesState.sources || []).find((s) => Number(s.id) === Number(sourceId));
@@ -2296,6 +2307,18 @@ function openEditSupplySourceKeyModal(sourceId) {
       ? `${preview.slice(0, 2)}••••${preview.slice(-2)}`
       : preview;
     previewEl.title = preview;
+  }
+  const mpRaw = String(src?.marketplace || "wb").toLowerCase();
+  const isOzon = mpRaw === "ozon" || mpRaw === "ozon_fbs";
+  const cabinetVal = String(src?.client_id || src?.external_account_id || "").trim();
+  if (cabinetEl) {
+    cabinetEl.value = cabinetVal;
+    cabinetEl.placeholder = isOzon ? "Client-ID (OZON)" : "ID кабинета WB";
+  }
+  if (cabinetHint) {
+    cabinetHint.textContent = isOzon
+      ? "Client-Id нужен для API Ozon."
+      : "ID кабинета на подключение не влияет — нужен для привязки данных при удалении/повторном добавлении.";
   }
   keyEl.value = "";
   if (info) { info.textContent = ""; info.style.color = ""; }
@@ -2311,14 +2334,21 @@ function closeEditSupplySourceKeyModal() {
   modal.setAttribute("aria-hidden", "true");
   const keyEl = document.getElementById("editSupplySourceApiKey");
   if (keyEl) keyEl.value = "";
+  const cabinetEl = document.getElementById("editSupplySourceCabinetId");
+  if (cabinetEl) cabinetEl.value = "";
 }
 
 async function saveEditSupplySourceKey() {
   const idEl = document.getElementById("editSupplySourceKeyId");
   const keyEl = document.getElementById("editSupplySourceApiKey");
+  const cabinetEl = document.getElementById("editSupplySourceCabinetId");
   const info = document.getElementById("editSupplySourceKeyInfo");
   const sourceId = Number(idEl?.value || 0);
   const api_key = (keyEl?.value || "").trim();
+  const client_id = (cabinetEl?.value || "").trim();
+  const src = (suppliesState.sources || []).find((s) => Number(s.id) === Number(sourceId));
+  const mpRaw = String(src?.marketplace || "wb").toLowerCase();
+  const isOzon = mpRaw === "ozon" || mpRaw === "ozon_fbs";
   if (!sourceId) {
     if (info) { info.textContent = "Источник не выбран"; info.style.color = "#b91c1c"; }
     return;
@@ -2327,11 +2357,18 @@ async function saveEditSupplySourceKey() {
     if (info) { info.textContent = "Введите новый API-ключ"; info.style.color = "#b91c1c"; }
     return;
   }
+  if (!client_id) {
+    if (info) {
+      info.textContent = isOzon ? "Введите Client-ID" : "Введите ID кабинета";
+      info.style.color = "#b91c1c";
+    }
+    return;
+  }
   if (info) { info.textContent = "Сохранение..."; info.style.color = ""; }
   const res = await fetch(`/api/supply-sources/${sourceId}/api-key`, {
     method: "PATCH",
     headers: jsonHeaders(),
-    body: JSON.stringify({ api_key }),
+    body: JSON.stringify({ api_key, client_id }),
   }).catch(() => null);
   if (!res) {
     if (info) { info.textContent = "Ошибка сети"; info.style.color = "#b91c1c"; }
@@ -2368,6 +2405,7 @@ async function createSupplySource() {
   if (!name) { if (info) { info.textContent = "Введите название"; info.style.color = "#b91c1c"; } return; }
   if (!api_key) { if (info) { info.textContent = "Введите API-ключ"; info.style.color = "#b91c1c"; } return; }
   if (marketplace === "ozon" && !client_id) { if (info) { info.textContent = "Введите Client-ID"; info.style.color = "#b91c1c"; } return; }
+  if (marketplace === "wb" && !client_id) { if (info) { info.textContent = "Введите ID кабинета"; info.style.color = "#b91c1c"; } return; }
   if (info) { info.textContent = "Сохранение..."; info.style.color = ""; }
   const res = await fetch("/api/supply-sources", {
     method: "POST",

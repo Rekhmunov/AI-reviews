@@ -10155,6 +10155,12 @@ class ReviewRepository:
                     client_id=d.get("client_id") or "",
                 )
             if channel or ext:
+                # For WB legacy rows: also persist cabinet id into client_id so the
+                # settings form can show/edit it (API does not use client_id for WB).
+                stored_client = str(d.get("client_id") or "").strip()
+                client_to_set = stored_client or (
+                    ext if str(mp or "").lower() in ("wb", "wildberries") else None
+                )
                 conn.execute(
                     self._sql(
                         """
@@ -10162,11 +10168,14 @@ class ReviewRepository:
                         SET channel = COALESCE(NULLIF(TRIM(COALESCE(channel, '')), ''), ?),
                             external_account_id = COALESCE(
                                 NULLIF(TRIM(COALESCE(external_account_id, '')), ''), ?
+                            ),
+                            client_id = COALESCE(
+                                NULLIF(TRIM(COALESCE(client_id, '')), ''), ?
                             )
                         WHERE id = ?
                         """
                     ),
-                    (channel, ext, int(d["id"])),
+                    (channel, ext, client_to_set, int(d["id"])),
                 )
 
         # Second pass: among active rows, keep one cabinet binding per channel.
@@ -10339,11 +10348,14 @@ class ReviewRepository:
         )
         if mp.startswith("ozon") and not external_account_id:
             raise ValueError("Для Ozon укажите Client-ID кабинета")
-        if mp in ("wb", "wildberries") and not external_account_id:
+        if mp in ("wb", "wildberries") and not clean_client:
             raise ValueError(
-                "Не удалось определить ID кабинета WB из токена (поле uid). "
-                "Проверьте, что вставлен актуальный токен продавца."
+                "Для Wildberries укажите ID кабинета "
+                "(на подключение не влияет, нужен для привязки данных)."
             )
+        if mp in ("wb", "wildberries") and not external_account_id:
+            # Should not happen if clean_client is set; keep as safety net.
+            raise ValueError("Для Wildberries укажите ID кабинета")
 
         analytics_enc = encrypt_secret(clean_analytics) if clean_analytics else None
         api_enc = encrypt_secret(clean_key)
@@ -10485,8 +10497,9 @@ class ReviewRepository:
         source_id: int,
         api_key: str,
         analytics_api_key: str | None = None,
+        client_id: str | None = None,
     ) -> dict[str, Any] | None:
-        """Replace marketplace API key (and optionally analytics key) without wiping data."""
+        """Replace marketplace API key (and optionally cabinet id / analytics) without wiping data."""
         clean = str(api_key or "").strip()
         if not clean:
             raise ValueError("API-ключ не может быть пустым")
@@ -10510,19 +10523,28 @@ class ReviewRepository:
                 channel = supply_identity.resolve_supply_channel(
                     marketplace=mp, name=current.get("name")
                 )
-            client_id = supply_identity.normalize_client_id(current.get("client_id"))
+            # Cabinet id: explicit patch value, else keep stored client_id.
+            if client_id is not None:
+                stored_client = supply_identity.normalize_client_id(client_id)
+            else:
+                stored_client = supply_identity.normalize_client_id(current.get("client_id"))
             new_ext = supply_identity.resolve_external_account_id(
                 marketplace=mp,
                 api_key=clean,
-                client_id=client_id,
+                client_id=stored_client,
             )
+            # Prefer keeping the previously bound cabinet id if still present and
+            # no explicit client_id was sent (avoid accidental JWT rematch).
+            old_ext = str(current.get("external_account_id") or "").strip() or None
+            if client_id is None and old_ext and not stored_client:
+                new_ext = old_ext
             if mp.startswith("ozon") and not new_ext:
                 raise ValueError("У источника не задан Client-ID кабинета")
             if mp in ("wb", "wildberries") and not new_ext:
                 raise ValueError(
-                    "Не удалось определить ID кабинета WB из нового токена (поле uid)."
+                    "Укажите ID кабинета WB (поле в форме). "
+                    "На API-подключение не влияет, нужен для привязки данных."
                 )
-            old_ext = str(current.get("external_account_id") or "").strip() or None
             if new_ext and channel and new_ext != old_ext:
                 clash = conn.execute(
                     self._sql(
@@ -10537,12 +10559,22 @@ class ReviewRepository:
                 ).fetchone()
                 if clash is not None:
                     raise ValueError(
-                        f"Токен принадлежит другому уже подключённому кабинету "
+                        f"Этот ID кабинета уже занят другим источником "
                         f"({supply_identity.channel_label(channel)}, id {new_ext})."
                     )
 
-            sets = ["api_key_encrypted = ?", "channel = ?", "external_account_id = ?"]
-            params: list[Any] = [encrypt_secret(clean), channel, new_ext]
+            sets = [
+                "api_key_encrypted = ?",
+                "channel = ?",
+                "external_account_id = ?",
+                "client_id = ?",
+            ]
+            params: list[Any] = [
+                encrypt_secret(clean),
+                channel,
+                new_ext,
+                stored_client or None,
+            ]
             if analytics_api_key is not None:
                 analytics_clean = str(analytics_api_key or "").strip()
                 sets.append("analytics_api_key_encrypted = ?")
