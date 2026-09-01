@@ -14238,6 +14238,14 @@ button.wb-fbs-kiz-add:disabled {
   user-select: none;
 }
 .ozon-fbs-container-scan-check[hidden] { display: none !important; }
+.ozon-fbs-container-scan-check.is-wait-rows {
+  opacity: 0.5;
+  cursor: not-allowed;
+  color: #64748b;
+}
+.ozon-fbs-container-scan-check.is-wait-rows input {
+  cursor: not-allowed;
+}
 .ozon-fbs-container-scan-check input {
   width: 16px;
   height: 16px;

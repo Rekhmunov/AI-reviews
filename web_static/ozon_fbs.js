@@ -7403,6 +7403,9 @@
       || (cancelled && cancelled.closest("label"));
     const search = document.getElementById("ozonFbsKizSearchFilter");
     const sticker = document.getElementById("ozonFbsKizStickerScan");
+    const containerCheck = document.getElementById("ozonFbsKizContainerScanCheck");
+    const containerLabel = document.getElementById("ozonFbsKizContainerScanLabel")
+      || (containerCheck && containerCheck.closest("label"));
 
     const setLabelWait = (label, on) => {
       if (!label) return;
@@ -7456,13 +7459,21 @@
     if (legal) legal.disabled = !ready;
     if (errors) errors.disabled = !ready;
     if (cancelled) cancelled.disabled = !ready;
+    if (containerCheck) {
+      containerCheck.disabled = !ready;
+      if (!ready) containerCheck.checked = false;
+    }
     setLabelWait(filledLabel, !ready);
     setLabelWait(emptyLabel, !ready);
     setLabelWait(legalLabel, !ready);
     setLabelWait(errorsLabel, !ready);
     setLabelWait(cancelledLabel, !ready);
+    setLabelWait(containerLabel, !ready);
     setInputWait(search, !ready);
     setInputWait(sticker, !ready);
+    if (typeof window._ozonFbsContainerSyncCheckboxUi === "function") {
+      window._ozonFbsContainerSyncCheckboxUi("kiz");
+    }
   }
 
   function _ozonFbsPickSetFiltersReady(ready) {
@@ -7479,6 +7490,9 @@
       || (errors && errors.closest("label"));
     const search = document.getElementById("ozonFbsPickSearchFilter");
     const sticker = document.getElementById("ozonFbsPickStickerScan");
+    const containerCheck = document.getElementById("ozonFbsPickContainerScanCheck");
+    const containerLabel = document.getElementById("ozonFbsPickContainerScanLabel")
+      || (containerCheck && containerCheck.closest("label"));
 
     const setLabelWait = (label, on) => {
       if (!label) return;
@@ -7530,11 +7544,19 @@
     if (filled) filled.disabled = !ready;
     if (empty) empty.disabled = !ready;
     if (errors) errors.disabled = !ready;
+    if (containerCheck) {
+      containerCheck.disabled = !ready;
+      if (!ready) containerCheck.checked = false;
+    }
     setLabelWait(filledLabel, !ready);
     setLabelWait(emptyLabel, !ready);
     setLabelWait(errorsLabel, !ready);
+    setLabelWait(containerLabel, !ready);
     setInputWait(search, !ready);
     setInputWait(sticker, !ready);
+    if (typeof window._ozonFbsContainerSyncCheckboxUi === "function") {
+      window._ozonFbsContainerSyncCheckboxUi("pick");
+    }
   }
 
   function _ozonFbsKizRowFilled(row) {
@@ -8623,7 +8645,7 @@
     const scan = document.getElementById("ozonFbsKizStickerScan");
     if (scan) scan.value = "";
     let loadOk = false;
-    let unlocked = false;
+    let applied = false;
     const stillThisLoad = () =>
       Number(ozonFbsKizState.loadGen) === loadGen && _ozonFbsKizModalIsOpen();
     try {
@@ -8637,20 +8659,18 @@
             if (!stillThisLoad()) return;
             const resolving = !meta?.done && Number(meta?.remaining || 0) > 0;
             const resolveMsg = resolving ? _ozonFbsResolveProgressText(meta) : "";
-            if (!unlocked) {
-              // Unlock sticker scan on the first chunk — do not wait for full resolve
-              // (resolve can take minutes; readOnly field looks focused but swallows input).
+            if (!applied) {
+              // Keep filters / scan / cargo-checkbox locked until the whole load finishes.
               _ozonFbsKizApplyLoadedPayload(data, {
-                unlockScan: true,
-                focusScan: true,
+                unlockScan: false,
                 resolveMsg,
               });
-              unlocked = true;
+              applied = true;
               loadOk = true;
               return;
             }
             // Later chunks can add newly-resolved kiz_required rows. Merge them,
-            // but preserve focus / in-progress scan (dirty + pending kept in apply).
+            // keep controls locked, preserve in-progress local edits.
             const prevKeys = new Set(
               (ozonFbsKizState.rows || [])
                 .map((r) => String(r?.posting_number || "").trim())
@@ -8672,8 +8692,7 @@
             }
             if (rowsChanged || meta?.done) {
               _ozonFbsKizApplyLoadedPayload(data, {
-                unlockScan: true,
-                preserveFocus: true,
+                unlockScan: false,
                 resolveMsg,
               });
               return;
@@ -8689,8 +8708,8 @@
         }
       );
       if (!stillThisLoad()) return;
-      if (!unlocked) {
-        _ozonFbsKizApplyLoadedPayload({}, { unlockScan: true, focusScan: true });
+      if (!applied) {
+        _ozonFbsKizApplyLoadedPayload({}, { unlockScan: false });
       } else {
         _ozonFbsKizSetInfo(
           ozonFbsKizState.rows.length
@@ -8700,7 +8719,7 @@
       }
     } catch (e) {
       if (!stillThisLoad()) return;
-      if (tbody && !unlocked) {
+      if (tbody && !applied) {
         tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty" style="color:#b91c1c">${esc(e.message)}</td></tr>`;
       }
       _ozonFbsKizSetInfo(String(e.message || e));

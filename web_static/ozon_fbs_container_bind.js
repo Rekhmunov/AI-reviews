@@ -120,6 +120,32 @@
     const show = !!state.hasContainers;
     if (label) label.hidden = !show;
     if (check && !show) check.checked = false;
+    // Mirror Marking / Pick Verify wait lock while rows are still loading.
+    const rowsReady = isKiz
+      ? !!window.ozonFbsKizState?.rowsReady
+      : !!window.ozonFbsPickState?.rowsReady;
+    if (check) {
+      check.disabled = !rowsReady;
+      if (!rowsReady) check.checked = false;
+    }
+    if (label) {
+      const tip = "Дождитесь загрузки заказов";
+      if (!rowsReady) {
+        if (label.dataset.waitTitleSaved === undefined) {
+          label.dataset.waitTitleSaved = label.getAttribute("title") || "";
+        }
+        label.classList.add("is-wait-rows");
+        label.setAttribute("title", tip);
+      } else {
+        label.classList.remove("is-wait-rows");
+        const saved = label.dataset.waitTitleSaved;
+        if (saved !== undefined) {
+          if (saved) label.setAttribute("title", saved);
+          else label.removeAttribute("title");
+          delete label.dataset.waitTitleSaved;
+        }
+      }
+    }
     setContainerColumnsVisible(show);
   }
 
@@ -220,9 +246,16 @@
 
   function onContainerScanCheckChange(mode) {
     const isKiz = mode === "kiz";
+    const rowsReady = isKiz
+      ? !!window.ozonFbsKizState?.rowsReady
+      : !!window.ozonFbsPickState?.rowsReady;
     const check = document.getElementById(
       isKiz ? "ozonFbsKizContainerScanCheck" : "ozonFbsPickContainerScanCheck"
     );
+    if (!rowsReady) {
+      if (check) check.checked = false;
+      return;
+    }
     const input = document.getElementById(
       isKiz ? "ozonFbsKizStickerScan" : "ozonFbsPickStickerScan"
     );
@@ -603,6 +636,7 @@
   window._ozonFbsContainerCellHtml = containerCellHtml;
   window._ozonFbsContainerUpdateCounters = updateContainerCounters;
   window._ozonFbsContainerPrepareModal = prepareForModal;
+  window._ozonFbsContainerSyncCheckboxUi = syncCheckboxUi;
   window._ozonFbsContainerIsScanMode = isContainerScanMode;
   window._ozonFbsContainerHandleScan = handleContainerScan;
   window._ozonFbsContainerMaybeBind = maybeBindAfterPostingIdentified;
