@@ -17,7 +17,114 @@
     rebindPayload: null,
     /** Supply id for which activeId is valid — clear on supply change. */
     boundSupplyId: "",
+    /** Postings with in-session container edits — skip reconcile overwrite. */
+    dirtyPostings: new Set(),
+    /** Monotonic token to ignore stale reconcile responses. */
+    reconcileGen: 0,
   };
+
+  function markContainerDirty(postingNumber) {
+    const pn = String(postingNumber || "").trim();
+    if (pn) state.dirtyPostings.add(pn);
+  }
+
+  function clearContainerDirty(postingNumber) {
+    const pn = String(postingNumber || "").trim();
+    if (pn) state.dirtyPostings.delete(pn);
+  }
+
+  function collectReconcileSkipPostings(mode) {
+    const skip = new Set(state.dirtyPostings);
+    const isKiz = mode === "kiz";
+    if (isKiz && window.ozonFbsKizState?.localAutosaveDirty instanceof Set) {
+      for (const pn of window.ozonFbsKizState.localAutosaveDirty) {
+        if (pn) skip.add(String(pn));
+      }
+    }
+    return [...skip];
+  }
+
+  function modalStillOpen(mode) {
+    const id = mode === "kiz" ? "ozonFbsKizModal" : "ozonFbsPickVerifyModal";
+    const modal = document.getElementById(id);
+    return !!(modal && !modal.classList.contains("hidden"));
+  }
+
+  function mergeReconcileBinds(mode, binds, changes) {
+    const rows = mode === "kiz"
+      ? (window.ozonFbsKizState?.rows || [])
+      : (window.ozonFbsPickState?.rows || []);
+    if (!rows.length || !binds || typeof binds !== "object") return 0;
+    let touched = 0;
+    for (const row of rows) {
+      const pn = String(row?.posting_number || "").trim();
+      if (!pn || state.dirtyPostings.has(pn)) continue;
+      const next = binds[pn];
+      if (!next) continue;
+      const nextCid = next.container_id != null ? Number(next.container_id) : 0;
+      const curCid = row.container_id != null ? Number(row.container_id) : 0;
+      const nextBc = String(next.container_barcode || "").trim();
+      const curBc = String(row.container_barcode || "").trim();
+      const nextErr = String(next.container_sync_error || "").trim();
+      const curErr = String(row.container_sync_error || "").trim();
+      const nextSynced = !!next.container_synced;
+      const curSynced = !!row.container_synced;
+      if (
+        nextCid === curCid
+        && nextBc === curBc
+        && nextErr === curErr
+        && nextSynced === curSynced
+      ) {
+        continue;
+      }
+      row.container_id = nextCid > 0 ? nextCid : null;
+      row.container_barcode = nextBc;
+      row.container_synced = nextSynced;
+      row.container_sync_error = nextErr;
+      touched += 1;
+    }
+    if (touched > 0) {
+      rerenderMode(mode);
+      updateContainerCounters();
+    }
+    if (Array.isArray(changes) && changes.length > 0) {
+      const setInfo = mode === "kiz" ? window._ozonFbsKizSetInfo : window._ozonFbsPickSetInfo;
+      if (typeof setInfo === "function") {
+        setInfo("Грузоместа синхронизированы с порталом Ozon", true);
+      }
+    }
+    return touched;
+  }
+
+  async function reconcileContainers(mode) {
+    const { sid, sourceId } = supplyIds();
+    if (!sid || !sourceId || !state.hasContainers) return;
+    if (!modalStillOpen(mode)) return;
+    const gen = (state.reconcileGen = Number(state.reconcileGen || 0) + 1);
+    const skip = collectReconcileSkipPostings(mode);
+    try {
+      const res = await fetch(
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/containers/reconcile`,
+        {
+          method: "POST",
+          headers: csrfHeaders(),
+          body: JSON.stringify({
+            source_id: sourceId,
+            skip_postings: skip,
+          }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || `Ошибка ${res.status}`);
+      if (Number(state.reconcileGen) !== gen || !modalStillOpen(mode)) return;
+      mergeReconcileBinds(mode, data.binds || {}, data.changes || []);
+      if (Array.isArray(data.changes) && data.changes.length > 0) {
+        state.usedInSession = true;
+      }
+    } catch (_e) {
+      // Background reconcile — do not interrupt operator workflow.
+    }
+  }
 
   function esc(s) {
     return typeof window.esc === "function"
@@ -461,6 +568,10 @@
     row.container_synced = !!data.container_synced || !!data.synced;
     row.container_sync_error = String(data.error || data.container_sync_error || "").trim();
     if (row.container_barcode) state.usedInSession = true;
+    const pn = String(row.posting_number || "").trim();
+    if (pn && row.container_synced && !row.container_sync_error) {
+      clearContainerDirty(pn);
+    }
   }
 
   async function bindPosting(postingNumber, containerId, containerBarcode, previousId) {
@@ -518,6 +629,7 @@
       row.container_synced = false;
       row.container_sync_error = String(e.message || e);
       state.usedInSession = true;
+      markContainerDirty(postingNumber);
     }
     updateContainerCounters();
     rerenderMode(mode);
@@ -564,6 +676,7 @@
     row.container_synced = false;
     row.container_sync_error = "";
     state.usedInSession = true;
+    markContainerDirty(postingNumber);
     updateContainerCounters();
     rerenderMode(mode);
     void runBindAndRefresh(
@@ -650,6 +763,7 @@
       row.container_barcode = nextBarcode;
       row.container_synced = false;
       row.container_sync_error = String(e.message || e);
+      markContainerDirty(postingNumber);
     }
     updateContainerCounters();
     rerenderMode(mode);
@@ -669,6 +783,7 @@
     if (sid && state.boundSupplyId && state.boundSupplyId !== sid) {
       setActive(null);
       state.usedInSession = false;
+      state.dirtyPostings.clear();
     }
     if (sid) state.boundSupplyId = sid;
     state.usedInSession = false;
@@ -690,6 +805,7 @@
       if (!cur || !containerAcceptsFill(cur)) setActive(null);
     }
     resetForModal(mode);
+    void reconcileContainers(mode);
   }
 
   function containerErrorsTooltip(errors) {
@@ -721,6 +837,7 @@
   window._ozonFbsContainerMaybeBind = maybeBindAfterPostingIdentified;
   window._ozonFbsContainerErrorsTooltip = containerErrorsTooltip;
   window._ozonFbsContainerInvalidate = invalidateContainersCache;
+  window._ozonFbsContainerReconcile = reconcileContainers;
   window.onOzonFbsContainerScanCheckChange = onContainerScanCheckChange;
   window.clearOzonFbsActiveContainer = clearActiveContainer;
   window._ozonFbsContainerClearOnModalClose = clearActiveContainerOnModalClose;

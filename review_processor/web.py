@@ -14596,6 +14596,50 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.post("/api/ozon-fbs/supplies/{supply_id}/containers/reconcile")
+    async def ozon_fbs_supply_containers_reconcile(
+        request: Request, supply_id: str
+    ) -> dict[str, object]:
+        """Sync local posting→container binds with Ozon portal (read + local update)."""
+        from . import ozon_fbs as ozon_fbs_mod
+        from . import ozon_fbs_containers as oz_ct
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        try:
+            source_id = int(body.get("source_id") or 0)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Укажите source_id") from exc
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        skip_raw = body.get("skip_postings") or body.get("dirty_postings") or []
+        if not isinstance(skip_raw, list):
+            skip_raw = [skip_raw]
+        skip_postings = [str(x).strip() for x in skip_raw if str(x).strip()]
+        _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, source_id)
+        client = ozon_fbs_mod.OzonFbsClient(client_id=client_id, api_key=api_key)
+        try:
+            return oz_ct.reconcile_supply_container_binds(
+                client,
+                repository,
+                user_id=owner_id,
+                source_id=source_id,
+                supply_id=str(supply_id),
+                skip_postings=skip_postings,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.get("/api/ozon-fbs/supplies/{supply_id}/shipments")
     def ozon_fbs_supply_shipments(
         request: Request,

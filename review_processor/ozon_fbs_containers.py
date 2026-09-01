@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import re
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -925,6 +926,313 @@ def unbind_posting_from_container(
         sync_error="",
     )
     return {"ok": True, "error": "", **local}
+
+
+_CONTAINER_LIST_CACHE: dict[tuple[int, int, int], tuple[float, dict[str, Any]]] = {}
+_CONTAINER_LIST_CACHE_TTL_SEC = 45.0
+_RECONCILE_FETCH_WORKERS = 8
+
+
+def _posting_numbers_from_container_payload(raw: dict[str, Any]) -> list[str]:
+    """Extract posting numbers from ``/v1/carriage/container/get`` payload (best-effort)."""
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def add(value: object) -> None:
+        pn = str(value or "").strip()
+        if pn and pn not in seen:
+            seen.add(pn)
+            out.append(pn)
+
+    direct = raw.get("posting_numbers")
+    if isinstance(direct, list):
+        for item in direct:
+            if isinstance(item, str):
+                add(item)
+            elif isinstance(item, dict):
+                add(item.get("posting_number"))
+    postings = raw.get("postings")
+    if isinstance(postings, list):
+        for item in postings:
+            if isinstance(item, str):
+                add(item)
+            elif isinstance(item, dict):
+                add(item.get("posting_number"))
+    return out
+
+
+def _container_get_raw_payload(data: object) -> dict[str, Any]:
+    if not isinstance(data, dict):
+        return {}
+    nested = data.get("container") or data.get("result")
+    if isinstance(nested, dict):
+        return nested
+    return data
+
+
+def _fetch_container_postings(
+    client: oz.OzonFbsClient, *, container_id: int
+) -> tuple[dict[str, Any] | None, list[str], bool]:
+    """Return (normalized meta, posting_numbers, exists_on_ozon)."""
+    try:
+        data = client.carriage_container_get(container_id=int(container_id))
+    except Exception as exc:
+        text = str(exc or "").casefold()
+        if "404" in text or "not found" in text or "not_found" in text:
+            return None, [], False
+        _log.warning("ozon container get cid=%s: %s", container_id, exc)
+        return None, [], True
+    raw = _container_get_raw_payload(data)
+    if not raw:
+        return None, [], False
+    if not raw.get("container_id"):
+        raw = {**raw, "container_id": int(container_id)}
+    meta = _normalize_container(raw)
+    postings = _posting_numbers_from_container_payload(raw)
+    return meta, postings, True
+
+
+def _list_containers_cached(
+    client: oz.OzonFbsClient,
+    *,
+    user_id: int,
+    source_id: int,
+    warehouse_id: int,
+    lookback_days: int = 30,
+) -> dict[str, Any]:
+    key = (int(user_id), int(source_id), int(warehouse_id))
+    now = _utc_now().timestamp()
+    cached = _CONTAINER_LIST_CACHE.get(key)
+    if cached and (now - cached[0]) < _CONTAINER_LIST_CACHE_TTL_SEC:
+        return cached[1]
+    listed = list_containers(
+        client, warehouse_id=int(warehouse_id), lookback_days=lookback_days
+    )
+    _CONTAINER_LIST_CACHE[key] = (now, listed)
+    return listed
+
+
+def reconcile_supply_container_binds(
+    client: oz.OzonFbsClient,
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    skip_postings: list[str] | None = None,
+) -> dict[str, Any]:
+    """Align local posting→container binds with Ozon portal (portal wins).
+
+    Read-only towards Ozon except local DB updates — no fill/remove during reconcile.
+    """
+    sid = str(supply_id or "").strip()
+    if not sid:
+        raise ValueError("Укажите supply_id")
+    skip = {str(x).strip() for x in (skip_postings or []) if str(x).strip()}
+
+    supply = oz_sup.get_supply(
+        repo, user_id=user_id, source_id=source_id, supply_id=sid
+    )
+    posting_numbers = [
+        str(x).strip()
+        for x in ((supply or {}).get("posting_numbers") or [])
+        if str(x).strip()
+    ]
+    supply_set = set(posting_numbers)
+    if not supply_set:
+        return {
+            "ok": True,
+            "changes": [],
+            "binds": {},
+            "posting_lists_available": False,
+            "container_reconciled_at": _utc_now().isoformat(),
+            "message": "В поставке нет отправлений",
+        }
+
+    local_binds = load_container_bind_map(
+        repo, user_id=user_id, source_id=source_id, posting_numbers=posting_numbers
+    )
+
+    warehouse_id, _wh_name = resolve_supply_warehouse_id(
+        repo, user_id=user_id, source_id=source_id, supply_id=sid
+    )
+    listed = _list_containers_cached(
+        client,
+        user_id=user_id,
+        source_id=source_id,
+        warehouse_id=warehouse_id,
+    )
+    alive_ids: set[int] = set()
+    alive_meta: dict[int, dict[str, Any]] = {}
+    for item in listed.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            cid = int(item.get("container_id") or 0)
+        except (TypeError, ValueError):
+            cid = 0
+        if cid > 0:
+            alive_ids.add(cid)
+            alive_meta[cid] = item
+
+    local_cids: set[int] = set()
+    for row in local_binds.values():
+        try:
+            cid = int(row.get("container_id") or 0)
+        except (TypeError, ValueError):
+            cid = 0
+        if cid > 0:
+            local_cids.add(cid)
+
+    fetch_ids = set(alive_ids) | local_cids
+    ozon_map: dict[str, int] = {}
+    posting_lists_available = False
+    missing_container_ids: set[int] = set()
+
+    if fetch_ids:
+        workers = min(_RECONCILE_FETCH_WORKERS, len(fetch_ids))
+        with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+            futures = {
+                pool.submit(_fetch_container_postings, client, container_id=cid): cid
+                for cid in fetch_ids
+            }
+            for fut in as_completed(futures):
+                cid = futures[fut]
+                try:
+                    meta, nums, exists = fut.result()
+                except Exception as exc:
+                    _log.warning("reconcile container get cid=%s: %s", cid, exc)
+                    continue
+                if not exists:
+                    missing_container_ids.add(int(cid))
+                    continue
+                if meta is not None and int(cid) not in alive_meta:
+                    alive_meta[int(cid)] = meta
+                if nums:
+                    posting_lists_available = True
+                    for pn in nums:
+                        if pn in supply_set:
+                            ozon_map[pn] = int(cid)
+
+    changes: list[dict[str, Any]] = []
+
+    def _apply_local(
+        pn: str,
+        *,
+        container_id: int | None,
+        synced: bool,
+        sync_error: str,
+        action: str,
+        reason: str,
+    ) -> None:
+        barcode = str(container_id) if container_id else ""
+        _set_local_container_bind(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            posting_number=pn,
+            container_id=container_id,
+            container_barcode=barcode,
+            synced=synced,
+            sync_error=sync_error,
+        )
+        changes.append(
+            {
+                "posting_number": pn,
+                "action": action,
+                "reason": reason,
+                "container_id": container_id,
+                "container_barcode": barcode if container_id else "",
+                "container_synced": bool(synced) and bool(container_id),
+                "container_sync_error": sync_error,
+            }
+        )
+
+    for pn in posting_numbers:
+        if pn in skip:
+            continue
+        local = local_binds.get(pn) or {}
+        try:
+            local_cid = int(local.get("container_id") or 0)
+        except (TypeError, ValueError):
+            local_cid = 0
+        local_synced = bool(local.get("container_synced")) and local_cid > 0
+        local_err = str(local.get("container_sync_error") or "").strip()
+        ozon_cid = ozon_map.get(pn)
+
+        if local_cid > 0 and local_cid in missing_container_ids:
+            if not local_synced and local_err:
+                continue
+            _apply_local(
+                pn,
+                container_id=None,
+                synced=False,
+                sync_error="",
+                action="cleared",
+                reason="Грузоместо удалено на портале Ozon",
+            )
+            continue
+
+        if not posting_lists_available:
+            continue
+
+        if ozon_cid == local_cid:
+            if ozon_cid > 0 and not local_synced and not local_err:
+                _apply_local(
+                    pn,
+                    container_id=ozon_cid,
+                    synced=True,
+                    sync_error="",
+                    action="synced",
+                    reason="Привязка подтверждена на портале Ozon",
+                )
+            continue
+
+        if ozon_cid is None or ozon_cid <= 0:
+            if local_cid <= 0:
+                continue
+            if not local_synced and local_err:
+                continue
+            _apply_local(
+                pn,
+                container_id=None,
+                synced=False,
+                sync_error="",
+                action="cleared",
+                reason="На портале Ozon заказ не в грузоместе",
+            )
+            continue
+
+        action = "adopted" if local_cid <= 0 else "updated"
+        _apply_local(
+            pn,
+            container_id=ozon_cid,
+            synced=True,
+            sync_error="",
+            action=action,
+            reason="Состав грузоместа синхронизирован с порталом Ozon",
+        )
+
+    updated_binds = load_container_bind_map(
+        repo, user_id=user_id, source_id=source_id, posting_numbers=posting_numbers
+    )
+    return {
+        "ok": True,
+        "changes": changes,
+        "binds": updated_binds,
+        "posting_lists_available": posting_lists_available,
+        "containers_checked": len(fetch_ids),
+        "container_reconciled_at": _utc_now().isoformat(),
+        "message": (
+            f"Синхронизировано: {len(changes)}"
+            if changes
+            else (
+                "Данные совпадают с порталом"
+                if posting_lists_available
+                else "Состав грузомест недоступен из API — проверены только удалённые ГМ"
+            )
+        ),
+    }
 
 
 def container_bind_fields_from_map(
