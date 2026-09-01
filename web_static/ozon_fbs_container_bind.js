@@ -1,6 +1,6 @@
 /**
  * Ozon FBS: optional cargo-place (грузоместо) binding in Marking / Pick Verify.
- * No-op when the supply has no active containers or operator never scans one.
+ * No-op when the supply has no active containers or the operator never scans one.
  */
 (function () {
   "use strict";
@@ -15,6 +15,8 @@
     loading: false,
     rebindResolver: null,
     rebindPayload: null,
+    /** Supply id for which activeId is valid — clear on supply change. */
+    boundSupplyId: "",
   };
 
   function esc(s) {
@@ -36,7 +38,13 @@
 
   function csrfHeaders() {
     const h = { "Content-Type": "application/json" };
-    const csrf = typeof window.getCsrfToken === "function" ? window.getCsrfToken() : "";
+    if (typeof window.withCsrfHeaders === "function") {
+      return window.withCsrfHeaders(h);
+    }
+    const csrf =
+      (typeof window.getCsrfToken === "function" && window.getCsrfToken())
+      || (typeof getCsrfToken === "function" && getCsrfToken())
+      || "";
     if (csrf) h["X-CSRF-Token"] = csrf;
     return h;
   }
@@ -105,11 +113,14 @@
   }
 
   function updateContainerCounters() {
-    updateOneCounter("kiz", window.ozonFbsKizState?.rows || [], "ozonFbsKizContainerCount");
-    updateOneCounter("pick", window.ozonFbsPickState?.rows || [], "ozonFbsPickContainerCount");
+    // Re-apply after every table re-render: new <td> nodes would otherwise stay visible
+    // even when the supply has no cargo places (regression for the no-container flow).
+    setContainerColumnsVisible(!!state.hasContainers);
+    updateOneCounter(window.ozonFbsKizState?.rows || [], "ozonFbsKizContainerCount");
+    updateOneCounter(window.ozonFbsPickState?.rows || [], "ozonFbsPickContainerCount");
   }
 
-  function updateOneCounter(mode, rows, elId) {
+  function updateOneCounter(rows, elId) {
     const el = document.getElementById(elId);
     if (!el) return;
     const list = Array.isArray(rows) ? rows : [];
@@ -120,7 +131,8 @@
       el.textContent = "";
       return;
     }
-    const total = list.filter((r) => !String(r?.cancel_reason_label || "").trim()).length || list.length;
+    const total =
+      list.filter((r) => !String(r?.cancel_reason_label || "").trim()).length || list.length;
     el.textContent = `Прикреплено к грузоместам ${bound} из ${total}`;
   }
 
@@ -312,7 +324,7 @@
     if (row.container_barcode) state.usedInSession = true;
   }
 
-  async function bindPosting(mode, postingNumber, containerId, containerBarcode, previousId) {
+  async function bindPosting(postingNumber, containerId, containerBarcode, previousId) {
     const { sid, sourceId } = supplyIds();
     if (!sid || !sourceId) return null;
     const res = await fetch(
@@ -354,8 +366,27 @@
     return data;
   }
 
+  async function runBindAndRefresh(mode, postingNumber, containerId, barcode, previousId) {
+    const row = findRow(mode, postingNumber);
+    if (!row) return;
+    try {
+      const data = await bindPosting(postingNumber, containerId, barcode, previousId);
+      applyBindResult(row, data);
+    } catch (e) {
+      // Optimistic local bind (TZ): keep UI bind even if our API/Ozon call fails.
+      row.container_id = containerId;
+      row.container_barcode = barcode;
+      row.container_synced = false;
+      row.container_sync_error = String(e.message || e);
+      state.usedInSession = true;
+    }
+    updateContainerCounters();
+    rerenderMode(mode);
+  }
+
   /**
-   * After sticker identifies a posting, attach to active cargo place (background).
+   * After sticker identifies a posting, attach to active cargo place in background.
+   * Does not block the KIZ/SKU scan prompt (only rebind confirm is awaited).
    * Returns false only when user cancelled rebind.
    */
   async function maybeBindAfterPostingIdentified(mode, postingNumber) {
@@ -365,35 +396,32 @@
     const prevId = Number(row.container_id || 0) || 0;
     const prevBarcode = String(row.container_barcode || "").trim();
     const nextBarcode = state.activeBarcode || String(state.activeId);
-    if (prevId && prevId !== state.activeId) {
+    const activeId = state.activeId;
+    if (prevId && prevId !== activeId) {
       const ok = await openRebindModal({
         postingNumber,
         oldBarcode: prevBarcode || String(prevId),
         newBarcode: nextBarcode,
       });
       if (!ok) return false;
-    } else if (prevId === state.activeId && !String(row.container_sync_error || "").trim()) {
+    } else if (prevId === activeId && !String(row.container_sync_error || "").trim()) {
       return true;
     }
-    try {
-      const data = await bindPosting(
-        mode,
-        postingNumber,
-        state.activeId,
-        nextBarcode,
-        prevId && prevId !== state.activeId ? prevId : null
-      );
-      applyBindResult(row, data);
-      updateContainerCounters();
-      rerenderMode(mode);
-    } catch (e) {
-      row.container_id = state.activeId;
-      row.container_barcode = nextBarcode;
-      row.container_synced = false;
-      row.container_sync_error = String(e.message || e);
-      updateContainerCounters();
-      rerenderMode(mode);
-    }
+    // Optimistic UI immediately, then sync in background (fast sticker flow).
+    row.container_id = activeId;
+    row.container_barcode = nextBarcode;
+    row.container_synced = false;
+    row.container_sync_error = "";
+    state.usedInSession = true;
+    updateContainerCounters();
+    rerenderMode(mode);
+    void runBindAndRefresh(
+      mode,
+      postingNumber,
+      activeId,
+      nextBarcode,
+      prevId && prevId !== activeId ? prevId : null
+    );
     return true;
   }
 
@@ -449,7 +477,6 @@
     }
     try {
       const data = await bindPosting(
-        mode,
         postingNumber,
         nextId,
         nextBarcode,
@@ -478,6 +505,13 @@
   }
 
   async function prepareForModal(mode) {
+    const { sid } = supplyIds();
+    // Switching supply must not keep a previous active cargo place.
+    if (sid && state.boundSupplyId && state.boundSupplyId !== sid) {
+      setActive(null);
+      state.usedInSession = false;
+    }
+    if (sid) state.boundSupplyId = sid;
     state.usedInSession = false;
     // Hide cargo column until we know whether this supply has containers.
     setContainerColumnsVisible(false);
@@ -488,6 +522,10 @@
       : (window.ozonFbsPickState?.rows || []);
     if (rows.some((r) => String(r?.container_barcode || "").trim())) {
       state.usedInSession = true;
+    }
+    // Active cargo place must still belong to this supply's container list.
+    if (state.activeId && !state.byId.has(String(state.activeId))) {
+      setActive(null);
     }
     resetForModal(mode);
   }
@@ -506,7 +544,7 @@
       .join("\n");
   }
 
-  // ── exports ──────────────────────────────────────────────────────────────
+  // ── exports (names must match ozon_fbs.js / app.html hooks) ───────────────
   window.ozonFbsContainerBindState = state;
   window._ozonFbsContainerCellHtml = containerCellHtml;
   window._ozonFbsContainerUpdateCounters = updateContainerCounters;

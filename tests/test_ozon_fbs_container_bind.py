@@ -215,5 +215,103 @@ class MarkingStatusContainerErrorTests(unittest.TestCase):
         self.assertEqual(out["container_error_count"], 0)
 
 
+
+class PickVerifyStatusContainerTests(unittest.TestCase):
+    def test_pick_incomplete_cargo_does_not_force_error(self) -> None:
+        """Green/empty tone must follow ШК verify only; unbound cargo is not an error."""
+        from review_processor import ozon_fbs_pick_verify as pick
+
+        detail = {
+            "supply_id": "S1",
+            "orders": [
+                {
+                    "posting_number": "P-1",
+                    "kiz_required": False,
+                    "cancelled": False,
+                },
+                {
+                    "posting_number": "P-2",
+                    "kiz_required": False,
+                    "cancelled": False,
+                },
+            ],
+        }
+        local = {
+            "P-1": {
+                "pick_verified": True,
+                "pick_barcode": "4600000000000",
+                "pick_verified_at": "2026-01-01T00:00:00Z",
+                "container_id": 10,
+                "container_barcode": "10",
+                "container_synced": True,
+                "container_sync_error": "",
+            },
+            "P-2": {
+                "pick_verified": True,
+                "pick_barcode": "4600000000001",
+                "pick_verified_at": "2026-01-01T00:00:00Z",
+                "container_id": None,
+                "container_barcode": "",
+                "container_synced": False,
+                "container_sync_error": "",
+            },
+        }
+        with (
+            patch(
+                "review_processor.ozon_fbs_pick_verify.oz_sup.get_supply_detail",
+                return_value=detail,
+            ),
+            patch(
+                "review_processor.ozon_fbs_pick_verify.load_posting_pick_map",
+                return_value=local,
+            ),
+        ):
+            out = pick.check_supply_pick_verify_status(
+                MagicMock(), user_id=1, source_id=2, supply_id="S1"
+            )
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(out.get("container_error_count", 0), 0)
+
+    def test_pick_container_sync_error_makes_error_tone(self) -> None:
+        from review_processor import ozon_fbs_pick_verify as pick
+
+        detail = {
+            "supply_id": "S1",
+            "orders": [
+                {
+                    "posting_number": "P-1",
+                    "kiz_required": False,
+                    "cancelled": False,
+                }
+            ],
+        }
+        local = {
+            "P-1": {
+                "pick_verified": True,
+                "pick_barcode": "4600000000000",
+                "pick_verified_at": "2026-01-01T00:00:00Z",
+                "container_id": 10,
+                "container_barcode": "10",
+                "container_synced": False,
+                "container_sync_error": "FILL_FAILED",
+            },
+        }
+        with (
+            patch(
+                "review_processor.ozon_fbs_pick_verify.oz_sup.get_supply_detail",
+                return_value=detail,
+            ),
+            patch(
+                "review_processor.ozon_fbs_pick_verify.load_posting_pick_map",
+                return_value=local,
+            ),
+        ):
+            out = pick.check_supply_pick_verify_status(
+                MagicMock(), user_id=1, source_id=2, supply_id="S1"
+            )
+        self.assertEqual(out["status"], "error")
+        self.assertEqual(out["container_error_count"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
