@@ -10957,7 +10957,35 @@ button.wb-fbs-sd-portal-btn:focus-visible {
 }
 .wb-fbs-kiz-table-wrap {
   flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
+}
+
+/* Ozon FBS «Маркировка»: компактная шапка, больше места под таблицу заказов */
+#ozonFbsKizModal .ozon-fbs-kiz-modal {
+  height: calc(100vh - 24px);
+  max-height: calc(100vh - 24px);
+}
+#ozonFbsKizModal .ozon-fbs-kiz-modal .wb-fbs-kiz-header {
+  padding: 16px 24px 12px;
+}
+#ozonFbsKizModal .ozon-fbs-kiz-modal .wb-fbs-kiz-title {
+  margin-bottom: 0;
+  font-size: 24px;
+}
+#ozonFbsKizModal .ozon-fbs-kiz-modal .wb-fbs-kiz-toolbar {
+  padding: 8px 24px;
+}
+#ozonFbsKizModal .ozon-fbs-kiz-modal .wb-fbs-kiz-scan-bar {
+  padding: 8px 24px;
+}
+#ozonFbsKizModal .ozon-fbs-kiz-modal .ozon-fbs-container-scan-row {
+  margin-top: 0;
+  padding-bottom: 4px;
+}
+#ozonFbsKizModal .ozon-fbs-kiz-modal .wb-fbs-kiz-table th,
+#ozonFbsKizModal .ozon-fbs-kiz-modal .wb-fbs-kiz-table td {
+  padding: 12px 16px;
 }
 .wb-fbs-kiz-table {
   width: 100%;
@@ -11362,6 +11390,10 @@ button.wb-fbs-kiz-add:disabled {
     max-width: 100%;
     height: calc(100vh - 32px);
     max-height: calc(100vh - 32px);
+  }
+  #ozonFbsKizModal .ozon-fbs-kiz-modal {
+    height: calc(100vh - 16px);
+    max-height: calc(100vh - 16px);
   }
   .wb-fbs-kiz-header,
   .wb-fbs-kiz-toolbar,
