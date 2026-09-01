@@ -14077,17 +14077,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         marking_chunk: int | None = None,
         posting_tab: str | None = None,
     ) -> dict[str, object]:
-        """Postings without КИЗ: resolve flags then local EAN pick-check (owner only)."""
+        """Postings without КИЗ: resolve flags then local EAN pick-check."""
         from . import ozon_fbs_pick_verify as oz_pick
 
         user = _require_user(request)
         if not _can_view_ozon_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
-        if not _is_wb_fbs_tenant_owner(user):
-            raise HTTPException(
-                status_code=403,
-                detail="Проверка ШК доступна только главному пользователю",
-            )
         owner_id = _supply_owner_id(user)
         sid = str(supply_id or "").strip()
         if not sid or not source_id:
@@ -14124,11 +14119,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         user = _require_user(request)
         if not _can_view_ozon_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
-        if not _is_wb_fbs_tenant_owner(user):
-            raise HTTPException(
-                status_code=403,
-                detail="Проверка ШК доступна только главному пользователю",
-            )
         owner_id = _supply_owner_id(user)
         sid = str(supply_id or "").strip()
         if not sid or not source_id:
@@ -14151,18 +14141,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         supply_id: str,
         source_id: int,
     ) -> dict[str, object]:
-        """Save local ШК pick-check for Ozon FBS (no Ozon API). Owner only."""
+        """Save local ШК pick-check for Ozon FBS (no Ozon API)."""
         from . import ozon_fbs_pick_verify as oz_pick
         from . import ozon_fbs_supplies as oz_sup
 
         user = _require_user(request)
         if not _can_view_ozon_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
-        if not _is_wb_fbs_tenant_owner(user):
-            raise HTTPException(
-                status_code=403,
-                detail="Проверка ШК доступна только главному пользователю",
-            )
         owner_id = _supply_owner_id(user)
         sid = str(supply_id or "").strip()
         if not sid or not source_id:
