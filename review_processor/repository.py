@@ -13,6 +13,7 @@ from psycopg import rows as psycopg_rows  # type: ignore
 
 from .models import ProcessedReview, ReviewInput
 from .security import decrypt_secret, encrypt_secret, mask_secret
+from . import supply_source_identity as supply_identity
 
 DEFAULT_GROUP_PROCESSORS: dict[str, str] = {
     "positive": "yandex",
@@ -8245,6 +8246,32 @@ class ReviewRepository:
             "ALTER TABLE supply_sources ADD COLUMN IF NOT EXISTS analytics_api_key_encrypted TEXT"
         )
         conn.execute(
+            "ALTER TABLE supply_sources ADD COLUMN IF NOT EXISTS external_account_id TEXT"
+        )
+        conn.execute(
+            "ALTER TABLE supply_sources ADD COLUMN IF NOT EXISTS channel TEXT"
+        )
+        conn.execute(
+            "ALTER TABLE supply_sources ADD COLUMN IF NOT EXISTS deleted_at TEXT"
+        )
+        self._backfill_supply_source_identity(conn)
+        # One active (non-deleted) source per tenant + channel + cabinet.
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_supply_sources_active_cabinet
+            ON supply_sources (user_id, channel, external_account_id)
+            WHERE deleted_at IS NULL
+              AND channel IS NOT NULL
+              AND external_account_id IS NOT NULL
+            """
+        )
+        conn.execute(
+            self._sql(
+                "CREATE INDEX IF NOT EXISTS idx_supply_sources_cabinet "
+                "ON supply_sources(user_id, channel, external_account_id)"
+            )
+        )
+        conn.execute(
             "ALTER TABLE supply_legal_entities ADD COLUMN IF NOT EXISTS signatories TEXT"
         )
         conn.execute(
@@ -10093,10 +10120,129 @@ class ReviewRepository:
 
     # ── Supply Sources CRUD ──
 
+    def _backfill_supply_source_identity(self, conn) -> None:
+        """Fill channel + external_account_id for existing rows; resolve collisions."""
+        try:
+            rows = conn.execute(
+                self._sql(
+                    """
+                    SELECT id, user_id, name, marketplace, client_id,
+                           api_key_encrypted, channel, external_account_id, deleted_at
+                    FROM supply_sources
+                    """
+                )
+            ).fetchall()
+        except Exception:
+            return
+        # First pass: fill missing identity fields.
+        for row in rows:
+            d = self._row_to_dict(row)
+            channel = str(d.get("channel") or "").strip() or None
+            ext = str(d.get("external_account_id") or "").strip() or None
+            if channel and ext:
+                continue
+            mp = d.get("marketplace") or "wb"
+            name = d.get("name")
+            if not channel:
+                channel = supply_identity.resolve_supply_channel(
+                    marketplace=mp, name=name
+                )
+            if not ext:
+                key = decrypt_secret(str(d.get("api_key_encrypted") or "") or None)
+                ext = supply_identity.resolve_external_account_id(
+                    marketplace=mp,
+                    api_key=key or "",
+                    client_id=d.get("client_id") or "",
+                )
+            if channel or ext:
+                conn.execute(
+                    self._sql(
+                        """
+                        UPDATE supply_sources
+                        SET channel = COALESCE(NULLIF(TRIM(COALESCE(channel, '')), ''), ?),
+                            external_account_id = COALESCE(
+                                NULLIF(TRIM(COALESCE(external_account_id, '')), ''), ?
+                            )
+                        WHERE id = ?
+                        """
+                    ),
+                    (channel, ext, int(d["id"])),
+                )
+
+        # Second pass: among active rows, keep one cabinet binding per channel.
+        active = conn.execute(
+            self._sql(
+                """
+                SELECT id, user_id, channel, external_account_id, last_synced_at, created_at
+                FROM supply_sources
+                WHERE deleted_at IS NULL
+                  AND channel IS NOT NULL
+                  AND external_account_id IS NOT NULL
+                ORDER BY user_id ASC, channel ASC, external_account_id ASC,
+                         last_synced_at DESC NULLS LAST, id ASC
+                """
+            )
+        ).fetchall()
+        seen: set[tuple[int, str, str]] = set()
+        for row in active:
+            d = self._row_to_dict(row)
+            key = (int(d["user_id"]), str(d["channel"]), str(d["external_account_id"]))
+            if key in seen:
+                # Drop binding on duplicates so unique index can be created.
+                conn.execute(
+                    self._sql(
+                        """
+                        UPDATE supply_sources
+                        SET external_account_id = NULL
+                        WHERE id = ?
+                        """
+                    ),
+                    (int(d["id"]),),
+                )
+            else:
+                seen.add(key)
+
+    @staticmethod
+    def _supply_source_public_dict(
+        d: dict[str, Any],
+        *,
+        api_key: str | None = None,
+        analytics_key: str | None = None,
+        revived: bool = False,
+    ) -> dict[str, Any]:
+        out = dict(d)
+        out.pop("api_key_encrypted", None)
+        out.pop("analytics_api_key_encrypted", None)
+        out.pop("deleted_at", None)
+        preview_key = api_key
+        if preview_key is None:
+            preview_key = ""
+        out["api_key_preview"] = mask_secret(preview_key) if preview_key else mask_secret(None)
+        out["has_api_key"] = bool(preview_key)
+        if analytics_key is None:
+            analytics_key = ""
+        out["has_analytics_api_key"] = bool(analytics_key)
+        out["analytics_api_key_preview"] = (
+            mask_secret(analytics_key) if analytics_key else ""
+        )
+        out["is_enabled"] = bool(out.get("is_enabled"))
+        identity = supply_identity.public_identity_fields(out)
+        out.update(identity)
+        if revived:
+            out["revived"] = True
+        return out
+
     def list_supply_sources(self, *, user_id: int) -> list[dict[str, Any]]:
         with self._connect() as conn:
+            self._migrate_supply_tables(conn)
             rows = conn.execute(
-                self._sql("SELECT * FROM supply_sources WHERE user_id = ? ORDER BY id ASC"),
+                self._sql(
+                    """
+                    SELECT * FROM supply_sources
+                    WHERE user_id = ? AND deleted_at IS NULL
+                    ORDER BY id ASC
+                    """
+                ),
                 (user_id,),
             ).fetchall()
         result = []
@@ -10104,17 +10250,23 @@ class ReviewRepository:
             d = self._row_to_dict(row)
             encrypted = str(d.pop("api_key_encrypted", "") or "")
             key = decrypt_secret(encrypted) if encrypted else None
-            d["api_key_preview"] = mask_secret(key)
-            d["has_api_key"] = bool(key)
             analytics_enc = str(d.pop("analytics_api_key_encrypted", "") or "")
             analytics_key = decrypt_secret(analytics_enc) if analytics_enc else None
-            d["analytics_api_key_preview"] = mask_secret(analytics_key) if analytics_key else ""
-            d["has_analytics_api_key"] = bool(analytics_key)
-            d["is_enabled"] = bool(d.get("is_enabled"))
-            result.append(d)
+            d["deleted_at"] = None
+            result.append(
+                self._supply_source_public_dict(
+                    d, api_key=key, analytics_key=analytics_key or ""
+                )
+            )
         return result
 
-    def get_supply_source_with_key(self, *, user_id: int, source_id: int) -> dict[str, Any] | None:
+    def get_supply_source_with_key(
+        self,
+        *,
+        user_id: int,
+        source_id: int,
+        include_deleted: bool = False,
+    ) -> dict[str, Any] | None:
         with self._connect() as conn:
             row = conn.execute(
                 self._sql("SELECT * FROM supply_sources WHERE user_id = ? AND id = ?"),
@@ -10123,11 +10275,43 @@ class ReviewRepository:
         if row is None:
             return None
         d = self._row_to_dict(row)
+        if not include_deleted and d.get("deleted_at"):
+            return None
         encrypted = str(d.pop("api_key_encrypted", "") or "")
         d["api_key"] = decrypt_secret(encrypted) if encrypted else None
         analytics_enc = str(d.pop("analytics_api_key_encrypted", "") or "")
         d["analytics_api_key"] = decrypt_secret(analytics_enc) if analytics_enc else None
+        identity = supply_identity.public_identity_fields(d)
+        d.update(identity)
         return d
+
+    def find_supply_source_by_cabinet(
+        self,
+        *,
+        user_id: int,
+        channel: str,
+        external_account_id: str,
+        include_deleted: bool = True,
+    ) -> dict[str, Any] | None:
+        ext = str(external_account_id or "").strip()
+        ch = str(channel or "").strip()
+        if not ext or not ch:
+            return None
+        sql = """
+            SELECT * FROM supply_sources
+            WHERE user_id = ? AND channel = ? AND external_account_id = ?
+        """
+        if not include_deleted:
+            sql += " AND deleted_at IS NULL"
+        sql += " ORDER BY CASE WHEN deleted_at IS NULL THEN 0 ELSE 1 END, id ASC LIMIT 1"
+        with self._connect() as conn:
+            row = conn.execute(
+                self._sql(sql),
+                (user_id, ch, ext),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_dict(row)
 
     def create_supply_source(
         self,
@@ -10141,28 +10325,122 @@ class ReviewRepository:
     ) -> dict[str, Any]:
         now = _utc_now()
         mp = marketplace.strip().lower() if marketplace else "wb"
-        analytics_enc = (
-            encrypt_secret(str(analytics_api_key or "").strip())
-            if str(analytics_api_key or "").strip()
-            else None
+        clean_name = name.strip()
+        clean_key = api_key.strip()
+        clean_client = supply_identity.normalize_client_id(client_id)
+        clean_analytics = str(analytics_api_key or "").strip()
+        channel = supply_identity.resolve_supply_channel(
+            marketplace=mp, name=clean_name
         )
+        external_account_id = supply_identity.resolve_external_account_id(
+            marketplace=mp,
+            api_key=clean_key,
+            client_id=clean_client,
+        )
+        if mp.startswith("ozon") and not external_account_id:
+            raise ValueError("Для Ozon укажите Client-ID кабинета")
+        if mp in ("wb", "wildberries") and not external_account_id:
+            raise ValueError(
+                "Не удалось определить ID кабинета WB из токена (поле uid). "
+                "Проверьте, что вставлен актуальный токен продавца."
+            )
+
+        analytics_enc = encrypt_secret(clean_analytics) if clean_analytics else None
+        api_enc = encrypt_secret(clean_key)
+
         with self._connect() as conn:
+            self._migrate_supply_tables(conn)
+            existing = None
+            if channel and external_account_id:
+                existing = conn.execute(
+                    self._sql(
+                        """
+                        SELECT * FROM supply_sources
+                        WHERE user_id = ? AND channel = ? AND external_account_id = ?
+                        ORDER BY CASE WHEN deleted_at IS NULL THEN 0 ELSE 1 END, id ASC
+                        LIMIT 1
+                        """
+                    ),
+                    (user_id, channel, external_account_id),
+                ).fetchone()
+
+            if existing is not None:
+                ed = self._row_to_dict(existing)
+                source_id = int(ed["id"])
+                was_deleted = bool(ed.get("deleted_at"))
+                if not was_deleted and bool(ed.get("is_enabled")):
+                    label = supply_identity.channel_label(channel)
+                    raise ValueError(
+                        f"Кабинет уже подключён ({label}, id {external_account_id}). "
+                        "Чтобы сменить токен — откройте «Ключ» у существующего источника."
+                    )
+                # Revive soft-deleted / disabled source — keep the same id and data.
+                conn.execute(
+                    self._sql(
+                        """
+                        UPDATE supply_sources
+                        SET name = ?,
+                            api_key_encrypted = ?,
+                            marketplace = ?,
+                            client_id = ?,
+                            analytics_api_key_encrypted = COALESCE(?, analytics_api_key_encrypted),
+                            channel = ?,
+                            external_account_id = ?,
+                            is_enabled = 1,
+                            deleted_at = NULL
+                        WHERE user_id = ? AND id = ?
+                        """
+                    ),
+                    (
+                        clean_name,
+                        api_enc,
+                        mp,
+                        clean_client or None,
+                        analytics_enc,
+                        channel,
+                        external_account_id,
+                        user_id,
+                        source_id,
+                    ),
+                )
+                row = conn.execute(
+                    self._sql("SELECT * FROM supply_sources WHERE id = ?"),
+                    (source_id,),
+                ).fetchone()
+                d = self._row_to_dict(row) if row else {"id": source_id}
+                # Prefer newly provided analytics for preview when set.
+                analytics_preview = clean_analytics
+                if not analytics_preview:
+                    prev = decrypt_secret(
+                        str(ed.get("analytics_api_key_encrypted") or "") or None
+                    )
+                    analytics_preview = prev or ""
+                return self._supply_source_public_dict(
+                    d,
+                    api_key=clean_key,
+                    analytics_key=analytics_preview,
+                    revived=True,
+                )
+
             source_id = self._insert_and_get_id(
                 conn,
                 """
                 INSERT INTO supply_sources (
                     user_id, name, api_key_encrypted, marketplace, client_id,
-                    analytics_api_key_encrypted, is_enabled, created_at
+                    analytics_api_key_encrypted, channel, external_account_id,
+                    is_enabled, created_at, deleted_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, NULL)
                 """,
                 (
                     user_id,
-                    name.strip(),
-                    encrypt_secret(api_key.strip()),
+                    clean_name,
+                    api_enc,
                     mp,
-                    client_id.strip() or None,
+                    clean_client or None,
                     analytics_enc,
+                    channel,
+                    external_account_id,
                     now,
                 ),
             )
@@ -10171,14 +10449,9 @@ class ReviewRepository:
                 (source_id,),
             ).fetchone()
         d = self._row_to_dict(row) if row else {"id": source_id}
-        d.pop("api_key_encrypted", None)
-        d.pop("analytics_api_key_encrypted", None)
-        d["api_key_preview"] = mask_secret(api_key.strip())
-        d["has_api_key"] = True
-        clean_analytics = str(analytics_api_key or "").strip()
-        d["has_analytics_api_key"] = bool(clean_analytics)
-        d["analytics_api_key_preview"] = mask_secret(clean_analytics) if clean_analytics else ""
-        return d
+        return self._supply_source_public_dict(
+            d, api_key=clean_key, analytics_key=clean_analytics, revived=False
+        )
 
     def update_supply_source_analytics_key(
         self,
@@ -10198,7 +10471,7 @@ class ReviewRepository:
                     """
                     UPDATE supply_sources
                     SET analytics_api_key_encrypted = ?
-                    WHERE user_id = ? AND id = ?
+                    WHERE user_id = ? AND id = ? AND deleted_at IS NULL
                     """
                 ),
                 (encrypted, user_id, source_id),
@@ -10217,67 +10490,123 @@ class ReviewRepository:
         clean = str(api_key or "").strip()
         if not clean:
             raise ValueError("API-ключ не может быть пустым")
-        sets = ["api_key_encrypted = ?"]
-        params: list[Any] = [encrypt_secret(clean)]
-        if analytics_api_key is not None:
-            analytics_clean = str(analytics_api_key or "").strip()
-            sets.append("analytics_api_key_encrypted = ?")
-            params.append(encrypt_secret(analytics_clean) if analytics_clean else None)
-        params.extend([user_id, source_id])
         with self._connect() as conn:
+            self._migrate_supply_tables(conn)
+            row = conn.execute(
+                self._sql(
+                    """
+                    SELECT * FROM supply_sources
+                    WHERE user_id = ? AND id = ? AND deleted_at IS NULL
+                    """
+                ),
+                (user_id, source_id),
+            ).fetchone()
+            if row is None:
+                return None
+            current = self._row_to_dict(row)
+            mp = str(current.get("marketplace") or "wb").strip().lower()
+            channel = str(current.get("channel") or "").strip() or None
+            if not channel:
+                channel = supply_identity.resolve_supply_channel(
+                    marketplace=mp, name=current.get("name")
+                )
+            client_id = supply_identity.normalize_client_id(current.get("client_id"))
+            new_ext = supply_identity.resolve_external_account_id(
+                marketplace=mp,
+                api_key=clean,
+                client_id=client_id,
+            )
+            if mp.startswith("ozon") and not new_ext:
+                raise ValueError("У источника не задан Client-ID кабинета")
+            if mp in ("wb", "wildberries") and not new_ext:
+                raise ValueError(
+                    "Не удалось определить ID кабинета WB из нового токена (поле uid)."
+                )
+            old_ext = str(current.get("external_account_id") or "").strip() or None
+            if new_ext and channel and new_ext != old_ext:
+                clash = conn.execute(
+                    self._sql(
+                        """
+                        SELECT id FROM supply_sources
+                        WHERE user_id = ? AND channel = ? AND external_account_id = ?
+                          AND deleted_at IS NULL AND id <> ?
+                        LIMIT 1
+                        """
+                    ),
+                    (user_id, channel, new_ext, source_id),
+                ).fetchone()
+                if clash is not None:
+                    raise ValueError(
+                        f"Токен принадлежит другому уже подключённому кабинету "
+                        f"({supply_identity.channel_label(channel)}, id {new_ext})."
+                    )
+
+            sets = ["api_key_encrypted = ?", "channel = ?", "external_account_id = ?"]
+            params: list[Any] = [encrypt_secret(clean), channel, new_ext]
+            if analytics_api_key is not None:
+                analytics_clean = str(analytics_api_key or "").strip()
+                sets.append("analytics_api_key_encrypted = ?")
+                params.append(encrypt_secret(analytics_clean) if analytics_clean else None)
+            params.extend([user_id, source_id])
             result = conn.execute(
                 self._sql(
                     f"""
                     UPDATE supply_sources
                     SET {", ".join(sets)}
-                    WHERE user_id = ? AND id = ?
+                    WHERE user_id = ? AND id = ? AND deleted_at IS NULL
                     """
                 ),
                 tuple(params),
             )
             if not result.rowcount:
                 return None
-            row = conn.execute(
+            row2 = conn.execute(
                 self._sql("SELECT * FROM supply_sources WHERE user_id = ? AND id = ?"),
                 (user_id, source_id),
             ).fetchone()
-        if row is None:
+        if row2 is None:
             return None
-        d = self._row_to_dict(row)
-        d.pop("api_key_encrypted", None)
-        d.pop("analytics_api_key_encrypted", None)
-        d["api_key_preview"] = mask_secret(clean)
-        d["has_api_key"] = True
+        d = self._row_to_dict(row2)
+        analytics_preview = ""
         if analytics_api_key is not None:
-            analytics_clean = str(analytics_api_key or "").strip()
-            d["has_analytics_api_key"] = bool(analytics_clean)
-            d["analytics_api_key_preview"] = (
-                mask_secret(analytics_clean) if analytics_clean else ""
-            )
+            analytics_preview = str(analytics_api_key or "").strip()
         else:
-            # Keep flags consistent with list_supply_sources shape when analytics untouched.
-            full = self.get_supply_source_with_key(user_id=user_id, source_id=source_id) or {}
-            analytics_existing = str(full.get("analytics_api_key") or "").strip()
-            d["has_analytics_api_key"] = bool(analytics_existing)
-            d["analytics_api_key_preview"] = (
-                mask_secret(analytics_existing) if analytics_existing else ""
+            analytics_preview = (
+                decrypt_secret(str(d.get("analytics_api_key_encrypted") or "") or None)
+                or ""
             )
-        d["is_enabled"] = bool(d.get("is_enabled"))
-        return d
+        return self._supply_source_public_dict(
+            d, api_key=clean, analytics_key=analytics_preview
+        )
 
     def toggle_supply_source(self, *, user_id: int, source_id: int, is_enabled: bool) -> bool:
         with self._connect() as conn:
             result = conn.execute(
-                self._sql("UPDATE supply_sources SET is_enabled = ? WHERE user_id = ? AND id = ?"),
+                self._sql(
+                    """
+                    UPDATE supply_sources
+                    SET is_enabled = ?
+                    WHERE user_id = ? AND id = ? AND deleted_at IS NULL
+                    """
+                ),
                 (1 if is_enabled else 0, user_id, source_id),
             )
         return bool(result.rowcount)
 
     def delete_supply_source(self, *, user_id: int, source_id: int) -> bool:
+        """Soft-delete: hide source but keep id and all linked supply/FBS data."""
+        now = _utc_now()
         with self._connect() as conn:
+            self._migrate_supply_tables(conn)
             result = conn.execute(
-                self._sql("DELETE FROM supply_sources WHERE user_id = ? AND id = ?"),
-                (user_id, source_id),
+                self._sql(
+                    """
+                    UPDATE supply_sources
+                    SET deleted_at = ?, is_enabled = 0
+                    WHERE user_id = ? AND id = ? AND deleted_at IS NULL
+                    """
+                ),
+                (now, user_id, source_id),
             )
         return bool(result.rowcount)
 

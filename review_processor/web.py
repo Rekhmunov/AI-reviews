@@ -8576,6 +8576,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 client_id=payload.client_id,
                 analytics_api_key=payload.analytics_api_key.strip(),
             )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:
             _log.error("create_supply_source error: %s", exc, exc_info=True)
             raise HTTPException(status_code=500, detail=f"Ошибка сервера: {exc}")
@@ -8646,7 +8648,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         ok = repository.delete_supply_source(user_id=int(user["id"]), source_id=source_id)
         if not ok:
             raise HTTPException(status_code=404, detail="Источник не найден")
-        return {"ok": True}
+        return {
+            "ok": True,
+            "soft_deleted": True,
+            "detail": (
+                "Источник скрыт. Данные сохранены и восстановятся "
+                "при повторном добавлении того же кабинета."
+            ),
+        }
 
     @app.get("/api/supplies")
     def list_supplies(

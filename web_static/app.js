@@ -2254,10 +2254,14 @@ function renderSupplySourcesTable() {
     const mpLabel = (mpRaw === "ozon" || mpRaw === "ozon_fbs")
       ? '<span style="color:#005bff;font-weight:600">ОЗОН</span>'
       : '<span style="color:#8b4513;font-weight:600">ВБ</span>';
+    const cabinetLabel = String(src.cabinet_label || src.external_account_id || "").trim();
+    const nameCell = cabinetLabel
+      ? `<div>${esc(src.name || "")}</div><div class="supply-src-cabinet-id" title="${esc(cabinetLabel)}">${esc(cabinetLabel)}</div>`
+      : esc(src.name || "");
     tr.innerHTML = `
       <td>${idx + 1}</td>
       <td>${mpLabel}</td>
-      <td>${esc(src.name || "")}</td>
+      <td>${nameCell}</td>
       <td class="supply-src-key-cell">
         <span class="supply-src-key-text" title="${esc(fullPreview)}">${esc(shortPreview)}</span>
       </td>
@@ -2385,9 +2389,21 @@ async function createSupplySource() {
     if (info) { info.textContent = msg; info.style.color = "#b91c1c"; }
     return;
   }
-  if (info) { info.textContent = "Сохранено"; info.style.color = "#16a34a"; }
+  const created = await res.json().catch(() => ({}));
+  const revived = Boolean(created?.revived);
+  if (info) {
+    info.textContent = revived
+      ? "Источник восстановлен (данные кабинета сохранены)"
+      : "Сохранено";
+    info.style.color = "#16a34a";
+  }
   toggleAddSupplySourceForm(false);
   await loadSupplySources();
+  const sourcesInfo = document.getElementById("supplySourcesInfo");
+  if (sourcesInfo && revived) {
+    sourcesInfo.textContent = "Кабинет уже был в системе — источник восстановлен с прежним id, данные на месте.";
+    sourcesInfo.style.color = "#16a34a";
+  }
 }
 
 async function toggleSupplySource(sourceId, isEnabled) {
@@ -2400,7 +2416,12 @@ async function toggleSupplySource(sourceId, isEnabled) {
 }
 
 async function deleteSupplySource(sourceId) {
-  if (!confirm("Удалить источник? Все данные о поставках из него будут удалены.\n\nЕсли нужно только сменить токен — используйте «Ключ», данные сохранятся.")) return;
+  if (!confirm(
+    "Удалить источник из списка?\n\n"
+    + "Данные поставок и FBS сохранятся. При повторном добавлении того же кабинета "
+    + "(WB uid / Ozon Client-Id) источник восстановится.\n\n"
+    + "Если нужно только сменить токен — используйте «Ключ»."
+  )) return;
   await fetch(`/api/supply-sources/${sourceId}`, { method: "DELETE", headers: jsonHeaders() }).catch(() => null);
   await loadSupplySources();
 }
