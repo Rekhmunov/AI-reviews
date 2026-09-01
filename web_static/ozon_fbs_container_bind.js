@@ -331,14 +331,16 @@
       return `<div class="ozon-fbs-container-cell is-empty" title="ШК грузоместа не указан">—</div>`;
     }
     return `<div class="ozon-fbs-container-cell${err ? " is-error" : ""}">
-      <input type="text" class="ozon-fbs-container-input${err ? " is-error" : ""}"
-             data-posting="${safePn}" data-mode="${modeAttr}"
-             value="${esc(barcode)}"
-             title="${err ? esc(err) : "ШК грузоместа"}"
-             onkeydown="onOzonFbsContainerCellKey(event, '${safePn}', '${modeAttr}')" />
-      <button type="button" class="ozon-fbs-container-clear" title="Снять грузоместо"
-              aria-label="Снять грузоместо"
-              onclick="clearOzonFbsContainerBind('${safePn}', '${modeAttr}')">×</button>
+      <div class="ozon-fbs-container-input-wrap">
+        <input type="text" class="ozon-fbs-container-input${err ? " is-error" : ""}"
+               data-posting="${safePn}" data-mode="${modeAttr}"
+               value="${esc(barcode)}"
+               title="${err ? esc(err) : "ШК грузоместа"}"
+               onkeydown="onOzonFbsContainerCellKey(event, '${safePn}', '${modeAttr}')" />
+        <button type="button" class="ozon-fbs-container-clear" title="Снять грузоместо"
+                aria-label="Снять грузоместо"
+                onclick="clearOzonFbsContainerBind('${safePn}', '${modeAttr}')">×</button>
+      </div>
       ${err ? `<div class="ozon-fbs-container-err">${esc(err)}</div>` : ""}
     </div>`;
   }

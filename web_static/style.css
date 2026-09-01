@@ -14423,10 +14423,10 @@ button.wb-fbs-kiz-add:disabled {
   flex-direction: column;
   gap: 4px;
 }
-.ozon-fbs-container-cell {
+.ozon-fbs-container-input-wrap {
   position: relative;
 }
-.ozon-fbs-container-cell .ozon-fbs-container-input {
+.ozon-fbs-container-input-wrap .ozon-fbs-container-input {
   width: 100%;
   min-height: 36px;
   padding: 6px 28px 6px 8px;
@@ -14437,19 +14437,20 @@ button.wb-fbs-kiz-add:disabled {
   background: #fff;
   color: #0f172a;
 }
-.ozon-fbs-container-cell .ozon-fbs-container-input:focus {
+.ozon-fbs-container-input-wrap .ozon-fbs-container-input:focus {
   outline: 2px solid #0f766e;
   outline-offset: 1px;
   border-color: #0f766e;
 }
-.ozon-fbs-container-cell .ozon-fbs-container-input.is-error {
+.ozon-fbs-container-input-wrap .ozon-fbs-container-input.is-error {
   border-color: #f87171;
   background: #fef2f2;
 }
-.ozon-fbs-container-clear {
+.ozon-fbs-container-input-wrap .ozon-fbs-container-clear {
   position: absolute;
-  top: 6px;
-  right: 6px;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
   width: 24px;
   height: 24px;
   border: none;
@@ -14459,8 +14460,9 @@ button.wb-fbs-kiz-add:disabled {
   cursor: pointer;
   font-size: 16px;
   line-height: 1;
+  padding: 0;
 }
-.ozon-fbs-container-clear:hover {
+.ozon-fbs-container-input-wrap .ozon-fbs-container-clear:hover {
   background: #f1f5f9;
   color: #0f172a;
 }

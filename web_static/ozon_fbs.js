@@ -7067,8 +7067,7 @@
     if (!btn && !split) return;
     const list = Array.isArray(orders) ? orders : [];
     const hasPlain = list.some((o) => o && !o.kiz_required && !_ozonFbsRowIsCancelled(o));
-    const can = typeof isTenantOwner === "function" && isTenantOwner()
-      && _ozonFbsSupplyActionsReady() && hasPlain;
+    const can = _ozonFbsSupplyActionsReady() && hasPlain;
     if (split) {
       split.hidden = !can;
       split.style.display = can ? "" : "none";
@@ -9292,10 +9291,6 @@
   }
 
   async function openOzonFbsPickVerifyModal() {
-    if (typeof isTenantOwner === "function" && !isTenantOwner()) {
-      alert("Проверка ШК доступна только главному пользователю");
-      return;
-    }
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
     if (!sid || !sourceId || !_ozonFbsSupplyActionsReady()) return;
