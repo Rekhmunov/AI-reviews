@@ -2290,7 +2290,7 @@ function renderSupplySourcesTable() {
       <td class="small" style="color:#64748b">${lastSync}</td>
       <td>
         <div class="row supply-src-actions">
-          <button class="secondary small-btn" onclick="openEditSupplySourceKeyModal(${src.id})" title="Обновить API-ключ">Ключ</button>
+          <button class="secondary small-btn" onclick="openEditSupplySourceKeyModal(${src.id})" title="Редактировать название, ID и ключ">Изменить</button>
           <button class="secondary small-btn" onclick="toggleSupplySource(${src.id}, ${!src.is_enabled})">${src.is_enabled ? "Отключить" : "Включить"}</button>
           <button class="secondary small-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deleteSupplySource(${src.id})">Удалить</button>
         </div>
@@ -2300,10 +2300,11 @@ function renderSupplySourcesTable() {
   });
 }
 
+
 function openEditSupplySourceKeyModal(sourceId) {
   const modal = document.getElementById("editSupplySourceKeyModal");
   const idEl = document.getElementById("editSupplySourceKeyId");
-  const nameEl = document.getElementById("editSupplySourceKeyName");
+  const nameInput = document.getElementById("editSupplySourceNameInput");
   const previewEl = document.getElementById("editSupplySourceKeyPreview");
   const keyEl = document.getElementById("editSupplySourceApiKey");
   const cabinetEl = document.getElementById("editSupplySourceCabinetId");
@@ -2312,7 +2313,7 @@ function openEditSupplySourceKeyModal(sourceId) {
   if (!modal || !idEl || !keyEl) return;
   const src = (suppliesState.sources || []).find((s) => Number(s.id) === Number(sourceId));
   idEl.value = String(sourceId);
-  if (nameEl) nameEl.textContent = src?.name || `Источник #${sourceId}`;
+  if (nameInput) nameInput.value = src?.name || "";
   if (previewEl) {
     const preview = src?.api_key_preview || "—";
     previewEl.textContent = preview.length > 12
@@ -2329,14 +2330,14 @@ function openEditSupplySourceKeyModal(sourceId) {
   }
   if (cabinetHint) {
     cabinetHint.textContent = isOzon
-      ? "Client-Id нужен для API Ozon."
-      : "ID кабинета на подключение не влияет — нужен для привязки данных при удалении/повторном добавлении.";
+      ? "Client-Id для API Ozon. Можно исправить — заказы FBS останутся на этом источнике."
+      : "ID кабинета на API не влияет. Можно исправить — данные поставок/FBS не собьются.";
   }
   keyEl.value = "";
   if (info) { info.textContent = ""; info.style.color = ""; }
   modal.classList.remove("hidden");
   modal.setAttribute("aria-hidden", "false");
-  keyEl.focus();
+  (nameInput || keyEl).focus();
 }
 
 function closeEditSupplySourceKeyModal() {
@@ -2348,39 +2349,36 @@ function closeEditSupplySourceKeyModal() {
   if (keyEl) keyEl.value = "";
   const cabinetEl = document.getElementById("editSupplySourceCabinetId");
   if (cabinetEl) cabinetEl.value = "";
+  const nameInput = document.getElementById("editSupplySourceNameInput");
+  if (nameInput) nameInput.value = "";
 }
 
 async function saveEditSupplySourceKey() {
   const idEl = document.getElementById("editSupplySourceKeyId");
+  const nameInput = document.getElementById("editSupplySourceNameInput");
   const keyEl = document.getElementById("editSupplySourceApiKey");
   const cabinetEl = document.getElementById("editSupplySourceCabinetId");
   const info = document.getElementById("editSupplySourceKeyInfo");
   const sourceId = Number(idEl?.value || 0);
+  const name = (nameInput?.value || "").trim();
   const api_key = (keyEl?.value || "").trim();
   const client_id = (cabinetEl?.value || "").trim();
-  const src = (suppliesState.sources || []).find((s) => Number(s.id) === Number(sourceId));
-  const mpRaw = String(src?.marketplace || "wb").toLowerCase();
-  const isOzon = mpRaw === "ozon" || mpRaw === "ozon_fbs";
   if (!sourceId) {
     if (info) { info.textContent = "Источник не выбран"; info.style.color = "#b91c1c"; }
     return;
   }
-  if (!api_key) {
-    if (info) { info.textContent = "Введите новый API-ключ"; info.style.color = "#b91c1c"; }
-    return;
-  }
-  if (!client_id) {
-    if (info) {
-      info.textContent = isOzon ? "Введите Client-ID" : "Введите ID кабинета";
-      info.style.color = "#b91c1c";
-    }
+  if (!name) {
+    if (info) { info.textContent = "Введите название"; info.style.color = "#b91c1c"; }
     return;
   }
   if (info) { info.textContent = "Сохранение..."; info.style.color = ""; }
+  const body = { name, client_id };
+  // Empty api_key = keep current token.
+  if (api_key) body.api_key = api_key;
   const res = await fetch(`/api/supply-sources/${sourceId}/api-key`, {
     method: "PATCH",
     headers: jsonHeaders(),
-    body: JSON.stringify({ api_key, client_id }),
+    body: JSON.stringify(body),
   }).catch(() => null);
   if (!res) {
     if (info) { info.textContent = "Ошибка сети"; info.style.color = "#b91c1c"; }
@@ -2399,7 +2397,7 @@ async function saveEditSupplySourceKey() {
     if (info) { info.textContent = msg; info.style.color = "#b91c1c"; }
     return;
   }
-  if (info) { info.textContent = "Ключ обновлён"; info.style.color = "#16a34a"; }
+  if (info) { info.textContent = "Сохранено"; info.style.color = "#16a34a"; }
   await loadSupplySources();
   closeEditSupplySourceKeyModal();
 }

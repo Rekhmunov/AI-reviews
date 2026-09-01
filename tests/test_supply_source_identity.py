@@ -132,3 +132,14 @@ def test_public_identity_fields_include_fulfillment() -> None:
     assert oz["external_account_id"] == "555"
     assert oz["channel"] == ident.CHANNEL_OZON_FBO
     assert oz["fulfillment"] == "fbo"
+
+
+def test_source_is_fbs_follows_renamed_title() -> None:
+    """Editing the name to include/remove ФБС must flip FBS detection."""
+    assert not ident.source_is_fbs({"marketplace": "wb", "name": "Основной", "channel": "wb_fbo"})
+    assert ident.source_is_fbs({"marketplace": "wb", "name": "Основной ФБС", "channel": "wb_fbo"})
+    # Channel from name after edit.
+    assert (
+        ident.resolve_supply_channel(marketplace="wb", name="Основной ФБС")
+        == ident.CHANNEL_WB_FBS
+    )

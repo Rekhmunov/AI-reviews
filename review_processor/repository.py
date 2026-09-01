@@ -10598,19 +10598,34 @@ class ReviewRepository:
             )
         return bool(result.rowcount)
 
-    def update_supply_source_api_key(
+    def update_supply_source(
         self,
         *,
         user_id: int,
         source_id: int,
-        api_key: str,
+        name: str | None = None,
+        api_key: str | None = None,
         analytics_api_key: str | None = None,
         client_id: str | None = None,
     ) -> dict[str, Any] | None:
-        """Replace marketplace API key (and optionally cabinet id / analytics) without wiping data."""
-        clean = str(api_key or "").strip()
-        if not clean:
-            raise ValueError("API-ключ не может быть пустым")
+        """Update name / cabinet id / API key without wiping linked supply/FBS data.
+
+        All local data stays keyed by ``source_id``. Changing ``client_id`` /
+        ``external_account_id`` only updates revive-binding metadata — orders and
+        supplies are not moved or re-saved.
+        """
+        clean_key = str(api_key or "").strip() if api_key is not None else ""
+        clean_name = str(name or "").strip() if name is not None else None
+        if name is not None and not clean_name:
+            raise ValueError("Название не может быть пустым")
+        if (
+            name is None
+            and api_key is None
+            and client_id is None
+            and analytics_api_key is None
+        ):
+            raise ValueError("Нечего обновлять")
+
         with self._connect() as conn:
             self._migrate_supply_tables(conn)
             row = conn.execute(
@@ -10626,27 +10641,43 @@ class ReviewRepository:
                 return None
             current = self._row_to_dict(row)
             mp = str(current.get("marketplace") or "wb").strip().lower()
-            channel = str(current.get("channel") or "").strip() or None
-            if not channel:
-                channel = supply_identity.resolve_supply_channel(
-                    marketplace=mp, name=current.get("name")
+
+            # Keep existing key when the form leaves the field blank.
+            if clean_key:
+                effective_key = clean_key
+                key_encrypted = encrypt_secret(clean_key)
+            else:
+                effective_key = (
+                    decrypt_secret(str(current.get("api_key_encrypted") or "") or None)
+                    or ""
                 )
-            # Cabinet id: explicit patch value, else keep stored client_id.
+                key_encrypted = current.get("api_key_encrypted")
+
+            next_name = clean_name if clean_name is not None else str(current.get("name") or "")
+            # Channel always follows the name marker (ФБС/FBS).
+            channel = supply_identity.resolve_supply_channel(
+                marketplace=mp, name=next_name
+            ) or (str(current.get("channel") or "").strip() or None)
+
             if client_id is not None:
                 stored_client = supply_identity.normalize_client_id(client_id)
             else:
                 stored_client = supply_identity.normalize_client_id(current.get("client_id"))
+
             new_ext = supply_identity.resolve_external_account_id(
                 marketplace=mp,
-                api_key=clean,
+                api_key=effective_key,
                 client_id=stored_client,
             )
-            # Prefer keeping the previously bound cabinet id if still present and
-            # no explicit client_id was sent (avoid accidental JWT rematch).
             old_ext = str(current.get("external_account_id") or "").strip() or None
+            # If cabinet id was not edited and still empty, keep prior binding
+            # (avoid accidental JWT rematch overwriting a manual id).
             if client_id is None and old_ext and not stored_client:
                 new_ext = old_ext
-            # Cabinet id may stay empty — sources remain usable; id can be filled later.
+            # Explicit empty client_id clears the binding.
+            if client_id is not None and not stored_client:
+                new_ext = None
+
             if new_ext and channel and new_ext != old_ext:
                 clash = conn.execute(
                     self._sql(
@@ -10666,17 +10697,20 @@ class ReviewRepository:
                     )
 
             sets = [
-                "api_key_encrypted = ?",
+                "name = ?",
                 "channel = ?",
                 "external_account_id = ?",
                 "client_id = ?",
             ]
             params: list[Any] = [
-                encrypt_secret(clean),
+                next_name,
                 channel,
                 new_ext,
                 stored_client or None,
             ]
+            if clean_key:
+                sets.append("api_key_encrypted = ?")
+                params.append(key_encrypted)
             if analytics_api_key is not None:
                 analytics_clean = str(analytics_api_key or "").strip()
                 sets.append("analytics_api_key_encrypted = ?")
@@ -10710,7 +10744,25 @@ class ReviewRepository:
                 or ""
             )
         return self._supply_source_public_dict(
-            d, api_key=clean, analytics_key=analytics_preview
+            d, api_key=effective_key, analytics_key=analytics_preview
+        )
+
+    def update_supply_source_api_key(
+        self,
+        *,
+        user_id: int,
+        source_id: int,
+        api_key: str,
+        analytics_api_key: str | None = None,
+        client_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Backward-compatible wrapper around :meth:`update_supply_source`."""
+        return self.update_supply_source(
+            user_id=user_id,
+            source_id=source_id,
+            api_key=api_key,
+            analytics_api_key=analytics_api_key,
+            client_id=client_id,
         )
 
     def toggle_supply_source(self, *, user_id: int, source_id: int, is_enabled: bool) -> bool:

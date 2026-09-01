@@ -504,9 +504,12 @@ class UpdateSupplySourceAnalyticsKeyRequest(BaseModel):
 
 
 class UpdateSupplySourceApiKeyRequest(BaseModel):
-    api_key: str
+    """Edit source fields. Empty api_key keeps the current token."""
+
+    name: str | None = None
+    api_key: str | None = None
     analytics_api_key: str | None = None
-    # Ozon Client-Id / WB cabinet id (metadata for WB; required for Ozon API).
+    # Ozon Client-Id / WB cabinet id (metadata for WB; used for soft-delete revive).
     client_id: str | None = None
 
 
@@ -8627,19 +8630,21 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         source_id: int,
         payload: UpdateSupplySourceApiKeyRequest,
     ) -> dict[str, object]:
-        """Replace source API key without deleting local supply/FBS data."""
+        """Update source name / cabinet id / API key without wiping local supply/FBS data.
+
+        Linked orders and supplies stay on the same ``source_id``. Changing cabinet id
+        only updates the revive-binding metadata — nothing is re-keyed or moved.
+        """
         user = _require_user(request)
         if str(user.get("role") or "") not in ROLE_CAN_ACCESS_SETTINGS:
             raise HTTPException(status_code=403, detail="Нет доступа")
-        clean = str(payload.api_key or "").strip()
-        if not clean:
-            raise HTTPException(status_code=400, detail="API-ключ не может быть пустым")
         repository._ensure_supply_tables()
         try:
-            updated = repository.update_supply_source_api_key(
+            updated = repository.update_supply_source(
                 user_id=int(user["id"]),
                 source_id=int(source_id),
-                api_key=clean,
+                name=payload.name,
+                api_key=payload.api_key,
                 analytics_api_key=payload.analytics_api_key,
                 client_id=payload.client_id,
             )

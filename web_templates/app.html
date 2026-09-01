@@ -4682,23 +4682,32 @@
              aria-hidden="true" onclick="if(event.target===this)closeEditSupplySourceKeyModal()">
           <div class="modal-card" style="max-width:480px">
             <div class="row row-between">
-              <h4 class="no-margin">Обновить API-ключ</h4>
+              <h4 class="no-margin">Редактировать источник</h4>
               <button type="button" class="secondary" onclick="closeEditSupplySourceKeyModal()">✕</button>
             </div>
-            <p class="small" style="margin:12px 0 4px;color:#64748b">Источник: <strong id="editSupplySourceKeyName">—</strong></p>
-            <p class="small" style="margin:0 0 12px;color:#64748b">Текущий ключ: <code id="editSupplySourceKeyPreview">—</code></p>
             <input type="hidden" id="editSupplySourceKeyId" value="" />
+            <label class="small" style="display:block;margin:12px 0 4px;color:#64748b" for="editSupplySourceNameInput">Название</label>
             <div class="row" style="margin-bottom:12px">
+              <input id="editSupplySourceNameInput" type="text" placeholder="Название источника" autocomplete="off" style="width:100%" />
+            </div>
+            <p class="small" style="margin:0 0 12px;color:#64748b">Для FBS добавьте «ФБС» в название — по нему определяется тип.</p>
+            <label class="small" style="display:block;margin:0 0 4px;color:#64748b" for="editSupplySourceCabinetId">ID кабинета</label>
+            <div class="row" style="margin-bottom:8px">
               <input id="editSupplySourceCabinetId" type="text" placeholder="ID кабинета" autocomplete="off" style="width:100%" />
             </div>
             <p id="editSupplySourceCabinetHint" class="small" style="margin:0 0 12px;color:#64748b"></p>
+            <label class="small" style="display:block;margin:0 0 4px;color:#64748b" for="editSupplySourceApiKey">API-ключ</label>
+            <p class="small" style="margin:0 0 4px;color:#64748b">Текущий: <code id="editSupplySourceKeyPreview">—</code></p>
             <div class="row" style="margin-bottom:12px">
               <textarea id="editSupplySourceApiKey" class="textarea-compact" rows="3"
-                placeholder="Новый API-ключ / токен" autocomplete="off" style="width:100%"></textarea>
+                placeholder="Новый API-ключ (оставьте пустым, чтобы не менять)" autocomplete="off" style="width:100%"></textarea>
             </div>
-            <p class="small" style="margin:0 0 12px;color:#64748b">Данные поставок и FBS не удаляются — меняется ключ и при необходимости ID кабинета.</p>
+            <p class="small" style="margin:0 0 12px;color:#64748b">
+              Данные поставок и FBS привязаны к источнику (внутренний id), а не к ID кабинета —
+              смена названия, ID или ключа их не сбрасывает.
+            </p>
             <div class="row" style="gap:8px;align-items:center">
-              <button type="button" onclick="saveEditSupplySourceKey()">Сохранить ключ</button>
+              <button type="button" onclick="saveEditSupplySourceKey()">Сохранить</button>
               <button type="button" class="secondary" onclick="closeEditSupplySourceKeyModal()">Отмена</button>
               <span id="editSupplySourceKeyInfo" class="small"></span>
             </div>
