@@ -7168,7 +7168,9 @@
   function _ozonFbsModalRowMenuItemsHtml(row, mode) {
     const pn = String(row?.posting_number || "").trim();
     const safePn = esc(pn);
-    const hasContainers = !!window.ozonFbsContainerBindState?.hasContainers;
+    const hasContainers = typeof _ozonFbsContainerGmUiVisible === "function"
+      ? _ozonFbsContainerGmUiVisible(mode)
+      : !!window.ozonFbsContainerBindState?.hasContainers;
     const containerManualItem = hasContainers
       ? `<button type="button" class="wb-fbs-row-menu-item" role="menuitem"
                 onclick="openOzonFbsContainerManualEntry('${esc(mode)}', '${safePn}')">

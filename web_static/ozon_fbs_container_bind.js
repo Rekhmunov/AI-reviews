@@ -7,6 +7,9 @@
 
   const state = {
     hasContainers: false,
+    /** Last containers list request succeeded (even when items=[]). */
+    loadOk: false,
+    loadError: "",
     containers: [],
     byId: new Map(),
     activeId: null,
@@ -98,7 +101,7 @@
 
   async function reconcileContainers(mode) {
     const { sid, sourceId } = supplyIds();
-    if (!sid || !sourceId || !state.hasContainers) return;
+    if (!sid || !sourceId || !gmUiVisible(mode)) return;
     if (!modalStillOpen(mode)) return;
     const gen = (state.reconcileGen = Number(state.reconcileGen || 0) + 1);
     const skip = collectReconcileSkipPostings(mode);
@@ -160,6 +163,35 @@
     const sid = String(window.supplyDetailState?.supplyId || "").trim();
     const sourceId = Number(window.supplyDetailState?.sourceId || window.state?.sourceId || 0) || 0;
     return { sid, sourceId };
+  }
+
+  function rowsForMode(mode) {
+    return mode === "kiz"
+      ? (window.ozonFbsKizState?.rows || [])
+      : (window.ozonFbsPickState?.rows || []);
+  }
+
+  function rowsHaveContainerBinds(mode) {
+    return rowsForMode(mode).some((r) => String(r?.container_barcode || "").trim());
+  }
+
+  /** Show GM scan/column/menu when containers exist or rows already have binds. */
+  function gmUiVisible(mode) {
+    if (state.hasContainers) return true;
+    return rowsHaveContainerBinds(mode);
+  }
+
+  function gmUiVisibleAny() {
+    return gmUiVisible("kiz") || gmUiVisible("pick");
+  }
+
+  function notifyContainerLoadError(mode, message) {
+    const msg = String(message || "").trim();
+    if (!msg) return;
+    const setInfo = mode === "kiz" ? window._ozonFbsKizSetInfo : window._ozonFbsPickSetInfo;
+    if (typeof setInfo === "function") {
+      setInfo(`Грузоместа: ${msg}`, false);
+    }
   }
 
   function rerenderMode(mode) {
@@ -246,7 +278,7 @@
 
   function updateActiveContainerUi(mode) {
     const els = activeContainerEls(mode);
-    const showRow = !!state.hasContainers;
+    const showRow = gmUiVisible(mode);
     if (els.row) els.row.hidden = !showRow;
     const hasActive = showRow && !!state.activeId;
     if (els.active) els.active.hidden = !hasActive;
@@ -264,7 +296,7 @@
   function syncCheckboxUi(mode) {
     const els = activeContainerEls(mode);
     const isKiz = mode === "kiz";
-    const show = !!state.hasContainers;
+    const show = gmUiVisible(mode);
     if (els.row) els.row.hidden = !show;
     if (els.check && !show) els.check.checked = false;
     // Mirror Marking / Pick Verify wait lock while rows are still loading.
@@ -300,17 +332,17 @@
   function updateContainerCounters() {
     // Re-apply after every table re-render: new <td> nodes would otherwise stay visible
     // even when the supply has no cargo places (regression for the no-container flow).
-    setContainerColumnsVisible(!!state.hasContainers);
-    updateOneCounter(window.ozonFbsKizState?.rows || [], "ozonFbsKizContainerCount");
-    updateOneCounter(window.ozonFbsPickState?.rows || [], "ozonFbsPickContainerCount");
+    setContainerColumnsVisible(gmUiVisibleAny());
+    updateOneCounter(window.ozonFbsKizState?.rows || [], "ozonFbsKizContainerCount", "kiz");
+    updateOneCounter(window.ozonFbsPickState?.rows || [], "ozonFbsPickContainerCount", "pick");
   }
 
-  function updateOneCounter(rows, elId) {
+  function updateOneCounter(rows, elId, mode) {
     const el = document.getElementById(elId);
     if (!el) return;
     const list = Array.isArray(rows) ? rows : [];
     const bound = list.filter((r) => String(r?.container_barcode || "").trim()).length;
-    const show = state.hasContainers && (state.usedInSession || bound > 0);
+    const show = gmUiVisible(mode) && (state.usedInSession || bound > 0);
     el.hidden = !show;
     if (!show) {
       el.textContent = "";
@@ -327,7 +359,7 @@
     const err = String(row?.container_sync_error || "").trim();
     const safePn = esc(pn);
     const modeAttr = esc(mode);
-    if (!state.hasContainers) {
+    if (!gmUiVisible(mode)) {
       return `<div class="ozon-fbs-container-cell is-empty" title="ШК грузоместа не указан">—</div>`;
     }
     const clearBtn = barcode
@@ -349,26 +381,33 @@
     </div>`;
   }
 
-  async function ensureContainersLoaded(force) {
+  async function ensureContainersLoaded(force, mode) {
     const { sid, sourceId } = supplyIds();
     if (!sid || !sourceId) {
       state.hasContainers = false;
+      state.loadOk = false;
+      state.loadError = !sourceId ? "Не указан источник OZON ФБС" : "";
       state.containers = [];
       state.byId = new Map();
       return false;
     }
-    if (!force && state.containers.length && !state.loading) {
+    if (!force && state.containers.length && !state.loading && state.loadOk) {
       return state.hasContainers;
     }
     state.loading = true;
+    state.loadError = "";
     try {
-      const params = new URLSearchParams({ source_id: String(sourceId) });
+      const params = new URLSearchParams({
+        source_id: String(sourceId),
+        include_sc_accepted: "1",
+      });
       const res = await fetch(
         `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/containers?${params}`
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || `Ошибка ${res.status}`);
       const items = Array.isArray(data.items) ? data.items : [];
+      state.loadOk = true;
       state.containers = items;
       state.byId = new Map();
       for (const c of items) {
@@ -378,23 +417,28 @@
       state.hasContainers = items.length > 0;
       if (!state.hasContainers) {
         setActive(null);
-        state.usedInSession = false;
+        if (!rowsHaveContainerBinds(mode)) state.usedInSession = false;
       } else if (state.activeId) {
         const cur = state.byId.get(String(state.activeId));
         if (!cur || !containerAcceptsFill(cur)) setActive(null);
       }
       return state.hasContainers;
-    } catch (_e) {
-      // Soft-fail: keep marking/pick usable without cargo places.
+    } catch (e) {
+      state.loadOk = false;
+      state.loadError = String(e.message || e);
       state.hasContainers = false;
       state.containers = [];
       state.byId = new Map();
+      if (mode) notifyContainerLoadError(mode, state.loadError);
       return false;
     } finally {
       state.loading = false;
       syncCheckboxUi("kiz");
       syncCheckboxUi("pick");
       updateContainerCounters();
+      if (mode && gmUiVisible(mode)) {
+        rerenderMode(mode);
+      }
     }
   }
 
@@ -433,7 +477,7 @@
   }
 
   function isContainerScanMode(mode) {
-    if (!state.hasContainers) return false;
+    if (!gmUiVisible(mode)) return false;
     const isKiz = mode === "kiz";
     const check = document.getElementById(
       isKiz ? "ozonFbsKizContainerScanCheck" : "ozonFbsPickContainerScanCheck"
@@ -450,7 +494,7 @@
     const input = document.getElementById(
       isKiz ? "ozonFbsKizStickerScan" : "ozonFbsPickStickerScan"
     );
-    await ensureContainersLoaded(false);
+    await ensureContainersLoaded(false, mode);
     const found = matchContainer(rawScan);
     if (!found) {
       if (typeof setInfo === "function") {
@@ -749,7 +793,7 @@
     const input = event.target;
     const raw = normalizeScan(input?.value);
     if (!raw) return;
-    await ensureContainersLoaded(false);
+    await ensureContainersLoaded(false, mode);
     const found = matchContainer(raw);
     if (!found) {
       const setInfo = mode === "kiz" ? window._ozonFbsKizSetInfo : window._ozonFbsPickSetInfo;
@@ -807,7 +851,7 @@
   function resetForModal(mode) {
     const els = activeContainerEls(mode);
     if (els.check) els.check.checked = false;
-    if (!state.hasContainers) setActive(null);
+    if (!gmUiVisible(mode)) setActive(null);
     syncCheckboxUi(mode);
     updateContainerCounters();
     rerenderMode(mode);
@@ -825,7 +869,7 @@
     state.usedInSession = false;
     // Hide cargo column until we know whether this supply has containers.
     setContainerColumnsVisible(false);
-    await ensureContainersLoaded(true);
+    await ensureContainersLoaded(true, mode);
     // Preserve usedInSession if rows already have binds from DB.
     const rows = mode === "kiz"
       ? (window.ozonFbsKizState?.rows || [])
@@ -933,7 +977,7 @@
       window.closeOzonFbsRowMenus();
     }
     const pn = String(postingNumber || "").trim();
-    if (!pn || !state.hasContainers) return;
+    if (!pn || !gmUiVisible(mode)) return;
     const tbodyId = mode === "pick" ? "ozonFbsPickTbody" : "ozonFbsKizTbody";
     const tbody = document.getElementById(tbodyId);
     if (!tbody) return;
@@ -955,12 +999,12 @@
     }
     const pn = String(postingNumber || "").trim();
     const row = findRow(mode, pn);
-    if (!row || !state.hasContainers) return;
+    if (!row || !gmUiVisible(mode)) return;
     const prevId = Number(row.container_id || 0);
     const prevBc = String(row.container_barcode || "").trim();
     if (prevId <= 0 && !prevBc) return;
 
-    await ensureContainersLoaded(false);
+    await ensureContainersLoaded(false, mode);
     const targets = fillableContainers(prevId);
     moveState.mode = mode;
     moveState.postingNumber = pn;
@@ -1047,4 +1091,5 @@
   window.closeOzonFbsMoveContainerModal = closeMoveContainerModal;
   window.selectOzonFbsMoveContainerTarget = selectMoveContainerTarget;
   window._ozonFbsContainerRowCanMove = rowCanMoveContainer;
+  window._ozonFbsContainerGmUiVisible = gmUiVisible;
 })();

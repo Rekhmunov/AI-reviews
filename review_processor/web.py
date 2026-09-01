@@ -5834,6 +5834,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                         or v.get("wb_fbs")
                         or v.get("wb_fbs_tsd")
                         or v.get("ozon")
+                        or v.get("ozon_fbs")
                     )
                     for v in sources.values()
                     if isinstance(v, dict)
@@ -8434,8 +8435,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         role = str(user.get("role") or ROLE_USER)
         if role in ROLE_CAN_ACCESS_SETTINGS:
             return True
-        if not bool(user.get("can_supplies")):
-            return False
         perms = repository.get_manager_supply_permissions(manager_user_id=int(user["id"]))
         sources = perms.get("sources") or {}
         return any(
@@ -8443,6 +8442,25 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             for v in sources.values()
             if isinstance(v, dict)
         )
+
+    def _ozon_fbs_allowed_source_ids(user: dict[str, object]) -> set[str] | None:
+        """None = all sources (owner/settings). Else allowed Ozon FBS source id strings."""
+        role = str(user.get("role") or ROLE_USER)
+        if role in ROLE_CAN_ACCESS_SETTINGS:
+            return None
+        perms = repository.get_manager_supply_permissions(manager_user_id=int(user["id"]))
+        return {
+            str(sid)
+            for sid, sv in (perms.get("sources") or {}).items()
+            if isinstance(sv, dict) and sv.get("ozon_fbs")
+        }
+
+    def _require_ozon_fbs_source(user: dict[str, object], source_id: int) -> None:
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        allowed = _ozon_fbs_allowed_source_ids(user)
+        if allowed is not None and str(int(source_id)) not in allowed:
+            raise HTTPException(status_code=403, detail="Нет доступа к источнику")
 
     def _ozon_fbs_source_credentials(owner_id: int, source_id: int) -> tuple[dict[str, object], str, str]:
         src_full = repository.get_supply_source_with_key(user_id=owner_id, source_id=source_id)
@@ -13891,12 +13909,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         from . import ozon_fbs_marking as oz_mark
 
         user = _require_user(request)
-        if not _can_view_ozon_fbs(user):
-            raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
         sid = str(supply_id or "").strip()
         if not sid or not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        _require_ozon_fbs_source(user, int(source_id))
         _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
         tab_key = str(posting_tab or "").strip() or None
         try:
@@ -14081,12 +14098,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         from . import ozon_fbs_pick_verify as oz_pick
 
         user = _require_user(request)
-        if not _can_view_ozon_fbs(user):
-            raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
         sid = str(supply_id or "").strip()
         if not sid or not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        _require_ozon_fbs_source(user, int(source_id))
         _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
         tab_key = str(posting_tab or "").strip() or None
         try:
@@ -14216,11 +14232,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         from . import ozon_fbs_containers as oz_ct
 
         user = _require_user(request)
-        if not _can_view_ozon_fbs(user):
-            raise HTTPException(status_code=403, detail="Нет доступа")
-        owner_id = _supply_owner_id(user)
         if not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id")
+        _require_ozon_fbs_source(user, int(source_id))
+        owner_id = _supply_owner_id(user)
         _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
         client = ozon_fbs_mod.OzonFbsClient(client_id=client_id, api_key=api_key)
         try:
@@ -14495,8 +14510,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         from . import ozon_fbs_containers as oz_ct
 
         user = _require_user(request)
-        if not _can_view_ozon_fbs(user):
-            raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
         try:
             body = await request.json()
@@ -14521,6 +14534,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 status_code=400,
                 detail="Укажите source_id, posting_number и container_id",
             )
+        _require_ozon_fbs_source(user, source_id)
         _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, source_id)
         client = ozon_fbs_mod.OzonFbsClient(client_id=client_id, api_key=api_key)
         try:
@@ -14548,8 +14562,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         from . import ozon_fbs_containers as oz_ct
 
         user = _require_user(request)
-        if not _can_view_ozon_fbs(user):
-            raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
         try:
             body = await request.json()
@@ -14570,6 +14582,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(
                 status_code=400, detail="Укажите source_id и posting_number"
             )
+        _require_ozon_fbs_source(user, source_id)
         _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, source_id)
         client = ozon_fbs_mod.OzonFbsClient(client_id=client_id, api_key=api_key)
         try:
@@ -14595,8 +14608,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         from . import ozon_fbs_containers as oz_ct
 
         user = _require_user(request)
-        if not _can_view_ozon_fbs(user):
-            raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
         try:
             body = await request.json()
@@ -14610,6 +14621,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="Укажите source_id") from exc
         if not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id")
+        _require_ozon_fbs_source(user, source_id)
         skip_raw = body.get("skip_postings") or body.get("dirty_postings") or []
         if not isinstance(skip_raw, list):
             skip_raw = [skip_raw]
@@ -20135,15 +20147,30 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
     safe_role = escape(role_labels.get(role, role))
     can_view_analytics = role in ROLE_CAN_ACCESS_ANALYTICS
     can_view_settings = role in ROLE_CAN_ACCESS_SETTINGS
+    # Granular supply permissions for managers — load regardless of can_supplies flag
+    # (ozon_fbs-only grants may exist while can_supplies was not backfilled).
+    _supply_perms: dict = {}
+    if role not in ROLE_CAN_ACCESS_SETTINGS and repository is not None:
+        _supply_perms = repository.get_manager_supply_permissions(manager_user_id=user_id)
+    _sp_sources = _supply_perms.get("sources") or {}
+    _has_granular_supply = any(
+        (
+            v.get("wb")
+            or v.get("wb_fbs")
+            or v.get("wb_fbs_tsd")
+            or v.get("ozon")
+            or v.get("ozon_fbs")
+        )
+        for v in _sp_sources.values()
+        if isinstance(v, dict)
+    ) or bool(_supply_perms.get("can_supply_settings")) or bool(_supply_perms.get("can_supply_poa")) or bool(
+        _supply_perms.get("can_supply_certs")
+    )
     can_view_supplies = (
         role in ROLE_CAN_ACCESS_SETTINGS
         or bool(user.get("can_supplies"))
+        or _has_granular_supply
     )
-    # Granular supply permissions for managers
-    _supply_perms: dict = {}
-    if can_view_supplies and role not in ROLE_CAN_ACCESS_SETTINGS and repository is not None:
-        _supply_perms = repository.get_manager_supply_permissions(manager_user_id=user_id)
-    _sp_sources = _supply_perms.get("sources") or {}
     can_view_wb_supplies = (
         role in ROLE_CAN_ACCESS_SETTINGS
         or any(v.get("wb") for v in _sp_sources.values() if isinstance(v, dict))
