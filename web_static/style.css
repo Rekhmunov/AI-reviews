@@ -13612,7 +13612,7 @@ button.wb-fbs-kiz-add:disabled {
   flex: 0 0 auto;
   margin-top: 0;
 }
-#wbFbsSupplyDetailPickVerifyBtn[hidden] {
+#wbFbsPickSplit[hidden] {
   display: none !important;
 }
 

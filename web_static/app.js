@@ -26613,6 +26613,7 @@ const _WB_FBS_DETAIL_ACTION_IDS = [
   "wbFbsSupplyDetailKizBtn",
   "wbFbsSupplyDetailKizRefreshBtn",
   "wbFbsSupplyDetailPickVerifyBtn",
+  "wbFbsSupplyDetailPickRefreshBtn",
   "wbFbsSupplyDetailTrbxBtn",
   "wbFbsSupplyDetailCancelledBtn",
 ];
@@ -27137,10 +27138,11 @@ async function openWbFbsSupplyDetailModal(supplyId) {
   _wbFbsKizSplitSetTone("");
   const kizSplitOpen = document.getElementById("wbFbsKizSplit");
   if (kizSplitOpen) kizSplitOpen.hidden = true;
-  const pickBtnOpen = document.getElementById("wbFbsSupplyDetailPickVerifyBtn");
-  if (pickBtnOpen) {
-    pickBtnOpen.hidden = true;
-    pickBtnOpen.style.display = "none";
+  _wbFbsPickSplitSetTone("");
+  const pickSplitOpen = document.getElementById("wbFbsPickSplit");
+  if (pickSplitOpen) {
+    pickSplitOpen.hidden = true;
+    pickSplitOpen.style.display = "none";
   }
   _wbFbsSupplyDetailResetSearch();
   setModalVisibility("wbFbsSupplyDetailModal", true);
@@ -29812,6 +29814,8 @@ const wbFbsPickState = {
   baselineByOrder: {},
   /** After optimistic-concurrency conflict, next save for these order_ids is forced. */
   forceSaveByOrder: {},
+  statusRefreshing: false,
+  statusRefreshGen: 0,
   /**
    * Silent FeedPilot autosave after scan/clear (pick-verify is local-only).
    * Same queue pattern as Маркировка — never blocks the scan UI path.
@@ -29822,16 +29826,90 @@ const wbFbsPickState = {
 };
 
 function _wbFbsSyncPickVerifyBtn() {
+  const split = document.getElementById("wbFbsPickSplit");
   const btn = document.getElementById("wbFbsSupplyDetailPickVerifyBtn");
-  if (!btn) return;
-  // Owner-only + only when supply has at least one order without КИЗ.
+  if (!split && !btn) return;
   const supply = wbFbsDetailState.supply || {};
   const orders = Array.isArray(supply.orders) ? supply.orders : [];
   const hasPlain = orders.some((o) => o && !o.kiz_required);
-  const can = isTenantOwner() && _wbFbsSupplyDetailActionsReady() && hasPlain;
-  btn.hidden = !can;
-  btn.style.display = can ? "" : "none";
+  const can = _wbFbsSupplyDetailActionsReady() && hasPlain;
+  if (split) {
+    split.hidden = !can;
+    split.style.display = can ? "" : "none";
+  }
+  if (btn) {
+    btn.hidden = !can;
+    btn.style.display = can ? "" : "none";
+  }
 }
+
+function _wbFbsPickSplitSetTone(tone) {
+  const split = document.getElementById("wbFbsPickSplit");
+  if (!split) return;
+  split.classList.remove("is-ok", "is-error");
+  const t = String(tone || "").trim().toLowerCase();
+  if (t === "ok") split.classList.add("is-ok");
+  else if (t === "error") split.classList.add("is-error");
+}
+
+async function refreshWbFbsPickVerifyStatus(event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  const sid = String(wbFbsDetailState.supplyId || "").trim();
+  if (!sid || !wbFbsState.sourceId || !_wbFbsSupplyDetailActionsReady() || wbFbsPickState.statusRefreshing) {
+    return;
+  }
+  const refreshBtn = document.getElementById("wbFbsSupplyDetailPickRefreshBtn");
+  const pickBtn = document.getElementById("wbFbsSupplyDetailPickVerifyBtn");
+  const refreshGen = Number(wbFbsPickState.statusRefreshGen || 0) + 1;
+  wbFbsPickState.statusRefreshGen = refreshGen;
+  wbFbsPickState.statusRefreshing = true;
+  if (refreshBtn) {
+    refreshBtn.disabled = true;
+    refreshBtn.classList.add("is-spinning");
+  }
+  if (pickBtn) pickBtn.disabled = true;
+  try {
+    const params = new URLSearchParams({ source_id: String(wbFbsState.sourceId) });
+    const res = await fetch(
+      `/api/wb-fbs/supplies/${encodeURIComponent(sid)}/pick-verify/status?${params}`
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok === false) {
+      throw new Error(data.detail || `Ошибка ${res.status}`);
+    }
+    if (wbFbsDetailState.supplyId !== sid) return;
+    if (wbFbsPickState.statusRefreshGen !== refreshGen) return;
+    const st = String(data.status || "");
+    if (st === "ok") {
+      _wbFbsPickSplitSetTone("ok");
+    }
+    // empty / incomplete / bad — keep default secondary styling
+  } catch (e) {
+    if (
+      wbFbsDetailState.supplyId === sid
+      && wbFbsPickState.statusRefreshGen === refreshGen
+    ) {
+      const info = document.getElementById("wbFbsSupplyDetailInfo");
+      if (info) {
+        info.hidden = false;
+        info.textContent = String(e.message || e);
+      }
+    }
+  } finally {
+    if (wbFbsPickState.statusRefreshGen === refreshGen) {
+      wbFbsPickState.statusRefreshing = false;
+      if (refreshBtn) {
+        refreshBtn.disabled = false;
+        refreshBtn.classList.remove("is-spinning");
+      }
+      if (pickBtn) pickBtn.disabled = false;
+    }
+  }
+}
+window.refreshWbFbsPickVerifyStatus = refreshWbFbsPickVerifyStatus;
 
 function _wbFbsPickSetInfo(text, ok) {
   const el = document.getElementById("wbFbsPickInfo");

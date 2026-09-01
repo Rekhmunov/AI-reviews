@@ -2563,6 +2563,140 @@ def save_pick_verify(
     }
 
 
+def _wb_fbs_order_is_cancelled(order: dict[str, Any]) -> bool:
+    label = str(order.get("cancel_reason_label") or "").strip()
+    if label:
+        return True
+    return wb._is_cancelled_status(
+        supplier_status=str(order.get("supplier_status") or ""),
+        wb_status=str(order.get("wb_status") or ""),
+    )
+
+
+def check_supply_pick_verify_status(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    api_key: str = "",
+) -> dict[str, Any]:
+    """Local status for «Проверка ШК» refresh — no stickers / WB APIs."""
+    sid = str(supply_id or "").strip()
+    if not sid:
+        raise ValueError("Укажите supply_id")
+
+    plain_ids: list[int] = []
+    cached = _cache_get_detail(
+        user_id=user_id, source_id=source_id, supply_id=sid
+    )
+    if cached and isinstance(cached.get("orders"), list):
+        for o in cached["orders"]:
+            if not isinstance(o, dict) or o.get("kiz_required"):
+                continue
+            if _wb_fbs_order_is_cancelled(o):
+                continue
+            try:
+                oid = int(o["order_id"])
+            except (TypeError, ValueError, KeyError):
+                continue
+            if oid > 0:
+                plain_ids.append(oid)
+    else:
+        order_ids = _local_order_ids_for_supply(
+            repo, user_id=user_id, source_id=source_id, supply_id=sid
+        )
+        orders = _tsd_hub_load_order_rows(
+            repo, user_id=user_id, source_id=source_id, order_ids=order_ids
+        )
+        client = (
+            wb.WbFbsClient(api_key)
+            if str(api_key or "").strip()
+            else wb.WbFbsClient("unused")
+        )
+        kiz_map = _fetch_kiz_map(
+            client,
+            orders,
+            repo=repo,
+            user_id=user_id,
+            source_id=source_id,
+        )
+        status_map = wb.load_order_status_map(
+            repo, user_id=user_id, source_id=source_id, order_ids=order_ids
+        )
+        for o in orders:
+            try:
+                oid = int(o["order_id"])
+            except (TypeError, ValueError, KeyError):
+                continue
+            if bool((kiz_map.get(oid) or {}).get("kiz_required")):
+                continue
+            st = status_map.get(oid) or {}
+            if _wb_fbs_order_is_cancelled(st):
+                continue
+            plain_ids.append(oid)
+
+    seen: set[int] = set()
+    unique_ids: list[int] = []
+    for oid in plain_ids:
+        if oid in seen:
+            continue
+        seen.add(oid)
+        unique_ids.append(oid)
+
+    local_pick = wb.load_order_pick_map(
+        repo, user_id=user_id, source_id=source_id, order_ids=unique_ids
+    )
+    trusted_skus = wb.load_order_barcodes_map(
+        repo, user_id=user_id, source_id=source_id, order_ids=unique_ids
+    )
+
+    done = 0
+    empty = 0
+    bad = 0
+    status_rows: list[dict[str, Any]] = []
+    for oid in unique_ids:
+        loc = local_pick.get(oid) or {}
+        barcode = str(loc.get("barcode") or "").strip()
+        verified = bool(loc.get("verified")) and bool(barcode)
+        if not verified:
+            empty += 1
+            st = "empty"
+        else:
+            order_barcodes = trusted_skus.get(oid) or []
+            ok, _, _ = validate_ean_against_order_skus(barcode, order_barcodes)
+            if ok:
+                done += 1
+                st = "ok"
+            else:
+                bad += 1
+                st = "bad"
+        status_rows.append(
+            {
+                "order_id": oid,
+                "pick_verified": verified and st == "ok",
+                "pick_barcode": barcode if verified and st == "ok" else "",
+                "pick_status": st,
+            }
+        )
+
+    total = len(unique_ids)
+    if total > 0 and done == total:
+        tone = "ok"
+    else:
+        tone = ""
+
+    return {
+        "ok": True,
+        "required": total,
+        "done": done,
+        "empty": empty,
+        "bad": bad,
+        "status": tone,
+        "orders": status_rows,
+    }
+
+
 def _is_failed_to_update_meta_error(error: object) -> bool:
     """True for WB 409 FailedToUpdateMeta / not-in-Processing meta rejects."""
     text = str(error or "").lower()

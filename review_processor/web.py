@@ -10824,17 +10824,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         supply_id: str,
         source_id: int,
     ) -> dict[str, object]:
-        """Orders without КИЗ: local EAN-13 pick-check payload (owner only)."""
+        """Orders without КИЗ: local EAN-13 pick-check payload."""
         from . import wb_fbs_detail as wb_detail
 
         user = _require_user(request)
         if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
-        if not _is_wb_fbs_tenant_owner(user):
-            raise HTTPException(
-                status_code=403,
-                detail="Проверка ШК доступна только главному пользователю",
-            )
         owner_id = _supply_owner_id(user)
         sid = str(supply_id or "").strip()
         if not sid or not source_id:
@@ -10853,23 +10848,48 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.get("/api/wb-fbs/supplies/{supply_id}/pick-verify/status")
+    def wb_fbs_supply_pick_verify_status(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+    ) -> dict[str, object]:
+        """Local pick-verify status for supply-detail refresh control."""
+        from . import wb_fbs_detail as wb_detail
+
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid or not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        api_key = _wb_fbs_source_key(owner_id, int(source_id))
+        try:
+            return wb_detail.check_supply_pick_verify_status(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                supply_id=sid,
+                api_key=api_key,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.put("/api/wb-fbs/supplies/{supply_id}/pick-verify")
     async def wb_fbs_supply_pick_verify_save(
         request: Request,
         supply_id: str,
         source_id: int,
     ) -> dict[str, object]:
-        """Save local ШК pick-check (no Wildberries API). Owner only."""
+        """Save local ШК pick-check (no Wildberries API)."""
         from . import wb_fbs_detail as wb_detail
 
         user = _require_user(request)
         if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
-        if not _is_wb_fbs_tenant_owner(user):
-            raise HTTPException(
-                status_code=403,
-                detail="Проверка ШК доступна только главному пользователю",
-            )
         owner_id = _supply_owner_id(user)
         sid = str(supply_id or "").strip()
         if not sid or not source_id:
