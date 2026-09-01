@@ -5219,9 +5219,12 @@
           errors.push(`${sid}: ${e.message || e}`);
         }
       }
-      clearSelection();
-      setTab("awaiting_deliver");
       const okN = ids.length - errors.length;
+      // Only leave «Доставляются» when at least one supply actually moved.
+      if (okN > 0) {
+        clearSelection();
+        setTab("awaiting_deliver");
+      }
       const base = errors.length
         ? `Перенесено поставок: ${okN} из ${ids.length}`
         : `Перенесено в «Ожидают отгрузки»: ${_ozonFbsSelectedSupplyLabel(okN)}`;
@@ -5239,11 +5242,13 @@
       _ozonFbsMoveAwaitingNotice(
         (stockNote ? `${base}\n${stockNote}` : base) + errNote,
         {
-          title: errors.length ? "Перенос с ошибками" : "Поставки перенесены",
-          kind: errors.length ? "error" : "ok",
+          title: okN === 0
+            ? "Не удалось перенести"
+            : (errors.length ? "Перенос с ошибками" : "Поставки перенесены"),
+          kind: okN === 0 ? "error" : (errors.length ? "error" : "ok"),
         }
       );
-      showSyncInfo(base, errors.length ? "warn" : "ok");
+      showSyncInfo(base, okN === 0 ? "error" : (errors.length ? "warn" : "ok"));
     } catch (e) {
       moveAwaitingModalState.busy = false;
       _ozonFbsMoveAwaitingNotice(e.message || String(e), {
