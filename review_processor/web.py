@@ -9951,6 +9951,49 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             )
         return result
 
+    @app.get("/api/wb-fbs/tsd/supplies/{supply_id}/pick-verify/status")
+    def wb_fbs_tsd_pick_verify_status(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+    ) -> dict[str, object]:
+        """Local pick-verify status for ТСД hub refresh (WB + Ozon)."""
+        from . import ozon_fbs_pick_verify as oz_pick
+        from . import wb_fbs_detail as wb_detail
+
+        user = _require_user(request)
+        _require_tsd_source(user, int(source_id))
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid or not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        mp = _tsd_marketplace_for_source(owner_id=owner_id, source_id=int(source_id))
+        if mp == "ozon":
+            _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
+            del client_id, api_key
+            try:
+                return oz_pick.check_supply_pick_verify_status(
+                    repository,
+                    user_id=owner_id,
+                    source_id=int(source_id),
+                    supply_id=sid,
+                )
+            except RuntimeError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+        api_key = _wb_fbs_source_key(owner_id, int(source_id))
+        try:
+            return wb_detail.check_supply_pick_verify_status(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                supply_id=sid,
+                api_key=api_key,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.get("/api/wb-fbs/tsd/supplies/{supply_id}/pick-verify")
     def wb_fbs_tsd_pick_verify_list(
         request: Request,

@@ -162,6 +162,22 @@ def test_web_py_has_tsd_kiz_status_route() -> None:
     assert "check_supply_kiz_status" in src
 
 
+def test_web_py_has_tsd_pick_verify_status_route() -> None:
+    src = WEB_PY.read_text(encoding="utf-8")
+    assert "/api/wb-fbs/tsd/supplies/{supply_id}/pick-verify/status" in src
+    assert "def wb_fbs_tsd_pick_verify_status(" in src
+    assert "check_supply_pick_verify_status" in src
+
+
+def test_tsd_js_has_pick_hub_refresh() -> None:
+    js = (STATIC / "wb_fbs_tsd.js").read_text(encoding="utf-8")
+    assert 'id="tsdPickSplit"' in js
+    assert 'id="tsdPickRefreshBtn"' in js
+    assert "refreshHubPickStatus" in js
+    assert "setPickHubTone" in js
+    assert "pick-verify/status" in js
+
+
 def test_web_py_tsd_summary_matches_scan_without_full_payloads() -> None:
     src = WEB_PY.read_text(encoding="utf-8")
     # Isolate the TSD summary handler body between its decorator and next TSD kiz route.

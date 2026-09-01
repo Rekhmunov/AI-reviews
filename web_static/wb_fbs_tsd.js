@@ -31,6 +31,9 @@
     kizHubTone: "",
     kizHubToneSupplyId: "",
     kizStatusRefreshing: false,
+    pickHubTone: "",
+    pickHubToneSupplyId: "",
+    pickStatusRefreshing: false,
     loadSeq: 0,
     forceSaveByOrder: {},
     sessionScannedIds: [],
@@ -2205,6 +2208,64 @@
     else if (state.kizHubTone === "error") split.classList.add("is-error");
   }
 
+  function setPickHubTone(tone) {
+    const t = String(tone || "").trim().toLowerCase();
+    // Pick refresh: green only — never red (unlike КИЗ tile).
+    state.pickHubTone = t === "ok" ? "ok" : "";
+    const split = document.getElementById("tsdPickSplit");
+    if (!split) return;
+    split.classList.remove("is-ok", "is-error");
+    if (state.pickHubTone === "ok") split.classList.add("is-ok");
+  }
+
+  async function refreshHubPickStatus(event) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    const sid = String(state.route.supplyId || (state.supply && state.supply.supply_id) || "").trim();
+    if (!sid || !state.sourceId || state.pickStatusRefreshing) return;
+    const refreshBtn = document.getElementById("tsdPickRefreshBtn");
+    const pickBtn = document.getElementById("tsdTilePick");
+    state.pickStatusRefreshing = true;
+    if (refreshBtn) {
+      refreshBtn.disabled = true;
+      refreshBtn.classList.add("is-spinning");
+    }
+    if (pickBtn) pickBtn.disabled = true;
+    try {
+      const params = new URLSearchParams({ source_id: String(state.sourceId) });
+      const data = await api(
+        `/api/wb-fbs/tsd/supplies/${encodeURIComponent(sid)}/pick-verify/status?${params}`
+      );
+      if (String(state.route.supplyId || "") !== sid || state.route.view !== "hub") return;
+      state.pickHubToneSupplyId = sid;
+      const st = String(data.status || "").trim().toLowerCase();
+      if (st === "ok") {
+        setPickHubTone("ok");
+      } else {
+        setPickHubTone("");
+      }
+    } catch (e) {
+      if (String(state.route.supplyId || "") === sid && state.route.view === "hub") {
+        toast(e.message || String(e));
+      }
+    } finally {
+      state.pickStatusRefreshing = false;
+      if (refreshBtn) {
+        refreshBtn.disabled = false;
+        refreshBtn.classList.remove("is-spinning");
+      }
+      if (pickBtn) {
+        const s = state.supply || {};
+        const pick = s.pick || { total: 0 };
+        const pickError = String(s.pick_error || "").trim();
+        const pickDisabled = !pick.total && !pickError;
+        pickBtn.disabled = pickDisabled || state.pickStatusRefreshing;
+      }
+    }
+  }
+
   async function refreshHubKizStatus(event) {
     if (event) {
       event.preventDefault();
@@ -2266,6 +2327,8 @@
         ev.preventDefault();
         state.kizHubTone = "";
         state.kizHubToneSupplyId = "";
+        state.pickHubTone = "";
+        state.pickHubToneSupplyId = "";
         navigate("#/");
       };
       back.textContent = "←";
@@ -2325,31 +2388,55 @@
             </svg>
           </button>
         </div>
-        <button type="button" class="tsd-tile" id="tsdTilePick" ${pickDisabled ? "disabled" : ""}>
-          <span class="tsd-tile-title">Товары без маркировки</span>
-          <span class="tsd-tile-prog">${
-            pickError
-              ? "Ошибка загрузки"
-              : pickDisabled
-                ? "Нет заказов"
-                : `${pick.done} / ${pick.total}`
-          }</span>
-        </button>
+        <div class="tsd-tile-split" id="tsdPickSplit">
+          <button type="button" class="tsd-tile tsd-tile-main" id="tsdTilePick" ${
+            pickDisabled ? "disabled" : ""
+          }>
+            <span class="tsd-tile-title">Товары без маркировки</span>
+            <span class="tsd-tile-prog">${
+              pickError
+                ? "Ошибка загрузки"
+                : pickDisabled
+                  ? "Нет заказов"
+                  : `${pick.done} / ${pick.total}`
+            }</span>
+          </button>
+          <button type="button" class="tsd-tile-refresh" id="tsdPickRefreshBtn"
+            ${pickDisabled ? "disabled" : ""}
+            aria-label="Обновить статусы проверки ШК"
+            title="Обновить статусы проверки ШК">
+            <svg class="tsd-tile-refresh-ico" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M3 3v5h5"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M16 16h5v5"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
       </div>`;
 
     setKizHubTone(state.kizHubTone);
+    setPickHubTone(state.pickHubTone);
 
     const kizBtn = document.getElementById("tsdTileKiz");
     const pickBtn = document.getElementById("tsdTilePick");
-    const refreshBtn = document.getElementById("tsdKizRefreshBtn");
+    const kizRefreshBtn = document.getElementById("tsdKizRefreshBtn");
+    const pickRefreshBtn = document.getElementById("tsdPickRefreshBtn");
     if (kizBtn && !kizDisabled) {
       kizBtn.addEventListener("click", () => navigate(`#/s/${sid}/kiz`));
     }
     if (pickBtn && !pickDisabled) {
       pickBtn.addEventListener("click", () => navigate(`#/s/${sid}/pick`));
     }
-    if (refreshBtn && !kizDisabled) {
-      refreshBtn.addEventListener("click", (ev) => refreshHubKizStatus(ev));
+    if (kizRefreshBtn && !kizDisabled) {
+      kizRefreshBtn.addEventListener("click", (ev) => refreshHubKizStatus(ev));
+    }
+    if (pickRefreshBtn && !pickDisabled) {
+      pickRefreshBtn.addEventListener("click", (ev) => refreshHubPickStatus(ev));
     }
   }
 
@@ -2989,6 +3076,10 @@
         if (String(state.kizHubToneSupplyId || "") !== String(sid || "")) {
           state.kizHubTone = "";
           state.kizHubToneSupplyId = String(sid || "");
+        }
+        if (String(state.pickHubToneSupplyId || "") !== String(sid || "")) {
+          state.pickHubTone = "";
+          state.pickHubToneSupplyId = String(sid || "");
         }
         const stopRotate = startLoadingRotate(
           [
