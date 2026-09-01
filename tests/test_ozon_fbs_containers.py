@@ -218,3 +218,56 @@ def test_approve_containers_success_and_errors() -> None:
     out_fail = ct.approve_containers(client, container_ids=[111])
     assert out_fail["ok"] is False
     assert any("APPROVE_FAILED" in (e.get("error") or "") for e in out_fail["errors"])
+
+
+def test_build_approve_precheck_flags_sync_errors_and_unbound() -> None:
+    from unittest.mock import MagicMock, patch
+
+    repo = MagicMock()
+    with patch.object(
+        ct.oz_sup,
+        "get_supply",
+        return_value={"posting_numbers": ["A-1", "B-1", "C-1", "D-1"]},
+    ), patch.object(
+        ct,
+        "load_container_bind_map",
+        return_value={
+            "A-1": {"container_id": 10, "container_sync_error": "FILL_FAILED"},
+            "B-1": {"container_id": 10, "container_sync_error": ""},
+            "C-1": {"container_id": 20, "container_sync_error": ""},
+            "D-1": {"container_id": None, "container_sync_error": ""},
+        },
+    ):
+        out = ct.build_approve_precheck(
+            repo, user_id=1, source_id=2, supply_id="S1", container_id=10
+        )
+    assert out["ok"] is True
+    assert out["total_orders"] == 4
+    assert out["bound_to_container"] == 2
+    assert out["bound_other"] == 1
+    assert out["unbound"] == 1
+    assert out["has_unbound"] is True
+    assert out["has_sync_errors"] is True
+    assert out["requires_force"] is True
+    assert out["sync_error_count"] == 1
+    assert out["sync_errors"][0]["posting_number"] == "A-1"
+
+    with patch.object(
+        ct.oz_sup,
+        "get_supply",
+        return_value={"posting_numbers": ["A-1", "B-1"]},
+    ), patch.object(
+        ct,
+        "load_container_bind_map",
+        return_value={
+            "A-1": {"container_id": 10, "container_sync_error": ""},
+            "B-1": {"container_id": 10, "container_sync_error": ""},
+        },
+    ):
+        clean = ct.build_approve_precheck(
+            repo, user_id=1, source_id=2, supply_id="S1", container_id=10
+        )
+    assert clean["requires_force"] is False
+    assert clean["has_sync_errors"] is False
+    assert clean["has_unbound"] is False
+    assert clean["bound_to_container"] == 2

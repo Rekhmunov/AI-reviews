@@ -14344,6 +14344,39 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.get("/api/ozon-fbs/supplies/{supply_id}/containers/approve-precheck")
+    async def ozon_fbs_supply_containers_approve_precheck(
+        request: Request, supply_id: str
+    ) -> dict[str, object]:
+        """Local readiness before confirming a cargo place (sync errors / unbound)."""
+        from . import ozon_fbs_containers as oz_ct
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        try:
+            source_id = int(request.query_params.get("source_id") or 0)
+            container_id = int(request.query_params.get("container_id") or 0)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=400, detail="Укажите source_id и container_id"
+            ) from exc
+        if not source_id or container_id <= 0:
+            raise HTTPException(
+                status_code=400, detail="Укажите source_id и container_id"
+            )
+        try:
+            return oz_ct.build_approve_precheck(
+                repository,
+                user_id=owner_id,
+                source_id=source_id,
+                supply_id=str(supply_id),
+                container_id=container_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.post("/api/ozon-fbs/supplies/{supply_id}/containers/approve")
     async def ozon_fbs_supply_containers_approve(
         request: Request, supply_id: str
@@ -14351,6 +14384,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         """Confirm cargo-place contents (Ozon ``/v1/carriage/container/approve``).
 
         After confirm Ozon locks the container: no more fill / remove-postings.
+        If local sync errors exist for the container, pass ``force=true``.
         """
         from . import ozon_fbs as ozon_fbs_mod
         from . import ozon_fbs_containers as oz_ct
@@ -14374,6 +14408,37 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         ids_raw = body.get("container_ids") or body.get("ids") or []
         if not isinstance(ids_raw, list):
             ids_raw = [ids_raw]
+        force = bool(body.get("force"))
+        # Soft gate: block approve when this container has local Ozon sync errors,
+        # unless the operator explicitly confirmed «Подтвердить всё равно».
+        if not force and ids_raw:
+            try:
+                first_cid = int(ids_raw[0] or 0)
+            except (TypeError, ValueError):
+                first_cid = 0
+            if first_cid > 0:
+                try:
+                    pre = oz_ct.build_approve_precheck(
+                        repository,
+                        user_id=owner_id,
+                        source_id=source_id,
+                        supply_id=str(supply_id),
+                        container_id=first_cid,
+                    )
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=str(exc)) from exc
+                if pre.get("requires_force"):
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "code": "container_sync_errors",
+                            "message": (
+                                pre.get("message")
+                                or "Есть ошибки синхронизации — подтвердите ещё раз"
+                            ),
+                            "precheck": pre,
+                        },
+                    )
         _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, source_id)
         client = ozon_fbs_mod.OzonFbsClient(client_id=client_id, api_key=api_key)
         try:

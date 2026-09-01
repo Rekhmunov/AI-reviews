@@ -163,9 +163,12 @@
     if (detail == null) return "";
     if (typeof detail === "string") return detail;
     if (Array.isArray(detail)) {
-      return detail.map((x) => (typeof x === "string" ? x : (x?.msg || JSON.stringify(x)))).join("; ");
+      return detail.map((x) => (typeof x === "string" ? x : (x?.msg || x?.message || JSON.stringify(x)))).join("; ");
     }
-    if (typeof detail === "object" && detail.msg) return String(detail.msg);
+    if (typeof detail === "object") {
+      if (detail.message) return String(detail.message);
+      if (detail.msg) return String(detail.msg);
+    }
     try { return JSON.stringify(detail); } catch (_) { return String(detail); }
   }
 
@@ -4858,9 +4861,62 @@
     const sourceId = containersState.sourceId;
     const cid = String(containerId || "").trim();
     if (!sid || !sourceId || !cid || containersState.busy) return;
-    if (!window.confirm(
-      `Подтвердить грузоместо ${cid}?\n\nПосле подтверждения в него больше нельзя будет сканировать заказы.`
-    )) return;
+
+    let precheck = null;
+    try {
+      const params = new URLSearchParams({
+        source_id: String(sourceId),
+        container_id: String(cid),
+      });
+      const preRes = await fetch(
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/containers/approve-precheck?${params}`,
+        { headers: jsonHeaders() }
+      );
+      const preData = await preRes.json().catch(() => ({}));
+      if (preRes.ok && preData && preData.ok !== false) {
+        precheck = preData;
+      }
+    } catch (_e) {
+      // Soft-fail: still allow confirm if precheck unavailable.
+      precheck = null;
+    }
+
+    const syncCount = Number(precheck?.sync_error_count || 0) || 0;
+    const unbound = Number(precheck?.unbound || 0) || 0;
+    const total = Number(precheck?.total_orders || 0) || 0;
+    const boundHere = Number(precheck?.bound_to_container || 0) || 0;
+    const hasSyncErrors = !!precheck?.has_sync_errors || syncCount > 0;
+    const hasUnbound = !!precheck?.has_unbound || unbound > 0;
+
+    let msg =
+      `Подтвердить грузоместо ${cid}?\n\n`
+      + `После подтверждения в него больше нельзя будет сканировать заказы.`;
+    if (boundHere > 0 || total > 0) {
+      msg += `\n\nВ этом грузоместе (локально): ${boundHere}`;
+      if (total > 0) msg += ` · заказов в поставке: ${total}`;
+    }
+    if (hasUnbound) {
+      msg +=
+        `\n\nВнимание: ${unbound} из ${total || "?"} заказов поставки ещё не привязаны `
+        + `ни к одному грузоместу.`;
+    }
+    if (hasSyncErrors) {
+      const samples = Array.isArray(precheck?.sync_errors) ? precheck.sync_errors : [];
+      const sampleLine = samples
+        .slice(0, 3)
+        .map((e) => `${e.posting_number || "?"}: ${e.error || "ошибка"}`)
+        .filter(Boolean)
+        .join("\n");
+      msg +=
+        `\n\nЕсть ошибки синхронизации с Ozon (${syncCount}). `
+        + `Состав на портале может отличаться.`;
+      if (sampleLine) msg += `\n${sampleLine}`;
+      msg += `\n\nПодтвердить всё равно?`;
+      if (!window.confirm(msg)) return;
+    } else {
+      if (!window.confirm(msg)) return;
+    }
+
     containersState.busy = true;
     _ozonFbsContainersSyncBusyUi();
     renderOzonFbsContainersTable(containersState.items);
@@ -4874,11 +4930,53 @@
           body: JSON.stringify({
             source_id: sourceId,
             container_ids: [Number(cid) || cid],
+            force: !!hasSyncErrors,
           }),
         }
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.ok === false) {
+        // Backend may still require force if precheck was stale/unavailable.
+        const detail = data.detail;
+        const needsForce =
+          res.status === 409
+          && detail
+          && typeof detail === "object"
+          && (detail.code === "container_sync_errors" || detail.precheck?.requires_force);
+        if (needsForce && !hasSyncErrors) {
+          const forceMsg =
+            String(detail.message || "Есть ошибки синхронизации с Ozon.")
+            + "\n\nПодтвердить всё равно?";
+          if (!window.confirm(forceMsg)) {
+            throw new Error(String(detail.message || "Подтверждение отменено"));
+          }
+          const res2 = await fetch(
+            `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/containers/approve`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json", ...jsonHeaders() },
+              body: JSON.stringify({
+                source_id: sourceId,
+                container_ids: [Number(cid) || cid],
+                force: true,
+              }),
+            }
+          );
+          const data2 = await res2.json().catch(() => ({}));
+          if (!res2.ok || data2.ok === false) {
+            const errs2 = Array.isArray(data2.errors) ? data2.errors : [];
+            const errLine2 = errs2.map((e) => e.error || e).filter(Boolean).join("; ");
+            throw new Error(
+              detailText(data2.detail) || errLine2 || data2.message || `Ошибка ${res2.status}`
+            );
+          }
+          renderOzonFbsContainersTable(data2.items || []);
+          _ozonFbsContainersSetInfo(String(data2.message || "Подтверждено"), "ok");
+          if (typeof window._ozonFbsContainerInvalidate === "function") {
+            void window._ozonFbsContainerInvalidate();
+          }
+          return;
+        }
         const errs = Array.isArray(data.errors) ? data.errors : [];
         const errLine = errs.map((e) => e.error || e).filter(Boolean).join("; ");
         throw new Error(detailText(data.detail) || errLine || data.message || `Ошибка ${res.status}`);

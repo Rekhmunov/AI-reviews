@@ -540,6 +540,86 @@ def approve_containers(
     }
 
 
+def build_approve_precheck(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    container_id: int,
+) -> dict[str, Any]:
+    """Local readiness check before confirming a cargo place.
+
+    - ``has_sync_errors``: postings bound to this container with Ozon sync errors
+      (requires explicit force to approve).
+    - ``has_unbound``: supply still has postings without any cargo place
+      (warning only).
+    """
+    try:
+        cid = int(container_id)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Некорректный container_id") from exc
+    if cid <= 0:
+        raise ValueError("Укажите ID грузоместа")
+    supply = oz_sup.get_supply(
+        repo, user_id=user_id, source_id=source_id, supply_id=str(supply_id)
+    )
+    nums = [
+        str(x).strip()
+        for x in ((supply or {}).get("posting_numbers") or [])
+        if str(x).strip()
+    ]
+    binds = load_container_bind_map(
+        repo, user_id=user_id, source_id=source_id, posting_numbers=nums
+    )
+    sync_errors: list[dict[str, str]] = []
+    bound_here = 0
+    bound_other = 0
+    unbound = 0
+    for pn in nums:
+        row = binds.get(pn) or {}
+        try:
+            row_cid = int(row.get("container_id") or 0)
+        except (TypeError, ValueError):
+            row_cid = 0
+        err = str(row.get("container_sync_error") or "").strip()
+        if row_cid == cid:
+            bound_here += 1
+            if err:
+                sync_errors.append({"posting_number": pn, "error": err})
+        elif row_cid > 0:
+            bound_other += 1
+        else:
+            unbound += 1
+    has_sync_errors = bool(sync_errors)
+    has_unbound = unbound > 0
+    return {
+        "ok": True,
+        "container_id": cid,
+        "total_orders": len(nums),
+        "bound_to_container": bound_here,
+        "bound_other": bound_other,
+        "unbound": unbound,
+        "sync_error_count": len(sync_errors),
+        "sync_errors": sync_errors[:20],
+        "has_sync_errors": has_sync_errors,
+        "has_unbound": has_unbound,
+        "requires_force": has_sync_errors,
+        "message": (
+            (
+                f"Ошибки синхронизации с Ozon: {len(sync_errors)}. "
+                "Состав на портале может отличаться."
+            )
+            if has_sync_errors
+            else (
+                f"Не привязано к грузоместам: {unbound} из {len(nums)}."
+                if has_unbound
+                else ""
+            )
+        ),
+    }
+
+
 def get_container_labels_pdf(
     client: oz.OzonFbsClient, *, container_ids: list[int]
 ) -> dict[str, Any]:
