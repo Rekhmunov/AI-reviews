@@ -19,6 +19,7 @@ from review_processor.ozon_fbs_shipments import (
     _normalize_block,
     build_shipments_view,
     compose_shipment_barcode_label_png,
+    fetch_warehouse_barcode,
     pick_default_delivery_method,
     render_shipment_barcode_print_html,
 )
@@ -501,6 +502,42 @@ class OzonFbsShipmentsHelpersTests(unittest.TestCase):
         self.assertEqual(view["selected_delivery_method_id"], 102)
         self.assertEqual(len(view["delivery_methods"]), 1)
         client.carriage_delivery_list.assert_called_once()
+
+
+class OzonFbsWarehouseBarcodeTests(unittest.TestCase):
+    def test_fetch_warehouse_barcode_uses_warehouse_id(self) -> None:
+        from io import BytesIO
+        import base64 as b64mod
+
+        from PIL import Image
+
+        client = MagicMock()
+        client.fbs_act_get_barcode_text.return_value = {"result": "1020005028015630"}
+        png_buf = BytesIO()
+        Image.new("RGB", (180, 50), (0, 0, 0)).save(png_buf, format="PNG")
+        client.fbs_act_get_barcode.return_value = {
+            "file_content": b64mod.b64encode(png_buf.getvalue()).decode("ascii"),
+            "content_type": "image/png",
+        }
+        bc = fetch_warehouse_barcode(client, warehouse_id=1020005028015630)
+        self.assertEqual(bc["barcode_text"], "1020005028015630")
+        self.assertEqual(bc["warehouse_id"], 1020005028015630)
+        self.assertEqual(bc["kind"], "warehouse")
+        self.assertTrue(bc.get("barcode_label_base64"))
+        client.fbs_act_get_barcode_text.assert_called_once_with(
+            carriage_id=1020005028015630
+        )
+        client.fbs_act_get_barcode.assert_called_once_with(
+            carriage_id=1020005028015630
+        )
+
+    def test_fetch_warehouse_barcode_text_fallback(self) -> None:
+        client = MagicMock()
+        client.fbs_act_get_barcode_text.side_effect = RuntimeError("no act")
+        client.fbs_act_get_barcode.side_effect = RuntimeError("no act")
+        bc = fetch_warehouse_barcode(client, warehouse_id=1020005028015630)
+        self.assertEqual(bc["barcode_text"], "1020005028015630")
+        self.assertEqual(bc["warehouse_id"], 1020005028015630)
 
 
 if __name__ == "__main__":
