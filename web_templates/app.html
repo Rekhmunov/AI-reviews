@@ -2445,21 +2445,6 @@
           </div>
         </div>
 
-        <div id="wbFbsKizRuLayoutModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
-             aria-labelledby="wbFbsKizRuLayoutTitle">
-          <div class="modal-card wb-fbs-kiz-ru-layout-modal">
-            <h4 id="wbFbsKizRuLayoutTitle" class="wb-fbs-kiz-ru-layout-title">Русская раскладка!</h4>
-            <p class="wb-fbs-kiz-ru-layout-text">
-              Сейчас у вас установлена русская раскладка клавиатуры. Нужно изменить ее на английскую.
-              Это делается в правом нижнем углу экрана, около часов. Переключите раскладку с (РУС) на (EN)
-              и отсканируйте код снова.
-            </p>
-            <div class="wb-fbs-kiz-ru-layout-actions">
-              <button type="button" id="wbFbsKizRuLayoutOk" onclick="dismissWbFbsKizRuLayoutWarning()">Понятно</button>
-            </div>
-          </div>
-        </div>
-
         <div id="wbFbsKizRestoreModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
              aria-labelledby="wbFbsKizRestoreTitle">
           <div class="modal-card wb-fbs-kiz-modal wb-fbs-returns-modal">
@@ -6482,8 +6467,24 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=79"></script>
-  <script src="/static/ozon_fbs_container_bind.js?v=5"></script>
+  <!-- Shared by WB FBS and Ozon FBS marking/pick scan fields — must live outside tab sections. -->
+  <div id="wbFbsKizRuLayoutModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+       aria-labelledby="wbFbsKizRuLayoutTitle">
+    <div class="modal-card wb-fbs-kiz-ru-layout-modal">
+      <h4 id="wbFbsKizRuLayoutTitle" class="wb-fbs-kiz-ru-layout-title">Русская раскладка!</h4>
+      <p class="wb-fbs-kiz-ru-layout-text">
+        Сейчас у вас установлена русская раскладка клавиатуры. Нужно изменить ее на английскую.
+        Это делается в правом нижнем углу экрана, около часов. Переключите раскладку с (РУС) на (EN)
+        и отсканируйте код снова.
+      </p>
+      <div class="wb-fbs-kiz-ru-layout-actions">
+        <button type="button" id="wbFbsKizRuLayoutOk" onclick="dismissWbFbsKizRuLayoutWarning()">Понятно</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/ozon_fbs.js?v=80"></script>
+  <script src="/static/ozon_fbs_container_bind.js?v=6"></script>
   <script src="/static/app.js?v=528"></script>
 </body>
 </html>

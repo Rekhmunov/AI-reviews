@@ -264,15 +264,6 @@
         input.placeholder = "Сканируйте QR грузоместа";
         setTimeout(() => input.focus(), 30);
       }
-      const setInfo = isKiz ? window._ozonFbsKizSetInfo : window._ozonFbsPickSetInfo;
-      if (typeof setInfo === "function") {
-        setInfo(
-          state.activeBarcode
-            ? `Активное грузоместо ${state.activeBarcode}. Отсканируйте QR следующего или снимите галку.`
-            : "Отсканируйте QR грузоместа",
-          true
-        );
-      }
     } else if (input) {
       input.placeholder = "Сканируйте QR этикетки Ozon или номер отправления";
     }

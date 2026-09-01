@@ -8612,9 +8612,6 @@
     if (!sid || !sourceId || !_ozonFbsSupplyActionsReady()) return;
     if (typeof setModalVisibility === "function") setModalVisibility("ozonFbsKizModal", true);
     else document.getElementById("ozonFbsKizModal")?.classList.remove("hidden");
-    if (typeof _ozonFbsContainerPrepareModal === "function") {
-      void _ozonFbsContainerPrepareModal("kiz");
-    }
     ozonFbsKizColResizer.init();
     const loadGen = (ozonFbsKizState.loadGen = Number(ozonFbsKizState.loadGen || 0) + 1);
     ozonFbsKizState.rows = [];
@@ -8639,7 +8636,10 @@
     _ozonFbsKizImportSetInfo("");
     _ozonFbsKizClearImportConflicts();
     const tbody = document.getElementById("ozonFbsKizTbody");
-    if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="wb-fbs-empty">Загрузка…</td></tr>`;
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="5" class="wb-fbs-empty">Определение маркировки…</td></tr>`;
+    }
+    _ozonFbsKizSetInfo("Определение маркировки…", true);
     const saveBtn = document.getElementById("ozonFbsKizSaveBtn");
     if (saveBtn) saveBtn.disabled = true;
     const scan = document.getElementById("ozonFbsKizStickerScan");
@@ -8655,6 +8655,14 @@
         `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/marking?${params}`,
         {
           shouldAbort: () => !stillThisLoad(),
+          onProgress: (p) => {
+            if (!stillThisLoad()) return;
+            const msg = _ozonFbsResolveProgressText(p);
+            if (tbody && !applied) {
+              tbody.innerHTML = `<tr><td colspan="5" class="wb-fbs-empty">${esc(msg)}</td></tr>`;
+            }
+            _ozonFbsKizSetInfo(msg, true);
+          },
           onChunk: (data, meta) => {
             if (!stillThisLoad()) return;
             const resolving = !meta?.done && Number(meta?.remaining || 0) > 0;
@@ -8728,6 +8736,9 @@
       if (saveBtn) saveBtn.disabled = false;
       _ozonFbsKizSetFiltersReady(true);
       _ozonFbsKizSyncImportBtn();
+      if (typeof _ozonFbsContainerPrepareModal === "function") {
+        void _ozonFbsContainerPrepareModal("kiz");
+      }
       if (loadOk && scan) setTimeout(() => {
         if (stillThisLoad()) scan.focus();
       }, 50);
@@ -9411,9 +9422,6 @@
     if (!sid || !sourceId || !_ozonFbsSupplyActionsReady()) return;
     if (typeof setModalVisibility === "function") setModalVisibility("ozonFbsPickVerifyModal", true);
     else document.getElementById("ozonFbsPickVerifyModal")?.classList.remove("hidden");
-    if (typeof _ozonFbsContainerPrepareModal === "function") {
-      void _ozonFbsContainerPrepareModal("pick");
-    }
     ozonFbsPickColResizer.init();
     ozonFbsPickState.rows = [];
     ozonFbsPickState.errors = {};
@@ -9463,6 +9471,9 @@
     } finally {
       if (saveBtn) saveBtn.disabled = false;
       _ozonFbsPickSetFiltersReady(true);
+      if (typeof _ozonFbsContainerPrepareModal === "function") {
+        void _ozonFbsContainerPrepareModal("pick");
+      }
       if (loadOk && scan) setTimeout(() => scan.focus(), 50);
     }
   }
