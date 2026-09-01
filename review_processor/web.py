@@ -14743,6 +14743,50 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             headers={"Cache-Control": "no-store"},
         )
 
+    @app.get("/api/ozon-fbs/supplies/{supply_id}/shipments/barcode-label")
+    def ozon_fbs_supply_shipments_barcode_label(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+        departure_date: str | None = None,
+        delivery_method_id: int | None = None,
+        carriage_id: int | None = None,
+    ) -> Response:
+        """PNG label (Code128 + digits) for warehouse supply barcode."""
+        from . import ozon_fbs as ozon_fbs_mod
+        from . import ozon_fbs_shipments as oz_ship
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
+        client = ozon_fbs_mod.OzonFbsClient(client_id=client_id, api_key=api_key)
+        try:
+            png = oz_ship.build_shipment_barcode_label_png(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                supply_id=str(supply_id),
+                client=client,
+                departure_date=departure_date,
+                delivery_method_id=delivery_method_id,
+                carriage_id=carriage_id,
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        text = str(supply_id or "warehouse")
+        return Response(
+            content=png,
+            media_type="image/png",
+            headers={
+                "Cache-Control": "no-store",
+                "Content-Disposition": f'attachment; filename="ozon-warehouse-barcode-{text}.png"',
+            },
+        )
+
     @app.get("/api/ozon-fbs/supplies/{supply_id}/picking-list")
     def ozon_fbs_supply_picking_list(
         request: Request,

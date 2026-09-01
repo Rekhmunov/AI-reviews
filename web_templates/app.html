@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=270" />
+  <link rel="stylesheet" href="/static/style.css?v=272" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -3034,6 +3034,9 @@
                        oninput="renderOzonFbsSupplyDetail()" />
               </div>
               <div class="wb-fbs-sd-actions">
+                <button type="button" class="secondary" id="ozonFbsSupplyDetailCancelledBtn"
+                        onclick="openOzonFbsCancelledOrdersModal()"
+                        title="Проверить отменённые отправления в поставке">Отмененные заказы</button>
                 <div class="wb-fbs-picking-split" id="ozonFbsPickingSplit">
                   <button type="button" class="secondary" id="ozonFbsSupplyDetailPickingBtn"
                           onclick="ozonFbsOpenPickingList()">Лист подбора</button>
@@ -3116,9 +3119,6 @@
                     </svg>
                   </button>
                 </div>
-                <button type="button" class="secondary" id="ozonFbsSupplyDetailCancelledBtn"
-                        onclick="openOzonFbsCancelledOrdersModal()"
-                        title="Проверить отменённые отправления в поставке">Отмененные заказы</button>
                 <button type="button" class="secondary" id="ozonFbsSupplyDetailShipmentsBtn"
                         onclick="openOzonFbsShipmentsModal()"
                         title="Отгрузки Ozon: ШК поставки и формирование">ШК поставки</button>
@@ -6531,7 +6531,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=91"></script>
+  <script src="/static/ozon_fbs.js?v=93"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=14"></script>
   <script src="/static/app.js?v=528"></script>
 </body>

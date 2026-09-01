@@ -5155,40 +5155,34 @@
     const text = String(barcode?.barcode_text || "").trim();
     const labelB64 = String(barcode?.barcode_label_base64 || "").trim();
     const b64 = String(barcode?.barcode_image_base64 || "").trim();
-    const ctype = String(barcode?.content_type || "image/png").trim() || "image/png";
-    const hasLabel = Boolean(labelB64);
-    const hasImg = Boolean(b64);
-    const canPrint = Boolean(hasLabel || hasImg || text);
+    const canPrint = Boolean(labelB64 || b64 || text);
     const caption = esc(shipmentsWarehouseCaption(data));
-    const visual = hasLabel
-      ? `<img id="ozonFbsShipmentsBarcodeImg" src="data:image/png;base64,${labelB64}" alt="Штрихкод поставки ${esc(text)}" />`
-      : (hasImg
-        ? `<img id="ozonFbsShipmentsBarcodeImg" src="data:${esc(ctype)};base64,${b64}" alt="Штрихкод поставки" />`
-        : (text
-          ? `<div class="ozon-fbs-shipments-barcode-empty">ШК: ${esc(text)}</div>`
-          : `<div class="ozon-fbs-shipments-barcode-empty">Не удалось загрузить штрихкод склада</div>`));
-    const textHtml = (!hasLabel && text)
-      ? `<div class="ozon-fbs-shipments-barcode-text">${esc(text)}</div>`
-      : "";
+    let visual = `<div class="ozon-fbs-shipments-barcode-empty">Не удалось загрузить штрихкод склада</div>`;
+    if (labelB64) {
+      visual = `<img id="ozonFbsShipmentsBarcodeImg" class="ozon-fbs-shipments-barcode-label" src="data:image/png;base64,${labelB64}" alt="Штрихкод поставки ${esc(text)}" />`;
+    } else if (b64) {
+      visual = `<img id="ozonFbsShipmentsBarcodeImg" class="ozon-fbs-shipments-barcode-label" src="data:image/png;base64,${b64}" alt="Штрихкод поставки${text ? ` ${esc(text)}` : ""}" />`;
+    } else if (text) {
+      visual = `<div class="ozon-fbs-shipments-barcode-empty">Штрихкод ${esc(text)} — обновите или скачайте PNG</div>`;
+    }
     return `
       <div class="ozon-fbs-shipments-barcode-main">
         <div class="ozon-fbs-shipments-barcode-caption">${caption}</div>
         <div class="ozon-fbs-shipments-barcode-visual">
           ${visual}
-          ${textHtml}
         </div>
         <div class="ozon-fbs-shipments-barcode-actions">
           <button type="button" class="ozon-fbs-shipments-icon-btn" ${canPrint ? "" : "disabled"}
                   onclick="ozonFbsShipmentsPrintBarcode()" title="Печать" aria-label="Печать штрихкода">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M7 9V4h10v5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
               <path d="M7 17H5a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
               <rect x="7" y="13" width="10" height="7" rx="1" stroke="currentColor" stroke-width="2"/>
             </svg>
           </button>
           <button type="button" class="ozon-fbs-shipments-icon-btn" ${canPrint ? "" : "disabled"}
-                  onclick="ozonFbsShipmentsDownloadBarcode()" title="Скачать" aria-label="Скачать штрихкод">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  onclick="ozonFbsShipmentsDownloadBarcode()" title="Скачать PNG" aria-label="Скачать штрихкод PNG">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M12 4v10M8 10l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
               <path d="M5 19h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
             </svg>
@@ -5941,31 +5935,48 @@
       .catch((e) => alert(String(e.message || e)));
   }
 
-  function shipmentsDownloadBarcode() {
+  async function shipmentsDownloadBarcode() {
+    const sid = shipmentsState.supplyId;
+    const sourceId = shipmentsState.sourceId;
+    if (!sid || !sourceId) return;
+    const dateEl = document.getElementById("ozonFbsShipmentsDate");
+    const methodEl = document.getElementById("ozonFbsShipmentsMethod");
+    const day = String(dateEl?.value || todayIsoDate());
+    const methodId = String(methodEl?.value || shipmentsState.data?.selected_delivery_method_id || "").trim();
     const barcode = resolveShipmentsBarcode(shipmentsState.data) || {};
     const labelB64 = String(barcode.barcode_label_base64 || "").trim();
-    const b64 = String(barcode.barcode_image_base64 || "").trim();
     const text = String(barcode.barcode_text || "").trim();
     const suffix = text || "warehouse";
-    const payload = labelB64 || b64;
-    if (payload) {
+    const triggerDownload = (href, filename) => {
       const a = document.createElement("a");
-      a.href = `data:image/png;base64,${payload}`;
-      a.download = `ozon-warehouse-barcode-${suffix}.png`;
+      a.href = href;
+      a.download = filename;
       a.click();
+    };
+    if (labelB64) {
+      triggerDownload(`data:image/png;base64,${labelB64}`, `ozon-warehouse-barcode-${suffix}.png`);
       return;
     }
-    if (text) {
-      const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    try {
+      const qs = new URLSearchParams({
+        source_id: String(sourceId),
+        departure_date: day,
+      });
+      if (methodId) qs.set("delivery_method_id", methodId);
+      const res = await fetch(
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/shipments/barcode-label?${qs.toString()}`
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      }
+      const blob = await res.blob();
       const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `ozon-warehouse-barcode-${text}.txt`;
-      a.click();
-      URL.revokeObjectURL(url);
-      return;
+      triggerDownload(url, `ozon-warehouse-barcode-${suffix}.png`);
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (e) {
+      alert(e.message || String(e));
     }
-    alert("Штрихкод склада недоступен");
   }
 
   const ozonFbsKizState = {

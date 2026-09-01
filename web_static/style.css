@@ -8773,38 +8773,25 @@ button.ozon-fbs-split-multi-btn[hidden] {
   justify-content: center;
   width: 100%;
 }
-.ozon-fbs-shipments-barcode-visual img {
+.ozon-fbs-shipments-barcode-visual img,
+.ozon-fbs-shipments-barcode-label {
   width: 100%;
-  max-width: 260px;
+  max-width: 280px;
   height: auto;
-  max-height: 140px;
+  max-height: 160px;
   object-fit: contain;
   object-position: center;
 }
-.ozon-fbs-shipments-barcode-text {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 14px;
-  font-weight: 700;
-  color: #0f172a;
-  letter-spacing: 0.06em;
-  text-align: center;
-  line-height: 1.2;
-}
-.ozon-fbs-shipments-barcode-empty {
-  font-size: 14px;
-  color: #64748b;
-  text-align: center;
-}
 .ozon-fbs-shipments-barcode-actions {
   display: flex;
-  gap: 4px;
+  gap: 8px;
   justify-content: center;
-  margin-top: 8px;
+  margin-top: 12px;
 }
 .ozon-fbs-shipments-icon-btn {
   appearance: none;
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   background: #fff;
@@ -8825,6 +8812,12 @@ button.ozon-fbs-split-multi-btn[hidden] {
 .ozon-fbs-shipments-icon-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+.ozon-fbs-shipments-barcode-empty {
+  font-size: 14px;
+  color: #64748b;
+  text-align: center;
+  line-height: 1.4;
 }
 .ozon-fbs-shipments-meta-col {
   display: flex;

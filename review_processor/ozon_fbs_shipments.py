@@ -490,10 +490,7 @@ def fetch_warehouse_barcode(
         )
         if composed:
             fetched["barcode_label_base64"] = base64.b64encode(composed).decode("ascii")
-    elif not fetched.get("barcode_image_base64") and text:
-        # API image can fail while text is still known — keep digits for UI/print.
-        fetched.setdefault("content_type", "image/png")
-    return fetched
+    return ensure_shipment_barcode_assets(fetched)
 
 
 def fetch_carriage_barcode(
@@ -536,14 +533,66 @@ def fetch_carriage_barcode(
         )
         if composed:
             label_b64 = base64.b64encode(composed).decode("ascii")
-    return {
-        "carriage_id": int(carriage_id),
-        "barcode_text": text,
-        "barcode_image_base64": image_b64,
-        # Full sticker (bars + digits) for download / print fallback.
-        "barcode_label_base64": label_b64,
-        "content_type": content_type,
-    }
+    return ensure_shipment_barcode_assets(
+        {
+            "carriage_id": int(carriage_id),
+            "barcode_text": text,
+            "barcode_image_base64": image_b64,
+            "barcode_label_base64": label_b64,
+            "content_type": content_type,
+        }
+    )
+
+
+def render_code128_barcode_png(barcode_text: str) -> bytes | None:
+    """Render Code128 bars only (no HRI) for warehouse / act stickers."""
+    text = str(barcode_text or "").strip()
+    if not text:
+        return None
+    try:
+        import barcode
+        from barcode.writer import ImageWriter
+        from io import BytesIO
+
+        cls = barcode.get_barcode_class("code128")
+        bc = cls(text, writer=ImageWriter())
+        buf = BytesIO()
+        bc.write(
+            buf,
+            options={
+                "write_text": False,
+                "module_height": 14,
+                "module_width": 0.28,
+                "quiet_zone": 3,
+            },
+        )
+        return buf.getvalue()
+    except Exception as exc:
+        _log.warning("code128 render failed %s: %s", text[:24], exc)
+        return None
+
+
+def ensure_shipment_barcode_assets(data: dict[str, Any]) -> dict[str, Any]:
+    """Ensure barcode image + composed label (bars + digits) exist when text is known."""
+    out = dict(data or {})
+    text = str(out.get("barcode_text") or "").strip()
+    if not text:
+        return out
+    b64 = str(out.get("barcode_image_base64") or "").strip()
+    label_b64 = str(out.get("barcode_label_base64") or "").strip()
+    if not b64:
+        generated = render_code128_barcode_png(text)
+        if generated:
+            b64 = base64.b64encode(generated).decode("ascii")
+            out["barcode_image_base64"] = b64
+            out.setdefault("content_type", "image/png")
+    if not label_b64 and b64:
+        composed = compose_shipment_barcode_label_png(
+            barcode_image_base64=b64, barcode_text=text
+        )
+        if composed:
+            out["barcode_label_base64"] = base64.b64encode(composed).decode("ascii")
+    return out
 
 
 def _enrich_carriage_from_get(
@@ -901,6 +950,8 @@ def get_supply_shipments(
                 "barcode_text": str(int(warehouse_id)),
                 "kind": "warehouse",
             }
+    if warehouse_barcode:
+        warehouse_barcode = ensure_shipment_barcode_assets(warehouse_barcode)
     view["warehouse_barcode"] = warehouse_barcode
     # Default sticker in UI/print = permanent warehouse barcode (not act/carriage).
     if warehouse_barcode and (
@@ -1108,19 +1159,22 @@ def render_shipment_barcode_print_html(
 
     title = _esc(supply_name or "Поставка")
     wh = _esc(warehouse_name or "")
-    text_raw = str(barcode_text or "").strip()
-    text = _esc(text_raw)
-    b64 = str(barcode_image_base64 or "").strip()
-    ctype = "image/png"
-    # Prefer a composed label (bars + digits) so print matches Ozon seller format.
-    composed = compose_shipment_barcode_label_png(
-        barcode_image_base64=b64, barcode_text=text_raw
+    ensured = ensure_shipment_barcode_assets(
+        {
+            "barcode_text": barcode_text,
+            "barcode_image_base64": barcode_image_base64,
+            "content_type": content_type,
+        }
     )
-    if composed:
-        b64 = base64.b64encode(composed).decode("ascii")
+    text_raw = str(ensured.get("barcode_text") or "").strip()
+    text = _esc(text_raw)
+    label_b64 = str(ensured.get("barcode_label_base64") or "").strip()
+    b64 = str(ensured.get("barcode_image_base64") or "").strip()
+    ctype = "image/png"
+    if label_b64:
         body = f"""
         <section class="label barcode">
-          <img src="data:{ctype};base64,{b64}" alt="ШК поставки {text}" />
+          <img src="data:{ctype};base64,{label_b64}" alt="ШК поставки {text}" />
         </section>"""
     elif b64:
         ctype = _esc(content_type or "image/png")
@@ -1155,7 +1209,8 @@ def render_shipment_barcode_print_html(
     gap: 1.5mm;
   }}
   .label.barcode img {{
-    width: 54mm; max-height: 28mm; object-fit: contain; object-position: center;
+    width: 56mm; height: 38mm; max-height: none;
+    object-fit: contain; object-position: center;
   }}
   .label.barcode .code {{
     font-family: "DejaVu Sans Mono", "Courier New", monospace;
@@ -1175,6 +1230,40 @@ def render_shipment_barcode_print_html(
   {body}
   <script>window.addEventListener('load',function(){{ setTimeout(function(){{ window.print(); }}, 300); }});</script>
 </body></html>"""
+
+
+def _resolve_shipments_barcode(
+    view: dict[str, Any],
+    client: oz.OzonFbsClient,
+    *,
+    carriage_id: object = None,
+) -> dict[str, Any]:
+    barcode = view.get("warehouse_barcode")
+    if not isinstance(barcode, dict):
+        barcode = view.get("barcode") if isinstance(view.get("barcode"), dict) else None
+    cid = None
+    if carriage_id is not None and str(carriage_id).strip() != "":
+        try:
+            cid = int(carriage_id)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("Некорректный carriage_id") from exc
+    wh_id = view.get("warehouse_id")
+    try:
+        wh_int = int(wh_id) if wh_id is not None else 0
+    except (TypeError, ValueError):
+        wh_int = 0
+    if cid and cid > 0 and cid != wh_int:
+        try:
+            fetched = fetch_carriage_barcode(client, carriage_id=cid)
+            if fetched.get("barcode_text") or fetched.get("barcode_image_base64"):
+                barcode = fetched
+        except Exception as exc:
+            _log.warning("barcode fetch id=%s: %s", cid, exc)
+    if not barcode or not (
+        barcode.get("barcode_text") or barcode.get("barcode_image_base64")
+    ):
+        raise RuntimeError("Не удалось получить штрихкод склада")
+    return ensure_shipment_barcode_assets(barcode)
 
 
 def build_shipment_barcode_print(
@@ -1197,32 +1286,7 @@ def build_shipment_barcode_print(
         departure_date=departure_date,
         delivery_method_id=delivery_method_id,
     )
-    barcode = view.get("warehouse_barcode")
-    if not isinstance(barcode, dict):
-        barcode = view.get("barcode") if isinstance(view.get("barcode"), dict) else None
-    cid = None
-    if carriage_id is not None and str(carriage_id).strip() != "":
-        try:
-            cid = int(carriage_id)
-        except (TypeError, ValueError) as exc:
-            raise RuntimeError("Некорректный carriage_id") from exc
-    wh_id = view.get("warehouse_id")
-    try:
-        wh_int = int(wh_id) if wh_id is not None else 0
-    except (TypeError, ValueError):
-        wh_int = 0
-    # Explicit carriage_id overrides only when it is not the warehouse sticker id.
-    if cid and cid > 0 and cid != wh_int:
-        try:
-            fetched = fetch_carriage_barcode(client, carriage_id=cid)
-            if fetched.get("barcode_text") or fetched.get("barcode_image_base64"):
-                barcode = fetched
-        except Exception as exc:
-            _log.warning("barcode print fetch id=%s: %s", cid, exc)
-    if not barcode or not (
-        barcode.get("barcode_text") or barcode.get("barcode_image_base64")
-    ):
-        raise RuntimeError("Не удалось получить штрихкод склада")
+    barcode = _resolve_shipments_barcode(view, client, carriage_id=carriage_id)
     return render_shipment_barcode_print_html(
         supply_name=str(view.get("supply_name") or supply_id),
         warehouse_name=str(view.get("warehouse_name") or ""),
@@ -1230,3 +1294,33 @@ def build_shipment_barcode_print(
         barcode_image_base64=str(barcode.get("barcode_image_base64") or ""),
         content_type=str(barcode.get("content_type") or "image/png"),
     )
+
+
+def build_shipment_barcode_label_png(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    client: oz.OzonFbsClient,
+    departure_date: object = None,
+    delivery_method_id: object = None,
+    carriage_id: object = None,
+) -> bytes:
+    view = get_supply_shipments(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=supply_id,
+        client=client,
+        departure_date=departure_date,
+        delivery_method_id=delivery_method_id,
+    )
+    barcode = _resolve_shipments_barcode(view, client, carriage_id=carriage_id)
+    label_b64 = str(barcode.get("barcode_label_base64") or "").strip()
+    if not label_b64:
+        raise RuntimeError("Не удалось сформировать PNG штрихкода")
+    try:
+        return base64.b64decode(label_b64, validate=False)
+    except Exception as exc:
+        raise RuntimeError("Не удалось декодировать PNG штрихкода") from exc
