@@ -210,6 +210,28 @@ class OzonFbsShipmentsHelpersTests(unittest.TestCase):
         self.assertGreater(out.height, 60)
         self.assertGreaterEqual(out.width, 200)
 
+    def test_compose_barcode_label_print_is_taller(self) -> None:
+        from io import BytesIO
+
+        from PIL import Image
+
+        buf = BytesIO()
+        Image.new("RGB", (200, 40), (0, 0, 0)).save(buf, format="PNG")
+        b64 = __import__("base64").b64encode(buf.getvalue()).decode("ascii")
+        screen = compose_shipment_barcode_label_png(
+            barcode_image_base64=b64, barcode_text="1020005028015630", for_print=False
+        )
+        printed = compose_shipment_barcode_label_png(
+            barcode_image_base64=b64, barcode_text="1020005028015630", for_print=True
+        )
+        self.assertIsNotNone(screen)
+        self.assertIsNotNone(printed)
+        assert screen is not None and printed is not None
+        screen_img = Image.open(BytesIO(screen))
+        print_img = Image.open(BytesIO(printed))
+        self.assertGreater(print_img.height, screen_img.height)
+        self.assertAlmostEqual(print_img.height / print_img.width, 40 / 58, delta=0.08)
+
     def test_normalize_empty_carriages_draft(self) -> None:
         block = _normalize_block(
             {

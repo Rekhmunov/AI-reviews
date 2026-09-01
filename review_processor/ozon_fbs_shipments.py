@@ -561,8 +561,8 @@ def render_code128_barcode_png(barcode_text: str, *, for_print: bool = False) ->
             buf,
             options={
                 "write_text": False,
-                "module_height": 16 if for_print else 14,
-                "module_width": 0.38 if for_print else 0.28,
+                "module_height": 22 if for_print else 14,
+                "module_width": 0.28,
                 "quiet_zone": 2 if for_print else 3,
             },
         )
@@ -1110,19 +1110,27 @@ def compose_shipment_barcode_label_png(
         return None
 
     # Target label proportions close to Ozon seller sticker (wide bars + HRI).
-    target_w = max(int(bars.width), 520 if for_print else 420)
-    # Scale bars to nearly full width while keeping a readable bar height.
-    bar_h = max(
-        88 if for_print else 72,
-        min(156 if for_print else 140, int(round(target_w * (0.24 if for_print else 0.22)))),
-    )
+    target_w = max(int(bars.width), 420)
+    pad_x = 12
+    pad_top = 10
+    pad_bottom = 10
+    gap = 8
+    text_h = 28
+    if for_print:
+        # 58×40 mm label: keep bar width as before, use vertical space for taller bars.
+        pad_x = 12
+        pad_top = 2
+        pad_bottom = 2
+        gap = 4
+        text_h = 22
+        out_w = target_w + pad_x * 2
+        out_h_target = max(1, int(round(out_w * 40 / 58)))
+        bar_h = out_h_target - pad_top - pad_bottom - gap - text_h
+        bar_h = max(120, bar_h)
+    else:
+        bar_h = max(72, min(140, int(round(target_w * 0.22))))
     scaled = bars.resize((target_w, bar_h), Image.Resampling.NEAREST)
 
-    pad_x = 4 if for_print else 12
-    pad_top = 8 if for_print else 10
-    pad_bottom = 8 if for_print else 10
-    gap = 6 if for_print else 8
-    text_h = 26 if for_print else 28
     out_w = target_w + pad_x * 2
     out_h = pad_top + bar_h + gap + text_h + pad_bottom
     canvas = Image.new("RGB", (out_w, out_h), (255, 255, 255))
@@ -1220,12 +1228,12 @@ def render_shipment_barcode_print_html(
   }}
   .label.barcode {{
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    padding: 1mm 0.5mm;
-    gap: 1mm;
+    padding: 1mm 2mm;
+    gap: 0;
   }}
   .label.barcode img {{
-    width: 57mm; height: auto; max-height: 38mm;
-    object-fit: contain; object-position: center;
+    width: 56mm; height: 38mm; max-height: none;
+    object-fit: fill; object-position: center;
   }}
   .label.barcode .code {{
     font-family: "DejaVu Sans Mono", "Courier New", monospace;

@@ -5154,8 +5154,8 @@
     try {
       JsBarcode(bcCanvas, value, {
         format: "CODE128",
-        width: forPrint ? 3.5 : 2,
-        height: forPrint ? 96 : 80,
+        width: 2,
+        height: forPrint ? 120 : 80,
         displayValue: false,
         margin: forPrint ? 2 : 8,
         background: "#ffffff",
@@ -5164,16 +5164,22 @@
     } catch (_e) {
       return "";
     }
-    const targetW = forPrint ? 540 : Math.max(bcCanvas.width, 420);
-    const barH = Math.max(
-      forPrint ? 88 : 72,
-      Math.min(forPrint ? 156 : 140, Math.round(targetW * (forPrint ? 0.24 : 0.22)))
-    );
-    const padX = forPrint ? 4 : 12;
-    const padTop = forPrint ? 8 : 10;
-    const padBottom = forPrint ? 8 : 10;
-    const gap = forPrint ? 6 : 8;
-    const textH = forPrint ? 26 : 28;
+    const targetW = Math.max(bcCanvas.width, 420);
+    const padX = 12;
+    let padTop = 10;
+    let padBottom = 10;
+    let gap = 8;
+    let textH = 28;
+    let barH = Math.max(72, Math.min(140, Math.round(targetW * 0.22)));
+    if (forPrint) {
+      padTop = 2;
+      padBottom = 2;
+      gap = 4;
+      textH = 22;
+      const outWTarget = targetW + padX * 2;
+      const outHTarget = Math.max(1, Math.round(outWTarget * (40 / 58)));
+      barH = Math.max(120, outHTarget - padTop - padBottom - gap - textH);
+    }
     const outW = targetW + padX * 2;
     const outH = padTop + barH + gap + textH + padBottom;
     const out = document.createElement("canvas");
@@ -5239,11 +5245,11 @@
   .label {
     width: 58mm; height: 40mm; page-break-after: always;
     overflow: hidden; display: flex; align-items: center; justify-content: center;
-    padding: 1mm 0.5mm;
+    padding: 1mm 2mm;
   }
   .label img {
-    width: 57mm; height: auto; max-height: 38mm;
-    object-fit: contain; object-position: center;
+    width: 56mm; height: 38mm; max-height: none;
+    object-fit: fill; object-position: center;
   }
   .toolbar { padding: 8px 12px; }
   @media print { .toolbar { display: none !important; } }
