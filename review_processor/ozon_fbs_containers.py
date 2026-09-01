@@ -12,6 +12,7 @@ Seller API:
 """
 from __future__ import annotations
 
+import json
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -116,7 +117,9 @@ def _normalize_container(raw: dict[str, Any]) -> dict[str, Any] | None:
         if str(a).strip()
     ]
     can_delete = "delete" in {a.lower() for a in actions}
-    can_print = "get_label_container" in {a.lower() for a in actions} or True
+    acts_l = {a.lower() for a in actions}
+    # Label is available while Ozon exposes get_label_container (or brand-new «new»).
+    can_print = ("get_label_container" in acts_l) or (status in {"new", "approve_failed"})
     return {
         "container_id": cid,
         "container_number": number,
@@ -134,7 +137,27 @@ def _normalize_container(raw: dict[str, Any]) -> dict[str, Any] | None:
         "available_actions": actions,
         "can_delete": can_delete,
         "can_print": bool(can_print),
+        "can_approve": "approve" in acts_l,
     }
+
+
+def _friendly_ozon_error(exc: Exception) -> str:
+    """Extract Ozon ``message`` from ``Ozon HTTP N: {json}`` RuntimeError text."""
+    text = str(exc or "").strip()
+    if not text:
+        return "Ошибка Ozon API"
+    # Typical: Ozon HTTP 400: {"code":3,"message":"FORBIDDEN_TO_CREATE_SORT_BOX"}
+    if "{" in text and "}" in text:
+        try:
+            raw = text[text.index("{") : text.rindex("}") + 1]
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                msg = str(data.get("message") or "").strip()
+                if msg:
+                    return msg
+        except Exception:
+            pass
+    return text
 
 
 def resolve_supply_warehouse_id(
@@ -144,30 +167,46 @@ def resolve_supply_warehouse_id(
     source_id: int,
     supply_id: str,
 ) -> tuple[int, str]:
-    """Warehouse for containers: supply row, else first posting."""
-    detail = oz_sup.get_supply_detail(
-        repo,
-        user_id=user_id,
-        source_id=source_id,
-        supply_id=str(supply_id),
-    )
-    wh = detail.get("warehouse_id")
-    wh_name = str(detail.get("warehouse_label") or detail.get("warehouse_name") or "").strip()
-    try:
-        wh_id = int(wh) if wh is not None and str(wh).strip() != "" else 0
-    except (TypeError, ValueError):
-        wh_id = 0
-    if wh_id > 0:
-        return wh_id, wh_name
-    for order in detail.get("orders") or []:
-        if not isinstance(order, dict):
-            continue
+    """Warehouse for containers: supply row, else first linked posting."""
+    sid = str(supply_id or "").strip()
+    if not sid:
+        raise RuntimeError("Укажите supply_id")
+    supply = oz_sup.get_supply(repo, user_id=user_id, source_id=source_id, supply_id=sid)
+    wh_name = ""
+    wh_id = 0
+    if supply:
+        wh_name = str(supply.get("warehouse_name") or "").strip()
         try:
-            oid = int(order.get("warehouse_id") or 0)
+            wh = supply.get("warehouse_id")
+            wh_id = int(wh) if wh is not None and str(wh).strip() != "" else 0
         except (TypeError, ValueError):
-            oid = 0
-        if oid > 0:
-            return oid, str(order.get("warehouse_label") or wh_name).strip()
+            wh_id = 0
+        if wh_id > 0:
+            return wh_id, wh_name
+    # Fallback: warehouse from any posting linked to this supply.
+    oz_sup.ensure_ozon_fbs_supply_schema(repo)
+    with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql(
+                """
+                SELECT warehouse_id, warehouse_name
+                FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                  AND warehouse_id IS NOT NULL
+                ORDER BY posting_number
+                LIMIT 1
+                """
+            ),
+            (user_id, source_id, sid),
+        ).fetchone()
+    if row:
+        d = repo._row_to_dict(row)
+        try:
+            wh_id = int(d.get("warehouse_id") or 0)
+        except (TypeError, ValueError):
+            wh_id = 0
+        if wh_id > 0:
+            return wh_id, str(d.get("warehouse_name") or wh_name).strip() or wh_name
     raise RuntimeError("Не удалось определить склад поставки для грузомест")
 
 
@@ -199,7 +238,10 @@ def list_containers(
         }
         if cursor:
             body["cursor"] = cursor
-        data = client.carriage_container_list(body)
+        try:
+            data = client.carriage_container_list(body)
+        except RuntimeError as exc:
+            raise RuntimeError(_friendly_ozon_error(exc)) from exc
         rows = data.get("containers") if isinstance(data, dict) else None
         if not isinstance(rows, list):
             rows = []
@@ -253,12 +295,15 @@ def create_containers(
     ct = str(cargo_type or "").strip().lower()
     if ct not in CARGO_TYPES:
         raise ValueError("cargo_type: box или pallet")
-    data = client.carriage_container_create(
-        warehouse_id=wh,
-        containers_count=count,
-        sort_type=st,
-        cargo_type=ct,
-    )
+    try:
+        data = client.carriage_container_create(
+            warehouse_id=wh,
+            containers_count=count,
+            sort_type=st,
+            cargo_type=ct,
+        )
+    except RuntimeError as exc:
+        raise RuntimeError(_friendly_ozon_error(exc)) from exc
     ids_raw = data.get("container_ids") if isinstance(data, dict) else None
     ids: list[int] = []
     if isinstance(ids_raw, list):
@@ -302,7 +347,10 @@ def delete_containers(
     ids = ids[:100]
     if not ids:
         raise ValueError("Укажите ID грузомест")
-    data = client.carriage_container_cancel(container_ids=ids)
+    try:
+        data = client.carriage_container_cancel(container_ids=ids)
+    except RuntimeError as exc:
+        raise RuntimeError(_friendly_ozon_error(exc)) from exc
     errors = []
     if isinstance(data, dict):
         for err in data.get("error_containers") or []:
@@ -341,7 +389,10 @@ def get_container_labels_pdf(
     ids = ids[:300]
     if not ids:
         raise ValueError("Укажите ID грузомест")
-    data = client.carriage_container_label_get(container_ids=ids)
+    try:
+        data = client.carriage_container_label_get(container_ids=ids)
+    except RuntimeError as exc:
+        raise RuntimeError(_friendly_ozon_error(exc)) from exc
     content = data.get("content") if isinstance(data, dict) else None
     file_b64 = ""
     content_type = "application/pdf"

@@ -113,3 +113,35 @@ def test_delete_and_labels() -> None:
     assert deleted["deleted"] == 1
     labels = ct.get_container_labels_pdf(client, container_ids=[111])
     assert labels["file_content"] == "JVBERi0x"
+
+
+def test_can_print_not_always_true() -> None:
+    row = ct._normalize_container(
+        {
+            "container_id": 9,
+            "container_number": 1,
+            "status": "shipped",
+            "available_actions": [],
+            "count_of_postings": 0,
+        }
+    )
+    assert row is not None
+    assert row["can_print"] is False
+    row2 = ct._normalize_container(
+        {
+            "container_id": 10,
+            "container_number": 2,
+            "status": "new",
+            "available_actions": ["delete", "get_label_container"],
+            "count_of_postings": 0,
+        }
+    )
+    assert row2 is not None
+    assert row2["can_print"] is True
+
+
+def test_friendly_ozon_error() -> None:
+    msg = ct._friendly_ozon_error(
+        RuntimeError('Ozon HTTP 400: {"code":3,"message":"FORBIDDEN_TO_CREATE_SORT_BOX"}')
+    )
+    assert msg == "FORBIDDEN_TO_CREATE_SORT_BOX"

@@ -4660,6 +4660,7 @@
       const cargoLabel = esc(c.cargo_type_label || "");
       const meta = [sortLabel, cargoLabel].filter(Boolean).join(" · ");
       const canDelete = c.can_delete !== false;
+      const canPrint = c.can_print !== false;
       const safeJs = JSON.stringify(cid);
       return `<tr>
         <td>
@@ -4671,7 +4672,7 @@
         <td class="wb-fbs-trbx-boxes-col-act">
           <div class="wb-fbs-trbx-box-actions">
             <button type="button" class="wb-fbs-trbx-box-print" title="Печать этикетки"
-                    aria-label="Печать ${esc(cid)}" ${busy}
+                    aria-label="Печать ${esc(cid)}" ${(busy || !canPrint) ? "disabled" : ""}
                     onclick='printOzonFbsContainerLabel(${safeJs})'>⎙</button>
             <button type="button" class="wb-fbs-trbx-box-delete" title="Удалить грузоместо"
                     aria-label="Удалить ${esc(cid)}" ${(busy || !canDelete) ? "disabled" : ""}
