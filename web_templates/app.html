@@ -3188,11 +3188,10 @@
 
         <div id="ozonFbsKizModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
              aria-labelledby="ozonFbsKizTitle">
-          <div class="modal-card wb-fbs-kiz-modal">
+          <div class="modal-card wb-fbs-kiz-modal ozon-fbs-kiz-modal">
             <div class="wb-fbs-kiz-header">
               <div class="wb-fbs-kiz-header-main">
                 <h3 id="ozonFbsKizTitle" class="wb-fbs-kiz-title">Маркировка</h3>
-                <p class="wb-fbs-kiz-sub">Код Data Matrix «Честный знак» для отправлений Ozon FBS. Сохранение только локально в FeedPilot (без передачи в Ozon).</p>
               </div>
               <div class="wb-fbs-kiz-header-actions">
                 <button type="button" id="ozonFbsKizImportBtn" class="secondary"
@@ -3234,22 +3233,32 @@
                 <div id="ozonFbsKizContainerCount" class="wb-fbs-kiz-scan-count ozon-fbs-container-count" hidden aria-live="polite"></div>
               </div>
             </div>
-            <div class="wb-fbs-kiz-scan-bar">
-              <label class="wb-fbs-kiz-scan-label" for="ozonFbsKizStickerScan">Сканирование</label>
-              <div class="wb-fbs-kiz-scan-field">
-                <input id="ozonFbsKizStickerScan" class="wb-fbs-kiz-scan-input" type="text" autocomplete="off"
-                       placeholder="Сканируйте QR этикетки Ozon или номер отправления"
-                       oninput="onWbFbsKizScanInputCheck(event)"
-                       onkeydown="onOzonFbsKizStickerScanKey(event)" />
-                <button type="button" class="wb-fbs-kiz-scan-clear" title="Очистить"
-                        aria-label="Очистить поле сканирования"
-                        onclick="clearWbFbsKizScanField('ozonFbsKizStickerScan')">✕</button>
+            <div class="wb-fbs-kiz-scan-bar ozon-fbs-scan-bar-compact">
+              <div class="ozon-fbs-scan-bar-main">
+                <label class="wb-fbs-kiz-scan-label" for="ozonFbsKizStickerScan">Сканирование</label>
+                <div class="wb-fbs-kiz-scan-field">
+                  <input id="ozonFbsKizStickerScan" class="wb-fbs-kiz-scan-input" type="text" autocomplete="off"
+                         placeholder="Сканируйте QR этикетки Ozon или номер отправления"
+                         oninput="onWbFbsKizScanInputCheck(event)"
+                         onkeydown="onOzonFbsKizStickerScanKey(event)" />
+                  <button type="button" class="wb-fbs-kiz-scan-clear" title="Очистить"
+                          aria-label="Очистить поле сканирования"
+                          onclick="clearWbFbsKizScanField('ozonFbsKizStickerScan')">✕</button>
+                </div>
+              </div>
+              <div class="ozon-fbs-container-scan-row" id="ozonFbsKizContainerScanRow" hidden>
+                <label class="ozon-fbs-container-scan-check" id="ozonFbsKizContainerScanLabel">
+                  <input type="checkbox" id="ozonFbsKizContainerScanCheck" onchange="onOzonFbsContainerScanCheckChange('kiz')" />
+                  Просканировать ШК грузоместа
+                </label>
+                <span class="ozon-fbs-container-active-target" id="ozonFbsKizContainerActive" hidden aria-live="polite">
+                  <span class="ozon-fbs-container-active-num" id="ozonFbsKizContainerActiveNum"></span>
+                  <button type="button" class="ozon-fbs-container-active-clear" title="Прекратить сканирование в это грузоместо"
+                          aria-label="Прекратить сканирование в это грузоместо"
+                          onclick="clearOzonFbsActiveContainer('kiz')">×</button>
+                </span>
               </div>
             </div>
-            <label class="ozon-fbs-container-scan-check" id="ozonFbsKizContainerScanLabel" hidden>
-              <input type="checkbox" id="ozonFbsKizContainerScanCheck" onchange="onOzonFbsContainerScanCheckChange('kiz')" />
-              Просканировать ШК грузоместа
-            </label>
             <div id="ozonFbsKizInfo" class="wb-fbs-kiz-info" hidden></div>
             <div class="wb-fbs-kiz-table-wrap">
               <table class="wb-fbs-kiz-table" id="ozonFbsKizTable">
@@ -3379,22 +3388,32 @@
                 <div id="ozonFbsPickContainerCount" class="wb-fbs-kiz-scan-count ozon-fbs-container-count" hidden aria-live="polite"></div>
               </div>
             </div>
-            <div class="wb-fbs-kiz-scan-bar">
-              <label class="wb-fbs-kiz-scan-label" for="ozonFbsPickStickerScan">Сканирование</label>
-              <div class="wb-fbs-kiz-scan-field">
-                <input id="ozonFbsPickStickerScan" class="wb-fbs-kiz-scan-input" type="text" autocomplete="off"
-                       placeholder="Сканируйте QR этикетки Ozon или номер отправления"
-                       oninput="onWbFbsKizScanInputCheck(event)"
-                       onkeydown="onOzonFbsPickStickerScanKey(event)" />
-                <button type="button" class="wb-fbs-kiz-scan-clear" title="Очистить"
-                        aria-label="Очистить поле сканирования"
-                        onclick="clearWbFbsKizScanField('ozonFbsPickStickerScan')">✕</button>
+            <div class="wb-fbs-kiz-scan-bar ozon-fbs-scan-bar-compact">
+              <div class="ozon-fbs-scan-bar-main">
+                <label class="wb-fbs-kiz-scan-label" for="ozonFbsPickStickerScan">Сканирование</label>
+                <div class="wb-fbs-kiz-scan-field">
+                  <input id="ozonFbsPickStickerScan" class="wb-fbs-kiz-scan-input" type="text" autocomplete="off"
+                         placeholder="Сканируйте QR этикетки Ozon или номер отправления"
+                         oninput="onWbFbsKizScanInputCheck(event)"
+                         onkeydown="onOzonFbsPickStickerScanKey(event)" />
+                  <button type="button" class="wb-fbs-kiz-scan-clear" title="Очистить"
+                          aria-label="Очистить поле сканирования"
+                          onclick="clearWbFbsKizScanField('ozonFbsPickStickerScan')">✕</button>
+                </div>
+              </div>
+              <div class="ozon-fbs-container-scan-row" id="ozonFbsPickContainerScanRow" hidden>
+                <label class="ozon-fbs-container-scan-check" id="ozonFbsPickContainerScanLabel">
+                  <input type="checkbox" id="ozonFbsPickContainerScanCheck" onchange="onOzonFbsContainerScanCheckChange('pick')" />
+                  Просканировать ШК грузоместа
+                </label>
+                <span class="ozon-fbs-container-active-target" id="ozonFbsPickContainerActive" hidden aria-live="polite">
+                  <span class="ozon-fbs-container-active-num" id="ozonFbsPickContainerActiveNum"></span>
+                  <button type="button" class="ozon-fbs-container-active-clear" title="Прекратить сканирование в это грузоместо"
+                          aria-label="Прекратить сканирование в это грузоместо"
+                          onclick="clearOzonFbsActiveContainer('pick')">×</button>
+                </span>
               </div>
             </div>
-            <label class="ozon-fbs-container-scan-check" id="ozonFbsPickContainerScanLabel" hidden>
-              <input type="checkbox" id="ozonFbsPickContainerScanCheck" onchange="onOzonFbsContainerScanCheckChange('pick')" />
-              Просканировать ШК грузоместа
-            </label>
             <div id="ozonFbsPickInfo" class="wb-fbs-kiz-info" hidden></div>
             <div class="wb-fbs-kiz-table-wrap">
               <table class="wb-fbs-kiz-table" id="ozonFbsPickTable">

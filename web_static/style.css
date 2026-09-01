@@ -10957,7 +10957,104 @@ button.wb-fbs-sd-portal-btn:focus-visible {
 }
 .wb-fbs-kiz-table-wrap {
   flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
+}
+
+/* Ozon FBS «Маркировка»: компактная шапка, больше места под таблицу заказов */
+#ozonFbsKizModal .ozon-fbs-kiz-modal {
+  height: calc(100vh - 24px);
+  max-height: calc(100vh - 24px);
+}
+#ozonFbsKizModal .ozon-fbs-kiz-modal .wb-fbs-kiz-header {
+  padding: 16px 24px 12px;
+}
+#ozonFbsKizModal .ozon-fbs-kiz-modal .wb-fbs-kiz-title {
+  margin-bottom: 0;
+  font-size: 24px;
+}
+#ozonFbsKizModal .ozon-fbs-kiz-modal .wb-fbs-kiz-toolbar {
+  padding: 8px 24px;
+}
+#ozonFbsKizModal .ozon-fbs-kiz-modal .wb-fbs-kiz-table th,
+#ozonFbsKizModal .ozon-fbs-kiz-modal .wb-fbs-kiz-table td {
+  padding: 12px 16px;
+}
+
+/* Ozon FBS «Маркировка» / «Проверка ШК»: компактная строка сканирования */
+.ozon-fbs-scan-bar-compact {
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 24px;
+}
+.ozon-fbs-scan-bar-main {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.ozon-fbs-scan-bar-compact .wb-fbs-kiz-scan-label {
+  flex: 0 0 auto;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.ozon-fbs-scan-bar-compact .wb-fbs-kiz-scan-field {
+  flex: 1 1 auto;
+  min-width: 120px;
+}
+.ozon-fbs-scan-bar-compact .wb-fbs-kiz-scan-input {
+  min-height: 32px;
+  padding: 4px 10px;
+  font-size: 14px;
+}
+.ozon-fbs-scan-bar-compact .wb-fbs-kiz-scan-clear {
+  width: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  font-size: 14px;
+}
+.ozon-fbs-scan-bar-compact .ozon-fbs-container-scan-row {
+  flex: 0 1 auto;
+  margin: 0;
+  padding: 0;
+  gap: 8px;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+}
+.ozon-fbs-scan-bar-compact .ozon-fbs-container-scan-check {
+  font-size: 13px;
+  white-space: nowrap;
+}
+.ozon-fbs-scan-bar-compact .ozon-fbs-container-active-target {
+  min-height: 28px;
+  padding: 2px 6px 2px 8px;
+}
+.ozon-fbs-scan-bar-compact .ozon-fbs-container-active-num {
+  font-size: 13px;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ozon-fbs-scan-bar-compact .ozon-fbs-container-active-clear {
+  width: 20px;
+  height: 20px;
+  font-size: 14px;
+}
+@media (max-width: 1100px) {
+  .ozon-fbs-scan-bar-compact {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .ozon-fbs-scan-bar-compact .ozon-fbs-container-scan-row {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+  }
+  .ozon-fbs-scan-bar-compact .ozon-fbs-container-active-num {
+    max-width: none;
+  }
 }
 .wb-fbs-kiz-table {
   width: 100%;
@@ -11362,6 +11459,10 @@ button.wb-fbs-kiz-add:disabled {
     max-width: 100%;
     height: calc(100vh - 32px);
     max-height: calc(100vh - 32px);
+  }
+  #ozonFbsKizModal .ozon-fbs-kiz-modal {
+    height: calc(100vh - 16px);
+    max-height: calc(100vh - 16px);
   }
   .wb-fbs-kiz-header,
   .wb-fbs-kiz-toolbar,
@@ -14226,18 +14327,26 @@ button.wb-fbs-kiz-add:disabled {
 
 
 /* Ozon FBS cargo-place bind in Marking / Pick Verify */
+.ozon-fbs-container-scan-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+}
+.ozon-fbs-container-scan-row[hidden] { display: none !important; }
 .ozon-fbs-container-scan-check {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 8px 0 0;
-  padding: 0 4px;
+  margin: 0;
+  padding: 0;
   font-size: 14px;
   color: #334155;
   cursor: pointer;
   user-select: none;
 }
-.ozon-fbs-container-scan-check[hidden] { display: none !important; }
 .ozon-fbs-container-scan-check.is-wait-rows {
   opacity: 0.5;
   cursor: not-allowed;
@@ -14245,6 +14354,52 @@ button.wb-fbs-kiz-add:disabled {
 }
 .ozon-fbs-container-scan-check.is-wait-rows input {
   cursor: not-allowed;
+}
+.ozon-fbs-container-scan-row.is-wait-rows {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.ozon-fbs-container-scan-row.is-wait-rows input {
+  cursor: not-allowed;
+}
+.ozon-fbs-container-active-target {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 8px 4px 12px;
+  border: 1px solid #99f6e4;
+  border-radius: 8px;
+  background: #f0fdfa;
+  color: #0f766e;
+}
+.ozon-fbs-container-active-target[hidden] { display: none !important; }
+.ozon-fbs-container-active-num {
+  font-size: 14px;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  line-height: 1.2;
+  word-break: break-all;
+}
+.ozon-fbs-container-active-clear {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+.ozon-fbs-container-active-clear:hover {
+  background: #ccfbf1;
+  color: #0f172a;
+}
+.ozon-fbs-container-active-clear:focus-visible {
+  outline: 2px solid #0f766e;
+  outline-offset: 1px;
 }
 .ozon-fbs-container-scan-check input {
   width: 16px;

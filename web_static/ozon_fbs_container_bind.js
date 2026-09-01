@@ -101,51 +101,92 @@
     if (!container) {
       state.activeId = null;
       state.activeBarcode = "";
+      refreshActiveContainerUi();
       return;
     }
     const cid = Number(container.container_id || 0) || 0;
     state.activeId = cid > 0 ? cid : null;
     state.activeBarcode = String(cid || "").trim();
     if (cid > 0) state.usedInSession = true;
+    refreshActiveContainerUi();
+  }
+
+  function activeContainerEls(mode) {
+    const isKiz = mode === "kiz";
+    return {
+      row: document.getElementById(isKiz ? "ozonFbsKizContainerScanRow" : "ozonFbsPickContainerScanRow"),
+      check: document.getElementById(isKiz ? "ozonFbsKizContainerScanCheck" : "ozonFbsPickContainerScanCheck"),
+      active: document.getElementById(isKiz ? "ozonFbsKizContainerActive" : "ozonFbsPickContainerActive"),
+      num: document.getElementById(isKiz ? "ozonFbsKizContainerActiveNum" : "ozonFbsPickContainerActiveNum"),
+    };
+  }
+
+  function activeContainerDisplayText() {
+    if (!state.activeId) return "";
+    return state.activeBarcode || String(state.activeId);
+  }
+
+  function activeContainerTitle() {
+    const cur = state.byId.get(String(state.activeId || ""));
+    if (!cur) return "Активное грузоместо для сканирования заказов";
+    const parts = ["Активное грузоместо для сканирования заказов"];
+    const num = Number(cur.container_number || 0);
+    if (num > 0) parts.push(`№ ${num}`);
+    const st = String(cur.status_label || cur.status || "").trim();
+    if (st) parts.push(st);
+    return parts.join(" · ");
+  }
+
+  function updateActiveContainerUi(mode) {
+    const els = activeContainerEls(mode);
+    const showRow = !!state.hasContainers;
+    if (els.row) els.row.hidden = !showRow;
+    const hasActive = showRow && !!state.activeId;
+    if (els.active) els.active.hidden = !hasActive;
+    if (els.num) {
+      els.num.textContent = hasActive ? activeContainerDisplayText() : "";
+      els.num.title = hasActive ? activeContainerTitle() : "";
+    }
+  }
+
+  function refreshActiveContainerUi() {
+    updateActiveContainerUi("kiz");
+    updateActiveContainerUi("pick");
   }
 
   function syncCheckboxUi(mode) {
+    const els = activeContainerEls(mode);
     const isKiz = mode === "kiz";
-    const label = document.getElementById(
-      isKiz ? "ozonFbsKizContainerScanLabel" : "ozonFbsPickContainerScanLabel"
-    );
-    const check = document.getElementById(
-      isKiz ? "ozonFbsKizContainerScanCheck" : "ozonFbsPickContainerScanCheck"
-    );
     const show = !!state.hasContainers;
-    if (label) label.hidden = !show;
-    if (check && !show) check.checked = false;
+    if (els.row) els.row.hidden = !show;
+    if (els.check && !show) els.check.checked = false;
     // Mirror Marking / Pick Verify wait lock while rows are still loading.
     const rowsReady = isKiz
       ? !!window.ozonFbsKizState?.rowsReady
       : !!window.ozonFbsPickState?.rowsReady;
-    if (check) {
-      check.disabled = !rowsReady;
-      if (!rowsReady) check.checked = false;
+    if (els.check) {
+      els.check.disabled = !rowsReady;
+      if (!rowsReady) els.check.checked = false;
     }
-    if (label) {
+    if (els.row) {
       const tip = "Дождитесь загрузки заказов";
       if (!rowsReady) {
-        if (label.dataset.waitTitleSaved === undefined) {
-          label.dataset.waitTitleSaved = label.getAttribute("title") || "";
+        if (els.row.dataset.waitTitleSaved === undefined) {
+          els.row.dataset.waitTitleSaved = els.row.getAttribute("title") || "";
         }
-        label.classList.add("is-wait-rows");
-        label.setAttribute("title", tip);
+        els.row.classList.add("is-wait-rows");
+        els.row.setAttribute("title", tip);
       } else {
-        label.classList.remove("is-wait-rows");
-        const saved = label.dataset.waitTitleSaved;
+        els.row.classList.remove("is-wait-rows");
+        const saved = els.row.dataset.waitTitleSaved;
         if (saved !== undefined) {
-          if (saved) label.setAttribute("title", saved);
-          else label.removeAttribute("title");
-          delete label.dataset.waitTitleSaved;
+          if (saved) els.row.setAttribute("title", saved);
+          else els.row.removeAttribute("title");
+          delete els.row.dataset.waitTitleSaved;
         }
       }
     }
+    updateActiveContainerUi(mode);
     setContainerColumnsVisible(show);
   }
 
@@ -264,6 +305,15 @@
         input.placeholder = "Сканируйте QR грузоместа";
         setTimeout(() => input.focus(), 30);
       }
+      const setInfo = isKiz ? window._ozonFbsKizSetInfo : window._ozonFbsPickSetInfo;
+      if (typeof setInfo === "function") {
+        setInfo(
+          state.activeId
+            ? `Активное грузоместо ${activeContainerDisplayText()}. Отсканируйте QR следующего или снимите галку.`
+            : "Отсканируйте QR грузоместа",
+          true
+        );
+      }
     } else if (input) {
       input.placeholder = "Сканируйте QR этикетки Ozon или номер отправления";
     }
@@ -315,12 +365,53 @@
     }
     if (typeof setInfo === "function") {
       setInfo(
-        `Грузоместо ${state.activeBarcode} выбрано. Сканируйте заказы для него.`,
+        `Грузоместо ${activeContainerDisplayText()} выбрано. Сканируйте заказы для него.`,
         true
       );
     }
     updateContainerCounters();
     return true;
+  }
+
+  function clearActiveContainer(mode) {
+    if (!state.activeId) return;
+    setActive(null);
+    const isKiz = mode === "kiz";
+    const check = document.getElementById(
+      isKiz ? "ozonFbsKizContainerScanCheck" : "ozonFbsPickContainerScanCheck"
+    );
+    const input = document.getElementById(
+      isKiz ? "ozonFbsKizStickerScan" : "ozonFbsPickStickerScan"
+    );
+    if (check?.checked) {
+      check.checked = false;
+      if (input) {
+        input.placeholder = "Сканируйте QR этикетки Ozon или номер отправления";
+      }
+    }
+    const setInfo = isKiz ? window._ozonFbsKizSetInfo : window._ozonFbsPickSetInfo;
+    if (typeof setInfo === "function") {
+      setInfo(
+        "Сканирование в грузоместо остановлено. Заказы больше не привязываются автоматически.",
+        true
+      );
+    }
+  }
+
+  function clearActiveContainerOnModalClose() {
+    const hadActive = !!state.activeId;
+    setActive(null);
+    ["kiz", "pick"].forEach((mode) => {
+      const els = activeContainerEls(mode);
+      if (els.check) els.check.checked = false;
+      const input = document.getElementById(
+        mode === "kiz" ? "ozonFbsKizStickerScan" : "ozonFbsPickStickerScan"
+      );
+      if (input) {
+        input.placeholder = "Сканируйте QR этикетки Ozon или номер отправления";
+      }
+    });
+    if (hadActive) refreshActiveContainerUi();
   }
 
   function openRebindModal({ postingNumber, oldBarcode, newBarcode }) {
@@ -565,11 +656,8 @@
   }
 
   function resetForModal(mode) {
-    const check = document.getElementById(
-      mode === "kiz" ? "ozonFbsKizContainerScanCheck" : "ozonFbsPickContainerScanCheck"
-    );
-    if (check) check.checked = false;
-    // Keep active cargo place within the same supply session; clear only when no containers.
+    const els = activeContainerEls(mode);
+    if (els.check) els.check.checked = false;
     if (!state.hasContainers) setActive(null);
     syncCheckboxUi(mode);
     updateContainerCounters();
@@ -634,6 +722,8 @@
   window._ozonFbsContainerErrorsTooltip = containerErrorsTooltip;
   window._ozonFbsContainerInvalidate = invalidateContainersCache;
   window.onOzonFbsContainerScanCheckChange = onContainerScanCheckChange;
+  window.clearOzonFbsActiveContainer = clearActiveContainer;
+  window._ozonFbsContainerClearOnModalClose = clearActiveContainerOnModalClose;
   window.clearOzonFbsContainerBind = clearBind;
   window.onOzonFbsContainerCellKey = onContainerCellKey;
   window.closeOzonFbsContainerRebindModal = closeRebindModal;
