@@ -7202,12 +7202,15 @@
     const tip = "Дождитесь загрузки заказов";
     const filled = document.getElementById("ozonFbsKizFilterFilled");
     const empty = document.getElementById("ozonFbsKizFilterEmpty");
+    const legal = document.getElementById("ozonFbsKizFilterLegal");
     const errors = document.getElementById("ozonFbsKizFilterErrors");
     const cancelled = document.getElementById("ozonFbsKizFilterCancelled");
     const filledLabel = document.getElementById("ozonFbsKizFilterFilledLabel")
       || (filled && filled.closest("label"));
     const emptyLabel = document.getElementById("ozonFbsKizFilterEmptyLabel")
       || (empty && empty.closest("label"));
+    const legalLabel = document.getElementById("ozonFbsKizFilterLegalLabel")
+      || (legal && legal.closest("label"));
     const errorsLabel = document.getElementById("ozonFbsKizFilterErrorsLabel")
       || (errors && errors.closest("label"));
     const cancelledLabel = document.getElementById("ozonFbsKizFilterCancelledLabel")
@@ -7264,10 +7267,12 @@
 
     if (filled) filled.disabled = !ready;
     if (empty) empty.disabled = !ready;
+    if (legal) legal.disabled = !ready;
     if (errors) errors.disabled = !ready;
     if (cancelled) cancelled.disabled = !ready;
     setLabelWait(filledLabel, !ready);
     setLabelWait(emptyLabel, !ready);
+    setLabelWait(legalLabel, !ready);
     setLabelWait(errorsLabel, !ready);
     setLabelWait(cancelledLabel, !ready);
     setInputWait(search, !ready);
@@ -7564,12 +7569,15 @@
       .toLowerCase();
     const showFilled = !!document.getElementById("ozonFbsKizFilterFilled")?.checked;
     const showEmpty = !!document.getElementById("ozonFbsKizFilterEmpty")?.checked;
+    const showLegal = !!document.getElementById("ozonFbsKizFilterLegal")?.checked;
     const showErrors = !!document.getElementById("ozonFbsKizFilterErrors")?.checked;
     const showCancelled = !!document.getElementById("ozonFbsKizFilterCancelled")?.checked;
     const pending = String(ozonFbsKizState.pendingPosting || "").trim();
     const rows = (ozonFbsKizState.rows || []).filter((r) => {
       if (showFilled && _ozonFbsKizRowIsEmpty(r)) return false;
       if (showEmpty && !_ozonFbsKizRowIsEmpty(r)) return false;
+      // Ozon юрлицо: requirements.products_requiring_gtd → gtd_required.
+      if (showLegal && !r?.gtd_required) return false;
       if (showErrors && !_ozonFbsKizRowHasError(r)) return false;
       if (showCancelled && !String(r?.cancel_reason_label || "").trim()) return false;
       if (!q) return true;

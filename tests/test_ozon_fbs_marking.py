@@ -308,6 +308,54 @@ def test_build_marking_payload_filters_required_only() -> None:
     assert payload["rows"][0]["kiz_codes"] == [""]
 
 
+def test_build_marking_payload_sets_gtd_required_for_legal_entity() -> None:
+    """Marking modal filter «Юр. лица» relies on gtd_required from payload."""
+    detail = {
+        "supply_id": "OZ-LE",
+        "orders": [
+            {
+                "posting_number": "L-1",
+                "kiz_required": True,
+                "kiz_quantity": 1,
+                "product_name": "Юрлицо",
+                "offer_id": "ART-LE",
+                "barcodes": ["3001"],
+                "requirements": {
+                    "products_requiring_gtd": [111],
+                    "products_requiring_mandatory_mark": [111],
+                },
+                "products": [{"sku": 111, "quantity": 1, "offer_id": "ART-LE"}],
+            },
+            {
+                "posting_number": "L-2",
+                "kiz_required": True,
+                "kiz_quantity": 1,
+                "product_name": "Физлицо",
+                "offer_id": "ART-B2C",
+                "barcodes": ["3002"],
+                "requirements": {"products_requiring_mandatory_mark": [222]},
+                "products": [{"sku": 222, "quantity": 1, "offer_id": "ART-B2C"}],
+            },
+        ],
+    }
+    with (
+        patch(
+            "review_processor.ozon_fbs_marking.oz_sup.get_supply_detail",
+            return_value=detail,
+        ),
+        patch(
+            "review_processor.ozon_fbs_marking.load_marking_map",
+            return_value={},
+        ),
+    ):
+        payload = build_marking_payload(
+            MagicMock(), user_id=1, source_id=2, supply_id="OZ-LE"
+        )
+    by_pn = {r["posting_number"]: r for r in payload["rows"]}
+    assert by_pn["L-1"]["gtd_required"] is True
+    assert by_pn["L-2"]["gtd_required"] is False
+
+
 def test_clean_open_kiz_codes_drops_empty_extras() -> None:
     from review_processor.ozon_fbs_marking import clean_open_kiz_codes
 

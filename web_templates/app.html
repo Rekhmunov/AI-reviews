@@ -3206,11 +3206,16 @@
                   <input type="checkbox" id="ozonFbsKizFilterFilled" onchange="onOzonFbsKizFilterFilledChange()" />
                   Заполненные
                 </label>
-                <label class="wb-fbs-kiz-check">
+                <label class="wb-fbs-kiz-check" id="ozonFbsKizFilterEmptyLabel">
                   <input type="checkbox" id="ozonFbsKizFilterEmpty" onchange="onOzonFbsKizFilterEmptyChange()" />
                   Незаполненные
                 </label>
-                <label class="wb-fbs-kiz-check">
+                <label class="wb-fbs-kiz-check" id="ozonFbsKizFilterLegalLabel"
+                      title="Только заказы для юридических лиц (нужны КИЗ и ГТД)">
+                  <input type="checkbox" id="ozonFbsKizFilterLegal" onchange="renderOzonFbsKizTable()" />
+                  Юр. лица
+                </label>
+                <label class="wb-fbs-kiz-check" id="ozonFbsKizFilterErrorsLabel">
                   <input type="checkbox" id="ozonFbsKizFilterErrors" onchange="renderOzonFbsKizTable()" />
                   С ошибками
                 </label>
