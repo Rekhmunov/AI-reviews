@@ -10976,16 +10976,85 @@ button.wb-fbs-sd-portal-btn:focus-visible {
 #ozonFbsKizModal .ozon-fbs-kiz-modal .wb-fbs-kiz-toolbar {
   padding: 8px 24px;
 }
-#ozonFbsKizModal .ozon-fbs-kiz-modal .wb-fbs-kiz-scan-bar {
-  padding: 8px 24px;
-}
-#ozonFbsKizModal .ozon-fbs-kiz-modal .ozon-fbs-container-scan-row {
-  margin-top: 0;
-  padding-bottom: 4px;
-}
 #ozonFbsKizModal .ozon-fbs-kiz-modal .wb-fbs-kiz-table th,
 #ozonFbsKizModal .ozon-fbs-kiz-modal .wb-fbs-kiz-table td {
   padding: 12px 16px;
+}
+
+/* Ozon FBS «Маркировка» / «Проверка ШК»: компактная строка сканирования */
+.ozon-fbs-scan-bar-compact {
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 24px;
+}
+.ozon-fbs-scan-bar-main {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.ozon-fbs-scan-bar-compact .wb-fbs-kiz-scan-label {
+  flex: 0 0 auto;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.ozon-fbs-scan-bar-compact .wb-fbs-kiz-scan-field {
+  flex: 1 1 auto;
+  min-width: 120px;
+}
+.ozon-fbs-scan-bar-compact .wb-fbs-kiz-scan-input {
+  min-height: 32px;
+  padding: 4px 10px;
+  font-size: 14px;
+}
+.ozon-fbs-scan-bar-compact .wb-fbs-kiz-scan-clear {
+  width: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  font-size: 14px;
+}
+.ozon-fbs-scan-bar-compact .ozon-fbs-container-scan-row {
+  flex: 0 1 auto;
+  margin: 0;
+  padding: 0;
+  gap: 8px;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+}
+.ozon-fbs-scan-bar-compact .ozon-fbs-container-scan-check {
+  font-size: 13px;
+  white-space: nowrap;
+}
+.ozon-fbs-scan-bar-compact .ozon-fbs-container-active-target {
+  min-height: 28px;
+  padding: 2px 6px 2px 8px;
+}
+.ozon-fbs-scan-bar-compact .ozon-fbs-container-active-num {
+  font-size: 13px;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ozon-fbs-scan-bar-compact .ozon-fbs-container-active-clear {
+  width: 20px;
+  height: 20px;
+  font-size: 14px;
+}
+@media (max-width: 1100px) {
+  .ozon-fbs-scan-bar-compact {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .ozon-fbs-scan-bar-compact .ozon-fbs-container-scan-row {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+  }
+  .ozon-fbs-scan-bar-compact .ozon-fbs-container-active-num {
+    max-width: none;
+  }
 }
 .wb-fbs-kiz-table {
   width: 100%;
@@ -14263,8 +14332,8 @@ button.wb-fbs-kiz-add:disabled {
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
-  margin: 8px 0 0;
-  padding: 0 4px;
+  margin: 0;
+  padding: 0;
 }
 .ozon-fbs-container-scan-row[hidden] { display: none !important; }
 .ozon-fbs-container-scan-check {
