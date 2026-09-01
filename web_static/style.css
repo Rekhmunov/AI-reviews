@@ -9706,6 +9706,10 @@ button.wb-fbs-select-all-link:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.wb-fbs-cancel-reason.is-lead {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
 .wb-fbs-cancel-reason--sold {
   border-color: #bbf7d0;
   background: #f0fdf4;

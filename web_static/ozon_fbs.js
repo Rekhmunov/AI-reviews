@@ -2607,10 +2607,11 @@
       .catch((e) => alert(String(e.message || e)));
   }
 
-  function cancelBadgeHtml(row) {
+  function cancelBadgeHtml(row, { lead } = {}) {
     const label = String(row?.cancel_reason_label || "").trim();
     if (!label) return "";
-    return `<div class="wb-fbs-cancel-reason" title="${esc(label)}">${esc(label)}</div>`;
+    const leadCls = lead ? " is-lead" : "";
+    return `<div class="wb-fbs-cancel-reason${leadCls}" title="${esc(label)}">${esc(label)}</div>`;
   }
 
   function _ozonFbsRowIsCancelled(row) {
@@ -2743,7 +2744,6 @@
               <div class="wb-fbs-product-sub">Арт. ${esc(offer || "—")}${sku ? " · SKU " + esc(sku) : ""}</div>
               ${composition}
               ${barcodeHtml}
-              ${cancelBadgeHtml(o)}
               ${kizBadgeHtml(o)}
             </div>
           </div>
@@ -7104,6 +7104,7 @@
     const qtyHtml =
       qty > 1 ? `<div class="wb-fbs-order-meta">${esc(qty)} шт.</div>` : "";
     return (
+      cancelBadgeHtml(row, { lead: true }) +
       `<div class="wb-fbs-sd-order-id">${formatOzonPostingNumberHtml(pn)}</div>` +
       `<div class="wb-fbs-order-meta">от ${esc(fmtDate(created))}</div>` +
       (badges.length ? `<div class="wb-fbs-badges">${badges.join("")}</div>` : "") +
@@ -7468,12 +7469,15 @@
     const filled = document.getElementById("ozonFbsPickFilterFilled");
     const empty = document.getElementById("ozonFbsPickFilterEmpty");
     const errors = document.getElementById("ozonFbsPickFilterErrors");
+    const cancelled = document.getElementById("ozonFbsPickFilterCancelled");
     const filledLabel = document.getElementById("ozonFbsPickFilterFilledLabel")
       || (filled && filled.closest("label"));
     const emptyLabel = document.getElementById("ozonFbsPickFilterEmptyLabel")
       || (empty && empty.closest("label"));
     const errorsLabel = document.getElementById("ozonFbsPickFilterErrorsLabel")
       || (errors && errors.closest("label"));
+    const cancelledLabel = document.getElementById("ozonFbsPickFilterCancelledLabel")
+      || (cancelled && cancelled.closest("label"));
     const search = document.getElementById("ozonFbsPickSearchFilter");
     const sticker = document.getElementById("ozonFbsPickStickerScan");
     const containerCheck = document.getElementById("ozonFbsPickContainerScanCheck");
@@ -7530,6 +7534,7 @@
     if (filled) filled.disabled = !ready;
     if (empty) empty.disabled = !ready;
     if (errors) errors.disabled = !ready;
+    if (cancelled) cancelled.disabled = !ready;
     if (containerCheck) {
       containerCheck.disabled = !ready;
       if (!ready) containerCheck.checked = false;
@@ -7537,6 +7542,7 @@
     setLabelWait(filledLabel, !ready);
     setLabelWait(emptyLabel, !ready);
     setLabelWait(errorsLabel, !ready);
+    setLabelWait(cancelledLabel, !ready);
     setLabelWait(containerLabel, !ready);
     setInputWait(search, !ready);
     setInputWait(sticker, !ready);
@@ -7774,7 +7780,7 @@
       // Ozon юрлицо: requirements.products_requiring_gtd → gtd_required.
       if (showLegal && !r?.gtd_required) return false;
       if (showErrors && !_ozonFbsKizRowHasError(r)) return false;
-      if (showCancelled && !String(r?.cancel_reason_label || "").trim()) return false;
+      if (showCancelled && !_ozonFbsRowIsCancelled(r)) return false;
       if (!q) return true;
       const hay = [
         r.posting_number, r.offer_id, r.product_name, r.sku,
@@ -7853,7 +7859,6 @@
               <div class="wb-fbs-product-name" title="${esc(r.product_name || r.offer_id || "")}">${esc(r.product_name || r.offer_id || "—")}</div>
               <div class="wb-fbs-product-sub">Арт. ${esc(r.offer_id || "—")}</div>
               ${barcodeHtml}
-              ${cancelBadgeHtml(r)}
             </div>
           </div>
         </td>
@@ -9065,6 +9070,7 @@
     const showFilled = !!document.getElementById("ozonFbsPickFilterFilled")?.checked;
     const showEmpty = !!document.getElementById("ozonFbsPickFilterEmpty")?.checked;
     const showErrors = !!document.getElementById("ozonFbsPickFilterErrors")?.checked;
+    const showCancelled = !!document.getElementById("ozonFbsPickFilterCancelled")?.checked;
     const pending = String(ozonFbsPickState.pendingPosting || "").trim();
     const rows = (ozonFbsPickState.rows || []).filter((r) => {
       const verified = !!r.pick_verified && !!String(r.pick_barcode || "").trim();
@@ -9073,6 +9079,7 @@
       if (showFilled && !verified) return false;
       if (showEmpty && verified) return false;
       if (showErrors && !hasErr) return false;
+      if (showCancelled && !_ozonFbsRowIsCancelled(r)) return false;
       if (!q) return true;
       const hay = [
         r.posting_number, r.offer_id, r.product_name, r.sku, r.pick_barcode,
@@ -9112,7 +9119,6 @@
               <div class="wb-fbs-product-name" title="${esc(r.product_name || r.offer_id || "")}">${esc(r.product_name || r.offer_id || "—")}</div>
               <div class="wb-fbs-product-sub">Арт. ${esc(r.offer_id || "—")}</div>
               ${barcodeHtml}
-              ${cancelBadgeHtml(r)}
             </div>
           </div>
         </td>
