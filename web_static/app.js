@@ -20968,6 +20968,39 @@ function _supplyGtdDetailError(data, fallback) {
   return (data && data.message) || fallback || "Ошибка";
 }
 
+function _supplyGtdHttpError(res, data, fallback) {
+  if (res && Number(res.status) === 413) {
+    return (
+      "Файлы слишком большие для одной отправки (лимит прокси). "
+      + "Загрузите пачки по одной или уменьшите размер PDF."
+    );
+  }
+  return _supplyGtdDetailError(data, fallback || (res ? `Ошибка ${res.status}` : "Ошибка"));
+}
+
+/** Upload edit/import FormData and follow async job if started. */
+async function _supplyGtdPostForm(url, fd, errEl, btn, busyLabel) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: _supplyGtdCsrfHeaders(),
+    body: fd,
+  });
+  // nginx 413 often returns plain HTML, not JSON
+  const rawText = await res.text().catch(() => "");
+  let data = {};
+  try { data = rawText ? JSON.parse(rawText) : {}; } catch (_) { data = {}; }
+  if (!res.ok) throw new Error(_supplyGtdHttpError(res, data, `Ошибка ${res.status}`));
+  let result = data;
+  if (data.async && data.started) {
+    result = await _supplyGtdPollJobUntilDone(
+      errEl, btn, busyLabel || data.message || "Сканирование…", data.job_id
+    );
+  } else if (data.result && data.started === false) {
+    result = data.result;
+  }
+  return result;
+}
+
 function renderSupplyGtdTable(items) {
   const tbody = document.getElementById("supplyGtdTbody");
   if (!tbody) return;
@@ -21157,6 +21190,55 @@ async function _supplyGtdPollJobUntilDone(errEl, btn, busyLabel, expectJobId) {
   throw new Error("Таймаут фоновой загрузки ГТД");
 }
 
+function _supplyGtdMergePackResults(acc, next, packIndex, packTotal) {
+  const cur = next && typeof next === "object" ? next : {};
+  if (!acc) {
+    return {
+      ...cur,
+      packs_uploaded: 1,
+      packs_total: packTotal,
+      message: packTotal > 1
+        ? `${cur.message || "Готово"} (пачка ${packIndex}/${packTotal})`
+        : (cur.message || "Готово"),
+    };
+  }
+  const add = (a, b) => (Number(a) || 0) + (Number(b) || 0);
+  const warnings = [
+    ...(Array.isArray(acc.warnings) ? acc.warnings : []),
+    ...(Array.isArray(cur.warnings) ? cur.warnings : []),
+  ];
+  const other = [
+    ...(Array.isArray(acc.already_other_gtd_samples) ? acc.already_other_gtd_samples : []),
+    ...(Array.isArray(cur.already_other_gtd_samples) ? cur.already_other_gtd_samples : []),
+  ].slice(0, 20);
+  return {
+    ...acc,
+    ...cur,
+    ok: cur.ok !== false && acc.ok !== false,
+    packs_uploaded: add(acc.packs_uploaded, 1),
+    packs_total: packTotal,
+    page_count: add(acc.page_count, cur.page_count ?? cur.item?.page_count),
+    kiz_parsed: add(acc.kiz_parsed, cur.kiz_parsed ?? cur.kiz_count),
+    kiz_count: add(acc.kiz_count, cur.kiz_count),
+    kiz_inserted: add(
+      acc.kiz_inserted ?? acc.kiz_inserted_new,
+      cur.kiz_inserted_new ?? cur.kiz_inserted
+    ),
+    kiz_inserted_new: add(
+      acc.kiz_inserted_new ?? acc.kiz_inserted,
+      cur.kiz_inserted_new ?? cur.kiz_inserted
+    ),
+    kiz_already_in_db: add(acc.kiz_already_in_db, cur.kiz_already_in_db),
+    kiz_already_other_gtd: add(acc.kiz_already_other_gtd, cur.kiz_already_other_gtd),
+    kiz_rejected_invalid: add(acc.kiz_rejected_invalid, cur.kiz_rejected_invalid),
+    warnings,
+    already_other_gtd_samples: other,
+    message: packTotal > 1
+      ? `${cur.message || acc.message || "Готово"} (загружено пачек: ${packIndex}/${packTotal})`
+      : (cur.message || acc.message || "Готово"),
+  };
+}
+
 async function submitSupplyGtdImport() {
   if (_supplyGtdState.busy) return;
   const numEl = document.getElementById("supplyGtdNumberInput");
@@ -21165,6 +21247,7 @@ async function submitSupplyGtdImport() {
   const errEl = document.getElementById("supplyGtdImportErr");
   const btn = document.getElementById("supplyGtdImportSubmitBtn");
   const gtdNumber = String(numEl?.value || "").trim();
+  const note = String(noteEl?.value || "");
   const fileList = fileEl?.files ? Array.from(fileEl.files) : [];
   if (errEl) { errEl.hidden = true; errEl.textContent = ""; errEl.style.color = "#b91c1c"; }
   if (!gtdNumber) {
@@ -21175,34 +21258,42 @@ async function submitSupplyGtdImport() {
     if (errEl) { errEl.hidden = false; errEl.textContent = "Выберите хотя бы один PDF"; }
     return;
   }
-  const fd = new FormData();
-  fd.append("gtd_number", gtdNumber);
-  fd.append("note", String(noteEl?.value || ""));
-  fileList.forEach((f) => fd.append("files", f, f.name || "gtd.pdf"));
   _supplyGtdState.busy = true;
   if (btn) {
     btn.disabled = true;
     btn.textContent = "Загрузка…";
   }
   try {
-    const res = await fetch("/api/supply-gtd/import", {
-      method: "POST",
-      headers: _supplyGtdCsrfHeaders(),
-      body: fd,
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(_supplyGtdDetailError(data, `Ошибка ${res.status}`));
-    let result = data;
-    if (data.async && data.started) {
-      result = await _supplyGtdPollJobUntilDone(
-        errEl, btn, data.message || "Сканирование…", data.job_id
-      );
-    } else if (data.result && data.started === false) {
-      result = data.result;
+    // Несколько больших PDF сразу часто дают nginx 413 — грузим по одному:
+    // 1-я пачка создаёт ГТД (import), остальные догружают через update.
+    let merged = null;
+    let gtdId = 0;
+    for (let i = 0; i < fileList.length; i += 1) {
+      const packLabel = fileList.length > 1
+        ? `Пачка ${i + 1}/${fileList.length}…`
+        : "Загрузка…";
+      if (btn) btn.textContent = packLabel;
+      if (errEl) {
+        errEl.hidden = false;
+        errEl.style.color = "#64748b";
+        errEl.textContent = packLabel;
+      }
+      const fd = new FormData();
+      fd.append("gtd_number", gtdNumber);
+      fd.append("note", note);
+      fd.append("files", fileList[i], fileList[i].name || "gtd.pdf");
+      const url = gtdId
+        ? `/api/supply-gtd/${gtdId}/update`
+        : "/api/supply-gtd/import";
+      const result = await _supplyGtdPostForm(url, fd, errEl, btn, packLabel);
+      if (!gtdId) {
+        gtdId = Number(result?.gtd_id || result?.item?.id || 0) || 0;
+      }
+      merged = _supplyGtdMergePackResults(merged, result, i + 1, fileList.length);
     }
     _supplyGtdState.busy = false;
     closeSupplyGtdImportModal();
-    showSupplyGtdImportResult(result);
+    showSupplyGtdImportResult(merged);
     await loadSupplyGtdList(_supplyGtdState.kizQuery || "");
   } catch (e) {
     if (errEl) {
@@ -21257,6 +21348,7 @@ async function submitSupplyGtdEdit() {
   const errEl = document.getElementById("supplyGtdEditErr");
   const btn = document.getElementById("supplyGtdEditSubmitBtn");
   const gtdNumber = String(numEl?.value || "").trim();
+  const note = String(noteEl?.value || "");
   const fileList = fileEl?.files ? Array.from(fileEl.files) : [];
   if (errEl) { errEl.hidden = true; errEl.textContent = ""; errEl.style.color = "#b91c1c"; }
   if (!id) {
@@ -21267,39 +21359,59 @@ async function submitSupplyGtdEdit() {
     if (errEl) { errEl.hidden = false; errEl.textContent = "Укажите номер ГТД"; }
     return;
   }
-  const fd = new FormData();
-  fd.append("gtd_number", gtdNumber);
-  fd.append("note", String(noteEl?.value || ""));
-  fileList.forEach((f) => fd.append("files", f, f.name || "gtd.pdf"));
   _supplyGtdState.busy = true;
   if (btn) {
     btn.disabled = true;
     btn.textContent = "Сохранение…";
   }
   try {
-    const res = await fetch(`/api/supply-gtd/${id}/update`, {
-      method: "POST",
-      headers: _supplyGtdCsrfHeaders(),
-      body: fd,
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(_supplyGtdDetailError(data, `Ошибка ${res.status}`));
-    let result = data;
-    if (data.async && data.started) {
-      result = await _supplyGtdPollJobUntilDone(
-        errEl, btn, data.message || "Догрузка…", data.job_id
+    // Сначала номер/примечание (+ первая пачка). Остальные PDF — по одному,
+    // иначе сумма пачек часто упирается в nginx client_max_body_size → HTTP 413.
+    let merged = null;
+    if (!fileList.length) {
+      const fd = new FormData();
+      fd.append("gtd_number", gtdNumber);
+      fd.append("note", note);
+      merged = await _supplyGtdPostForm(
+        `/api/supply-gtd/${id}/update`,
+        fd,
+        errEl,
+        btn,
+        "Сохранение…"
       );
-    } else if (data.result && data.started === false) {
-      result = data.result;
+    } else {
+      for (let i = 0; i < fileList.length; i += 1) {
+        const packLabel = fileList.length > 1
+          ? `Догрузка ${i + 1}/${fileList.length}…`
+          : "Догрузка…";
+        if (btn) btn.textContent = packLabel;
+        if (errEl) {
+          errEl.hidden = false;
+          errEl.style.color = "#64748b";
+          errEl.textContent = packLabel;
+        }
+        const fd = new FormData();
+        fd.append("gtd_number", gtdNumber);
+        fd.append("note", note);
+        fd.append("files", fileList[i], fileList[i].name || "gtd.pdf");
+        const result = await _supplyGtdPostForm(
+          `/api/supply-gtd/${id}/update`,
+          fd,
+          errEl,
+          btn,
+          packLabel
+        );
+        merged = _supplyGtdMergePackResults(merged, result, i + 1, fileList.length);
+      }
     }
     _supplyGtdState.busy = false;
     closeSupplyGtdEditModal();
     showSupplyGtdImportResult({
-      ...result,
+      ...merged,
       ok: true,
-      page_count: result.item?.page_count ?? result.page_count,
-      kiz_inserted: result.kiz_inserted_new ?? result.kiz_inserted,
-      kiz_parsed: result.kiz_parsed,
+      page_count: merged?.page_count ?? merged?.item?.page_count,
+      kiz_inserted: merged?.kiz_inserted_new ?? merged?.kiz_inserted,
+      kiz_parsed: merged?.kiz_parsed,
     });
     const title = document.getElementById("supplyGtdResultTitle");
     if (title) title.textContent = "ГТД обновлена";

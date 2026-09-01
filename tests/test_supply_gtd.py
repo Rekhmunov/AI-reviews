@@ -308,6 +308,14 @@ class SupplyGtdImportTests(unittest.TestCase):
                 )
         self.assertIn("формате", str(ctx.exception).lower())
 
+    def test_nginx_body_limit_covers_app_pdf_max(self) -> None:
+        """Proxy must accept at least one max-size sticker PDF (+ multipart overhead)."""
+        from pathlib import Path
+
+        conf = Path("deploy/nginx/feedpilot.conf").read_text(encoding="utf-8")
+        self.assertIn("client_max_body_size 300m", conf)
+        self.assertLessEqual(gtd._MAX_PDF_BYTES, 300 * 1024 * 1024)
+
 
 if __name__ == "__main__":
     unittest.main()
