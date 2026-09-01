@@ -2933,6 +2933,12 @@
                 Добавить к существующей
               </button>
             </div>
+            <div id="ozonFbsBottomDeliveringActions" class="wb-fbs-bottom-group hidden">
+              <button type="button" class="wb-fbs-bottom-primary"
+                      onclick="openOzonFbsMoveSelectedToAwaitingDeliver()">
+                В «Ожидают отгрузки»
+              </button>
+            </div>
             <button type="button" class="icon-btn secondary wb-fbs-bottom-close" onclick="clearOzonFbsSelection()" title="Сбросить выбор">✕</button>
           </div>
         </div>
@@ -2994,6 +3000,26 @@
                       onclick="confirmOzonFbsMoveDelivering()">Перенести</button>
               <button type="button" class="ozon-fbs-ship-all-btn" id="ozonFbsMoveDeliveringOkBtn" hidden
                       onclick="closeOzonFbsMoveDeliveringModal()">Понятно</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="ozonFbsMoveAwaitingModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsMoveAwaitingTitle"
+             onclick="if(event.target===this)closeOzonFbsMoveAwaitingModal()">
+          <div class="modal-card ozon-fbs-move-delivering-modal">
+            <div class="ozon-fbs-move-delivering-header">
+              <h3 id="ozonFbsMoveAwaitingTitle" class="ozon-fbs-move-delivering-title">В «Ожидают отгрузки»</h3>
+              <button type="button" class="icon-btn secondary" onclick="closeOzonFbsMoveAwaitingModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <div id="ozonFbsMoveAwaitingBody" class="ozon-fbs-move-delivering-body"></div>
+            <div class="ozon-fbs-move-delivering-footer">
+              <button type="button" class="secondary" id="ozonFbsMoveAwaitingCancelBtn"
+                      onclick="closeOzonFbsMoveAwaitingModal()">Отмена</button>
+              <button type="button" class="ozon-fbs-ship-all-btn" id="ozonFbsMoveAwaitingConfirmBtn"
+                      onclick="confirmOzonFbsMoveAwaiting()">Перенести</button>
+              <button type="button" class="ozon-fbs-ship-all-btn" id="ozonFbsMoveAwaitingOkBtn" hidden
+                      onclick="closeOzonFbsMoveAwaitingModal()">Понятно</button>
             </div>
           </div>
         </div>
@@ -6346,7 +6372,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=69"></script>
+  <script src="/static/ozon_fbs.js?v=70"></script>
   <script src="/static/app.js?v=528"></script>
 </body>
 </html>

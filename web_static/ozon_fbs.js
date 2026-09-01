@@ -546,10 +546,19 @@
   function selectedCountLabel(n) {
     const abs = Math.abs(Number(n) || 0) % 100;
     const last = abs % 10;
-    let word = "отправлений";
-    if (!(abs > 10 && abs < 20)) {
-      if (last === 1) word = "отправление";
-      else if (last >= 2 && last <= 4) word = "отправления";
+    let word;
+    if (isSuppliesTab()) {
+      word = "поставок";
+      if (!(abs > 10 && abs < 20)) {
+        if (last === 1) word = "поставка";
+        else if (last >= 2 && last <= 4) word = "поставки";
+      }
+    } else {
+      word = "отправлений";
+      if (!(abs > 10 && abs < 20)) {
+        if (last === 1) word = "отправление";
+        else if (last >= 2 && last <= 4) word = "отправления";
+      }
     }
     return `Выбрано ${n} ${word}`;
   }
@@ -558,18 +567,22 @@
     const bar = document.getElementById("ozonFbsBottomBar");
     const label = document.getElementById("ozonFbsSelectedLabel");
     const packActions = document.getElementById("ozonFbsBottomPackagingActions");
+    const deliverActions = document.getElementById("ozonFbsBottomDeliveringActions");
     const addBtn = document.getElementById("ozonFbsAddToSupplyBtn");
     const n = state.selected.size;
-    // Same as WB «Новые»: selection bottom bar on packaging postings list
-    // (including exact posting-number lookup while that tab is active).
+    // Packaging postings: new / add-to-existing supply.
+    // Delivering supplies: move selected supplies back to awaiting_deliver.
     const isPackaging = state.tab === "awaiting_packaging" && !isSuppliesTab();
+    const isDeliveringSupplies = isDeliveringSuppliesTab();
+    const showBar = n > 0 && (isPackaging || isDeliveringSupplies);
     if (label) label.textContent = selectedCountLabel(n);
     if (packActions) packActions.classList.toggle("hidden", !isPackaging);
+    if (deliverActions) deliverActions.classList.toggle("hidden", !isDeliveringSupplies);
     if (addBtn) {
       const openSupplies = Number((state.counts && state.counts.open_supplies) || 0);
       addBtn.classList.toggle("hidden", !(isPackaging && n > 0 && openSupplies > 0));
     }
-    if (bar) bar.classList.toggle("hidden", !(isPackaging && n > 0));
+    if (bar) bar.classList.toggle("hidden", !showBar);
   }
 
   function clearSelection() {
@@ -5030,6 +5043,222 @@
     }
   }
 
+  /**
+   * Local only: move selected delivering supplies → awaiting_deliver and restore Остатки.
+   * Does not call Ozon. Selection bottom bar on «Доставляются».
+   */
+  const moveAwaitingModalState = { mode: "confirm", busy: false, supplyIds: [] };
+
+  function _ozonFbsMoveAwaitingSetVisible(show) {
+    if (typeof setModalVisibility === "function") {
+      setModalVisibility("ozonFbsMoveAwaitingModal", !!show);
+      return;
+    }
+    const modal = document.getElementById("ozonFbsMoveAwaitingModal");
+    if (!modal) return;
+    modal.classList.toggle("hidden", !show);
+  }
+
+  function closeOzonFbsMoveAwaitingModal() {
+    if (moveAwaitingModalState.busy) return;
+    moveAwaitingModalState.mode = "confirm";
+    moveAwaitingModalState.supplyIds = [];
+    _ozonFbsMoveAwaitingSetVisible(false);
+  }
+
+  function _ozonFbsMoveAwaitingRender(mode, { title, html, kind } = {}) {
+    moveAwaitingModalState.mode = mode;
+    const titleEl = document.getElementById("ozonFbsMoveAwaitingTitle");
+    const body = document.getElementById("ozonFbsMoveAwaitingBody");
+    const cancelBtn = document.getElementById("ozonFbsMoveAwaitingCancelBtn");
+    const confirmBtn = document.getElementById("ozonFbsMoveAwaitingConfirmBtn");
+    const okBtn = document.getElementById("ozonFbsMoveAwaitingOkBtn");
+    const card = document.querySelector("#ozonFbsMoveAwaitingModal .ozon-fbs-move-delivering-modal");
+    if (titleEl) titleEl.textContent = title || "В «Ожидают отгрузки»";
+    if (body) body.innerHTML = html || "";
+    if (card) {
+      card.classList.toggle("is-error", kind === "error");
+      card.classList.toggle("is-ok", kind === "ok");
+    }
+    const isConfirm = mode === "confirm";
+    if (cancelBtn) cancelBtn.hidden = !isConfirm;
+    if (confirmBtn) {
+      confirmBtn.hidden = !isConfirm;
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = "Перенести";
+    }
+    if (okBtn) okBtn.hidden = isConfirm;
+    _ozonFbsMoveAwaitingSetVisible(true);
+  }
+
+  function _ozonFbsMoveAwaitingNotice(message, { title, kind } = {}) {
+    const text = String(message || "").trim() || "Готово";
+    const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+    const html = lines.map((l) => `<p class="ozon-fbs-move-delivering-text">${esc(l)}</p>`).join("");
+    _ozonFbsMoveAwaitingRender("notice", {
+      title: title || "Готово",
+      html,
+      kind: kind || "ok",
+    });
+  }
+
+  function _ozonFbsSelectedSupplyLabel(n) {
+    const abs = Math.abs(Number(n) || 0) % 100;
+    const last = abs % 10;
+    let word = "поставок";
+    if (!(abs > 10 && abs < 20)) {
+      if (last === 1) word = "поставку";
+      else if (last >= 2 && last <= 4) word = "поставки";
+    }
+    return `${n} ${word}`;
+  }
+
+  function openOzonFbsMoveSelectedToAwaitingDeliver() {
+    if (!isDeliveringSuppliesTab()) {
+      _ozonFbsMoveAwaitingNotice(
+        "Выберите поставки на вкладке «Доставляются»",
+        { title: "В «Ожидают отгрузки»", kind: "error" }
+      );
+      return;
+    }
+    const sourceId = state.sourceId;
+    if (!sourceId) {
+      _ozonFbsMoveAwaitingNotice(
+        "Сначала выберите источник Ozon FBS",
+        { title: "В «Ожидают отгрузки»", kind: "error" }
+      );
+      return;
+    }
+    const ids = [...state.selected]
+      .map((x) => String(x || "").trim())
+      .filter(Boolean);
+    if (!ids.length) {
+      _ozonFbsMoveAwaitingNotice(
+        "Отметьте одну или несколько поставок",
+        { title: "В «Ожидают отгрузки»", kind: "error" }
+      );
+      return;
+    }
+    moveAwaitingModalState.supplyIds = ids;
+    const orderTotal = ids.reduce((sum, sid) => {
+      const row = (state.items || []).find(
+        (s) => String(s.supply_id || "").trim() === sid
+      );
+      return sum + Number(row?.order_count || 0);
+    }, 0);
+    const names = ids.slice(0, 3).map((sid) => {
+      const row = (state.items || []).find(
+        (s) => String(s.supply_id || "").trim() === sid
+      );
+      return String(row?.name || sid).trim() || sid;
+    });
+    const namesNote = names.length
+      ? `<li>${esc(names.join(", "))}${ids.length > 3 ? "…" : ""}</li>`
+      : "";
+    const orderLine = orderTotal > 0
+      ? `<li>${esc(String(orderTotal))} отправлений вернутся в «Ожидают отгрузки»</li>`
+      : "<li>Отправления поставки вернутся в «Ожидают отгрузки»</li>";
+    _ozonFbsMoveAwaitingRender("confirm", {
+      title: "В «Ожидают отгрузки»",
+      html: `
+        <p class="ozon-fbs-move-delivering-lead">
+          Вернуть ${_ozonFbsSelectedSupplyLabel(ids.length)} в «Ожидают отгрузки»?
+        </p>
+        <ul class="ozon-fbs-move-delivering-list">
+          ${namesNote}
+          <li>На Ozon ничего не отправится</li>
+          ${orderLine}
+          <li>Количество вернётся на Остатки</li>
+          <li>Можно снова добавлять заказы через «Собрать все» или «Добавить к существующей»</li>
+          <li>Если в Ozon уже «Доставляются», синхронизация может снова перенести поставку</li>
+        </ul>
+      `,
+    });
+  }
+
+  async function confirmOzonFbsMoveAwaiting() {
+    if (moveAwaitingModalState.mode !== "confirm" || moveAwaitingModalState.busy) return;
+    const sourceId = state.sourceId;
+    const ids = (moveAwaitingModalState.supplyIds || [])
+      .map((x) => String(x || "").trim())
+      .filter(Boolean);
+    const confirmBtn = document.getElementById("ozonFbsMoveAwaitingConfirmBtn");
+    if (!sourceId || !ids.length) {
+      _ozonFbsMoveAwaitingNotice(
+        "Выберите поставки на вкладке «Доставляются»",
+        { title: "В «Ожидают отгрузки»", kind: "error" }
+      );
+      return;
+    }
+    moveAwaitingModalState.busy = true;
+    if (confirmBtn) {
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = "Перенос…";
+    }
+    let movedTotal = 0;
+    let reversedTotal = 0;
+    const errors = [];
+    try {
+      for (const sid of ids) {
+        try {
+          const res = await fetch(
+            `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/move-to-awaiting-deliver`
+              + `?source_id=${encodeURIComponent(sourceId)}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json", ...jsonHeaders() },
+            }
+          );
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+          }
+          movedTotal += Number(data.moved || 0);
+          reversedTotal += Number(data.stock?.reversed || 0);
+        } catch (e) {
+          errors.push(`${sid}: ${e.message || e}`);
+        }
+      }
+      clearSelection();
+      setTab("awaiting_deliver");
+      const okN = ids.length - errors.length;
+      const base = errors.length
+        ? `Перенесено поставок: ${okN} из ${ids.length}`
+        : `Перенесено в «Ожидают отгрузки»: ${_ozonFbsSelectedSupplyLabel(okN)}`;
+      const detailParts = [];
+      if (movedTotal > 0) detailParts.push(`отправлений ${movedTotal}`);
+      if (reversedTotal > 0) detailParts.push(`возврат на Остатки: записей ${reversedTotal}`);
+      else if (movedTotal > 0) {
+        detailParts.push("возврат на Остатки: будет при следующей синхронизации / нет производства");
+      }
+      const stockNote = detailParts.join("; ");
+      const errNote = errors.length
+        ? `\nОшибки:\n${errors.slice(0, 5).join("\n")}${errors.length > 5 ? "\n…" : ""}`
+        : "";
+      moveAwaitingModalState.busy = false;
+      _ozonFbsMoveAwaitingNotice(
+        (stockNote ? `${base}\n${stockNote}` : base) + errNote,
+        {
+          title: errors.length ? "Перенос с ошибками" : "Поставки перенесены",
+          kind: errors.length ? "error" : "ok",
+        }
+      );
+      showSyncInfo(base, errors.length ? "warn" : "ok");
+    } catch (e) {
+      moveAwaitingModalState.busy = false;
+      _ozonFbsMoveAwaitingNotice(e.message || String(e), {
+        title: "Не удалось перенести",
+        kind: "error",
+      });
+    } finally {
+      moveAwaitingModalState.busy = false;
+      if (confirmBtn) {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = "Перенести";
+      }
+    }
+  }
+
   const movePostingState = {
     postingNumber: "",
     selectedSupplyId: "",
@@ -8824,6 +9053,9 @@
   window.moveOzonFbsSupplyToDelivering = moveOzonFbsSupplyToDelivering;
   window.closeOzonFbsMoveDeliveringModal = closeOzonFbsMoveDeliveringModal;
   window.confirmOzonFbsMoveDelivering = confirmOzonFbsMoveDelivering;
+  window.openOzonFbsMoveSelectedToAwaitingDeliver = openOzonFbsMoveSelectedToAwaitingDeliver;
+  window.closeOzonFbsMoveAwaitingModal = closeOzonFbsMoveAwaitingModal;
+  window.confirmOzonFbsMoveAwaiting = confirmOzonFbsMoveAwaiting;
   window.toggleOzonFbsRowMenu = toggleOzonFbsRowMenu;
   window.closeOzonFbsRowMenus = closeOzonFbsRowMenus;
   window.ozonFbsPrintOnePostingStickerFromDetail = printOnePostingStickerFromDetail;

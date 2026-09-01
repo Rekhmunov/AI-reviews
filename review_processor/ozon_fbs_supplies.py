@@ -4189,7 +4189,7 @@ def _reconcile_ozon_fbs_stock_after_local_move(
     user_id: int,
     postings: list[dict[str, Any]],
 ) -> dict[str, int]:
-    """Deduct Остатки for postings now on delivering (same hook as Ozon sync)."""
+    """Align Остатки with posting tabs after a local awaiting↔delivering move."""
     empty = {"shipped": 0, "reversed": 0, "skipped": 0, "ok": 0, "settled": 0}
     if not postings:
         return empty
@@ -4202,7 +4202,7 @@ def _reconcile_ozon_fbs_stock_after_local_move(
         prod_id = 0
     if prod_id <= 0:
         _log.warning(
-            "ozon fbs local move-to-delivering: no production for stock user=%s",
+            "ozon fbs local tab move: no production for stock user=%s",
             user_id,
         )
         return empty
@@ -4215,7 +4215,7 @@ def _reconcile_ozon_fbs_stock_after_local_move(
         )
     except Exception as exc:
         _log.warning(
-            "ozon fbs local move-to-delivering stock reconcile failed user=%s: %s",
+            "ozon fbs local tab move stock reconcile failed user=%s: %s",
             user_id,
             exc,
         )
@@ -4345,6 +4345,132 @@ def move_supply_to_delivering(
         "already_delivering": 0,
         "stock": stock_stats,
         "message": f"Перенесено в «Доставляются»: {len(to_move)} отпр.",
+    }
+
+
+def move_supply_to_awaiting_deliver(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+) -> dict[str, Any]:
+    """Locally move a supply from «Доставляются» back to «Ожидают отгрузки».
+
+    No Ozon API calls. Sets postings ``status``/``tab`` to ``awaiting_deliver``
+    and reconciles the stock ledger (return qty to Остатки). After this the
+    supply is again eligible for collect / «Добавить к существующей».
+
+    Sync may re-promote rows to ``delivering`` if Ozon already reports
+    delivering/delivered (``resolve_upsert_status`` never regresses forward).
+    """
+    ensure_ozon_fbs_supply_schema(repo)
+    oz.ensure_ozon_fbs_tables(repo)
+    sid = str(supply_id or "").strip()
+    if not sid:
+        raise ValueError("Укажите supply_id")
+    supply = get_supply(repo, user_id=user_id, source_id=source_id, supply_id=sid)
+    if not supply:
+        nums_probe = _assembly_posting_numbers_for_supply_tab(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=sid,
+            tab=oz.TAB_DELIVERING,
+        )
+        if not nums_probe:
+            raise RuntimeError("Поставка не найдена")
+
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                """
+                SELECT posting_number, tab, offer_id, sku, quantity, products_json
+                FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                  AND tab = ?
+                ORDER BY posting_number
+                """
+            ),
+            (user_id, source_id, sid, oz.TAB_DELIVERING),
+        ).fetchall()
+        to_move = [repo._row_to_dict(r) for r in rows]
+        if not to_move:
+            already = conn.execute(
+                repo._sql(
+                    """
+                    SELECT COUNT(*) AS n FROM ozon_fbs_postings
+                    WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                      AND tab = ?
+                    """
+                ),
+                (user_id, source_id, sid, oz.TAB_AWAITING_DELIVER),
+            ).fetchone()
+            already_n = int(
+                (already["n"] if already and hasattr(already, "keys") else (already[0] if already else 0))
+                or 0
+            )
+            return {
+                "ok": True,
+                "supply_id": sid,
+                "moved": 0,
+                "already_awaiting_deliver": already_n,
+                "stock": {"shipped": 0, "reversed": 0, "skipped": 0, "ok": 0, "settled": 0},
+                "message": (
+                    "Поставка уже в «Ожидают отгрузки»"
+                    if already_n
+                    else "Нет отправлений в «Доставляются» для переноса"
+                ),
+            }
+
+        pns = [str(r.get("posting_number") or "").strip() for r in to_move]
+        pns = [p for p in pns if p]
+        if not pns:
+            raise RuntimeError("Нет отправлений для переноса")
+        placeholders = ", ".join("?" for _ in pns)
+        conn.execute(
+            repo._sql(
+                f"""
+                UPDATE ozon_fbs_postings
+                SET status = ?, tab = ?, synced_at = CURRENT_TIMESTAMP
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                  AND posting_number IN ({placeholders})
+                  AND tab = ?
+                """
+            ),
+            (
+                oz.TAB_AWAITING_DELIVER,
+                oz.TAB_AWAITING_DELIVER,
+                user_id,
+                source_id,
+                sid,
+                *pns,
+                oz.TAB_DELIVERING,
+            ),
+        )
+
+    for row in to_move:
+        row["tab"] = oz.TAB_AWAITING_DELIVER
+        row["status"] = oz.TAB_AWAITING_DELIVER
+
+    stock_stats = _reconcile_ozon_fbs_stock_after_local_move(
+        repo, user_id=user_id, postings=to_move
+    )
+    _log.info(
+        "ozon fbs move-to-awaiting-deliver user=%s source=%s supply=%s moved=%s stock=%s",
+        user_id,
+        source_id,
+        sid,
+        len(to_move),
+        stock_stats,
+    )
+    return {
+        "ok": True,
+        "supply_id": sid,
+        "moved": len(to_move),
+        "already_awaiting_deliver": 0,
+        "stock": stock_stats,
+        "message": f"Перенесено в «Ожидают отгрузки»: {len(to_move)} отпр.",
     }
 
 

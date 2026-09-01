@@ -13668,6 +13668,55 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             pass
         return result
 
+    @app.post("/api/ozon-fbs/supplies/{supply_id}/move-to-awaiting-deliver")
+    def ozon_fbs_supply_move_to_awaiting_deliver(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+    ) -> dict[str, object]:
+        """Locally move supply back to «Ожидают отгрузки» and restore Остатки."""
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid or not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        try:
+            result = oz_sup.move_supply_to_awaiting_deliver(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                supply_id=sid,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        try:
+            from . import ozon_fbs_ops_log as ops_log
+
+            moved = int(result.get("moved") or 0) if isinstance(result, dict) else 0
+            msg = str((result or {}).get("message") or "").strip() or (
+                f"В «Ожидают отгрузки»: {sid}"
+            )
+            ops_log.append_event(
+                repository,
+                user_id=owner_id,
+                action=ops_log.ACTION_MOVE_AWAITING_DELIVER,
+                message=msg,
+                actor_user_id=int(user.get("id") or 0) or None,
+                actor_name=ops_log.actor_label(user),
+                source_id=int(source_id),
+                supply_id=sid,
+                details={"moved": moved},
+            )
+        except Exception:
+            pass
+        return result
+
     @app.get("/api/ozon-fbs/postings/move-targets")
     def ozon_fbs_posting_move_targets(
         request: Request, source_id: int
