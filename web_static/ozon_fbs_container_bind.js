@@ -828,6 +828,147 @@
     return ensureContainersLoaded(true);
   }
 
+  const moveState = {
+    mode: "",
+    postingNumber: "",
+  };
+
+  function fillableContainers(excludeId) {
+    const ex = Number(excludeId || 0);
+    return (state.containers || []).filter((c) => {
+      if (!containerAcceptsFill(c)) return false;
+      const cid = Number(c.container_id || 0);
+      if (cid <= 0) return false;
+      if (ex > 0 && cid === ex) return false;
+      return true;
+    });
+  }
+
+  function containerMoveLabel(c) {
+    const cid = Number(c?.container_id || 0);
+    const num = Number(c?.container_number || 0);
+    if (num > 0) return `ГМ №${num} — ${cid}`;
+    return `ГМ ${cid}`;
+  }
+
+  function closeMoveContainerModal() {
+    moveState.mode = "";
+    moveState.postingNumber = "";
+    const modal = document.getElementById("ozonFbsContainerMoveModal");
+    if (typeof setModalVisibility === "function") {
+      setModalVisibility("ozonFbsContainerMoveModal", false);
+    } else if (modal) {
+      modal.classList.add("hidden");
+    }
+  }
+
+  function renderMoveContainerList(containers, row) {
+    const list = document.getElementById("ozonFbsContainerMoveList");
+    const empty = document.getElementById("ozonFbsContainerMoveEmpty");
+    const meta = document.getElementById("ozonFbsContainerMoveMeta");
+    const pn = String(row?.posting_number || "").trim();
+    const prevBc = String(row?.container_barcode || row?.container_id || "").trim();
+    if (meta) {
+      meta.textContent = prevBc
+        ? `Отправление ${pn}. Сейчас в грузоместе ${prevBc}.`
+        : `Отправление ${pn}.`;
+    }
+    if (!containers.length) {
+      if (list) list.innerHTML = "";
+      if (empty) empty.hidden = false;
+      return;
+    }
+    if (empty) empty.hidden = true;
+    if (!list) return;
+    list.innerHTML = containers.map((c) => {
+      const cid = Number(c.container_id || 0);
+      const label = esc(containerMoveLabel(c));
+      const status = esc(String(c.status_label || c.status || "—"));
+      const orders = Math.max(0, Number(c.order_count || 0));
+      const ordersLabel = orders === 1 ? "1 заказ" : `${orders} заказов`;
+      return `<button type="button" class="ozon-fbs-container-move-item"
+                      onclick="selectOzonFbsMoveContainerTarget(${cid})">
+        <span class="ozon-fbs-container-move-title">${label}</span>
+        <span class="ozon-fbs-container-move-sub">${status} · ${ordersLabel}</span>
+      </button>`;
+    }).join("");
+  }
+
+  async function openMoveContainerPicker(mode, postingNumber) {
+    if (typeof window.closeOzonFbsRowMenus === "function") {
+      window.closeOzonFbsRowMenus();
+    }
+    const pn = String(postingNumber || "").trim();
+    const row = findRow(mode, pn);
+    if (!row || !state.hasContainers) return;
+    const prevId = Number(row.container_id || 0);
+    const prevBc = String(row.container_barcode || "").trim();
+    if (prevId <= 0 && !prevBc) return;
+
+    await ensureContainersLoaded(false);
+    const targets = fillableContainers(prevId);
+    moveState.mode = mode;
+    moveState.postingNumber = pn;
+    renderMoveContainerList(targets, row);
+    const modal = document.getElementById("ozonFbsContainerMoveModal");
+    if (typeof setModalVisibility === "function") {
+      setModalVisibility("ozonFbsContainerMoveModal", true);
+    } else if (modal) {
+      modal.classList.remove("hidden");
+    }
+  }
+
+  async function selectMoveContainerTarget(containerId) {
+    const mode = moveState.mode;
+    const pn = moveState.postingNumber;
+    closeMoveContainerModal();
+    if (!mode || !pn) return;
+    const row = findRow(mode, pn);
+    if (!row) return;
+    const prevId = Number(row.container_id || 0);
+    const cid = Number(containerId || 0);
+    if (cid <= 0 || (prevId > 0 && prevId === cid)) return;
+    const target = state.byId.get(String(cid)) || state.containers.find(
+      (c) => Number(c.container_id) === cid
+    );
+    if (!target || !containerAcceptsFill(target)) {
+      const setInfo = mode === "kiz" ? window._ozonFbsKizSetInfo : window._ozonFbsPickSetInfo;
+      if (typeof setInfo === "function") {
+        setInfo("Выбранное грузоместо недоступно для изменения", false);
+      }
+      return;
+    }
+    const barcode = String(cid);
+    const oldBarcode = String(row.container_barcode || prevId || "").trim();
+    const ok = await openRebindModal({
+      postingNumber: pn,
+      oldBarcode: oldBarcode || String(prevId),
+      newBarcode: barcode,
+    });
+    if (!ok) return;
+    row.container_id = cid;
+    row.container_barcode = barcode;
+    row.container_synced = false;
+    row.container_sync_error = "";
+    state.usedInSession = true;
+    updateContainerCounters();
+    rerenderMode(mode);
+    void runBindAndRefresh(
+      mode,
+      pn,
+      cid,
+      barcode,
+      prevId > 0 ? prevId : null
+    );
+  }
+
+  function rowCanMoveContainer(row) {
+    if (!row || !state.hasContainers) return false;
+    const prevId = Number(row.container_id || 0);
+    const prevBc = String(row.container_barcode || "").trim();
+    return prevId > 0 || !!prevBc;
+  }
+
   // ── exports (names must match ozon_fbs.js / app.html hooks) ───────────────
   window.ozonFbsContainerBindState = state;
   window._ozonFbsContainerCellHtml = containerCellHtml;
@@ -846,4 +987,8 @@
   window.clearOzonFbsContainerBind = clearBind;
   window.onOzonFbsContainerCellKey = onContainerCellKey;
   window.closeOzonFbsContainerRebindModal = closeRebindModal;
+  window.openOzonFbsMoveContainerPicker = openMoveContainerPicker;
+  window.closeOzonFbsMoveContainerModal = closeMoveContainerModal;
+  window.selectOzonFbsMoveContainerTarget = selectMoveContainerTarget;
+  window._ozonFbsContainerRowCanMove = rowCanMoveContainer;
 })();

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=263" />
+  <link rel="stylesheet" href="/static/style.css?v=264" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -3418,10 +3418,11 @@
             <div class="wb-fbs-kiz-table-wrap">
               <table class="wb-fbs-kiz-table" id="ozonFbsPickTable">
                 <colgroup id="ozonFbsPickColgroup">
-                  <col data-col="0" class="wb-fbs-kiz-col-order" style="width:20%" />
-                  <col data-col="1" class="wb-fbs-kiz-col-product" style="width:32%" />
-                  <col data-col="2" class="wb-fbs-kiz-col-kiz" style="width:28%" />
-                  <col data-col="3" class="wb-fbs-kiz-col-container" style="width:20%" />
+                  <col data-col="0" class="wb-fbs-kiz-col-order" style="width:18%" />
+                  <col data-col="1" class="wb-fbs-kiz-col-product" style="width:30%" />
+                  <col data-col="2" class="wb-fbs-kiz-col-kiz" style="width:26%" />
+                  <col data-col="3" class="wb-fbs-kiz-col-container" style="width:18%" />
+                  <col data-fixed="1" class="wb-fbs-kiz-col-act" style="width:48px" />
                 </colgroup>
                 <thead>
                   <tr>
@@ -3429,10 +3430,11 @@
                     <th class="wb-fbs-kiz-col-product" data-col="1">Товар<span class="col-resize-handle"></span></th>
                     <th class="wb-fbs-kiz-col-kiz" data-col="2">Проверка ШК<span class="col-resize-handle"></span></th>
                     <th class="wb-fbs-kiz-col-container" data-col="3">ШК грузоместа<span class="col-resize-handle"></span></th>
+                    <th class="wb-fbs-kiz-col-act"></th>
                   </tr>
                 </thead>
                 <tbody id="ozonFbsPickTbody">
-                  <tr><td colspan="4" class="wb-fbs-empty">Загрузка…</td></tr>
+                  <tr><td colspan="5" class="wb-fbs-empty">Загрузка…</td></tr>
                 </tbody>
               </table>
             </div>
@@ -3469,6 +3471,23 @@
               <button type="button" class="secondary" onclick="closeOzonFbsContainerRebindModal(false)">Нет</button>
               <button type="button" onclick="closeOzonFbsContainerRebindModal(true)">Да</button>
             </div>
+          </div>
+        </div>
+
+        <div id="ozonFbsContainerMoveModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsContainerMoveTitle">
+          <div class="modal-card ozon-fbs-container-move-modal">
+            <div class="wb-fbs-kiz-header ozon-fbs-container-move-header">
+              <div class="wb-fbs-kiz-header-main">
+                <h3 id="ozonFbsContainerMoveTitle" class="wb-fbs-kiz-title">Переместить в другое грузоместо</h3>
+                <p id="ozonFbsContainerMoveMeta" class="ozon-fbs-container-move-meta"></p>
+              </div>
+              <button type="button" class="icon-btn secondary" onclick="closeOzonFbsMoveContainerModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <div id="ozonFbsContainerMoveList" class="ozon-fbs-container-move-list" role="listbox" aria-label="Доступные грузоместа"></div>
+            <p id="ozonFbsContainerMoveEmpty" class="ozon-fbs-container-move-empty" hidden>
+              Нет доступных грузомест для переноса. Все грузоместа уже подтверждены или список пуст.
+            </p>
           </div>
         </div>
 
@@ -6502,8 +6521,8 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=82"></script>
-  <script src="/static/ozon_fbs_container_bind.js?v=7"></script>
+  <script src="/static/ozon_fbs.js?v=83"></script>
+  <script src="/static/ozon_fbs_container_bind.js?v=8"></script>
   <script src="/static/app.js?v=528"></script>
 </body>
 </html>
