@@ -327,19 +327,23 @@
     const err = String(row?.container_sync_error || "").trim();
     const safePn = esc(pn);
     const modeAttr = esc(mode);
-    if (!barcode) {
+    if (!state.hasContainers) {
       return `<div class="ozon-fbs-container-cell is-empty" title="ШК грузоместа не указан">—</div>`;
     }
+    const clearBtn = barcode
+      ? `<button type="button" class="wb-fbs-kiz-remove ozon-fbs-container-clear" title="Снять грузоместо"
+                aria-label="Снять грузоместо"
+                onclick="clearOzonFbsContainerBind('${safePn}', '${modeAttr}')">×</button>`
+      : "";
     return `<div class="ozon-fbs-container-cell${err ? " is-error" : ""}">
-      <div class="ozon-fbs-container-input-wrap">
+      <div class="ozon-fbs-container-input-row">
         <input type="text" class="ozon-fbs-container-input${err ? " is-error" : ""}"
                data-posting="${safePn}" data-mode="${modeAttr}"
                value="${esc(barcode)}"
+               placeholder="ШК грузоместа"
                title="${err ? esc(err) : "ШК грузоместа"}"
                onkeydown="onOzonFbsContainerCellKey(event, '${safePn}', '${modeAttr}')" />
-        <button type="button" class="ozon-fbs-container-clear" title="Снять грузоместо"
-                aria-label="Снять грузоместо"
-                onclick="clearOzonFbsContainerBind('${safePn}', '${modeAttr}')">×</button>
+        ${clearBtn}
       </div>
       ${err ? `<div class="ozon-fbs-container-err">${esc(err)}</div>` : ""}
     </div>`;
@@ -924,6 +928,27 @@
     }).join("");
   }
 
+  function openContainerManualEntry(mode, postingNumber) {
+    if (typeof window.closeOzonFbsRowMenus === "function") {
+      window.closeOzonFbsRowMenus();
+    }
+    const pn = String(postingNumber || "").trim();
+    if (!pn || !state.hasContainers) return;
+    const tbodyId = mode === "pick" ? "ozonFbsPickTbody" : "ozonFbsKizTbody";
+    const tbody = document.getElementById(tbodyId);
+    if (!tbody) return;
+    const escPn = typeof CSS !== "undefined" && CSS.escape
+      ? CSS.escape(pn)
+      : pn.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    const rowEl = tbody.querySelector(`tr[data-posting="${escPn}"]`);
+    if (!rowEl) return;
+    const input = rowEl.querySelector(".ozon-fbs-container-input");
+    if (!input) return;
+    rowEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    input.focus();
+    if (typeof input.select === "function") input.select();
+  }
+
   async function openMoveContainerPicker(mode, postingNumber) {
     if (typeof window.closeOzonFbsRowMenus === "function") {
       window.closeOzonFbsRowMenus();
@@ -1018,6 +1043,7 @@
   window.onOzonFbsContainerCellKey = onContainerCellKey;
   window.closeOzonFbsContainerRebindModal = closeRebindModal;
   window.openOzonFbsMoveContainerPicker = openMoveContainerPicker;
+  window.openOzonFbsContainerManualEntry = openContainerManualEntry;
   window.closeOzonFbsMoveContainerModal = closeMoveContainerModal;
   window.selectOzonFbsMoveContainerTarget = selectMoveContainerTarget;
   window._ozonFbsContainerRowCanMove = rowCanMoveContainer;
