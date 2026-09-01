@@ -568,7 +568,11 @@ def render_code128_barcode_png(barcode_text: str) -> bytes | None:
         )
         return buf.getvalue()
     except Exception as exc:
-        _log.warning("code128 render failed %s: %s", text[:24], exc)
+        _log.warning(
+            "code128 render failed %s: %s (install python-barcode if missing)",
+            text[:24],
+            exc,
+        )
         return None
 
 

@@ -8819,6 +8819,13 @@ button.ozon-fbs-split-multi-btn[hidden] {
   text-align: center;
   line-height: 1.4;
 }
+.ozon-fbs-shipments-barcode-loading {
+  font-size: 14px;
+  color: #64748b;
+  text-align: center;
+  line-height: 1.4;
+  padding: 24px 16px;
+}
 .ozon-fbs-shipments-meta-col {
   display: flex;
   flex-direction: column;

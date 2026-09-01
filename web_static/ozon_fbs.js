@@ -5150,6 +5150,119 @@
     return "Штрихкод для склада";
   }
 
+  function composeOzonFbsShipmentBarcodeLabelDataUrl(text) {
+    const value = String(text || "").trim();
+    if (!value || typeof JsBarcode === "undefined") return "";
+    const bcCanvas = document.createElement("canvas");
+    try {
+      JsBarcode(bcCanvas, value, {
+        format: "CODE128",
+        width: 2,
+        height: 80,
+        displayValue: false,
+        margin: 8,
+        background: "#ffffff",
+        lineColor: "#000000",
+      });
+    } catch (_e) {
+      return "";
+    }
+    const targetW = Math.max(bcCanvas.width, 420);
+    const barH = Math.max(72, Math.min(140, Math.round(targetW * 0.22)));
+    const padX = 12;
+    const padTop = 10;
+    const padBottom = 10;
+    const gap = 8;
+    const textH = 28;
+    const outW = targetW + padX * 2;
+    const outH = padTop + barH + gap + textH + padBottom;
+    const out = document.createElement("canvas");
+    out.width = outW;
+    out.height = outH;
+    const ctx = out.getContext("2d");
+    if (!ctx) return "";
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, outW, outH);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(bcCanvas, 0, 0, bcCanvas.width, bcCanvas.height, padX, padTop, targetW, barH);
+    ctx.imageSmoothingEnabled = true;
+    ctx.fillStyle = "#0f172a";
+    ctx.font = '600 22px "Courier New", Courier, monospace';
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(value, outW / 2, padTop + barH + gap + textH / 2);
+    return out.toDataURL("image/png");
+  }
+
+  function getOzonFbsShipmentBarcodeLabelDataUrl(barcode) {
+    const labelB64 = String(barcode?.barcode_label_base64 || "").trim();
+    if (labelB64) return `data:image/png;base64,${labelB64}`;
+    const text = String(barcode?.barcode_text || "").trim();
+    if (!text) return "";
+    shipmentsState.barcodeLabelCache = shipmentsState.barcodeLabelCache || {};
+    if (shipmentsState.barcodeLabelCache[text]) return shipmentsState.barcodeLabelCache[text];
+    const url = composeOzonFbsShipmentBarcodeLabelDataUrl(text);
+    if (url) shipmentsState.barcodeLabelCache[text] = url;
+    return url;
+  }
+
+  function paintShipmentsBarcodeLabel() {
+    const img = document.getElementById("ozonFbsShipmentsBarcodeImg");
+    if (!img || img.dataset.ready === "1" || img.getAttribute("src")) return;
+    const text = String(img.dataset.barcodeText || "").trim();
+    const pending = document.getElementById("ozonFbsShipmentsBarcodePending");
+    if (!text) return;
+    const dataUrl = getOzonFbsShipmentBarcodeLabelDataUrl({ barcode_text: text });
+    if (!dataUrl) {
+      if (pending) pending.textContent = `Не удалось сформировать штрихкод ${text}`;
+      return;
+    }
+    img.src = dataUrl;
+    img.hidden = false;
+    img.dataset.ready = "1";
+    if (pending) pending.remove();
+  }
+
+  function openOzonFbsShipmentBarcodePrintWindow(text, warehouseName) {
+    const dataUrl = getOzonFbsShipmentBarcodeLabelDataUrl({ barcode_text: text });
+    if (!dataUrl) throw new Error("Не удалось сформировать штрихкод для печати");
+    const wh = esc(warehouseName || "");
+    const html = `<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"/>
+<title>ШК поставки</title>
+<style>
+  @page { size: 58mm 40mm; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; color: #0f172a; }
+  .label {
+    width: 58mm; height: 40mm; page-break-after: always;
+    overflow: hidden; display: flex; align-items: center; justify-content: center;
+    padding: 2mm;
+  }
+  .label img {
+    width: 56mm; height: 38mm; object-fit: contain; object-position: center;
+  }
+  .toolbar { padding: 8px 12px; }
+  @media print { .toolbar { display: none !important; } }
+</style></head><body>
+  <div class="toolbar"><button type="button" onclick="window.print()">Печать</button>
+    <span style="margin-left:8px;color:#64748b;font-size:13px">58×40 · ШК поставки Ozon${wh ? ` · ${wh}` : ""}</span>
+  </div>
+  <section class="label"><img src="${dataUrl}" alt="ШК поставки ${esc(text)}" /></section>
+  <script>window.addEventListener("load",function(){setTimeout(function(){window.print();},300);});</script>
+</body></html>`;
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const blobUrl = URL.createObjectURL(blob);
+    const win = window.open(blobUrl, "_blank");
+    if (!win) {
+      URL.revokeObjectURL(blobUrl);
+      throw new Error("Разрешите всплывающие окна для печати штрихкода");
+    }
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+    try { win.focus(); } catch (_e) { /* ignore */ }
+  }
+
   function renderShipmentsBarcodePanel(data) {
     const barcode = resolveShipmentsBarcode(data);
     const text = String(barcode?.barcode_text || "").trim();
@@ -5159,11 +5272,14 @@
     const caption = esc(shipmentsWarehouseCaption(data));
     let visual = `<div class="ozon-fbs-shipments-barcode-empty">Не удалось загрузить штрихкод склада</div>`;
     if (labelB64) {
-      visual = `<img id="ozonFbsShipmentsBarcodeImg" class="ozon-fbs-shipments-barcode-label" src="data:image/png;base64,${labelB64}" alt="Штрихкод поставки ${esc(text)}" />`;
-    } else if (b64) {
-      visual = `<img id="ozonFbsShipmentsBarcodeImg" class="ozon-fbs-shipments-barcode-label" src="data:image/png;base64,${b64}" alt="Штрихкод поставки${text ? ` ${esc(text)}` : ""}" />`;
+      visual = `<img id="ozonFbsShipmentsBarcodeImg" class="ozon-fbs-shipments-barcode-label" src="data:image/png;base64,${labelB64}" alt="Штрихкод поставки ${esc(text)}" data-ready="1" />`;
     } else if (text) {
-      visual = `<div class="ozon-fbs-shipments-barcode-empty">Штрихкод ${esc(text)} — обновите или скачайте PNG</div>`;
+      visual = `
+        <img id="ozonFbsShipmentsBarcodeImg" class="ozon-fbs-shipments-barcode-label"
+             data-barcode-text="${esc(text)}" alt="Штрихкод поставки ${esc(text)}" hidden />
+        <div id="ozonFbsShipmentsBarcodePending" class="ozon-fbs-shipments-barcode-loading">Формирование штрихкода…</div>`;
+    } else if (b64) {
+      visual = `<img id="ozonFbsShipmentsBarcodeImg" class="ozon-fbs-shipments-barcode-label" src="data:image/png;base64,${b64}" alt="Штрихкод поставки" data-ready="1" />`;
     }
     return `
       <div class="ozon-fbs-shipments-barcode-main">
@@ -5235,6 +5351,7 @@
           ${renderShipmentsMetaColumn(primary, data)}
         </div>
       </section>`;
+    paintShipmentsBarcodeLabel();
   }
 
   async function loadShipments() {
@@ -5920,9 +6037,21 @@
     const methodId = String(methodEl?.value || shipmentsState.data?.selected_delivery_method_id || "").trim();
     const barcode = resolveShipmentsBarcode(shipmentsState.data);
     const text = String(barcode?.barcode_text || "").trim();
-    if (!text && !barcode?.barcode_image_base64 && !barcode?.barcode_label_base64) {
+    const labelB64 = String(barcode?.barcode_label_base64 || "").trim();
+    if (!text && !barcode?.barcode_image_base64 && !labelB64) {
       alert("Штрихкод склада недоступен");
       return;
+    }
+    if (text && typeof JsBarcode !== "undefined") {
+      try {
+        openOzonFbsShipmentBarcodePrintWindow(text, shipmentsState.data?.warehouse_name || "");
+        return;
+      } catch (e) {
+        if (!labelB64 && !barcode?.barcode_image_base64) {
+          alert(String(e.message || e));
+          return;
+        }
+      }
     }
     const qs = new URLSearchParams({
       source_id: String(sourceId),
@@ -5953,6 +6082,11 @@
       a.download = filename;
       a.click();
     };
+    const clientDataUrl = text ? getOzonFbsShipmentBarcodeLabelDataUrl(barcode) : "";
+    if (clientDataUrl) {
+      triggerDownload(clientDataUrl, `ozon-warehouse-barcode-${suffix}.png`);
+      return;
+    }
     if (labelB64) {
       triggerDownload(`data:image/png;base64,${labelB64}`, `ozon-warehouse-barcode-${suffix}.png`);
       return;
