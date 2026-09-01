@@ -331,13 +331,13 @@
       return `<div class="ozon-fbs-container-cell is-empty" title="ШК грузоместа не указан">—</div>`;
     }
     return `<div class="ozon-fbs-container-cell${err ? " is-error" : ""}">
-      <div class="ozon-fbs-container-input-wrap">
+      <div class="ozon-fbs-container-input-row">
         <input type="text" class="ozon-fbs-container-input${err ? " is-error" : ""}"
                data-posting="${safePn}" data-mode="${modeAttr}"
                value="${esc(barcode)}"
                title="${err ? esc(err) : "ШК грузоместа"}"
                onkeydown="onOzonFbsContainerCellKey(event, '${safePn}', '${modeAttr}')" />
-        <button type="button" class="ozon-fbs-container-clear" title="Снять грузоместо"
+        <button type="button" class="wb-fbs-kiz-remove ozon-fbs-container-clear" title="Снять грузоместо"
                 aria-label="Снять грузоместо"
                 onclick="clearOzonFbsContainerBind('${safePn}', '${modeAttr}')">×</button>
       </div>

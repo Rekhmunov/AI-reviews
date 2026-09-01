@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=266" />
+  <link rel="stylesheet" href="/static/style.css?v=267" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -3253,9 +3253,11 @@
                   <input type="checkbox" id="ozonFbsKizContainerScanCheck" onchange="onOzonFbsContainerScanCheckChange('kiz')" />
                   Просканировать ШК грузоместа
                 </label>
-                <span class="ozon-fbs-container-active-target" id="ozonFbsKizContainerActive" hidden aria-live="polite">
-                  <span class="ozon-fbs-container-active-num" id="ozonFbsKizContainerActiveNum"></span>
-                  <button type="button" class="ozon-fbs-container-active-clear" title="Прекратить сканирование в это грузоместо"
+                <span class="ozon-fbs-container-active-wrap" id="ozonFbsKizContainerActive" hidden aria-live="polite">
+                  <span class="ozon-fbs-container-active-target">
+                    <span class="ozon-fbs-container-active-num" id="ozonFbsKizContainerActiveNum"></span>
+                  </span>
+                  <button type="button" class="wb-fbs-kiz-remove ozon-fbs-container-active-clear" title="Прекратить сканирование в это грузоместо"
                           aria-label="Прекратить сканирование в это грузоместо"
                           onclick="clearOzonFbsActiveContainer('kiz')">×</button>
                 </span>
@@ -3408,9 +3410,11 @@
                   <input type="checkbox" id="ozonFbsPickContainerScanCheck" onchange="onOzonFbsContainerScanCheckChange('pick')" />
                   Просканировать ШК грузоместа
                 </label>
-                <span class="ozon-fbs-container-active-target" id="ozonFbsPickContainerActive" hidden aria-live="polite">
-                  <span class="ozon-fbs-container-active-num" id="ozonFbsPickContainerActiveNum"></span>
-                  <button type="button" class="ozon-fbs-container-active-clear" title="Прекратить сканирование в это грузоместо"
+                <span class="ozon-fbs-container-active-wrap" id="ozonFbsPickContainerActive" hidden aria-live="polite">
+                  <span class="ozon-fbs-container-active-target">
+                    <span class="ozon-fbs-container-active-num" id="ozonFbsPickContainerActiveNum"></span>
+                  </span>
+                  <button type="button" class="wb-fbs-kiz-remove ozon-fbs-container-active-clear" title="Прекратить сканирование в это грузоместо"
                           aria-label="Прекратить сканирование в это грузоместо"
                           onclick="clearOzonFbsActiveContainer('pick')">×</button>
                 </span>
@@ -6523,8 +6527,8 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=85"></script>
-  <script src="/static/ozon_fbs_container_bind.js?v=10"></script>
+  <script src="/static/ozon_fbs.js?v=86"></script>
+  <script src="/static/ozon_fbs_container_bind.js?v=11"></script>
   <script src="/static/app.js?v=528"></script>
 </body>
 </html>
