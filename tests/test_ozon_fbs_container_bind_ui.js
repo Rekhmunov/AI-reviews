@@ -26,6 +26,22 @@ function makeDom() {
         title: "",
         placeholder: "",
         value: "",
+        dataset: {},
+        classList: {
+          _set: new Set(),
+          add(cls) { this._set.add(cls); },
+          remove(cls) { this._set.delete(cls); },
+        },
+        setAttribute(name, val) {
+          if (name === "title") this.title = val;
+        },
+        getAttribute(name) {
+          if (name === "title") return this.title;
+          return null;
+        },
+        removeAttribute(name) {
+          if (name === "title") this.title = "";
+        },
         focus() {},
         select() {},
       });
@@ -73,27 +89,42 @@ function loadBindModule(dom) {
     },
     document: dom.document,
     URLSearchParams: global.URLSearchParams,
-    fetch: async () => ({
-      ok: true,
-      json: async () => ({
-        items: [
-          {
+    fetch: async (url) => {
+      if (String(url).includes("/containers/reconcile")) {
+        return { ok: true, json: async () => ({ binds: {}, changes: [] }) };
+      }
+      if (String(url).includes("/containers/bind")) {
+        return {
+          ok: true,
+          json: async () => ({
             container_id: 202174459906000,
-            container_number: 1,
-            status: "new",
-            can_fill: true,
-            available_actions: ["fill", "approve"],
-          },
-          {
-            container_id: 99,
-            container_number: 2,
-            status: "approved",
-            can_fill: false,
-            available_actions: ["get_label_container"],
-          },
-        ],
-      }),
-    }),
+            container_barcode: "202174459906000",
+            container_synced: true,
+          }),
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          items: [
+            {
+              container_id: 202174459906000,
+              container_number: 1,
+              status: "new",
+              can_fill: true,
+              available_actions: ["fill", "approve"],
+            },
+            {
+              container_id: 99,
+              container_number: 2,
+              status: "approved",
+              can_fill: false,
+              available_actions: ["get_label_container"],
+            },
+          ],
+        }),
+      };
+    },
     setTimeout(fn) {
       fn();
     },
@@ -142,6 +173,22 @@ async function run() {
   state.activeId = null;
   const bindOk = await win._ozonFbsContainerMaybeBind("kiz", "P-1");
   assert(bindOk === true, "maybeBind no-op without active");
+
+  // maybeBind skips until sticker + successful KIZ scan
+  state.activeId = 202174459906000;
+  state.activeBarcode = "202174459906000";
+  win.ozonFbsKizState.rows = [{ posting_number: "P-1", kiz_codes: [""] }];
+  const bindBeforeScan = await win._ozonFbsContainerMaybeBind("kiz", "P-1");
+  assert(bindBeforeScan === true, "maybeBind no-op before successful scan");
+  assert(!win.ozonFbsKizState.rows[0].container_id, "no container bind before KIZ");
+
+  win.ozonFbsKizState.rows[0].sticker_barcode = "123";
+  win.ozonFbsKizState.rows[0].kiz_codes = ["01abc"];
+  await win._ozonFbsContainerMaybeBind("kiz", "P-1");
+  assert(
+    win.ozonFbsKizState.rows[0].container_id === 202174459906000,
+    "container bind after successful KIZ"
+  );
 
   console.log("test_ozon_fbs_container_bind_ui.js: all checks passed");
 }

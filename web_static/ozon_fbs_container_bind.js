@@ -563,6 +563,33 @@
     return rows.find((r) => String(r.posting_number || "") === pn) || null;
   }
 
+  /** Sticker was resolved in the modal (lookup / persist), not posting number alone. */
+  function rowHasKnownSticker(row) {
+    if (!row) return false;
+    if (String(row.sticker_barcode || "").trim()) return true;
+    const partA = String(row.sticker_part_a || "").trim();
+    const partB = String(row.sticker_part_b || "").trim();
+    return !!(partA && partB);
+  }
+
+  /** KIZ or pick verify succeeded locally — no bind on failed / empty scan. */
+  function rowScanSucceeded(mode, row) {
+    if (!row) return false;
+    const pn = String(row.posting_number || "").trim();
+    if (mode === "kiz") {
+      const err = String(window.ozonFbsKizState?.errors?.[pn] || "").trim();
+      if (err) return false;
+      const codes = Array.isArray(row.kiz_codes) ? row.kiz_codes : [];
+      return codes.some((c) => String(c || "").trim());
+    }
+    if (mode === "pick") {
+      const err = String(window.ozonFbsPickState?.errors?.[pn] || "").trim();
+      if (err) return false;
+      return !!row.pick_verified && !!String(row.pick_barcode || "").trim();
+    }
+    return false;
+  }
+
   function applyBindResult(row, data) {
     if (!row || !data) return;
     row.container_id = data.container_id || null;
@@ -638,12 +665,16 @@
   }
 
   /**
-   * After sticker identifies a posting, attach to active cargo place in background.
-   * Does not block the KIZ/SKU scan prompt (only rebind confirm is awaited).
+   * After successful KIZ / pick verify, attach to active cargo place in background.
+   * Requires resolved sticker + successful scan; does not run on sticker-only identify.
+   * Does not block the scan prompt (only rebind confirm is awaited).
    * Returns false only when user cancelled rebind.
    */
   async function maybeBindAfterPostingIdentified(mode, postingNumber) {
     if (!state.hasContainers || !state.activeId) return true;
+    const row = findRow(mode, postingNumber);
+    if (!row) return true;
+    if (!rowHasKnownSticker(row) || !rowScanSucceeded(mode, row)) return true;
     const active = state.byId.get(String(state.activeId));
     if (active && !containerAcceptsFill(active)) {
       setActive(null);
@@ -656,8 +687,6 @@
       }
       return true;
     }
-    const row = findRow(mode, postingNumber);
-    if (!row) return true;
     const prevId = Number(row.container_id || 0) || 0;
     const prevBarcode = String(row.container_barcode || "").trim();
     const nextBarcode = state.activeBarcode || String(state.activeId);

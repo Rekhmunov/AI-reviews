@@ -6715,6 +6715,9 @@
         touched.add(pn);
         void _ozonFbsPersistStickerForRow(row, stickerKey);
         _ozonFbsKizScheduleLocalAutosave(pn, false);
+        if (typeof _ozonFbsContainerMaybeBind === "function") {
+          void _ozonFbsContainerMaybeBind("kiz", pn);
+        }
         okN += 1;
         log.push(`${stickerKey} → ${pn} — заменён на ${_ozonFbsKizMarkPreview(mark)}`);
       }
@@ -6903,6 +6906,9 @@
         touched.add(pn);
         void _ozonFbsPersistStickerForRow(row, stickerKey);
         _ozonFbsKizScheduleLocalAutosave(pn, false);
+        if (typeof _ozonFbsContainerMaybeBind === "function") {
+          void _ozonFbsContainerMaybeBind("kiz", pn);
+        }
         okN += 1;
         log.push(
           incomplete
@@ -8297,14 +8303,6 @@
     }
     ozonFbsKizState.pendingPosting = String(found.row.posting_number || "");
     void _ozonFbsPersistStickerForRow(found.row, rawTyped);
-    if (typeof _ozonFbsContainerMaybeBind === "function") {
-      const okBind = await _ozonFbsContainerMaybeBind("kiz", ozonFbsKizState.pendingPosting);
-      if (!okBind) {
-        ozonFbsKizState.pendingPosting = null;
-        if (input) input.select();
-        return;
-      }
-    }
     _ozonFbsKizSetInfo("");
     if (input) input.value = "";
     const meta = document.getElementById("ozonFbsKizScanPromptMeta");
@@ -8407,6 +8405,9 @@
     }
     _ozonFbsKizSetInfo(`КИЗ сохранён локально для ${pn}`, true);
     _ozonFbsKizScheduleLocalAutosave(pn, false);
+    if (typeof _ozonFbsContainerMaybeBind === "function") {
+      void _ozonFbsContainerMaybeBind("kiz", pn);
+    }
     const rowEl = document.querySelector(`#ozonFbsKizTbody tr[data-posting="${pn}"]`);
     if (rowEl) rowEl.scrollIntoView({ block: "nearest" });
   }
@@ -9216,14 +9217,6 @@
     }
     ozonFbsPickState.pendingPosting = String(found.row.posting_number || "");
     _ozonFbsPersistStickerForRow(found.row, scan);
-    if (typeof _ozonFbsContainerMaybeBind === "function") {
-      const okBind = await _ozonFbsContainerMaybeBind("pick", ozonFbsPickState.pendingPosting);
-      if (!okBind) {
-        ozonFbsPickState.pendingPosting = null;
-        if (input) input.select();
-        return;
-      }
-    }
     _ozonFbsPickSetInfo("");
     if (input) input.value = "";
     const meta = document.getElementById("ozonFbsPickScanPromptMeta");
@@ -9282,6 +9275,9 @@
     renderOzonFbsPickVerifyTable();
     _ozonFbsPickScheduleLocalAutosave(pn, false);
     _ozonFbsPickSetInfo(`ШК проверен локально для ${pn}`, true);
+    if (typeof _ozonFbsContainerMaybeBind === "function") {
+      void _ozonFbsContainerMaybeBind("pick", pn);
+    }
     const rowEl = document.querySelector(`#ozonFbsPickTbody tr[data-posting="${pn}"]`);
     if (rowEl) rowEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
