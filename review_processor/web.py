@@ -14111,6 +14111,40 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.get("/api/ozon-fbs/supplies/{supply_id}/pick-verify/status")
+    def ozon_fbs_supply_pick_verify_status(
+        request: Request,
+        supply_id: str,
+        source_id: int,
+        posting_tab: str | None = None,
+    ) -> dict[str, object]:
+        """Local Проверка ШК completeness + container bind errors for button tone."""
+        from . import ozon_fbs_pick_verify as oz_pick
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        if not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Проверка ШК доступна только главному пользователю",
+            )
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid or not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        tab_key = str(posting_tab or "").strip() or None
+        try:
+            return oz_pick.check_supply_pick_verify_status(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                supply_id=sid,
+                posting_tab=tab_key,
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     @app.put("/api/ozon-fbs/supplies/{supply_id}/pick-verify")
     async def ozon_fbs_supply_pick_verify_save(
         request: Request,
@@ -14341,6 +14375,106 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         client = ozon_fbs_mod.OzonFbsClient(client_id=client_id, api_key=api_key)
         try:
             return oz_ct.get_container_labels_pdf(client, container_ids=ids_raw)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/ozon-fbs/supplies/{supply_id}/containers/bind")
+    async def ozon_fbs_supply_containers_bind(
+        request: Request, supply_id: str
+    ) -> dict[str, object]:
+        """Bind posting to cargo place (local + Ozon fill in this request)."""
+        from . import ozon_fbs as ozon_fbs_mod
+        from . import ozon_fbs_containers as oz_ct
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        try:
+            source_id = int(body.get("source_id") or 0)
+            container_id = int(body.get("container_id") or 0)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Некорректные параметры") from exc
+        posting_number = str(body.get("posting_number") or "").strip()
+        container_barcode = str(body.get("container_barcode") or "").strip()
+        prev_raw = body.get("previous_container_id")
+        try:
+            previous_container_id = int(prev_raw) if prev_raw not in (None, "") else None
+        except (TypeError, ValueError):
+            previous_container_id = None
+        if not source_id or not posting_number or container_id <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Укажите source_id, posting_number и container_id",
+            )
+        _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, source_id)
+        client = ozon_fbs_mod.OzonFbsClient(client_id=client_id, api_key=api_key)
+        try:
+            return oz_ct.bind_posting_to_container(
+                client,
+                repository,
+                user_id=owner_id,
+                source_id=source_id,
+                posting_number=posting_number,
+                container_id=container_id,
+                container_barcode=container_barcode,
+                previous_container_id=previous_container_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/ozon-fbs/supplies/{supply_id}/containers/unbind")
+    async def ozon_fbs_supply_containers_unbind(
+        request: Request, supply_id: str
+    ) -> dict[str, object]:
+        """Clear posting cargo-place bind (local + Ozon remove-postings)."""
+        from . import ozon_fbs as ozon_fbs_mod
+        from . import ozon_fbs_containers as oz_ct
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        try:
+            source_id = int(body.get("source_id") or 0)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Укажите source_id") from exc
+        posting_number = str(body.get("posting_number") or "").strip()
+        try:
+            container_id = int(body.get("container_id") or 0) or None
+        except (TypeError, ValueError):
+            container_id = None
+        if not source_id or not posting_number:
+            raise HTTPException(
+                status_code=400, detail="Укажите source_id и posting_number"
+            )
+        _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, source_id)
+        client = ozon_fbs_mod.OzonFbsClient(client_id=client_id, api_key=api_key)
+        try:
+            return oz_ct.unbind_posting_from_container(
+                client,
+                repository,
+                user_id=owner_id,
+                source_id=source_id,
+                posting_number=posting_number,
+                container_id=container_id,
+            )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:

@@ -88,7 +88,8 @@ def load_marking_map(
             repo._sql(
                 f"""
                 SELECT posting_number, marking_codes_json, marking_saved_at,
-                       marking_ozon_synced, marking_gtd_number
+                       marking_ozon_synced, marking_gtd_number,
+                       container_id, container_barcode, container_synced, container_sync_error
                 FROM ozon_fbs_postings
                 WHERE user_id = ? AND source_id = ?
                   AND posting_number IN ({placeholders})
@@ -102,12 +103,23 @@ def load_marking_map(
         pn = str(d.get("posting_number") or "").strip()
         if not pn:
             continue
+        try:
+            cid = int(d.get("container_id") or 0)
+        except (TypeError, ValueError):
+            cid = 0
+        barcode = str(d.get("container_barcode") or "").strip()
+        if not barcode and cid > 0:
+            barcode = str(cid)
         out[pn] = {
             "codes": _parse_codes(d.get("marking_codes_json")),
             # Canonical UTC token — same as WB FBS (avoids false conflicts on PG round-trip).
             "saved_at": wb._normalize_kiz_saved_at(d.get("marking_saved_at")),
             "ozon_synced": bool(d.get("marking_ozon_synced")),
             "gtd_number": str(d.get("marking_gtd_number") or "").strip(),
+            "container_id": cid if cid > 0 else None,
+            "container_barcode": barcode,
+            "container_synced": bool(d.get("container_synced")) and cid > 0,
+            "container_sync_error": str(d.get("container_sync_error") or "").strip(),
         }
     return out
 
@@ -282,6 +294,10 @@ def build_marking_payload(
                 "sticker_lower_barcode": str(o.get("sticker_lower_barcode") or "").strip(),
                 "sticker_part_a": str(o.get("sticker_part_a") or "").strip(),
                 "sticker_part_b": str(o.get("sticker_part_b") or "").strip(),
+                "container_id": loc.get("container_id"),
+                "container_barcode": str(loc.get("container_barcode") or "").strip(),
+                "container_synced": bool(loc.get("container_synced")),
+                "container_sync_error": str(loc.get("container_sync_error") or "").strip(),
             }
         )
     all_orders = [o for o in (detail.get("orders") or []) if isinstance(o, dict)]
@@ -1445,10 +1461,28 @@ def check_supply_marking_status(
                 "kiz_status": st if kiz_required else "empty",
                 "cancelled": cancelled,
                 "cancel_reason_label": str(o.get("cancel_reason_label") or ""),
+                "container_id": loc.get("container_id"),
+                "container_barcode": str(loc.get("container_barcode") or "").strip(),
+                "container_synced": bool(loc.get("container_synced")),
+                "container_sync_error": str(loc.get("container_sync_error") or "").strip(),
             }
         )
     total = len(required)
-    if total == 0:
+    # Only KIZ-required postings affect the Маркировка button tone.
+    container_errors = [
+        {
+            "posting_number": r["posting_number"],
+            "container_barcode": r.get("container_barcode") or "",
+            "error": r.get("container_sync_error") or "",
+        }
+        for r in status_rows
+        if r.get("kiz_required")
+        and not r.get("cancelled")
+        and str(r.get("container_sync_error") or "").strip()
+    ]
+    if container_errors:
+        tone = "error"
+    elif total == 0:
         tone = ""
     elif done == total:
         tone = "ok"
@@ -1461,5 +1495,7 @@ def check_supply_marking_status(
         "pending": pending,
         "empty": empty,
         "status": tone,
+        "container_errors": container_errors,
+        "container_error_count": len(container_errors),
         "orders": status_rows,
     }

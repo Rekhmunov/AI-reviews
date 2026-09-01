@@ -86,6 +86,7 @@
     "ozonFbsSupplyDetailKizBtn",
     "ozonFbsSupplyDetailKizRefreshBtn",
     "ozonFbsSupplyDetailPickVerifyBtn",
+    "ozonFbsSupplyDetailPickRefreshBtn",
     "ozonFbsSupplyDetailCancelledBtn",
     "ozonFbsSupplyDetailShipmentsBtn",
     "ozonFbsSupplyDetailMoveDeliveringBtn",
@@ -5938,6 +5939,8 @@
     localAutosaveChain: Promise.resolve(),
     localAutosaveSeqByPosting: {},
     localAutosaveInflight: 0,
+    statusRefreshing: false,
+    statusRefreshGen: 0,
   };
 
   /**
@@ -7034,13 +7037,41 @@
 
   function _ozonFbsSyncPickVerifyBtn(orders) {
     const btn = document.getElementById("ozonFbsSupplyDetailPickVerifyBtn");
-    if (!btn) return;
+    const split = document.getElementById("ozonFbsPickSplit");
+    if (!btn && !split) return;
     const list = Array.isArray(orders) ? orders : [];
     const hasPlain = list.some((o) => o && !o.kiz_required && !_ozonFbsRowIsCancelled(o));
     const can = typeof isTenantOwner === "function" && isTenantOwner()
       && _ozonFbsSupplyActionsReady() && hasPlain;
-    btn.hidden = !can;
-    btn.style.display = can ? "" : "none";
+    if (split) {
+      split.hidden = !can;
+      split.style.display = can ? "" : "none";
+    }
+    if (btn) {
+      btn.hidden = !can;
+      btn.style.display = can ? "" : "none";
+    }
+  }
+
+  function _ozonFbsPickSplitSetTone(tone) {
+    const split = document.getElementById("ozonFbsPickSplit");
+    if (!split) return;
+    split.classList.remove("is-ok", "is-error");
+    const t = String(tone || "").trim().toLowerCase();
+    if (t === "ok") split.classList.add("is-ok");
+    else if (t === "error") split.classList.add("is-error");
+    const refreshBtn = document.getElementById("ozonFbsSupplyDetailPickRefreshBtn");
+    if (refreshBtn) {
+      if (t === "error") {
+        const tip = split.dataset.containerErrorTip || "Ошибка привязки к грузоместу";
+        refreshBtn.title = tip;
+        split.title = tip;
+      } else {
+        refreshBtn.title = "Обновить статусы проверки ШК";
+        split.removeAttribute("title");
+        delete split.dataset.containerErrorTip;
+      }
+    }
   }
 
   function kizBadgeHtml(order) {
@@ -7149,6 +7180,11 @@
     const t = String(tone || "").trim().toLowerCase();
     if (t === "ok") split.classList.add("is-ok");
     else if (t === "error") split.classList.add("is-error");
+    const refreshBtn = document.getElementById("ozonFbsSupplyDetailKizRefreshBtn");
+    if (refreshBtn && t === "error") {
+      const tip = split.dataset.containerErrorTip || refreshBtn.title || "Ошибка привязки к грузоместу";
+      refreshBtn.title = tip;
+    }
   }
 
   function _ozonFbsKizToneFromSupply(supply) {
@@ -7584,16 +7620,18 @@
       const hay = [
         r.posting_number, r.offer_id, r.product_name, r.sku,
         r.sticker_barcode, r.sticker_part_a, r.sticker_part_b,
+        r.container_barcode, r.container_id,
         ...(Array.isArray(r.barcodes) ? r.barcodes : []),
       ].map((x) => String(x || "").toLowerCase()).join(" ");
       return hay.includes(q);
     });
     if (!rows.length) {
-      tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">${
+      tbody.innerHTML = `<tr><td colspan="5" class="wb-fbs-empty">${
         ozonFbsKizState.rows?.length ? "Нет строк по выбранным фильтрам" : "Нет отправлений с маркировкой"
       }</td></tr>`;
       _ozonFbsKizRebuildIndexes();
       _ozonFbsKizUpdateScanCounter();
+      if (typeof _ozonFbsContainerUpdateCounters === "function") _ozonFbsContainerUpdateCounters();
       return;
     }
     tbody.innerHTML = rows.map((r) => {
@@ -7683,6 +7721,11 @@
                   : "")
           }
         </td>
+        <td class="wb-fbs-kiz-col-container">${
+          typeof _ozonFbsContainerCellHtml === "function"
+            ? _ozonFbsContainerCellHtml(r, "kiz")
+            : "—"
+        }</td>
         <td>
           <div class="wb-fbs-row-menu-wrap">
             <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
@@ -7708,6 +7751,7 @@
     });
     _ozonFbsKizRebuildIndexes();
     _ozonFbsKizUpdateScanCounter();
+    if (typeof _ozonFbsContainerUpdateCounters === "function") _ozonFbsContainerUpdateCounters();
   }
 
   /**
@@ -8123,6 +8167,10 @@
       if (typeof _wbFbsKizBlockRuLayout === "function") _wbFbsKizBlockRuLayout(input);
       return;
     }
+    if (typeof _ozonFbsContainerIsScanMode === "function" && _ozonFbsContainerIsScanMode("kiz")) {
+      await _ozonFbsContainerHandleScan("kiz", rawTyped);
+      return;
+    }
     // Sync only the focused cell (if any) — avoid walking hundreds of inputs.
     _ozonFbsKizSyncActiveCodeInput();
     const found = await _ozonFbsKizFindByStickerWithLookup(rawTyped);
@@ -8145,6 +8193,14 @@
     }
     ozonFbsKizState.pendingPosting = String(found.row.posting_number || "");
     void _ozonFbsPersistStickerForRow(found.row, rawTyped);
+    if (typeof _ozonFbsContainerMaybeBind === "function") {
+      const okBind = await _ozonFbsContainerMaybeBind("kiz", ozonFbsKizState.pendingPosting);
+      if (!okBind) {
+        ozonFbsKizState.pendingPosting = null;
+        if (input) input.select();
+        return;
+      }
+    }
     _ozonFbsKizSetInfo("");
     if (input) input.value = "";
     const meta = document.getElementById("ozonFbsKizScanPromptMeta");
@@ -8384,6 +8440,9 @@
     if (!sid || !sourceId || !_ozonFbsSupplyActionsReady()) return;
     if (typeof setModalVisibility === "function") setModalVisibility("ozonFbsKizModal", true);
     else document.getElementById("ozonFbsKizModal")?.classList.remove("hidden");
+    if (typeof _ozonFbsContainerPrepareModal === "function") {
+      void _ozonFbsContainerPrepareModal("kiz");
+    }
     ozonFbsKizColResizer.init();
     const loadGen = (ozonFbsKizState.loadGen = Number(ozonFbsKizState.loadGen || 0) + 1);
     ozonFbsKizState.rows = [];
@@ -8408,7 +8467,7 @@
     _ozonFbsKizImportSetInfo("");
     _ozonFbsKizClearImportConflicts();
     const tbody = document.getElementById("ozonFbsKizTbody");
-    if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">Загрузка…</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="wb-fbs-empty">Загрузка…</td></tr>`;
     const saveBtn = document.getElementById("ozonFbsKizSaveBtn");
     if (saveBtn) saveBtn.disabled = true;
     const scan = document.getElementById("ozonFbsKizStickerScan");
@@ -8661,8 +8720,33 @@
       if (ozonFbsKizState.statusRefreshGen !== refreshGen) return;
       _ozonFbsKizMergeStatusIntoDetail(data.orders || []);
       if (supplyDetailState.supply) renderSupplyDetail();
-      if (String(data.status || "") === "ok") {
+      const st = String(data.status || "");
+      const split = document.getElementById("ozonFbsKizSplit");
+      const refreshBtn = document.getElementById("ozonFbsSupplyDetailKizRefreshBtn");
+      if (st === "error") {
+        const tip = typeof _ozonFbsContainerErrorsTooltip === "function"
+          ? _ozonFbsContainerErrorsTooltip(data.container_errors || [])
+          : "Ошибка привязки к грузоместу";
+        if (split) {
+          split.dataset.containerErrorTip = tip || "Ошибка привязки к грузоместу";
+          split.title = tip || "Ошибка привязки к грузоместу";
+        }
+        if (refreshBtn) refreshBtn.title = tip || "Ошибка привязки к грузоместу";
+        _ozonFbsKizSplitSetTone("error");
+      } else if (st === "ok") {
+        if (split) {
+          split.removeAttribute("title");
+          delete split.dataset.containerErrorTip;
+        }
+        if (refreshBtn) refreshBtn.title = "Обновить статусы маркировки";
         _ozonFbsKizSplitSetTone("ok");
+      } else {
+        if (split) {
+          split.removeAttribute("title");
+          delete split.dataset.containerErrorTip;
+        }
+        if (refreshBtn) refreshBtn.title = "Обновить статусы маркировки";
+        _ozonFbsKizSplitSetTone("");
       }
     } catch (e) {
       if (
@@ -8837,15 +8921,17 @@
       if (!q) return true;
       const hay = [
         r.posting_number, r.offer_id, r.product_name, r.sku, r.pick_barcode,
+        r.container_barcode, r.container_id,
         ...(Array.isArray(r.barcodes) ? r.barcodes : []),
       ].map((x) => String(x || "").toLowerCase()).join(" ");
       return hay.includes(q);
     });
     if (!rows.length) {
-      tbody.innerHTML = `<tr><td colspan="3" class="wb-fbs-empty">${
+      tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">${
         ozonFbsPickState.rows?.length ? "Нет строк по фильтру" : "Нет отправлений без маркировки"
       }</td></tr>`;
       _ozonFbsPickUpdateScanCounter();
+      if (typeof _ozonFbsContainerUpdateCounters === "function") _ozonFbsContainerUpdateCounters();
       return;
     }
     tbody.innerHTML = rows.map((r) => {
@@ -8876,9 +8962,15 @@
           </div>
         </td>
         <td class="wb-fbs-kiz-col-kiz">${_ozonFbsPickStatusHtml(r)}</td>
+        <td class="wb-fbs-kiz-col-container">${
+          typeof _ozonFbsContainerCellHtml === "function"
+            ? _ozonFbsContainerCellHtml(r, "pick")
+            : "—"
+        }</td>
       </tr>`;
     }).join("");
     _ozonFbsPickUpdateScanCounter();
+    if (typeof _ozonFbsContainerUpdateCounters === "function") _ozonFbsContainerUpdateCounters();
   }
 
   function clearOzonFbsPickVerify(postingNumber) {
@@ -8979,6 +9071,10 @@
       if (typeof _wbFbsKizBlockRuLayout === "function") _wbFbsKizBlockRuLayout(input);
       return;
     }
+    if (typeof _ozonFbsContainerIsScanMode === "function" && _ozonFbsContainerIsScanMode("pick")) {
+      await _ozonFbsContainerHandleScan("pick", rawTyped);
+      return;
+    }
     const scan = _ozonFbsNormalizeScan(rawTyped);
     if (!scan) return;
     const found = await _ozonFbsPickFindByStickerWithLookup(scan);
@@ -9001,6 +9097,14 @@
     }
     ozonFbsPickState.pendingPosting = String(found.row.posting_number || "");
     _ozonFbsPersistStickerForRow(found.row, scan);
+    if (typeof _ozonFbsContainerMaybeBind === "function") {
+      const okBind = await _ozonFbsContainerMaybeBind("pick", ozonFbsPickState.pendingPosting);
+      if (!okBind) {
+        ozonFbsPickState.pendingPosting = null;
+        if (input) input.select();
+        return;
+      }
+    }
     _ozonFbsPickSetInfo("");
     if (input) input.value = "";
     const meta = document.getElementById("ozonFbsPickScanPromptMeta");
@@ -9063,6 +9167,71 @@
     if (rowEl) rowEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
 
+  async function refreshOzonFbsPickVerifyStatus(event) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    const sid = String(supplyDetailState.supplyId || "").trim();
+    const sourceId = supplyDetailState.sourceId || state.sourceId;
+    if (!sid || !sourceId || !_ozonFbsSupplyActionsReady() || ozonFbsPickState.statusRefreshing) {
+      return;
+    }
+    const refreshBtn = document.getElementById("ozonFbsSupplyDetailPickRefreshBtn");
+    const refreshGen = (Number(ozonFbsPickState.statusRefreshGen) || 0) + 1;
+    ozonFbsPickState.statusRefreshGen = refreshGen;
+    ozonFbsPickState.statusRefreshing = true;
+    if (refreshBtn) {
+      refreshBtn.disabled = true;
+      refreshBtn.classList.add("is-spinning");
+    }
+    try {
+      const params = new URLSearchParams({ source_id: String(sourceId) });
+      _ozonFbsAppendPostingTab(params);
+      const res = await fetch(
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/pick-verify/status?${params}`
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      }
+      if (supplyDetailState.supplyId !== sid) return;
+      if (ozonFbsPickState.statusRefreshGen !== refreshGen) return;
+      const st = String(data.status || "");
+      if (st === "error") {
+        const tip = typeof _ozonFbsContainerErrorsTooltip === "function"
+          ? _ozonFbsContainerErrorsTooltip(data.container_errors || [])
+          : "Ошибка привязки к грузоместу";
+        const split = document.getElementById("ozonFbsPickSplit");
+        if (split) split.dataset.containerErrorTip = tip || "Ошибка привязки к грузоместу";
+        _ozonFbsPickSplitSetTone("error");
+      } else if (st === "ok") {
+        _ozonFbsPickSplitSetTone("ok");
+      } else {
+        _ozonFbsPickSplitSetTone("");
+      }
+    } catch (e) {
+      if (
+        supplyDetailState.supplyId === sid
+        && ozonFbsPickState.statusRefreshGen === refreshGen
+      ) {
+        const info = document.getElementById("ozonFbsSupplyDetailInfo");
+        if (info) {
+          info.hidden = false;
+          info.textContent = String(e.message || e);
+        }
+      }
+    } finally {
+      if (ozonFbsPickState.statusRefreshGen === refreshGen) {
+        ozonFbsPickState.statusRefreshing = false;
+        if (refreshBtn) {
+          refreshBtn.disabled = false;
+          refreshBtn.classList.remove("is-spinning");
+        }
+      }
+    }
+  }
+
   async function openOzonFbsPickVerifyModal() {
     if (typeof isTenantOwner === "function" && !isTenantOwner()) {
       alert("Проверка ШК доступна только главному пользователю");
@@ -9073,6 +9242,9 @@
     if (!sid || !sourceId || !_ozonFbsSupplyActionsReady()) return;
     if (typeof setModalVisibility === "function") setModalVisibility("ozonFbsPickVerifyModal", true);
     else document.getElementById("ozonFbsPickVerifyModal")?.classList.remove("hidden");
+    if (typeof _ozonFbsContainerPrepareModal === "function") {
+      void _ozonFbsContainerPrepareModal("pick");
+    }
     ozonFbsPickColResizer.init();
     ozonFbsPickState.rows = [];
     ozonFbsPickState.errors = {};
@@ -9080,7 +9252,7 @@
     _ozonFbsPickSetFiltersReady(false);
     _ozonFbsPickSetInfo("");
     const tbody = document.getElementById("ozonFbsPickTbody");
-    if (tbody) tbody.innerHTML = `<tr><td colspan="3" class="wb-fbs-empty">Загрузка…</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">Загрузка…</td></tr>`;
     const saveBtn = document.getElementById("ozonFbsPickVerifySaveBtn");
     if (saveBtn) saveBtn.disabled = true;
     const scan = document.getElementById("ozonFbsPickStickerScan");
@@ -9095,7 +9267,7 @@
           onProgress: (p) => {
             const msg = _ozonFbsResolveProgressText(p);
             if (tbody) {
-              tbody.innerHTML = `<tr><td colspan="3" class="wb-fbs-empty">${esc(msg)}</td></tr>`;
+              tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">${esc(msg)}</td></tr>`;
             }
             _ozonFbsPickSetInfo(msg, true);
           },
@@ -9416,6 +9588,11 @@
   window.openOzonFbsCancelledOrdersModal = openOzonFbsCancelledOrdersModal;
   window.closeOzonFbsCancelledOrdersModal = closeOzonFbsCancelledOrdersModal;
   window.refreshOzonFbsCancelledOrders = refreshOzonFbsCancelledOrders;
+  window.ozonFbsKizState = ozonFbsKizState;
+  window.ozonFbsPickState = ozonFbsPickState;
+  window.supplyDetailState = supplyDetailState;
+  window._ozonFbsKizSetInfo = _ozonFbsKizSetInfo;
+  window._ozonFbsPickSetInfo = _ozonFbsPickSetInfo;
   window.openOzonFbsKizModal = openOzonFbsKizModal;
   window.closeOzonFbsKizModal = closeOzonFbsKizModal;
   window.saveOzonFbsKizModal = saveOzonFbsKizModal;
@@ -9444,6 +9621,7 @@
   window.dismissOzonFbsKizImportConflicts = dismissOzonFbsKizImportConflicts;
   window.selectAllOzonFbsKizImportConflicts = selectAllOzonFbsKizImportConflicts;
   window.refreshOzonFbsMarkingStatus = refreshOzonFbsMarkingStatus;
+  window.refreshOzonFbsPickVerifyStatus = refreshOzonFbsPickVerifyStatus;
   window.openOzonFbsPickVerifyModal = openOzonFbsPickVerifyModal;
   window.closeOzonFbsPickVerifyModal = closeOzonFbsPickVerifyModal;
   window.saveOzonFbsPickVerifyModal = saveOzonFbsPickVerifyModal;

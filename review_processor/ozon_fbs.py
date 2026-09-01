@@ -886,6 +886,10 @@ def ensure_ozon_fbs_tables(repo: ReviewRepository) -> None:
             "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS sticker_part_a TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS sticker_part_b TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS sticker_scanned_at TIMESTAMPTZ",
+            "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS container_id BIGINT",
+            "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS container_barcode TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS container_synced BOOLEAN NOT NULL DEFAULT FALSE",
+            "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS container_sync_error TEXT NOT NULL DEFAULT ''",
         ):
             try:
                 conn.execute(ddl)

@@ -14215,3 +14215,106 @@ button.wb-fbs-kiz-add:disabled {
     min-height: 44px;
   }
 }
+
+
+/* Ozon FBS cargo-place bind in Marking / Pick Verify */
+.ozon-fbs-container-scan-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 0 4px;
+  font-size: 14px;
+  color: #334155;
+  cursor: pointer;
+  user-select: none;
+}
+.ozon-fbs-container-scan-check[hidden] { display: none !important; }
+.ozon-fbs-container-scan-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: #0f766e;
+}
+.ozon-fbs-container-count {
+  display: block;
+  margin-top: 4px;
+  color: #475569;
+}
+.ozon-fbs-container-count[hidden] { display: none !important; }
+.wb-fbs-kiz-col-container {
+  min-width: 140px;
+}
+.wb-fbs-kiz-col-container[hidden] {
+  display: none !important;
+}
+.ozon-fbs-container-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ozon-fbs-container-cell {
+  position: relative;
+}
+.ozon-fbs-container-cell .ozon-fbs-container-input {
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 28px 6px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  background: #fff;
+  color: #0f172a;
+}
+.ozon-fbs-container-cell .ozon-fbs-container-input:focus {
+  outline: 2px solid #0f766e;
+  outline-offset: 1px;
+  border-color: #0f766e;
+}
+.ozon-fbs-container-cell .ozon-fbs-container-input.is-error {
+  border-color: #f87171;
+  background: #fef2f2;
+}
+.ozon-fbs-container-clear {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+.ozon-fbs-container-clear:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+.ozon-fbs-container-err {
+  font-size: 12px;
+  color: #b91c1c;
+  line-height: 1.3;
+}
+.ozon-fbs-container-cell.is-empty {
+  color: #94a3b8;
+  font-size: 14px;
+}
+.ozon-fbs-container-rebind-modal {
+  max-width: 480px;
+  width: calc(100% - 32px);
+  padding: 24px;
+}
+.ozon-fbs-container-rebind-text {
+  margin: 12px 0 20px;
+  font-size: 16px;
+  line-height: 1.45;
+  color: #334155;
+}
+.ozon-fbs-container-rebind-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

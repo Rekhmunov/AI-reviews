@@ -72,7 +72,8 @@ def load_posting_pick_map(
         rows = conn.execute(
             repo._sql(
                 f"""
-                SELECT posting_number, pick_verified, pick_barcode, pick_verified_at
+                SELECT posting_number, pick_verified, pick_barcode, pick_verified_at,
+                       container_id, container_barcode, container_synced, container_sync_error
                 FROM ozon_fbs_postings
                 WHERE user_id = ? AND source_id = ?
                   AND posting_number IN ({placeholders})
@@ -87,12 +88,23 @@ def load_posting_pick_map(
         if not pn:
             continue
         verified_at = d.get("pick_verified_at")
+        try:
+            cid = int(d.get("container_id") or 0)
+        except (TypeError, ValueError):
+            cid = 0
+        barcode = str(d.get("container_barcode") or "").strip()
+        if not barcode and cid > 0:
+            barcode = str(cid)
         out[pn] = {
             "pick_verified": bool(d.get("pick_verified")),
             "pick_barcode": str(d.get("pick_barcode") or "").strip(),
             "pick_verified_at": wb._normalize_kiz_saved_at(verified_at)
             if verified_at
             else "",
+            "container_id": cid if cid > 0 else None,
+            "container_barcode": barcode,
+            "container_synced": bool(d.get("container_synced")) and cid > 0,
+            "container_sync_error": str(d.get("container_sync_error") or "").strip(),
         }
     return out
 
@@ -318,6 +330,10 @@ def build_pick_verify_payload(
                 "sticker_lower_barcode": str(o.get("sticker_lower_barcode") or "").strip(),
                 "sticker_part_a": str(o.get("sticker_part_a") or "").strip(),
                 "sticker_part_b": str(o.get("sticker_part_b") or "").strip(),
+                "container_id": local.get("container_id"),
+                "container_barcode": str(local.get("container_barcode") or "").strip(),
+                "container_synced": bool(local.get("container_synced")),
+                "container_sync_error": str(local.get("container_sync_error") or "").strip(),
             }
         )
     all_orders = [o for o in (detail.get("orders") or []) if isinstance(o, dict)]
@@ -492,4 +508,98 @@ def save_pick_verify(
         "errors": err_n,
         "skipped": skipped_n,
         "results": results,
+    }
+
+
+def check_supply_pick_verify_status(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    posting_tab: str | None = None,
+) -> dict[str, Any]:
+    """Local status for Проверка ШК button tone + container bind errors."""
+    from . import ozon_fbs_supplies as oz_sup
+
+    tab_key = str(posting_tab or "").strip() or None
+    detail = oz_sup.get_supply_detail(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=supply_id,
+        posting_tab=tab_key,
+    )
+    orders = [
+        o
+        for o in (detail.get("orders") or [])
+        if isinstance(o, dict)
+        and not o.get("kiz_required")
+        and not oz.posting_row_is_cancelled(o)
+    ]
+    posting_numbers = [
+        str(o.get("posting_number") or "").strip()
+        for o in orders
+        if str(o.get("posting_number") or "").strip()
+    ]
+    local = load_posting_pick_map(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        posting_numbers=posting_numbers,
+    )
+    done = 0
+    empty = 0
+    status_rows: list[dict[str, Any]] = []
+    for o in orders:
+        pn = str(o.get("posting_number") or "").strip()
+        if not pn:
+            continue
+        loc = local.get(pn) or {}
+        verified = bool(loc.get("pick_verified")) and bool(
+            str(loc.get("pick_barcode") or "").strip()
+        )
+        if verified:
+            done += 1
+            st = "ok"
+        else:
+            empty += 1
+            st = "empty"
+        status_rows.append(
+            {
+                "posting_number": pn,
+                "pick_verified": verified,
+                "pick_barcode": str(loc.get("pick_barcode") or "").strip() if verified else "",
+                "pick_status": st,
+                "container_id": loc.get("container_id"),
+                "container_barcode": str(loc.get("container_barcode") or "").strip(),
+                "container_synced": bool(loc.get("container_synced")),
+                "container_sync_error": str(loc.get("container_sync_error") or "").strip(),
+            }
+        )
+    total = len(orders)
+    container_errors = [
+        {
+            "posting_number": r["posting_number"],
+            "container_barcode": r.get("container_barcode") or "",
+            "error": r.get("container_sync_error") or "",
+        }
+        for r in status_rows
+        if str(r.get("container_sync_error") or "").strip()
+    ]
+    if container_errors:
+        tone = "error"
+    elif total > 0 and done == total:
+        tone = "ok"
+    else:
+        tone = ""
+    return {
+        "ok": True,
+        "required": total,
+        "done": done,
+        "empty": empty,
+        "status": tone,
+        "container_errors": container_errors,
+        "container_error_count": len(container_errors),
+        "orders": status_rows,
     }

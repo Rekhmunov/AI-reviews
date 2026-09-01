@@ -13,6 +13,7 @@ Seller API:
 from __future__ import annotations
 
 import json
+import re
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -419,4 +420,252 @@ def get_container_labels_pdf(
         "file_content": file_b64,
         "errors": errors,
         "container_ids": ids,
+    }
+
+
+def normalize_container_scan(value: object) -> str:
+    """Normalize scanned cargo QR (digits from printed label)."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    digits = re.sub(r"\D+", "", raw)
+    return digits or raw
+
+
+def match_container_by_scan(
+    containers: list[dict[str, Any]], scan: object
+) -> dict[str, Any] | None:
+    """Match scanned QR to a known container (by container_id string primarily)."""
+    key = normalize_container_scan(scan)
+    if not key:
+        return None
+    for row in containers or []:
+        if not isinstance(row, dict):
+            continue
+        cid = str(row.get("container_id") or "").strip()
+        barcode = normalize_container_scan(row.get("container_barcode") or row.get("barcode") or "")
+        number = str(row.get("container_number") or "").strip()
+        if cid and cid == key:
+            return row
+        if barcode and barcode == key:
+            return row
+        if number and number == key and len(key) >= 6:
+            return row
+    return None
+
+
+def load_container_bind_map(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_numbers: list[str],
+) -> dict[str, dict[str, Any]]:
+    nums = [str(x).strip() for x in posting_numbers if str(x).strip()]
+    if not nums:
+        return {}
+    oz.ensure_ozon_fbs_tables(repo)
+    placeholders = ", ".join("?" for _ in nums)
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT posting_number, container_id, container_barcode,
+                       container_synced, container_sync_error
+                FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ?
+                  AND posting_number IN ({placeholders})
+                """
+            ),
+            (user_id, source_id, *nums),
+        ).fetchall()
+    out: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        d = repo._row_to_dict(row)
+        pn = str(d.get("posting_number") or "").strip()
+        if not pn:
+            continue
+        try:
+            cid = int(d.get("container_id") or 0)
+        except (TypeError, ValueError):
+            cid = 0
+        barcode = str(d.get("container_barcode") or "").strip()
+        if not barcode and cid > 0:
+            barcode = str(cid)
+        out[pn] = {
+            "container_id": cid if cid > 0 else None,
+            "container_barcode": barcode,
+            "container_synced": bool(d.get("container_synced")) and cid > 0,
+            "container_sync_error": str(d.get("container_sync_error") or "").strip(),
+        }
+    return out
+
+
+def _set_local_container_bind(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_number: str,
+    container_id: int | None,
+    container_barcode: str = "",
+    synced: bool = False,
+    sync_error: str = "",
+) -> dict[str, Any]:
+    oz.ensure_ozon_fbs_tables(repo)
+    pn = str(posting_number or "").strip()
+    if not pn:
+        raise ValueError("Не указан номер отправления")
+    cid = int(container_id or 0)
+    barcode = normalize_container_scan(container_barcode) or (str(cid) if cid > 0 else "")
+    with repo._connect() as conn:
+        conn.execute(
+            repo._sql(
+                """
+                UPDATE ozon_fbs_postings
+                SET container_id = ?,
+                    container_barcode = ?,
+                    container_synced = ?,
+                    container_sync_error = ?
+                WHERE user_id = ? AND source_id = ? AND posting_number = ?
+                """
+            ),
+            (
+                cid if cid > 0 else None,
+                barcode if cid > 0 else "",
+                bool(synced) and cid > 0,
+                str(sync_error or "").strip()[:500],
+                user_id,
+                source_id,
+                pn,
+            ),
+        )
+    return {
+        "posting_number": pn,
+        "container_id": cid if cid > 0 else None,
+        "container_barcode": barcode if cid > 0 else "",
+        "container_synced": bool(synced) and cid > 0,
+        "container_sync_error": str(sync_error or "").strip(),
+    }
+
+
+def bind_posting_to_container(
+    client: oz.OzonFbsClient,
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_number: str,
+    container_id: int,
+    container_barcode: str = "",
+    previous_container_id: int | None = None,
+) -> dict[str, Any]:
+    """Local bind + Ozon fill (and remove from previous if needed).
+
+    Local binding is kept even when Ozon fails; sync_error is stored.
+    """
+    pn = str(posting_number or "").strip()
+    try:
+        cid = int(container_id)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Некорректный container_id") from exc
+    if not pn or cid <= 0:
+        raise ValueError("Укажите отправление и грузоместо")
+    barcode = normalize_container_scan(container_barcode) or str(cid)
+    prev = int(previous_container_id or 0)
+    sync_error = ""
+    synced = False
+    try:
+        if prev > 0 and prev != cid:
+            try:
+                client.carriage_container_remove_postings(
+                    container_id=prev, posting_numbers=[pn]
+                )
+            except Exception as rem_exc:
+                _log.warning(
+                    "ozon container remove-postings prev=%s pn=%s: %s",
+                    prev,
+                    pn,
+                    rem_exc,
+                )
+        client.carriage_container_fill(container_id=cid, posting_numbers=[pn])
+        synced = True
+    except Exception as exc:
+        sync_error = _friendly_ozon_error(exc)
+        _log.warning("ozon container fill cid=%s pn=%s: %s", cid, pn, sync_error)
+    local = _set_local_container_bind(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        posting_number=pn,
+        container_id=cid,
+        container_barcode=barcode,
+        synced=synced,
+        sync_error=sync_error,
+    )
+    return {
+        "ok": True,
+        "synced": synced,
+        "error": sync_error,
+        **local,
+    }
+
+
+def unbind_posting_from_container(
+    client: oz.OzonFbsClient | None,
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_number: str,
+    container_id: int | None = None,
+) -> dict[str, Any]:
+    """Clear local bind; optionally remove posting from Ozon container."""
+    pn = str(posting_number or "").strip()
+    if not pn:
+        raise ValueError("Не указан номер отправления")
+    existing = load_container_bind_map(
+        repo, user_id=user_id, source_id=source_id, posting_numbers=[pn]
+    ).get(pn) or {}
+    cid = int(container_id or existing.get("container_id") or 0)
+    sync_error = ""
+    if client is not None and cid > 0:
+        try:
+            client.carriage_container_remove_postings(
+                container_id=cid, posting_numbers=[pn]
+            )
+        except Exception as exc:
+            sync_error = _friendly_ozon_error(exc)
+            _log.warning("ozon container remove-postings cid=%s pn=%s: %s", cid, pn, sync_error)
+    local = _set_local_container_bind(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        posting_number=pn,
+        container_id=None,
+        container_barcode="",
+        synced=False,
+        sync_error=sync_error,
+    )
+    return {"ok": True, "error": sync_error, **local}
+
+
+def container_bind_fields_from_map(
+    bind_map: dict[str, dict[str, Any]], posting_number: str
+) -> dict[str, Any]:
+    row = bind_map.get(str(posting_number or "").strip()) or {}
+    cid = row.get("container_id")
+    try:
+        cid_i = int(cid or 0)
+    except (TypeError, ValueError):
+        cid_i = 0
+    barcode = str(row.get("container_barcode") or "").strip()
+    if not barcode and cid_i > 0:
+        barcode = str(cid_i)
+    err = str(row.get("container_sync_error") or "").strip()
+    return {
+        "container_id": cid_i if cid_i > 0 else None,
+        "container_barcode": barcode,
+        "container_synced": bool(row.get("container_synced")) and cid_i > 0 and not err,
+        "container_sync_error": err,
     }

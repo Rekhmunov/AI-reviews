@@ -3109,11 +3109,28 @@
                     </svg>
                   </button>
                 </div>
-                <button type="button" class="secondary" id="ozonFbsSupplyDetailPickVerifyBtn" hidden
-                        onclick="openOzonFbsPickVerifyModal()"
-                        title="Проверка ШК товаров без маркировки (только главный пользователь)">
-                  Проверка ШК
-                </button>
+                <div class="wb-fbs-kiz-split" id="ozonFbsPickSplit" hidden>
+                  <button type="button" class="secondary" id="ozonFbsSupplyDetailPickVerifyBtn"
+                          onclick="openOzonFbsPickVerifyModal()"
+                          title="Проверка ШК товаров без маркировки (только главный пользователь)">
+                    Проверка ШК
+                  </button>
+                  <button type="button" class="secondary wb-fbs-kiz-refresh" id="ozonFbsSupplyDetailPickRefreshBtn"
+                          onclick="refreshOzonFbsPickVerifyStatus(event)"
+                          aria-label="Обновить статусы проверки ШК"
+                          title="Обновить статусы проверки ШК">
+                    <svg class="wb-fbs-kiz-refresh-ico" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                      <path d="M3 3v5h5"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                      <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                      <path d="M16 16h5v5"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </button>
+                </div>
                 <button type="button" class="secondary" id="ozonFbsSupplyDetailCancelledBtn"
                         onclick="openOzonFbsCancelledOrdersModal()"
                         title="Проверить отменённые отправления в поставке">Отмененные заказы</button>
@@ -3229,6 +3246,7 @@
               </div>
               <div class="wb-fbs-kiz-toolbar-actions">
                 <div id="ozonFbsKizScanCount" class="wb-fbs-kiz-scan-count" aria-live="polite">Просканировано 0 из 0 КИЗ</div>
+                <div id="ozonFbsKizContainerCount" class="wb-fbs-kiz-scan-count ozon-fbs-container-count" hidden aria-live="polite"></div>
               </div>
             </div>
             <div class="wb-fbs-kiz-scan-bar">
@@ -3243,13 +3261,18 @@
                         onclick="clearWbFbsKizScanField('ozonFbsKizStickerScan')">✕</button>
               </div>
             </div>
+            <label class="ozon-fbs-container-scan-check" id="ozonFbsKizContainerScanLabel" hidden>
+              <input type="checkbox" id="ozonFbsKizContainerScanCheck" onchange="onOzonFbsContainerScanCheckChange('kiz')" />
+              Просканировать ШК грузоместа
+            </label>
             <div id="ozonFbsKizInfo" class="wb-fbs-kiz-info" hidden></div>
             <div class="wb-fbs-kiz-table-wrap">
               <table class="wb-fbs-kiz-table" id="ozonFbsKizTable">
                 <colgroup id="ozonFbsKizColgroup">
-                  <col data-col="0" class="wb-fbs-kiz-col-order" style="width:22%" />
-                  <col data-col="1" class="wb-fbs-kiz-col-product" style="width:38%" />
-                  <col data-col="2" class="wb-fbs-kiz-col-kiz" style="width:34%" />
+                  <col data-col="0" class="wb-fbs-kiz-col-order" style="width:18%" />
+                  <col data-col="1" class="wb-fbs-kiz-col-product" style="width:30%" />
+                  <col data-col="2" class="wb-fbs-kiz-col-kiz" style="width:28%" />
+                  <col data-col="3" class="wb-fbs-kiz-col-container" style="width:18%" />
                   <col data-fixed="1" class="wb-fbs-kiz-col-act" style="width:48px" />
                 </colgroup>
                 <thead>
@@ -3257,11 +3280,12 @@
                     <th class="wb-fbs-kiz-col-order" data-col="0">Отправление<span class="col-resize-handle"></span></th>
                     <th class="wb-fbs-kiz-col-product" data-col="1">Товар<span class="col-resize-handle"></span></th>
                     <th class="wb-fbs-kiz-col-kiz" data-col="2">КИЗ<span class="col-resize-handle"></span></th>
+                    <th class="wb-fbs-kiz-col-container" data-col="3">ШК грузоместа<span class="col-resize-handle"></span></th>
                     <th class="wb-fbs-kiz-col-act"></th>
                   </tr>
                 </thead>
                 <tbody id="ozonFbsKizTbody">
-                  <tr><td colspan="4" class="wb-fbs-empty">Загрузка…</td></tr>
+                  <tr><td colspan="5" class="wb-fbs-empty">Загрузка…</td></tr>
                 </tbody>
               </table>
             </div>
@@ -3367,6 +3391,7 @@
               </div>
               <div class="wb-fbs-kiz-toolbar-actions">
                 <div id="ozonFbsPickScanCount" class="wb-fbs-kiz-scan-count" aria-live="polite">Проверено 0 из 0</div>
+                <div id="ozonFbsPickContainerCount" class="wb-fbs-kiz-scan-count ozon-fbs-container-count" hidden aria-live="polite"></div>
               </div>
             </div>
             <div class="wb-fbs-kiz-scan-bar">
@@ -3381,23 +3406,29 @@
                         onclick="clearWbFbsKizScanField('ozonFbsPickStickerScan')">✕</button>
               </div>
             </div>
+            <label class="ozon-fbs-container-scan-check" id="ozonFbsPickContainerScanLabel" hidden>
+              <input type="checkbox" id="ozonFbsPickContainerScanCheck" onchange="onOzonFbsContainerScanCheckChange('pick')" />
+              Просканировать ШК грузоместа
+            </label>
             <div id="ozonFbsPickInfo" class="wb-fbs-kiz-info" hidden></div>
             <div class="wb-fbs-kiz-table-wrap">
               <table class="wb-fbs-kiz-table" id="ozonFbsPickTable">
                 <colgroup id="ozonFbsPickColgroup">
-                  <col data-col="0" class="wb-fbs-kiz-col-order" style="width:24%" />
-                  <col data-col="1" class="wb-fbs-kiz-col-product" style="width:40%" />
-                  <col data-col="2" class="wb-fbs-kiz-col-kiz" style="width:36%" />
+                  <col data-col="0" class="wb-fbs-kiz-col-order" style="width:20%" />
+                  <col data-col="1" class="wb-fbs-kiz-col-product" style="width:32%" />
+                  <col data-col="2" class="wb-fbs-kiz-col-kiz" style="width:28%" />
+                  <col data-col="3" class="wb-fbs-kiz-col-container" style="width:20%" />
                 </colgroup>
                 <thead>
                   <tr>
                     <th class="wb-fbs-kiz-col-order" data-col="0">Отправление<span class="col-resize-handle"></span></th>
                     <th class="wb-fbs-kiz-col-product" data-col="1">Товар<span class="col-resize-handle"></span></th>
                     <th class="wb-fbs-kiz-col-kiz" data-col="2">Проверка ШК<span class="col-resize-handle"></span></th>
+                    <th class="wb-fbs-kiz-col-container" data-col="3">ШК грузоместа<span class="col-resize-handle"></span></th>
                   </tr>
                 </thead>
                 <tbody id="ozonFbsPickTbody">
-                  <tr><td colspan="3" class="wb-fbs-empty">Загрузка…</td></tr>
+                  <tr><td colspan="4" class="wb-fbs-empty">Загрузка…</td></tr>
                 </tbody>
               </table>
             </div>
@@ -3420,6 +3451,19 @@
             </div>
             <div class="row wb-fbs-kiz-scan-prompt-actions">
               <button type="button" class="secondary" onclick="cancelOzonFbsPickSkuScan()">Отмена</button>
+            </div>
+          </div>
+        </div>
+
+
+        <div id="ozonFbsContainerRebindModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsContainerRebindTitle">
+          <div class="modal-card ozon-fbs-container-rebind-modal">
+            <h3 id="ozonFbsContainerRebindTitle" class="wb-fbs-kiz-title">Смена грузоместа</h3>
+            <p id="ozonFbsContainerRebindBody" class="ozon-fbs-container-rebind-text"></p>
+            <div class="ozon-fbs-container-rebind-actions">
+              <button type="button" class="secondary" onclick="closeOzonFbsContainerRebindModal(false)">Нет</button>
+              <button type="button" onclick="closeOzonFbsContainerRebindModal(true)">Да</button>
             </div>
           </div>
         </div>
@@ -6437,7 +6481,8 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=73"></script>
+  <script src="/static/ozon_fbs.js?v=75"></script>
+  <script src="/static/ozon_fbs_container_bind.js?v=2"></script>
   <script src="/static/app.js?v=528"></script>
 </body>
 </html>
