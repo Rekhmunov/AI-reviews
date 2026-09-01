@@ -339,5 +339,163 @@ class PickVerifyStatusContainerTests(unittest.TestCase):
         self.assertEqual(out["container_error_count"], 1)
 
 
+class ContainerReconcileTests(unittest.TestCase):
+    def test_posting_numbers_from_container_payload(self) -> None:
+        raw = {
+            "posting_numbers": ["A-1", "B-2"],
+            "postings": [{"posting_number": "C-3"}],
+        }
+        nums = ct._posting_numbers_from_container_payload(raw)
+        self.assertEqual(nums, ["A-1", "B-2", "C-3"])
+
+    def test_reconcile_adopts_portal_bind(self) -> None:
+        repo = MagicMock()
+        client = MagicMock()
+        supply = {"posting_numbers": ["A-1", "B-1"]}
+        with (
+            patch.object(ct.oz_sup, "get_supply", return_value=supply),
+            patch.object(
+                ct,
+                "load_container_bind_map",
+                side_effect=[
+                    {"A-1": {"container_id": 10, "container_barcode": "10", "container_synced": True, "container_sync_error": ""}},
+                    {"A-1": {"container_id": 20, "container_barcode": "20", "container_synced": True, "container_sync_error": ""}, "B-1": {}},
+                ],
+            ),
+            patch.object(ct, "resolve_supply_warehouse_id", return_value=(100, "WH")),
+            patch.object(
+                ct,
+                "_list_containers_cached",
+                return_value={"items": [{"container_id": 20}, {"container_id": 10}]},
+            ),
+            patch.object(
+                ct,
+                "_fetch_container_postings",
+                side_effect=lambda _c, container_id: (
+                    ({"container_id": 20, "can_fill": True}, ["A-1"], True)
+                    if int(container_id) == 20
+                    else ({"container_id": 10, "can_fill": True}, [], True)
+                ),
+            ),
+            patch.object(ct, "_set_local_container_bind") as set_local,
+        ):
+            out = ct.reconcile_supply_container_binds(
+                client,
+                repo,
+                user_id=1,
+                source_id=2,
+                supply_id="S1",
+            )
+        self.assertTrue(out["ok"])
+        self.assertTrue(out["posting_lists_available"])
+        self.assertEqual(len(out["changes"]), 1)
+        self.assertEqual(out["changes"][0]["action"], "updated")
+        self.assertEqual(out["changes"][0]["posting_number"], "A-1")
+        set_local.assert_called_once()
+        self.assertEqual(set_local.call_args.kwargs["container_id"], 20)
+
+    def test_reconcile_clears_deleted_container(self) -> None:
+        repo = MagicMock()
+        client = MagicMock()
+        supply = {"posting_numbers": ["A-1"]}
+        with (
+            patch.object(ct.oz_sup, "get_supply", return_value=supply),
+            patch.object(
+                ct,
+                "load_container_bind_map",
+                side_effect=[
+                    {"A-1": {"container_id": 99, "container_barcode": "99", "container_synced": True, "container_sync_error": ""}},
+                    {"A-1": {"container_id": None, "container_barcode": "", "container_synced": False, "container_sync_error": ""}},
+                ],
+            ),
+            patch.object(ct, "resolve_supply_warehouse_id", return_value=(100, "WH")),
+            patch.object(ct, "_list_containers_cached", return_value={"items": []}),
+            patch.object(ct, "_fetch_container_postings", return_value=(None, [], False)),
+            patch.object(ct, "_set_local_container_bind") as set_local,
+        ):
+            out = ct.reconcile_supply_container_binds(
+                client,
+                repo,
+                user_id=1,
+                source_id=2,
+                supply_id="S1",
+            )
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["changes"][0]["action"], "cleared")
+        set_local.assert_called_once()
+        self.assertIsNone(set_local.call_args.kwargs["container_id"])
+
+    def test_reconcile_skips_dirty_posting(self) -> None:
+        repo = MagicMock()
+        client = MagicMock()
+        supply = {"posting_numbers": ["A-1"]}
+        with (
+            patch.object(ct.oz_sup, "get_supply", return_value=supply),
+            patch.object(
+                ct,
+                "load_container_bind_map",
+                return_value={"A-1": {"container_id": 10, "container_barcode": "10", "container_synced": True, "container_sync_error": ""}},
+            ),
+            patch.object(ct, "resolve_supply_warehouse_id", return_value=(100, "WH")),
+            patch.object(ct, "_list_containers_cached", return_value={"items": [{"container_id": 20}]}),
+            patch.object(
+                ct,
+                "_fetch_container_postings",
+                return_value=({"container_id": 20}, ["A-1"], True),
+            ),
+            patch.object(ct, "_set_local_container_bind") as set_local,
+        ):
+            out = ct.reconcile_supply_container_binds(
+                client,
+                repo,
+                user_id=1,
+                source_id=2,
+                supply_id="S1",
+                skip_postings=["A-1"],
+            )
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["changes"], [])
+        set_local.assert_not_called()
+
+    def test_reconcile_keeps_unsynced_local_on_portal_empty(self) -> None:
+        repo = MagicMock()
+        client = MagicMock()
+        supply = {"posting_numbers": ["A-1"]}
+        with (
+            patch.object(ct.oz_sup, "get_supply", return_value=supply),
+            patch.object(
+                ct,
+                "load_container_bind_map",
+                return_value={
+                    "A-1": {
+                        "container_id": 10,
+                        "container_barcode": "10",
+                        "container_synced": False,
+                        "container_sync_error": "FILL_FAILED",
+                    }
+                },
+            ),
+            patch.object(ct, "resolve_supply_warehouse_id", return_value=(100, "WH")),
+            patch.object(ct, "_list_containers_cached", return_value={"items": [{"container_id": 10}]}),
+            patch.object(
+                ct,
+                "_fetch_container_postings",
+                return_value=({"container_id": 10}, [], True),
+            ),
+            patch.object(ct, "_set_local_container_bind") as set_local,
+        ):
+            out = ct.reconcile_supply_container_binds(
+                client,
+                repo,
+                user_id=1,
+                source_id=2,
+                supply_id="S1",
+            )
+        self.assertTrue(out["ok"])
+        self.assertFalse(out["posting_lists_available"])
+        self.assertEqual(out["changes"], [])
+        set_local.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
