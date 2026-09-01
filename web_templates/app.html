@@ -3261,10 +3261,18 @@
                         onclick="clearWbFbsKizScanField('ozonFbsKizStickerScan')">✕</button>
               </div>
             </div>
-            <label class="ozon-fbs-container-scan-check" id="ozonFbsKizContainerScanLabel" hidden>
-              <input type="checkbox" id="ozonFbsKizContainerScanCheck" onchange="onOzonFbsContainerScanCheckChange('kiz')" />
-              Просканировать ШК грузоместа
-            </label>
+            <div class="ozon-fbs-container-scan-row" id="ozonFbsKizContainerScanRow" hidden>
+              <label class="ozon-fbs-container-scan-check" id="ozonFbsKizContainerScanLabel">
+                <input type="checkbox" id="ozonFbsKizContainerScanCheck" onchange="onOzonFbsContainerScanCheckChange('kiz')" />
+                Просканировать ШК грузоместа
+              </label>
+              <span class="ozon-fbs-container-active-target" id="ozonFbsKizContainerActive" hidden aria-live="polite">
+                <span class="ozon-fbs-container-active-num" id="ozonFbsKizContainerActiveNum"></span>
+                <button type="button" class="ozon-fbs-container-active-clear" title="Прекратить сканирование в это грузоместо"
+                        aria-label="Прекратить сканирование в это грузоместо"
+                        onclick="clearOzonFbsActiveContainer('kiz')">×</button>
+              </span>
+            </div>
             <div id="ozonFbsKizInfo" class="wb-fbs-kiz-info" hidden></div>
             <div class="wb-fbs-kiz-table-wrap">
               <table class="wb-fbs-kiz-table" id="ozonFbsKizTable">
@@ -3406,10 +3414,18 @@
                         onclick="clearWbFbsKizScanField('ozonFbsPickStickerScan')">✕</button>
               </div>
             </div>
-            <label class="ozon-fbs-container-scan-check" id="ozonFbsPickContainerScanLabel" hidden>
-              <input type="checkbox" id="ozonFbsPickContainerScanCheck" onchange="onOzonFbsContainerScanCheckChange('pick')" />
-              Просканировать ШК грузоместа
-            </label>
+            <div class="ozon-fbs-container-scan-row" id="ozonFbsPickContainerScanRow" hidden>
+              <label class="ozon-fbs-container-scan-check" id="ozonFbsPickContainerScanLabel">
+                <input type="checkbox" id="ozonFbsPickContainerScanCheck" onchange="onOzonFbsContainerScanCheckChange('pick')" />
+                Просканировать ШК грузоместа
+              </label>
+              <span class="ozon-fbs-container-active-target" id="ozonFbsPickContainerActive" hidden aria-live="polite">
+                <span class="ozon-fbs-container-active-num" id="ozonFbsPickContainerActiveNum"></span>
+                <button type="button" class="ozon-fbs-container-active-clear" title="Прекратить сканирование в это грузоместо"
+                        aria-label="Прекратить сканирование в это грузоместо"
+                        onclick="clearOzonFbsActiveContainer('pick')">×</button>
+              </span>
+            </div>
             <div id="ozonFbsPickInfo" class="wb-fbs-kiz-info" hidden></div>
             <div class="wb-fbs-kiz-table-wrap">
               <table class="wb-fbs-kiz-table" id="ozonFbsPickTable">

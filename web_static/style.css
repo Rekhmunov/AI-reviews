@@ -14226,18 +14226,65 @@ button.wb-fbs-kiz-add:disabled {
 
 
 /* Ozon FBS cargo-place bind in Marking / Pick Verify */
+.ozon-fbs-container-scan-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0 0;
+  padding: 0 4px;
+}
+.ozon-fbs-container-scan-row[hidden] { display: none !important; }
 .ozon-fbs-container-scan-check {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 8px 0 0;
-  padding: 0 4px;
+  margin: 0;
+  padding: 0;
   font-size: 14px;
   color: #334155;
   cursor: pointer;
   user-select: none;
 }
-.ozon-fbs-container-scan-check[hidden] { display: none !important; }
+.ozon-fbs-container-active-target {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 8px 4px 12px;
+  border: 1px solid #99f6e4;
+  border-radius: 8px;
+  background: #f0fdfa;
+  color: #0f766e;
+}
+.ozon-fbs-container-active-target[hidden] { display: none !important; }
+.ozon-fbs-container-active-num {
+  font-size: 14px;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  line-height: 1.2;
+  word-break: break-all;
+}
+.ozon-fbs-container-active-clear {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+.ozon-fbs-container-active-clear:hover {
+  background: #ccfbf1;
+  color: #0f172a;
+}
+.ozon-fbs-container-active-clear:focus-visible {
+  outline: 2px solid #0f766e;
+  outline-offset: 1px;
+}
 .ozon-fbs-container-scan-check input {
   width: 16px;
   height: 16px;

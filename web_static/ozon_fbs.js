@@ -8722,6 +8722,9 @@
     } catch (_e) {
       /* keep closing */
     }
+    if (typeof window._ozonFbsContainerClearOnModalClose === "function") {
+      window._ozonFbsContainerClearOnModalClose();
+    }
     // Same cleanup as WB marking: drop RU-layout swallow so wedge scan works again.
     _ozonFbsClearRuLayoutGuard();
     if (typeof setModalVisibility === "function") {
@@ -9449,6 +9452,9 @@
   }
 
   function closeOzonFbsPickVerifyModal() {
+    if (typeof window._ozonFbsContainerClearOnModalClose === "function") {
+      window._ozonFbsContainerClearOnModalClose();
+    }
     _ozonFbsClearRuLayoutGuard();
     if (typeof setModalVisibility === "function") setModalVisibility("ozonFbsPickVerifyModal", false);
     else document.getElementById("ozonFbsPickVerifyModal")?.classList.add("hidden");
