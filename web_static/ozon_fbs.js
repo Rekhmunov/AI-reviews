@@ -2455,7 +2455,22 @@
     menu.style.left = "";
     const wrapId = menu.dataset.wrapId;
     const wrap = wrapId ? document.getElementById(wrapId) : null;
-    if (wrap && menu.parentElement !== wrap) wrap.appendChild(menu);
+    if (wrap) {
+      wrap.querySelectorAll(`#${CSS.escape(menu.id)}`).forEach((el) => {
+        if (el !== menu) el.remove();
+      });
+      if (menu.parentElement !== wrap) wrap.appendChild(menu);
+    }
+  }
+
+  /** Drop ported row menus before table re-render (prevents duplicate ⋮ menus). */
+  function _ozonFbsPrepareRowMenuRender() {
+    closeOzonFbsRowMenus();
+    document.querySelectorAll(".wb-fbs-row-menu[data-ported='1']").forEach((menu) => {
+      menu.dataset.ported = "";
+      menu.classList.remove("open");
+      menu.remove();
+    });
   }
 
   function closeOzonFbsRowMenus(exceptKey = null) {
@@ -6982,7 +6997,7 @@
       `</div>`;
   }
 
-  /** Row ⋮ menu for Marking / Pick Verify modals. */
+  /** Row ⋮ menu for Marking / Pick Verify modals (text-only items, no icons). */
   function _ozonFbsModalRowActionsHtml(row, mode) {
     const pn = String(row?.posting_number || "").trim();
     if (!pn || _ozonFbsRowIsCancelled(row)) {
@@ -6990,7 +7005,6 @@
     }
     const menuKey = _ozonFbsPostingMenuKey(pn);
     const safePn = esc(pn);
-    const menuIcon = typeof _wbFbsQrMenuIconHtml === "function" ? _wbFbsQrMenuIconHtml() : "";
     const canMove = typeof _ozonFbsContainerRowCanMove === "function"
       && _ozonFbsContainerRowCanMove(row);
     const moveItem = canMove
@@ -7006,7 +7020,6 @@
         ${moveItem}
         <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
                 onclick="ozonFbsPrintOnePostingStickerFromDetail(event, '${safePn}')">
-          ${menuIcon}
           Напечатать стикер
         </button>
       </div>
@@ -7678,6 +7691,7 @@
     if (!opts?.skipCollect) _ozonFbsKizCollectFromDom();
     const tbody = document.getElementById("ozonFbsKizTbody");
     if (!tbody) return;
+    _ozonFbsPrepareRowMenuRender();
     const q = String(document.getElementById("ozonFbsKizSearchFilter")?.value || "")
       .trim()
       .toLowerCase();
@@ -8982,6 +8996,7 @@
   function renderOzonFbsPickVerifyTable() {
     const tbody = document.getElementById("ozonFbsPickTbody");
     if (!tbody) return;
+    _ozonFbsPrepareRowMenuRender();
     const q = String(document.getElementById("ozonFbsPickSearchFilter")?.value || "")
       .trim()
       .toLowerCase();
