@@ -33,6 +33,7 @@ from .models import ReviewInput
 from .stock_service import StockScheduler, sync_stock_source
 from . import wb_fbs as wb_fbs_mod
 from . import ozon_fbs as ozon_fbs_mod
+from . import supply_source_identity as supply_identity
 
 try:  # pragma: no cover - optional in sqlite-only environments
     import psycopg  # type: ignore
@@ -493,6 +494,9 @@ class CreateSupplySourceRequest(BaseModel):
     marketplace: str = "wb"
     client_id: str = ""
     analytics_api_key: str = ""
+    # Explicit FBO/FBS (preferred). Legacy clients may omit and rely on name.
+    fulfillment: str = ""
+    channel: str = ""
 
 
 class UpdateSupplySourceAnalyticsKeyRequest(BaseModel):
@@ -8577,6 +8581,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 marketplace=payload.marketplace,
                 client_id=payload.client_id,
                 analytics_api_key=payload.analytics_api_key.strip(),
+                fulfillment=payload.fulfillment,
+                channel=payload.channel,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -9514,7 +9520,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             for s in repository.list_supply_sources(user_id=owner_id)
             if (s.get("marketplace") or "wb").lower() == "wb"
             and s.get("is_enabled")
-            and wb_fbs_mod.is_fbs_source_name(s.get("name"))
+            and wb_fbs_mod.is_wb_fbs_source(s)
         ]
         role = str(user.get("role") or ROLE_USER)
         if role not in ROLE_CAN_ACCESS_SETTINGS:
@@ -9540,12 +9546,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if not s.get("is_enabled"):
                 continue
             mp = str(s.get("marketplace") or "wb").lower()
-            name = s.get("name")
-            if mp == "wb" and wb_fbs_mod.is_fbs_source_name(name):
+            if mp == "wb" and wb_fbs_mod.is_wb_fbs_source(s):
                 row = dict(s)
                 row["marketplace"] = "wb"
                 sources.append(row)
-            elif mp == "ozon" and ozon_fbs_mod.is_fbs_source_name(name):
+            elif mp in ("ozon", "ozon_fbs") and ozon_fbs_mod.is_ozon_fbs_source(s):
                 row = dict(s)
                 row["marketplace"] = "ozon"
                 sources.append(row)
@@ -10140,7 +10145,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         if not src_full:
             raise HTTPException(status_code=400, detail="Источник не найден")
-        if not wb_fbs_mod.is_fbs_source_name(src_full.get("name")):
+        if not wb_fbs_mod.is_wb_fbs_source(src_full):
             raise HTTPException(status_code=400, detail="Источник не является ФБС")
         api_key = str(src_full.get("api_key") or "").strip()
         payload = wb_fbs_mod.lookup_order_by_id(
@@ -10225,7 +10230,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         src_full = repository.get_supply_source_with_key(user_id=owner_id, source_id=source_id)
         if not src_full or not src_full.get("api_key"):
             raise HTTPException(status_code=400, detail="Источник не найден")
-        if not wb_fbs_mod.is_fbs_source_name(src_full.get("name")):
+        if not wb_fbs_mod.is_wb_fbs_source(src_full):
             raise HTTPException(status_code=400, detail="Источник не является ФБС")
         return str(src_full["api_key"])
 
@@ -10565,7 +10570,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         if not src_full or not src_full.get("api_key"):
             raise HTTPException(status_code=400, detail="Источник не найден")
-        if not wb_fbs_mod.is_fbs_source_name(src_full.get("name")):
+        if not wb_fbs_mod.is_wb_fbs_source(src_full):
             raise HTTPException(status_code=400, detail="Источник не является ФБС")
         api_key = str(src_full["api_key"])
         source_name = str(src_full.get("name") or "").strip()
@@ -11300,7 +11305,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         if not src_full:
             raise HTTPException(status_code=400, detail="Источник не найден")
-        if not wb_fbs_mod.is_fbs_source_name(src_full.get("name")):
+        if not wb_fbs_mod.is_wb_fbs_source(src_full):
             raise HTTPException(status_code=400, detail="Источник не является ФБС")
         api_key = str(src_full.get("api_key") or "").strip()
         scan = str(body.get("scan") or "").strip()
@@ -11392,7 +11397,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         if not src_full:
             raise HTTPException(status_code=400, detail="Источник не найден")
-        if not wb_fbs_mod.is_fbs_source_name(src_full.get("name")):
+        if not wb_fbs_mod.is_wb_fbs_source(src_full):
             raise HTTPException(status_code=400, detail="Источник не является ФБС")
         date_from = str(body.get("date_from") or "").strip()
         date_to = str(body.get("date_to") or "").strip()
@@ -11458,7 +11463,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         src_full = repository.get_supply_source_with_key(
             user_id=owner_id, source_id=sid
         )
-        if src_full and wb_fbs_mod.is_fbs_source_name(src_full.get("name")):
+        if src_full and wb_fbs_mod.is_wb_fbs_source(src_full):
             source_api_key = str(src_full.get("api_key") or "").strip() or None
             source_analytics_key = str(src_full.get("analytics_api_key") or "").strip() or None
             fallback_key = get_wb_analytics_api_key(repository, user_id=owner_id)
@@ -11602,7 +11607,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         if not src_full:
             raise HTTPException(status_code=400, detail="Источник не найден")
-        if not wb_fbs_mod.is_fbs_source_name(src_full.get("name")):
+        if not wb_fbs_mod.is_wb_fbs_source(src_full):
             raise HTTPException(status_code=400, detail="Источник не является ФБС")
         api_key = str(src_full.get("api_key") or "").strip()
         result = returns_mod.build_return_order_preview(
@@ -11650,7 +11655,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             )
             if not src_full:
                 raise HTTPException(status_code=400, detail="Источник не найден")
-            if not wb_fbs_mod.is_fbs_source_name(src_full.get("name")):
+            if not wb_fbs_mod.is_wb_fbs_source(src_full):
                 raise HTTPException(status_code=400, detail="Источник не является ФБС")
             api_key = str(src_full.get("api_key") or "").strip()
             preview = returns_mod.build_return_order_preview(
@@ -12337,7 +12342,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 for s in repository.list_supply_sources(user_id=owner_id)
                 if (s.get("marketplace") or "wb").lower() == "wb"
                 and s.get("is_enabled")
-                and wb_fbs_mod.is_fbs_source_name(s.get("name"))
+                and wb_fbs_mod.is_wb_fbs_source(s)
             ]
             if role not in ROLE_CAN_ACCESS_SETTINGS:
                 perms = repository.get_manager_supply_permissions(manager_user_id=int(user["id"]))
@@ -12616,7 +12621,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         owner_id = _supply_owner_id(user)
         sid = int(source_id)
         src = repository.get_supply_source_with_key(user_id=owner_id, source_id=sid)
-        if not src or not wb_fbs_mod.is_fbs_source_name(src.get("name")):
+        if not src or not wb_fbs_mod.is_wb_fbs_source(src):
             raise HTTPException(status_code=404, detail="Источник ФБС не найден")
         deleted = wb_fbs_mod.clear_source_data(repository, user_id=owner_id, source_id=sid)
         return {"ok": True, **deleted}
@@ -19286,14 +19291,14 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         sources = repository.list_supply_sources(user_id=owner_id)
         if payload.source_id:
             sources = [s for s in sources if s["id"] == payload.source_id]
-        # WB FBO sync: marketplace=wb without «ФБС»/FBS in the name
+        # WB FBO sync: marketplace=wb and not FBS channel/name
         # (FBS cabinets are handled by the ВБ ФБС module).
         active_sources = [
             s
             for s in sources
             if s.get("is_enabled")
             and (s.get("marketplace") or "wb").lower() == "wb"
-            and not wb_fbs_mod.is_fbs_source_name(s.get("name"))
+            and not wb_fbs_mod.is_wb_fbs_source(s)
         ]
         if not active_sources:
             return {"ok": True, "synced": 0, "message": "Нет активных источников"}

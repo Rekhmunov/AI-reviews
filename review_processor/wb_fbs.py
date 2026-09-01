@@ -12,7 +12,7 @@ import re
 import threading
 import time
 from datetime import UTC, datetime, timedelta, time as dt_time
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -380,6 +380,21 @@ def is_fbs_source_name(name: object) -> bool:
     """True when supply source name is meant for FBS (contains ФБС/FBS)."""
     text = str(name or "").casefold()
     return "фбс" in text or "fbs" in text
+
+
+def is_wb_fbs_source(source: Mapping[str, Any] | None) -> bool:
+    """True for WB FBS sources. Prefers stored ``channel``, falls back to name."""
+    if not source:
+        return False
+    mp = str(source.get("marketplace") or "wb").strip().lower()
+    if mp not in ("wb", "wildberries"):
+        return False
+    from . import supply_source_identity as supply_identity
+
+    ch = str(source.get("channel") or "").strip().lower()
+    if ch:
+        return supply_identity.source_is_fbs(source)
+    return is_fbs_source_name(source.get("name"))
 
 
 def is_marketplace_scope_error(exc: object) -> bool:
@@ -4697,13 +4712,13 @@ def start_sync_thread(
 
 
 def list_fbs_sync_jobs(repo: ReviewRepository, *, user_id: int) -> list[dict[str, Any]]:
-    """Build sync jobs for all enabled WB sources whose name contains ФБС/FBS."""
+    """Build sync jobs for all enabled WB sources marked as FBS (channel or name)."""
     sources = [
         s
         for s in repo.list_supply_sources(user_id=user_id)
         if (s.get("marketplace") or "wb").lower() == "wb"
         and s.get("is_enabled")
-        and is_fbs_source_name(s.get("name"))
+        and is_wb_fbs_source(s)
     ]
     jobs: list[dict[str, Any]] = []
     for s in sources:

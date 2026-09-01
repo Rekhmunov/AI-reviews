@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=258" />
+  <link rel="stylesheet" href="/static/style.css?v=259" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -4637,9 +4637,13 @@
                   <option value="wb">ВБ</option>
                   <option value="ozon">ОЗОН</option>
                 </select>
+                <select id="newSupplySourceFulfillment" style="height:36px" title="Тип поставок">
+                  <option value="fbo">FBO</option>
+                  <option value="fbs">FBS</option>
+                </select>
               </div>
               <div class="row">
-                <input id="newSupplySourceName" type="text" placeholder="Название (для ФБС укажите «ФБС» в имени)" />
+                <input id="newSupplySourceName" type="text" placeholder="Название источника" />
               </div>
               <div id="newSupplySourceCabinetIdRow" class="row">
                 <input id="newSupplySourceClientId" type="text" placeholder="ID кабинета WB" autocomplete="off" />
@@ -4647,6 +4651,10 @@
               <div class="row">
                 <textarea id="newSupplySourceApiKey" class="textarea-compact" placeholder="Токен WB Поставки" rows="3" autocomplete="off"></textarea>
               </div>
+              <p class="small" style="margin:0 0 8px;color:#64748b">
+                Тип FBO/FBS и ID кабинета нужны для привязки данных. При удалении данные сохраняются;
+                повторное добавление с тем же типом и ID восстановит источник.
+              </p>
               <div class="row">
                 <button onclick="createSupplySource()">Сохранить источник</button>
                 <button class="secondary" onclick="toggleAddSupplySourceForm(false)">Отмена</button>
@@ -6339,6 +6347,6 @@
   </div>
 
   <script src="/static/ozon_fbs.js?v=69"></script>
-  <script src="/static/app.js?v=527"></script>
+  <script src="/static/app.js?v=528"></script>
 </body>
 </html>

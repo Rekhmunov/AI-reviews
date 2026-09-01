@@ -2213,10 +2213,12 @@ function toggleAddSupplySourceForm(show) {
     const keyEl = document.getElementById("newSupplySourceApiKey");
     const mpEl = document.getElementById("newSupplySourceMarketplace");
     const cidEl = document.getElementById("newSupplySourceClientId");
+    const ffEl = document.getElementById("newSupplySourceFulfillment");
     if (nameEl) nameEl.value = "";
     if (keyEl) keyEl.value = "";
     if (mpEl) mpEl.value = "wb";
     if (cidEl) cidEl.value = "";
+    if (ffEl) ffEl.value = "fbo";
     onSupplySourceMarketplaceChange();
   }
 }
@@ -2263,10 +2265,22 @@ function renderSupplySourcesTable() {
     const mpLabel = (mpRaw === "ozon" || mpRaw === "ozon_fbs")
       ? '<span style="color:#005bff;font-weight:600">ОЗОН</span>'
       : '<span style="color:#8b4513;font-weight:600">ВБ</span>';
+    const fulfillment = String(src.fulfillment || "").toLowerCase()
+      || (String(src.channel || "").endsWith("_fbs") ? "fbs"
+        : String(src.channel || "").endsWith("_fbo") ? "fbo" : "");
+    const fulfillmentBadge = fulfillment === "fbs"
+      ? '<span class="supply-src-fulfillment supply-src-fulfillment-fbs">FBS</span>'
+      : fulfillment === "fbo"
+        ? '<span class="supply-src-fulfillment supply-src-fulfillment-fbo">FBO</span>'
+        : "";
     const cabinetLabel = String(src.cabinet_label || src.external_account_id || "").trim();
-    const nameCell = cabinetLabel
-      ? `<div>${esc(src.name || "")}</div><div class="supply-src-cabinet-id" title="${esc(cabinetLabel)}">${esc(cabinetLabel)}</div>`
-      : esc(src.name || "");
+    const nameCell = [
+      `<div>${esc(src.name || "")}</div>`,
+      fulfillmentBadge ? `<div>${fulfillmentBadge}</div>` : "",
+      cabinetLabel
+        ? `<div class="supply-src-cabinet-id" title="${esc(cabinetLabel)}">${esc(cabinetLabel)}</div>`
+        : "",
+    ].filter(Boolean).join("");
     tr.innerHTML = `
       <td>${idx + 1}</td>
       <td>${mpLabel}</td>
@@ -2397,11 +2411,13 @@ async function createSupplySource() {
   const keyEl = document.getElementById("newSupplySourceApiKey");
   const mpEl = document.getElementById("newSupplySourceMarketplace");
   const cidEl = document.getElementById("newSupplySourceClientId");
+  const ffEl = document.getElementById("newSupplySourceFulfillment");
   const info = document.getElementById("addSupplySourceInfo");
   const name = (nameEl?.value || "").trim();
   const api_key = (keyEl?.value || "").trim();
   const marketplace = mpEl?.value || "wb";
   const client_id = (cidEl?.value || "").trim();
+  const fulfillment = (ffEl?.value || "fbo").trim().toLowerCase() || "fbo";
   if (!name) { if (info) { info.textContent = "Введите название"; info.style.color = "#b91c1c"; } return; }
   if (!api_key) { if (info) { info.textContent = "Введите API-ключ"; info.style.color = "#b91c1c"; } return; }
   if (marketplace === "ozon" && !client_id) { if (info) { info.textContent = "Введите Client-ID"; info.style.color = "#b91c1c"; } return; }
@@ -2410,7 +2426,7 @@ async function createSupplySource() {
   const res = await fetch("/api/supply-sources", {
     method: "POST",
     headers: jsonHeaders(),
-    body: JSON.stringify({ name, api_key, marketplace, client_id }),
+    body: JSON.stringify({ name, api_key, marketplace, client_id, fulfillment }),
   }).catch(() => null);
   if (!res) { if (info) { info.textContent = "Ошибка сети"; info.style.color = "#b91c1c"; } return; }
   if (!res.ok) {
@@ -2429,6 +2445,7 @@ async function createSupplySource() {
   }
   const created = await res.json().catch(() => ({}));
   const revived = Boolean(created?.revived);
+  const siblingNote = String(created?.sibling_note || "").trim();
   if (info) {
     info.textContent = revived
       ? "Источник восстановлен (данные кабинета сохранены)"
@@ -2438,9 +2455,14 @@ async function createSupplySource() {
   toggleAddSupplySourceForm(false);
   await loadSupplySources();
   const sourcesInfo = document.getElementById("supplySourcesInfo");
-  if (sourcesInfo && revived) {
-    sourcesInfo.textContent = "Кабинет уже был в системе — источник восстановлен с прежним id, данные на месте.";
-    sourcesInfo.style.color = "#16a34a";
+  if (sourcesInfo) {
+    if (revived) {
+      sourcesInfo.textContent = "Кабинет уже был в системе — источник восстановлен с прежним id, данные на месте.";
+      sourcesInfo.style.color = "#16a34a";
+    } else if (siblingNote) {
+      sourcesInfo.textContent = siblingNote;
+      sourcesInfo.style.color = "#a16207";
+    }
   }
 }
 
@@ -2454,10 +2476,19 @@ async function toggleSupplySource(sourceId, isEnabled) {
 }
 
 async function deleteSupplySource(sourceId) {
+  const src = (suppliesState.sources || []).find((s) => Number(s.id) === Number(sourceId));
+  const fulfillment = String(src?.fulfillment || "").toUpperCase()
+    || (String(src?.channel || "").endsWith("_fbs") ? "FBS"
+      : String(src?.channel || "").endsWith("_fbo") ? "FBO" : "FBO/FBS");
+  const cabinet = String(src?.client_id || src?.external_account_id || "").trim() || "тот же ID";
   if (!confirm(
     "Удалить источник из списка?\n\n"
-    + "Данные поставок и FBS сохранятся. При повторном добавлении того же кабинета "
-    + "(WB uid / Ozon Client-Id) источник восстановится.\n\n"
+    + "Данные поставок и FBS сохранятся.\n"
+    + "Чтобы восстановить — добавьте источник снова с тем же типом ("
+    + fulfillment
+    + ") и тем же ID кабинета ("
+    + cabinet
+    + ").\n\n"
     + "Если нужно только сменить токен — используйте «Ключ»."
   )) return;
   await fetch(`/api/supply-sources/${sourceId}`, { method: "DELETE", headers: jsonHeaders() }).catch(() => null);

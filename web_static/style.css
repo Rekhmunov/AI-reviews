@@ -5380,6 +5380,23 @@ body.sst-col-resizing * {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.supply-src-fulfillment {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.supply-src-fulfillment-fbo {
+  color: #1d4ed8;
+  background: #eff6ff;
+}
+.supply-src-fulfillment-fbs {
+  color: #a16207;
+  background: #fffbeb;
+}
 .supply-src-actions {
   gap: 8px;
   flex-wrap: wrap;

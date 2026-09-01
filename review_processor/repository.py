@@ -10331,16 +10331,38 @@ class ReviewRepository:
         marketplace: str = "wb",
         client_id: str = "",
         analytics_api_key: str = "",
+        fulfillment: str = "",
+        channel: str = "",
     ) -> dict[str, Any]:
         now = _utc_now()
         mp = marketplace.strip().lower() if marketplace else "wb"
-        clean_name = name.strip()
         clean_key = api_key.strip()
         clean_client = supply_identity.normalize_client_id(client_id)
         clean_analytics = str(analytics_api_key or "").strip()
-        channel = supply_identity.resolve_supply_channel(
-            marketplace=mp, name=clean_name
+
+        # Prefer explicit fulfillment/channel from UI; name is legacy fallback only.
+        resolved_channel = supply_identity.resolve_supply_channel(
+            marketplace=mp,
+            name=name,
+            fulfillment=fulfillment,
+            channel=channel,
         )
+        if not resolved_channel:
+            raise ValueError(
+                "Не удалось определить тип источника (FBO/FBS). "
+                "Укажите тип явно или добавьте «ФБС» в название."
+            )
+
+        try:
+            clean_name = supply_identity.ensure_name_matches_fulfillment(
+                name=str(name or "").strip(),
+                channel=resolved_channel,
+            )
+        except ValueError:
+            raise
+        if not clean_name:
+            raise ValueError("Название не может быть пустым")
+
         external_account_id = supply_identity.resolve_external_account_id(
             marketplace=mp,
             api_key=clean_key,
@@ -10354,16 +10376,16 @@ class ReviewRepository:
                 "(на подключение не влияет, нужен для привязки данных)."
             )
         if mp in ("wb", "wildberries") and not external_account_id:
-            # Should not happen if clean_client is set; keep as safety net.
             raise ValueError("Для Wildberries укажите ID кабинета")
 
         analytics_enc = encrypt_secret(clean_analytics) if clean_analytics else None
         api_enc = encrypt_secret(clean_key)
+        sibling_note = ""
 
         with self._connect() as conn:
             self._migrate_supply_tables(conn)
             existing = None
-            if channel and external_account_id:
+            if resolved_channel and external_account_id:
                 existing = conn.execute(
                     self._sql(
                         """
@@ -10373,7 +10395,7 @@ class ReviewRepository:
                         LIMIT 1
                         """
                     ),
-                    (user_id, channel, external_account_id),
+                    (user_id, resolved_channel, external_account_id),
                 ).fetchone()
 
             if existing is not None:
@@ -10381,7 +10403,7 @@ class ReviewRepository:
                 source_id = int(ed["id"])
                 was_deleted = bool(ed.get("deleted_at"))
                 if not was_deleted and bool(ed.get("is_enabled")):
-                    label = supply_identity.channel_label(channel)
+                    label = supply_identity.channel_label(resolved_channel)
                     raise ValueError(
                         f"Кабинет уже подключён ({label}, id {external_account_id}). "
                         "Чтобы сменить токен — откройте «Ключ» у существующего источника."
@@ -10409,7 +10431,7 @@ class ReviewRepository:
                         mp,
                         clean_client or None,
                         analytics_enc,
-                        channel,
+                        resolved_channel,
                         external_account_id,
                         user_id,
                         source_id,
@@ -10420,19 +10442,48 @@ class ReviewRepository:
                     (source_id,),
                 ).fetchone()
                 d = self._row_to_dict(row) if row else {"id": source_id}
-                # Prefer newly provided analytics for preview when set.
                 analytics_preview = clean_analytics
                 if not analytics_preview:
                     prev = decrypt_secret(
                         str(ed.get("analytics_api_key_encrypted") or "") or None
                     )
                     analytics_preview = prev or ""
-                return self._supply_source_public_dict(
+                out = self._supply_source_public_dict(
                     d,
                     api_key=clean_key,
                     analytics_key=analytics_preview,
                     revived=True,
                 )
+                return out
+
+            # Helpful note when the opposite FBO/FBS channel already exists for this cabinet.
+            sib = supply_identity.sibling_channel(resolved_channel)
+            if sib and external_account_id:
+                sib_row = conn.execute(
+                    self._sql(
+                        """
+                        SELECT id, deleted_at, is_enabled, name FROM supply_sources
+                        WHERE user_id = ? AND channel = ? AND external_account_id = ?
+                        ORDER BY CASE WHEN deleted_at IS NULL THEN 0 ELSE 1 END, id ASC
+                        LIMIT 1
+                        """
+                    ),
+                    (user_id, sib, external_account_id),
+                ).fetchone()
+                if sib_row is not None:
+                    sd = self._row_to_dict(sib_row)
+                    sib_label = supply_identity.channel_label(sib)
+                    if sd.get("deleted_at"):
+                        sibling_note = (
+                            f"У этого кабинета также есть удалённый источник {sib_label}. "
+                            f"Чтобы восстановить его данные — добавьте источник с типом "
+                            f"{'FBS' if str(sib).endswith('_fbs') else 'FBO'}."
+                        )
+                    else:
+                        sibling_note = (
+                            f"Для этого кабинета уже есть активный источник {sib_label} "
+                            f"(это нормально: FBO и FBS — разные источники)."
+                        )
 
             source_id = self._insert_and_get_id(
                 conn,
@@ -10451,7 +10502,7 @@ class ReviewRepository:
                     mp,
                     clean_client or None,
                     analytics_enc,
-                    channel,
+                    resolved_channel,
                     external_account_id,
                     now,
                 ),
@@ -10461,9 +10512,12 @@ class ReviewRepository:
                 (source_id,),
             ).fetchone()
         d = self._row_to_dict(row) if row else {"id": source_id}
-        return self._supply_source_public_dict(
+        out = self._supply_source_public_dict(
             d, api_key=clean_key, analytics_key=clean_analytics, revived=False
         )
+        if sibling_note:
+            out["sibling_note"] = sibling_note
+        return out
 
     def update_supply_source_analytics_key(
         self,
