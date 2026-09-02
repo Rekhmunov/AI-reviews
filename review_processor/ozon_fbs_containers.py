@@ -43,13 +43,14 @@ _SHIPPED_OR_GONE_STATUSES = frozenset(
 )
 
 # Accepted at Ozon sorting center — hidden from the working modal unless explicitly requested.
-_SC_ACCEPTED_STATUSES = frozenset({"acceptance_in_progress"})
+_SC_ACCEPTED_STATUSES = frozenset({"acceptance_in_progress", "finished"})
 
 _STATUS_LABELS = {
     "new": "Новое",
     "approved": "Подтверждено",
     "approve_failed": "Ошибка подтверждения",
     "acceptance_in_progress": "Принято на СЦ",
+    "finished": "Завершено на СЦ",
     "formed": "Сформировано",
     "ready": "Готово",
     "in_progress": "В работе",
@@ -89,6 +90,7 @@ _LOCKED_FILL_STATUSES = frozenset(
     {
         "approved",
         "acceptance_in_progress",
+        "finished",
         "formed",
         "ready",
         *_SHIPPED_OR_GONE_STATUSES,
@@ -263,6 +265,25 @@ def resolve_supply_warehouse_id(
     raise RuntimeError("Не удалось определить склад поставки для грузомест")
 
 
+
+def _container_created_sort_key(row: dict[str, Any]) -> tuple:
+    """Sort key for newest-first listing (use with ``reverse=True``).
+
+    ISO-8601 ``created_at`` sorts lexicographically. Empty timestamps sink to
+    the bottom; then higher container_number / container_id win.
+    """
+    created = str(row.get("created_at") or "").strip()
+    try:
+        number = int(row.get("container_number") or 0)
+    except (TypeError, ValueError):
+        number = 0
+    try:
+        cid = int(row.get("container_id") or 0)
+    except (TypeError, ValueError):
+        cid = 0
+    return (created, number, cid)
+
+
 def list_containers(
     client: oz.OzonFbsClient,
     *,
@@ -320,7 +341,7 @@ def list_containers(
         cursor = str((data or {}).get("cursor") or "").strip()
         if not cursor:
             break
-    items.sort(key=lambda x: (-int(x.get("container_number") or 0), -int(x.get("container_id") or 0)))
+    items.sort(key=_container_created_sort_key, reverse=True)
     return {
         "ok": True,
         "warehouse_id": wh,

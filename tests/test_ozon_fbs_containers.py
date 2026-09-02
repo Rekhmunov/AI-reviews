@@ -47,6 +47,18 @@ class _FakeClient:
                     "count_of_postings": 2,
                     "available_actions": [],
                     "warehouse_id": 5,
+                    "created_at": "2026-09-01T10:00:00Z",
+                },
+                {
+                    "container_id": 555,
+                    "container_number": 5,
+                    "status": "finished",
+                    "cargo_type": "pallet",
+                    "sort_type": "sort",
+                    "count_of_postings": 4,
+                    "available_actions": [],
+                    "warehouse_id": 5,
+                    "created_at": "2026-09-01T12:00:00Z",
                 },
                 {
                     "container_id": 333,
@@ -98,10 +110,61 @@ def test_list_containers_include_sc_accepted() -> None:
 
     shown = ct.list_containers(client, warehouse_id=5, include_sc_accepted=True)
     ids = [x["container_id"] for x in shown["items"]]
-    assert ids == [444, 111]
+    # Newest created_at first among SC-accepted + active rows.
+    assert ids == [555, 444, 111]
     sc_row = next(x for x in shown["items"] if x["container_id"] == 444)
     assert sc_row["status_label"] == "Принято на СЦ"
     assert sc_row["can_fill"] is False
+    finished = next(x for x in shown["items"] if x["container_id"] == 555)
+    assert finished["status_label"] == "Завершено на СЦ"
+    assert finished["can_fill"] is False
+
+
+def test_list_containers_sorts_newest_created_first() -> None:
+    class _Client(_FakeClient):
+        def carriage_container_list(self, body):
+            self.list_body = body
+            return {
+                "cursor": "",
+                "containers": [
+                    {
+                        "container_id": 10,
+                        "container_number": 10,
+                        "status": "new",
+                        "cargo_type": "pallet",
+                        "sort_type": "sort",
+                        "count_of_postings": 0,
+                        "available_actions": ["delete"],
+                        "warehouse_id": 5,
+                        "created_at": "2026-09-01T08:00:00Z",
+                    },
+                    {
+                        "container_id": 20,
+                        "container_number": 1,
+                        "status": "new",
+                        "cargo_type": "pallet",
+                        "sort_type": "sort",
+                        "count_of_postings": 0,
+                        "available_actions": ["delete"],
+                        "warehouse_id": 5,
+                        "created_at": "2026-09-02T18:00:00Z",
+                    },
+                    {
+                        "container_id": 30,
+                        "container_number": 30,
+                        "status": "new",
+                        "cargo_type": "pallet",
+                        "sort_type": "sort",
+                        "count_of_postings": 0,
+                        "available_actions": ["delete"],
+                        "warehouse_id": 5,
+                        "created_at": "2026-09-02T09:00:00Z",
+                    },
+                ],
+            }
+
+    out = ct.list_containers(_Client(), warehouse_id=5)
+    assert [x["container_id"] for x in out["items"]] == [20, 30, 10]
 
 
 def test_is_active_container() -> None:
@@ -113,8 +176,11 @@ def test_is_active_container() -> None:
     assert not ct.is_active_container(
         {"status": "acceptance_in_progress", "available_actions": []}
     )
+    assert not ct.is_active_container({"status": "finished", "available_actions": []})
     assert ct.is_sc_accepted_container({"status": "acceptance_in_progress"})
+    assert ct.is_sc_accepted_container({"status": "finished"})
     assert ct.status_label("acceptance_in_progress") == "Принято на СЦ"
+    assert ct.status_label("finished") == "Завершено на СЦ"
 
 
 def test_create_containers_validation() -> None:
