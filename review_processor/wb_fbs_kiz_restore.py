@@ -27,14 +27,8 @@ def _strip_mark_edges(value: str) -> str:
 
 
 def normalize_kiz_mark(value: object) -> str:
-    """Parity with desktop ``_wbFbsKizNormalizeMark`` (↔ → GS, no edge trim of GS)."""
-    text = (
-        str(value or "")
-        .replace(_ARROW_GS, _GS)
-        .replace("\r", "")
-        .replace("\n", "")
-    )
-    return _strip_mark_edges(text)
+    """Parity with desktop ``_wbFbsKizNormalizeMark`` (↔ → GS, ensure GS before AI 91/92)."""
+    return wb._kiz_code_clean(value)
 
 
 def extract_gtin14(mark: object) -> str:

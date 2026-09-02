@@ -1353,14 +1353,31 @@ def persist_order_stickers_batch(
     return updated
 
 
+_GS = "\x1d"
+_ARROW_GS = "\u2194"
+# AI 91 (4-char key) + AI 92 crypto — insert missing GS (scanner dropped ASCII 29).
+_KIZ_GS_BETWEEN_91_92_RE = re.compile(r"(91[0-9A-Za-z+/]{4})(?!\x1d)(92)")
+_KIZ_GS_BEFORE_91_RE = re.compile(r"(?<!\x1d)(91[0-9A-Za-z+/]{4}\x1d92)")
+
+
+def _kiz_ensure_gs_separators(text: str) -> str:
+    """Insert GS before AI 91/92 when missing. Idempotent if GS already present."""
+    if not text:
+        return ""
+    out = _KIZ_GS_BETWEEN_91_92_RE.sub(rf"\1{_GS}\2", text, count=1)
+    out = _KIZ_GS_BEFORE_91_RE.sub(rf"{_GS}\1", out, count=1)
+    return out
+
+
 def _kiz_code_clean(value: object) -> str:
-    """Normalize one sgtin: trim space/CR/LF only — never strip GS (\\u001D).
+    """Normalize one sgtin: trim space/CR/LF, ↔→GS, ensure GS before AI 91/92.
 
     Python's default ``str.strip()`` treats \\u001D as whitespace and would
-    destroy Honest Sign separators at the ends of a code.
+    destroy Honest Sign separators at the ends of a code. Never use bare strip.
     """
-    text = str(value or "")
-    return text.strip(" \t\r\n")
+    text = str(value or "").replace(_ARROW_GS, _GS)
+    text = text.strip(" \t\r\n")
+    return _kiz_ensure_gs_separators(text)
 
 
 def _normalize_kiz_saved_at(value: object) -> str:

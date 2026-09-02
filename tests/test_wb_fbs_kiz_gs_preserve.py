@@ -31,12 +31,21 @@ def test_tsd_js_has_gs_preserve_on_mark_step() -> None:
     assert "isGsKeyEvent" in js
     assert "insertGsIntoInput" in js
     assert "stripKizMarkEdges" in js
+    assert "ensureKizGsSeparators" in js
     assert 'state.step === "mark"' in js
     assert ".replace(/\\u2194/g, \"\\u001D\")" in js or ".replace(/\\u2194/g, '\\u001D')" in js
 
 
+def test_app_js_ensures_missing_gs_before_ai91_92() -> None:
+    js = APP_JS.read_text(encoding="utf-8")
+    assert "_wbFbsKizEnsureGsSeparators" in js
+    assert "(91[0-9A-Za-z+/]{4})(?!\\u001D)(92)" in js or "(91[0-9A-Za-z+/]{4})(?!\\u001D)(92)" in js.replace(
+        "\\\\", "\\"
+    )
+
+
 def test_normalize_mark_contract_via_node() -> None:
-    """Mirror the JS contract in Node: arrow→GS, edges safe, \\s not used on mark."""
+    """Mirror the JS contract in Node: arrow→GS, edges safe, missing GS restored."""
     import subprocess
     import textwrap
 
@@ -45,11 +54,20 @@ def test_normalize_mark_contract_via_node() -> None:
         function stripKizMarkEdges(value) {
           return String(value || "").replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, "");
         }
+        function ensureKizGsSeparators(value) {
+          let text = String(value || "");
+          if (!text) return "";
+          text = text.replace(/(91[0-9A-Za-z+/]{4})(?!\u001D)(92)/, "$1\u001D$2");
+          text = text.replace(/(?<!\u001D)(91[0-9A-Za-z+/]{4}\u001D92)/, "\u001D$1");
+          return text;
+        }
         function normalizeKizMark(value) {
-          return stripKizMarkEdges(
-            String(value || "")
-              .replace(/\u2194/g, "\u001D")
-              .replace(/\r?\n/g, "")
+          return ensureKizGsSeparators(
+            stripKizMarkEdges(
+              String(value || "")
+                .replace(/\u2194/g, "\u001D")
+                .replace(/\r?\n/g, "")
+            )
           );
         }
         const arrow = "01gtin\u2194serial\u2194tail";
@@ -65,6 +83,21 @@ def test_normalize_mark_contract_via_node() -> None:
         // Lone / edge GS must survive (Python str.strip would wipe a lone GS).
         if (normalizeKizMark("\u001D") !== "\u001D") throw new Error("lone GS lost");
         if (normalizeKizMark("\u001Dabc\u001D") !== "\u001Dabc\u001D") throw new Error("edge GS lost");
+        // Scanner without GS: glue serial+91+92 → insert both separators.
+        const glued = "0104678434671002215hmtZX7fG+WKK91EE1192R7vczop5jXmMyvDb+jfrZU7JgE0fhTt02IK0ssiA+DI=";
+        const fixed = normalizeKizMark(glued);
+        if (!fixed.includes("\u001D91EE11\u001D92")) {
+          throw new Error("missing GS not restored: " + JSON.stringify(fixed));
+        }
+        // Already correct: must stay idempotent.
+        const withGs = "0104678434671002215hmtZX7fG+WKK\u001D91EE11\u001D92R7vczop5jXmMyvDb+jfrZU7JgE0fhTt02IK0ssiA+DI=";
+        if (normalizeKizMark(withGs) !== withGs) throw new Error("idempotent GS broken");
+        // Arrow path then ensure must not double-insert.
+        const arrowCrypto = "01gtin21serial\u219491EE11\u219492CRYPTOTAILXXXXXXXXXXXXXXXXXXXX";
+        const fromArrow = normalizeKizMark(arrowCrypto);
+        if ((fromArrow.match(/\u001D/g) || []).length !== 2) {
+          throw new Error("arrow+ensure bad GS count: " + JSON.stringify(fromArrow));
+        }
         console.log("ok");
         """
     )

@@ -390,16 +390,31 @@
     return true;
   }
 
+  /**
+   * Insert missing GS before AI 91/92 (scanner dropped \\u001D).
+   * Idempotent — does not double-insert when GS / ↔→GS already present.
+   */
+  function ensureKizGsSeparators(value) {
+    let text = String(value || "");
+    if (!text) return "";
+    text = text.replace(/(91[0-9A-Za-z+/]{4})(?!\u001D)(92)/, "$1\u001D$2");
+    text = text.replace(/(?<!\u001D)(91[0-9A-Za-z+/]{4}\u001D92)/, "\u001D$1");
+    return text;
+  }
+
   /** Parity with desktop `_wbFbsKizNormalizeMark` (WB push / Save). */
   function normalizeKizMark(value) {
     // Scanners often emit ↔ instead of GS (\\u001D). Do not use \\s strip —
     // it must not destroy GS separators in Honest Sign / sgtin payloads.
     // Real GS is inserted on keydown (see tsdScanInput wiring).
-    return stripKizMarkEdges(
-      fixRuKeyboardLayout(
-        String(value || "")
-          .replace(/\u2194/g, "\u001D")
-          .replace(/\r?\n/g, "")
+    // If the wedge drops GS entirely, restore separators before AI 91/92.
+    return ensureKizGsSeparators(
+      stripKizMarkEdges(
+        fixRuKeyboardLayout(
+          String(value || "")
+            .replace(/\u2194/g, "\u001D")
+            .replace(/\r?\n/g, "")
+        )
       )
     );
   }

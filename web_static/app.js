@@ -28441,16 +28441,34 @@ if (typeof document !== "undefined" && document.addEventListener) {
   document.addEventListener("keydown", _wbFbsKizPreserveGsKeydown, true);
 }
 
+/**
+ * Insert missing GS before AI 91/92 when the scanner never sent \\u001D.
+ * Idempotent: codes that already have real GS (or ↔→GS) are left unchanged.
+ * Same contract as Ozon `_ozonFbsNormalizeMark` / `_normalize_mark_code`.
+ */
+function _wbFbsKizEnsureGsSeparators(value) {
+  let text = String(value || "");
+  if (!text) return "";
+  // GS between AI 91 (4-char key) and AI 92 crypto when missing.
+  text = text.replace(/(91[0-9A-Za-z+/]{4})(?!\u001D)(92)/, "$1\u001D$2");
+  // GS before AI 91 when serial is glued to the crypto tail.
+  text = text.replace(/(?<!\u001D)(91[0-9A-Za-z+/]{4}\u001D92)/, "\u001D$1");
+  return text;
+}
+
 /** КИЗ / Data Matrix: scanners often emit ↔ instead of GS (\\u001D). */
 function _wbFbsKizNormalizeMark(value) {
   // Also fix RU keyboard layout: crypto/tail letters of sgtin arrive as Cyrillic
   // when the OS layout is Russian (same wedge-scanner issue as sticker QR).
   // Keep ↔ → GS for legacy scanners; real GS is preserved via keydown insert above.
-  return _wbFbsKizStripMarkEdges(
-    _wbFbsFixRuKeyboardLayout(
-      String(value || "")
-        .replace(/\u2194/g, "\u001D") // ↔
-        .replace(/\r?\n/g, "")
+  // If the wedge drops GS entirely, restore separators before AI 91/92 (ЧЗ / WB sgtinNoGS).
+  return _wbFbsKizEnsureGsSeparators(
+    _wbFbsKizStripMarkEdges(
+      _wbFbsFixRuKeyboardLayout(
+        String(value || "")
+          .replace(/\u2194/g, "\u001D") // ↔
+          .replace(/\r?\n/g, "")
+      )
     )
   );
 }

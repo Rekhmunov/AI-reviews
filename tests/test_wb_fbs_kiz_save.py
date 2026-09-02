@@ -17,6 +17,30 @@ def test_kiz_code_clean_keeps_group_separator() -> None:
     assert _kiz_code_clean("  " + raw + "\n") == raw
 
 
+def test_kiz_code_clean_inserts_missing_gs_before_ai91_92() -> None:
+    """Scanner without ASCII 29: glue serial+91+92 → restore both GS (WB sgtinNoGS)."""
+    glued = (
+        "0104678434671002215hmtZX7fG+WKK"
+        "91EE11"
+        "92R7vczop5jXmMyvDb+jfrZU7JgE0fhTt02IK0ssiA+DI="
+    )
+    fixed = _kiz_code_clean(glued)
+    assert "\u001d91EE11\u001d92" in fixed
+    # ↔ → GS then ensure must stay idempotent (no double GS).
+    arrowed = (
+        "0104678434671002215hmtZX7fG+WKK"
+        "\u2194"
+        "91EE11"
+        "\u2194"
+        "92R7vczop5jXmMyvDb+jfrZU7JgE0fhTt02IK0ssiA+DI="
+    )
+    from_arrow = _kiz_code_clean(arrowed)
+    assert from_arrow.count("\u001d") == 2
+    assert from_arrow == fixed
+    # Already correct payload unchanged.
+    assert _kiz_code_clean(fixed) == fixed
+
+
 def _client_mock() -> MagicMock:
     client = MagicMock()
     client.set_order_sgtin = MagicMock()
