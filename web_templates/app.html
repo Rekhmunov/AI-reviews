@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=274" />
+  <link rel="stylesheet" href="/static/style.css?v=275" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -3410,8 +3410,10 @@
                        oninput="renderOzonFbsPickVerifyTable()" />
               </div>
               <div class="wb-fbs-kiz-toolbar-actions">
-                <div id="ozonFbsPickScanCount" class="wb-fbs-kiz-scan-count" aria-live="polite">Проверено 0 из 0</div>
-                <div id="ozonFbsPickContainerCount" class="wb-fbs-kiz-scan-count ozon-fbs-container-count" hidden aria-live="polite"></div>
+                <div class="ozon-fbs-kiz-counters">
+                  <div id="ozonFbsPickScanCount" class="wb-fbs-kiz-scan-count" aria-live="polite">Проверено 0 из 0</div>
+                  <div id="ozonFbsPickContainerCount" class="wb-fbs-kiz-scan-count ozon-fbs-container-count" hidden aria-live="polite"></div>
+                </div>
               </div>
             </div>
             <div class="wb-fbs-kiz-scan-bar ozon-fbs-scan-bar-compact">
@@ -6534,8 +6536,8 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=100"></script>
-  <script src="/static/ozon_fbs_container_bind.js?v=16"></script>
+  <script src="/static/ozon_fbs.js?v=101"></script>
+  <script src="/static/ozon_fbs_container_bind.js?v=17"></script>
   <script src="/static/app.js?v=531"></script>
 </body>
 </html>
