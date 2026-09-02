@@ -266,13 +266,29 @@ def resolve_supply_warehouse_id(
 
 
 
+def _parse_container_created_at(value: object) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
+
 def _container_created_sort_key(row: dict[str, Any]) -> tuple:
     """Sort key for newest-first listing (use with ``reverse=True``).
 
-    ISO-8601 ``created_at`` sorts lexicographically. Empty timestamps sink to
-    the bottom; then higher container_number / container_id win.
+    Parses ``created_at`` to UTC so mixed offsets (``Z`` vs ``+03:00``) order
+    correctly. Missing/invalid timestamps sink to the bottom; then higher
+    container_number / container_id win.
     """
-    created = str(row.get("created_at") or "").strip()
+    created = _parse_container_created_at(row.get("created_at"))
+    # Missing/invalid → bottom when sorting reverse=True.
+    stamp = created.timestamp() if created is not None else float("-inf")
     try:
         number = int(row.get("container_number") or 0)
     except (TypeError, ValueError):
@@ -281,7 +297,7 @@ def _container_created_sort_key(row: dict[str, Any]) -> tuple:
         cid = int(row.get("container_id") or 0)
     except (TypeError, ValueError):
         cid = 0
-    return (created, number, cid)
+    return (stamp, number, cid)
 
 
 def list_containers(

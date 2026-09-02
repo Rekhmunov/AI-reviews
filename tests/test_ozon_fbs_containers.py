@@ -167,6 +167,57 @@ def test_list_containers_sorts_newest_created_first() -> None:
     assert [x["container_id"] for x in out["items"]] == [20, 30, 10]
 
 
+def test_list_containers_sorts_by_utc_not_lexicographic_offset() -> None:
+    """Same absolute time with different TZ offsets must not invert order."""
+
+    class _Client(_FakeClient):
+        def carriage_container_list(self, body):
+            self.list_body = body
+            return {
+                "cursor": "",
+                "containers": [
+                    {
+                        "container_id": 1,
+                        "container_number": 1,
+                        "status": "new",
+                        "cargo_type": "pallet",
+                        "sort_type": "sort",
+                        "count_of_postings": 0,
+                        "available_actions": ["delete"],
+                        "warehouse_id": 5,
+                        # 12:00+03:00 == 09:00Z — older than the Z row below.
+                        "created_at": "2026-09-02T12:00:00+03:00",
+                    },
+                    {
+                        "container_id": 2,
+                        "container_number": 2,
+                        "status": "new",
+                        "cargo_type": "pallet",
+                        "sort_type": "sort",
+                        "count_of_postings": 0,
+                        "available_actions": ["delete"],
+                        "warehouse_id": 5,
+                        "created_at": "2026-09-02T10:00:00Z",
+                    },
+                    {
+                        "container_id": 3,
+                        "container_number": 3,
+                        "status": "new",
+                        "cargo_type": "pallet",
+                        "sort_type": "sort",
+                        "count_of_postings": 0,
+                        "available_actions": ["delete"],
+                        "warehouse_id": 5,
+                        "created_at": "",
+                    },
+                ],
+            }
+
+    out = ct.list_containers(_Client(), warehouse_id=5)
+    # Lexicographic string sort would put +03:00 before Z incorrectly.
+    assert [x["container_id"] for x in out["items"]] == [2, 1, 3]
+
+
 def test_is_active_container() -> None:
     assert ct.is_active_container(
         {"status": "new", "available_actions": ["delete"]}
