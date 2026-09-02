@@ -365,11 +365,8 @@
     if (!gmUiVisible(mode)) {
       return `<div class="ozon-fbs-container-cell is-empty" title="ШК грузоместа не указан">—</div>`;
     }
-    const clearBtn = barcode
-      ? `<button type="button" class="wb-fbs-kiz-remove ozon-fbs-container-clear" title="Снять грузоместо"
-                aria-label="Снять грузоместо"
-                onclick="clearOzonFbsContainerBind('${safePn}', '${modeAttr}')">×</button>`
-      : "";
+    // Always show × like the KIZ column: clears typed value and/or unbinds GM.
+    const clearTitle = barcode ? "Снять грузоместо" : "Очистить поле";
     return `<div class="ozon-fbs-container-cell${err ? " is-error" : ""}">
       <div class="ozon-fbs-container-input-row">
         <input type="text" class="ozon-fbs-container-input${err ? " is-error" : ""}"
@@ -378,7 +375,9 @@
                placeholder="ШК грузоместа"
                title="${err ? esc(err) : "ШК грузоместа"}"
                onkeydown="onOzonFbsContainerCellKey(event, '${safePn}', '${modeAttr}')" />
-        ${clearBtn}
+        <button type="button" class="wb-fbs-kiz-remove ozon-fbs-container-clear" title="${clearTitle}"
+                aria-label="${clearTitle}"
+                onclick="clearOzonFbsContainerBind('${safePn}', '${modeAttr}')">×</button>
       </div>
       ${err ? `<div class="ozon-fbs-container-err">${esc(err)}</div>` : ""}
     </div>`;
@@ -775,6 +774,22 @@
     const row = findRow(mode, postingNumber);
     if (!row) return;
     const prevId = Number(row.container_id || 0) || 0;
+    const prevBc = String(row.container_barcode || "").trim();
+    // Nothing bound yet — just drop whatever was typed in the input (KIZ-parity clear).
+    if (!prevId && !prevBc) {
+      row.container_sync_error = "";
+      const tbodyId = mode === "pick" ? "ozonFbsPickTbody" : "ozonFbsKizTbody";
+      const tbody = document.getElementById(tbodyId);
+      const escPn =
+        typeof CSS !== "undefined" && CSS.escape
+          ? CSS.escape(String(postingNumber || "").trim())
+          : String(postingNumber || "").trim().replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      const input = tbody?.querySelector(
+        `.ozon-fbs-container-input[data-posting="${escPn}"]`
+      );
+      if (input) input.value = "";
+      return;
+    }
     try {
       const data = await unbindPosting(postingNumber, prevId || null);
       applyBindResult(row, {
