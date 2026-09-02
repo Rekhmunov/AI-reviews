@@ -7723,6 +7723,28 @@
     return filled >= req;
   }
 
+  function _ozonFbsKizRowContainerOk(row) {
+    return !!String(row?.container_barcode || "").trim();
+  }
+
+  /** GM column shown for either modal → require ШК грузоместа in filled/empty filters. */
+  function _ozonFbsGmRequiredInFilters(mode) {
+    if (typeof window._ozonFbsContainerGmUiVisibleAny === "function") {
+      return !!window._ozonFbsContainerGmUiVisibleAny();
+    }
+    if (typeof window._ozonFbsContainerGmUiVisible === "function") {
+      return !!window._ozonFbsContainerGmUiVisible(mode);
+    }
+    return false;
+  }
+
+  /** Complete = all KIZ codes + ШК грузоместа (when GM column is active). */
+  function _ozonFbsKizRowIsComplete(row) {
+    if (!_ozonFbsKizRowFilled(row)) return false;
+    if (_ozonFbsGmRequiredInFilters("kiz") && !_ozonFbsKizRowContainerOk(row)) return false;
+    return true;
+  }
+
   function _ozonFbsKizRowHasError(row) {
     const pn = String(row?.posting_number || "");
     return !!String(ozonFbsKizState.errors[pn] || "").trim();
@@ -7966,8 +7988,8 @@
     let cancelled = 0;
     for (const r of ozonFbsKizState.rows || []) {
       if (!_ozonFbsKizRowMatchesSearch(r, q)) continue;
-      if (_ozonFbsKizRowIsEmpty(r)) empty += 1;
-      else filled += 1;
+      if (_ozonFbsKizRowIsComplete(r)) filled += 1;
+      else empty += 1;
       if (r?.gtd_required) legal += 1;
       if (_ozonFbsKizRowHasError(r)) errors += 1;
       if (_ozonFbsRowIsCancelled(r)) cancelled += 1;
@@ -8029,8 +8051,9 @@
     const showCancelled = !!document.getElementById("ozonFbsKizFilterCancelled")?.checked;
     const pending = String(ozonFbsKizState.pendingPosting || "").trim();
     const rows = (ozonFbsKizState.rows || []).filter((r) => {
-      if (showFilled && _ozonFbsKizRowIsEmpty(r)) return false;
-      if (showEmpty && !_ozonFbsKizRowIsEmpty(r)) return false;
+      const complete = _ozonFbsKizRowIsComplete(r);
+      if (showFilled && !complete) return false;
+      if (showEmpty && complete) return false;
       // Ozon юрлицо: requirements.products_requiring_gtd → gtd_required.
       if (showLegal && !r?.gtd_required) return false;
       if (showErrors && !_ozonFbsKizRowHasError(r)) return false;
@@ -9305,10 +9328,7 @@
   /** When GM column is active: row is complete only with both pick ШК and GM. */
   function _ozonFbsPickRowIsComplete(row) {
     if (!_ozonFbsPickRowPickOk(row)) return false;
-    const gmOn = typeof window._ozonFbsContainerGmUiVisible === "function"
-      ? !!window._ozonFbsContainerGmUiVisible("pick")
-      : false;
-    if (gmOn && !_ozonFbsPickRowContainerOk(row)) return false;
+    if (_ozonFbsGmRequiredInFilters("pick") && !_ozonFbsPickRowContainerOk(row)) return false;
     return true;
   }
 

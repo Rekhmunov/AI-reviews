@@ -1091,6 +1091,7 @@
   window._ozonFbsContainerCellHtml = containerCellHtml;
   window._ozonFbsContainerUpdateCounters = updateContainerCounters;
   window._ozonFbsContainerGmUiVisible = gmUiVisible;
+  window._ozonFbsContainerGmUiVisibleAny = gmUiVisibleAny;
   window._ozonFbsContainerPrepareModal = prepareForModal;
   window._ozonFbsContainerSyncCheckboxUi = syncCheckboxUi;
   window._ozonFbsContainerIsScanMode = isContainerScanMode;
