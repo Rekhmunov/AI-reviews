@@ -14385,6 +14385,13 @@ button.wb-fbs-kiz-add:disabled {
   color: #475569;
 }
 .ozon-fbs-container-count[hidden] { display: none !important; }
+
+.wb-fbs-kiz-filter-count {
+  color: #64748b;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .ozon-fbs-kiz-counters {
   display: flex;
   flex-direction: column;

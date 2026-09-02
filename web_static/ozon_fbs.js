@@ -7874,6 +7874,95 @@
     return null;
   }
 
+
+  function _ozonFbsSetFilterCount(elId, count) {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    const n = Math.max(0, Number(count) || 0);
+    el.textContent = `(${n})`;
+    const label = el.closest("label");
+    if (label) {
+      const base = String(label.getAttribute("data-filter-base-title") || label.getAttribute("title") || "").trim();
+      if (!label.hasAttribute("data-filter-base-title")) {
+        label.setAttribute("data-filter-base-title", label.getAttribute("title") || "");
+      }
+      const tip = `По текущему поиску: ${n}`;
+      label.title = base ? `${base} — ${tip}` : tip;
+    }
+  }
+
+  /** Search-only base for facet counts (independent of other checkboxes). */
+  function _ozonFbsKizRowMatchesSearch(row, q) {
+    if (!q) return true;
+    const hay = [
+      row?.posting_number, row?.offer_id, row?.product_name, row?.sku,
+      row?.sticker_barcode, row?.sticker_lower_barcode, row?.sticker_part_a, row?.sticker_part_b,
+      row?.container_barcode, row?.container_id, row?.container_number,
+      ...(Array.isArray(row?.barcodes) ? row.barcodes : []),
+    ].map((x) => String(x || "").toLowerCase()).join(" ");
+    return hay.includes(q);
+  }
+
+  function _ozonFbsPickRowMatchesSearch(row, q) {
+    if (!q) return true;
+    const hay = [
+      row?.posting_number, row?.offer_id, row?.product_name, row?.sku, row?.pick_barcode,
+      row?.container_barcode, row?.container_id, row?.container_number,
+      ...(Array.isArray(row?.barcodes) ? row.barcodes : []),
+    ].map((x) => String(x || "").toLowerCase()).join(" ");
+    return hay.includes(q);
+  }
+
+  /**
+   * Facet counts: each filter shows how many rows match THAT criterion
+   * within the current search. Other checkboxes do not narrow these numbers,
+   * so dual-filter AND in the table stays clear (counts ≠ visible rows).
+   */
+  function _ozonFbsKizUpdateFilterCounts() {
+    const q = String(document.getElementById("ozonFbsKizSearchFilter")?.value || "")
+      .trim()
+      .toLowerCase();
+    let filled = 0;
+    let empty = 0;
+    let legal = 0;
+    let errors = 0;
+    let cancelled = 0;
+    for (const r of ozonFbsKizState.rows || []) {
+      if (!_ozonFbsKizRowMatchesSearch(r, q)) continue;
+      if (_ozonFbsKizRowIsEmpty(r)) empty += 1;
+      else filled += 1;
+      if (r?.gtd_required) legal += 1;
+      if (_ozonFbsKizRowHasError(r)) errors += 1;
+      if (_ozonFbsRowIsCancelled(r)) cancelled += 1;
+    }
+    _ozonFbsSetFilterCount("ozonFbsKizFilterFilledCount", filled);
+    _ozonFbsSetFilterCount("ozonFbsKizFilterEmptyCount", empty);
+    _ozonFbsSetFilterCount("ozonFbsKizFilterLegalCount", legal);
+    _ozonFbsSetFilterCount("ozonFbsKizFilterErrorsCount", errors);
+    _ozonFbsSetFilterCount("ozonFbsKizFilterCancelledCount", cancelled);
+  }
+
+  function _ozonFbsPickUpdateFilterCounts() {
+    const q = String(document.getElementById("ozonFbsPickSearchFilter")?.value || "")
+      .trim()
+      .toLowerCase();
+    let filled = 0;
+    let empty = 0;
+    let errors = 0;
+    let cancelled = 0;
+    for (const r of ozonFbsPickState.rows || []) {
+      if (!_ozonFbsPickRowMatchesSearch(r, q)) continue;
+      if (_ozonFbsPickRowIsComplete(r)) filled += 1;
+      else empty += 1;
+      if (_ozonFbsPickRowHasError(r)) errors += 1;
+      if (_ozonFbsRowIsCancelled(r)) cancelled += 1;
+    }
+    _ozonFbsSetFilterCount("ozonFbsPickFilterFilledCount", filled);
+    _ozonFbsSetFilterCount("ozonFbsPickFilterEmptyCount", empty);
+    _ozonFbsSetFilterCount("ozonFbsPickFilterErrorsCount", errors);
+    _ozonFbsSetFilterCount("ozonFbsPickFilterCancelledCount", cancelled);
+  }
+
   function onOzonFbsKizFilterFilledChange() {
     const filled = document.getElementById("ozonFbsKizFilterFilled");
     const empty = document.getElementById("ozonFbsKizFilterEmpty");
@@ -7909,15 +7998,9 @@
       if (showLegal && !r?.gtd_required) return false;
       if (showErrors && !_ozonFbsKizRowHasError(r)) return false;
       if (showCancelled && !_ozonFbsRowIsCancelled(r)) return false;
-      if (!q) return true;
-      const hay = [
-        r.posting_number, r.offer_id, r.product_name, r.sku,
-        r.sticker_barcode, r.sticker_part_a, r.sticker_part_b,
-        r.container_barcode, r.container_id,
-        ...(Array.isArray(r.barcodes) ? r.barcodes : []),
-      ].map((x) => String(x || "").toLowerCase()).join(" ");
-      return hay.includes(q);
+      return _ozonFbsKizRowMatchesSearch(r, q);
     });
+    _ozonFbsKizUpdateFilterCounts();
     if (!rows.length) {
       tbody.innerHTML = `<tr><td colspan="5" class="wb-fbs-empty">${
         ozonFbsKizState.rows?.length ? "Нет строк по выбранным фильтрам" : "Нет отправлений с маркировкой"
@@ -9232,14 +9315,9 @@
       if (showEmpty && complete) return false;
       if (showErrors && !hasErr) return false;
       if (showCancelled && !_ozonFbsRowIsCancelled(r)) return false;
-      if (!q) return true;
-      const hay = [
-        r.posting_number, r.offer_id, r.product_name, r.sku, r.pick_barcode,
-        r.container_barcode, r.container_id,
-        ...(Array.isArray(r.barcodes) ? r.barcodes : []),
-      ].map((x) => String(x || "").toLowerCase()).join(" ");
-      return hay.includes(q);
+      return _ozonFbsPickRowMatchesSearch(r, q);
     });
+    _ozonFbsPickUpdateFilterCounts();
     if (!rows.length) {
       tbody.innerHTML = `<tr><td colspan="5" class="wb-fbs-empty">${
         ozonFbsPickState.rows?.length ? "Нет строк по фильтру" : "Нет отправлений без маркировки"
