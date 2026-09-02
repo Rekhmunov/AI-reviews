@@ -204,6 +204,12 @@ def load_posting_barcodes_map(
     source_id: int,
     posting_numbers: list[str],
 ) -> dict[str, list[str]]:
+    """Trusted product barcodes for pick-verify save.
+
+    Prefer Feedback → Products catalog (same as supply detail / UI), then
+    fall back to ``barcodes_json`` on the posting. Empty ``barcodes_json``
+    alone must not fail a scan that the UI already validated against catalog.
+    """
     nums = [str(x).strip() for x in posting_numbers if str(x).strip()]
     if not nums:
         return {}
@@ -213,7 +219,7 @@ def load_posting_barcodes_map(
         rows = conn.execute(
             repo._sql(
                 f"""
-                SELECT posting_number, barcodes_json
+                SELECT posting_number, offer_id, sku, barcodes_json
                 FROM ozon_fbs_postings
                 WHERE user_id = ? AND source_id = ?
                   AND posting_number IN ({placeholders})
@@ -221,6 +227,12 @@ def load_posting_barcodes_map(
             ),
             (user_id, source_id, *nums),
         ).fetchall()
+    try:
+        barcode_map = repo.get_product_barcodes_map(user_id=user_id)
+    except Exception:
+        barcode_map = {}
+    if not isinstance(barcode_map, dict):
+        barcode_map = {}
     out: dict[str, list[str]] = {}
     for row in rows:
         d = repo._row_to_dict(row)
@@ -233,7 +245,13 @@ def load_posting_barcodes_map(
             parsed = []
         if not isinstance(parsed, list):
             parsed = []
-        out[pn] = [str(x).strip() for x in parsed if str(x).strip()]
+        fallback = [str(x).strip() for x in parsed if str(x).strip()]
+        out[pn] = oz.resolve_product_barcodes(
+            offer_id=str(d.get("offer_id") or "").strip() or None,
+            sku=str(d.get("sku") or "").strip() or None,
+            barcode_map=barcode_map,
+            fallback=fallback,
+        )
     return out
 
 

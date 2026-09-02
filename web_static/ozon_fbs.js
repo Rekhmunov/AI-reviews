@@ -9174,6 +9174,30 @@
     return `<div class="wb-fbs-pick-status-row">${body}${clearBtn}</div>`;
   }
 
+  function _ozonFbsPickRowPickOk(row) {
+    return !!row?.pick_verified && !!String(row?.pick_barcode || "").trim();
+  }
+
+  function _ozonFbsPickRowContainerOk(row) {
+    return !!String(row?.container_barcode || "").trim();
+  }
+
+  /** When GM column is active: row is complete only with both pick ШК and GM. */
+  function _ozonFbsPickRowIsComplete(row) {
+    if (!_ozonFbsPickRowPickOk(row)) return false;
+    const gmOn = typeof window._ozonFbsContainerGmUiVisible === "function"
+      ? !!window._ozonFbsContainerGmUiVisible("pick")
+      : false;
+    if (gmOn && !_ozonFbsPickRowContainerOk(row)) return false;
+    return true;
+  }
+
+  function _ozonFbsPickRowHasError(row) {
+    const pn = String(row?.posting_number || "");
+    if (String(ozonFbsPickState.errors[pn] || "").trim()) return true;
+    return !!String(row?.container_sync_error || "").trim();
+  }
+
   function onOzonFbsPickFilterFilledChange() {
     const filled = document.getElementById("ozonFbsPickFilterFilled");
     const empty = document.getElementById("ozonFbsPickFilterEmpty");
@@ -9201,11 +9225,11 @@
     const showCancelled = !!document.getElementById("ozonFbsPickFilterCancelled")?.checked;
     const pending = String(ozonFbsPickState.pendingPosting || "").trim();
     const rows = (ozonFbsPickState.rows || []).filter((r) => {
-      const verified = !!r.pick_verified && !!String(r.pick_barcode || "").trim();
+      const complete = _ozonFbsPickRowIsComplete(r);
       const pn = String(r.posting_number || "");
-      const hasErr = !!String(ozonFbsPickState.errors[pn] || "").trim();
-      if (showFilled && !verified) return false;
-      if (showEmpty && verified) return false;
+      const hasErr = _ozonFbsPickRowHasError(r);
+      if (showFilled && !complete) return false;
+      if (showEmpty && complete) return false;
       if (showErrors && !hasErr) return false;
       if (showCancelled && !_ozonFbsRowIsCancelled(r)) return false;
       if (!q) return true;

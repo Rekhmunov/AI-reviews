@@ -1075,6 +1075,7 @@
   window.ozonFbsContainerBindState = state;
   window._ozonFbsContainerCellHtml = containerCellHtml;
   window._ozonFbsContainerUpdateCounters = updateContainerCounters;
+  window._ozonFbsContainerGmUiVisible = gmUiVisible;
   window._ozonFbsContainerPrepareModal = prepareForModal;
   window._ozonFbsContainerSyncCheckboxUi = syncCheckboxUi;
   window._ozonFbsContainerIsScanMode = isContainerScanMode;
@@ -1094,5 +1095,4 @@
   window.closeOzonFbsMoveContainerModal = closeMoveContainerModal;
   window.selectOzonFbsMoveContainerTarget = selectMoveContainerTarget;
   window._ozonFbsContainerRowCanMove = rowCanMoveContainer;
-  window._ozonFbsContainerGmUiVisible = gmUiVisible;
 })();
