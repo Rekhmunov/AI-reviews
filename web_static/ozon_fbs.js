@@ -79,7 +79,6 @@
 
   const _OZON_FBS_DETAIL_ACTION_IDS = [
     "ozonFbsSupplyDetailPickingBtn",
-    "ozonFbsSupplyDetailPickingMenuBtn",
     "ozonFbsSupplyDetailStickersBtn",
     "ozonFbsSupplyDetailStickersMenuBtn",
     "ozonFbsSupplyDetailTrbxBtn",
@@ -2413,7 +2412,6 @@
     closeOzonFbsRowMenus();
     document.getElementById("ozonFbsSupplyDetailModal")?.classList.add("hidden");
     syncSupplyDetailReadOnlyMode(false);
-    closePickingMenu();
     closeStickersMenu();
     supplyDetailState.supplyId = null;
     supplyDetailState.sourceId = null;
@@ -2458,7 +2456,6 @@
       }
     });
     if (!ready) {
-      closePickingMenu();
       closeStickersMenu();
     }
     _ozonFbsSyncPickVerifyBtn(supplyDetailState.supply?.orders || []);
@@ -3138,38 +3135,12 @@
     }
   }
 
-  function closePickingMenu() {
-    const menu = document.getElementById("ozonFbsPickingMenu");
-    const caret = document.getElementById("ozonFbsSupplyDetailPickingMenuBtn");
-    if (menu) menu.hidden = true;
-    if (caret) caret.setAttribute("aria-expanded", "false");
-  }
-
-  function togglePickingMenu(event) {
-    if (event) {
-      event.preventDefault();
-      event.stopPropagation();
-    }
-    if (!_ozonFbsSupplyActionsReady()) return;
-    closeStickersMenu();
-    const menu = document.getElementById("ozonFbsPickingMenu");
-    const caret = document.getElementById("ozonFbsSupplyDetailPickingMenuBtn");
-    if (!menu || !caret) return;
-    // Empty menu for now (no links) — still toggle for parity with WB caret UX.
-    const willOpen = menu.hidden;
-    menu.hidden = !willOpen;
-    caret.setAttribute("aria-expanded", willOpen ? "true" : "false");
-  }
-
   function openPickingList() {
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
     if (!sid || !sourceId || !_ozonFbsSupplyActionsReady()) return;
-    closePickingMenu();
     const btn = document.getElementById("ozonFbsSupplyDetailPickingBtn");
-    const caret = document.getElementById("ozonFbsSupplyDetailPickingMenuBtn");
     if (btn) btn.disabled = true;
-    if (caret) caret.disabled = true;
     const url =
       `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/picking-list` +
       `?source_id=${sourceId}${_ozonFbsSupplyPostingTabParam()}`;
@@ -3178,7 +3149,6 @@
       .finally(() => {
         if (!_ozonFbsSupplyActionsReady()) return;
         if (btn) btn.disabled = false;
-        if (caret) caret.disabled = false;
       });
   }
 
@@ -3195,7 +3165,6 @@
       event.stopPropagation();
     }
     if (!_ozonFbsSupplyActionsReady()) return;
-    closePickingMenu();
     const menu = document.getElementById("ozonFbsStickersMenu");
     const caret = document.getElementById("ozonFbsSupplyDetailStickersMenuBtn");
     if (!menu || !caret) return;
@@ -3657,7 +3626,6 @@
   document.addEventListener("click", (e) => {
     const t = e.target;
     if (!(t instanceof Element)) return;
-    if (!t.closest("#ozonFbsPickingSplit")) closePickingMenu();
     if (!t.closest("#ozonFbsStickersSplit")) closeStickersMenu();
     if (
       !t.closest(".wb-fbs-row-menu-wrap") &&
@@ -10006,7 +9974,6 @@
   window.onOzonFbsSupplyDetailCheckboxChange = onSupplyDetailCheckboxChange;
   window.toggleSelectAllOzonFbsSupplyDetail = toggleSelectAllSupplyDetail;
   window.ozonFbsOpenPickingList = openPickingList;
-  window.toggleOzonFbsPickingMenu = togglePickingMenu;
   window.ozonFbsOpenStickersPrint = () => openStickersPrint();
   window.toggleOzonFbsStickersMenu = toggleStickersMenu;
   window.openOzonFbsStickersByCategoryModal = openStickersByCategoryModal;

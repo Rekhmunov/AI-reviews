@@ -3055,23 +3055,8 @@
                 <button type="button" class="secondary" id="ozonFbsSupplyDetailCancelledBtn"
                         onclick="openOzonFbsCancelledOrdersModal()"
                         title="Проверить отменённые отправления в поставке">Отмененные заказы</button>
-                <div class="wb-fbs-picking-split" id="ozonFbsPickingSplit">
-                  <button type="button" class="secondary" id="ozonFbsSupplyDetailPickingBtn"
-                          onclick="ozonFbsOpenPickingList()">Лист подбора</button>
-                  <button type="button" class="secondary wb-fbs-picking-caret"
-                          id="ozonFbsSupplyDetailPickingMenuBtn"
-                          onclick="toggleOzonFbsPickingMenu(event)"
-                          aria-label="Другие варианты листа подбора"
-                          aria-haspopup="menu"
-                          aria-expanded="false"
-                          aria-controls="ozonFbsPickingMenu"
-                          title="Другие варианты (скоро)">
-                    <svg width="12" height="8" viewBox="0 0 12 8" fill="none" aria-hidden="true">
-                      <path d="M1 1.5L6 6.5L11 1.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
-                  </button>
-                  <div id="ozonFbsPickingMenu" class="wb-fbs-picking-menu" role="menu" hidden></div>
-                </div>
+                <button type="button" class="secondary" id="ozonFbsSupplyDetailPickingBtn"
+                        onclick="ozonFbsOpenPickingList()">Лист подбора</button>
                 <div class="wb-fbs-picking-split" id="ozonFbsStickersSplit">
                   <button type="button" class="secondary" id="ozonFbsSupplyDetailStickersBtn"
                           onclick="ozonFbsOpenStickersPrint()" title="Этикетка отправления Ozon">Стикеры</button>
