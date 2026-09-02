@@ -366,17 +366,15 @@ def preview_ship_all_collect(
         label = wh_name or (
             f"склад {warehouse_id}" if warehouse_id is not None else "склад —"
         )
-        if len(matching) >= 2:
+        # From 1+ compatible open supply — always ask (existing vs create new).
+        # Previously a single match used silent ``add_one`` (no modal).
+        if matching:
             mode = "choose"
-            candidates = list(matching)
-            default_supply_id = str(matching[0].get("supply_id") or "")
-        elif len(matching) == 1:
-            mode = "add_one"
             candidates = list(matching)
             default_supply_id = str(matching[0].get("supply_id") or "")
         elif empties_pool:
             chosen_empty = empties_pool[0]
-            mode = "add_one"
+            mode = "choose"
             candidates = [chosen_empty]
             default_supply_id = str(chosen_empty.get("supply_id") or "")
             empties_pool = empties_pool[1:]

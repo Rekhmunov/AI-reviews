@@ -84,7 +84,7 @@ class OzonFbsLocalSuppliesTests(unittest.TestCase):
         for n in names:
             self.assertNotIn(n, preview["existing_names"])
 
-    def test_preview_add_one_skips_modal(self) -> None:
+    def test_preview_one_matching_supply_needs_modal_choose(self) -> None:
         repo = MagicMock()
         rows = [
             {
@@ -120,9 +120,10 @@ class OzonFbsLocalSuppliesTests(unittest.TestCase):
         ):
             preview = preview_ship_all_collect(repo, user_id=1, source_id=2)
 
-        self.assertFalse(preview["needs_modal"])
-        self.assertEqual(preview["groups"][0]["mode"], "add_one")
+        self.assertTrue(preview["needs_modal"])
+        self.assertEqual(preview["groups"][0]["mode"], "choose")
         self.assertEqual(preview["groups"][0]["default_supply_id"], "OZ-FBS-2-1")
+        self.assertEqual(len(preview["groups"][0]["compatible_supplies"]), 1)
 
     def test_preview_ignores_delivering_supply_when_one_awaiting(self) -> None:
         repo = MagicMock()
@@ -169,11 +170,15 @@ class OzonFbsLocalSuppliesTests(unittest.TestCase):
         ):
             preview = preview_ship_all_collect(repo, user_id=1, source_id=2)
 
-        self.assertFalse(preview["needs_modal"])
-        self.assertEqual(preview["groups"][0]["mode"], "add_one")
+        self.assertTrue(preview["needs_modal"])
+        self.assertEqual(preview["groups"][0]["mode"], "choose")
         self.assertEqual(preview["groups"][0]["default_supply_id"], "OZ-FBS-AD")
+        self.assertEqual(
+            [s["supply_id"] for s in preview["groups"][0]["compatible_supplies"]],
+            ["OZ-FBS-AD"],
+        )
 
-    def test_preview_choose_only_for_two_awaiting_supplies(self) -> None:
+    def test_preview_choose_for_two_awaiting_supplies(self) -> None:
         repo = MagicMock()
         rows = [
             {

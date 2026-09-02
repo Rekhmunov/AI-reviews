@@ -2043,9 +2043,11 @@
           </div>`;
       } else if (mode === "choose") {
         const supplies = Array.isArray(g.compatible_supplies) ? g.compatible_supplies : [];
+        const suggested = String(g.suggested_name || "");
+        const conflict = existing.has(suggested.trim());
         inner = `
           <div class="wb-fbs-collect-mgt-field">
-            <label>Выберите поставку</label>
+            <label>Куда собрать заказы</label>
             <div class="wb-fbs-collect-mgt-supplies">
               ${supplies.map((s, si) => {
                 const sid = String(s.supply_id || "");
@@ -2056,16 +2058,38 @@
                 ].filter(Boolean).join(" · ");
                 return `
                   <label class="wb-fbs-collect-mgt-supply">
-                    <input type="radio" name="ozonFbsCollectSupply_${esc(gkey)}" value="${esc(sid)}" ${si === 0 ? "checked" : ""} />
+                    <input type="radio" name="ozonFbsCollectSupply_${esc(gkey)}" value="${esc(sid)}"
+                           ${si === 0 ? "checked" : ""}
+                           onchange="ozonFbsCollectTargetChanged('${esc(gkey)}')" />
                     <span>
                       <span class="wb-fbs-collect-mgt-supply-name">${esc(sname)}</span>
                       <span class="wb-fbs-collect-mgt-supply-meta">${esc(meta)}</span>
                     </span>
                   </label>`;
               }).join("")}
+              <label class="wb-fbs-collect-mgt-supply">
+                <input type="radio" name="ozonFbsCollectSupply_${esc(gkey)}" value="__new__"
+                       ${supplies.length ? "" : "checked"}
+                       onchange="ozonFbsCollectTargetChanged('${esc(gkey)}')" />
+                <span>
+                  <span class="wb-fbs-collect-mgt-supply-name">Создать новую поставку</span>
+                  <span class="wb-fbs-collect-mgt-supply-meta">отдельная поставка для этих заказов</span>
+                </span>
+              </label>
             </div>
+          </div>
+          <div class="wb-fbs-collect-mgt-field wb-fbs-collect-mgt-new-name" id="ozonFbsCollectNewWrap_${esc(gkey)}"
+               ${supplies.length ? "hidden" : ""}>
+            <label for="ozonFbsCollectName_${esc(gkey)}">Название новой поставки</label>
+            <input type="text" id="ozonFbsCollectName_${esc(gkey)}" data-group-key="${esc(gkey)}"
+                   value="${esc(suggested)}" autocomplete="off"
+                   oninput="ozonFbsCollectNameInput(this)" />
+            <p class="wb-fbs-collect-mgt-warn" id="ozonFbsCollectWarn_${esc(gkey)}" ${conflict ? "" : "hidden"}>
+              Поставка с таким названием уже есть — измените название.
+            </p>
           </div>`;
       } else {
+        // Legacy add_one (should not appear after preview always uses choose/create).
         const sid = String(g.default_supply_id || "");
         const match = (Array.isArray(g.compatible_supplies) ? g.compatible_supplies : [])
           .find((s) => String(s.supply_id || "") === sid);
@@ -2079,6 +2103,22 @@
           ${inner}
         </section>`;
     }).join("");
+  }
+
+
+  function collectTargetChanged(gkey) {
+    const key = String(gkey || "");
+    const wrap = document.getElementById(`ozonFbsCollectNewWrap_${key}`);
+    if (!wrap) return;
+    const checked = document.querySelector(`input[name="ozonFbsCollectSupply_${key}"]:checked`);
+    const isNew = String(checked?.value || "") === "__new__";
+    wrap.hidden = !isNew;
+    if (isNew) {
+      const input = document.getElementById(`ozonFbsCollectName_${key}`);
+      if (input) {
+        try { input.focus(); } catch (_e) {}
+      }
+    }
   }
 
   function collectNameInput(input) {
@@ -2129,7 +2169,22 @@
           errors.push(`${label}: выберите поставку`);
           continue;
         }
-        decisions.push({ group_key: gkey, action: "choose", supply_id: supplyId });
+        if (supplyId === "__new__") {
+          const input = document.getElementById(`ozonFbsCollectName_${gkey}`);
+          const name = String(input?.value || g.suggested_name || "").trim();
+          if (!name) {
+            errors.push(`${label}: укажите название новой поставки`);
+            continue;
+          }
+          if (existing.has(name) || usedNames.has(name)) {
+            errors.push(`${label}: поставка «${name}» уже есть — измените название`);
+            continue;
+          }
+          usedNames.add(name);
+          decisions.push({ group_key: gkey, action: "create", name });
+        } else {
+          decisions.push({ group_key: gkey, action: "add", supply_id: supplyId });
+        }
       } else {
         decisions.push({
           group_key: gkey,
@@ -9925,6 +9980,7 @@
   window.onOzonFbsPackagingExemplarManualGtd = onOzonFbsPackagingExemplarManualGtd;
   window.confirmOzonFbsCollect = confirmCollect;
   window.ozonFbsCollectNameInput = collectNameInput;
+  window.ozonFbsCollectTargetChanged = collectTargetChanged;
 
   window.openOzonFbsRenameSupplyModal = openOzonFbsRenameSupplyModal;
   window.closeOzonFbsRenameSupplyModal = closeOzonFbsRenameSupplyModal;

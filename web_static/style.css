@@ -9131,6 +9131,12 @@ button.ozon-fbs-split-multi-btn[hidden] {
   font-size: 13px;
   color: #64748b;
 }
+.wb-fbs-collect-mgt-new-name {
+  margin-top: 12px;
+}
+.wb-fbs-collect-mgt-new-name[hidden] {
+  display: none !important;
+}
 .wb-fbs-collect-mgt-auto {
   padding: 12px;
   border-radius: 8px;
