@@ -13938,6 +13938,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         user = _require_user(request)
         if not _can_view_ozon_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
+        if not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Отменённые заказы доступны только главному пользователю",
+            )
         owner_id = _supply_owner_id(user)
         sid = str(supply_id or "").strip()
         if not sid or not source_id:
