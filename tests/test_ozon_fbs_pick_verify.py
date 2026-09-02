@@ -164,6 +164,71 @@ def test_save_pick_verify_validates_barcode() -> None:
     upd.assert_called_once()
 
 
+def test_load_posting_barcodes_map_uses_catalog_when_json_empty() -> None:
+    """Parity with UI: empty barcodes_json still validates via product catalog."""
+    from review_processor.ozon_fbs_pick_verify import load_posting_barcodes_map
+
+    repo = MagicMock()
+    conn = MagicMock()
+    repo._connect.return_value.__enter__ = MagicMock(return_value=conn)
+    repo._connect.return_value.__exit__ = MagicMock(return_value=False)
+    repo._sql.side_effect = lambda s: s
+    repo._row_to_dict.return_value = {
+        "posting_number": "P-1",
+        "offer_id": "whitebort14020025",
+        "sku": "123",
+        "barcodes_json": "[]",
+    }
+    conn.execute.return_value.fetchall.return_value = [{"posting_number": "P-1"}]
+    repo.get_product_barcodes_map.return_value = {
+        "whitebort14020025": ["2000513095126"],
+    }
+    with patch("review_processor.ozon_fbs_pick_verify.oz.ensure_ozon_fbs_tables"):
+        out = load_posting_barcodes_map(
+            repo, user_id=1, source_id=2, posting_numbers=["P-1"]
+        )
+    assert out["P-1"] == ["2000513095126"]
+
+
+def test_save_pick_verify_accepts_catalog_barcode_when_json_empty() -> None:
+    with (
+        patch(
+            "review_processor.ozon_fbs_pick_verify.load_posting_barcodes_map",
+            return_value={"P-1": ["2000513095126"]},
+        ),
+        patch(
+            "review_processor.ozon_fbs_pick_verify.update_posting_pick_verify",
+            return_value={
+                "ok": True,
+                "conflict": False,
+                "verified": True,
+                "barcode": "2000513095126",
+                "verified_at": "2026-01-01T00:00:00+00:00",
+            },
+        ),
+        patch(
+            "review_processor.ozon_fbs_pick_verify._load_posting_cancelled_map",
+            return_value={},
+        ),
+    ):
+        out = save_pick_verify(
+            MagicMock(),
+            user_id=1,
+            source_id=2,
+            items=[
+                {
+                    "posting_number": "P-1",
+                    "pick_verified": True,
+                    "pick_barcode": "2000513095126",
+                }
+            ],
+            allowed_posting_numbers={"P-1"},
+        )
+    assert out["ok"] is True
+    assert out["saved"] == 1
+    assert out["errors"] == 0
+
+
 def test_save_pick_verify_rejects_bad_barcode() -> None:
     with patch(
         "review_processor.ozon_fbs_pick_verify.load_posting_barcodes_map",
