@@ -854,7 +854,7 @@
                 </label>
                 <label class="product-form-field" style="grid-column:1 / -1;display:flex;align-items:center;gap:8px;margin:0">
                   <input type="checkbox" id="productFormRequiresKiz" />
-                  <span>Требует КИЗ (Ozon FBS → блок «Маркировка»)</span>
+                  <span>Требует КИЗ (Ozon FBS → «Товары с КИЗ»)</span>
                 </label>
                 <label class="product-form-field" style="grid-column:1 / -1">
                   <span>Название для этикетки ШК</span>
@@ -3098,7 +3098,7 @@
                 <div class="wb-fbs-kiz-split" id="ozonFbsKizSplit" hidden>
                   <button type="button" class="secondary" id="ozonFbsSupplyDetailKizBtn"
                           onclick="openOzonFbsKizModal()"
-                          title="Указать коды маркировки «Честный знак» для отправлений Ozon">Маркировка</button>
+                          title="Товары с КИЗ — коды маркировки «Честный знак»">Товары с КИЗ</button>
                   <button type="button" class="secondary wb-fbs-kiz-refresh" id="ozonFbsSupplyDetailKizRefreshBtn"
                           onclick="refreshOzonFbsMarkingStatus(event)"
                           aria-label="Обновить статусы маркировки"
@@ -3118,8 +3118,8 @@
                 <div class="wb-fbs-kiz-split" id="ozonFbsPickSplit" hidden>
                   <button type="button" class="secondary" id="ozonFbsSupplyDetailPickVerifyBtn"
                           onclick="openOzonFbsPickVerifyModal()"
-                          title="Проверка ШК товаров без маркировки">
-                    Проверка ШК
+                          title="Товары без КИЗ — проверка штрихкодов">
+                    Товары без КИЗ
                   </button>
                   <button type="button" class="secondary wb-fbs-kiz-refresh" id="ozonFbsSupplyDetailPickRefreshBtn"
                           onclick="refreshOzonFbsPickVerifyStatus(event)"
@@ -3209,7 +3209,7 @@
           <div class="modal-card wb-fbs-kiz-modal ozon-fbs-kiz-modal">
             <div class="wb-fbs-kiz-header">
               <div class="wb-fbs-kiz-header-main">
-                <h3 id="ozonFbsKizTitle" class="wb-fbs-kiz-title">Маркировка</h3>
+                <h3 id="ozonFbsKizTitle" class="wb-fbs-kiz-title">Товары с КИЗ</h3>
               </div>
               <div class="wb-fbs-kiz-header-actions">
                 <button type="button" id="ozonFbsKizImportBtn" class="secondary"
@@ -3378,7 +3378,7 @@
           <div class="modal-card wb-fbs-kiz-modal">
             <div class="wb-fbs-kiz-header">
               <div class="wb-fbs-kiz-header-main">
-                <h3 id="ozonFbsPickVerifyTitle" class="wb-fbs-kiz-title">Проверка ШК</h3>
+                <h3 id="ozonFbsPickVerifyTitle" class="wb-fbs-kiz-title">Товары без КИЗ</h3>
                 <p class="wb-fbs-kiz-sub">Сверка штрихкода товара с этикеткой отправления. Только локально в FeedPilot.</p>
               </div>
               <div class="wb-fbs-kiz-header-actions">
