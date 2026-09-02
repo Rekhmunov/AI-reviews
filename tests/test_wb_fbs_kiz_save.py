@@ -15,6 +15,8 @@ def test_kiz_code_clean_keeps_group_separator() -> None:
     # Default str.strip() would wipe a lone GS; our helper must not.
     assert _kiz_code_clean("\u001d") == "\u001d"
     assert _kiz_code_clean("  " + raw + "\n") == raw
+    # Internal CR/LF from paste must be dropped (parity with JS / restore).
+    assert _kiz_code_clean(raw[:20] + "\n" + raw[20:]) == raw
 
 
 def test_kiz_code_clean_inserts_missing_gs_before_ai91_92() -> None:

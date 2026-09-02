@@ -1375,8 +1375,13 @@ def _kiz_code_clean(value: object) -> str:
     Python's default ``str.strip()`` treats \\u001D as whitespace and would
     destroy Honest Sign separators at the ends of a code. Never use bare strip.
     """
-    text = str(value or "").replace(_ARROW_GS, _GS)
-    text = text.strip(" \t\r\n")
+    text = (
+        str(value or "")
+        .replace(_ARROW_GS, _GS)
+        .replace("\r", "")
+        .replace("\n", "")
+    )
+    text = text.strip(" \t")
     return _kiz_ensure_gs_separators(text)
 
 
