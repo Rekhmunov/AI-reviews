@@ -55,7 +55,6 @@ assert(
 );
 
 // Phase 3
-assert(src.includes("gmBadgeForRow"), "scanned list GM badge");
 assert(src.includes("В ГМ ${gmN}") || src.includes("В ГМ ${"), "stats GM counter");
 assert(src.includes("tsdFilterNoGm") || html.includes("tsdFilterNoGm"), "filter без ГМ");
 assert(src.includes("tsdGmRefresh"), "refresh GM list button");
@@ -64,9 +63,22 @@ assert(html.includes("Без ГМ"), "filter label in HTML");
 
 assert(src.includes("keepOnFail"), "refresh keeps GM cache on transient fail");
 assert(src.includes("Optimistic chrome"), "optimistic badge/counter refresh");
-assert(src.includes("tsd-scanned-gm") || src.includes("tsd-scanned-gm"), "GM badge own row");
+assert(src.includes("rowGmCode"), "GM full code helper");
+assert(src.includes("tsd-scanned-gm-code"), "GM code class in scanned card");
 
 assert(src.includes("return to sticker immediately"), "bind after UI reset per TZ");
 assert(src.includes("Rebind sheet is modal"), "ignore scans while rebind open");
+
+// Scanned card UX: Отправление + full GM code + one clear-all ×
+assert(src.includes("formatOzonPostingHtml"), "posting highlight helper");
+assert(src.includes("tsd-posting-hi"), "posting highlight class");
+assert(src.includes("Отправление:"), "Отправление label in scanned card");
+assert(src.includes("tsd-scanned-gm-code"), "full GM barcode in scanned card");
+assert(src.includes('>ГМ:</span>'), "GM label before full code");
+assert(src.includes("clearScannedOrderAll"), "one clear-all for scanned order");
+assert(src.includes('data-action="clear-scanned-all"'), "clear-all action wired");
+assert(src.includes("containers/unbind"), "unbind on clear-all");
+assert(src.includes("tsd-scanned-item-ozon"), "ozon scanned card class");
+assert(!src.includes("gmBadgeForRow"), "old GM № badge helper removed");
 
 console.log("ok - ozon_fbs_tsd_gm_smoke");

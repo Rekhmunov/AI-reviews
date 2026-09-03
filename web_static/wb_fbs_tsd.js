@@ -173,26 +173,11 @@
     return (rows || []).filter((r) => Number(r?.container_id || 0) > 0).length;
   }
 
-  function gmBadgeForRow(row) {
-    if (!isOzon() || !row) return "";
-    const err = String(row.container_sync_error || "").trim();
-    const cid = Number(row.container_id || 0) || 0;
-    if (!cid && !err) return "";
-    if (err) {
-      return `<span class="tsd-gm-badge is-err" title="${esc(err)}">ГМ!</span>`;
-    }
-    const cur = (state.gm.containers || []).find(
-      (c) => String(c.container_id || "") === String(cid)
-    );
-    const num = Number(cur?.container_number || 0);
-    let label;
-    if (num > 0) {
-      label = `ГМ №${num}`;
-    } else {
-      const idStr = String(cid);
-      label = idStr.length > 8 ? `ГМ …${idStr.slice(-6)}` : `ГМ ${idStr}`;
-    }
-    return `<span class="tsd-gm-badge" title="${esc(String(cid))}">${esc(label)}</span>`;
+  function rowGmCode(row) {
+    const barcode = String(row?.container_barcode || "").trim();
+    if (barcode) return barcode;
+    const cid = Number(row?.container_id || 0) || 0;
+    return cid > 0 ? String(cid) : "";
   }
 
   function isLockedGmError(message) {
@@ -1975,6 +1960,24 @@
     )}</strong>`;
   }
 
+  /** Ozon posting: highlight 4 chars immediately left of the first «-» (same as web). */
+  function formatOzonPostingHtml(postingNumber) {
+    const s = String(postingNumber || "").trim();
+    if (!s) return "—";
+    const hi = (text) => `<span class="tsd-posting-hi">${esc(text)}</span>`;
+    const dash = s.indexOf("-");
+    if (dash > 0) {
+      const head = s.slice(0, dash);
+      const tail = s.slice(dash);
+      if (head.length >= 4) {
+        return `${esc(head.slice(0, -4))}${hi(head.slice(-4))}${esc(tail)}`;
+      }
+      return `${hi(head)}${esc(tail)}`;
+    }
+    if (s.length > 4) return `${esc(s.slice(0, -4))}${hi(s.slice(-4))}`;
+    return hi(s);
+  }
+
   function filledKizEntries(row) {
     return (Array.isArray(row.kiz_codes) ? row.kiz_codes : [])
       .map((c, idx) => ({ code: String(c || "").trim(), idx }))
@@ -2014,20 +2017,8 @@
           ? `<img src="${esc(r.product_photo)}" alt="" width="48" height="48" />`
           : `<span class="tsd-scanned-ph" aria-hidden="true"></span>`;
         const oid = esc(rowScanId(r));
-        const orderWord = isOzon() ? "Отпр." : "Заказ";
-        const stickerHtml = formatBoldLastDigits(
-          r.sticker_number || r.posting_number || "—",
-          4
-        );
         const barcodes = orderBarcodesLabel(r);
-        const barcodesHtml = barcodes
-          ? `<div class="tsd-scanned-kv">
-              <span class="tsd-scanned-label">ШК:</span>
-              <span class="tsd-scanned-kv-val">${esc(barcodes)}</span>
-            </div>`
-          : "";
-        let detailHtml;
-        let clearBtn = "";
+        let detailHtml = "";
         if (mode === "kiz") {
           const entries = filledKizEntries(r);
           detailHtml = entries.length
@@ -2041,28 +2032,78 @@
                 )
                 .join("")}</div>`
             : `<div class="tsd-scanned-kv"><span class="tsd-scanned-label">КИЗ:</span><span class="tsd-scanned-kv-val">—</span></div>`;
-          clearBtn = `
-            <button type="button" class="tsd-scanned-clear"
-              data-action="clear-kiz-all" data-order-id="${oid}"
-              aria-label="Очистить КИЗ" title="Очистить КИЗ">×</button>`;
         } else {
           const verified = String(r.pick_barcode || "").trim();
-          detailHtml =
-            !barcodes && verified
-              ? `<div class="tsd-scanned-kv">
-                  <span class="tsd-scanned-label">ШК:</span>
-                  <span class="tsd-scanned-kv-val">${esc(verified)}</span>
-                </div>`
-              : "";
+          const showBc = verified || barcodes;
+          detailHtml = showBc
+            ? `<div class="tsd-scanned-kv">
+                <span class="tsd-scanned-label">ШК:</span>
+                <span class="tsd-scanned-kv-val">${esc(verified || barcodes)}</span>
+              </div>`
+            : "";
         }
-        const gmBadge = isOzon() ? gmBadgeForRow(r) : "";
+
+        if (isOzon()) {
+          const posting = String(r.posting_number || rowScanId(r) || "").trim();
+          const gmCode = rowGmCode(r);
+          const gmErr = String(r.container_sync_error || "").trim();
+          const gmHtml = gmCode
+            ? `<div class="tsd-scanned-kv${gmErr ? " is-gm-err" : ""}">
+                <span class="tsd-scanned-label">ГМ:</span>
+                <span class="tsd-scanned-kv-val tsd-scanned-gm-code" title="${esc(
+                  gmErr || gmCode
+                )}">${esc(gmCode)}</span>
+              </div>`
+            : "";
+          const detailsBody = `${gmHtml}${detailHtml}`;
+          return `
+          <div class="tsd-scanned-item tsd-scanned-item-ozon">
+            <button type="button" class="tsd-scanned-clear"
+              data-action="clear-scanned-all" data-order-id="${oid}"
+              aria-label="Очистить заказ" title="Очистить КИЗ/ШК и снять с ГМ">×</button>
+            <div class="tsd-scanned-top">
+              ${photo}
+              <div class="tsd-scanned-text">
+                <div class="tsd-scanned-order">Отправление: ${formatOzonPostingHtml(
+                  posting
+                )}</div>
+                <div class="tsd-scanned-name">${esc(
+                  r.product_name || r.article || "—"
+                )}</div>
+              </div>
+            </div>
+            ${
+              detailsBody.trim()
+                ? `<div class="tsd-scanned-details">${detailsBody}</div>`
+                : ""
+            }
+          </div>`;
+        }
+
+        // WB: keep compact layout; × only clears KIZ.
+        const orderWord = "Заказ";
+        const stickerHtml = formatBoldLastDigits(
+          r.sticker_number || r.posting_number || "—",
+          4
+        );
+        const barcodesHtml = barcodes
+          ? `<div class="tsd-scanned-kv">
+              <span class="tsd-scanned-label">ШК:</span>
+              <span class="tsd-scanned-kv-val">${esc(barcodes)}</span>
+            </div>`
+          : "";
+        const clearBtn =
+          mode === "kiz"
+            ? `<button type="button" class="tsd-scanned-clear"
+              data-action="clear-kiz-all" data-order-id="${oid}"
+              aria-label="Очистить КИЗ" title="Очистить КИЗ">×</button>`
+            : "";
         return `
           <div class="tsd-scanned-item">
             <div class="tsd-scanned-top">
               ${photo}
               <div class="tsd-scanned-text">
                 <div class="tsd-scanned-order">${orderWord} ${oid} · ${stickerHtml}</div>
-                ${gmBadge ? `<div class="tsd-scanned-gm">${gmBadge}</div>` : ""}
                 <div class="tsd-scanned-name">${esc(r.product_name || r.article || "—")}</div>
               </div>
               ${clearBtn}
@@ -2080,6 +2121,92 @@
         <h2 class="tsd-scanned-title">Просканировано · ${scanned.length}</h2>
         <div class="tsd-scanned-list" id="tsdScannedList">${items}</div>
       </section>`;
+  }
+
+  async function unbindGmPosting(postingNumber, containerId) {
+    const sid = String(state.route.supplyId || "").trim();
+    const sourceId = Number(state.sourceId || 0) || 0;
+    if (!sid || !sourceId) return null;
+    return api(
+      `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/containers/unbind`,
+      {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({
+          source_id: sourceId,
+          posting_number: postingNumber,
+          container_id: containerId || null,
+        }),
+      }
+    );
+  }
+
+  function clearRowGmLocal(row) {
+    if (!row) return;
+    row.container_id = null;
+    row.container_barcode = "";
+    row.container_synced = false;
+    row.container_sync_error = "";
+  }
+
+  /**
+   * Ozon TSD: one × clears KIZ or product barcode AND cargo-place bind,
+   * then removes the order from the scanned list.
+   */
+  async function clearScannedOrderAll(mode, orderId) {
+    if (state.saving || state.clearing) return;
+    if (!isOzon()) return;
+    const id = String(orderId || "").trim();
+    const rows = mode === "kiz" ? state.kizRows : state.pickRows;
+    const row = findRowByScanId(rows, id);
+    if (!row) return;
+    const label = rowDisplayLabel(row);
+    const postingNumber = String(row.posting_number || id).trim();
+    const prevCid = Number(row.container_id || 0) || 0;
+    const hadGm =
+      prevCid > 0 || !!String(row.container_barcode || "").trim();
+
+    state.clearing = true;
+    refreshSaveButton(mode);
+    try {
+      if (mode === "kiz") {
+        if (!Array.isArray(row.kiz_codes)) row.kiz_codes = [""];
+        row.kiz_codes = [""];
+        row.kiz_local = true;
+        delete state.pendingKizClear[id];
+        if (state.rowErrors[id]) delete state.rowErrors[id];
+        if (String(row.kiz_status || "") === "error") row.kiz_status = "empty";
+        scheduleKizLocalAutosave(id);
+      } else {
+        row.pick_verified = false;
+        row.pick_barcode = "";
+        schedulePickLocalAutosave(id);
+      }
+
+      if (hadGm) {
+        clearRowGmLocal(row);
+        try {
+          await unbindGmPosting(postingNumber, prevCid || null);
+        } catch (e) {
+          row.container_sync_error = String(e.message || e);
+          setBanner(
+            `Данные очищены · ГМ снять не удалось: ${row.container_sync_error}`,
+            "warn"
+          );
+          removeSessionScanned(id);
+          refreshScanChrome(mode);
+          return;
+        }
+      }
+
+      removeSessionScanned(id);
+      setBanner(`Очищено · ${label} убран из просканированных`, "ok");
+    } catch (e) {
+      setBanner(e.message || String(e), "err");
+    } finally {
+      state.clearing = false;
+      refreshScanChrome(mode);
+    }
   }
 
   async function clearKizCodes(orderId) {
@@ -3364,13 +3491,18 @@
 
   function wireScannedList(mode) {
     const scannedList = document.getElementById("tsdScannedList");
-    if (!scannedList || mode !== "kiz") return;
+    if (!scannedList) return;
     scannedList.addEventListener("click", (ev) => {
       const btn = ev.target && ev.target.closest ? ev.target.closest("[data-action]") : null;
       if (!btn) return;
       const action = btn.getAttribute("data-action");
       const oid = btn.getAttribute("data-order-id");
-      if (action === "clear-kiz-all") {
+      if (action === "clear-scanned-all") {
+        ev.preventDefault();
+        clearScannedOrderAll(mode, oid);
+        return;
+      }
+      if (action === "clear-kiz-all" && mode === "kiz") {
         ev.preventDefault();
         clearKizCodes(oid);
       }

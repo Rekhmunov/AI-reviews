@@ -97,6 +97,15 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "tsd-scanned-kiz-line" in js or "tsd-scanned-kv" in js
     assert "tsd-scanned-top" in js
     assert "tsd-scanned-details" in js
+    assert "formatOzonPostingHtml" in js
+    assert "tsd-posting-hi" in js
+    assert "Отправление:" in js
+    assert "clearScannedOrderAll" in js
+    assert 'data-action="clear-scanned-all"' in js
+    assert "tsd-scanned-item-ozon" in js
+    assert "tsd-scanned-gm-code" in js
+    assert ">ГМ:</span>" in js
+    assert "containers/unbind" in js
     assert "Скан пишет КИЗ локально" not in js
     assert "Скан пишет ШК локально" not in js
     assert "Для 2-го КИЗ снова сканируйте стикер" in js
