@@ -530,7 +530,7 @@
         }
       });
     }
-    const startGmScan = async (isChange) => {
+    const startGmScan = async () => {
       await loadGmContainers(true);
       if (!state.gm.hasFillable) {
         setBanner(
@@ -544,12 +544,8 @@
         return;
       }
       state.gm.awaitingScan = true;
-      setBanner(
-        isChange
-          ? "Отсканируйте QR другого грузоместа"
-          : "Отсканируйте QR грузоместа",
-        "info"
-      );
+      // Prompt above the input is enough — no blue info banner.
+      setBanner(null);
       if (!patchScanCard(state.route.mode)) renderScan();
       else {
         refreshGmBar();
@@ -557,9 +553,9 @@
       }
     };
     const addBtn = document.getElementById("tsdGmAdd");
-    if (addBtn) addBtn.addEventListener("click", () => startGmScan(false));
+    if (addBtn) addBtn.addEventListener("click", () => startGmScan());
     const change = document.getElementById("tsdGmChange");
-    if (change) change.addEventListener("click", () => startGmScan(true));
+    if (change) change.addEventListener("click", () => startGmScan());
     const cancel = document.getElementById("tsdGmCancelScan");
     if (cancel) {
       cancel.addEventListener("click", () => {
