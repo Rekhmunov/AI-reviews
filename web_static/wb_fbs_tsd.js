@@ -416,11 +416,20 @@
     )}${refreshBtn}`;
   }
 
+  function activeGmHintText() {
+    const cur = activeGmContainer();
+    const id = state.gm.activeBarcode || String(state.gm.activeId || "");
+    if (!id) return "";
+    const num = Number(cur && cur.container_number) || 0;
+    if (num > 0) return `ГМ №${num}: ${id}`;
+    return `ГМ: ${id}`;
+  }
+
   function renderGmActiveHintHtml() {
     if (!gmUiVisible() || !state.gm.activeId || state.gm.awaitingScan) return "";
-    const label = activeGmLabel();
+    const label = activeGmHintText();
     return `<div class="tsd-gm-active-hint" id="tsdGmActiveHint">
-      <span class="tsd-gm-active-hint-text" title="${esc(label)}">ГМ: ${esc(label)}</span>
+      <span class="tsd-gm-active-hint-text" title="${esc(label)}">${esc(label)}</span>
       <button type="button" class="tsd-gm-active-hint-reset" id="tsdGmReset"
         title="Сбросить грузоместо" aria-label="Сбросить грузоместо">×</button>
     </div>`;
