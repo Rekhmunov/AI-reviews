@@ -2034,13 +2034,24 @@
             : `<div class="tsd-scanned-kv"><span class="tsd-scanned-label">КИЗ:</span><span class="tsd-scanned-kv-val">—</span></div>`;
         } else {
           const verified = String(r.pick_barcode || "").trim();
-          const showBc = verified || barcodes;
-          detailHtml = showBc
-            ? `<div class="tsd-scanned-kv">
+          if (isOzon()) {
+            const showBc = verified || barcodes;
+            detailHtml = showBc
+              ? `<div class="tsd-scanned-kv">
                 <span class="tsd-scanned-label">ШК:</span>
                 <span class="tsd-scanned-kv-val">${esc(verified || barcodes)}</span>
               </div>`
-            : "";
+              : "";
+          } else {
+            // WB: product barcodes are shown via barcodesHtml; only add verified ШК when list empty.
+            detailHtml =
+              !barcodes && verified
+                ? `<div class="tsd-scanned-kv">
+                <span class="tsd-scanned-label">ШК:</span>
+                <span class="tsd-scanned-kv-val">${esc(verified)}</span>
+              </div>`
+                : "";
+          }
         }
 
         if (isOzon()) {
@@ -2184,9 +2195,9 @@
       }
 
       if (hadGm) {
-        clearRowGmLocal(row);
         try {
           await unbindGmPosting(postingNumber, prevCid || null);
+          clearRowGmLocal(row);
         } catch (e) {
           row.container_sync_error = String(e.message || e);
           setBanner(
