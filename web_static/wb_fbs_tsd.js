@@ -2142,6 +2142,88 @@
     return out.join(", ");
   }
 
+  function rowPhotoHtml(row, size) {
+    const wh = Number(size) > 0 ? Number(size) : 48;
+    return row && row.product_photo
+      ? `<img src="${esc(row.product_photo)}" alt="" width="${wh}" height="${wh}" />`
+      : `<span class="tsd-scanned-ph" aria-hidden="true"></span>`;
+  }
+
+  /** Shared Ozon card details under the divider: Отправление → Стикер → ГМ → ШК/КИЗ. */
+  function renderOzonOrderDetailsHtml(row, mode) {
+    const posting = String(row.posting_number || rowScanId(row) || "").trim();
+    const sticker = String(
+      row.sticker_barcode || row.sticker_lower_barcode || ""
+    ).trim();
+    const gmCode = rowGmCode(row);
+    const gmErr = String(row.container_sync_error || "").trim();
+    const barcodes = orderBarcodesLabel(row);
+    let markOrSkuHtml = "";
+    if (mode === "kiz") {
+      const entries = filledKizEntries(row);
+      markOrSkuHtml = entries.length
+        ? `<div class="tsd-scanned-kizs">${entries
+            .map(
+              (e) => `
+              <div class="tsd-scanned-kv">
+                <span class="tsd-scanned-label">КИЗ:</span>
+                <span class="tsd-scanned-kv-val">${esc(shortKizDisplay(e.code))}</span>
+              </div>`
+            )
+            .join("")}</div>`
+        : `<div class="tsd-scanned-kv"><span class="tsd-scanned-label">КИЗ:</span><span class="tsd-scanned-kv-val">—</span></div>`;
+    } else {
+      const verified = String(row.pick_barcode || "").trim();
+      const showBc = verified || barcodes;
+      markOrSkuHtml = showBc
+        ? `<div class="tsd-scanned-kv">
+                <span class="tsd-scanned-label">ШК:</span>
+                <span class="tsd-scanned-kv-val">${esc(verified || barcodes)}</span>
+              </div>`
+        : "";
+    }
+    const postingHtml = `<div class="tsd-scanned-kv">
+                <span class="tsd-scanned-label">Отправление:</span>
+                <span class="tsd-scanned-kv-val tsd-scanned-posting">${formatOzonPostingHtml(
+                  posting
+                )}</span>
+              </div>`;
+    const stickerHtml = sticker
+      ? `<div class="tsd-scanned-kv">
+                <span class="tsd-scanned-label">Стикер:</span>
+                <span class="tsd-scanned-kv-val tsd-scanned-sticker">${esc(
+                  sticker
+                )}</span>
+              </div>`
+      : "";
+    const gmHtml = gmCode
+      ? `<div class="tsd-scanned-kv${gmErr ? " is-gm-err" : ""}">
+                <span class="tsd-scanned-label">ГМ:</span>
+                <span class="tsd-scanned-kv-val tsd-scanned-gm-code" title="${esc(
+                  gmErr || gmCode
+                )}">${esc(gmCode)}</span>
+              </div>`
+      : "";
+    return `${postingHtml}${stickerHtml}${gmHtml}${markOrSkuHtml}`;
+  }
+
+  /** Ozon card body: photo + name on top, details under the gray line. */
+  function renderOzonOrderCardBodyHtml(row, mode) {
+    return `
+            <div class="tsd-scanned-top">
+              ${rowPhotoHtml(row, 48)}
+              <div class="tsd-scanned-text">
+                <div class="tsd-scanned-name">${esc(
+                  row.product_name || row.article || "—"
+                )}</div>
+              </div>
+            </div>
+            <div class="tsd-scanned-details">${renderOzonOrderDetailsHtml(
+              row,
+              mode
+            )}</div>`;
+  }
+
   function renderScannedListHtml(mode) {
     const scanned = orderedScannedRows(mode);
     if (!scanned.length) {
@@ -2155,9 +2237,6 @@
     }
     const items = scanned
       .map((r) => {
-        const photo = r.product_photo
-          ? `<img src="${esc(r.product_photo)}" alt="" width="48" height="48" />`
-          : `<span class="tsd-scanned-ph" aria-hidden="true"></span>`;
         const oid = esc(rowScanId(r));
         const barcodes = orderBarcodesLabel(r);
         let detailHtml = "";
@@ -2185,7 +2264,6 @@
               </div>`
               : "";
           } else {
-            // WB: product barcodes are shown via barcodesHtml; only add verified ШК when list empty.
             detailHtml =
               !barcodes && verified
                 ? `<div class="tsd-scanned-kv">
@@ -2197,54 +2275,16 @@
         }
 
         if (isOzon()) {
-          const posting = String(r.posting_number || rowScanId(r) || "").trim();
-          // Prefer printed sticker barcodes; sticker_number on Ozon may alias posting.
-          const sticker = String(
-            r.sticker_barcode || r.sticker_lower_barcode || ""
-          ).trim();
-          const gmCode = rowGmCode(r);
-          const gmErr = String(r.container_sync_error || "").trim();
-          const postingHtml = `<div class="tsd-scanned-kv">
-                <span class="tsd-scanned-label">Отправление:</span>
-                <span class="tsd-scanned-kv-val tsd-scanned-posting">${formatOzonPostingHtml(
-                  posting
-                )}</span>
-              </div>`;
-          const stickerHtml = sticker
-            ? `<div class="tsd-scanned-kv">
-                <span class="tsd-scanned-label">Стикер:</span>
-                <span class="tsd-scanned-kv-val tsd-scanned-sticker">${esc(
-                  sticker
-                )}</span>
-              </div>`
-            : "";
-          const gmHtml = gmCode
-            ? `<div class="tsd-scanned-kv${gmErr ? " is-gm-err" : ""}">
-                <span class="tsd-scanned-label">ГМ:</span>
-                <span class="tsd-scanned-kv-val tsd-scanned-gm-code" title="${esc(
-                  gmErr || gmCode
-                )}">${esc(gmCode)}</span>
-              </div>`
-            : "";
-          // Under the divider: Отправление → Стикер → ГМ → ШК/КИЗ
-          const detailsBody = `${postingHtml}${stickerHtml}${gmHtml}${detailHtml}`;
           return `
           <div class="tsd-scanned-item tsd-scanned-item-ozon">
             <button type="button" class="tsd-scanned-clear"
               data-action="clear-scanned-all" data-order-id="${oid}"
               aria-label="Очистить заказ" title="Очистить КИЗ/ШК и снять с ГМ">×</button>
-            <div class="tsd-scanned-top">
-              ${photo}
-              <div class="tsd-scanned-text">
-                <div class="tsd-scanned-name">${esc(
-                  r.product_name || r.article || "—"
-                )}</div>
-              </div>
-            </div>
-            <div class="tsd-scanned-details">${detailsBody}</div>
+            ${renderOzonOrderCardBodyHtml(r, mode)}
           </div>`;
         }
 
+        const photo = rowPhotoHtml(r, 48);
         // WB: keep compact layout; × only clears KIZ.
         const orderWord = "Заказ";
         const stickerHtml = formatBoldLastDigits(
@@ -2653,9 +2693,16 @@
     } else {
       const items = shown
         .map((r) => {
-          const photo = r.product_photo
-            ? `<img src="${esc(r.product_photo)}" alt="" width="48" height="48" />`
-            : `<span class="tsd-scanned-ph" aria-hidden="true"></span>`;
+          const oid = esc(rowScanId(r));
+          if (isOzon()) {
+            // Same card UI as scanned list: photo+name on top, details under the line.
+            return `
+            <button type="button" class="tsd-search-item tsd-search-item-ozon" data-action="pick-search-order"
+              data-order-id="${oid}">
+              ${renderOzonOrderCardBodyHtml(r, mode)}
+            </button>`;
+          }
+          const photo = rowPhotoHtml(r, 48);
           const barcodes = orderBarcodesLabel(r);
           const stickerHtml = formatBoldLastDigits(r.sticker_number || "—", 4);
           const cancelHtml = rowIsCancelled(r)
@@ -2672,7 +2719,7 @@
                 : "Не проверен";
           return `
             <button type="button" class="tsd-search-item" data-action="pick-search-order"
-              data-order-id="${esc(String(r.order_id))}">
+              data-order-id="${oid}">
               ${photo}
               <div class="tsd-scanned-text">
                 <div class="tsd-scanned-order">Заказ ${esc(r.order_id)} · ${stickerHtml}</div>
