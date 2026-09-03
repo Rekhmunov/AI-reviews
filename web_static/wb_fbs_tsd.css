@@ -108,6 +108,11 @@ html, body {
   font-weight: 600;
 }
 
+/* Author display would otherwise override the HTML hidden attribute. */
+.tsd-back[hidden] {
+  display: none !important;
+}
+
 .tsd-top-title {
   flex: 1 1 auto;
   min-width: 0;
