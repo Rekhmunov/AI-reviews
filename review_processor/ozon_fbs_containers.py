@@ -1309,3 +1309,306 @@ def container_bind_fields_from_map(
         "container_synced": bool(row.get("container_synced")) and cid_i > 0 and not err,
         "container_sync_error": err,
     }
+
+
+def get_supply_moved_to_delivering_at(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+) -> str:
+    """Latest local «move to Доставляются» timestamp for the supply (ISO), or ``""``."""
+    from . import ozon_fbs_ops_log as ops_log
+
+    sid = str(supply_id or "").strip()
+    if not sid:
+        return ""
+    try:
+        ops_log.ensure_ozon_fbs_ops_log_table(repo)
+        with repo._connect() as conn:
+            row = conn.execute(
+                repo._sql(
+                    """
+                    SELECT created_at
+                    FROM ozon_fbs_ops_log
+                    WHERE user_id = ?
+                      AND source_id = ?
+                      AND supply_id = ?
+                      AND action = ?
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT 1
+                    """
+                ),
+                (
+                    int(user_id),
+                    int(source_id),
+                    sid,
+                    ops_log.ACTION_MOVE_DELIVERING,
+                ),
+            ).fetchone()
+    except Exception as exc:
+        _log.warning(
+            "ozon fbs move-delivering lookup failed supply=%s: %s", sid, exc
+        )
+        return ""
+    if not row:
+        return ""
+    d = repo._row_to_dict(row)
+    created = d.get("created_at")
+    if created is None:
+        return ""
+    if isinstance(created, datetime):
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=UTC)
+        return created.astimezone(UTC).isoformat()
+    return str(created).strip()
+
+
+def enrich_containers_for_supply_modal(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    listed: dict[str, Any],
+) -> dict[str, Any]:
+    """Cheap list enrichment: display dates + one supply-level delivering move time.
+
+    Does not call Ozon beyond the already-fetched ``list`` payload.
+    """
+    moved_raw = get_supply_moved_to_delivering_at(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=supply_id,
+    )
+    moved_display = oz.format_lookup_datetime(moved_raw) if moved_raw else ""
+    items_in = listed.get("items") if isinstance(listed, dict) else None
+    items: list[dict[str, Any]] = []
+    if isinstance(items_in, list):
+        for raw in items_in:
+            if not isinstance(raw, dict):
+                continue
+            row = dict(raw)
+            wh = row.get("warehouse_date")
+            created = row.get("created_at")
+            row["warehouse_date_display"] = oz.format_warehouse_date(wh) if wh else ""
+            row["created_at_display"] = (
+                oz.format_lookup_datetime(created) if created else ""
+            )
+            row["moved_to_delivering_at"] = moved_raw
+            row["moved_to_delivering_at_display"] = moved_display
+            items.append(row)
+    out = dict(listed) if isinstance(listed, dict) else {"ok": True, "items": []}
+    out["items"] = items
+    out["moved_to_delivering_at"] = moved_raw
+    out["moved_to_delivering_at_display"] = moved_display
+    return out
+
+
+def _list_local_container_postings(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    container_id: int,
+    supply_id: str = "",
+) -> list[dict[str, Any]]:
+    """Postings bound locally to this cargo place (KIZ / pick-verify binds)."""
+    oz.ensure_ozon_fbs_tables(repo)
+    cid = int(container_id or 0)
+    if cid <= 0:
+        return []
+    sid = str(supply_id or "").strip()
+    clauses = [
+        "user_id = ?",
+        "source_id = ?",
+        "container_id = ?",
+    ]
+    params: list[Any] = [int(user_id), int(source_id), cid]
+    if sid:
+        clauses.append("supply_id = ?")
+        params.append(sid)
+    where = " AND ".join(clauses)
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT posting_number, offer_id, product_name, quantity,
+                       marking_codes_json, pick_verified, pick_barcode,
+                       container_barcode, container_synced, tab, status
+                FROM ozon_fbs_postings
+                WHERE {where}
+                ORDER BY posting_number
+                """
+            ),
+            tuple(params),
+        ).fetchall()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        d = repo._row_to_dict(row)
+        pn = str(d.get("posting_number") or "").strip()
+        if not pn:
+            continue
+        try:
+            codes = json.loads(str(d.get("marking_codes_json") or "[]"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            codes = []
+        if not isinstance(codes, list):
+            codes = []
+        kiz_n = sum(1 for x in codes if str(x or "").strip())
+        pick_barcode = str(d.get("pick_barcode") or "").strip()
+        pick_ok = bool(d.get("pick_verified")) and bool(pick_barcode)
+        try:
+            qty = int(d.get("quantity") or 1)
+        except (TypeError, ValueError):
+            qty = 1
+        out.append(
+            {
+                "posting_number": pn,
+                "offer_id": str(d.get("offer_id") or "").strip(),
+                "product_name": str(d.get("product_name") or "").strip(),
+                "quantity": max(1, qty),
+                "has_kiz": kiz_n > 0,
+                "kiz_count": kiz_n,
+                "pick_verified": pick_ok,
+                "container_barcode": str(d.get("container_barcode") or "").strip(),
+                "container_synced": bool(d.get("container_synced")),
+                "tab": str(d.get("tab") or "").strip(),
+                "status": str(d.get("status") or "").strip(),
+            }
+        )
+    return out
+
+
+def build_container_modal_details(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    container: dict[str, Any],
+) -> dict[str, Any]:
+    """Timeline + local composition for one cargo place (no extra Ozon calls)."""
+    try:
+        cid = int(container.get("container_id") or 0)
+    except (TypeError, ValueError):
+        cid = 0
+    status = str(container.get("status") or "").strip().lower()
+    status_lbl = str(container.get("status_label") or status_label(status) or "—")
+    created_raw = str(container.get("created_at") or "").strip()
+    warehouse_raw = str(container.get("warehouse_date") or "").strip()
+    created_display = oz.format_lookup_datetime(created_raw) if created_raw else ""
+    warehouse_display = (
+        oz.format_warehouse_date(warehouse_raw) if warehouse_raw else ""
+    )
+    moved_raw = get_supply_moved_to_delivering_at(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=supply_id,
+    )
+    moved_display = oz.format_lookup_datetime(moved_raw) if moved_raw else ""
+
+    timeline: list[dict[str, Any]] = []
+    if created_raw or created_display:
+        timeline.append(
+            {
+                "key": "created",
+                "label": "Создано",
+                "at": created_raw,
+                "at_display": created_display or "—",
+                "source": "ozon",
+            }
+        )
+    if moved_raw or moved_display:
+        timeline.append(
+            {
+                "key": "moved_to_delivering",
+                "label": "Перенесено в «Доставляются»",
+                "at": moved_raw,
+                "at_display": moved_display or "—",
+                "source": "local",
+            }
+        )
+    # Official docs: warehouse_date = creation date in warehouse timezone.
+    # Show time when Ozon includes it; do not invent a separate SC-accept clock.
+    if warehouse_raw or warehouse_display:
+        timeline.append(
+            {
+                "key": "warehouse_date",
+                "label": "Дата склада (Ozon)",
+                "hint": "По документации Ozon — дата создания ГМ в часовом поясе склада",
+                "at": warehouse_raw,
+                "at_display": warehouse_display or "—",
+                "source": "ozon",
+            }
+        )
+    timeline.append(
+        {
+            "key": "status",
+            "label": f"Текущий статус: {status_lbl}",
+            "at": "",
+            "at_display": status_lbl,
+            "source": "ozon",
+            "status": status,
+            "status_label": status_lbl,
+        }
+    )
+
+    postings = _list_local_container_postings(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        container_id=cid,
+        supply_id=supply_id,
+    )
+    return {
+        "ok": True,
+        "container_id": cid,
+        "container_number": container.get("container_number"),
+        "status": status,
+        "status_label": status_lbl,
+        "warehouse_date": warehouse_raw,
+        "warehouse_date_display": warehouse_display,
+        "created_at": created_raw,
+        "created_at_display": created_display,
+        "moved_to_delivering_at": moved_raw,
+        "moved_to_delivering_at_display": moved_display,
+        "timeline": timeline,
+        "postings": postings,
+        "postings_count": len(postings),
+    }
+
+
+def get_container_modal_details(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    container_id: int,
+    container: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build GM expand payload from list-row meta + local DB only.
+
+    No Ozon calls — keeps expand fast. ``container`` should be the row already
+    loaded by the containers modal list (status / warehouse_date / created_at).
+    """
+    cid = int(container_id or 0)
+    if cid <= 0:
+        raise ValueError("Укажите container_id")
+    sid = str(supply_id or "").strip()
+    if not sid:
+        raise ValueError("Укажите supply_id")
+    meta = dict(container) if isinstance(container, dict) else {}
+    if not meta.get("container_id"):
+        meta["container_id"] = cid
+    return build_container_modal_details(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=sid,
+        container=meta,
+    )

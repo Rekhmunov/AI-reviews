@@ -923,6 +923,11 @@ def ensure_ozon_fbs_tables(repo: ReviewRepository) -> None:
                 "CREATE INDEX IF NOT EXISTS idx_ozon_fbs_postings_posting_number "
                 "ON ozon_fbs_postings(user_id, source_id, posting_number)"
             ),
+            repo._sql(
+                "CREATE INDEX IF NOT EXISTS idx_ozon_fbs_postings_container_id "
+                "ON ozon_fbs_postings(user_id, source_id, container_id) "
+                "WHERE container_id IS NOT NULL"
+            ),
         ):
             try:
                 conn.execute(idx_sql)
@@ -2579,6 +2584,46 @@ def format_lookup_datetime(value: object) -> str:
     return dt.strftime("%d.%m.%Y %H:%M")
 
 
+def format_warehouse_date(value: object) -> str:
+    """Format Ozon ``warehouse_date`` (creation date in warehouse TZ).
+
+    Docs type it as plain string. When time is present without an offset we keep
+    it as-is (warehouse-local), so we do not shift a local clock to MSK.
+    Date-only values stay date-only. Values with an explicit offset/Z convert to MSK.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        return format_lookup_datetime(value)
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if len(text) == 10 and text[4] == "-" and text[7] == "-":
+        try:
+            d = datetime.strptime(text, "%Y-%m-%d").date()
+            return d.strftime("%d.%m.%Y")
+        except ValueError:
+            return text
+    # Space-separated local datetime from warehouse TZ: keep clock as sent.
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%d.%m.%Y %H:%M:%S", "%d.%m.%Y %H:%M"):
+        try:
+            local_dt = datetime.strptime(text, fmt)
+            return local_dt.strftime("%d.%m.%Y %H:%M")
+        except ValueError:
+            pass
+    if "T" in text and not (
+        text.endswith("Z") or "+" in text[10:] or text.count("-") > 2
+    ):
+        # Naive ISO local time — do not assume UTC.
+        try:
+            local_dt = datetime.fromisoformat(text)
+            if local_dt.tzinfo is None:
+                return local_dt.strftime("%d.%m.%Y %H:%M")
+        except Exception:
+            pass
+    return format_lookup_datetime(text)
+
+
 def build_posting_lookup_details(
     repo: ReviewRepository,
     *,
@@ -2646,7 +2691,7 @@ def build_posting_lookup_details(
         if isinstance(meta, dict):
             container_status = str(meta.get("status") or "").strip().lower()
             container_status_label = str(meta.get("status_label") or "").strip()
-            container_warehouse_date = format_lookup_datetime(meta.get("warehouse_date"))
+            container_warehouse_date = format_warehouse_date(meta.get("warehouse_date"))
             container_sc_accepted = oz_ct.is_sc_accepted_container(meta)
             number = meta.get("container_number")
             if not container_label and number not in (None, "", 0, "0"):

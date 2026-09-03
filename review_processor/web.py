@@ -14358,6 +14358,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 warehouse_id=wh_id,
                 include_sc_accepted=bool(include_sc_accepted),
             )
+            out = oz_ct.enrich_containers_for_supply_modal(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                supply_id=str(supply_id),
+                listed=out,
+            )
             out["warehouse_name"] = wh_name
             out["supply_id"] = str(supply_id)
             return out
@@ -14365,6 +14372,54 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/ozon-fbs/supplies/{supply_id}/containers/{container_id}/details")
+    def ozon_fbs_supply_container_details(
+        request: Request,
+        supply_id: str,
+        container_id: int,
+        source_id: int,
+        status: str = "",
+        status_label: str = "",
+        warehouse_date: str = "",
+        created_at: str = "",
+        container_number: int = 0,
+    ) -> dict[str, object]:
+        """Lazy GM expand: local timeline dates + bound postings. No Ozon calls."""
+        from . import ozon_fbs_containers as oz_ct
+
+        user = _require_user(request)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _require_ozon_fbs_source(user, int(source_id))
+        owner_id = _supply_owner_id(user)
+        try:
+            cid = int(container_id or 0)
+        except (TypeError, ValueError):
+            cid = 0
+        if cid <= 0:
+            raise HTTPException(status_code=400, detail="Укажите container_id")
+        meta = {
+            "container_id": cid,
+            "container_number": container_number,
+            "status": status,
+            "status_label": status_label,
+            "warehouse_date": warehouse_date,
+            "created_at": created_at,
+        }
+        try:
+            return oz_ct.get_container_modal_details(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                supply_id=str(supply_id),
+                container_id=cid,
+                container=meta,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.post("/api/ozon-fbs/supplies/{supply_id}/containers")
     async def ozon_fbs_supply_containers_create(

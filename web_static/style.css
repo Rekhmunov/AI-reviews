@@ -7869,6 +7869,114 @@ tr.dnd-over td {
   font-size: 12px;
   color: #64748b;
 }
+.ozon-fbs-containers-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.ozon-fbs-containers-main-text {
+  min-width: 0;
+  flex: 1;
+}
+.ozon-fbs-containers-expand {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  color: #475569;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.ozon-fbs-containers-expand:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+.ozon-fbs-containers-expand:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+.ozon-fbs-containers-row.is-expanded .ozon-fbs-containers-expand {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+.ozon-fbs-containers-detail-row > td {
+  padding: 0 12px 12px 12px;
+  background: #f8fafc;
+  border-top: none;
+}
+.ozon-fbs-containers-detail-row[hidden],
+.ozon-fbs-containers-detail-row.is-collapsed {
+  display: none;
+}
+.ozon-fbs-containers-detail {
+  display: grid;
+  gap: 16px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+@media (min-width: 720px) {
+  .ozon-fbs-containers-detail {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.ozon-fbs-containers-detail-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 650;
+  color: #0f172a;
+}
+.ozon-fbs-containers-detail-loading,
+.ozon-fbs-containers-detail-empty,
+.ozon-fbs-containers-detail-error {
+  font-size: 13px;
+  color: #64748b;
+}
+.ozon-fbs-containers-detail-error {
+  color: #b91c1c;
+}
+.ozon-fbs-containers-timeline,
+.ozon-fbs-containers-postings {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+.ozon-fbs-containers-timeline li,
+.ozon-fbs-containers-postings li {
+  display: grid;
+  gap: 2px;
+  font-size: 13px;
+  color: #334155;
+  line-height: 1.35;
+}
+.ozon-fbs-containers-timeline-label {
+  font-weight: 600;
+  color: #0f172a;
+}
+.ozon-fbs-containers-timeline-at {
+  color: #475569;
+  font-variant-numeric: tabular-nums;
+}
+.ozon-fbs-containers-timeline-hint {
+  font-size: 12px;
+  color: #94a3b8;
+}
+.ozon-fbs-containers-postings code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  background: #f1f5f9;
+  padding: 1px 4px;
+  border-radius: 4px;
+}
 .wb-fbs-auto-sync-modal {
   max-width: 480px;
   width: calc(100% - 32px);

@@ -74,6 +74,12 @@ def ensure_ozon_fbs_ops_log_table(repo: ReviewRepository) -> None:
                 "ON ozon_fbs_ops_log(user_id, created_at DESC, id DESC)"
             )
         )
+        conn.execute(
+            repo._sql(
+                "CREATE INDEX IF NOT EXISTS idx_ozon_fbs_ops_log_supply_action "
+                "ON ozon_fbs_ops_log(user_id, source_id, supply_id, action, created_at DESC)"
+            )
+        )
 
 
 def actor_label(user: dict[str, Any] | None) -> str:

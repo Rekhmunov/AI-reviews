@@ -122,6 +122,9 @@
     loading: false,
     busy: false,
     showScAccepted: false,
+    expandedId: null,
+    detailsCache: {},
+    detailsLoadingId: null,
   };
 
   function permissions() {
@@ -4833,6 +4836,7 @@
       return;
     }
     const busy = containersState.busy ? "disabled" : "";
+    const expandedId = String(containersState.expandedId || "");
     tbody.innerHTML = rows.map((c) => {
       const cid = String(c.container_id || "").trim();
       const num = Number(c.container_number || 0);
@@ -4845,10 +4849,22 @@
       const canPrint = c.can_print !== false;
       const canApprove = c.can_approve === true;
       const safeJs = JSON.stringify(cid);
-      return `<tr>
+      const isOpen = expandedId && expandedId === cid;
+      const caret = isOpen ? "▾" : "▸";
+      const detailHtml = isOpen ? _ozonFbsContainersDetailHtml(cid) : "";
+      return `<tr class="ozon-fbs-containers-row${isOpen ? " is-expanded" : ""}" data-cid="${esc(cid)}">
         <td>
-          <div class="ozon-fbs-containers-id">${esc(cid)}</div>
-          <div class="ozon-fbs-containers-sub">№ ${esc(String(num || "—"))}${meta ? ` · ${meta}` : ""}</div>
+          <div class="ozon-fbs-containers-main">
+            <button type="button" class="ozon-fbs-containers-expand"
+                    aria-expanded="${isOpen ? "true" : "false"}"
+                    aria-label="${isOpen ? "Свернуть" : "Состав и даты"} ${esc(cid)}"
+                    title="Состав и даты"
+                    onclick='toggleOzonFbsContainerDetails(${safeJs})'>${caret}</button>
+            <div class="ozon-fbs-containers-main-text">
+              <div class="ozon-fbs-containers-id">${esc(cid)}</div>
+              <div class="ozon-fbs-containers-sub">№ ${esc(String(num || "—"))}${meta ? ` · ${meta}` : ""}</div>
+            </div>
+          </div>
         </td>
         <td class="ozon-fbs-containers-col-orders">${esc(String(orders))}</td>
         <td class="ozon-fbs-containers-col-meta">${status}</td>
@@ -4865,8 +4881,118 @@
                     onclick='deleteOzonFbsContainer(${safeJs})'>✕</button>
           </div>
         </td>
+      </tr>
+      <tr class="ozon-fbs-containers-detail-row${isOpen ? "" : " is-collapsed"}" data-detail-for="${esc(cid)}" ${isOpen ? "" : "hidden"}>
+        <td colspan="4">${detailHtml || (isOpen ? `<div class="ozon-fbs-containers-detail-loading">Загрузка…</div>` : "")}</td>
       </tr>`;
     }).join("");
+  }
+
+  function _ozonFbsContainersDetailHtml(cid) {
+    const key = String(cid || "").trim();
+    if (!key) return "";
+    if (String(containersState.detailsLoadingId || "") === key && !containersState.detailsCache[key]) {
+      return `<div class="ozon-fbs-containers-detail-loading">Загрузка…</div>`;
+    }
+    const data = containersState.detailsCache[key];
+    if (!data) {
+      return `<div class="ozon-fbs-containers-detail-loading">Загрузка…</div>`;
+    }
+    if (data.error) {
+      return `<div class="ozon-fbs-containers-detail-error">${esc(data.error)}</div>`;
+    }
+    const timeline = Array.isArray(data.timeline) ? data.timeline : [];
+    const postings = Array.isArray(data.postings) ? data.postings : [];
+    const timelineHtml = timeline.length
+      ? `<ul class="ozon-fbs-containers-timeline">${timeline.map((ev) => {
+          const label = esc(ev.label || ev.key || "—");
+          const when = esc(ev.at_display || "—");
+          const hint = ev.hint ? `<div class="ozon-fbs-containers-timeline-hint">${esc(ev.hint)}</div>` : "";
+          return `<li><span class="ozon-fbs-containers-timeline-label">${label}</span><span class="ozon-fbs-containers-timeline-at">${when}</span>${hint}</li>`;
+        }).join("")}</ul>`
+      : `<div class="ozon-fbs-containers-detail-empty">Нет дат</div>`;
+    const postingsHtml = postings.length
+      ? `<ul class="ozon-fbs-containers-postings">${postings.map((p) => {
+          const pn = esc(p.posting_number || "—");
+          const name = esc(p.product_name || p.offer_id || "");
+          const flags = [];
+          if (p.has_kiz) flags.push(`КИЗ${p.kiz_count > 1 ? ` ×${p.kiz_count}` : ""}`);
+          if (p.pick_verified) flags.push("без КИЗ ✓");
+          const flagText = flags.length ? ` · ${esc(flags.join(" · "))}` : "";
+          return `<li><code>${pn}</code>${name ? ` — ${name}` : ""}${flagText}</li>`;
+        }).join("")}</ul>`
+      : `<div class="ozon-fbs-containers-detail-empty">В ГМ пока нет локально привязанных заказов</div>`;
+    return `<div class="ozon-fbs-containers-detail">
+      <div class="ozon-fbs-containers-detail-block">
+        <div class="ozon-fbs-containers-detail-title">Даты и статус</div>
+        ${timelineHtml}
+      </div>
+      <div class="ozon-fbs-containers-detail-block">
+        <div class="ozon-fbs-containers-detail-title">Состав (${postings.length})</div>
+        ${postingsHtml}
+      </div>
+    </div>`;
+  }
+
+  async function toggleOzonFbsContainerDetails(containerId) {
+    const cid = String(containerId || "").trim();
+    if (!cid) return;
+    if (String(containersState.expandedId || "") === cid) {
+      containersState.expandedId = null;
+      renderOzonFbsContainersTable(containersState.items);
+      return;
+    }
+    containersState.expandedId = cid;
+    renderOzonFbsContainersTable(containersState.items);
+    if (containersState.detailsCache[cid] && !containersState.detailsCache[cid].error) {
+      return;
+    }
+    await loadOzonFbsContainerDetails(cid);
+  }
+
+  async function loadOzonFbsContainerDetails(containerId) {
+    const cid = String(containerId || "").trim();
+    const sid = String(containersState.supplyId || "").trim();
+    const sourceId = containersState.sourceId;
+    if (!cid || !sid || !sourceId) return null;
+    const row = (containersState.items || []).find(
+      (x) => String(x.container_id || "").trim() === cid
+    ) || {};
+    containersState.detailsLoadingId = cid;
+    renderOzonFbsContainersTable(containersState.items);
+    try {
+      const params = new URLSearchParams({
+        source_id: String(sourceId),
+        status: String(row.status || ""),
+        status_label: String(row.status_label || ""),
+        warehouse_date: String(row.warehouse_date || ""),
+        created_at: String(row.created_at || ""),
+        container_number: String(row.container_number || 0),
+      });
+      const res = await fetch(
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/containers/${encodeURIComponent(cid)}/details?${params}`,
+        { headers: jsonHeaders() }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!_ozonFbsContainersModalOpen() || String(containersState.supplyId || "") !== sid) {
+        return null;
+      }
+      if (!res.ok || data.ok === false) {
+        throw new Error(detailText(data.detail) || data.message || `Ошибка ${res.status}`);
+      }
+      containersState.detailsCache[cid] = data;
+      return data;
+    } catch (e) {
+      containersState.detailsCache[cid] = { error: e.message || String(e) };
+      return null;
+    } finally {
+      if (String(containersState.detailsLoadingId || "") === cid) {
+        containersState.detailsLoadingId = null;
+      }
+      if (String(containersState.expandedId || "") === cid) {
+        renderOzonFbsContainersTable(containersState.items);
+      }
+    }
   }
 
   async function loadOzonFbsContainers({ keepInfo = false } = {}) {
@@ -4890,7 +5016,18 @@
         throw new Error(detailText(data.detail) || data.message || `Ошибка ${res.status}`);
       }
       containersState.warehouseId = data.warehouse_id || null;
+      // Keep expand only if same id still present; refresh details on next open.
+      containersState.detailsCache = {};
+      if (containersState.expandedId) {
+        const still = (data.items || []).some(
+          (x) => String(x.container_id || "").trim() === String(containersState.expandedId)
+        );
+        if (!still) containersState.expandedId = null;
+      }
       renderOzonFbsContainersTable(data.items || []);
+      if (containersState.expandedId) {
+        loadOzonFbsContainerDetails(containersState.expandedId);
+      }
       const total = Number(data.total || (data.items || []).length || 0);
       const wh = String(data.warehouse_name || "").trim();
       if (!keepInfo) {
@@ -4929,6 +5066,9 @@
     containersState.items = [];
     containersState.busy = false;
     containersState.showScAccepted = false;
+    containersState.expandedId = null;
+    containersState.detailsCache = {};
+    containersState.detailsLoadingId = null;
     const amount = document.getElementById("ozonFbsContainersAmount");
     if (amount) amount.value = "1";
     const sortSel = document.getElementById("ozonFbsContainersSortType");
@@ -4946,6 +5086,9 @@
     _ozonFbsContainersSetVisible(false);
     containersState.supplyId = null;
     containersState.items = [];
+    containersState.expandedId = null;
+    containersState.detailsCache = {};
+    containersState.detailsLoadingId = null;
     _ozonFbsContainersSetInfo("");
   }
 
@@ -10508,6 +10651,7 @@
   window.ozonFbsShipmentsPrintBarcode = shipmentsPrintBarcode;
   window.ozonFbsShipmentsDownloadBarcode = shipmentsDownloadBarcode;
   window.openOzonFbsContainersModal = openOzonFbsContainersModal;
+  window.toggleOzonFbsContainerDetails = toggleOzonFbsContainerDetails;
   window.closeOzonFbsContainersModal = closeOzonFbsContainersModal;
   window.refreshOzonFbsContainers = refreshOzonFbsContainers;
   window.createOzonFbsContainers = createOzonFbsContainers;
