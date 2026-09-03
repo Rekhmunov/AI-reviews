@@ -1728,16 +1728,16 @@ def build_container_modal_details(
                 "source": "ozon",
             }
         )
-    if moved_raw or moved_display:
-        timeline.append(
-            {
-                "key": "moved_to_delivering",
-                "label": "Перенесено в «Доставляются»",
-                "at": moved_raw,
-                "at_display": moved_display or "—",
-                "source": "local",
-            }
-        )
+    # Local ops_log: when the supply (with this GM) was moved to «Доставляются».
+    timeline.append(
+        {
+            "key": "moved_to_delivering",
+            "label": "Дата отгрузки с нашего склада",
+            "at": moved_raw,
+            "at_display": moved_display or "—",
+            "source": "local",
+        }
+    )
     # Docs: warehouse_date = creation date in warehouse TZ (string). Ozon often
     # sends YYYY-MM-DD only; we show HH:MM whenever the payload includes time.
     if warehouse_raw or warehouse_display:
@@ -1827,7 +1827,7 @@ def build_container_composition_xlsx(
     container: dict[str, Any] | None = None,
     client: oz.OzonFbsClient | None = None,
 ) -> tuple[bytes, str]:
-    """XLSX: posting numbers + warehouse_date for one cargo place."""
+    """XLSX: posting + warehouse_date + local ship-from-warehouse date."""
     try:
         from openpyxl import Workbook
     except ImportError as exc:
@@ -1847,20 +1847,30 @@ def build_container_composition_xlsx(
     warehouse_display = str(details.get("warehouse_date_display") or "").strip()
     if not warehouse_display:
         warehouse_display = str(details.get("warehouse_date") or "").strip() or "—"
+    ship_display = str(details.get("moved_to_delivering_at_display") or "").strip()
+    if not ship_display:
+        ship_display = str(details.get("moved_to_delivering_at") or "").strip() or "—"
 
     wb = Workbook()
     ws = wb.active
     ws.title = "Состав"
-    ws.append(["Отправление", "Дата склада (Ozon)"])
+    ws.append(
+        [
+            "Отправление",
+            "Дата склада (Ozon)",
+            "Дата отгрузки с нашего склада",
+        ]
+    )
     for row in details.get("postings") or []:
         if not isinstance(row, dict):
             continue
         pn = str(row.get("posting_number") or "").strip()
         if not pn:
             continue
-        ws.append([pn, warehouse_display])
+        ws.append([pn, warehouse_display, ship_display])
     ws.column_dimensions["A"].width = 28
     ws.column_dimensions["B"].width = 22
+    ws.column_dimensions["C"].width = 32
 
     buf = io.BytesIO()
     wb.save(buf)

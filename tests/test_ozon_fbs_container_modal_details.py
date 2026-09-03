@@ -69,6 +69,9 @@ class ContainerModalDetailsTests(unittest.TestCase):
         self.assertEqual(
             keys, ["created", "moved_to_delivering", "warehouse_date", "status"]
         )
+        move_ev = next(x for x in out["timeline"] if x["key"] == "moved_to_delivering")
+        self.assertEqual(move_ev["label"], "Дата отгрузки с нашего склада")
+        self.assertTrue(out["moved_to_delivering_at_display"])
         self.assertEqual(out["postings_count"], 1)
         self.assertEqual(out["warehouse_date_display"], "20.03.2026 15:30")
         self.assertTrue(out["moved_to_delivering_at_display"])
@@ -261,6 +264,8 @@ class ContainerModalDetailsTests(unittest.TestCase):
                 "container_number": 3,
                 "warehouse_date_display": "01.09.2026",
                 "warehouse_date": "2026-09-01",
+                "moved_to_delivering_at_display": "01.09.2026 16:14",
+                "moved_to_delivering_at": "2026-09-01T13:14:00+00:00",
                 "postings": [
                     {"posting_number": "016-1"},
                     {"posting_number": "016-3"},
@@ -287,9 +292,16 @@ class ContainerModalDetailsTests(unittest.TestCase):
             for row in ws.iter_rows(min_row=1, max_row=ws.max_row)
             if any(c.value not in (None, "") for c in row)
         ]
-        self.assertEqual(rows[0], ("Отправление", "Дата склада (Ozon)"))
-        self.assertEqual(rows[1], ("016-1", "01.09.2026"))
-        self.assertEqual(rows[2], ("016-3", "01.09.2026"))
+        self.assertEqual(
+            rows[0],
+            (
+                "Отправление",
+                "Дата склада (Ozon)",
+                "Дата отгрузки с нашего склада",
+            ),
+        )
+        self.assertEqual(rows[1], ("016-1", "01.09.2026", "01.09.2026 16:14"))
+        self.assertEqual(rows[2], ("016-3", "01.09.2026", "01.09.2026 16:14"))
         self.assertEqual(len(rows), 3)
 
 
