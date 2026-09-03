@@ -104,6 +104,8 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "formatOzonPostingHtml" in js
     assert "tsd-posting-hi" in js
     assert "Отправление:" in js
+    assert "Стикер:" in js
+    assert "tsd-scanned-sticker" in js
     assert "clearScannedOrderAll" in js
     assert 'data-action="clear-scanned-all"' in js
     assert "tsd-scanned-item-ozon" in js

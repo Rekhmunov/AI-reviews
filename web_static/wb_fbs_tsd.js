@@ -2177,8 +2177,26 @@
 
         if (isOzon()) {
           const posting = String(r.posting_number || rowScanId(r) || "").trim();
+          // Prefer printed sticker barcodes; sticker_number on Ozon may alias posting.
+          const sticker = String(
+            r.sticker_barcode || r.sticker_lower_barcode || ""
+          ).trim();
           const gmCode = rowGmCode(r);
           const gmErr = String(r.container_sync_error || "").trim();
+          const postingHtml = `<div class="tsd-scanned-kv">
+                <span class="tsd-scanned-label">Отправление:</span>
+                <span class="tsd-scanned-kv-val tsd-scanned-posting">${formatOzonPostingHtml(
+                  posting
+                )}</span>
+              </div>`;
+          const stickerHtml = sticker
+            ? `<div class="tsd-scanned-kv">
+                <span class="tsd-scanned-label">Стикер:</span>
+                <span class="tsd-scanned-kv-val tsd-scanned-sticker">${esc(
+                  sticker
+                )}</span>
+              </div>`
+            : "";
           const gmHtml = gmCode
             ? `<div class="tsd-scanned-kv${gmErr ? " is-gm-err" : ""}">
                 <span class="tsd-scanned-label">ГМ:</span>
@@ -2187,7 +2205,8 @@
                 )}">${esc(gmCode)}</span>
               </div>`
             : "";
-          const detailsBody = `${gmHtml}${detailHtml}`;
+          // Under the divider: Отправление → Стикер → ГМ → ШК/КИЗ
+          const detailsBody = `${postingHtml}${stickerHtml}${gmHtml}${detailHtml}`;
           return `
           <div class="tsd-scanned-item tsd-scanned-item-ozon">
             <button type="button" class="tsd-scanned-clear"
@@ -2196,19 +2215,12 @@
             <div class="tsd-scanned-top">
               ${photo}
               <div class="tsd-scanned-text">
-                <div class="tsd-scanned-order">Отправление: ${formatOzonPostingHtml(
-                  posting
-                )}</div>
                 <div class="tsd-scanned-name">${esc(
                   r.product_name || r.article || "—"
                 )}</div>
               </div>
             </div>
-            ${
-              detailsBody.trim()
-                ? `<div class="tsd-scanned-details">${detailsBody}</div>`
-                : ""
-            }
+            <div class="tsd-scanned-details">${detailsBody}</div>
           </div>`;
         }
 

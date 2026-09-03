@@ -76,6 +76,11 @@ assert(src.includes("Rebind sheet is modal"), "ignore scans while rebind open");
 assert(src.includes("formatOzonPostingHtml"), "posting highlight helper");
 assert(src.includes("tsd-posting-hi"), "posting highlight class");
 assert(src.includes("Отправление:"), "Отправление label in scanned card");
+assert(src.includes("Стикер:"), "Стикер label in scanned card details");
+assert(
+  src.includes("${postingHtml}${stickerHtml}${gmHtml}${detailHtml}"),
+  "Ozon details order: posting → sticker → GM → barcode/kiz"
+);
 assert(src.includes("tsd-scanned-gm-code"), "full GM barcode in scanned card");
 assert(src.includes(">ГМ:</span>"), "GM label before full code");
 assert(src.includes("clearScannedOrderAll"), "one clear-all for scanned order");
