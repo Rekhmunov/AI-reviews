@@ -1735,8 +1735,9 @@
   }
 
   /** Explicit «Сохранить»: WB pushes to API; Ozon saves locally only. */
-  async function saveKizPushAll() {
-    if (state.saving) return;
+  async function saveKizPushAll(opts) {
+    const silent = !!(opts && opts.silent);
+    if (state.saving) return { status: "busy" };
     clearBanner({ silent: true });
     await awaitLocalAutosaves();
     const rows = state.kizRows || [];
@@ -1781,12 +1782,14 @@
       });
     }
     if (!items.length) {
-      setBanner(
-        isOzon() ? "Нет изменений КИЗ для сохранения" : "Нет КИЗ для отправки в WB",
-        "warn"
-      );
-      renderScan();
-      return;
+      if (!silent) {
+        setBanner(
+          isOzon() ? "Нет изменений КИЗ для сохранения" : "Нет КИЗ для отправки в WB",
+          "warn"
+        );
+        renderScan();
+      }
+      return { status: "empty" };
     }
     state.saving = true;
     setBanner(
@@ -1796,6 +1799,7 @@
       "info"
     );
     renderScan();
+    let status = "ok";
     try {
       const params = new URLSearchParams({ source_id: String(state.sourceId) });
       const data = await api(
@@ -1871,11 +1875,13 @@
         }
       }
       if (conflictN) {
+        status = "error";
         setBanner(
           `Конфликт у ${conflictN} ${isOzon() ? "отпр." : "заказ(ов)"} — проверьте и сохраните ещё раз`,
           "err"
         );
       } else if (errN && okN) {
+        status = "error";
         setBanner(
           isOzon()
             ? `Сохранено ${okN}, ошибок ${errN}`
@@ -1883,6 +1889,7 @@
           "warn"
         );
       } else if (errN) {
+        status = "error";
         setBanner(
           isOzon() ? `Не удалось сохранить (${errN})` : `Не удалось отправить в WB (${errN})`,
           "err"
@@ -1894,16 +1901,19 @@
         );
       }
     } catch (e) {
+      status = "error";
       setBanner(e.message || String(e), "err");
     } finally {
       state.saving = false;
       renderScan();
     }
+    return { status };
   }
 
   /** Explicit «Сохранить» for pick: local-only batch (like desktop modal). */
-  async function savePickLocalAll() {
-    if (state.saving) return;
+  async function savePickLocalAll(opts) {
+    const silent = !!(opts && opts.silent);
+    if (state.saving) return { status: "busy" };
     clearBanner({ silent: true });
     await awaitLocalAutosaves();
     const rows = state.pickRows || [];
@@ -1931,13 +1941,16 @@
       );
     }
     if (!items.length) {
-      setBanner("Нет подтверждённых ШК для сохранения", "warn");
-      renderScan();
-      return;
+      if (!silent) {
+        setBanner("Нет подтверждённых ШК для сохранения", "warn");
+        renderScan();
+      }
+      return { status: "empty" };
     }
     state.saving = true;
     setBanner(`Сохранение ${items.length}…`, "info");
     renderScan();
+    let status = "ok";
     try {
       const params = new URLSearchParams({ source_id: String(state.sourceId) });
       const data = await api(
@@ -1973,18 +1986,22 @@
         }
       }
       if (conflictN) {
+        status = "error";
         setBanner(`Конфликт у ${conflictN} заказ(ов)`, "err");
       } else if (errN) {
+        status = "error";
         setBanner(`Сохранено ${okN}, ошибок ${errN}`, "warn");
       } else {
         setBanner(`Сохранено локально: ${okN}`, "ok");
       }
     } catch (e) {
+      status = "error";
       setBanner(e.message || String(e), "err");
     } finally {
       state.saving = false;
       renderScan();
     }
+    return { status };
   }
 
   function noteSessionScanned(orderId) {
@@ -3594,14 +3611,27 @@
     );
   }
 
-  function leaveScanScreen() {
+  /** Back arrow: always save (no confirm), then leave. Stay on error/conflict. */
+  async function leaveScanScreen() {
     if (state.route.view !== "scan") return;
     const sid = state.route.supplyId;
-    if (hasUnsavedScanWork(state.route.mode)) {
-      if (!confirm("Есть несохранённые изменения. Закрыть без сохранения?")) {
+    const mode = state.route.mode;
+    const shouldSave =
+      mode === "kiz"
+        ? hasPendingKizPush()
+        : orderedScannedRows(mode).length > 0;
+    if (shouldSave) {
+      const result =
+        mode === "kiz"
+          ? await saveKizPushAll({ silent: true })
+          : await savePickLocalAll({ silent: true });
+      if (result && (result.status === "error" || result.status === "busy")) {
         return;
       }
+    } else {
+      await awaitLocalAutosaves();
     }
+    if (state.route.view !== "scan") return;
     state.pendingOrderId = null;
     state.step = "sticker";
     state.searchOpen = false;

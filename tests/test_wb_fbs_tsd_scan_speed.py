@@ -49,6 +49,19 @@ def test_tsd_explicit_save_waits_for_autosave_chain() -> None:
     assert "await awaitLocalAutosaves()" in js[pick_start:pick_end]
 
 
+def test_tsd_back_arrow_saves_without_confirm() -> None:
+    js = TSD_JS.read_text(encoding="utf-8")
+    start = js.find("async function leaveScanScreen")
+    end = js.find("function scanProgress", start)
+    assert start > 0 and end > start
+    body = js[start:end]
+    assert "confirm(" not in body
+    assert "Закрыть без сохранения" not in js
+    assert "saveKizPushAll({ silent: true })" in body
+    assert "savePickLocalAll({ silent: true })" in body
+    assert "hasPendingKizPush()" in body
+
+
 def test_tsd_clear_kiz_uses_background_autosave() -> None:
     js = TSD_JS.read_text(encoding="utf-8")
     start = js.find("async function clearKizCodes")
