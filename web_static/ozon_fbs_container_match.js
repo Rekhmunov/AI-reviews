@@ -1,6 +1,6 @@
 /**
  * Pure helpers for Ozon FBS cargo-place (ГМ) QR matching.
- * Shared by web bind UI and Ozon FBS TSD — no DOM, no fetch.
+ * Used by Ozon FBS TSD (phase 0/1). No DOM, no fetch.
  */
 (function (root) {
   "use strict";

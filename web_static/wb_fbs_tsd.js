@@ -65,6 +65,7 @@
       awaitingScan: false,
       boundSupplyId: "",
       loading: false,
+      loadGen: 0,
       rebindResolver: null,
     },
   };
@@ -140,10 +141,12 @@
       state.gm.activeBarcode = "";
     }
     if (opts && opts.clearList) {
+      state.gm.loadGen = Number(state.gm.loadGen || 0) + 1;
       state.gm.containers = [];
       state.gm.hasFillable = false;
       state.gm.loadOk = false;
       state.gm.boundSupplyId = "";
+      state.gm.loading = false;
     }
   }
 
@@ -194,6 +197,7 @@
     ) {
       return state.gm.hasFillable;
     }
+    const gen = (state.gm.loadGen = Number(state.gm.loadGen || 0) + 1);
     state.gm.loading = true;
     state.gm.loadError = "";
     try {
@@ -204,6 +208,9 @@
       const data = await api(
         `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/containers?${params}`
       );
+      // Ignore stale responses after supply/route change.
+      if (gen !== state.gm.loadGen) return state.gm.hasFillable;
+      if (String(state.route.supplyId || "") !== sid) return state.gm.hasFillable;
       const items = Array.isArray(data.items) ? data.items : [];
       state.gm.containers = items;
       state.gm.loadOk = true;
@@ -222,6 +229,8 @@
       }
       return state.gm.hasFillable;
     } catch (e) {
+      if (gen !== state.gm.loadGen) return state.gm.hasFillable;
+      if (String(state.route.supplyId || "") !== sid) return state.gm.hasFillable;
       state.gm.loadOk = false;
       state.gm.loadError = String(e.message || e);
       state.gm.containers = [];
@@ -231,7 +240,7 @@
       state.gm.awaitingScan = false;
       return false;
     } finally {
-      state.gm.loading = false;
+      if (gen === state.gm.loadGen) state.gm.loading = false;
     }
   }
 
@@ -375,6 +384,12 @@
 
   function openGmRebind({ postingNumber, oldBarcode, newBarcode }) {
     return new Promise((resolve) => {
+      // Resolve any previous pending confirm so awaiters cannot hang.
+      if (typeof state.gm.rebindResolver === "function") {
+        const prev = state.gm.rebindResolver;
+        state.gm.rebindResolver = null;
+        prev(false);
+      }
       state.gm.rebindResolver = resolve;
       const sheet = ensureGmRebindSheet();
       const text = document.getElementById("tsdGmRebindText");
@@ -2957,7 +2972,9 @@
     state.orderSearch = "";
     state.sessionScannedIds = [];
     resetScanFilters();
-    resetGmState({ keepActive: false });
+    // Keep active GM within the same supply (kiz ↔ hub ↔ pick). Clear awaiting only.
+    closeGmRebind(false);
+    state.gm.awaitingScan = false;
     setBanner(null);
     navigate(`#/s/${sid}`);
   }
@@ -3560,6 +3577,7 @@
         state.pendingOrderId = null;
         state.step = "sticker";
         state.banner = null;
+        closeGmRebind(false);
         resetGmState({ clearList: true });
         setLoadingStatus("Загружаем список поставок…", 0);
         await loadSupplies();
@@ -3580,7 +3598,13 @@
         state.pendingOrderId = null;
         state.step = "sticker";
         state.banner = null;
+        closeGmRebind(false);
+        state.gm.awaitingScan = false;
         const sid = state.route.supplyId;
+        const hubSid = String(sid || "");
+        if (state.gm.boundSupplyId && hubSid && state.gm.boundSupplyId !== hubSid) {
+          resetGmState({ clearList: true });
+        }
         if (String(state.kizHubToneSupplyId || "") !== String(sid || "")) {
           state.kizHubTone = "";
           state.kizHubToneSupplyId = String(sid || "");
@@ -3614,6 +3638,7 @@
         state.searchOpen = false;
         state.orderSearch = "";
         resetScanFilters();
+        closeGmRebind(false);
         state.gm.awaitingScan = false;
         if (state.route.mode === "kiz") {
           await loadKiz(state.route.supplyId);
@@ -3622,11 +3647,15 @@
         }
         if (seq !== state.loadSeq) return;
         if (isOzon()) {
-          await loadGmContainers(
-            state.gm.boundSupplyId !== String(state.route.supplyId || "")
-          );
+          const sidNow = String(state.route.supplyId || "");
+          // Drop active GM when switching to another supply.
+          if (state.gm.boundSupplyId && state.gm.boundSupplyId !== sidNow) {
+            setActiveGm(null);
+          }
+          await loadGmContainers(state.gm.boundSupplyId !== sidNow);
           if (seq !== state.loadSeq) return;
         } else {
+          closeGmRebind(false);
           resetGmState({ clearList: true });
         }
         captureScanBaselines(state.route.mode);
@@ -3634,6 +3663,7 @@
         if (!state.step) state.step = "sticker";
         renderScan();
       } else {
+        closeGmRebind(false);
         state.gm.awaitingScan = false;
       }
     } catch (e) {

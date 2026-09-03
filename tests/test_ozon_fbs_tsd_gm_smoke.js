@@ -40,4 +40,8 @@ assert(loadIdx > 0, "loadGmContainers found");
 const loadSlice = src.slice(loadIdx, loadIdx + 400);
 assert(loadSlice.includes("if (!isOzon())"), "WB cannot load GM containers");
 
+assert(src.includes("loadGen"), "stale GM load generation guard");
+assert(src.includes("closeGmRebind"), "rebind sheet close helper");
+assert(src.includes("Keep active GM within the same supply"), "active GM kept across kiz/pick via hub");
+
 console.log("ok - ozon_fbs_tsd_gm_smoke");
