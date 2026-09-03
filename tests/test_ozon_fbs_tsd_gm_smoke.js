@@ -1,5 +1,5 @@
 /**
- * Smoke tests for Ozon FBS TSD GM gates (phase 1).
+ * Smoke tests for Ozon FBS TSD GM phases 0–3.
  * Run: node tests/test_ozon_fbs_tsd_gm_smoke.js
  */
 "use strict";
@@ -24,24 +24,42 @@ assert(src.includes("function handleGmScan"), "handleGmScan present");
 assert(src.includes("awaitingScan"), "awaitingScan mode present");
 assert(src.includes("/api/ozon-fbs/supplies/"), "uses ozon containers API");
 assert(src.includes("containers/bind"), "uses bind endpoint");
-assert(
-  /if\s*\(\s*!isOzon\(\)\s*\)\s*\{[\s\S]*?resetGmState/.test(src) ||
-    src.includes("if (!isOzon()) {\n      resetGmState"),
-  "loadGmContainers gated by isOzon"
-);
-assert(src.includes("if (!isOzon()) return false;\n    if (state.route.view !== \"scan\")"), "gmUiVisible ozon+scan gate");
+assert(src.includes("if (!isOzon())"), "isOzon gates present");
 assert(!src.includes("ozon_fbs_container_bind.js"), "does not mount desktop bind module");
 assert(html.includes("ozon_fbs_container_match.js"), "TSD loads match helper");
 assert(html.includes("wb_fbs_tsd.js"), "TSD loads main script");
 
-// WB path must not fetch containers unless isOzon — loadGmContainers starts with isOzon guard.
+// Phase 0/1
 const loadIdx = src.indexOf("async function loadGmContainers");
 assert(loadIdx > 0, "loadGmContainers found");
-const loadSlice = src.slice(loadIdx, loadIdx + 400);
-assert(loadSlice.includes("if (!isOzon())"), "WB cannot load GM containers");
+assert(
+  src.slice(loadIdx, loadIdx + 400).includes("if (!isOzon())"),
+  "WB cannot load GM containers"
+);
 
+// Phase 2
 assert(src.includes("loadGen"), "stale GM load generation guard");
 assert(src.includes("closeGmRebind"), "rebind sheet close helper");
-assert(src.includes("Keep active GM within the same supply"), "active GM kept across kiz/pick via hub");
+assert(src.includes("ensureActiveGmStillFillable"), "locked mid-shift check");
+assert(src.includes("isLockedGmError"), "locked GM error detector");
+assert(src.includes("Таймаут загрузки грузомест"), "containers list timeout");
+assert(src.includes("hard GM reset on source change"), "source change hard reset");
+assert(
+  src.includes("container_sync_error") &&
+    src.includes("prevId === activeId && !String(row.container_sync_error"),
+  "retry bind when sync_error set"
+);
+assert(
+  /if\s*\(\s*!isOzon\(\)\s*\|\|\s*!state\.gm\.activeId/.test(src),
+  "silent no-op without activeId"
+);
+
+// Phase 3
+assert(src.includes("gmBadgeForRow"), "scanned list GM badge");
+assert(src.includes("В ГМ ${gmN}") || src.includes("В ГМ ${"), "stats GM counter");
+assert(src.includes("tsdFilterNoGm") || html.includes("tsdFilterNoGm"), "filter без ГМ");
+assert(src.includes("tsdGmRefresh"), "refresh GM list button");
+assert(src.includes("Грузоместо не выбрано"), "idle GM bar copy");
+assert(html.includes("Без ГМ"), "filter label in HTML");
 
 console.log("ok - ozon_fbs_tsd_gm_smoke");

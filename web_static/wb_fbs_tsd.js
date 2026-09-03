@@ -25,6 +25,7 @@
       empty: false,
       errors: false,
       cancelled: false,
+      noGm: false,
     },
     rowErrors: {},
     pendingKizClear: {},
@@ -150,13 +151,76 @@
     }
   }
 
-  /** Phase 1: show GM bar only on Ozon kiz/pick when fillable containers exist. */
+  /** Phase 1+: show GM bar only on Ozon kiz/pick when fillable containers exist. */
   function gmUiVisible() {
     if (!isOzon()) return false;
     if (state.route.view !== "scan") return false;
     const mode = state.route.mode;
     if (mode !== "kiz" && mode !== "pick") return false;
     return !!state.gm.hasFillable;
+  }
+
+  function gmFilterAvailable() {
+    if (!isOzon() || state.route.view !== "scan") return false;
+    if (state.gm.hasFillable) return true;
+    const rows =
+      state.route.mode === "kiz" ? state.kizRows : state.pickRows;
+    return (rows || []).some((r) => Number(r?.container_id || 0) > 0);
+  }
+
+  function gmBoundCount(mode) {
+    const rows = mode === "kiz" ? state.kizRows : state.pickRows;
+    return (rows || []).filter((r) => Number(r?.container_id || 0) > 0).length;
+  }
+
+  function gmBadgeForRow(row) {
+    if (!isOzon() || !row) return "";
+    const err = String(row.container_sync_error || "").trim();
+    const cid = Number(row.container_id || 0) || 0;
+    if (!cid && !err) return "";
+    if (err) {
+      return `<span class="tsd-gm-badge is-err" title="${esc(err)}">ГМ!</span>`;
+    }
+    const cur = (state.gm.containers || []).find(
+      (c) => String(c.container_id || "") === String(cid)
+    );
+    const num = Number(cur?.container_number || 0);
+    const label = num > 0 ? `ГМ №${num}` : `ГМ ${cid}`;
+    return `<span class="tsd-gm-badge" title="${esc(label)}">${esc(label)}</span>`;
+  }
+
+  function isLockedGmError(message) {
+    const msg = String(message || "").toLowerCase();
+    return (
+      msg.includes("подтвержд") ||
+      msg.includes("уже подтверждено") ||
+      msg.includes("нельзя добавить") ||
+      msg.includes("нельзя сканировать")
+    );
+  }
+
+  /**
+   * Phase 2: re-check active GM; clear if locked mid-shift.
+   * Uses cache first; force-refreshes only when cache says locked/missing.
+   * Returns false when active was cleared.
+   */
+  async function ensureActiveGmStillFillable() {
+    if (!isOzon() || !state.gm.activeId) return false;
+    let cur = activeGmContainer();
+    if (cur && containerAcceptsFill(cur)) return true;
+    await loadGmContainers(true);
+    cur = activeGmContainer();
+    if (cur && containerAcceptsFill(cur)) return true;
+    const wasId = state.gm.activeId;
+    setActiveGm(null);
+    state.gm.awaitingScan = false;
+    setBanner(
+      `Грузоместо ${wasId} уже подтверждено — выберите другое`,
+      "err"
+    );
+    refreshGmBar();
+    refreshScanBanner();
+    return false;
   }
 
   function activeGmContainer() {
@@ -200,13 +264,25 @@
     const gen = (state.gm.loadGen = Number(state.gm.loadGen || 0) + 1);
     state.gm.loading = true;
     state.gm.loadError = "";
+    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timeoutMs = 20000;
+    const timer = ctrl
+      ? setTimeout(() => {
+          try {
+            ctrl.abort();
+          } catch (_e) {
+            /* ignore */
+          }
+        }, timeoutMs)
+      : null;
     try {
       const params = new URLSearchParams({
         source_id: String(sourceId),
         include_sc_accepted: "1",
       });
       const data = await api(
-        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/containers?${params}`
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/containers?${params}`,
+        ctrl ? { signal: ctrl.signal } : undefined
       );
       // Ignore stale responses after supply/route change.
       if (gen !== state.gm.loadGen) return state.gm.hasFillable;
@@ -231,8 +307,13 @@
     } catch (e) {
       if (gen !== state.gm.loadGen) return state.gm.hasFillable;
       if (String(state.route.supplyId || "") !== sid) return state.gm.hasFillable;
+      const aborted =
+        (e && (e.name === "AbortError" || e.code === 20)) ||
+        /abort/i.test(String(e && e.message));
       state.gm.loadOk = false;
-      state.gm.loadError = String(e.message || e);
+      state.gm.loadError = aborted
+        ? "Таймаут загрузки грузомест"
+        : String(e.message || e);
       state.gm.containers = [];
       state.gm.hasFillable = false;
       state.gm.activeId = null;
@@ -240,6 +321,7 @@
       state.gm.awaitingScan = false;
       return false;
     } finally {
+      if (timer) clearTimeout(timer);
       if (gen === state.gm.loadGen) state.gm.loading = false;
     }
   }
@@ -257,11 +339,15 @@
 
   function renderGmBarHtml() {
     if (!gmUiVisible()) return "";
+    const refreshBtn = `
+      <button type="button" class="tsd-btn tsd-btn-ghost tsd-gm-refresh" id="tsdGmRefresh"
+        title="Обновить список ГМ" aria-label="Обновить список ГМ">↻</button>`;
     if (state.gm.awaitingScan) {
       return `
         <div class="tsd-gm-bar is-awaiting" id="tsdGmBar">
           <div class="tsd-gm-bar-text">Сканируйте QR грузоместа</div>
           <div class="tsd-gm-bar-actions">
+            ${refreshBtn}
             <button type="button" class="tsd-btn tsd-btn-ghost" id="tsdGmCancelScan">Отмена</button>
           </div>
         </div>`;
@@ -271,6 +357,7 @@
         <div class="tsd-gm-bar is-active" id="tsdGmBar">
           <div class="tsd-gm-bar-text" title="${esc(activeGmLabel())}">${esc(activeGmLabel())}</div>
           <div class="tsd-gm-bar-actions">
+            ${refreshBtn}
             <button type="button" class="tsd-btn tsd-btn-secondary" id="tsdGmChange">Сменить</button>
             <button type="button" class="tsd-btn tsd-btn-ghost" id="tsdGmReset">Сбросить</button>
           </div>
@@ -278,9 +365,13 @@
     }
     return `
       <div class="tsd-gm-bar" id="tsdGmBar">
-        <button type="button" class="tsd-btn tsd-btn-secondary tsd-btn-block" id="tsdGmScanBtn">
-          Сканировать ГМ
-        </button>
+        <div class="tsd-gm-bar-text">Грузоместо не выбрано</div>
+        <div class="tsd-gm-bar-actions">
+          ${refreshBtn}
+          <button type="button" class="tsd-btn tsd-btn-secondary" id="tsdGmScanBtn">
+            Сканировать ГМ
+          </button>
+        </div>
       </div>`;
   }
 
@@ -308,9 +399,50 @@
 
   function wireGmBar() {
     if (!isOzon()) return;
+    const refresh = document.getElementById("tsdGmRefresh");
+    if (refresh) {
+      refresh.addEventListener("click", async () => {
+        refresh.disabled = true;
+        try {
+          const hadActive = !!state.gm.activeId;
+          await loadGmContainers(true);
+          if (hadActive && !state.gm.activeId) {
+            setBanner("Активное грузоместо больше недоступно — выберите другое", "warn");
+          } else if (!state.gm.hasFillable) {
+            setBanner(
+              state.gm.loadError
+                ? `Грузоместа: ${state.gm.loadError}`
+                : "Нет доступных грузомест для заполнения",
+              "warn"
+            );
+          } else {
+            setBanner("Список грузомест обновлён", "ok");
+          }
+        } finally {
+          if (!patchScanCard(state.route.mode)) renderScan();
+          else {
+            refreshGmBar();
+            refreshScanBanner();
+            refreshScanStats(state.route.mode);
+          }
+        }
+      });
+    }
     const scanBtn = document.getElementById("tsdGmScanBtn");
     if (scanBtn) {
-      scanBtn.addEventListener("click", () => {
+      scanBtn.addEventListener("click", async () => {
+        await loadGmContainers(true);
+        if (!state.gm.hasFillable) {
+          setBanner(
+            state.gm.loadError
+              ? `Грузоместа: ${state.gm.loadError}`
+              : "Нет доступных грузомест для заполнения",
+            "warn"
+          );
+          refreshGmBar();
+          refreshScanBanner();
+          return;
+        }
         state.gm.awaitingScan = true;
         setBanner("Отсканируйте QR грузоместа", "info");
         if (!patchScanCard(state.route.mode)) renderScan();
@@ -334,7 +466,8 @@
     }
     const change = document.getElementById("tsdGmChange");
     if (change) {
-      change.addEventListener("click", () => {
+      change.addEventListener("click", async () => {
+        await loadGmContainers(true);
         state.gm.awaitingScan = true;
         setBanner("Отсканируйте QR другого грузоместа", "info");
         if (!patchScanCard(state.route.mode)) renderScan();
@@ -466,25 +599,24 @@
   /**
    * After successful KIZ / product barcode — bind to active GM (Ozon only).
    * Optimistic like web; rebind confirm is awaited.
+   * Phase 2: silent no-op without activeId; retry when sync_error; clear locked GM.
    */
   async function maybeBindGmAfterSuccess(row) {
-    if (!isOzon() || !gmUiVisible() || !state.gm.activeId || !row) return true;
+    // Quiet when no active GM — KIZ/SKU flow must not show GM errors.
+    if (!isOzon() || !state.gm.activeId || !row) return true;
+    if (!gmUiVisible()) return true;
     const postingNumber = String(row.posting_number || rowScanId(row) || "").trim();
     if (!postingNumber) return true;
-    const active = activeGmContainer();
-    if (active && !containerAcceptsFill(active)) {
-      setActiveGm(null);
-      setBanner(
-        `Грузоместо ${active.container_id} уже подтверждено — выберите другое`,
-        "err"
-      );
-      refreshGmBar();
-      return true;
-    }
+    const stillOk = await ensureActiveGmStillFillable();
+    if (!stillOk) return true;
     const prevId = Number(row.container_id || 0) || 0;
     const prevBarcode = String(row.container_barcode || "").trim();
     const nextBarcode = state.gm.activeBarcode || String(state.gm.activeId);
     const activeId = state.gm.activeId;
+    // Already on this GM without error — no-op (retry only when sync_error set).
+    if (prevId === activeId && !String(row.container_sync_error || "").trim()) {
+      return true;
+    }
     if (prevId && prevId !== activeId) {
       const ok = await openGmRebind({
         postingNumber,
@@ -492,13 +624,13 @@
         newBarcode: nextBarcode,
       });
       if (!ok) return false;
-    } else if (prevId === activeId && !String(row.container_sync_error || "").trim()) {
-      return true;
     }
     row.container_id = activeId;
     row.container_barcode = nextBarcode;
     row.container_synced = false;
     row.container_sync_error = "";
+    const modeAtBind = state.route.mode;
+    const labelAtBind = activeGmLabel();
     void (async () => {
       try {
         const data = await bindGmPosting(
@@ -509,16 +641,36 @@
         );
         applyGmBindResult(row, data);
         if (row.container_sync_error) {
-          setBanner(`ГМ: ${row.container_sync_error}`, "warn");
+          setBanner(`В ГМ локально, Ozon: ${row.container_sync_error}`, "warn");
           refreshScanBanner();
+        } else {
+          toast(`В ${labelAtBind}`);
         }
       } catch (e) {
+        const msg = String(e.message || e);
         row.container_id = activeId;
         row.container_barcode = nextBarcode;
         row.container_synced = false;
-        row.container_sync_error = String(e.message || e);
-        setBanner(`ГМ: ${row.container_sync_error}`, "warn");
+        row.container_sync_error = msg;
+        if (isLockedGmError(msg)) {
+          setActiveGm(null);
+          state.gm.awaitingScan = false;
+          void loadGmContainers(true).then(() => {
+            refreshGmBar();
+          });
+          setBanner(
+            `Грузоместо ${activeId} уже подтверждено — выберите другое`,
+            "err"
+          );
+        } else {
+          setBanner(`В ГМ локально, Ozon: ${msg}`, "warn");
+        }
         refreshScanBanner();
+        refreshGmBar();
+      }
+      if (state.route.view === "scan" && state.route.mode === modeAtBind) {
+        refreshScannedListSection(modeAtBind);
+        refreshScanStats(modeAtBind);
       }
     })();
     return true;
@@ -1852,7 +2004,9 @@
             <div class="tsd-scanned-top">
               ${photo}
               <div class="tsd-scanned-text">
-                <div class="tsd-scanned-order">${orderWord} ${oid} · ${stickerHtml}</div>
+                <div class="tsd-scanned-order">${orderWord} ${oid} · ${stickerHtml}${
+                  isOzon() ? ` ${gmBadgeForRow(r)}` : ""
+                }</div>
                 <div class="tsd-scanned-name">${esc(r.product_name || r.article || "—")}</div>
               </div>
               ${clearBtn}
@@ -2028,6 +2182,10 @@
     if (onScan) {
       if (errorsLabel) errorsLabel.hidden = mode !== "kiz";
       if (mode !== "kiz" && state.filters.errors) state.filters.errors = false;
+      const noGmLabel = document.getElementById("tsdFilterNoGmLabel");
+      const showNoGm = gmFilterAvailable();
+      if (noGmLabel) noGmLabel.hidden = !showNoGm;
+      if (!showNoGm && state.filters.noGm) state.filters.noGm = false;
       if (filterBtn) {
         filterBtn.setAttribute("aria-expanded", state.filterOpen ? "true" : "false");
         filterBtn.classList.toggle("is-active", state.filterOpen || hasActiveFilters());
@@ -2049,17 +2207,19 @@
     const empty = document.getElementById("tsdFilterEmpty");
     const errors = document.getElementById("tsdFilterErrors");
     const cancelled = document.getElementById("tsdFilterCancelled");
+    const noGm = document.getElementById("tsdFilterNoGm");
     if (filled) filled.checked = !!state.filters.filled;
     if (empty) empty.checked = !!state.filters.empty;
     if (errors) errors.checked = !!state.filters.errors;
     if (cancelled) cancelled.checked = !!state.filters.cancelled;
+    if (noGm) noGm.checked = !!state.filters.noGm;
   }
 
   const BROWSE_PAGE_SIZE = 40;
 
   function hasActiveFilters() {
     const f = state.filters || {};
-    return !!(f.filled || f.empty || f.errors || f.cancelled);
+    return !!(f.filled || f.empty || f.errors || f.cancelled || f.noGm);
   }
 
   function shouldShowBrowseSheet() {
@@ -2079,7 +2239,13 @@
   }
 
   function clearScanFiltersAndBrowse() {
-    state.filters = { filled: false, empty: false, errors: false, cancelled: false };
+    state.filters = {
+      filled: false,
+      empty: false,
+      errors: false,
+      cancelled: false,
+      noGm: false,
+    };
     state.filterOpen = false;
     closeBrowseSheet();
     syncSearchChrome();
@@ -2103,6 +2269,7 @@
     if (f.empty) parts.push("незаполненные");
     if (f.errors) parts.push("с ошибками");
     if (f.cancelled) parts.push("отменённые");
+    if (f.noGm) parts.push("без ГМ");
     return parts.join(", ");
   }
 
@@ -2329,12 +2496,21 @@
     if (f.cancelled) {
       out = out.filter((r) => rowIsCancelled(r));
     }
+    if (f.noGm && isOzon()) {
+      out = out.filter((r) => !(Number(r?.container_id || 0) > 0));
+    }
     return out;
   }
 
   function resetScanFilters() {
     state.filterOpen = false;
-    state.filters = { filled: false, empty: false, errors: false, cancelled: false };
+    state.filters = {
+      filled: false,
+      empty: false,
+      errors: false,
+      cancelled: false,
+      noGm: false,
+    };
     closeBrowseSheet();
   }
 
@@ -2417,6 +2593,7 @@
     const empty = document.getElementById("tsdFilterEmpty");
     const errors = document.getElementById("tsdFilterErrors");
     const cancelled = document.getElementById("tsdFilterCancelled");
+    const noGm = document.getElementById("tsdFilterNoGm");
     if (kind === "filled" && filled?.checked && empty) empty.checked = false;
     if (kind === "empty" && empty?.checked && filled) filled.checked = false;
     state.filters = {
@@ -2424,6 +2601,7 @@
       empty: !!empty?.checked,
       errors: state.route.mode === "kiz" ? !!errors?.checked : false,
       cancelled: !!cancelled?.checked,
+      noGm: isOzon() && gmFilterAvailable() ? !!noGm?.checked : false,
     };
     if (hasActiveFilters()) {
       openBrowseSheet();
@@ -3083,11 +3261,12 @@
     const stats = shell.querySelector(".tsd-stats");
     if (!stats) return false;
     const { total, done, left } = scanProgress(mode);
-    const spans = stats.querySelectorAll("span");
-    if (spans.length >= 2) {
-      spans[0].textContent = `Готово ${done} / ${total}`;
-      spans[1].textContent = `Осталось ${left}`;
-    }
+    const gmN = isOzon() ? gmBoundCount(mode) : 0;
+    const showGm = isOzon() && (gmUiVisible() || gmN > 0);
+    stats.innerHTML = `
+      <span>Готово ${done} / ${total}</span>
+      ${showGm ? `<span class="tsd-stats-gm">В ГМ ${gmN}</span>` : ""}
+      <span>Осталось ${left}</span>`;
     updateProgressBar(mode);
     return true;
   }
@@ -3294,11 +3473,14 @@
       isOzon() && state.gm.loadError && !state.gm.hasFillable
         ? `<div class="tsd-banner is-warn tsd-gm-load-err">Грузоместа: ${esc(state.gm.loadError)}</div>`
         : "";
+    const gmN = isOzon() ? gmBoundCount(mode) : 0;
+    const showGmStat = isOzon() && (gmUiVisible() || gmN > 0);
 
     main.innerHTML = `
       <div class="tsd-scan-shell">
         <div class="tsd-stats">
           <span>Готово ${done} / ${total}</span>
+          ${showGmStat ? `<span class="tsd-stats-gm">В ГМ ${gmN}</span>` : ""}
           <span>Осталось ${left}</span>
         </div>
         ${gmBar}
@@ -3680,6 +3862,9 @@
     const sel = document.getElementById("tsdSourceSelect");
     if (sel) {
       sel.addEventListener("change", async () => {
+        // Phase 2: hard GM reset on source change (before navigation).
+        closeGmRebind(false);
+        resetGmState({ clearList: true });
         state.sourceId = sel.value ? Number(sel.value) : null;
         if (state.sourceId) localStorage.setItem(LS_SOURCE, String(state.sourceId));
         if (state.route.view !== "list") navigate("#/");
@@ -3734,6 +3919,7 @@
     const filterEmpty = document.getElementById("tsdFilterEmpty");
     const filterErrors = document.getElementById("tsdFilterErrors");
     const filterCancelled = document.getElementById("tsdFilterCancelled");
+    const filterNoGm = document.getElementById("tsdFilterNoGm");
     if (filterFilled) {
       filterFilled.addEventListener("change", () => onFilterChange("filled"));
     }
@@ -3745,6 +3931,9 @@
     }
     if (filterCancelled) {
       filterCancelled.addEventListener("change", () => onFilterChange("cancelled"));
+    }
+    if (filterNoGm) {
+      filterNoGm.addEventListener("change", () => onFilterChange("noGm"));
     }
     document.addEventListener("click", (ev) => {
       if (!state.filterOpen) return;

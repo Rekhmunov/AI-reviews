@@ -956,6 +956,32 @@ html, body {
   white-space: nowrap;
 }
 
+.tsd-gm-refresh {
+  flex: 0 0 44px;
+  width: 44px;
+  min-width: 44px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.tsd-gm-badge {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  vertical-align: middle;
+  color: #0f766e;
+  background: #ccfbf1;
+}
+
+.tsd-gm-badge.is-err {
+  color: var(--tsd-err);
+  background: var(--tsd-err-bg);
+}
+
 .tsd-gm-rebind {
   position: fixed;
   inset: 0;
@@ -1152,10 +1178,16 @@ html, body {
 .tsd-stats {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
   gap: 8px;
   font-size: 14px;
   font-weight: 600;
   color: var(--tsd-muted);
+}
+
+.tsd-stats-gm {
+  color: var(--tsd-accent);
 }
 
 .tsd-scan-footer {
