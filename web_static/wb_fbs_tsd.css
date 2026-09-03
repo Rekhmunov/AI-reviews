@@ -1430,7 +1430,8 @@ html, body {
   background: var(--tsd-surface);
 }
 
-.tsd-scanned-item-ozon {
+.tsd-scanned-item-ozon,
+.tsd-scanned-item-wb {
   padding-right: 48px;
 }
 
@@ -1520,12 +1521,14 @@ html, body {
   border-top: 1px solid var(--tsd-line);
 }
 
-.tsd-scanned-item-ozon .tsd-scanned-name {
+.tsd-scanned-item-ozon .tsd-scanned-name,
+.tsd-scanned-item-wb .tsd-scanned-name {
   margin-top: 0;
 }
 
 .tsd-scanned-posting,
 .tsd-scanned-sticker,
+.tsd-scanned-order-id,
 .tsd-scanned-gm-code {
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.01em;
@@ -1557,7 +1560,8 @@ html, body {
   justify-content: center;
 }
 
-.tsd-scanned-item-ozon .tsd-scanned-clear {
+.tsd-scanned-item-ozon .tsd-scanned-clear,
+.tsd-scanned-item-wb .tsd-scanned-clear {
   position: absolute;
   top: 8px;
   right: 8px;

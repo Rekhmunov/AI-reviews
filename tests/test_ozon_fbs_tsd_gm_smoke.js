@@ -99,7 +99,7 @@ assert(src.includes("o.dismissible !== false"), "banners dismissible by default"
 assert(src.includes("o.clearOnScan !== false"), "banners clear on next action by default");
 assert(src.includes("function clearBanner"), "clearBanner helper");
 assert(src.includes("tsd-banner-dismiss") || src.includes("dismiss-banner"), "banner dismiss control");
-assert(src.includes('isOzon()\n        ? ""') || src.includes("isOzon()\n        ? \"\""), "Шаг 1 hidden for Ozon");
+assert(!src.includes("Шаг 1"), "Шаг 1 removed from TSD scan chrome");
 
 
 // GM controls beside scan input: green + and refresh
@@ -118,5 +118,12 @@ assert(!src.includes("Отсканируйте QR другого грузоме�
 assert(src.includes('function renderGmBarHtml') || src.includes("renderGmBarHtml()"), "legacy GM bar hook kept empty");
 assert(!src.includes("tsd-gm-bar-actions"), "old GM actions row removed");
 assert(!src.includes("Грузоместо не выбрано"), "top idle GM block copy removed");
+
+// WB FBS: same detailed card as Ozon for scanned / search / filters
+assert(src.includes("renderWbOrderCardHtml"), "WB shared order card helper");
+assert(src.includes("Заказ:"), "WB card shows Заказ label");
+assert(src.includes("formatBoldLastDigits"), "WB sticker last-4 highlight");
+assert(src.includes("tsd-scanned-item-wb"), "WB scanned card class");
+assert(!src.includes("Шаг 2"), "Шаг 2 removed from scan chrome");
 
 console.log("ok - ozon_fbs_tsd_gm_smoke");

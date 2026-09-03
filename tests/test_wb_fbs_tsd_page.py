@@ -91,16 +91,17 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "noteSessionScanned" in js
     assert "renderScannedListHtml" in js
     assert "clearKizCodes" in js
-    assert 'data-action="clear-kiz-all"' in js
+    assert 'data-action="clear-scanned-all"' in js
+    assert "clearKizCodes" in js
     assert 'data-action="clear-kiz-code"' not in js
     assert "orderBarcodesLabel" in js
-    assert "tsd-scanned-barcodes" in js
     assert "tsd-product-barcodes" in js
     assert "formatBoldLastDigits" in js
     assert "tsd-sticker-tail" in js
     assert "КИЗ:" in js
     assert ">ШК:</span>" in js or "ШК:</span>" in js
-    assert "tsd-scanned-kiz-line" in js or "tsd-scanned-kv" in js
+    assert "Заказ:" in js
+    assert "tsd-scanned-kv" in js
     assert "tsd-scanned-top" in js
     assert "tsd-scanned-details" in js
     assert "formatOzonPostingHtml" in js
@@ -111,6 +112,7 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "clearScannedOrderAll" in js
     assert 'data-action="clear-scanned-all"' in js
     assert "tsd-scanned-item-ozon" in js
+    assert "tsd-scanned-item-wb" in js
     assert "tsd-scanned-gm-code" in js
     assert ">ГМ:</span>" in js
     assert "containers/unbind" in js
@@ -167,6 +169,10 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "syncScrollTopFab" in js
     assert "renderOzonOrderCardBodyHtml" in js
     assert "renderOzonOrderCardHtml" in js
+    assert "renderWbOrderCardHtml" in js
+    assert "tsd-scanned-item-wb" in js
+    assert "Шаг 1" not in js
+    assert "Шаг 2" not in js
     assert "selectable: true" in js
     assert "tsd-search-item-ozon" not in js
     assert "pick-search-order" in js

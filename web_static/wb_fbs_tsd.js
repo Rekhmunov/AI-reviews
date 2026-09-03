@@ -2259,6 +2259,92 @@
           </div>`;
   }
 
+  /** WB card details under the divider: Заказ → Стикер → ШК → КИЗ. */
+  function renderWbOrderDetailsHtml(row, mode) {
+    const orderId = String(row.order_id || rowScanId(row) || "").trim() || "—";
+    const sticker = String(
+      row.sticker_number ||
+        row.sticker_barcode ||
+        row.sticker_lower_barcode ||
+        ""
+    ).trim();
+    const barcodes = orderBarcodesLabel(row);
+    const verified = String(row.pick_barcode || "").trim();
+    const orderHtml = `<div class="tsd-scanned-kv">
+                <span class="tsd-scanned-label">Заказ:</span>
+                <span class="tsd-scanned-kv-val tsd-scanned-order-id">${esc(
+                  orderId
+                )}</span>
+              </div>`;
+    const stickerHtml = `<div class="tsd-scanned-kv">
+                <span class="tsd-scanned-label">Стикер:</span>
+                <span class="tsd-scanned-kv-val tsd-scanned-sticker">${formatBoldLastDigits(
+                  sticker || "—",
+                  4
+                )}</span>
+              </div>`;
+    const skuHtml = `<div class="tsd-scanned-kv">
+                <span class="tsd-scanned-label">ШК:</span>
+                <span class="tsd-scanned-kv-val">${esc(
+                  verified || barcodes || "—"
+                )}</span>
+              </div>`;
+    let kizHtml = "";
+    if (mode === "kiz") {
+      const entries = filledKizEntries(row);
+      kizHtml = entries.length
+        ? `<div class="tsd-scanned-kizs">${entries
+            .map(
+              (e) => `
+              <div class="tsd-scanned-kv">
+                <span class="tsd-scanned-label">КИЗ:</span>
+                <span class="tsd-scanned-kv-val">${esc(shortKizDisplay(e.code))}</span>
+              </div>`
+            )
+            .join("")}</div>`
+        : `<div class="tsd-scanned-kv"><span class="tsd-scanned-label">КИЗ:</span><span class="tsd-scanned-kv-val">—</span></div>`;
+    }
+    return `${orderHtml}${stickerHtml}${skuHtml}${kizHtml}`;
+  }
+
+  /** WB card body: photo + name on top, details under the gray line. */
+  function renderWbOrderCardBodyHtml(row, mode) {
+    return `
+            <div class="tsd-scanned-top">
+              ${rowPhotoHtml(row, 48)}
+              <div class="tsd-scanned-text">
+                <div class="tsd-scanned-name">${esc(
+                  row.product_name || row.article || "—"
+                )}</div>
+              </div>
+            </div>
+            <div class="tsd-scanned-details">${renderWbOrderDetailsHtml(
+              row,
+              mode
+            )}</div>`;
+  }
+
+  /** Full WB order card — same markup for scanned list, search and filters. */
+  function renderWbOrderCardHtml(row, mode, opts) {
+    const oid = esc(rowScanId(row));
+    const selectable = !!(opts && opts.selectable);
+    const pickAttrs = selectable
+      ? ` data-action="pick-search-order" data-order-id="${oid}" role="button" tabindex="0"`
+      : "";
+    const clearTitle =
+      mode === "kiz" ? "Очистить КИЗ" : "Очистить проверку ШК";
+    return `
+          <div class="tsd-scanned-item tsd-scanned-item-wb${
+            selectable ? " is-selectable" : ""
+          }"${pickAttrs}>
+            <button type="button" class="tsd-scanned-clear"
+              data-action="clear-scanned-all" data-order-id="${oid}"
+              aria-label="Очистить заказ" title="${clearTitle}">×</button>
+            ${renderWbOrderCardBodyHtml(row, mode)}
+          </div>`;
+  }
+
+
   function renderScannedListHtml(mode) {
     const scanned = orderedScannedRows(mode);
     if (!scanned.length) {
@@ -2312,42 +2398,7 @@
         if (isOzon()) {
           return renderOzonOrderCardHtml(r, mode, { selectable: false });
         }
-
-        const photo = rowPhotoHtml(r, 48);
-        // WB: keep compact layout; × only clears KIZ.
-        const orderWord = "Заказ";
-        const stickerHtml = formatBoldLastDigits(
-          r.sticker_number || r.posting_number || "—",
-          4
-        );
-        const barcodesHtml = barcodes
-          ? `<div class="tsd-scanned-kv">
-              <span class="tsd-scanned-label">ШК:</span>
-              <span class="tsd-scanned-kv-val">${esc(barcodes)}</span>
-            </div>`
-          : "";
-        const clearBtn =
-          mode === "kiz"
-            ? `<button type="button" class="tsd-scanned-clear"
-              data-action="clear-kiz-all" data-order-id="${oid}"
-              aria-label="Очистить КИЗ" title="Очистить КИЗ">×</button>`
-            : "";
-        return `
-          <div class="tsd-scanned-item">
-            <div class="tsd-scanned-top">
-              ${photo}
-              <div class="tsd-scanned-text">
-                <div class="tsd-scanned-order">${orderWord} ${oid} · ${stickerHtml}</div>
-                <div class="tsd-scanned-name">${esc(r.product_name || r.article || "—")}</div>
-              </div>
-              ${clearBtn}
-            </div>
-            ${
-              barcodesHtml || detailHtml
-                ? `<div class="tsd-scanned-details">${barcodesHtml}${detailHtml}</div>`
-                : ""
-            }
-          </div>`;
+        return renderWbOrderCardHtml(r, mode, { selectable: false });
       })
       .join("");
     return `
@@ -2389,12 +2440,35 @@
    */
   async function clearScannedOrderAll(mode, orderId) {
     if (state.saving || state.clearing) return;
-    if (!isOzon()) return;
     const id = String(orderId || "").trim();
     const rows = mode === "kiz" ? state.kizRows : state.pickRows;
     const row = findRowByScanId(rows, id);
     if (!row) return;
     const label = rowDisplayLabel(row);
+
+    // WB: clear KIZ / pick locally (and queue WB clear when needed); no cargo place.
+    if (!isOzon()) {
+      if (mode === "kiz") {
+        await clearKizCodes(id);
+        return;
+      }
+      state.clearing = true;
+      refreshSaveButton(mode);
+      try {
+        row.pick_verified = false;
+        row.pick_barcode = "";
+        removeSessionScanned(id);
+        schedulePickLocalAutosave(id);
+        setBanner(`Очищено · ${label} убран из просканированных`, "ok");
+      } catch (e) {
+        setBanner(e.message || String(e), "err");
+      } finally {
+        state.clearing = false;
+        refreshScanChrome(mode);
+      }
+      return;
+    }
+
     const postingNumber = String(row.posting_number || id).trim();
     const prevCid = Number(row.container_id || 0) || 0;
     const hadGm =
@@ -2727,40 +2801,12 @@
             // Exact same card as «Просканировано» (incl. clear ×); tap selects order.
             return renderOzonOrderCardHtml(r, mode, { selectable: true });
           }
-          const photo = rowPhotoHtml(r, 48);
-          const barcodes = orderBarcodesLabel(r);
-          const stickerHtml = formatBoldLastDigits(r.sticker_number || "—", 4);
-          const cancelHtml = rowIsCancelled(r)
-            ? ` · <span class="tsd-meta-cancelled">Отменён</span>`
-            : "";
-          const err = mode === "kiz" && rowHasKizError(r) ? " · Ошибка" : "";
-          const status =
-            mode === "kiz"
-              ? rowKizFilled(r)
-                ? "КИЗ есть"
-                : "Нет КИЗ"
-              : rowPickFilled(r)
-                ? "ШК проверен"
-                : "Не проверен";
-          return `
-            <button type="button" class="tsd-search-item" data-action="pick-search-order"
-              data-order-id="${oid}">
-              ${photo}
-              <div class="tsd-scanned-text">
-                <div class="tsd-scanned-order">Заказ ${esc(r.order_id)} · ${stickerHtml}</div>
-                <div class="tsd-scanned-name">${esc(r.product_name || r.article || "—")}</div>
-                ${
-                  barcodes
-                    ? `<div class="tsd-scanned-barcodes">${esc(barcodes)}</div>`
-                    : ""
-                }
-                <div class="tsd-scanned-meta">${esc(status)}${cancelHtml}${esc(err)}</div>
-              </div>
-            </button>`;
+          // Exact same card as scanned list for WB FBS.
+          return renderWbOrderCardHtml(r, mode, { selectable: true });
         })
         .join("");
       body = `
-        <div class="tsd-search-list${isOzon() ? " tsd-scanned-list" : ""}" id="tsdSearchList">${items}</div>
+        <div class="tsd-search-list tsd-scanned-list" id="tsdSearchList">${items}</div>
         ${
           hasMore
             ? `<button type="button" class="tsd-btn tsd-btn-secondary tsd-btn-block" id="tsdBrowseMore">
@@ -3667,12 +3713,8 @@
         </div>`;
     }
     if (step === "sticker" || !pending) {
-      const stepLabel = isOzon()
-        ? ""
-        : `<div class="tsd-scan-step">Шаг 1</div>`;
       return `
         <div class="tsd-scan-card" id="tsdScanCard">
-          ${stepLabel}
           <p class="tsd-scan-prompt">Сканируйте стикер заказа</p>
           ${scanFieldRowHtml()}
         </div>`;
@@ -3697,7 +3739,6 @@
       : "";
     return `
         <div class="tsd-scan-card" id="tsdScanCard">
-          <div class="tsd-scan-step">Шаг 2</div>
           <p class="tsd-scan-prompt">${prompt}</p>
           ${multiHint}
           <div class="tsd-scan-context">${isOzon() ? "Отпр." : "Заказ"} ${esc(rowDisplayLabel(pending))} · стикер ${esc(pending.sticker_number || pending.posting_number || "—")}</div>
