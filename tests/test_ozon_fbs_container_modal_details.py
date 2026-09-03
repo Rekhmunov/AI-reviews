@@ -117,6 +117,94 @@ class ContainerModalDetailsTests(unittest.TestCase):
         build.assert_called_once()
         kwargs = build.call_args.kwargs
         self.assertEqual(kwargs["container"]["container_id"], 7)
+        self.assertIsNone(kwargs.get("client"))
+
+    def test_build_details_merges_ozon_membership(self) -> None:
+        repo = MagicMock()
+        client = MagicMock()
+        with patch.object(
+            ct,
+            "get_supply_moved_to_delivering_at",
+            return_value="",
+        ), patch.object(
+            ct,
+            "_list_local_container_postings",
+            return_value=[],
+        ), patch.object(
+            ct,
+            "_fetch_container_postings",
+            return_value=(
+                {"container_id": 99},
+                ["A-1", "A-2"],
+                True,
+            ),
+        ), patch.object(
+            ct,
+            "_merge_ozon_container_composition",
+            return_value=[
+                {"posting_number": "A-1", "product_name": "One"},
+                {"posting_number": "A-2", "product_name": "Two"},
+            ],
+        ) as merge:
+            out = ct.build_container_modal_details(
+                repo,
+                user_id=1,
+                source_id=2,
+                supply_id="sup-1",
+                container={"container_id": 99, "status": "new", "status_label": "Новое"},
+                client=client,
+            )
+        self.assertEqual(out["postings_count"], 2)
+        self.assertEqual(out["composition_source"], "ozon")
+        self.assertTrue(out["ozon_fetch_ok"])
+        merge.assert_called_once()
+        self.assertEqual(
+            merge.call_args.kwargs["ozon_posting_numbers"], ["A-1", "A-2"]
+        )
+
+    def test_merge_ozon_composition_soft_binds_unbound_supply_postings(self) -> None:
+        repo = MagicMock()
+        with patch.object(
+            ct,
+            "_load_posting_items_by_numbers",
+            return_value={
+                "A-1": {
+                    "posting_number": "A-1",
+                    "product_name": "One",
+                    "offer_id": "",
+                    "quantity": 1,
+                    "has_kiz": False,
+                    "kiz_count": 0,
+                    "pick_verified": False,
+                    "container_barcode": "",
+                    "container_synced": False,
+                    "tab": "",
+                    "status": "",
+                }
+            },
+        ), patch.object(
+            ct.oz_sup,
+            "get_supply",
+            return_value={"posting_numbers": ["A-1", "A-2"]},
+        ), patch.object(
+            ct,
+            "load_container_bind_map",
+            return_value={"A-1": {"container_id": None}, "A-2": {"container_id": 5}},
+        ), patch.object(ct, "_set_local_container_bind") as set_bind:
+            out = ct._merge_ozon_container_composition(
+                repo,
+                user_id=1,
+                source_id=2,
+                supply_id="sup-1",
+                container_id=99,
+                ozon_posting_numbers=["A-1", "A-2", "X-9"],
+                local_postings=[],
+            )
+        self.assertEqual([p["posting_number"] for p in out], ["A-1", "A-2", "X-9"])
+        self.assertTrue(out[2].get("outside_supply"))
+        set_bind.assert_called_once()
+        self.assertEqual(set_bind.call_args.kwargs["posting_number"], "A-1")
+        self.assertEqual(set_bind.call_args.kwargs["container_id"], 99)
 
 
 if __name__ == "__main__":

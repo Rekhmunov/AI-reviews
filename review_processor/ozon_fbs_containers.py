@@ -1445,6 +1445,22 @@ def _list_local_container_postings(
             ),
             tuple(params),
         ).fetchall()
+    out = _rows_to_container_posting_items(repo, rows)
+    # Binds may exist with empty/stale supply_id after moves — don't hide them.
+    if not out and sid:
+        return _list_local_container_postings(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            container_id=cid,
+            supply_id="",
+        )
+    return out
+
+
+def _rows_to_container_posting_items(
+    repo: ReviewRepository, rows: list[Any]
+) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for row in rows:
         d = repo._row_to_dict(row)
@@ -1482,6 +1498,141 @@ def _list_local_container_postings(
     return out
 
 
+def _load_posting_items_by_numbers(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_numbers: list[str],
+) -> dict[str, dict[str, Any]]:
+    """Map posting_number → composition row fields from local DB."""
+    nums = [str(x).strip() for x in posting_numbers if str(x).strip()]
+    if not nums:
+        return {}
+    oz.ensure_ozon_fbs_tables(repo)
+    out: dict[str, dict[str, Any]] = {}
+    chunk = 400
+    with repo._connect() as conn:
+        for i in range(0, len(nums), chunk):
+            part = nums[i : i + chunk]
+            placeholders = ", ".join("?" for _ in part)
+            rows = conn.execute(
+                repo._sql(
+                    f"""
+                    SELECT posting_number, offer_id, product_name, quantity,
+                           marking_codes_json, pick_verified, pick_barcode,
+                           container_barcode, container_synced, tab, status
+                    FROM ozon_fbs_postings
+                    WHERE user_id = ? AND source_id = ?
+                      AND posting_number IN ({placeholders})
+                    """
+                ),
+                (int(user_id), int(source_id), *part),
+            ).fetchall()
+            for item in _rows_to_container_posting_items(repo, rows):
+                out[str(item["posting_number"])] = item
+    return out
+
+
+def _stub_container_posting_item(posting_number: str) -> dict[str, Any]:
+    pn = str(posting_number or "").strip()
+    return {
+        "posting_number": pn,
+        "offer_id": "",
+        "product_name": "",
+        "quantity": 1,
+        "has_kiz": False,
+        "kiz_count": 0,
+        "pick_verified": False,
+        "container_barcode": "",
+        "container_synced": False,
+        "tab": "",
+        "status": "",
+    }
+
+
+def _merge_ozon_container_composition(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    container_id: int,
+    ozon_posting_numbers: list[str],
+    local_postings: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Prefer Ozon container membership; enrich rows from local posting fields."""
+    ozon_pns = [str(x).strip() for x in ozon_posting_numbers if str(x).strip()]
+    if not ozon_pns:
+        return list(local_postings or [])
+    by_local = {
+        str(p.get("posting_number") or "").strip(): p
+        for p in (local_postings or [])
+        if str(p.get("posting_number") or "").strip()
+    }
+    loaded = _load_posting_items_by_numbers(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        posting_numbers=ozon_pns,
+    )
+    supply = oz_sup.get_supply(
+        repo, user_id=user_id, source_id=source_id, supply_id=str(supply_id or "")
+    )
+    supply_set = {
+        str(x).strip()
+        for x in ((supply or {}).get("posting_numbers") or [])
+        if str(x).strip()
+    }
+    cid = int(container_id or 0)
+    # Soft-fill missing local binds for supply postings found on Ozon (portal wins
+    # only when local has no container yet — do not fight an active edit).
+    if cid > 0 and supply_set:
+        candidates = [pn for pn in ozon_pns if pn in supply_set]
+        binds = load_container_bind_map(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            posting_numbers=candidates,
+        )
+        for pn in candidates:
+            bind = binds.get(pn) or {}
+            try:
+                local_cid = int(bind.get("container_id") or 0)
+            except (TypeError, ValueError):
+                local_cid = 0
+            if local_cid > 0:
+                continue
+            try:
+                _set_local_container_bind(
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    posting_number=pn,
+                    container_id=cid,
+                    container_barcode=str(cid),
+                    synced=True,
+                    sync_error="",
+                )
+            except Exception as exc:
+                _log.warning(
+                    "ozon container compose soft-bind %s→%s: %s", pn, cid, exc
+                )
+
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for pn in ozon_pns:
+        if pn in seen:
+            continue
+        seen.add(pn)
+        row = dict(loaded.get(pn) or by_local.get(pn) or _stub_container_posting_item(pn))
+        row["posting_number"] = pn
+        if supply_set and pn not in supply_set:
+            row["outside_supply"] = True
+        out.append(row)
+    return out
+
+
 def build_container_modal_details(
     repo: ReviewRepository,
     *,
@@ -1489,8 +1640,14 @@ def build_container_modal_details(
     source_id: int,
     supply_id: str,
     container: dict[str, Any],
+    client: oz.OzonFbsClient | None = None,
 ) -> dict[str, Any]:
-    """Timeline + local composition for one cargo place (no extra Ozon calls)."""
+    """Timeline + composition for one cargo place.
+
+    Local binds first; when ``client`` is set, one ``container/get`` fills the
+    real Ozon membership (fixes «Заказов 195 / Состав 0» when binds were not
+    stored locally).
+    """
     try:
         cid = int(container.get("container_id") or 0)
     except (TypeError, ValueError):
@@ -1557,13 +1714,38 @@ def build_container_modal_details(
         }
     )
 
-    postings = _list_local_container_postings(
+    local_postings = _list_local_container_postings(
         repo,
         user_id=user_id,
         source_id=source_id,
         container_id=cid,
         supply_id=supply_id,
     )
+    composition_source = "local"
+    ozon_fetch_ok = False
+    postings = list(local_postings)
+    if client is not None and cid > 0:
+        try:
+            _meta, ozon_pns, exists = _fetch_container_postings(
+                client, container_id=cid
+            )
+            ozon_fetch_ok = bool(exists)
+            if ozon_pns:
+                postings = _merge_ozon_container_composition(
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    supply_id=supply_id,
+                    container_id=cid,
+                    ozon_posting_numbers=ozon_pns,
+                    local_postings=local_postings,
+                )
+                composition_source = "ozon"
+            elif exists and not local_postings:
+                composition_source = "ozon"
+        except Exception as exc:
+            _log.warning("ozon container details get cid=%s: %s", cid, exc)
+            ozon_fetch_ok = False
     return {
         "ok": True,
         "container_id": cid,
@@ -1579,6 +1761,9 @@ def build_container_modal_details(
         "timeline": timeline,
         "postings": postings,
         "postings_count": len(postings),
+        "composition_source": composition_source,
+        "ozon_fetch_ok": ozon_fetch_ok,
+        "local_postings_count": len(local_postings),
     }
 
 
@@ -1590,11 +1775,12 @@ def get_container_modal_details(
     supply_id: str,
     container_id: int,
     container: dict[str, Any] | None = None,
+    client: oz.OzonFbsClient | None = None,
 ) -> dict[str, Any]:
-    """Build GM expand payload from list-row meta + local DB only.
+    """Build GM expand payload: timeline from list-row meta + composition.
 
-    No Ozon calls — keeps expand fast. ``container`` should be the row already
-    loaded by the containers modal list (status / warehouse_date / created_at).
+    When ``client`` is provided, one Ozon ``container/get`` loads membership so
+    «Состав» matches «Заказов». Without client — local binds only (tests / offline).
     """
     cid = int(container_id or 0)
     if cid <= 0:
@@ -1611,4 +1797,5 @@ def get_container_modal_details(
         source_id=source_id,
         supply_id=sid,
         container=meta,
+        client=client,
     )

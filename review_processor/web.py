@@ -14414,7 +14414,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         created_at: str = "",
         container_number: int = 0,
     ) -> dict[str, object]:
-        """Lazy GM expand: local timeline dates + bound postings. No Ozon calls."""
+        """Lazy GM expand: timeline + composition (Ozon membership + local enrich)."""
+        from . import ozon_fbs as ozon_fbs_mod
         from . import ozon_fbs_containers as oz_ct
 
         user = _require_user(request)
@@ -14436,6 +14437,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "warehouse_date": warehouse_date,
             "created_at": created_at,
         }
+        client = None
+        try:
+            _, client_id, api_key = _ozon_fbs_source_credentials(
+                owner_id, int(source_id)
+            )
+            if client_id and api_key:
+                client = ozon_fbs_mod.OzonFbsClient(
+                    client_id=client_id, api_key=api_key
+                )
+        except HTTPException:
+            client = None
+        except Exception:
+            client = None
         try:
             return oz_ct.get_container_modal_details(
                 repository,
@@ -14444,6 +14458,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 supply_id=str(supply_id),
                 container_id=cid,
                 container=meta,
+                client=client,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -4918,10 +4918,24 @@
           const flags = [];
           if (p.has_kiz) flags.push(`КИЗ${p.kiz_count > 1 ? ` ×${p.kiz_count}` : ""}`);
           if (p.pick_verified) flags.push("без КИЗ ✓");
+          if (p.outside_supply) flags.push("вне поставки");
           const flagText = flags.length ? ` · ${esc(flags.join(" · "))}` : "";
           return `<li><code>${pn}</code>${name ? ` — ${name}` : ""}${flagText}</li>`;
         }).join("")}</ul>`
-      : `<div class="ozon-fbs-containers-detail-empty">В ГМ пока нет локально привязанных заказов</div>`;
+      : (() => {
+          const ozonOrders = Number(
+            (containersState.items || []).find(
+              (x) => String(x.container_id || "").trim() === key
+            )?.order_count || 0
+          );
+          if (ozonOrders > 0 && data.ozon_fetch_ok === false) {
+            return `<div class="ozon-fbs-containers-detail-empty">В Ozon указано заказов: ${esc(String(ozonOrders))}, но состав сейчас не удалось загрузить. Откройте снова.</div>`;
+          }
+          if (ozonOrders > 0) {
+            return `<div class="ozon-fbs-containers-detail-empty">В Ozon указано заказов: ${esc(String(ozonOrders))}, список отправлений в ответе пуст.</div>`;
+          }
+          return `<div class="ozon-fbs-containers-detail-empty">В ГМ пока нет заказов</div>`;
+        })();
     return `<div class="ozon-fbs-containers-detail">
       <div class="ozon-fbs-containers-detail-block">
         <div class="ozon-fbs-containers-detail-title">Даты и статус</div>
