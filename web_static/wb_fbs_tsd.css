@@ -167,6 +167,28 @@ html, body {
   display: none !important;
 }
 
+.tsd-save-btn {
+  border-color: var(--tsd-accent);
+  background: var(--tsd-accent);
+  color: #fff;
+}
+
+.tsd-save-btn:hover:not(:disabled) {
+  border-color: #0f766e;
+  background: #0f766e;
+  color: #fff;
+}
+
+.tsd-save-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.tsd-save-btn.is-busy {
+  opacity: 0.7;
+}
+
 .tsd-filter-wrap {
   position: relative;
   flex: 0 0 auto;

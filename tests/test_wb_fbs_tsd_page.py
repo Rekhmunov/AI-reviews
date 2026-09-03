@@ -81,6 +81,8 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert 'state.route.view === "list"' in js
     assert "Сохранить" in js
     assert "saveKizPushAll" in js
+    assert "wireSaveButton" in js
+    assert "tsd-save-btn" in (TEMPLATES / "wb_fbs_tsd.html").read_text(encoding="utf-8")
     assert "savePickLocalAll" in js
     assert "clearPick" in js
     assert "clear: clearPick" in js

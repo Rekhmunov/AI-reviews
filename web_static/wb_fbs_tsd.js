@@ -2433,8 +2433,17 @@
     }
     if (filterWrap) filterWrap.hidden = !onScan;
 
+    wireSaveButton();
     const closeBtn = document.getElementById("tsdCloseBtn");
     if (closeBtn) closeBtn.hidden = !onScan;
+
+    const saveBtn = document.getElementById("tsdSaveBtn");
+    if (saveBtn) saveBtn.hidden = !onScan;
+    if (onScan) refreshSaveButton(mode);
+    else if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.classList.remove("is-busy");
+    }
 
     if (!searchOk) {
       state.searchOpen = false;
@@ -3595,12 +3604,18 @@
   function refreshSaveButton(mode) {
     const btn = document.getElementById("tsdSaveBtn");
     if (!btn) return;
+    const onScan = state.route.view === "scan";
+    btn.hidden = !onScan;
     const saveDisabled =
+      !onScan ||
       state.saving ||
       state.clearing ||
       (mode === "kiz" ? !hasPendingKizPush() : !orderedScannedRows(mode).length);
     btn.disabled = saveDisabled;
-    btn.textContent = state.saving ? "Сохранение…" : "Сохранить";
+    btn.classList.toggle("is-busy", !!state.saving);
+    const label = state.saving ? "Сохранение…" : "Сохранить";
+    btn.setAttribute("aria-label", label);
+    btn.title = label;
   }
 
   function refreshScanChrome(mode) {
@@ -3693,14 +3708,19 @@
   }
 
   function wireScanFooter(mode) {
-    const saveBtn = document.getElementById("tsdSaveBtn");
-    if (saveBtn) {
-      saveBtn.addEventListener("click", () => {
-        if (mode === "kiz") saveKizPushAll();
-        else savePickLocalAll();
-      });
-    }
     wireScannedList(mode);
+  }
+
+  function wireSaveButton() {
+    const saveBtn = document.getElementById("tsdSaveBtn");
+    if (!saveBtn || saveBtn.dataset.wired === "1") return;
+    saveBtn.dataset.wired = "1";
+    saveBtn.addEventListener("click", () => {
+      if (state.route.view !== "scan") return;
+      const mode = state.route.mode;
+      if (mode === "kiz") saveKizPushAll();
+      else savePickLocalAll();
+    });
   }
 
   function patchScanCard(mode) {
@@ -3714,9 +3734,9 @@
     } else if (empty) {
       empty.outerHTML = html;
     } else {
-      const footer = shell.querySelector(".tsd-scan-footer");
-      if (footer) footer.insertAdjacentHTML("beforebegin", html);
-      else return false;
+      const scanned = shell.querySelector(".tsd-scanned");
+      if (scanned) scanned.insertAdjacentHTML("beforebegin", html);
+      else shell.insertAdjacentHTML("beforeend", html);
     }
     wireScanInput(mode);
     return true;
@@ -3774,12 +3794,6 @@
     const banner = state.banner;
     const body = buildScanCardHtml(mode);
 
-    const saveLabel = "Сохранить";
-    const saveDisabled =
-      state.saving ||
-      state.clearing ||
-      (mode === "kiz" ? !hasPendingKizPush() : !orderedScannedRows(mode).length);
-
     const loadErr =
       isOzon() && state.gm.loadError && !state.gm.hasFillable
         ? `<div class="tsd-banner is-warn tsd-gm-load-err">Грузоместа: ${esc(state.gm.loadError)}</div>`
@@ -3798,12 +3812,6 @@
         ${loadErr}
         ${bannerHtml(banner)}
         ${body}
-        <div class="tsd-scan-footer">
-          <button type="button" class="tsd-btn tsd-btn-primary tsd-btn-block" id="tsdSaveBtn"
-            ${saveDisabled ? "disabled" : ""}>${esc(
-              state.saving ? "Сохранение…" : saveLabel
-            )}</button>
-        </div>
         ${renderScannedListHtml(mode)}
       </div>`;
 
