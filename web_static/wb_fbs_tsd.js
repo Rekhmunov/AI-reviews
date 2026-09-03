@@ -447,6 +447,8 @@
                 : "Нет доступных грузомест для заполнения",
               "warn"
             );
+          } else if (state.gm.loadError) {
+            setBanner(`Грузоместа: ${state.gm.loadError}`, "warn");
           } else {
             setBanner("Список грузомест обновлён", "ok");
           }
