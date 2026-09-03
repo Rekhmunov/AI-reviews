@@ -1496,12 +1496,17 @@
     const retrying = !!(opts && opts._retry);
     const intendedVerified = !!row.pick_verified;
     const intendedBarcode = String(row.pick_barcode || "").trim();
+    // Mirror KIZ: empty/unverified must send clear:true, otherwise the server
+    // skips the item with no results[] entry and TSD shows
+    // «Сервер не вернул результат сохранения ШК» after × clear.
+    const clearPick = !intendedVerified && !intendedBarcode;
     const pickKey = forceSaveKey(row, "pick");
     const item = isOzon()
       ? {
           posting_number: scanId,
           pick_verified: intendedVerified,
           pick_barcode: intendedBarcode,
+          clear: clearPick,
           expected_verified_at: String(row.pick_verified_at || ""),
           force: !!state.forceSaveByOrder[pickKey] || retrying,
         }
@@ -1509,6 +1514,7 @@
           order_id: Number(row.order_id),
           pick_verified: intendedVerified,
           pick_barcode: intendedBarcode,
+          clear: clearPick,
           local_only: true,
           expected_verified_at: String(row.pick_verified_at || ""),
           force: !!state.forceSaveByOrder[pickKey] || retrying,

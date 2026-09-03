@@ -436,11 +436,18 @@ def save_pick_verify(
         barcode = str(raw.get("pick_barcode") or "").strip()
         expected_verified_at = str(raw.get("expected_verified_at") or "").strip()
         force_save = bool(raw.get("force"))
+        # Empty unverify without clear was silently skipped (no results[]), which
+        # broke TSD × clear with «Сервер не вернул результат сохранения ШК».
+        if not verified and not clear and not barcode:
+            clear = True
         if not verified and not clear:
             if not barcode:
                 skipped_n += 1
                 continue
             verified = False
+        if clear:
+            verified = False
+            barcode = ""
         if verified:
             order_barcodes = trusted_barcodes.get(pn)
             if order_barcodes is None:

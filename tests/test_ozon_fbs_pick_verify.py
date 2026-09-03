@@ -313,3 +313,96 @@ def test_allowed_pick_verify_posting_numbers_plain_only() -> None:
             MagicMock(), user_id=1, source_id=2, supply_id="OZ-1"
         )
     assert allowed == {"P-1"}
+
+
+def test_save_pick_verify_clears_empty_unverify_without_clear_flag() -> None:
+    """TSD × clear used to send verified=false + empty barcode without clear.
+
+    Server skipped the item (no results[]), and TSD threw
+    «Сервер не вернул результат сохранения ШК».
+    """
+    with (
+        patch(
+            "review_processor.ozon_fbs_pick_verify.load_posting_barcodes_map",
+            return_value={"P-1": ["4601234567890"]},
+        ),
+        patch(
+            "review_processor.ozon_fbs_pick_verify.update_posting_pick_verify",
+            return_value={
+                "ok": True,
+                "conflict": False,
+                "verified": False,
+                "barcode": "",
+                "verified_at": "",
+            },
+        ) as upd,
+        patch(
+            "review_processor.ozon_fbs_pick_verify._load_posting_cancelled_map",
+            return_value={},
+        ),
+    ):
+        out = save_pick_verify(
+            MagicMock(),
+            user_id=1,
+            source_id=2,
+            items=[
+                {
+                    "posting_number": "P-1",
+                    "pick_verified": False,
+                    "pick_barcode": "",
+                }
+            ],
+            allowed_posting_numbers={"P-1"},
+        )
+    assert out["ok"] is True
+    assert out["saved"] == 1
+    assert out["skipped"] == 0
+    assert len(out["results"]) == 1
+    assert out["results"][0]["posting_number"] == "P-1"
+    assert out["results"][0]["ok"] is True
+    assert out["results"][0]["pick_verified"] is False
+    upd.assert_called_once()
+    assert upd.call_args.kwargs["verified"] is False
+    assert upd.call_args.kwargs["barcode"] == ""
+
+
+def test_save_pick_verify_clear_flag() -> None:
+    with (
+        patch(
+            "review_processor.ozon_fbs_pick_verify.load_posting_barcodes_map",
+            return_value={"P-1": ["4601234567890"]},
+        ),
+        patch(
+            "review_processor.ozon_fbs_pick_verify.update_posting_pick_verify",
+            return_value={
+                "ok": True,
+                "conflict": False,
+                "verified": False,
+                "barcode": "",
+                "verified_at": "",
+            },
+        ) as upd,
+        patch(
+            "review_processor.ozon_fbs_pick_verify._load_posting_cancelled_map",
+            return_value={},
+        ),
+    ):
+        out = save_pick_verify(
+            MagicMock(),
+            user_id=1,
+            source_id=2,
+            items=[
+                {
+                    "posting_number": "P-1",
+                    "pick_verified": False,
+                    "pick_barcode": "4601234567890",
+                    "clear": True,
+                }
+            ],
+            allowed_posting_numbers={"P-1"},
+        )
+    assert out["ok"] is True
+    assert out["saved"] == 1
+    assert out["results"][0]["ok"] is True
+    assert upd.call_args.kwargs["verified"] is False
+    assert upd.call_args.kwargs["barcode"] == ""

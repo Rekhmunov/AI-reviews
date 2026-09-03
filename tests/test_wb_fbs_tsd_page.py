@@ -82,6 +82,8 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "Сохранить" in js
     assert "saveKizPushAll" in js
     assert "savePickLocalAll" in js
+    assert "clearPick" in js
+    assert "clear: clearPick" in js
     assert "noteSessionScanned" in js
     assert "renderScannedListHtml" in js
     assert "clearKizCodes" in js

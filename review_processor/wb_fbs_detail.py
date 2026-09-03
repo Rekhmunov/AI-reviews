@@ -2469,12 +2469,18 @@ def save_pick_verify(
         barcode = str(raw.get("pick_barcode") or "").strip()
         expected_verified_at = str(raw.get("expected_verified_at") or "").strip()
         force_save = bool(raw.get("force"))
+        # Empty unverify without clear was silently skipped (no results[]).
+        if not verified and not clear and not barcode:
+            clear = True
         if not verified and not clear:
             # Unchanged empty — skip
             if not barcode:
                 skipped_n += 1
                 continue
             verified = False
+        if clear:
+            verified = False
+            barcode = ""
         if verified:
             # Never trust client barcodes — only local skus_json.
             order_barcodes = trusted_skus.get(oid)
