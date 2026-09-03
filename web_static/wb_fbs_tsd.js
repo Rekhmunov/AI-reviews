@@ -2224,6 +2224,24 @@
             )}</div>`;
   }
 
+  /** Full Ozon order card — same markup for scanned list, search and filters. */
+  function renderOzonOrderCardHtml(row, mode, opts) {
+    const oid = esc(rowScanId(row));
+    const selectable = !!(opts && opts.selectable);
+    const pickAttrs = selectable
+      ? ` data-action="pick-search-order" data-order-id="${oid}" role="button" tabindex="0"`
+      : "";
+    return `
+          <div class="tsd-scanned-item tsd-scanned-item-ozon${
+            selectable ? " is-selectable" : ""
+          }"${pickAttrs}>
+            <button type="button" class="tsd-scanned-clear"
+              data-action="clear-scanned-all" data-order-id="${oid}"
+              aria-label="Очистить заказ" title="Очистить КИЗ/ШК и снять с ГМ">×</button>
+            ${renderOzonOrderCardBodyHtml(row, mode)}
+          </div>`;
+  }
+
   function renderScannedListHtml(mode) {
     const scanned = orderedScannedRows(mode);
     if (!scanned.length) {
@@ -2275,13 +2293,7 @@
         }
 
         if (isOzon()) {
-          return `
-          <div class="tsd-scanned-item tsd-scanned-item-ozon">
-            <button type="button" class="tsd-scanned-clear"
-              data-action="clear-scanned-all" data-order-id="${oid}"
-              aria-label="Очистить заказ" title="Очистить КИЗ/ШК и снять с ГМ">×</button>
-            ${renderOzonOrderCardBodyHtml(r, mode)}
-          </div>`;
+          return renderOzonOrderCardHtml(r, mode, { selectable: false });
         }
 
         const photo = rowPhotoHtml(r, 48);
@@ -2695,17 +2707,8 @@
         .map((r) => {
           const oid = esc(rowScanId(r));
           if (isOzon()) {
-            // Same card UI as scanned list, including clear-all ×.
-            return `
-            <div class="tsd-search-item tsd-search-item-ozon tsd-scanned-item-ozon">
-              <button type="button" class="tsd-scanned-clear"
-                data-action="clear-scanned-all" data-order-id="${oid}"
-                aria-label="Очистить заказ" title="Очистить КИЗ/ШК и снять с ГМ">×</button>
-              <button type="button" class="tsd-search-item-main" data-action="pick-search-order"
-                data-order-id="${oid}">
-                ${renderOzonOrderCardBodyHtml(r, mode)}
-              </button>
-            </div>`;
+            // Exact same card as «Просканировано» (incl. clear ×); tap selects order.
+            return renderOzonOrderCardHtml(r, mode, { selectable: true });
           }
           const photo = rowPhotoHtml(r, 48);
           const barcodes = orderBarcodesLabel(r);
@@ -2740,7 +2743,7 @@
         })
         .join("");
       body = `
-        <div class="tsd-search-list" id="tsdSearchList">${items}</div>
+        <div class="tsd-search-list${isOzon() ? " tsd-scanned-list" : ""}" id="tsdSearchList">${items}</div>
         ${
           hasMore
             ? `<button type="button" class="tsd-btn tsd-btn-secondary tsd-btn-block" id="tsdBrowseMore">
@@ -2830,25 +2833,40 @@
     }
     const searchList = document.getElementById("tsdSearchList");
     if (searchList) {
-      searchList.addEventListener("click", (ev) => {
+      const pickFromTarget = (target) => {
         const clearBtn =
-          ev.target && ev.target.closest
-            ? ev.target.closest("[data-action='clear-scanned-all']")
+          target && target.closest
+            ? target.closest("[data-action='clear-scanned-all']")
             : null;
-        if (clearBtn) {
+        if (clearBtn) return { clearBtn };
+        const btn =
+          target && target.closest
+            ? target.closest("[data-action='pick-search-order']")
+            : null;
+        return btn ? { pickBtn: btn } : null;
+      };
+      searchList.addEventListener("click", (ev) => {
+        const hit = pickFromTarget(ev.target);
+        if (!hit) return;
+        if (hit.clearBtn) {
           ev.preventDefault();
           ev.stopPropagation();
           const mode = state.route.mode;
-          clearScannedOrderAll(mode, clearBtn.getAttribute("data-order-id"));
+          clearScannedOrderAll(mode, hit.clearBtn.getAttribute("data-order-id"));
           return;
         }
-        const btn =
-          ev.target && ev.target.closest
-            ? ev.target.closest("[data-action='pick-search-order']")
-            : null;
-        if (!btn) return;
         ev.preventDefault();
-        selectOrderFromSearch(btn.getAttribute("data-order-id"));
+        selectOrderFromSearch(hit.pickBtn.getAttribute("data-order-id"));
+      });
+      searchList.addEventListener("keydown", (ev) => {
+        if (ev.key !== "Enter" && ev.key !== " ") return;
+        const card =
+          ev.target && ev.target.closest
+            ? ev.target.closest(".tsd-scanned-item.is-selectable[data-action='pick-search-order']")
+            : null;
+        if (!card || card !== ev.target) return;
+        ev.preventDefault();
+        selectOrderFromSearch(card.getAttribute("data-order-id"));
       });
     }
     const browseSearch = document.getElementById("tsdBrowseSearchInput");

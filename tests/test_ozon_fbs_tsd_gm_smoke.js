@@ -78,7 +78,9 @@ assert(src.includes("tsd-posting-hi"), "posting highlight class");
 assert(src.includes("Отправление:"), "Отправление label in scanned card");
 assert(src.includes("Стикер:"), "Стикер label in scanned card details");
 assert(src.includes("renderOzonOrderCardBodyHtml"), "shared Ozon card body for search+scanned");
-assert(src.includes("tsd-search-item-ozon"), "Ozon search uses scanned-like card");
+assert(src.includes("renderOzonOrderCardHtml"), "shared Ozon full card for search+filters+scanned");
+assert(src.includes("selectable: true"), "Ozon browse/filter cards are selectable scanned cards");
+assert(!src.includes("tsd-search-item-ozon"), "Ozon browse no longer uses separate search-item-ozon wrapper");
 assert(
   src.includes("${postingHtml}${stickerHtml}${gmHtml}${markOrSkuHtml}"),
   "Ozon details order: posting → sticker → GM → barcode/kiz"

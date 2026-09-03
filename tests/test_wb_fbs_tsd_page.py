@@ -166,7 +166,9 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "scrollToScanInput" in js
     assert "syncScrollTopFab" in js
     assert "renderOzonOrderCardBodyHtml" in js
-    assert "tsd-search-item-ozon" in js
+    assert "renderOzonOrderCardHtml" in js
+    assert "selectable: true" in js
+    assert "tsd-search-item-ozon" not in js
     assert "pick-search-order" in js
     assert "orderSearch" in js
     assert "applyOrderSearchEnter" in js

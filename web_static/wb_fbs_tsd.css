@@ -366,44 +366,6 @@ html, body {
   color: inherit;
 }
 
-.tsd-search-item-ozon {
-  position: relative;
-  flex-direction: column;
-  gap: 8px;
-  align-items: stretch;
-  padding-right: 48px;
-  cursor: default;
-}
-
-.tsd-search-item-main {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: 100%;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-  font: inherit;
-  color: inherit;
-}
-
-.tsd-search-item-main:focus-visible {
-  outline: 2px solid var(--tsd-accent);
-  outline-offset: 2px;
-  border-radius: 8px;
-}
-
-.tsd-search-item-ozon .tsd-scanned-name {
-  margin-top: 0;
-}
-
-.tsd-search-item-ozon .tsd-scanned-details {
-  width: 100%;
-}
-
 .tsd-search-item:hover {
   border-color: #99f6e4;
   background: #f0fdfa;
@@ -1470,6 +1432,25 @@ html, body {
 
 .tsd-scanned-item-ozon {
   padding-right: 48px;
+}
+
+/* Browse/filter: same card chrome as scanned; only cursor/focus differ. */
+.tsd-scanned-item.is-selectable {
+  cursor: pointer;
+  width: 100%;
+  margin: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.tsd-scanned-item.is-selectable:focus-visible {
+  outline: 2px solid var(--tsd-accent);
+  outline-offset: 2px;
+}
+
+.tsd-scanned-item.is-selectable:active {
+  transform: scale(0.995);
 }
 
 .tsd-scanned-top {
