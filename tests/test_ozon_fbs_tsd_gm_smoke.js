@@ -87,6 +87,8 @@ assert(!src.includes("gmBadgeForRow"), "old GM № badge helper removed");
 // Ozon scan chrome: no «Шаг 1»; banners dismissible + GM refresh clears on scan
 assert(src.includes("clearOnScan"), "GM refresh banner clears on scan");
 assert(src.includes("o.dismissible !== false"), "banners dismissible by default");
+assert(src.includes("o.clearOnScan !== false"), "banners clear on next action by default");
+assert(src.includes("function clearBanner"), "clearBanner helper");
 assert(src.includes("tsd-banner-dismiss") || src.includes("dismiss-banner"), "banner dismiss control");
 assert(src.includes('isOzon()\n        ? ""') || src.includes("isOzon()\n        ? \"\""), "Шаг 1 hidden for Ozon");
 

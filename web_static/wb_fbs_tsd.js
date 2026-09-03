@@ -503,6 +503,7 @@
       refresh.addEventListener("click", async () => {
         refresh.disabled = true;
         try {
+          clearBanner({ silent: true });
           const hadActive = !!state.gm.activeId;
           await loadGmContainers(true);
           if (hadActive && !state.gm.activeId) {
@@ -517,10 +518,7 @@
           } else if (state.gm.loadError) {
             setBanner(`Грузоместа: ${state.gm.loadError}`, "warn");
           } else {
-            setBanner("Список грузомест обновлён", "ok", {
-              dismissible: true,
-              clearOnScan: true,
-            });
+            setBanner("Список грузомест обновлён", "ok");
           }
         } finally {
           if (!patchScanCard(state.route.mode)) renderScan();
@@ -1056,10 +1054,19 @@
     state.banner = {
       text: String(text),
       kind: kind || "info",
-      // Always closable (errors included) unless explicitly disabled.
+      // Always closable (green/ok and errors) unless explicitly locked.
       dismissible: o.dismissible !== false,
-      clearOnScan: !!o.clearOnScan,
+      // Drop on next scan / save / refresh / search / filter unless locked.
+      clearOnScan: o.clearOnScan !== false,
     };
+  }
+
+  function clearBanner(opts) {
+    if (!state.banner) return;
+    state.banner = null;
+    if (!(opts && opts.silent) && state.route.view === "scan") {
+      refreshScanBanner();
+    }
   }
 
   function bannerHtml(banner) {
@@ -1079,8 +1086,7 @@
     if (!btn) return;
     btn.addEventListener("click", (ev) => {
       ev.preventDefault();
-      setBanner(null);
-      refreshScanBanner();
+      clearBanner();
     });
   }
 
@@ -1714,6 +1720,7 @@
   /** Explicit «Сохранить»: WB pushes to API; Ozon saves locally only. */
   async function saveKizPushAll() {
     if (state.saving) return;
+    clearBanner({ silent: true });
     await awaitLocalAutosaves();
     const rows = state.kizRows || [];
     const items = [];
@@ -1880,6 +1887,7 @@
   /** Explicit «Сохранить» for pick: local-only batch (like desktop modal). */
   async function savePickLocalAll() {
     if (state.saving) return;
+    clearBanner({ silent: true });
     await awaitLocalAutosaves();
     const rows = state.pickRows || [];
     const items = [];
@@ -2837,6 +2845,7 @@
   function openHeaderSearch() {
     const view = state.route.view;
     if (view !== "list" && view !== "scan") return;
+    if (view === "scan") clearBanner();
     state.searchOpen = true;
     if (view === "scan") openBrowseSheet();
     syncSearchChrome();
@@ -2909,6 +2918,7 @@
   }
 
   function onFilterChange(kind) {
+    if (state.route.view === "scan") clearBanner();
     const filled = document.getElementById("tsdFilterFilled");
     const empty = document.getElementById("tsdFilterEmpty");
     const errors = document.getElementById("tsdFilterErrors");
@@ -3845,9 +3855,8 @@
     if (isOzon() && state.gm.rebindResolver) return;
     let raw = String(input.value || "");
     if (!normalizeScan(raw)) return;
-    if (state.banner && state.banner.clearOnScan) {
-      setBanner(null);
-      refreshScanBanner();
+    if (state.banner && state.banner.clearOnScan !== false) {
+      clearBanner();
     }
     if (hasCyrillic(raw)) {
       const mapped = fixRuKeyboardLayout(raw);
