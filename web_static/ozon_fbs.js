@@ -9941,7 +9941,6 @@
         const verified = !!r.pick_verified && !!barcode;
         const base = ozonFbsPickState.baselineByPosting?.[pn] || {};
         const baseVerified = !!base.pick_verified && !!String(base.pick_barcode || "").trim();
-        const baseBarcode = String(base.pick_barcode || "").trim();
         const force = !!(ozonFbsPickState.forceSaveByPosting && ozonFbsPickState.forceSaveByPosting[pn]);
         if (!force && _ozonFbsPickBaselineEquals(pn, verified, barcode)) continue;
         if (verified) {
