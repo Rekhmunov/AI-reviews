@@ -141,9 +141,13 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     html = (TEMPLATES / "wb_fbs_tsd.html").read_text(encoding="utf-8")
     assert 'id="tsdSearchBtn"' in html
     assert 'id="tsdFilterBtn"' in html
+    assert 'id="tsdFilterSearchBtn"' in html
+    assert 'id="tsdCloseBtn"' not in html
     assert 'id="tsdFilterErrors"' in html
     assert 'id="tsdOrderSearch"' in html
     assert 'id="tsdScrollTop"' in html
+    assert "tsdFilterSearchBtn" in js
+    assert "Standalone search icon only on supply list" in js
     assert "openOrderSearch" in js
     assert "openHeaderSearch" in js
     assert "applyListSearchFromHeader" in js

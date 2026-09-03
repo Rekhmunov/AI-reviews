@@ -2429,21 +2429,17 @@
     const searchOk = onList || onScan;
     const mode = state.route.mode;
 
+    // Standalone search icon only on supply list; on scan search lives in Filters.
     if (btn) {
-      btn.hidden = !searchOk;
-      btn.setAttribute("aria-expanded", state.searchOpen && searchOk ? "true" : "false");
-      btn.classList.toggle("is-active", !!(state.searchOpen && searchOk));
-      btn.setAttribute(
-        "aria-label",
-        onList ? "Поиск поставок" : "Поиск заказов"
-      );
-      btn.title = onList ? "Поиск поставок" : "Поиск";
+      btn.hidden = !onList;
+      btn.setAttribute("aria-expanded", state.searchOpen && onList ? "true" : "false");
+      btn.classList.toggle("is-active", !!(state.searchOpen && onList));
+      btn.setAttribute("aria-label", "Поиск поставок");
+      btn.title = "Поиск поставок";
     }
     if (filterWrap) filterWrap.hidden = !onScan;
 
     wireSaveButton();
-    const closeBtn = document.getElementById("tsdCloseBtn");
-    if (closeBtn) closeBtn.hidden = !onScan;
 
     const saveBtn = document.getElementById("tsdSaveBtn");
     if (saveBtn) saveBtn.hidden = !onScan;
@@ -2516,7 +2512,10 @@
       if (!showNoGm && state.filters.noGm) state.filters.noGm = false;
       if (filterBtn) {
         filterBtn.setAttribute("aria-expanded", state.filterOpen ? "true" : "false");
-        filterBtn.classList.toggle("is-active", state.filterOpen || hasActiveFilters());
+        filterBtn.classList.toggle(
+          "is-active",
+          state.filterOpen || hasActiveFilters() || !!state.searchOpen
+        );
       }
       if (filterMenu) filterMenu.hidden = !state.filterOpen;
       syncFilterInputsFromState();
@@ -4231,19 +4230,21 @@
         else openHeaderSearch();
       });
     }
-    const closeBtn = document.getElementById("tsdCloseBtn");
-    if (closeBtn) {
-      closeBtn.addEventListener("click", (ev) => {
-        ev.preventDefault();
-        leaveScanScreen();
-      });
-    }
     const filterBtn = document.getElementById("tsdFilterBtn");
     if (filterBtn) {
       filterBtn.addEventListener("click", (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
         toggleFilterMenu();
+      });
+    }
+    const filterSearchBtn = document.getElementById("tsdFilterSearchBtn");
+    if (filterSearchBtn) {
+      filterSearchBtn.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        state.filterOpen = false;
+        openHeaderSearch();
       });
     }
     const filterFilled = document.getElementById("tsdFilterFilled");

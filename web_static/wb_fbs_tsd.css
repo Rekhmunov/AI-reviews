@@ -59,11 +59,6 @@ html, body {
   background: var(--tsd-bg);
 }
 
-.tsd-close-btn {
-  font-size: 24px;
-  line-height: 1;
-}
-
 .tsd-top {
   position: sticky;
   top: 0;
@@ -216,6 +211,43 @@ html, body {
 
 .tsd-filter-menu[hidden] {
   display: none !important;
+}
+
+.tsd-filter-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin: 0;
+  padding: 12px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--tsd-line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--tsd-ink);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tsd-filter-action:hover {
+  background: #f1f5f9;
+}
+
+.tsd-filter-action:active {
+  background: #e2e8f0;
+}
+
+.tsd-filter-action:focus-visible {
+  outline: 2px solid var(--tsd-accent);
+  outline-offset: -2px;
+}
+
+.tsd-filter-action svg {
+  flex: 0 0 auto;
+  color: var(--tsd-muted);
 }
 
 .tsd-filter-item {
