@@ -14358,13 +14358,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 warehouse_id=wh_id,
                 include_sc_accepted=bool(include_sc_accepted),
             )
-            out = oz_ct.enrich_containers_for_supply_modal(
-                repository,
-                user_id=owner_id,
-                source_id=int(source_id),
-                supply_id=str(supply_id),
-                listed=out,
-            )
+            try:
+                out = oz_ct.enrich_containers_for_supply_modal(
+                    repository,
+                    user_id=owner_id,
+                    source_id=int(source_id),
+                    supply_id=str(supply_id),
+                    listed=out,
+                )
+            except Exception:
+                # Enrichment is best-effort: never block the containers modal list.
+                pass
             out["warehouse_name"] = wh_name
             out["supply_id"] = str(supply_id)
             return out

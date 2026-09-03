@@ -7927,6 +7927,9 @@ tr.dnd-over td {
     grid-template-columns: 1fr 1fr;
   }
 }
+.ozon-fbs-containers-detail-block {
+  min-width: 0;
+}
 .ozon-fbs-containers-detail-title {
   margin: 0 0 8px;
   font-size: 13px;
