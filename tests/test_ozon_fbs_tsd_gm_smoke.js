@@ -74,11 +74,17 @@ assert(src.includes("formatOzonPostingHtml"), "posting highlight helper");
 assert(src.includes("tsd-posting-hi"), "posting highlight class");
 assert(src.includes("Отправление:"), "Отправление label in scanned card");
 assert(src.includes("tsd-scanned-gm-code"), "full GM barcode in scanned card");
-assert(src.includes('>ГМ:</span>'), "GM label before full code");
+assert(src.includes(">ГМ:</span>"), "GM label before full code");
 assert(src.includes("clearScannedOrderAll"), "one clear-all for scanned order");
 assert(src.includes('data-action="clear-scanned-all"'), "clear-all action wired");
 assert(src.includes("containers/unbind"), "unbind on clear-all");
 assert(src.includes("tsd-scanned-item-ozon"), "ozon scanned card class");
 assert(!src.includes("gmBadgeForRow"), "old GM № badge helper removed");
+
+// Ozon scan chrome: no «Шаг 1»; GM refresh banner dismissible + clear on scan
+assert(src.includes("clearOnScan"), "GM refresh banner clears on scan");
+assert(src.includes("dismissible: true"), "GM refresh banner dismissible");
+assert(src.includes("tsd-banner-dismiss") || src.includes("dismiss-banner"), "banner dismiss control");
+assert(src.includes('isOzon()\n        ? ""') || src.includes("isOzon()\n        ? \"\""), "Шаг 1 hidden for Ozon");
 
 console.log("ok - ozon_fbs_tsd_gm_smoke");

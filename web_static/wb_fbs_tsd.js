@@ -435,7 +435,10 @@
           } else if (state.gm.loadError) {
             setBanner(`Грузоместа: ${state.gm.loadError}`, "warn");
           } else {
-            setBanner("Список грузомест обновлён", "ok");
+            setBanner("Список грузомест обновлён", "ok", {
+              dismissible: true,
+              clearOnScan: true,
+            });
           }
         } finally {
           if (!patchScanCard(state.route.mode)) renderScan();
@@ -969,8 +972,39 @@
     };
   }
 
-  function setBanner(text, kind) {
-    state.banner = text ? { text: String(text), kind: kind || "info" } : null;
+  function setBanner(text, kind, opts) {
+    if (!text) {
+      state.banner = null;
+      return;
+    }
+    const o = opts || {};
+    state.banner = {
+      text: String(text),
+      kind: kind || "info",
+      dismissible: !!o.dismissible,
+      clearOnScan: !!o.clearOnScan,
+    };
+  }
+
+  function bannerHtml(banner) {
+    if (!banner) return "";
+    const dismiss = banner.dismissible
+      ? `<button type="button" class="tsd-banner-dismiss" data-action="dismiss-banner" aria-label="Закрыть" title="Закрыть">×</button>`
+      : "";
+    return `<div class="tsd-banner is-${esc(banner.kind || "info")}${
+      banner.dismissible ? " is-dismissible" : ""
+    }"><span class="tsd-banner-text">${esc(banner.text)}</span>${dismiss}</div>`;
+  }
+
+  function wireBannerDismiss(root) {
+    const scope = root || document;
+    const btn = scope.querySelector('[data-action="dismiss-banner"]');
+    if (!btn) return;
+    btn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      setBanner(null);
+      refreshScanBanner();
+    });
   }
 
   function parseHash() {
@@ -3377,9 +3411,12 @@
         </div>`;
     }
     if (step === "sticker" || !pending) {
+      const stepLabel = isOzon()
+        ? ""
+        : `<div class="tsd-scan-step">Шаг 1</div>`;
       return `
         <div class="tsd-scan-card" id="tsdScanCard">
-          <div class="tsd-scan-step">Шаг 1</div>
+          ${stepLabel}
           <p class="tsd-scan-prompt">Сканируйте стикер заказа</p>
           <div class="tsd-scan-field">
             <input class="tsd-scan-input" id="tsdScanInput" type="text" autocomplete="off" inputmode="none" />
@@ -3445,8 +3482,12 @@
       if (anchor && anchor.nextSibling) shell.insertBefore(ban, anchor.nextSibling);
       else shell.insertBefore(ban, shell.children[1] || null);
     }
-    ban.className = `tsd-banner is-${banner.kind || "info"}`;
-    ban.textContent = banner.text;
+    const wrap = document.createElement("div");
+    wrap.innerHTML = bannerHtml(banner);
+    const next = wrap.firstElementChild;
+    if (!next) return;
+    ban.replaceWith(next);
+    wireBannerDismiss(next);
   }
 
   function refreshScanStats(mode) {
@@ -3686,11 +3727,7 @@
         </div>
         ${gmBar}
         ${loadErr}
-        ${
-          banner
-            ? `<div class="tsd-banner is-${esc(banner.kind)}">${esc(banner.text)}</div>`
-            : ""
-        }
+        ${bannerHtml(banner)}
         ${body}
         <div class="tsd-scan-footer">
           <button type="button" class="tsd-btn tsd-btn-primary tsd-btn-block" id="tsdSaveBtn"
@@ -3719,6 +3756,7 @@
     }
 
     wireGmBar();
+    wireBannerDismiss(main);
     wireScanInput(mode, { keepSearchFocus });
     wireScanFooter(mode);
     syncScrollTopFab();
@@ -3730,6 +3768,10 @@
     if (isOzon() && state.gm.rebindResolver) return;
     let raw = String(input.value || "");
     if (!normalizeScan(raw)) return;
+    if (state.banner && state.banner.clearOnScan) {
+      setBanner(null);
+      refreshScanBanner();
+    }
     if (hasCyrillic(raw)) {
       const mapped = fixRuKeyboardLayout(raw);
       if (hasCyrillic(mapped)) {

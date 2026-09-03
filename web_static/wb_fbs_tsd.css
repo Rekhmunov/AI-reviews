@@ -792,6 +792,51 @@ html, body {
   font-weight: 600;
 }
 
+.tsd-banner.is-dismissible {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding-right: 12px;
+}
+
+.tsd-banner-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tsd-banner-dismiss {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  margin: -4px -4px -4px 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.72;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tsd-banner-dismiss:hover {
+  opacity: 1;
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.tsd-banner-dismiss:active {
+  transform: scale(0.96);
+}
+
+.tsd-banner-dismiss:focus-visible {
+  outline: 2px solid var(--tsd-accent);
+  outline-offset: 1px;
+}
+
 .tsd-banner.is-ok {
   background: var(--tsd-ok-bg);
   color: var(--tsd-ok);
