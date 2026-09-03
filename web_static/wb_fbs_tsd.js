@@ -51,6 +51,22 @@
       rotateTimer: null,
       startedAt: 0,
     },
+    /**
+     * Ozon FBS only — cargo-place (ГМ) bind on kiz/pick scan screens.
+     * Never used for WB; gated by isOzon() everywhere.
+     */
+    gm: {
+      containers: [],
+      hasFillable: false,
+      loadOk: false,
+      loadError: "",
+      activeId: null,
+      activeBarcode: "",
+      awaitingScan: false,
+      boundSupplyId: "",
+      loading: false,
+      rebindResolver: null,
+    },
   };
 
   const LS_SOURCE = "wb_fbs_tsd_source_id";
@@ -63,6 +79,434 @@
 
   function isOzon() {
     return String(currentSource().marketplace || "wb").toLowerCase() === "ozon";
+  }
+
+  function gmMatchApi() {
+    return window.OzonFbsContainerMatch || null;
+  }
+
+  function normalizeContainerScan(value) {
+    const api = gmMatchApi();
+    if (api && typeof api.normalizeContainerScan === "function") {
+      return api.normalizeContainerScan(value);
+    }
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    const digits = raw.replace(/\D+/g, "");
+    return digits || raw;
+  }
+
+  function containerAcceptsFill(c) {
+    const api = gmMatchApi();
+    if (api && typeof api.containerAcceptsFill === "function") {
+      return api.containerAcceptsFill(c);
+    }
+    if (!c || typeof c !== "object") return false;
+    if (c.can_fill === false) return false;
+    if (c.can_fill === true) return true;
+    const st = String(c.status || "").trim().toLowerCase();
+    return ![
+      "approved",
+      "formed",
+      "ready",
+      "shipped",
+      "closed",
+      "cancelled",
+      "canceled",
+      "deleted",
+    ].includes(st);
+  }
+
+  function matchContainerByScan(containers, scan) {
+    const api = gmMatchApi();
+    if (api && typeof api.matchContainerByScan === "function") {
+      return api.matchContainerByScan(containers, scan);
+    }
+    const key = normalizeContainerScan(scan);
+    if (!key) return null;
+    for (const row of containers || []) {
+      if (!row || typeof row !== "object") continue;
+      if (String(row.container_id || "").trim() === key) return row;
+    }
+    return null;
+  }
+
+  function resetGmState(opts) {
+    const clearActive = !(opts && opts.keepActive);
+    state.gm.awaitingScan = false;
+    state.gm.loadError = "";
+    if (clearActive) {
+      state.gm.activeId = null;
+      state.gm.activeBarcode = "";
+    }
+    if (opts && opts.clearList) {
+      state.gm.containers = [];
+      state.gm.hasFillable = false;
+      state.gm.loadOk = false;
+      state.gm.boundSupplyId = "";
+    }
+  }
+
+  /** Phase 1: show GM bar only on Ozon kiz/pick when fillable containers exist. */
+  function gmUiVisible() {
+    if (!isOzon()) return false;
+    if (state.route.view !== "scan") return false;
+    const mode = state.route.mode;
+    if (mode !== "kiz" && mode !== "pick") return false;
+    return !!state.gm.hasFillable;
+  }
+
+  function activeGmContainer() {
+    if (!state.gm.activeId) return null;
+    const id = String(state.gm.activeId);
+    return (
+      (state.gm.containers || []).find(
+        (c) => String(c.container_id || "") === id
+      ) || null
+    );
+  }
+
+  function activeGmLabel() {
+    const cur = activeGmContainer();
+    const id = state.gm.activeBarcode || String(state.gm.activeId || "");
+    if (!cur) return id ? `ГМ ${id}` : "";
+    const num = Number(cur.container_number || 0);
+    if (num > 0) return `ГМ №${num} · ${id}`;
+    return `ГМ ${id}`;
+  }
+
+  async function loadGmContainers(force) {
+    if (!isOzon()) {
+      resetGmState({ clearList: true });
+      return false;
+    }
+    const sid = String(state.route.supplyId || "").trim();
+    const sourceId = Number(state.sourceId || 0) || 0;
+    if (!sid || !sourceId) {
+      resetGmState({ clearList: true });
+      return false;
+    }
+    if (
+      !force &&
+      state.gm.loadOk &&
+      state.gm.boundSupplyId === sid &&
+      !state.gm.loading
+    ) {
+      return state.gm.hasFillable;
+    }
+    state.gm.loading = true;
+    state.gm.loadError = "";
+    try {
+      const params = new URLSearchParams({
+        source_id: String(sourceId),
+        include_sc_accepted: "1",
+      });
+      const data = await api(
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/containers?${params}`
+      );
+      const items = Array.isArray(data.items) ? data.items : [];
+      state.gm.containers = items;
+      state.gm.loadOk = true;
+      state.gm.boundSupplyId = sid;
+      state.gm.hasFillable = items.some((c) => containerAcceptsFill(c));
+      if (!state.gm.hasFillable) {
+        state.gm.activeId = null;
+        state.gm.activeBarcode = "";
+        state.gm.awaitingScan = false;
+      } else if (state.gm.activeId) {
+        const cur = activeGmContainer();
+        if (!cur || !containerAcceptsFill(cur)) {
+          state.gm.activeId = null;
+          state.gm.activeBarcode = "";
+        }
+      }
+      return state.gm.hasFillable;
+    } catch (e) {
+      state.gm.loadOk = false;
+      state.gm.loadError = String(e.message || e);
+      state.gm.containers = [];
+      state.gm.hasFillable = false;
+      state.gm.activeId = null;
+      state.gm.activeBarcode = "";
+      state.gm.awaitingScan = false;
+      return false;
+    } finally {
+      state.gm.loading = false;
+    }
+  }
+
+  function setActiveGm(container) {
+    if (!container) {
+      state.gm.activeId = null;
+      state.gm.activeBarcode = "";
+      return;
+    }
+    const cid = Number(container.container_id || 0) || 0;
+    state.gm.activeId = cid > 0 ? cid : null;
+    state.gm.activeBarcode = cid > 0 ? String(cid) : "";
+  }
+
+  function renderGmBarHtml() {
+    if (!gmUiVisible()) return "";
+    if (state.gm.awaitingScan) {
+      return `
+        <div class="tsd-gm-bar is-awaiting" id="tsdGmBar">
+          <div class="tsd-gm-bar-text">Сканируйте QR грузоместа</div>
+          <div class="tsd-gm-bar-actions">
+            <button type="button" class="tsd-btn tsd-btn-ghost" id="tsdGmCancelScan">Отмена</button>
+          </div>
+        </div>`;
+    }
+    if (state.gm.activeId) {
+      return `
+        <div class="tsd-gm-bar is-active" id="tsdGmBar">
+          <div class="tsd-gm-bar-text" title="${esc(activeGmLabel())}">${esc(activeGmLabel())}</div>
+          <div class="tsd-gm-bar-actions">
+            <button type="button" class="tsd-btn tsd-btn-secondary" id="tsdGmChange">Сменить</button>
+            <button type="button" class="tsd-btn tsd-btn-ghost" id="tsdGmReset">Сбросить</button>
+          </div>
+        </div>`;
+    }
+    return `
+      <div class="tsd-gm-bar" id="tsdGmBar">
+        <button type="button" class="tsd-btn tsd-btn-secondary tsd-btn-block" id="tsdGmScanBtn">
+          Сканировать ГМ
+        </button>
+      </div>`;
+  }
+
+  function refreshGmBar() {
+    const shell = document.querySelector(".tsd-scan-shell");
+    if (!shell) return;
+    const html = renderGmBarHtml().trim();
+    const old = document.getElementById("tsdGmBar");
+    if (!html) {
+      if (old) old.remove();
+      return;
+    }
+    const wrap = document.createElement("div");
+    wrap.innerHTML = html;
+    const next = wrap.firstElementChild;
+    if (!next) return;
+    if (old) old.replaceWith(next);
+    else {
+      const stats = shell.querySelector(".tsd-stats");
+      if (stats && stats.nextSibling) shell.insertBefore(next, stats.nextSibling);
+      else shell.insertBefore(next, shell.firstChild);
+    }
+    wireGmBar();
+  }
+
+  function wireGmBar() {
+    if (!isOzon()) return;
+    const scanBtn = document.getElementById("tsdGmScanBtn");
+    if (scanBtn) {
+      scanBtn.addEventListener("click", () => {
+        state.gm.awaitingScan = true;
+        setBanner("Отсканируйте QR грузоместа", "info");
+        if (!patchScanCard(state.route.mode)) renderScan();
+        else {
+          refreshGmBar();
+          refreshScanBanner();
+        }
+      });
+    }
+    const cancel = document.getElementById("tsdGmCancelScan");
+    if (cancel) {
+      cancel.addEventListener("click", () => {
+        state.gm.awaitingScan = false;
+        setBanner(null);
+        if (!patchScanCard(state.route.mode)) renderScan();
+        else {
+          refreshGmBar();
+          refreshScanBanner();
+        }
+      });
+    }
+    const change = document.getElementById("tsdGmChange");
+    if (change) {
+      change.addEventListener("click", () => {
+        state.gm.awaitingScan = true;
+        setBanner("Отсканируйте QR другого грузоместа", "info");
+        if (!patchScanCard(state.route.mode)) renderScan();
+        else {
+          refreshGmBar();
+          refreshScanBanner();
+        }
+      });
+    }
+    const reset = document.getElementById("tsdGmReset");
+    if (reset) {
+      reset.addEventListener("click", () => {
+        setActiveGm(null);
+        state.gm.awaitingScan = false;
+        setBanner("Сканирование в грузоместо остановлено", "info");
+        refreshGmBar();
+        refreshScanBanner();
+      });
+    }
+  }
+
+  function ensureGmRebindSheet() {
+    let sheet = document.getElementById("tsdGmRebindSheet");
+    if (sheet) return sheet;
+    sheet = document.createElement("div");
+    sheet.id = "tsdGmRebindSheet";
+    sheet.className = "tsd-gm-rebind";
+    sheet.hidden = true;
+    sheet.innerHTML = `
+      <div class="tsd-gm-rebind-backdrop" data-gm-rebind="no"></div>
+      <div class="tsd-gm-rebind-card" role="dialog" aria-modal="true" aria-labelledby="tsdGmRebindText">
+        <p class="tsd-gm-rebind-text" id="tsdGmRebindText"></p>
+        <div class="tsd-gm-rebind-actions">
+          <button type="button" class="tsd-btn tsd-btn-primary tsd-btn-block" data-gm-rebind="yes">Да, привязать</button>
+          <button type="button" class="tsd-btn tsd-btn-ghost tsd-btn-block" data-gm-rebind="no">Отмена</button>
+        </div>
+      </div>`;
+    sheet.addEventListener("click", (ev) => {
+      const btn = ev.target && ev.target.closest ? ev.target.closest("[data-gm-rebind]") : null;
+      if (!btn) return;
+      const yes = btn.getAttribute("data-gm-rebind") === "yes";
+      closeGmRebind(yes);
+    });
+    (document.getElementById("tsdApp") || document.body).appendChild(sheet);
+    return sheet;
+  }
+
+  function openGmRebind({ postingNumber, oldBarcode, newBarcode }) {
+    return new Promise((resolve) => {
+      state.gm.rebindResolver = resolve;
+      const sheet = ensureGmRebindSheet();
+      const text = document.getElementById("tsdGmRebindText");
+      if (text) {
+        text.textContent =
+          `Отправление ${postingNumber} числится в грузоместе ${oldBarcode}. ` +
+          `Привязать к грузоместу ${newBarcode}?`;
+      }
+      sheet.hidden = false;
+    });
+  }
+
+  function closeGmRebind(yes) {
+    const sheet = document.getElementById("tsdGmRebindSheet");
+    if (sheet) sheet.hidden = true;
+    const resolve = state.gm.rebindResolver;
+    state.gm.rebindResolver = null;
+    if (typeof resolve === "function") resolve(!!yes);
+  }
+
+  async function handleGmScan(rawScan) {
+    await loadGmContainers(false);
+    const found = matchContainerByScan(state.gm.containers, rawScan);
+    if (!found) {
+      setBanner(`Грузоместо «${normalizeContainerScan(rawScan) || rawScan}» не найдено`, "err");
+      beep(false);
+      return false;
+    }
+    if (!containerAcceptsFill(found)) {
+      setBanner(
+        `Грузоместо ${found.container_id} уже подтверждено — в него нельзя сканировать`,
+        "err"
+      );
+      beep(false);
+      return false;
+    }
+    setActiveGm(found);
+    state.gm.awaitingScan = false;
+    setBanner(`Грузоместо ${activeGmLabel()} выбрано. Сканируйте заказы.`, "ok");
+    beep(true);
+    return true;
+  }
+
+  async function bindGmPosting(postingNumber, containerId, containerBarcode, previousId) {
+    const sid = String(state.route.supplyId || "").trim();
+    const sourceId = Number(state.sourceId || 0) || 0;
+    if (!sid || !sourceId) return null;
+    return api(
+      `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/containers/bind`,
+      {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({
+          source_id: sourceId,
+          posting_number: postingNumber,
+          container_id: containerId,
+          container_barcode: containerBarcode || String(containerId),
+          previous_container_id: previousId || null,
+        }),
+      }
+    );
+  }
+
+  function applyGmBindResult(row, data) {
+    if (!row || !data) return;
+    row.container_id = data.container_id || null;
+    row.container_barcode = String(data.container_barcode || "").trim();
+    row.container_synced = !!data.container_synced || !!data.synced;
+    row.container_sync_error = String(
+      data.error || data.container_sync_error || ""
+    ).trim();
+  }
+
+  /**
+   * After successful KIZ / product barcode — bind to active GM (Ozon only).
+   * Optimistic like web; rebind confirm is awaited.
+   */
+  async function maybeBindGmAfterSuccess(row) {
+    if (!isOzon() || !gmUiVisible() || !state.gm.activeId || !row) return true;
+    const postingNumber = String(row.posting_number || rowScanId(row) || "").trim();
+    if (!postingNumber) return true;
+    const active = activeGmContainer();
+    if (active && !containerAcceptsFill(active)) {
+      setActiveGm(null);
+      setBanner(
+        `Грузоместо ${active.container_id} уже подтверждено — выберите другое`,
+        "err"
+      );
+      refreshGmBar();
+      return true;
+    }
+    const prevId = Number(row.container_id || 0) || 0;
+    const prevBarcode = String(row.container_barcode || "").trim();
+    const nextBarcode = state.gm.activeBarcode || String(state.gm.activeId);
+    const activeId = state.gm.activeId;
+    if (prevId && prevId !== activeId) {
+      const ok = await openGmRebind({
+        postingNumber,
+        oldBarcode: prevBarcode || String(prevId),
+        newBarcode: nextBarcode,
+      });
+      if (!ok) return false;
+    } else if (prevId === activeId && !String(row.container_sync_error || "").trim()) {
+      return true;
+    }
+    row.container_id = activeId;
+    row.container_barcode = nextBarcode;
+    row.container_synced = false;
+    row.container_sync_error = "";
+    void (async () => {
+      try {
+        const data = await bindGmPosting(
+          postingNumber,
+          activeId,
+          nextBarcode,
+          prevId && prevId !== activeId ? prevId : null
+        );
+        applyGmBindResult(row, data);
+        if (row.container_sync_error) {
+          setBanner(`ГМ: ${row.container_sync_error}`, "warn");
+          refreshScanBanner();
+        }
+      } catch (e) {
+        row.container_id = activeId;
+        row.container_barcode = nextBarcode;
+        row.container_synced = false;
+        row.container_sync_error = String(e.message || e);
+        setBanner(`ГМ: ${row.container_sync_error}`, "warn");
+        refreshScanBanner();
+      }
+    })();
+    return true;
   }
 
   function rowScanId(row) {
@@ -2513,6 +2957,7 @@
     state.orderSearch = "";
     state.sessionScannedIds = [];
     resetScanFilters();
+    resetGmState({ keepActive: false });
     setBanner(null);
     navigate(`#/s/${sid}`);
   }
@@ -2529,6 +2974,18 @@
     const step = state.step;
     if (!rows.length) {
       return `<div class="tsd-empty">Нет заказов в этом режиме</div>`;
+    }
+    if (isOzon() && state.gm.awaitingScan && gmUiVisible()) {
+      return `
+        <div class="tsd-scan-card" id="tsdScanCard">
+          <div class="tsd-scan-step">Грузоместо</div>
+          <p class="tsd-scan-prompt">Сканируйте QR грузоместа</p>
+          <div class="tsd-scan-field">
+            <input class="tsd-scan-input" id="tsdScanInput" type="text" autocomplete="off" inputmode="none" />
+            <button type="button" class="tsd-scan-clear" id="tsdScanClear" hidden
+              aria-label="Очистить поле" title="Очистить">×</button>
+          </div>
+        </div>`;
     }
     if (step === "sticker" || !pending) {
       return `
@@ -2586,15 +3043,17 @@
     const shell = document.querySelector(".tsd-scan-shell");
     if (!shell) return;
     const banner = state.banner;
-    let ban = shell.querySelector(".tsd-banner");
+    let ban = shell.querySelector(".tsd-banner:not(.tsd-gm-load-err)");
     if (!banner) {
       if (ban) ban.remove();
       return;
     }
     if (!ban) {
       ban = document.createElement("div");
+      const gmBar = document.getElementById("tsdGmBar");
       const stats = shell.querySelector(".tsd-stats");
-      if (stats && stats.nextSibling) shell.insertBefore(ban, stats.nextSibling);
+      const anchor = gmBar || stats;
+      if (anchor && anchor.nextSibling) shell.insertBefore(ban, anchor.nextSibling);
       else shell.insertBefore(ban, shell.children[1] || null);
     }
     ban.className = `tsd-banner is-${banner.kind || "info"}`;
@@ -2643,6 +3102,7 @@
 
   function refreshScanChrome(mode) {
     refreshScanStats(mode);
+    refreshGmBar();
     refreshScanBanner();
     refreshScannedListSection(mode);
     refreshSaveButton(mode);
@@ -2812,12 +3272,20 @@
       state.clearing ||
       (mode === "kiz" ? !hasPendingKizPush() : !orderedScannedRows(mode).length);
 
+    const gmBar = renderGmBarHtml();
+    const loadErr =
+      isOzon() && state.gm.loadError && !state.gm.hasFillable
+        ? `<div class="tsd-banner is-warn tsd-gm-load-err">Грузоместа: ${esc(state.gm.loadError)}</div>`
+        : "";
+
     main.innerHTML = `
       <div class="tsd-scan-shell">
         <div class="tsd-stats">
           <span>Готово ${done} / ${total}</span>
           <span>Осталось ${left}</span>
         </div>
+        ${gmBar}
+        ${loadErr}
         ${
           banner
             ? `<div class="tsd-banner is-${esc(banner.kind)}">${esc(banner.text)}</div>`
@@ -2850,6 +3318,7 @@
       wireBrowseSheet();
     }
 
+    wireGmBar();
     wireScanInput(mode, { keepSearchFocus });
     wireScanFooter(mode);
     syncScrollTopFab();
@@ -2870,6 +3339,27 @@
       }
       raw = mapped;
       input.value = mapped;
+    }
+
+    // Ozon GM select mode: Enter matches only cargo QR (never order sticker).
+    if (isOzon() && state.gm.awaitingScan && gmUiVisible()) {
+      const ok = await handleGmScan(raw);
+      input.value = "";
+      if (ok) {
+        if (!patchScanCard(mode)) renderScan();
+        else {
+          refreshGmBar();
+          refreshScanBanner();
+        }
+        const field = document.getElementById("tsdScanInput");
+        if (field && !state.searchOpen && !shouldShowBrowseSheet()) {
+          setTimeout(() => field.focus(), 0);
+        }
+      } else {
+        input.select();
+        refreshScanBanner();
+      }
+      return;
     }
 
     if (state.step === "sticker" || !state.pendingOrderId) {
@@ -2970,6 +3460,7 @@
             : `КИЗ ${kizN} записан · ${label}`,
           "ok"
         );
+        await maybeBindGmAfterSuccess(row);
       } else {
         const check = eanMatchesOrder(raw, row);
         if (!check.ok) {
@@ -2984,6 +3475,7 @@
         noteSessionScanned(rowId);
         schedulePickLocalAutosave(rowId);
         setBanner(`ШК подтверждён · ${rowDisplayLabel(row)}`, "ok");
+        await maybeBindGmAfterSuccess(row);
       }
       beep(true);
       state.pendingOrderId = null;
@@ -3068,6 +3560,7 @@
         state.pendingOrderId = null;
         state.step = "sticker";
         state.banner = null;
+        resetGmState({ clearList: true });
         setLoadingStatus("Загружаем список поставок…", 0);
         await loadSupplies();
         if (seq !== state.loadSeq) return;
@@ -3121,16 +3614,27 @@
         state.searchOpen = false;
         state.orderSearch = "";
         resetScanFilters();
+        state.gm.awaitingScan = false;
         if (state.route.mode === "kiz") {
           await loadKiz(state.route.supplyId);
         } else {
           await loadPick(state.route.supplyId);
         }
         if (seq !== state.loadSeq) return;
+        if (isOzon()) {
+          await loadGmContainers(
+            state.gm.boundSupplyId !== String(state.route.supplyId || "")
+          );
+          if (seq !== state.loadSeq) return;
+        } else {
+          resetGmState({ clearList: true });
+        }
         captureScanBaselines(state.route.mode);
         stopLoadingUi();
         if (!state.step) state.step = "sticker";
         renderScan();
+      } else {
+        state.gm.awaitingScan = false;
       }
     } catch (e) {
       if (seq !== state.loadSeq) return;
