@@ -3834,6 +3834,10 @@
     refreshScannedListSection(mode);
     refreshSaveButton(mode);
     syncScrollTopFab();
+    // Keep filter/search sheet in sync after clear × on browse cards.
+    if (state.route.view === "scan" && shouldShowBrowseSheet()) {
+      openBrowseSheet({ keepLimit: true });
+    }
   }
 
   function wireScannedList(mode) {
@@ -3847,11 +3851,6 @@
       if (action === "clear-scanned-all") {
         ev.preventDefault();
         clearScannedOrderAll(mode, oid);
-        return;
-      }
-      if (action === "clear-kiz-all" && mode === "kiz") {
-        ev.preventDefault();
-        clearKizCodes(oid);
       }
     });
   }

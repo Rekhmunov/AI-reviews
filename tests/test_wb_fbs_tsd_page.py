@@ -172,6 +172,10 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "renderWbOrderCardHtml" in js
     # List (start) screen hides back-to-/app; hub/scan keep ←.
     assert "Start screen is the TSD entry point" in js
+    chrome = js.split("function refreshScanChrome", 1)[1].split("function wireScannedList", 1)[0]
+    assert "shouldShowBrowseSheet()" in chrome
+    assert "openBrowseSheet({ keepLimit: true })" in chrome
+    assert 'data-action="clear-kiz-all"' not in js
     list_body = js.split("function renderList", 1)[1].split("function renderHub", 1)[0]
     assert 'back.hidden = true' in list_body
     assert 'back.href = "/app"' not in list_body
