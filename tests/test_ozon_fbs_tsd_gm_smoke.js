@@ -77,8 +77,10 @@ assert(src.includes("formatOzonPostingHtml"), "posting highlight helper");
 assert(src.includes("tsd-posting-hi"), "posting highlight class");
 assert(src.includes("Отправление:"), "Отправление label in scanned card");
 assert(src.includes("Стикер:"), "Стикер label in scanned card details");
+assert(src.includes("renderOzonOrderCardBodyHtml"), "shared Ozon card body for search+scanned");
+assert(src.includes("tsd-search-item-ozon"), "Ozon search uses scanned-like card");
 assert(
-  src.includes("${postingHtml}${stickerHtml}${gmHtml}${detailHtml}"),
+  src.includes("${postingHtml}${stickerHtml}${gmHtml}${markOrSkuHtml}"),
   "Ozon details order: posting → sticker → GM → barcode/kiz"
 );
 assert(src.includes("tsd-scanned-gm-code"), "full GM barcode in scanned card");

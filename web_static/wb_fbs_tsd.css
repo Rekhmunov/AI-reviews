@@ -355,6 +355,20 @@ html, body {
   color: inherit;
 }
 
+.tsd-search-item-ozon {
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.tsd-search-item-ozon .tsd-scanned-name {
+  margin-top: 0;
+}
+
+.tsd-search-item-ozon .tsd-scanned-details {
+  width: 100%;
+}
+
 .tsd-search-item:hover {
   border-color: #99f6e4;
   background: #f0fdfa;
