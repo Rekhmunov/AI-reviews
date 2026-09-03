@@ -4911,41 +4911,102 @@
           return `<li><span class="ozon-fbs-containers-timeline-label">${label}</span><span class="ozon-fbs-containers-timeline-at">${when}</span>${hint}</li>`;
         }).join("")}</ul>`
       : `<div class="ozon-fbs-containers-detail-empty">Нет дат</div>`;
-    const postingsHtml = postings.length
-      ? `<ul class="ozon-fbs-containers-postings">${postings.map((p) => {
-          const pn = esc(p.posting_number || "—");
-          const name = esc(p.product_name || p.offer_id || "");
-          const flags = [];
-          if (p.has_kiz) flags.push(`КИЗ${p.kiz_count > 1 ? ` ×${p.kiz_count}` : ""}`);
-          if (p.pick_verified) flags.push("без КИЗ ✓");
-          if (p.outside_supply) flags.push("вне поставки");
-          const flagText = flags.length ? ` · ${esc(flags.join(" · "))}` : "";
-          return `<li><code>${pn}</code>${name ? ` — ${name}` : ""}${flagText}</li>`;
-        }).join("")}</ul>`
-      : (() => {
-          const ozonOrders = Number(
-            (containersState.items || []).find(
-              (x) => String(x.container_id || "").trim() === key
-            )?.order_count || 0
-          );
-          if (ozonOrders > 0 && data.ozon_fetch_ok === false) {
-            return `<div class="ozon-fbs-containers-detail-empty">В Ozon указано заказов: ${esc(String(ozonOrders))}, но состав сейчас не удалось загрузить. Откройте снова.</div>`;
-          }
-          if (ozonOrders > 0) {
-            return `<div class="ozon-fbs-containers-detail-empty">В Ozon указано заказов: ${esc(String(ozonOrders))}, список отправлений в ответе пуст.</div>`;
-          }
-          return `<div class="ozon-fbs-containers-detail-empty">В ГМ пока нет заказов</div>`;
-        })();
+    const count = postings.length;
+    let compositionNote = "";
+    if (!count) {
+      const ozonOrders = Number(
+        (containersState.items || []).find(
+          (x) => String(x.container_id || "").trim() === key
+        )?.order_count || 0
+      );
+      if (ozonOrders > 0 && data.ozon_fetch_ok === false) {
+        compositionNote = `<div class="ozon-fbs-containers-detail-empty">В Ozon указано заказов: ${esc(String(ozonOrders))}, но состав сейчас не удалось загрузить. Откройте снова.</div>`;
+      } else if (ozonOrders > 0) {
+        compositionNote = `<div class="ozon-fbs-containers-detail-empty">В Ozon указано заказов: ${esc(String(ozonOrders))}, список отправлений в ответе пуст.</div>`;
+      } else {
+        compositionNote = `<div class="ozon-fbs-containers-detail-empty">В ГМ пока нет заказов</div>`;
+      }
+    }
+    const safeJs = JSON.stringify(key);
+    const xlsLink = count
+      ? `<a href="#" class="ozon-fbs-containers-composition-xls"
+            title="Скачать состав в Excel"
+            aria-label="Скачать состав ГМ ${esc(key)} в Excel"
+            onclick='event.preventDefault(); downloadOzonFbsContainerComposition(${safeJs}); return false;'>↓</a>`
+      : "";
     return `<div class="ozon-fbs-containers-detail">
       <div class="ozon-fbs-containers-detail-block">
         <div class="ozon-fbs-containers-detail-title">Даты и статус</div>
         ${timelineHtml}
       </div>
       <div class="ozon-fbs-containers-detail-block">
-        <div class="ozon-fbs-containers-detail-title">Состав (${postings.length})</div>
-        ${postingsHtml}
+        <div class="ozon-fbs-containers-detail-title ozon-fbs-containers-composition-head">
+          <span>Состав (${count})</span>${xlsLink}
+        </div>
+        ${compositionNote}
       </div>
     </div>`;
+  }
+
+  async function downloadOzonFbsContainerComposition(containerId) {
+    const cid = String(containerId || "").trim();
+    const sid = String(containersState.supplyId || "").trim();
+    const sourceId = containersState.sourceId;
+    if (!cid || !sid || !sourceId) return;
+    const row = (containersState.items || []).find(
+      (x) => String(x.container_id || "").trim() === cid
+    ) || {};
+    const params = new URLSearchParams({
+      source_id: String(sourceId),
+      status: String(row.status || ""),
+      status_label: String(row.status_label || ""),
+      warehouse_date: String(row.warehouse_date || ""),
+      created_at: String(row.created_at || ""),
+      container_number: String(row.container_number || 0),
+    });
+    const cached = containersState.detailsCache[cid];
+    if (cached && !cached.error) {
+      if (cached.warehouse_date) params.set("warehouse_date", String(cached.warehouse_date));
+      if (cached.created_at) params.set("created_at", String(cached.created_at));
+      if (cached.status) params.set("status", String(cached.status));
+      if (cached.status_label) params.set("status_label", String(cached.status_label));
+      if (cached.container_number != null) {
+        params.set("container_number", String(cached.container_number || 0));
+      }
+    }
+    _ozonFbsContainersSetInfo("Скачиваем состав ГМ…");
+    try {
+      const res = await fetch(
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/containers/${encodeURIComponent(cid)}/composition.xlsx?${params}`,
+        { headers: jsonHeaders() }
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(detailText(data.detail) || data.message || `Ошибка ${res.status}`);
+      }
+      const blob = await res.blob();
+      let fname = `GM-${cid}-sostav.xlsx`;
+      const cd = res.headers.get("Content-Disposition") || "";
+      const m = /filename\*?=(?:UTF-8''|")?([^\";]+)/i.exec(cd);
+      if (m && m[1]) {
+        try {
+          fname = decodeURIComponent(m[1].replace(/"/g, "").trim());
+        } catch (_) {
+          fname = m[1].replace(/"/g, "").trim() || fname;
+        }
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fname;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+      _ozonFbsContainersSetInfo(`Скачан файл ${fname}`);
+    } catch (e) {
+      _ozonFbsContainersSetInfo(e.message || String(e), false);
+    }
   }
 
   async function toggleOzonFbsContainerDetails(containerId) {
@@ -10731,6 +10792,7 @@
   window.ozonFbsShipmentsDownloadBarcode = shipmentsDownloadBarcode;
   window.openOzonFbsContainersModal = openOzonFbsContainersModal;
   window.toggleOzonFbsContainerDetails = toggleOzonFbsContainerDetails;
+  window.downloadOzonFbsContainerComposition = downloadOzonFbsContainerComposition;
   window.closeOzonFbsContainersModal = closeOzonFbsContainersModal;
   window.refreshOzonFbsContainers = refreshOzonFbsContainers;
   window.createOzonFbsContainers = createOzonFbsContainers;

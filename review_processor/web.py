@@ -14465,6 +14465,83 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+    @app.get("/api/ozon-fbs/supplies/{supply_id}/containers/{container_id}/composition.xlsx")
+    def ozon_fbs_supply_container_composition_xlsx(
+        request: Request,
+        supply_id: str,
+        container_id: int,
+        source_id: int,
+        status: str = "",
+        status_label: str = "",
+        warehouse_date: str = "",
+        created_at: str = "",
+        container_number: int = 0,
+    ) -> StreamingResponse:
+        """Download GM composition as XLSX (posting + warehouse_date)."""
+        from urllib.parse import quote
+
+        from . import ozon_fbs as ozon_fbs_mod
+        from . import ozon_fbs_containers as oz_ct
+
+        user = _require_user(request)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _require_ozon_fbs_source(user, int(source_id))
+        owner_id = _supply_owner_id(user)
+        try:
+            cid = int(container_id or 0)
+        except (TypeError, ValueError):
+            cid = 0
+        if cid <= 0:
+            raise HTTPException(status_code=400, detail="Укажите container_id")
+        meta = {
+            "container_id": cid,
+            "container_number": container_number,
+            "status": status,
+            "status_label": status_label,
+            "warehouse_date": warehouse_date,
+            "created_at": created_at,
+        }
+        client = None
+        try:
+            _, client_id, api_key = _ozon_fbs_source_credentials(
+                owner_id, int(source_id)
+            )
+            if client_id and api_key:
+                client = ozon_fbs_mod.OzonFbsClient(
+                    client_id=client_id, api_key=api_key
+                )
+        except HTTPException:
+            client = None
+        except Exception:
+            client = None
+        try:
+            payload, fname = oz_ct.build_container_composition_xlsx(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                supply_id=str(supply_id),
+                container_id=cid,
+                container=meta,
+                client=client,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        safe = quote(fname)
+        return StreamingResponse(
+            io.BytesIO(payload),
+            media_type=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="{fname}"; filename*=UTF-8\'\'{safe}'
+                )
+            },
+        )
+
     @app.post("/api/ozon-fbs/supplies/{supply_id}/containers")
     async def ozon_fbs_supply_containers_create(
         request: Request, supply_id: str

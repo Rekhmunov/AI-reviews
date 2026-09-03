@@ -250,6 +250,47 @@ class ContainerModalDetailsTests(unittest.TestCase):
         self.assertEqual(set_bind.call_args.kwargs["posting_number"], "A-1")
         self.assertEqual(set_bind.call_args.kwargs["container_id"], 99)
 
+    def test_composition_xlsx_columns(self) -> None:
+        repo = MagicMock()
+        with patch.object(
+            ct,
+            "get_container_modal_details",
+            return_value={
+                "container_id": 42,
+                "container_number": 3,
+                "warehouse_date_display": "01.09.2026",
+                "warehouse_date": "2026-09-01",
+                "postings": [
+                    {"posting_number": "016-1"},
+                    {"posting_number": "016-3"},
+                    {"posting_number": ""},
+                ],
+            },
+        ):
+            payload, fname = ct.build_container_composition_xlsx(
+                repo,
+                user_id=1,
+                source_id=2,
+                supply_id="sup-1",
+                container_id=42,
+            )
+        self.assertTrue(fname.startswith("GM-42-N3-sostav"))
+        self.assertTrue(fname.endswith(".xlsx"))
+        from openpyxl import load_workbook
+        import io
+
+        wb = load_workbook(io.BytesIO(payload))
+        ws = wb.active
+        rows = [
+            tuple(c.value for c in row)
+            for row in ws.iter_rows(min_row=1, max_row=ws.max_row)
+            if any(c.value not in (None, "") for c in row)
+        ]
+        self.assertEqual(rows[0], ("Отправление", "Дата склада (Ozon)"))
+        self.assertEqual(rows[1], ("016-1", "01.09.2026"))
+        self.assertEqual(rows[2], ("016-3", "01.09.2026"))
+        self.assertEqual(len(rows), 3)
+
 
 if __name__ == "__main__":
     unittest.main()

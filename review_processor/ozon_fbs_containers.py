@@ -12,6 +12,7 @@ Seller API:
 """
 from __future__ import annotations
 
+import io
 import json
 import re
 import logging
@@ -1819,3 +1820,66 @@ def get_container_modal_details(
         container=meta,
         client=client,
     )
+
+
+def build_container_composition_xlsx(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    container_id: int,
+    container: dict[str, Any] | None = None,
+    client: oz.OzonFbsClient | None = None,
+) -> tuple[bytes, str]:
+    """XLSX: posting numbers + warehouse_date for one cargo place."""
+    try:
+        from openpyxl import Workbook
+    except ImportError as exc:
+        raise RuntimeError(
+            "Для экспорта Excel нужен пакет openpyxl. Установите: pip install openpyxl"
+        ) from exc
+
+    details = get_container_modal_details(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=supply_id,
+        container_id=container_id,
+        container=container,
+        client=client,
+    )
+    warehouse_display = str(details.get("warehouse_date_display") or "").strip()
+    if not warehouse_display:
+        warehouse_display = str(details.get("warehouse_date") or "").strip() or "—"
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Состав"
+    ws.append(["Отправление", "Дата склада (Ozon)"])
+    for row in details.get("postings") or []:
+        if not isinstance(row, dict):
+            continue
+        pn = str(row.get("posting_number") or "").strip()
+        if not pn:
+            continue
+        ws.append([pn, warehouse_display])
+    ws.column_dimensions["A"].width = 28
+    ws.column_dimensions["B"].width = 22
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    payload = buf.getvalue()
+    try:
+        cid = int(details.get("container_id") or container_id or 0)
+    except (TypeError, ValueError):
+        cid = int(container_id or 0)
+    try:
+        num = int(details.get("container_number") or 0)
+    except (TypeError, ValueError):
+        num = 0
+    if num > 0:
+        fname = f"GM-{cid}-N{num}-sostav.xlsx"
+    else:
+        fname = f"GM-{cid}-sostav.xlsx"
+    return payload, fname

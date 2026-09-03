@@ -7936,6 +7936,31 @@ tr.dnd-over td {
   font-weight: 650;
   color: #0f172a;
 }
+.ozon-fbs-containers-composition-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 0;
+}
+.ozon-fbs-containers-composition-xls {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  color: #2563eb;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  padding: 2px 2px;
+  cursor: pointer;
+}
+.ozon-fbs-containers-composition-xls:hover {
+  color: #1d4ed8;
+  border-bottom-color: #1d4ed8;
+}
+.ozon-fbs-containers-composition-xls:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
 .ozon-fbs-containers-detail-loading,
 .ozon-fbs-containers-detail-empty,
 .ozon-fbs-containers-detail-error {
