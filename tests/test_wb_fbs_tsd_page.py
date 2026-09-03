@@ -170,6 +170,11 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "renderOzonOrderCardBodyHtml" in js
     assert "renderOzonOrderCardHtml" in js
     assert "renderWbOrderCardHtml" in js
+    # List (start) screen hides back-to-/app; hub/scan keep ←.
+    assert "Start screen is the TSD entry point" in js
+    list_body = js.split("function renderList", 1)[1].split("function renderHub", 1)[0]
+    assert 'back.hidden = true' in list_body
+    assert 'back.href = "/app"' not in list_body
     assert "tsd-scanned-item-wb" in js
     assert "Шаг 1" not in js
     assert "Шаг 2" not in js

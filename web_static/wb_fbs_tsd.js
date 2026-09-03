@@ -3306,11 +3306,11 @@
     syncSearchChrome();
     syncScrollTopFab();
     if (prog) prog.hidden = true;
+    // Start screen is the TSD entry point — no back to web /app.
     if (back) {
-      back.hidden = false;
-      back.href = "/app";
+      back.hidden = true;
       back.onclick = null;
-      back.textContent = "←";
+      back.removeAttribute("href");
     }
     title.textContent = "ТСД";
 
