@@ -66,4 +66,7 @@ assert(src.includes("keepOnFail"), "refresh keeps GM cache on transient fail");
 assert(src.includes("Optimistic chrome"), "optimistic badge/counter refresh");
 assert(src.includes("tsd-scanned-gm") || src.includes("tsd-scanned-gm"), "GM badge own row");
 
+assert(src.includes("return to sticker immediately"), "bind after UI reset per TZ");
+assert(src.includes("Rebind sheet is modal"), "ignore scans while rebind open");
+
 console.log("ok - ozon_fbs_tsd_gm_smoke");

@@ -566,6 +566,14 @@
           `Привязать к грузоместу ${newBarcode}?`;
       }
       sheet.hidden = false;
+      const scanInput = document.getElementById("tsdScanInput");
+      if (scanInput) {
+        try {
+          scanInput.blur();
+        } catch (_e) {
+          /* ignore */
+        }
+      }
     });
   }
 
@@ -3566,6 +3574,8 @@
 
   async function onScanEnter(input) {
     const mode = state.route.mode;
+    // Rebind sheet is modal — ignore wedge input until operator answers.
+    if (isOzon() && state.gm.rebindResolver) return;
     let raw = String(input.value || "");
     if (!normalizeScan(raw)) return;
     if (hasCyrillic(raw)) {
@@ -3700,7 +3710,6 @@
             : `КИЗ ${kizN} записан · ${label}`,
           "ok"
         );
-        await maybeBindGmAfterSuccess(row);
       } else {
         const check = eanMatchesOrder(raw, row);
         if (!check.ok) {
@@ -3715,12 +3724,13 @@
         noteSessionScanned(rowId);
         schedulePickLocalAutosave(rowId);
         setBanner(`ШК подтверждён · ${rowDisplayLabel(row)}`, "ok");
-        await maybeBindGmAfterSuccess(row);
       }
+      // TZ: return to sticker immediately; bind is background except rebind confirm.
       beep(true);
       state.pendingOrderId = null;
       state.step = "sticker";
       patchScanAfterSuccess(mode, input);
+      await maybeBindGmAfterSuccess(row);
     } catch (e) {
       setBanner(e.message || String(e), "err");
       beep(false);
