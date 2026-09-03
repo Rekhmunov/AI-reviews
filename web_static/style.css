@@ -5310,6 +5310,42 @@ body.sst-col-resizing * {
   border-radius: 0 0 var(--radius-lg, 12px) var(--radius-lg, 12px);
 }
 .supplies-total { color: #64748b; font-size: 13px; }
+
+.ozon-fbs-lookup-detail {
+  margin: 0 0 12px;
+  padding: 16px 20px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+  max-width: 720px;
+}
+.ozon-fbs-lookup-detail[hidden] {
+  display: none !important;
+}
+.ozon-fbs-lookup-detail .wb-fbs-product {
+  margin-bottom: 12px;
+}
+.ozon-fbs-lookup-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(100px, 140px) 1fr;
+  gap: 8px 16px;
+  align-items: start;
+}
+.ozon-fbs-lookup-detail-grid .ozon-fbs-lookup-k {
+  color: #64748b;
+  font-size: 14px;
+}
+.ozon-fbs-lookup-detail-grid .ozon-fbs-lookup-v {
+  color: #0f172a;
+  font-size: 14px;
+  word-break: break-word;
+}
+.ozon-fbs-lookup-detail-meta {
+  margin-top: 12px;
+  color: #64748b;
+  font-size: 13px;
+}
+
 .supplies-filter-count {
   color: #334155;
   font-size: 14px;

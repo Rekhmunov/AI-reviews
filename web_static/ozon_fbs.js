@@ -240,6 +240,78 @@
   function clearLookupMode() {
     state.lookupMode = false;
     state.lookupMeta = null;
+    _ozonFbsRenderLookupDetail(null);
+  }
+
+  function _ozonFbsLookupDash(value) {
+    const s = String(value || "").trim();
+    return s || "—";
+  }
+
+  function _ozonFbsLookupDetailRows(details) {
+    if (!details || typeof details !== "object") return [];
+    const kiz = Array.isArray(details.kiz_codes)
+      ? details.kiz_codes.map((c) => String(c || "").trim()).filter(Boolean)
+      : [];
+    const pickOk = !!details.pick_verified && !!String(details.pick_barcode || "").trim();
+    const containerLabel = String(details.container_label || "").trim();
+    const containerStatus = String(details.container_status_label || "").trim();
+    const containerDate = String(details.container_warehouse_date || "").trim();
+    let gmValue = "—";
+    if (containerLabel) {
+      gmValue = containerLabel;
+      if (containerStatus) gmValue += ` · ${containerStatus}`;
+    }
+    const rows = [
+      ["Вкладка", _ozonFbsLookupDash(details.tab_label)],
+      ["Статус Ozon", _ozonFbsLookupDash(details.status_label || details.status)],
+      ["Поставка", _ozonFbsLookupDash(details.supply_id)],
+      ["Стикер", _ozonFbsLookupDash(details.sticker_barcode)],
+      ["КИЗ", kiz.length ? kiz.join(", ") : "не сохранён"],
+      ["Проверка ШК", pickOk ? String(details.pick_barcode) : "не проверен"],
+      ["Грузоместо", gmValue],
+    ];
+    if (containerLabel && (containerDate || details.container_sc_accepted)) {
+      rows.push([
+        "ГМ на СЦ",
+        containerDate
+          ? (details.container_sc_accepted ? `принято ${containerDate}` : containerDate)
+          : (details.container_sc_accepted ? "принято на СЦ" : "—"),
+      ]);
+    }
+    if (details.in_process_at) rows.push(["В обработке с", details.in_process_at]);
+    if (details.shipment_date) rows.push(["Дата отгрузки", details.shipment_date]);
+    if (details.delivering_date) rows.push(["Передано в доставку", details.delivering_date]);
+    return rows;
+  }
+
+  function _ozonFbsRenderLookupDetail(details, { viaText = "" } = {}) {
+    const box = document.getElementById("ozonFbsLookupDetail");
+    if (!box) return;
+    if (!details) {
+      box.hidden = true;
+      box.innerHTML = "";
+      return;
+    }
+    const pn = String(details.posting_number || "");
+    const rows = _ozonFbsLookupDetailRows(details)
+      .map(
+        ([k, v]) =>
+          `<div class="ozon-fbs-lookup-k">${esc(k)}</div><div class="ozon-fbs-lookup-v">${esc(v)}</div>`
+      )
+      .join("");
+    box.hidden = false;
+    box.innerHTML = `
+      <div class="wb-fbs-product">
+        <div class="wb-fbs-product-text">
+          <div class="wb-fbs-kiz-order-id">${formatOzonPostingNumberHtml(pn)}</div>
+          <div class="wb-fbs-product-name">${esc(details.product_name || details.offer_id || "—")}</div>
+          <div class="wb-fbs-product-sub">Арт. ${esc(details.offer_id || "—")} · заказ ${esc(details.order_number || "—")}</div>
+        </div>
+      </div>
+      <div class="ozon-fbs-lookup-detail-grid">${rows}</div>
+      ${viaText ? `<div class="ozon-fbs-lookup-detail-meta">${esc(viaText)}</div>` : ""}
+    `;
   }
 
   async function lookupPostingByNumber(postingNumber, { seq, refresh = true } = {}) {
@@ -263,8 +335,11 @@
       clearLookupMode();
       return false;
     }
-    const tab = String(data.tab || item.tab || "").trim();
-    const supplyId = String(item.supply_id || "").trim();
+    const details = data.details && typeof data.details === "object" ? data.details : null;
+    const tab = String(data.tab || details?.tab || item.tab || "").trim();
+    const supplyId = String(
+      (details && details.supply_id) || item.supply_id || ""
+    ).trim();
     state.lookupMode = true;
     state.lookupMeta = {
       posting_number: String(data.posting_number || postingNumber),
@@ -288,16 +363,39 @@
     syncTableMode();
     renderTable([item]);
     syncPackagingActionButtons();
+    const tabLabel = String(
+      details?.tab_label || OZON_FBS_TAB_LABELS[tab] || tab || "—"
+    ).trim();
+    const statusLabel = String(
+      details?.status_label || item.status_label || item.status || ""
+    ).trim();
+    const via = data.status_refreshed || data.source === "local+api"
+      ? "статус обновлён из Ozon"
+      : (data.message && String(data.message).startsWith("Статус из базы")
+        ? "статус из базы (API недоступен)"
+        : "найдено в базе");
     const info = document.getElementById("ozonFbsInfo");
     if (info) {
-      const tabLabel = OZON_FBS_TAB_LABELS[tab] || tab || "—";
-      const supplyBit = supplyId ? ` · поставка ${supplyId}` : "";
-      const via = data.status_refreshed || data.source === "local+api"
-        ? "статус из Ozon"
-        : (data.message && String(data.message).startsWith("Статус из базы")
-          ? "статус из базы (API недоступен)"
-          : "найдено в базе");
-      info.textContent = `Отправление ${postingNumber}: ${tabLabel}${supplyBit} · ${via}`;
+      const statusBit = statusLabel ? ` · ${statusLabel}` : "";
+      info.textContent = `Отправление ${postingNumber}: ${tabLabel}${statusBit} · ${via}`;
+    }
+    if (details) {
+      _ozonFbsRenderLookupDetail(details, { viaText: via });
+    } else {
+      _ozonFbsRenderLookupDetail({
+        posting_number: postingNumber,
+        product_name: item.product_name || item.offer_id || "—",
+        offer_id: item.offer_id || "",
+        order_number: item.order_number || item.order_id || "",
+        tab_label: tabLabel,
+        status_label: statusLabel,
+        supply_id: supplyId,
+        sticker_barcode: item.sticker_barcode || "",
+        kiz_codes: [],
+        pick_verified: false,
+        pick_barcode: "",
+        container_label: "",
+      }, { viaText: via });
     }
     const pageInfo = document.getElementById("ozonFbsPageInfo");
     if (pageInfo) pageInfo.textContent = "1 / 1";
@@ -10265,21 +10363,44 @@
       return;
     }
     const pn = String(posting.posting_number || "");
-    const kiz = Array.isArray(posting.kiz_codes) ? posting.kiz_codes.filter(Boolean) : [];
-    const pickOk = posting.pick_verified && posting.pick_barcode;
+    const details = {
+      posting_number: pn,
+      product_name: posting.product_name || posting.offer_id || "—",
+      offer_id: posting.offer_id || "",
+      order_number: posting.order_number || posting.order_id || "",
+      tab_label: OZON_FBS_TAB_LABELS[String(posting.tab || "").trim()]
+        || posting.tab
+        || "",
+      status_label: posting.status_label || posting.status || "",
+      supply_id: posting.supply_id || "",
+      sticker_barcode: posting.sticker_barcode || "",
+      kiz_codes: Array.isArray(posting.kiz_codes) ? posting.kiz_codes : [],
+      pick_verified: !!posting.pick_verified,
+      pick_barcode: posting.pick_barcode || "",
+      container_label: posting.container_label || "",
+      container_status_label: posting.container_status_label || "",
+      container_warehouse_date: posting.container_warehouse_date || "",
+      container_sc_accepted: !!posting.container_sc_accepted,
+      in_process_at: posting.in_process_at || "",
+      shipment_date: posting.shipment_date || "",
+      delivering_date: posting.delivering_date || "",
+    };
+    const rows = _ozonFbsLookupDetailRows(details)
+      .map(
+        ([k, v]) =>
+          `<div class="ozon-fbs-lookup-k">${esc(k)}</div><div class="ozon-fbs-lookup-v">${esc(v)}</div>`
+      )
+      .join("");
     box.hidden = false;
     box.innerHTML = `
       <div class="wb-fbs-product" style="margin-bottom:12px">
         <div class="wb-fbs-product-text">
           <div class="wb-fbs-kiz-order-id">${formatOzonPostingNumberHtml(pn)}</div>
-          <div class="wb-fbs-product-name">${esc(posting.product_name || posting.offer_id || "—")}</div>
-          <div class="wb-fbs-product-sub">Арт. ${esc(posting.offer_id || "—")} · заказ ${esc(posting.order_number || posting.order_id || "—")}</div>
+          <div class="wb-fbs-product-name">${esc(details.product_name)}</div>
+          <div class="wb-fbs-product-sub">Арт. ${esc(details.offer_id || "—")} · заказ ${esc(details.order_number || "—")}</div>
         </div>
       </div>
-      <div class="small"><strong>Стикер:</strong> ${esc(posting.sticker_barcode || "—")}</div>
-      <div class="small"><strong>КИЗ:</strong> ${kiz.length ? esc(kiz.join(", ")) : "не сохранён"}</div>
-      <div class="small"><strong>ШК:</strong> ${pickOk ? esc(posting.pick_barcode) : "не проверен"}</div>
-      ${posting.supply_id ? `<div class="small"><strong>Поставка:</strong> ${esc(posting.supply_id)}</div>` : ""}
+      <div class="ozon-fbs-lookup-detail-grid">${rows}</div>
     `;
   }
 

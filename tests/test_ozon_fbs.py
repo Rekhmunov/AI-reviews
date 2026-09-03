@@ -211,6 +211,71 @@ class OzonFbsMappingTests(unittest.TestCase):
         self.assertEqual(parse_posting_number_query("0124861120"), "")
         self.assertEqual(parse_posting_number_query("123"), "")
 
+    def test_format_lookup_datetime_date_and_iso(self) -> None:
+        from review_processor.ozon_fbs import format_lookup_datetime
+
+        self.assertEqual(format_lookup_datetime("2026-08-30"), "30.08.2026")
+        self.assertEqual(format_lookup_datetime(""), "")
+        self.assertEqual(format_lookup_datetime(None), "")
+        out = format_lookup_datetime("2026-08-30T12:00:00+00:00")
+        self.assertRegex(out, r"^\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$")
+
+    def test_build_posting_lookup_details_local_and_container(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        from review_processor.ozon_fbs import build_posting_lookup_details
+
+        repo = MagicMock()
+        row = {
+            "posting_number": "44982205-0237-1",
+            "tab": TAB_DELIVERING,
+            "status": "delivering",
+            "offer_id": "ART-1",
+            "product_name": "Товар",
+            "order_number": "ORD-1",
+            "supply_id": "OZ-FBS-1",
+            "marking_codes_json": '["01abc"]',
+            "pick_verified": True,
+            "pick_barcode": "460123",
+            "sticker_barcode": "STICK",
+            "container_id": 99,
+            "container_barcode": "GM-99",
+            "raw_json": "{}",
+            "products_json": "[]",
+        }
+        client = MagicMock()
+        with patch(
+            "review_processor.ozon_fbs_containers._fetch_container_row",
+            return_value={
+                "container_id": 99,
+                "container_number": 7,
+                "status": "finished",
+                "status_label": "Завершено на СЦ",
+                "warehouse_date": "2026-08-30",
+            },
+        ), patch(
+            "review_processor.ozon_fbs_containers.is_sc_accepted_container",
+            return_value=True,
+        ):
+            details = build_posting_lookup_details(
+                repo,
+                user_id=1,
+                source_id=2,
+                row=row,
+                remote={"status": "delivering", "shipment_date": "2026-08-29"},
+                client=client,
+            )
+        self.assertEqual(details["status_label"], "Доставляется")
+        self.assertEqual(details["tab_label"], "Доставляются")
+        self.assertEqual(details["kiz_codes"], ["01abc"])
+        self.assertTrue(details["pick_verified"])
+        self.assertEqual(details["pick_barcode"], "460123")
+        self.assertEqual(details["container_label"], "GM-99")
+        self.assertEqual(details["container_status_label"], "Завершено на СЦ")
+        self.assertEqual(details["container_warehouse_date"], "30.08.2026")
+        self.assertTrue(details["container_sc_accepted"])
+        self.assertEqual(details["shipment_date"], "29.08.2026")
+
     def test_lookup_posting_by_number_local(self) -> None:
         from unittest.mock import MagicMock, patch
 
@@ -237,6 +302,17 @@ class OzonFbsMappingTests(unittest.TestCase):
         ), patch(
             "review_processor.ozon_fbs._enrich_posting_list_item",
             return_value={**row, "warehouse_label": "Склад", "tab_label": "Ожидают отгрузки"},
+        ), patch(
+            "review_processor.ozon_fbs.build_posting_lookup_details",
+            return_value={
+                "posting_number": "0124861120-0199-1",
+                "status": "awaiting_deliver",
+                "status_label": "Ожидает отгрузки",
+                "tab_label": "Ожидают отгрузки",
+                "container_label": "",
+                "kiz_codes": [],
+                "pick_verified": False,
+            },
         ):
             out = lookup_posting_by_number(
                 repo,
@@ -250,6 +326,8 @@ class OzonFbsMappingTests(unittest.TestCase):
         self.assertFalse(out["status_refreshed"])
         self.assertEqual(out["tab"], TAB_AWAITING_DELIVER)
         self.assertEqual(out["item"]["posting_number"], "0124861120-0199-1")
+        self.assertEqual(out["details"]["status_label"], "Ожидает отгрузки")
+        self.assertEqual(out["item"]["status_label"], "Ожидает отгрузки")
 
     def test_lookup_posting_by_number_miss(self) -> None:
         from unittest.mock import MagicMock, patch

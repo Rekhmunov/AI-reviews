@@ -290,15 +290,25 @@ def lookup_posting_by_scan(
         codes = []
     codes_clean = [wb._kiz_code_clean(x) for x in codes if wb._kiz_code_clean(x)]
     sticker = oz.posting_sticker_payload_from_row(row)
+    details = oz.build_posting_lookup_details(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        row=row,
+        remote=None,
+        client=None,
+    )
     return {
         "ok": True,
         "found": True,
         "ambiguous": False,
+        "details": details,
         "posting": {
             **sticker,
             "supply_id": str(row.get("supply_id") or "").strip(),
             "tab": str(row.get("tab") or "").strip(),
             "status": str(row.get("status") or "").strip(),
+            "status_label": str(details.get("status_label") or "").strip(),
             "offer_id": str(row.get("offer_id") or "").strip(),
             "sku": row.get("sku"),
             "product_name": str(row.get("product_name") or "").strip(),
@@ -308,5 +318,13 @@ def lookup_posting_by_scan(
             and bool(str(row.get("pick_barcode") or "").strip()),
             "pick_barcode": str(row.get("pick_barcode") or "").strip(),
             "pick_verified_at": wb._normalize_kiz_saved_at(row.get("pick_verified_at")),
+            "container_id": details.get("container_id"),
+            "container_label": details.get("container_label") or "",
+            "container_status_label": details.get("container_status_label") or "",
+            "container_warehouse_date": details.get("container_warehouse_date") or "",
+            "container_sc_accepted": bool(details.get("container_sc_accepted")),
+            "in_process_at": details.get("in_process_at") or "",
+            "shipment_date": details.get("shipment_date") or "",
+            "delivering_date": details.get("delivering_date") or "",
         },
     }

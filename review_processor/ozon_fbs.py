@@ -2546,6 +2546,141 @@ def refresh_posting_status_only(
     )
 
 
+def format_lookup_datetime(value: object) -> str:
+    """Operator-facing datetime for search cards (MSK ``DD.MM.YYYY HH:MM``)."""
+    if value is None:
+        return ""
+    dt: datetime | None
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        # Date-only from Ozon (warehouse_date / shipment_date).
+        if len(text) == 10 and text[4] == "-" and text[7] == "-":
+            try:
+                d = datetime.strptime(text, "%Y-%m-%d").date()
+                return d.strftime("%d.%m.%Y")
+            except ValueError:
+                return text
+        try:
+            dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except Exception:
+            return text
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    try:
+        from zoneinfo import ZoneInfo
+
+        dt = dt.astimezone(ZoneInfo("Europe/Moscow"))
+    except Exception:
+        dt = dt.astimezone(UTC)
+    return dt.strftime("%d.%m.%Y %H:%M")
+
+
+def build_posting_lookup_details(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    row: dict[str, Any],
+    remote: dict[str, Any] | None = None,
+    client: OzonFbsClient | None = None,
+) -> dict[str, Any]:
+    """Structured card for toolbar search / sticker lookup (KIZ, pick, GM, status)."""
+    _ = (repo, user_id, source_id)
+    from . import ozon_fbs_containers as oz_ct
+    from . import wb_fbs as wb
+
+    pn = str(row.get("posting_number") or "").strip()
+    posting = remote if isinstance(remote, dict) and remote else _posting_payload_from_row(row)
+    if not isinstance(posting, dict):
+        posting = {}
+
+    offer_id = str(row.get("offer_id") or "").strip()
+    product_name = str(row.get("product_name") or "").strip() or offer_id or "—"
+    order_number = str(
+        row.get("order_number")
+        or posting.get("order_number")
+        or row.get("order_id")
+        or ""
+    ).strip()
+
+    status = ""
+    if isinstance(remote, dict):
+        status = str(remote.get("status") or "").strip().lower()
+    if not status:
+        status = str(row.get("status") or posting.get("status") or "").strip().lower()
+    tab = str(row.get("tab") or compute_tab(status) or "").strip().lower()
+
+    try:
+        codes = json.loads(str(row.get("marking_codes_json") or "[]"))
+    except json.JSONDecodeError:
+        codes = []
+    if not isinstance(codes, list):
+        codes = []
+    kiz_codes = [wb._kiz_code_clean(x) for x in codes if wb._kiz_code_clean(x)]
+
+    sticker = posting_sticker_payload_from_row(row)
+    pick_barcode = str(row.get("pick_barcode") or "").strip()
+    pick_verified = bool(row.get("pick_verified")) and bool(pick_barcode)
+
+    try:
+        container_id = int(row.get("container_id") or 0)
+    except (TypeError, ValueError):
+        container_id = 0
+    container_barcode = str(row.get("container_barcode") or "").strip()
+    container_label = container_barcode or (str(container_id) if container_id > 0 else "")
+    container_status = ""
+    container_status_label = ""
+    container_warehouse_date = ""
+    container_sc_accepted = False
+
+    if container_id > 0 and client is not None:
+        try:
+            meta = oz_ct._fetch_container_row(client, container_id=container_id)
+        except Exception as exc:
+            _log.warning("ozon lookup container get %s: %s", container_id, exc)
+            meta = None
+        if isinstance(meta, dict):
+            container_status = str(meta.get("status") or "").strip().lower()
+            container_status_label = str(meta.get("status_label") or "").strip()
+            container_warehouse_date = format_lookup_datetime(meta.get("warehouse_date"))
+            container_sc_accepted = oz_ct.is_sc_accepted_container(meta)
+            number = meta.get("container_number")
+            if not container_label and number not in (None, "", 0, "0"):
+                container_label = str(number)
+
+    return {
+        "posting_number": pn,
+        "product_name": product_name,
+        "offer_id": offer_id,
+        "order_number": order_number,
+        "supply_id": str(row.get("supply_id") or "").strip(),
+        "tab": tab,
+        "tab_label": TAB_LABELS.get(tab, tab or "—"),
+        "status": status,
+        "status_label": ozon_status_label_ru(status),
+        "sticker_barcode": str(sticker.get("sticker_barcode") or "").strip(),
+        "sticker_lower_barcode": str(sticker.get("sticker_lower_barcode") or "").strip(),
+        "kiz_codes": kiz_codes,
+        "pick_verified": pick_verified,
+        "pick_barcode": pick_barcode,
+        "container_id": container_id if container_id > 0 else None,
+        "container_label": container_label,
+        "container_status": container_status,
+        "container_status_label": container_status_label,
+        "container_warehouse_date": container_warehouse_date,
+        "container_sc_accepted": container_sc_accepted,
+        "in_process_at": format_lookup_datetime(
+            posting.get("in_process_at") or row.get("in_process_at")
+        ),
+        "shipment_date": format_lookup_datetime(posting.get("shipment_date")),
+        "delivering_date": format_lookup_datetime(posting.get("delivering_date")),
+    }
+
+
 def lookup_posting_by_number(
     repo: ReviewRepository,
     *,
@@ -2593,12 +2728,16 @@ def lookup_posting_by_number(
 
     status_refreshed = False
     api_warning = ""
+    remote: dict[str, Any] = {}
+    api: OzonFbsClient | None = None
     cid = str(client_id or "").strip()
     key = str(api_key or "").strip()
     if allow_remote and cid and key:
         try:
-            client = OzonFbsClient(cid, key)
-            remote = client.get_posting(pn)
+            api = OzonFbsClient(cid, key)
+            got = api.get_posting(pn)
+            if isinstance(got, dict):
+                remote = got
             remote_status = str(remote.get("status") or "").strip()
             if remote_status:
                 updated = refresh_posting_status_only(
@@ -2617,8 +2756,21 @@ def lookup_posting_by_number(
                 "ozon_fbs lookup status refresh failed pn=%s: %s", pn, exc
             )
             api_warning = "Статус из базы (Ozon API недоступен)"
+            api = None
 
     item = _enrich_posting_list_item(repo, user_id=user_id, row=local)
+    details = build_posting_lookup_details(
+        repo,
+        user_id=user_id,
+        source_id=sid,
+        row=local,
+        remote=remote or None,
+        client=api,
+    )
+    # Prefer Russian Ozon status on the list item used by search card.
+    if details.get("status_label"):
+        item["status_label"] = details["status_label"]
+        item["status"] = details.get("status") or item.get("status")
     source = "local+api" if status_refreshed else "local"
     message = api_warning
     if status_refreshed:
@@ -2629,6 +2781,7 @@ def lookup_posting_by_number(
         "posting_number": str(item.get("posting_number") or pn),
         "tab": str(item.get("tab") or ""),
         "item": item,
+        "details": details,
         "counts": counts,
         "status_refreshed": status_refreshed,
         "message": message,
