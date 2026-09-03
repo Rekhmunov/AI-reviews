@@ -103,6 +103,11 @@ assert(src.includes("tsd-gm-side"), "GM side icons beside scan field");
 assert(src.includes("tsd-gm-icon-btn"), "square GM icon buttons");
 assert(src.includes("tsdGmAdd"), "add GM control id");
 assert(src.includes("startGmScan"), "shared startGmScan handler");
+assert(
+  src.includes("else if (bcLow && scanKey(bcLow) === rawKey)"),
+  "sticker upper/lower exclusive match (false ambiguous fix)"
+);
+assert(src.includes("seenBc"), "sticker barcode matches deduped");
 assert(src.includes("Сканируйте QR грузоместа"), "awaiting-scan prompt above input");
 assert(!src.includes("Отсканируйте QR грузоместа"), "no blue banner for GM scan prompt");
 assert(!src.includes("Отсканируйте QR другого грузоместа"), "no blue banner for GM change prompt");

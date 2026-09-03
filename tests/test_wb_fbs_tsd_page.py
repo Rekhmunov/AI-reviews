@@ -71,6 +71,8 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "sourceOptionLabel" in js
     assert "sticker_barcode" in js
     assert "sticker_lower_barcode" in js
+    assert "else if (bcLow && scanKey(bcLow) === rawKey)" in js
+    assert "seenBc" in js
     assert "sticker_part_a" in js
     assert "expected_saved_at" in js
     assert "expected_verified_at" in js

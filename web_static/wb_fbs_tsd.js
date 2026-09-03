@@ -1231,16 +1231,24 @@
   }
 
   function findBySticker(rows, raw) {
-    // Parity with desktop: primary sticker_barcode (QR/1D), then partA+partB / number.
+    // Parity with desktop Ozon/WB: primary sticker_barcode (QR/1D), then partA+partB / number.
+    // One row must only match once (upper else lower) — duplicate pushes caused false «ambiguous».
     const scan = normalizeScan(raw);
     if (!scan) return { row: null, ambiguous: false };
     const rawKey = scanKey(scan);
     const byBarcode = [];
+    const seenBc = new Set();
     for (const row of rows || []) {
+      const id = rowScanId(row);
       const bc = normalizeScan(row.sticker_barcode);
-      if (bc && scanKey(bc) === rawKey) byBarcode.push(row);
       const bcLow = normalizeScan(row.sticker_lower_barcode);
-      if (bcLow && scanKey(bcLow) === rawKey) byBarcode.push(row);
+      let hit = false;
+      if (bc && scanKey(bc) === rawKey) hit = true;
+      else if (bcLow && scanKey(bcLow) === rawKey) hit = true;
+      if (!hit) continue;
+      if (id && seenBc.has(id)) continue;
+      if (id) seenBc.add(id);
+      byBarcode.push(row);
     }
     if (byBarcode.length === 1) return { row: byBarcode[0], ambiguous: false };
     if (byBarcode.length > 1) {
@@ -1249,6 +1257,7 @@
 
     const digits = digitsOnly(scan);
     const matches = [];
+    const seenFuzzy = new Set();
     for (const row of rows || []) {
       const full = normalizeScan(
         row.sticker_number || row.sticker || row.posting_number || ""
@@ -1260,13 +1269,16 @@
         (partA && partB && digits && digits === digitsOnly(`${partA}${partB}`)) ||
         (partB && (rawKey === scanKey(partB) || (digits && digits === digitsOnly(partB))))
       ) {
+        const id = rowScanId(row);
+        if (id && seenFuzzy.has(id)) continue;
+        if (id) seenFuzzy.add(id);
         matches.push(row);
       }
     }
     if (matches.length === 1) return { row: matches[0], ambiguous: false };
     if (matches.length > 1) {
       const exact = matches.find((r) => {
-        const full = normalizeScan(r.sticker_number);
+        const full = normalizeScan(r.sticker_number || r.posting_number || "");
         return scanKey(full) === rawKey || digitsOnly(full) === digits;
       });
       if (exact) return { row: exact, ambiguous: false };
