@@ -2695,12 +2695,17 @@
         .map((r) => {
           const oid = esc(rowScanId(r));
           if (isOzon()) {
-            // Same card UI as scanned list: photo+name on top, details under the line.
+            // Same card UI as scanned list, including clear-all ×.
             return `
-            <button type="button" class="tsd-search-item tsd-search-item-ozon" data-action="pick-search-order"
-              data-order-id="${oid}">
-              ${renderOzonOrderCardBodyHtml(r, mode)}
-            </button>`;
+            <div class="tsd-search-item tsd-search-item-ozon tsd-scanned-item-ozon">
+              <button type="button" class="tsd-scanned-clear"
+                data-action="clear-scanned-all" data-order-id="${oid}"
+                aria-label="Очистить заказ" title="Очистить КИЗ/ШК и снять с ГМ">×</button>
+              <button type="button" class="tsd-search-item-main" data-action="pick-search-order"
+                data-order-id="${oid}">
+                ${renderOzonOrderCardBodyHtml(r, mode)}
+              </button>
+            </div>`;
           }
           const photo = rowPhotoHtml(r, 48);
           const barcodes = orderBarcodesLabel(r);
@@ -2761,10 +2766,15 @@
         ${
           state.searchOpen
             ? `<div class="tsd-browse-search">
-                <input class="tsd-search-input" id="tsdBrowseSearchInput" type="search"
-                  placeholder="Стикер, заказ, ШК, артикул, название…"
-                  autocomplete="off" enterkeyhint="search"
-                  value="${esc(String(state.orderSearch || ""))}" />
+                <div class="tsd-browse-search-row">
+                  <input class="tsd-search-input" id="tsdBrowseSearchInput" type="search"
+                    placeholder="Стикер, заказ, ШК, артикул, название…"
+                    autocomplete="off" enterkeyhint="search"
+                    value="${esc(String(state.orderSearch || ""))}" />
+                  <button type="button" class="tsd-icon-btn tsd-browse-search-clear" id="tsdBrowseSearchClear"
+                    ${String(state.orderSearch || "").trim() ? "" : "hidden"}
+                    aria-label="Очистить поиск" title="Очистить">×</button>
+                </div>
               </div>`
             : ""
         }
@@ -2822,15 +2832,48 @@
     const searchList = document.getElementById("tsdSearchList");
     if (searchList) {
       searchList.addEventListener("click", (ev) => {
-        const btn = ev.target && ev.target.closest
-          ? ev.target.closest("[data-action='pick-search-order']")
-          : null;
+        const clearBtn =
+          ev.target && ev.target.closest
+            ? ev.target.closest("[data-action='clear-scanned-all']")
+            : null;
+        if (clearBtn) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          const mode = state.route.mode;
+          clearScannedOrderAll(mode, clearBtn.getAttribute("data-order-id"));
+          return;
+        }
+        const btn =
+          ev.target && ev.target.closest
+            ? ev.target.closest("[data-action='pick-search-order']")
+            : null;
         if (!btn) return;
         ev.preventDefault();
         selectOrderFromSearch(btn.getAttribute("data-order-id"));
       });
     }
     const browseSearch = document.getElementById("tsdBrowseSearchInput");
+    const browseSearchClear = document.getElementById("tsdBrowseSearchClear");
+    const syncBrowseSearchClear = () => {
+      if (!browseSearchClear) return;
+      browseSearchClear.hidden = !String(
+        (browseSearch && browseSearch.value) || state.orderSearch || ""
+      ).trim();
+    };
+    if (browseSearchClear) {
+      browseSearchClear.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        state.orderSearch = "";
+        if (browseSearch) browseSearch.value = "";
+        const headerInput = document.getElementById("tsdOrderSearch");
+        if (headerInput) headerInput.value = "";
+        syncBrowseSearchClear();
+        refreshSearchResultsOnly();
+        if (browseSearch) {
+          setTimeout(() => browseSearch.focus(), 20);
+        }
+      });
+    }
     if (browseSearch) {
       browseSearch.addEventListener("input", () => {
         state.orderSearch = String(browseSearch.value || "");
@@ -2838,6 +2881,7 @@
         if (headerInput && String(headerInput.value || "") !== state.orderSearch) {
           headerInput.value = state.orderSearch;
         }
+        syncBrowseSearchClear();
         refreshSearchResultsOnly();
       });
       browseSearch.addEventListener("keydown", (ev) => {
@@ -2860,6 +2904,7 @@
           }
         }, 40);
       }
+      syncBrowseSearchClear();
     }
   }
 
