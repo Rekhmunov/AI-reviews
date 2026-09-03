@@ -267,6 +267,59 @@ class OzonFbsStickerLookupTests(unittest.TestCase):
         self.assertEqual(out["posting"]["kiz_codes"], ["010460"])
         self.assertTrue(out["posting"]["pick_verified"])
 
+    @patch("review_processor.ozon_fbs.load_posting_sticker_map")
+    @patch(
+        "review_processor.ozon_fbs_detail._refresh_postings_package_stickers_from_ozon"
+    )
+    @patch("review_processor.ozon_fbs_stickers.find_postings_by_sticker_scan")
+    def test_lookup_refreshes_package_stickers_on_miss(
+        self,
+        mock_find: MagicMock,
+        mock_refresh: MagicMock,
+        mock_map: MagicMock,
+    ) -> None:
+        mock_find.side_effect = [
+            {"row": None, "ambiguous": False, "matches": []},
+            {
+                "row": {
+                    "posting_number": "0163544192-0175-3",
+                    "sticker_barcode": "901963382044000",
+                    "marking_codes_json": "[]",
+                },
+                "ambiguous": False,
+                "matches": [],
+            },
+        ]
+        mock_refresh.return_value = 1
+        mock_map.return_value = {
+            "0163544192-0175-3": {
+                "posting_number": "0163544192-0175-3",
+                "sticker_barcode": "901963382044000",
+            }
+        }
+        client = MagicMock()
+        out = lookup_posting_by_scan(
+            MagicMock(),
+            user_id=1,
+            source_id=2,
+            scan="901963382044000",
+            client=client,
+            refresh_posting_numbers=[
+                "0163544192-0175-1",
+                "0163544192-0175-3",
+                "0163544192-0175-5",
+            ],
+        )
+        self.assertTrue(out["found"])
+        self.assertEqual(out["posting"]["posting_number"], "0163544192-0175-3")
+        mock_refresh.assert_called_once()
+        self.assertTrue(mock_refresh.call_args.kwargs["overwrite"])
+        self.assertEqual(mock_find.call_count, 2)
+        self.assertEqual(
+            out["sticker_bindings"]["0163544192-0175-3"]["sticker_barcode"],
+            "901963382044000",
+        )
+
     def test_find_by_sticker_barcode(self) -> None:
         repo = MagicMock()
         conn = MagicMock()

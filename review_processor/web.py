@@ -12954,8 +12954,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         request: Request,
         source_id: int,
         scan: str,
+        refresh_postings: str | None = None,
     ) -> dict[str, object]:
-        """Find posting by sticker scan / posting_number with local marking + pick state."""
+        """Find posting by sticker scan / posting_number with local marking + pick state.
+
+        ``refresh_postings`` — optional comma-separated posting numbers. On local
+        miss, re-pull package barcodes from Ozon for those rows (post-label lag
+        after split) and retry the match.
+        """
         from . import ozon_fbs_stickers as oz_stickers
 
         user = _require_user(request)
@@ -12964,11 +12970,30 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not source_id or not str(scan or "").strip():
             raise HTTPException(status_code=400, detail="Укажите source_id и scan")
         owner_id = _supply_owner_id(user)
+        refresh_pns = [
+            p.strip()
+            for p in str(refresh_postings or "").split(",")
+            if p.strip()
+        ]
+        client = None
+        if refresh_pns:
+            try:
+                _, client_id, api_key = _ozon_fbs_source_credentials(
+                    owner_id, int(source_id)
+                )
+                if client_id and api_key:
+                    client = ozon_fbs_mod.OzonFbsClient(client_id, api_key)
+            except HTTPException:
+                client = None
+            except Exception:
+                client = None
         return oz_stickers.lookup_posting_by_scan(
             repository,
             user_id=owner_id,
             source_id=int(source_id),
             scan=str(scan).strip(),
+            client=client,
+            refresh_posting_numbers=refresh_pns or None,
         )
 
     @app.get("/api/ozon-fbs/postings/find")
