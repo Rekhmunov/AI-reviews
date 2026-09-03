@@ -376,6 +376,92 @@ def test_enrich_empty_package_stickers_skips_already_bound() -> None:
     assert refresh.call_args.kwargs["overwrite"] is False
 
 
+def test_bind_package_stickers_after_label_print_overwrites() -> None:
+    from review_processor.ozon_fbs_supplies import _bind_package_stickers_after_label_print
+
+    repo = MagicMock()
+    client = MagicMock()
+    with patch(
+        "review_processor.ozon_fbs_supplies.oz_detail._refresh_postings_package_stickers_from_ozon",
+        return_value=2,
+    ) as refresh:
+        n = _bind_package_stickers_after_label_print(
+            repo,
+            user_id=1,
+            source_id=2,
+            client=client,
+            posting_numbers=["P-1", "P-1-3", ""],
+        )
+    assert n == 2
+    refresh.assert_called_once()
+    assert refresh.call_args.kwargs["posting_numbers"] == ["P-1", "P-1-3"]
+    assert refresh.call_args.kwargs["overwrite"] is True
+    assert refresh.call_args.kwargs["client"] is client
+
+
+def test_build_stickers_print_binds_after_label_fetch() -> None:
+    from review_processor.ozon_fbs_supplies import StickersPrintResult, build_stickers_print
+
+    repo = MagicMock()
+    detail = {
+        "supply_id": "S1",
+        "orders": [
+            {
+                "posting_number": "0163544192-0175-1",
+                "tab": "awaiting_deliver",
+                "product_name": "A",
+            },
+            {
+                "posting_number": "0163544192-0175-3",
+                "tab": "awaiting_deliver",
+                "product_name": "B",
+            },
+        ],
+        "order_count": 2,
+    }
+    with (
+        patch(
+            "review_processor.ozon_fbs_supplies.get_supply_detail_for_print",
+            return_value=detail,
+        ),
+        patch(
+            "review_processor.ozon_fbs_supplies._enrich_empty_package_stickers_for_print",
+            return_value=0,
+        ) as pre,
+        patch(
+            "review_processor.ozon_fbs_supplies._fetch_label_images",
+            return_value={
+                "0163544192-0175-1": ["img1"],
+                "0163544192-0175-3": ["img3"],
+            },
+        ),
+        patch(
+            "review_processor.ozon_fbs_supplies._bind_package_stickers_after_label_print",
+            return_value=2,
+        ) as post,
+        patch(
+            "review_processor.ozon_fbs_supplies.render_stickers_print_html",
+            return_value="<html></html>",
+        ),
+        patch("review_processor.ozon_fbs_supplies.oz.OzonFbsClient"),
+    ):
+        out = build_stickers_print(
+            repo,
+            user_id=1,
+            source_id=2,
+            supply_id="S1",
+            client_id="c",
+            api_key="k",
+        )
+    assert isinstance(out, StickersPrintResult)
+    pre.assert_called_once()
+    post.assert_called_once()
+    assert post.call_args.kwargs["posting_numbers"] == [
+        "0163544192-0175-1",
+        "0163544192-0175-3",
+    ]
+
+
 def test_parse_split_empty_children_raises() -> None:
     from review_processor.ozon_fbs_detail import _parse_split_response
 

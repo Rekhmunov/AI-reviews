@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
@@ -10,6 +11,8 @@ from . import ozon_fbs_scans as oz_scans
 from . import wb_fbs as wb
 from .wb_fbs_kiz_restore import normalize_sticker_scan, sticker_number
 from .repository import ReviewRepository
+
+_log = logging.getLogger(__name__)
 
 _POSTING_SCAN_SELECT = """
     posting_number, order_id, order_number, supply_id, tab, status,
@@ -243,6 +246,9 @@ def find_postings_by_sticker_scan(
     return {"row": None, "ambiguous": False, "matches": []}
 
 
+_LOOKUP_REFRESH_MAX = 80
+
+
 def lookup_posting_by_scan(
     repo: ReviewRepository,
     *,
@@ -250,11 +256,51 @@ def lookup_posting_by_scan(
     source_id: int,
     scan: str,
     record_journal: bool = True,
+    client: Any | None = None,
+    refresh_posting_numbers: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Return posting with local marking, pick-verify, and sticker binding."""
+    """Return posting with local marking, pick-verify, and sticker binding.
+
+    When the scan misses locally and ``refresh_posting_numbers`` + ``client`` are
+    set, re-pull package barcodes from Ozon (post-label lag after split) and retry.
+    """
+    from . import ozon_fbs_detail as oz_detail
+
     found = find_postings_by_sticker_scan(
         repo, user_id=user_id, source_id=source_id, scan=scan
     )
+    refreshed_bindings: dict[str, dict[str, str]] = {}
+    refresh_pns = [
+        str(x).strip()
+        for x in (refresh_posting_numbers or [])
+        if str(x).strip()
+    ][:_LOOKUP_REFRESH_MAX]
+    if (
+        not found.get("row")
+        and not found.get("ambiguous")
+        and client is not None
+        and refresh_pns
+    ):
+        try:
+            oz_detail._refresh_postings_package_stickers_from_ozon(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                posting_numbers=refresh_pns,
+                client=client,
+                overwrite=True,
+            )
+            refreshed_bindings = oz.load_posting_sticker_map(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                posting_numbers=refresh_pns,
+            )
+        except Exception as exc:
+            _log.warning("ozon lookup sticker refresh failed: %s", exc)
+        found = find_postings_by_sticker_scan(
+            repo, user_id=user_id, source_id=source_id, scan=scan
+        )
     row = found.get("row")
     matched_pns = [
         str(m.get("posting_number") or "").strip()
@@ -281,6 +327,7 @@ def lookup_posting_by_scan(
                 for m in (found.get("matches") or [])
                 if isinstance(m, dict)
             ],
+            "sticker_bindings": refreshed_bindings,
         }
     try:
         codes = json.loads(str(row.get("marking_codes_json") or "[]"))
@@ -303,6 +350,7 @@ def lookup_posting_by_scan(
         "found": True,
         "ambiguous": False,
         "details": details,
+        "sticker_bindings": refreshed_bindings,
         "posting": {
             **sticker,
             "supply_id": str(row.get("supply_id") or "").strip(),

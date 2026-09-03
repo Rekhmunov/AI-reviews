@@ -8110,6 +8110,54 @@
     return true;
   }
 
+  function _ozonFbsApplyStickerBindings(rows, bindings) {
+    if (!bindings || typeof bindings !== "object" || !Array.isArray(rows)) return;
+    for (const row of rows) {
+      const pn = String(row?.posting_number || "").trim();
+      if (!pn) continue;
+      const st = bindings[pn];
+      if (!st || typeof st !== "object") continue;
+      if (st.sticker_barcode != null) {
+        row.sticker_barcode = String(st.sticker_barcode || "").trim();
+      }
+      if (st.sticker_lower_barcode != null) {
+        row.sticker_lower_barcode = String(st.sticker_lower_barcode || "").trim();
+      }
+      if (st.sticker_part_a != null) {
+        row.sticker_part_a = String(st.sticker_part_a || "").trim();
+      }
+      if (st.sticker_part_b != null) {
+        row.sticker_part_b = String(st.sticker_part_b || "").trim();
+      }
+    }
+  }
+
+  function _ozonFbsLookupRefreshPostings(rows) {
+    const out = [];
+    const seen = new Set();
+    for (const row of Array.isArray(rows) ? rows : []) {
+      const pn = String(row?.posting_number || "").trim();
+      if (!pn || seen.has(pn)) continue;
+      seen.add(pn);
+      out.push(pn);
+      if (out.length >= 80) break;
+    }
+    return out;
+  }
+
+  async function _ozonFbsLookupPostingByScan(scan, rows) {
+    const sourceId = supplyDetailState.sourceId || state.sourceId;
+    const raw = _ozonFbsNormalizeScan(scan);
+    if (!sourceId || !raw) return { found: false };
+    const params = new URLSearchParams({ source_id: String(sourceId), scan: raw });
+    const refreshPns = _ozonFbsLookupRefreshPostings(rows);
+    if (refreshPns.length) params.set("refresh_postings", refreshPns.join(","));
+    const res = await fetch(`/api/ozon-fbs/postings/lookup?${params}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { found: false };
+    return data && typeof data === "object" ? data : { found: false };
+  }
+
   function _ozonFbsKizFindBySticker(scan) {
     const raw = _ozonFbsNormalizeScan(scan);
     if (!raw) return { row: null, ambiguous: false };
@@ -8131,14 +8179,17 @@
   async function _ozonFbsKizFindByStickerWithLookup(scan) {
     const local = _ozonFbsKizFindBySticker(scan);
     if (local.row || local.ambiguous) return local;
-    const sourceId = supplyDetailState.sourceId || state.sourceId;
     const raw = _ozonFbsNormalizeScan(scan);
-    if (!sourceId || !raw) return local;
+    if (!raw) return local;
     try {
-      const params = new URLSearchParams({ source_id: String(sourceId), scan: raw });
-      const res = await fetch(`/api/ozon-fbs/postings/lookup?${params}`);
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.found || !data.posting) return local;
+      const data = await _ozonFbsLookupPostingByScan(raw, ozonFbsKizState.rows);
+      if (data.sticker_bindings) {
+        _ozonFbsApplyStickerBindings(ozonFbsKizState.rows, data.sticker_bindings);
+        _ozonFbsKizRebuildIndexes();
+        const afterRefresh = _ozonFbsKizFindBySticker(scan);
+        if (afterRefresh.row || afterRefresh.ambiguous) return afterRefresh;
+      }
+      if (!data.found || !data.posting) return local;
       const pn = String(data.posting.posting_number || "").trim();
       if (!pn) return local;
       const row = _ozonFbsKizRowByPosting(pn);
@@ -9501,14 +9552,16 @@
   async function _ozonFbsPickFindByStickerWithLookup(scan) {
     const local = _ozonFbsPickFindBySticker(scan);
     if (local.row || local.ambiguous) return local;
-    const sourceId = supplyDetailState.sourceId || state.sourceId;
     const raw = _ozonFbsNormalizeScan(scan);
-    if (!sourceId || !raw) return local;
+    if (!raw) return local;
     try {
-      const params = new URLSearchParams({ source_id: String(sourceId), scan: raw });
-      const res = await fetch(`/api/ozon-fbs/postings/lookup?${params}`);
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.found || !data.posting) return local;
+      const data = await _ozonFbsLookupPostingByScan(raw, ozonFbsPickState.rows);
+      if (data.sticker_bindings) {
+        _ozonFbsApplyStickerBindings(ozonFbsPickState.rows, data.sticker_bindings);
+        const afterRefresh = _ozonFbsPickFindBySticker(scan);
+        if (afterRefresh.row || afterRefresh.ambiguous) return afterRefresh;
+      }
+      if (!data.found || !data.posting) return local;
       const pn = String(data.posting.posting_number || "").trim();
       if (!pn) return local;
       const row = (ozonFbsPickState.rows || []).find((r) => String(r.posting_number || "").trim() === pn);

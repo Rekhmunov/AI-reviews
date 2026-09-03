@@ -3500,6 +3500,35 @@ def _enrich_empty_package_stickers_for_print(
     )
 
 
+def _bind_package_stickers_after_label_print(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    client: oz.OzonFbsClient,
+    posting_numbers: list[str],
+) -> int:
+    """Re-bind package QR after Ozon package-label so scan matches the PDF.
+
+    After split, ``get_posting`` often returns empty ``barcodes`` for new siblings
+    until ``/v2/posting/fbs/package-label`` runs. Pre-print ``only_if_empty`` enrich
+    therefore leaves siblings unbound while the parent (same posting_number) may
+    already have a QR — exactly the «first sticker works, others not found» bug.
+    Overwrite after a successful label fetch so local sticker_* match the print.
+    """
+    nums = [str(x).strip() for x in posting_numbers if str(x).strip()]
+    if not nums:
+        return 0
+    return oz_detail._refresh_postings_package_stickers_from_ozon(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        posting_numbers=nums,
+        client=client,
+        overwrite=True,
+    )
+
+
 def _is_pymupdf_setup_error(exc: BaseException) -> bool:
     if isinstance(exc, ImportError):
         return True
@@ -4037,6 +4066,31 @@ def build_stickers_print(
             client, images=images, missing=missing
         )
     loaded = sum(1 for pn in nums if (images.get(pn) or []))
+    labeled = [pn for pn in nums if (images.get(pn) or [])]
+    if labeled:
+        if progress:
+            try:
+                progress(
+                    loaded,
+                    len(nums),
+                    f"Привязка QR этикеток {len(labeled)}…",
+                )
+            except Exception:
+                pass
+        try:
+            _bind_package_stickers_after_label_print(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                client=client,
+                posting_numbers=labeled,
+            )
+        except Exception as exc:
+            _log.warning(
+                "ozon stickers post-print bind failed supply=%s: %s",
+                supply_id,
+                exc,
+            )
     if missing:
         _log.warning(
             "ozon stickers partial supply=%s source=%s expected=%s loaded=%s missing=%s reasons=%s",
