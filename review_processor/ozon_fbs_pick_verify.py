@@ -170,6 +170,16 @@ def update_posting_pick_verify(
                 "verified": cur_verified,
                 "barcode": cur_barcode,
             }
+        if cur_verified == new_verified and cur_barcode == new_barcode:
+            return {
+                "ok": True,
+                "conflict": False,
+                "missing": False,
+                "unchanged": True,
+                "verified_at": cur_saved if cur_verified else "",
+                "verified": cur_verified,
+                "barcode": cur_barcode,
+            }
         conn.execute(
             repo._sql(
                 """
@@ -191,6 +201,7 @@ def update_posting_pick_verify(
         "ok": True,
         "conflict": False,
         "missing": False,
+        "unchanged": False,
         "verified_at": wb._normalize_kiz_saved_at(saved_at) if new_verified else "",
         "verified": new_verified,
         "barcode": new_barcode,
@@ -499,7 +510,9 @@ def save_pick_verify(
             )
             continue
         ok_n += 1
-        if verified and barcode:
+        # Skip duplicate journal rows when bulk-save rewrites an already-verified ШК.
+        already_same = bool(local_res.get("unchanged"))
+        if verified and barcode and not already_same:
             from . import ozon_fbs_scans as oz_scans
 
             oz_scans.record_posting_scan(

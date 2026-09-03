@@ -13618,6 +13618,54 @@ button.wb-fbs-kiz-add:disabled {
   flex: 0 0 auto;
   margin-top: 0;
 }
+
+/* Ozon FBS «Товары без КИЗ» — editable product barcode (like GM / KIZ inputs) */
+.ozon-fbs-pick-barcode-cell {
+  min-width: 0;
+}
+.ozon-fbs-pick-barcode-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.ozon-fbs-pick-barcode-input-row .ozon-fbs-pick-barcode-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.55);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 14px;
+  line-height: 1.35;
+  color: #0f172a;
+}
+.ozon-fbs-pick-barcode-input-row .ozon-fbs-pick-barcode-input:focus {
+  outline: 2px solid rgba(37, 99, 235, 0.35);
+  outline-offset: 1px;
+  border-color: #2563eb;
+}
+.ozon-fbs-pick-barcode-input-row .ozon-fbs-pick-barcode-input::placeholder {
+  color: #94a3b8;
+}
+.ozon-fbs-pick-barcode-input-row .ozon-fbs-pick-barcode-input.is-error {
+  border-color: #dc2626;
+  background: #fef2f2;
+}
+.ozon-fbs-pick-barcode-cell.is-ok .ozon-fbs-pick-barcode-input {
+  border-color: rgba(22, 101, 52, 0.45);
+  background: #f0fdf4;
+}
+.ozon-fbs-pick-barcode-err {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #b91c1c;
+}
+.ozon-fbs-pick-barcode-input-row .wb-fbs-kiz-remove {
+  flex: 0 0 auto;
+}
 #wbFbsPickSplit[hidden] {
   display: none !important;
 }

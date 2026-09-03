@@ -9294,27 +9294,169 @@
     el.textContent = `Проверено ${filled} из ${total}`;
   }
 
+  function _ozonFbsPickCaptureBaseline() {
+    const map = {};
+    for (const r of ozonFbsPickState.rows || []) {
+      const pn = String(r.posting_number || "").trim();
+      if (!pn) continue;
+      map[pn] = {
+        pick_verified: !!r.pick_verified && !!String(r.pick_barcode || "").trim(),
+        pick_barcode: String(r.pick_barcode || "").trim(),
+      };
+    }
+    ozonFbsPickState.baselineByPosting = map;
+  }
+
+  function _ozonFbsPickBaselineEquals(postingNumber, verified, barcode) {
+    const pn = String(postingNumber || "").trim();
+    const base = ozonFbsPickState.baselineByPosting?.[pn] || {};
+    const baseVerified = !!base.pick_verified && !!String(base.pick_barcode || "").trim();
+    const baseBarcode = String(base.pick_barcode || "").trim();
+    const v = !!verified && !!String(barcode || "").trim();
+    const b = String(barcode || "").trim();
+    return v === baseVerified && b === baseBarcode;
+  }
+
+  function _ozonFbsPickSetBaseline(postingNumber, verified, barcode) {
+    const pn = String(postingNumber || "").trim();
+    if (!pn) return;
+    if (!ozonFbsPickState.baselineByPosting) ozonFbsPickState.baselineByPosting = {};
+    ozonFbsPickState.baselineByPosting[pn] = {
+      pick_verified: !!verified && !!String(barcode || "").trim(),
+      pick_barcode: String(barcode || "").trim(),
+    };
+  }
+
+  function _ozonFbsPickCollectFromDom() {
+    document.querySelectorAll("#ozonFbsPickTbody .ozon-fbs-pick-barcode-input").forEach((input) => {
+      const pn = String(input.dataset.posting || "").trim();
+      if (!pn) return;
+      const row = (ozonFbsPickState.rows || []).find((r) => String(r.posting_number) === pn);
+      if (!row || _ozonFbsRowIsCancelled(row)) return;
+      const val = String(input.value || "").trim();
+      const prev = String(row.pick_barcode || "").trim();
+      const wasVerified = !!row.pick_verified;
+      row.pick_barcode = val;
+      if (!val) row.pick_verified = false;
+      else if (wasVerified && val !== prev) row.pick_verified = false;
+    });
+  }
+
   function _ozonFbsPickStatusHtml(row) {
     const pn = String(row.posting_number || "");
+    const safePn = esc(pn);
     if (_ozonFbsRowIsCancelled(row)) {
       const label = String(row.cancel_reason_label || "Отменено").trim();
       return `<div class="wb-fbs-pick-status is-muted">${esc(label)}</div>`;
     }
     const err = String(ozonFbsPickState.errors[pn] || "").trim();
-    const verified = !!row.pick_verified && !!String(row.pick_barcode || "").trim();
-    let body = "";
-    if (err) {
-      body = `<div class="wb-fbs-pick-status is-error">${esc(err)}</div>`;
-    } else if (verified) {
-      body = `<div class="wb-fbs-pick-status is-ok">✓ ${esc(row.pick_barcode)}</div>`;
-    } else {
-      body = `<div class="wb-fbs-pick-status is-empty">Не проверено</div>`;
-    }
-    const clearBtn = verified || err
-      ? `<button type="button" class="wb-fbs-kiz-remove" title="Сбросить"
-                 onclick="clearOzonFbsPickVerify('${esc(pn)}')">×</button>`
+    const barcode = String(row.pick_barcode || "").trim();
+    const verified = !!row.pick_verified && !!barcode;
+    const clearTitle = barcode || err ? "Сбросить" : "Очистить поле";
+    return `<div class="ozon-fbs-pick-barcode-cell${err ? " is-error" : ""}${verified ? " is-ok" : ""}">
+      <div class="ozon-fbs-pick-barcode-input-row">
+        <input type="text" class="ozon-fbs-pick-barcode-input${err ? " is-error" : ""}"
+               data-posting="${safePn}"
+               value="${esc(barcode)}"
+               placeholder="ШК товара"
+               title="${err ? esc(err) : (verified ? "ШК проверен" : "Введите или отсканируйте ШК товара")}"
+               autocomplete="off"
+               oninput="onOzonFbsPickBarcodeInput('${safePn}', event)"
+               onblur="onOzonFbsPickBarcodeBlur('${safePn}', event)"
+               onkeydown="onOzonFbsPickBarcodeKey('${safePn}', event)" />
+        <button type="button" class="wb-fbs-kiz-remove" title="${clearTitle}"
+                aria-label="${clearTitle}"
+                onclick="clearOzonFbsPickVerify('${safePn}')">×</button>
+      </div>
+      ${err ? `<div class="ozon-fbs-pick-barcode-err">${esc(err)}</div>` : ""}
+    </div>`;
+  }
+
+  function onOzonFbsPickBarcodeInput(postingNumber, event) {
+    const pn = String(postingNumber || "").trim();
+    const row = (ozonFbsPickState.rows || []).find((r) => String(r.posting_number) === pn);
+    if (!row || _ozonFbsRowIsCancelled(row)) return;
+    const val = String(event?.target?.value || "").trim();
+    const prevVerifiedBarcode = row.pick_verified
+      ? String(row.pick_barcode || "").trim()
       : "";
-    return `<div class="wb-fbs-pick-status-row">${body}${clearBtn}</div>`;
+    row.pick_barcode = val;
+    if (!val) {
+      row.pick_verified = false;
+      if (ozonFbsPickState.errors[pn]) delete ozonFbsPickState.errors[pn];
+      return;
+    }
+    // Typing invalidates previous green state until Enter validates.
+    if (row.pick_verified && val !== prevVerifiedBarcode) {
+      row.pick_verified = false;
+    }
+    if (ozonFbsPickState.errors[pn]) delete ozonFbsPickState.errors[pn];
+  }
+
+  function _ozonFbsPickCommitBarcode(postingNumber, rawValue, { fromBlur = false } = {}) {
+    const pn = String(postingNumber || "").trim();
+    const row = (ozonFbsPickState.rows || []).find((r) => String(r.posting_number) === pn);
+    if (!row || _ozonFbsRowIsCancelled(row)) return false;
+    const rawTyped = String(rawValue || "").replace(/\s+/g, "").trim();
+    if (!rawTyped) {
+      // Empty draft: don't wipe a saved row on blur; × clears explicitly.
+      if (fromBlur && row.pick_verified && String(row.pick_barcode || "").trim()) {
+        return false;
+      }
+      row.pick_barcode = "";
+      row.pick_verified = false;
+      if (ozonFbsPickState.errors[pn]) delete ozonFbsPickState.errors[pn];
+      return false;
+    }
+    if (typeof _wbFbsKizHasCyrillic === "function" && _wbFbsKizHasCyrillic(rawTyped)) {
+      if (typeof _wbFbsKizBlockRuLayout === "function") {
+        const input = document.querySelector(
+          `#ozonFbsPickTbody .ozon-fbs-pick-barcode-input[data-posting="${pn}"]`
+        );
+        _wbFbsKizBlockRuLayout(input);
+      }
+      return false;
+    }
+    const check = _ozonFbsPickValidateEanForOrder(_ozonFbsNormalizeScan(rawTyped), row);
+    if (!check.ok) {
+      ozonFbsPickState.errors[pn] = check.error || "Ошибка проверки ШК";
+      row.pick_verified = false;
+      row.pick_barcode = rawTyped;
+      renderOzonFbsPickVerifyTable();
+      _ozonFbsPickSetInfo(check.error || "Ошибка проверки ШК");
+      return false;
+    }
+    row.pick_verified = true;
+    row.pick_barcode = check.barcode;
+    delete ozonFbsPickState.errors[pn];
+    const emptyFilter = document.getElementById("ozonFbsPickFilterEmpty");
+    if (emptyFilter) emptyFilter.checked = false;
+    renderOzonFbsPickVerifyTable();
+    _ozonFbsPickScheduleLocalAutosave(pn, false);
+    _ozonFbsPickSetInfo(`ШК проверен локально для ${pn}`, true);
+    if (typeof _ozonFbsContainerMaybeBind === "function") {
+      void _ozonFbsContainerMaybeBind("pick", pn);
+    }
+    return true;
+  }
+
+  function onOzonFbsPickBarcodeBlur(postingNumber, event) {
+    const pn = String(postingNumber || "").trim();
+    const row = (ozonFbsPickState.rows || []).find((r) => String(r.posting_number) === pn);
+    if (!row || _ozonFbsRowIsCancelled(row)) return;
+    const val = String(event?.target?.value || "").trim();
+    if (!val) return;
+    if (row.pick_verified && val === String(row.pick_barcode || "").trim()) return;
+    _ozonFbsPickCommitBarcode(pn, val, { fromBlur: true });
+  }
+
+  function onOzonFbsPickBarcodeKey(postingNumber, event) {
+    if (!event || event.key !== "Enter") return;
+    event.preventDefault();
+    if (typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen()) return;
+    const input = event.target;
+    if (input?.disabled || input?.readOnly || !ozonFbsPickState.rowsReady) return;
+    _ozonFbsPickCommitBarcode(postingNumber, input?.value || "");
   }
 
   function _ozonFbsPickRowPickOk(row) {
@@ -9420,6 +9562,12 @@
         </td>
       </tr>`;
     }).join("");
+    tbody.querySelectorAll(".ozon-fbs-pick-barcode-input").forEach((input) => {
+      const pn = String(input.dataset.posting || "").trim();
+      const row = (ozonFbsPickState.rows || []).find((r) => String(r.posting_number) === pn);
+      if (!row) return;
+      input.value = String(row.pick_barcode || "");
+    });
     _ozonFbsPickUpdateScanCounter();
     if (typeof _ozonFbsContainerUpdateCounters === "function") _ozonFbsContainerUpdateCounters();
   }
@@ -9501,6 +9649,8 @@
       row.pick_verified = !!result.pick_verified;
       row.pick_barcode = String(result.pick_barcode || "").trim();
       if (result.pick_verified_at) row.pick_verified_at = String(result.pick_verified_at);
+      _ozonFbsPickSetBaseline(pn, row.pick_verified, row.pick_barcode);
+      if (ozonFbsPickState.forceSaveByPosting) delete ozonFbsPickState.forceSaveByPosting[pn];
       delete ozonFbsPickState.errors[pn];
     } finally {
       ozonFbsPickState.localAutosaveInflight = Math.max(
@@ -9688,6 +9838,8 @@
     ozonFbsPickState.rows = [];
     ozonFbsPickState.errors = {};
     ozonFbsPickState.pendingPosting = null;
+    ozonFbsPickState.baselineByPosting = {};
+    ozonFbsPickState.forceSaveByPosting = {};
     _ozonFbsPickSetFiltersReady(false);
     _ozonFbsPickSetInfo("");
     const tbody = document.getElementById("ozonFbsPickTbody");
@@ -9713,6 +9865,7 @@
         }
       );
       ozonFbsPickState.rows = Array.isArray(data.rows) ? data.rows.map((r) => ({ ...r })) : [];
+      _ozonFbsPickCaptureBaseline();
       _ozonFbsKizMergeOrderFlagsIntoDetail(data.order_kiz_flags || []);
       renderOzonFbsPickVerifyTable();
       if (supplyDetailState.supply) {
@@ -9762,38 +9915,126 @@
     _ozonFbsPickSetInfo("Сохранение…");
     try {
       await ozonFbsPickState.localAutosaveChain;
-      const items = (ozonFbsPickState.rows || [])
-        .filter((r) => !_ozonFbsRowIsCancelled(r))
-        .map((r) => {
-        const pn = String(r.posting_number || "");
-        const verified = !!r.pick_verified && !!String(r.pick_barcode || "").trim();
-        return {
-          posting_number: pn,
-          pick_verified: verified,
-          pick_barcode: verified ? r.pick_barcode : "",
-          expected_verified_at: r.pick_verified_at || "",
-          force: !!(ozonFbsPickState.forceSaveByPosting && ozonFbsPickState.forceSaveByPosting[pn]),
-        };
-      }).filter((it) => it.posting_number);
-      const res = await fetch(
-        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/pick-verify?source_id=${sourceId}`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json", ...jsonHeaders() },
-          body: JSON.stringify({ items }),
+      _ozonFbsPickCollectFromDom();
+      const items = [];
+      for (const r of ozonFbsPickState.rows || []) {
+        if (_ozonFbsRowIsCancelled(r)) continue;
+        const pn = String(r.posting_number || "").trim();
+        if (!pn) continue;
+        const barcode = String(r.pick_barcode || "").trim();
+        const verified = !!r.pick_verified && !!barcode;
+        const base = ozonFbsPickState.baselineByPosting?.[pn] || {};
+        const baseVerified = !!base.pick_verified && !!String(base.pick_barcode || "").trim();
+        const baseBarcode = String(base.pick_barcode || "").trim();
+        const force = !!(ozonFbsPickState.forceSaveByPosting && ozonFbsPickState.forceSaveByPosting[pn]);
+        if (!force && _ozonFbsPickBaselineEquals(pn, verified, barcode)) continue;
+        if (verified) {
+          const check = _ozonFbsPickValidateEanForOrder(barcode, r);
+          if (!check.ok) {
+            ozonFbsPickState.errors[pn] = check.error || "ШК не прошёл сверку";
+            continue;
+          }
+          items.push({
+            posting_number: pn,
+            pick_verified: true,
+            pick_barcode: check.barcode,
+            expected_verified_at: r.pick_verified_at || "",
+            force,
+          });
+        } else if (baseVerified || force) {
+          items.push({
+            posting_number: pn,
+            pick_verified: false,
+            pick_barcode: "",
+            clear: true,
+            expected_verified_at: r.pick_verified_at || "",
+            force,
+          });
+        } else if (barcode) {
+          // Typed but not validated — do not send as verified.
+          ozonFbsPickState.errors[pn] = "Нажмите Enter, чтобы проверить ШК";
         }
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
-      const errs = (data.results || []).filter((r) => r && !r.ok);
-      if (errs.length) {
-        errs.forEach((e) => {
-          if (e.posting_number) ozonFbsPickState.errors[e.posting_number] = e.error || "ошибка";
-        });
+      }
+      if (Object.keys(ozonFbsPickState.errors || {}).length) {
         renderOzonFbsPickVerifyTable();
-        _ozonFbsPickSetInfo(`Сохранено частично (${data.saved || 0}).`);
+      }
+      if (!items.length) {
+        const hasErr = Object.keys(ozonFbsPickState.errors || {}).length > 0;
+        _ozonFbsPickSetInfo(
+          hasErr ? "Исправьте ошибки сверки ШК перед сохранением" : "Нет изменений для сохранения",
+          !hasErr
+        );
+        return;
+      }
+      // Chunk like Marking save — one huge PUT can hit nginx/proxy 504.
+      const CHUNK = 40;
+      const allResults = [];
+      let savedTotal = 0;
+      for (let i = 0; i < items.length; i += CHUNK) {
+        const chunk = items.slice(i, i + CHUNK);
+        if (items.length > CHUNK) {
+          _ozonFbsPickSetInfo(
+            `Сохранение… ${Math.min(i + CHUNK, items.length)}/${items.length}`
+          );
+        }
+        const res = await fetch(
+          `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/pick-verify?source_id=${sourceId}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json", ...jsonHeaders() },
+            body: JSON.stringify({ items: chunk }),
+          }
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+        allResults.push(...(data.results || []));
+        savedTotal += Number(data.saved) || 0;
+      }
+      let errN = 0;
+      for (const result of allResults) {
+        const pn = String(result?.posting_number || "").trim();
+        if (!pn) continue;
+        const row = (ozonFbsPickState.rows || []).find((r) => String(r.posting_number) === pn);
+        if (result.conflict) {
+          errN += 1;
+          if (row) {
+            row.pick_verified_at = String(result.pick_verified_at || row.pick_verified_at || "");
+          }
+          if (!ozonFbsPickState.forceSaveByPosting) ozonFbsPickState.forceSaveByPosting = {};
+          ozonFbsPickState.forceSaveByPosting[pn] = true;
+          ozonFbsPickState.errors[pn] = result.error
+            || "Отправление уже сохранено другим оператором — проверьте ШК и сохраните снова";
+          continue;
+        }
+        if (!result.ok) {
+          errN += 1;
+          ozonFbsPickState.errors[pn] = result.error || "ошибка";
+          continue;
+        }
+        if (row) {
+          row.pick_verified = !!result.pick_verified;
+          row.pick_barcode = String(result.pick_barcode || "").trim();
+          if (result.pick_verified_at) row.pick_verified_at = String(result.pick_verified_at);
+        }
+        _ozonFbsPickSetBaseline(
+          pn,
+          !!result.pick_verified,
+          String(result.pick_barcode || "")
+        );
+        if (ozonFbsPickState.forceSaveByPosting) delete ozonFbsPickState.forceSaveByPosting[pn];
+        delete ozonFbsPickState.errors[pn];
+      }
+      renderOzonFbsPickVerifyTable();
+      if (errN) {
+        const parts = [];
+        if (savedTotal) parts.push(`сохранено ${savedTotal}`);
+        parts.push(`ошибок ${errN}`);
+        _ozonFbsPickSetInfo(`Сохранено частично (${parts.join(", ")}).`);
       } else {
-        _ozonFbsPickSetInfo(`Сохранено локально: ${data.saved || 0} отправлений`, true);
+        _ozonFbsPickSetInfo(
+          savedTotal ? `Сохранено локально: ${savedTotal} отправлений` : "Готово",
+          true
+        );
       }
     } catch (e) {
       _ozonFbsPickSetInfo(String(e.message || e));
@@ -10076,6 +10317,9 @@
   window.onOzonFbsPickFilterEmptyChange = onOzonFbsPickFilterEmptyChange;
   window.onOzonFbsPickStickerScanKey = onOzonFbsPickStickerScanKey;
   window.onOzonFbsPickSkuScanKey = onOzonFbsPickSkuScanKey;
+  window.onOzonFbsPickBarcodeInput = onOzonFbsPickBarcodeInput;
+  window.onOzonFbsPickBarcodeBlur = onOzonFbsPickBarcodeBlur;
+  window.onOzonFbsPickBarcodeKey = onOzonFbsPickBarcodeKey;
   window.cancelOzonFbsPickSkuScan = cancelOzonFbsPickSkuScan;
   window.clearOzonFbsPickVerify = clearOzonFbsPickVerify;
 })();
