@@ -185,8 +185,14 @@
       (c) => String(c.container_id || "") === String(cid)
     );
     const num = Number(cur?.container_number || 0);
-    const label = num > 0 ? `ГМ №${num}` : `ГМ ${cid}`;
-    return `<span class="tsd-gm-badge" title="${esc(label)}">${esc(label)}</span>`;
+    let label;
+    if (num > 0) {
+      label = `ГМ №${num}`;
+    } else {
+      const idStr = String(cid);
+      label = idStr.length > 8 ? `ГМ …${idStr.slice(-6)}` : `ГМ ${idStr}`;
+    }
+    return `<span class="tsd-gm-badge" title="${esc(String(cid))}">${esc(label)}</span>`;
   }
 
   function isLockedGmError(message) {
@@ -206,12 +212,26 @@
    */
   async function ensureActiveGmStillFillable() {
     if (!isOzon() || !state.gm.activeId) return false;
+    const wasId = state.gm.activeId;
     let cur = activeGmContainer();
     if (cur && containerAcceptsFill(cur)) return true;
     await loadGmContainers(true);
     cur = activeGmContainer();
-    if (cur && containerAcceptsFill(cur)) return true;
-    const wasId = state.gm.activeId;
+    if (state.gm.activeId && cur && containerAcceptsFill(cur)) return true;
+    if (!state.gm.activeId) {
+      // Cleared inside loadGmContainers (locked list / empty / hard error).
+      if (state.gm.loadError) {
+        setBanner(`Грузоместа: ${state.gm.loadError}`, "warn");
+      } else {
+        setBanner(
+          `Грузоместо ${wasId} уже подтверждено — выберите другое`,
+          "err"
+        );
+      }
+      refreshGmBar();
+      refreshScanBanner();
+      return false;
+    }
     setActiveGm(null);
     state.gm.awaitingScan = false;
     setBanner(
@@ -262,6 +282,11 @@
       return state.gm.hasFillable;
     }
     const gen = (state.gm.loadGen = Number(state.gm.loadGen || 0) + 1);
+    const keepOnFail =
+      !!force &&
+      state.gm.boundSupplyId === sid &&
+      Array.isArray(state.gm.containers) &&
+      state.gm.containers.length > 0;
     state.gm.loading = true;
     state.gm.loadError = "";
     const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -290,6 +315,7 @@
       const items = Array.isArray(data.items) ? data.items : [];
       state.gm.containers = items;
       state.gm.loadOk = true;
+      state.gm.loadError = "";
       state.gm.boundSupplyId = sid;
       state.gm.hasFillable = items.some((c) => containerAcceptsFill(c));
       if (!state.gm.hasFillable) {
@@ -310,10 +336,16 @@
       const aborted =
         (e && (e.name === "AbortError" || e.code === 20)) ||
         /abort/i.test(String(e && e.message));
-      state.gm.loadOk = false;
-      state.gm.loadError = aborted
+      const errMsg = aborted
         ? "Таймаут загрузки грузомест"
         : String(e.message || e);
+      state.gm.loadError = errMsg;
+      if (keepOnFail) {
+        // Phase 2/3: transient refresh failure must not wipe an in-session GM list.
+        state.gm.loadOk = true;
+        return state.gm.hasFillable;
+      }
+      state.gm.loadOk = false;
       state.gm.containers = [];
       state.gm.hasFillable = false;
       state.gm.activeId = null;
@@ -501,8 +533,8 @@
       <div class="tsd-gm-rebind-card" role="dialog" aria-modal="true" aria-labelledby="tsdGmRebindText">
         <p class="tsd-gm-rebind-text" id="tsdGmRebindText"></p>
         <div class="tsd-gm-rebind-actions">
-          <button type="button" class="tsd-btn tsd-btn-primary tsd-btn-block" data-gm-rebind="yes">Да, привязать</button>
           <button type="button" class="tsd-btn tsd-btn-ghost tsd-btn-block" data-gm-rebind="no">Отмена</button>
+          <button type="button" class="tsd-btn tsd-btn-primary tsd-btn-block" data-gm-rebind="yes">Привязать</button>
         </div>
       </div>`;
     sheet.addEventListener("click", (ev) => {
@@ -631,6 +663,11 @@
     row.container_sync_error = "";
     const modeAtBind = state.route.mode;
     const labelAtBind = activeGmLabel();
+    // Optimistic chrome: badge/counter update before API returns.
+    if (state.route.view === "scan" && state.route.mode === modeAtBind) {
+      refreshScannedListSection(modeAtBind);
+      refreshScanStats(modeAtBind);
+    }
     void (async () => {
       try {
         const data = await bindGmPosting(
@@ -1999,14 +2036,14 @@
                 </div>`
               : "";
         }
+        const gmBadge = isOzon() ? gmBadgeForRow(r) : "";
         return `
           <div class="tsd-scanned-item">
             <div class="tsd-scanned-top">
               ${photo}
               <div class="tsd-scanned-text">
-                <div class="tsd-scanned-order">${orderWord} ${oid} · ${stickerHtml}${
-                  isOzon() ? ` ${gmBadgeForRow(r)}` : ""
-                }</div>
+                <div class="tsd-scanned-order">${orderWord} ${oid} · ${stickerHtml}</div>
+                ${gmBadge ? `<div class="tsd-scanned-gm">${gmBadge}</div>` : ""}
                 <div class="tsd-scanned-name">${esc(r.product_name || r.article || "—")}</div>
               </div>
               ${clearBtn}
@@ -3264,8 +3301,9 @@
     const gmN = isOzon() ? gmBoundCount(mode) : 0;
     const showGm = isOzon() && (gmUiVisible() || gmN > 0);
     stats.innerHTML = `
-      <span>Готово ${done} / ${total}</span>
-      ${showGm ? `<span class="tsd-stats-gm">В ГМ ${gmN}</span>` : ""}
+      <span>Готово ${done} / ${total}${
+        showGm ? ` · В ГМ ${gmN}` : ""
+      }</span>
       <span>Осталось ${left}</span>`;
     updateProgressBar(mode);
     return true;
@@ -3479,8 +3517,9 @@
     main.innerHTML = `
       <div class="tsd-scan-shell">
         <div class="tsd-stats">
-          <span>Готово ${done} / ${total}</span>
-          ${showGmStat ? `<span class="tsd-stats-gm">В ГМ ${gmN}</span>` : ""}
+          <span>Готово ${done} / ${total}${
+            showGmStat ? ` · В ГМ ${gmN}` : ""
+          }</span>
           <span>Осталось ${left}</span>
         </div>
         ${gmBar}

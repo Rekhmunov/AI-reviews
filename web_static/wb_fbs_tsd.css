@@ -943,9 +943,11 @@ html, body {
 
 .tsd-gm-bar-actions {
   display: flex;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+  justify-content: flex-end;
 }
 
 .tsd-gm-bar-actions .tsd-btn {
@@ -954,6 +956,10 @@ html, body {
   padding: 0 12px;
   font-size: 14px;
   white-space: nowrap;
+}
+
+.tsd-gm-bar-actions #tsdGmScanBtn {
+  flex: 1 1 140px;
 }
 
 .tsd-gm-refresh {
@@ -967,7 +973,6 @@ html, body {
 
 .tsd-gm-badge {
   display: inline-block;
-  margin-left: 4px;
   padding: 2px 8px;
   border-radius: 8px;
   font-size: 12px;
@@ -980,6 +985,10 @@ html, body {
 .tsd-gm-badge.is-err {
   color: var(--tsd-err);
   background: var(--tsd-err-bg);
+}
+
+.tsd-scanned-gm {
+  margin-top: 4px;
 }
 
 .tsd-gm-rebind {
@@ -1184,10 +1193,6 @@ html, body {
   font-size: 14px;
   font-weight: 600;
   color: var(--tsd-muted);
-}
-
-.tsd-stats-gm {
-  color: var(--tsd-accent);
 }
 
 .tsd-scan-footer {

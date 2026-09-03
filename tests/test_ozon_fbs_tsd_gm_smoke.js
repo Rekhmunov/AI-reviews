@@ -62,4 +62,8 @@ assert(src.includes("tsdGmRefresh"), "refresh GM list button");
 assert(src.includes("Грузоместо не выбрано"), "idle GM bar copy");
 assert(html.includes("Без ГМ"), "filter label in HTML");
 
+assert(src.includes("keepOnFail"), "refresh keeps GM cache on transient fail");
+assert(src.includes("Optimistic chrome"), "optimistic badge/counter refresh");
+assert(src.includes("tsd-scanned-gm") || src.includes("tsd-scanned-gm"), "GM badge own row");
+
 console.log("ok - ozon_fbs_tsd_gm_smoke");
