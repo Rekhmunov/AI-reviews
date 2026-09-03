@@ -30107,7 +30107,7 @@ window.closeWbFbsPickVerifyModal = closeWbFbsPickVerifyModal;
 
 async function openWbFbsPickVerifyModal() {
   if (!isTenantOwner()) {
-    alert("Проверка ШК доступна только главному пользователю");
+    alert("«Товары без КИЗ» доступны только главному пользователю");
     return;
   }
   const sid = String(wbFbsDetailState.supplyId || "").trim();
@@ -30803,7 +30803,7 @@ async function saveWbFbsPickVerifyModal() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId || wbFbsPickState.saving) return;
   if (!isTenantOwner()) {
-    alert("Проверка ШК доступна только главному пользователю");
+    alert("«Товары без КИЗ» доступны только главному пользователю");
     return;
   }
   const saveBtn = document.getElementById("wbFbsPickVerifySaveBtn");
