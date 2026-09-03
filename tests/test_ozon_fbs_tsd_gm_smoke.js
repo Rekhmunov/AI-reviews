@@ -58,7 +58,10 @@ assert(
 assert(src.includes("В ГМ ${gmN}") || src.includes("В ГМ ${"), "stats GM counter");
 assert(src.includes("tsdFilterNoGm") || html.includes("tsdFilterNoGm"), "filter без ГМ");
 assert(src.includes("tsdGmRefresh"), "refresh GM list button");
-assert(src.includes("Сканировать ГМ"), "idle GM scan field copy");
+assert(src.includes("tsdGmAdd"), "add GM plus icon");
+assert(src.includes("tsd-gm-icon-add"), "green add GM class");
+assert(!src.includes("Сканировать ГМ"), "old GM scan CTA removed");
+assert(src.includes("scanFieldRowHtml"), "GM icons beside scan input");
 assert(html.includes("Без ГМ"), "filter label in HTML");
 
 assert(src.includes("keepOnFail"), "refresh keeps GM cache on transient fail");
@@ -88,11 +91,13 @@ assert(src.includes("tsd-banner-dismiss") || src.includes("dismiss-banner"), "ba
 assert(src.includes('isOzon()\n        ? ""') || src.includes("isOzon()\n        ? \"\""), "Шаг 1 hidden for Ozon");
 
 
-// Compact GM bar: field + square GM/refresh icons
-assert(src.includes("tsd-gm-field"), "compact GM field");
+// GM controls beside scan input: green + and refresh
+assert(src.includes("tsd-gm-side"), "GM side icons beside scan field");
 assert(src.includes("tsd-gm-icon-btn"), "square GM icon buttons");
-assert(src.includes("tsdGmScanIcon"), "GM scan icon id");
+assert(src.includes("tsdGmAdd"), "add GM control id");
 assert(src.includes("startGmScan"), "shared startGmScan handler");
+assert(src.includes('function renderGmBarHtml') || src.includes("renderGmBarHtml()"), "legacy GM bar hook kept empty");
 assert(!src.includes("tsd-gm-bar-actions"), "old GM actions row removed");
+assert(!src.includes("Грузоместо не выбрано"), "top idle GM block copy removed");
 
 console.log("ok - ozon_fbs_tsd_gm_smoke");

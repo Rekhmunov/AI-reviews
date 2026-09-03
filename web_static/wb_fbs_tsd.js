@@ -365,6 +365,11 @@
         <path fill="currentColor" d="M18.3 5.71 12 12l6.3 6.29-1.41 1.42L10.59 13.4 4.3 19.71 2.89 18.3 9.17 12 2.89 5.71 4.3 4.29 10.59 10.6l6.3-6.31z"/>
       </svg>`;
     }
+    if (kind === "plus") {
+      return `<svg class="tsd-gm-icon-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path fill="currentColor" d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5z"/>
+      </svg>`;
+    }
     // Cargo / GM box
     return `<svg class="tsd-gm-icon-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path fill="currentColor" d="M21 8.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8.5l9-4.5 9 4.5zm-9 1.2L6.2 12 12 14.9 17.8 12 12 9.7zM5 14.2v4.8h6v-3.5L5 14.2zm8 1.3V19h6v-4.8l-6 1.3z"/>
@@ -378,7 +383,8 @@
     )}">${gmIconSvg(kind)}</button>`;
   }
 
-  function renderGmBarHtml() {
+  /** Icons to the right of the main scan input (no separate GM block above). */
+  function renderGmSideIconsHtml() {
     if (!gmUiVisible()) return "";
     const refreshBtn = gmIconBtn(
       "tsdGmRefresh",
@@ -387,50 +393,105 @@
       "tsd-gm-refresh"
     );
     if (state.gm.awaitingScan) {
-      return `
-        <div class="tsd-gm-bar is-awaiting" id="tsdGmBar">
-          <div class="tsd-gm-field" title="Сканируйте QR грузоместа">Сканируйте QR ГМ</div>
-          ${gmIconBtn("tsdGmCancelScan", "Отмена", "cancel")}
-          ${refreshBtn}
-        </div>`;
+      return `${gmIconBtn(
+        "tsdGmCancelScan",
+        "Отмена выбора ГМ",
+        "cancel",
+        "tsd-gm-icon-cancel"
+      )}${refreshBtn}`;
     }
     if (state.gm.activeId) {
-      const label = activeGmLabel();
-      return `
-        <div class="tsd-gm-bar is-active" id="tsdGmBar">
-          <div class="tsd-gm-field" title="${esc(label)}">${esc(label)}</div>
-          ${gmIconBtn("tsdGmChange", "Сменить грузоместо", "gm")}
-          ${gmIconBtn("tsdGmReset", "Сбросить грузоместо", "reset")}
-          ${refreshBtn}
-        </div>`;
+      return `${gmIconBtn(
+        "tsdGmChange",
+        `Сменить ГМ · ${activeGmLabel()}`,
+        "plus",
+        "tsd-gm-icon-add is-active"
+      )}${refreshBtn}`;
     }
+    return `${gmIconBtn(
+      "tsdGmAdd",
+      "Добавить грузоместо",
+      "plus",
+      "tsd-gm-icon-add"
+    )}${refreshBtn}`;
+  }
+
+  function renderGmActiveHintHtml() {
+    if (!gmUiVisible() || !state.gm.activeId || state.gm.awaitingScan) return "";
+    const label = activeGmLabel();
+    return `<div class="tsd-gm-active-hint" id="tsdGmActiveHint">
+      <span class="tsd-gm-active-hint-text" title="${esc(label)}">ГМ: ${esc(label)}</span>
+      <button type="button" class="tsd-gm-active-hint-reset" id="tsdGmReset"
+        title="Сбросить грузоместо" aria-label="Сбросить грузоместо">×</button>
+    </div>`;
+  }
+
+  function scanFieldRowHtml() {
+    const gmIcons = renderGmSideIconsHtml();
+    const withGm = !!gmIcons;
     return `
-      <div class="tsd-gm-bar" id="tsdGmBar">
-        <button type="button" class="tsd-gm-field tsd-gm-field-action" id="tsdGmScanBtn"
-          title="Сканировать ГМ" aria-label="Сканировать ГМ">Сканировать ГМ</button>
-        ${gmIconBtn("tsdGmScanIcon", "Сканировать ГМ", "gm")}
-        ${refreshBtn}
-      </div>`;
+      <div class="tsd-scan-row${withGm ? " has-gm-actions" : ""}">
+        <div class="tsd-scan-field">
+          <input class="tsd-scan-input" id="tsdScanInput" type="text" autocomplete="off" inputmode="none" />
+          <button type="button" class="tsd-scan-clear" id="tsdScanClear" hidden
+            aria-label="Очистить поле" title="Очистить">×</button>
+        </div>
+        ${withGm ? `<div class="tsd-gm-side" id="tsdGmSide">${gmIcons}</div>` : ""}
+      </div>
+      ${renderGmActiveHintHtml()}`;
+  }
+
+  /** Kept for call-sites: no top GM bar — icons live beside the scan input. */
+  function renderGmBarHtml() {
+    return "";
   }
 
   function refreshGmBar() {
-    const shell = document.querySelector(".tsd-scan-shell");
-    if (!shell) return;
-    const html = renderGmBarHtml().trim();
-    const old = document.getElementById("tsdGmBar");
-    if (!html) {
-      if (old) old.remove();
+    const side = document.getElementById("tsdGmSide");
+    const card = document.getElementById("tsdScanCard");
+    if (!gmUiVisible()) {
+      if (side) side.remove();
+      const hint = document.getElementById("tsdGmActiveHint");
+      if (hint) hint.remove();
+      const row = document.querySelector(".tsd-scan-row");
+      if (row) row.classList.remove("has-gm-actions");
       return;
     }
-    const wrap = document.createElement("div");
-    wrap.innerHTML = html;
-    const next = wrap.firstElementChild;
-    if (!next) return;
-    if (old) old.replaceWith(next);
-    else {
-      const stats = shell.querySelector(".tsd-stats");
-      if (stats && stats.nextSibling) shell.insertBefore(next, stats.nextSibling);
-      else shell.insertBefore(next, shell.firstChild);
+    if (!card) {
+      // Scan card not mounted yet — full render will place icons.
+      return;
+    }
+    const icons = renderGmSideIconsHtml();
+    let row = card.querySelector(".tsd-scan-row");
+    if (!row) {
+      // Legacy field without row wrapper — rebuild card.
+      if (!patchScanCard(state.route.mode)) renderScan();
+      else wireGmBar();
+      return;
+    }
+    row.classList.toggle("has-gm-actions", !!icons);
+    if (icons) {
+      if (side) side.innerHTML = icons;
+      else {
+        const wrap = document.createElement("div");
+        wrap.className = "tsd-gm-side";
+        wrap.id = "tsdGmSide";
+        wrap.innerHTML = icons;
+        row.appendChild(wrap);
+      }
+    } else if (side) {
+      side.remove();
+    }
+    const hintHtml = renderGmActiveHintHtml().trim();
+    let hint = document.getElementById("tsdGmActiveHint");
+    if (hintHtml) {
+      const wrap = document.createElement("div");
+      wrap.innerHTML = hintHtml;
+      const next = wrap.firstElementChild;
+      if (hint) hint.replaceWith(next);
+      else row.insertAdjacentElement("afterend", next);
+    } else if (hint) {
+      hint.remove();
     }
     wireGmBar();
   }
@@ -471,7 +532,7 @@
         }
       });
     }
-    const startGmScan = async () => {
+    const startGmScan = async (isChange) => {
       await loadGmContainers(true);
       if (!state.gm.hasFillable) {
         setBanner(
@@ -485,35 +546,27 @@
         return;
       }
       state.gm.awaitingScan = true;
-      setBanner("Отсканируйте QR грузоместа", "info");
+      setBanner(
+        isChange
+          ? "Отсканируйте QR другого грузоместа"
+          : "Отсканируйте QR грузоместа",
+        "info"
+      );
       if (!patchScanCard(state.route.mode)) renderScan();
       else {
         refreshGmBar();
         refreshScanBanner();
       }
     };
-    const scanBtn = document.getElementById("tsdGmScanBtn");
-    if (scanBtn) scanBtn.addEventListener("click", startGmScan);
-    const scanIcon = document.getElementById("tsdGmScanIcon");
-    if (scanIcon) scanIcon.addEventListener("click", startGmScan);
+    const addBtn = document.getElementById("tsdGmAdd");
+    if (addBtn) addBtn.addEventListener("click", () => startGmScan(false));
+    const change = document.getElementById("tsdGmChange");
+    if (change) change.addEventListener("click", () => startGmScan(true));
     const cancel = document.getElementById("tsdGmCancelScan");
     if (cancel) {
       cancel.addEventListener("click", () => {
         state.gm.awaitingScan = false;
         setBanner(null);
-        if (!patchScanCard(state.route.mode)) renderScan();
-        else {
-          refreshGmBar();
-          refreshScanBanner();
-        }
-      });
-    }
-    const change = document.getElementById("tsdGmChange");
-    if (change) {
-      change.addEventListener("click", async () => {
-        await loadGmContainers(true);
-        state.gm.awaitingScan = true;
-        setBanner("Отсканируйте QR другого грузоместа", "info");
         if (!patchScanCard(state.route.mode)) renderScan();
         else {
           refreshGmBar();
@@ -3425,11 +3478,7 @@
         <div class="tsd-scan-card" id="tsdScanCard">
           <div class="tsd-scan-step">Грузоместо</div>
           <p class="tsd-scan-prompt">Сканируйте QR грузоместа</p>
-          <div class="tsd-scan-field">
-            <input class="tsd-scan-input" id="tsdScanInput" type="text" autocomplete="off" inputmode="none" />
-            <button type="button" class="tsd-scan-clear" id="tsdScanClear" hidden
-              aria-label="Очистить поле" title="Очистить">×</button>
-          </div>
+          ${scanFieldRowHtml()}
         </div>`;
     }
     if (step === "sticker" || !pending) {
@@ -3440,11 +3489,7 @@
         <div class="tsd-scan-card" id="tsdScanCard">
           ${stepLabel}
           <p class="tsd-scan-prompt">Сканируйте стикер заказа</p>
-          <div class="tsd-scan-field">
-            <input class="tsd-scan-input" id="tsdScanInput" type="text" autocomplete="off" inputmode="none" />
-            <button type="button" class="tsd-scan-clear" id="tsdScanClear" hidden
-              aria-label="Очистить поле" title="Очистить">×</button>
-          </div>
+          ${scanFieldRowHtml()}
         </div>`;
     }
     const photo = pending.product_photo
@@ -3471,11 +3516,7 @@
           <p class="tsd-scan-prompt">${prompt}</p>
           ${multiHint}
           <div class="tsd-scan-context">${isOzon() ? "Отпр." : "Заказ"} ${esc(rowDisplayLabel(pending))} · стикер ${esc(pending.sticker_number || pending.posting_number || "—")}</div>
-          <div class="tsd-scan-field">
-            <input class="tsd-scan-input" id="tsdScanInput" type="text" autocomplete="off" inputmode="none" />
-            <button type="button" class="tsd-scan-clear" id="tsdScanClear" hidden
-              aria-label="Очистить поле" title="Очистить">×</button>
-          </div>
+          ${scanFieldRowHtml()}
           <div class="tsd-product">${photo}<div>
             <div class="tsd-product-name">${esc(pending.product_name || pending.article || "—")}</div>
             <div class="tsd-product-sub">${esc([pending.brand, pending.article].filter(Boolean).join(" · "))}</div>
@@ -3731,7 +3772,6 @@
       state.clearing ||
       (mode === "kiz" ? !hasPendingKizPush() : !orderedScannedRows(mode).length);
 
-    const gmBar = renderGmBarHtml();
     const loadErr =
       isOzon() && state.gm.loadError && !state.gm.hasFillable
         ? `<div class="tsd-banner is-warn tsd-gm-load-err">Грузоместа: ${esc(state.gm.loadError)}</div>`
@@ -3747,7 +3787,6 @@
           }</span>
           <span>Осталось ${left}</span>
         </div>
-        ${gmBar}
         ${loadErr}
         ${bannerHtml(banner)}
         ${body}
