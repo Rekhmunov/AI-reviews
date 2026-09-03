@@ -6627,47 +6627,67 @@
       ? (Array.isArray(rows) ? rows : [])
       : _ozonFbsActiveModalRows(Array.isArray(rows) ? rows : []);
 
+    const rowKey = (row) => String(row?.posting_number || row?.order_id || "").trim();
+
     const byBarcode = [];
+    const seenBc = new Set();
     for (const row of list) {
       const fields = _ozonFbsResolvedStickerFields(row);
-      if (fields.upper && _ozonFbsStickerScanKey(fields.upper) === rawKey) byBarcode.push(row);
-      else if (fields.lower && _ozonFbsStickerScanKey(fields.lower) === rawKey) byBarcode.push(row);
+      let hit = false;
+      if (fields.upper && _ozonFbsStickerScanKey(fields.upper) === rawKey) hit = true;
+      else if (fields.lower && _ozonFbsStickerScanKey(fields.lower) === rawKey) hit = true;
+      if (!hit) continue;
+      const id = rowKey(row);
+      if (id && seenBc.has(id)) continue;
+      if (id) seenBc.add(id);
+      byBarcode.push(row);
     }
     if (byBarcode.length === 1) return { row: byBarcode[0], ambiguous: false };
     if (byBarcode.length > 1) return { row: null, ambiguous: true, matches: byBarcode };
 
     const byPnExact = [];
+    const seenPn = new Set();
     for (const row of list) {
       const pn = String(row?.posting_number || "").trim();
-      if (pn && pn.toLowerCase() === rawLower) byPnExact.push(row);
+      if (!(pn && pn.toLowerCase() === rawLower)) continue;
+      if (pn && seenPn.has(pn)) continue;
+      if (pn) seenPn.add(pn);
+      byPnExact.push(row);
     }
     if (byPnExact.length === 1) return { row: byPnExact[0], ambiguous: false };
     if (byPnExact.length > 1) return { row: null, ambiguous: true, matches: byPnExact };
 
     const digits = raw.replace(/\D+/g, "");
     const matches = [];
+    const seenFuzzy = new Set();
     for (const row of list) {
       const fields = _ozonFbsResolvedStickerFields(row);
       const pn = fields.pn;
       const pnLower = pn.toLowerCase();
+      let hit = false;
       if (pnLower && (pnLower === rawLower || rawLower.includes(pnLower) || pnLower.includes(rawLower))) {
-        matches.push(row);
-        continue;
+        hit = true;
+      } else {
+        const full = fields.partA && fields.partB
+          ? `${fields.partA}${fields.partB}`
+          : (fields.partA || fields.partB || pn);
+        if (
+          (full && (_ozonFbsStickerScanKey(full) === rawKey || digits === full.replace(/\D+/g, ""))) ||
+          (fields.partA && fields.partB && digits === `${fields.partA}${fields.partB}`.replace(/\D+/g, "")) ||
+          (
+            fields.partB
+            && (_ozonFbsStickerScanKey(fields.partB) === rawKey || digits === fields.partB.replace(/\D+/g, ""))
+          ) ||
+          (pn && digits.length >= 4 && pn.replace(/\D+/g, "").endsWith(digits.slice(-4)))
+        ) {
+          hit = true;
+        }
       }
-      const full = fields.partA && fields.partB
-        ? `${fields.partA}${fields.partB}`
-        : (fields.partA || fields.partB || pn);
-      if (
-        (full && (_ozonFbsStickerScanKey(full) === rawKey || digits === full.replace(/\D+/g, ""))) ||
-        (fields.partA && fields.partB && digits === `${fields.partA}${fields.partB}`.replace(/\D+/g, "")) ||
-        (
-          fields.partB
-          && (_ozonFbsStickerScanKey(fields.partB) === rawKey || digits === fields.partB.replace(/\D+/g, ""))
-        ) ||
-        (pn && digits.length >= 4 && pn.replace(/\D+/g, "").endsWith(digits.slice(-4)))
-      ) {
-        matches.push(row);
-      }
+      if (!hit) continue;
+      const id = rowKey(row);
+      if (id && seenFuzzy.has(id)) continue;
+      if (id) seenFuzzy.add(id);
+      matches.push(row);
     }
     if (matches.length === 1) return { row: matches[0], ambiguous: false };
     if (matches.length > 1) {

@@ -29254,9 +29254,14 @@ function _wbFbsKizFindBySticker(scan) {
   const rawKey = _wbFbsKizScanKey(raw);
   // Primary: QR / 1D scan value from WB stickers.barcode (e.g. !uKEtQZVx).
   const byBarcode = [];
+  const seenBc = new Set();
   for (const row of wbFbsKizState.rows) {
     const bc = _wbFbsKizNormalizeScan(row.sticker_barcode);
-    if (bc && _wbFbsKizScanKey(bc) === rawKey) byBarcode.push(row);
+    if (!(bc && _wbFbsKizScanKey(bc) === rawKey)) continue;
+    const id = String(row.order_id || "").trim();
+    if (id && seenBc.has(id)) continue;
+    if (id) seenBc.add(id);
+    byBarcode.push(row);
   }
   if (byBarcode.length === 1) return { row: byBarcode[0], ambiguous: false };
   if (byBarcode.length > 1) {
@@ -29266,6 +29271,7 @@ function _wbFbsKizFindBySticker(scan) {
   // Fallback: human-readable partA+partB / partB (portal sticker number).
   const digits = raw.replace(/\D+/g, "");
   const matches = [];
+  const seenFuzzy = new Set();
   for (const row of wbFbsKizState.rows) {
     const full = _wbFbsKizNormalizeScan(row.sticker_number);
     const partA = _wbFbsKizNormalizeScan(row.sticker_part_a);
@@ -29275,6 +29281,9 @@ function _wbFbsKizFindBySticker(scan) {
       (partA && partB && digits === `${partA}${partB}`.replace(/\D+/g, "")) ||
       (partB && (rawKey === _wbFbsKizScanKey(partB) || digits === partB.replace(/\D+/g, "")))
     ) {
+      const id = String(row.order_id || "").trim();
+      if (id && seenFuzzy.has(id)) continue;
+      if (id) seenFuzzy.add(id);
       matches.push(row);
     }
   }
@@ -30625,9 +30634,14 @@ function _wbFbsPickFindBySticker(scan) {
   const rawKey = _wbFbsPickScanKey(raw);
   // Primary: QR / 1D scan value from WB stickers.barcode (e.g. !uKEtQZVx).
   const byBarcode = [];
+  const seenBc = new Set();
   for (const row of wbFbsPickState.rows) {
     const bc = _wbFbsKizNormalizeScan(row.sticker_barcode);
-    if (bc && _wbFbsPickScanKey(bc) === rawKey) byBarcode.push(row);
+    if (!(bc && _wbFbsPickScanKey(bc) === rawKey)) continue;
+    const id = String(row.order_id || "").trim();
+    if (id && seenBc.has(id)) continue;
+    if (id) seenBc.add(id);
+    byBarcode.push(row);
   }
   if (byBarcode.length === 1) return { row: byBarcode[0], ambiguous: false };
   if (byBarcode.length > 1) {
@@ -30637,6 +30651,7 @@ function _wbFbsPickFindBySticker(scan) {
   // Fallback: human-readable partA+partB / partB (portal sticker number).
   const digits = raw.replace(/\D+/g, "");
   const matches = [];
+  const seenFuzzy = new Set();
   for (const row of wbFbsPickState.rows) {
     const full = _wbFbsKizNormalizeScan(row.sticker_number);
     const partA = _wbFbsKizNormalizeScan(row.sticker_part_a);
@@ -30646,6 +30661,9 @@ function _wbFbsPickFindBySticker(scan) {
       (partA && partB && digits === `${partA}${partB}`.replace(/\D+/g, "")) ||
       (partB && (rawKey === _wbFbsPickScanKey(partB) || digits === partB.replace(/\D+/g, "")))
     ) {
+      const id = String(row.order_id || "").trim();
+      if (id && seenFuzzy.has(id)) continue;
+      if (id) seenFuzzy.add(id);
       matches.push(row);
     }
   }
