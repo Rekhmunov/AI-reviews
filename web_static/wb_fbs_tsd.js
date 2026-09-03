@@ -583,6 +583,15 @@
     const resolve = state.gm.rebindResolver;
     state.gm.rebindResolver = null;
     if (typeof resolve === "function") resolve(!!yes);
+    const scanInput = document.getElementById("tsdScanInput");
+    if (
+      scanInput &&
+      state.route.view === "scan" &&
+      !state.searchOpen &&
+      !shouldShowBrowseSheet()
+    ) {
+      setTimeout(() => scanInput.focus(), 40);
+    }
   }
 
   async function handleGmScan(rawScan) {
