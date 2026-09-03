@@ -84,9 +84,9 @@ assert(src.includes("containers/unbind"), "unbind on clear-all");
 assert(src.includes("tsd-scanned-item-ozon"), "ozon scanned card class");
 assert(!src.includes("gmBadgeForRow"), "old GM № badge helper removed");
 
-// Ozon scan chrome: no «Шаг 1»; GM refresh banner dismissible + clear on scan
+// Ozon scan chrome: no «Шаг 1»; banners dismissible + GM refresh clears on scan
 assert(src.includes("clearOnScan"), "GM refresh banner clears on scan");
-assert(src.includes("dismissible: true"), "GM refresh banner dismissible");
+assert(src.includes("o.dismissible !== false"), "banners dismissible by default");
 assert(src.includes("tsd-banner-dismiss") || src.includes("dismiss-banner"), "banner dismiss control");
 assert(src.includes('isOzon()\n        ? ""') || src.includes("isOzon()\n        ? \"\""), "Шаг 1 hidden for Ozon");
 

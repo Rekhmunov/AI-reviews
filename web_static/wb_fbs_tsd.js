@@ -1056,18 +1056,20 @@
     state.banner = {
       text: String(text),
       kind: kind || "info",
-      dismissible: !!o.dismissible,
+      // Always closable (errors included) unless explicitly disabled.
+      dismissible: o.dismissible !== false,
       clearOnScan: !!o.clearOnScan,
     };
   }
 
   function bannerHtml(banner) {
     if (!banner) return "";
-    const dismiss = banner.dismissible
+    const dismissible = banner.dismissible !== false;
+    const dismiss = dismissible
       ? `<button type="button" class="tsd-banner-dismiss" data-action="dismiss-banner" aria-label="Закрыть" title="Закрыть">×</button>`
       : "";
     return `<div class="tsd-banner is-${esc(banner.kind || "info")}${
-      banner.dismissible ? " is-dismissible" : ""
+      dismissible ? " is-dismissible" : ""
     }"><span class="tsd-banner-text">${esc(banner.text)}</span>${dismiss}</div>`;
   }
 
