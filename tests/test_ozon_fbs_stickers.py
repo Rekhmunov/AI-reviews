@@ -291,12 +291,19 @@ class OzonFbsStickerLookupTests(unittest.TestCase):
             },
         ]
         mock_refresh.return_value = 1
-        mock_map.return_value = {
-            "0163544192-0175-3": {
-                "posting_number": "0163544192-0175-3",
-                "sticker_barcode": "901963382044000",
-            }
-        }
+        mock_map.side_effect = [
+            {
+                "0163544192-0175-1": {"sticker_barcode": "901963267063000"},
+                "0163544192-0175-3": {"sticker_barcode": ""},
+                "0163544192-0175-5": {"sticker_barcode": ""},
+            },
+            {
+                "0163544192-0175-3": {
+                    "posting_number": "0163544192-0175-3",
+                    "sticker_barcode": "901963382044000",
+                }
+            },
+        ]
         client = MagicMock()
         out = lookup_posting_by_scan(
             MagicMock(),
@@ -314,11 +321,38 @@ class OzonFbsStickerLookupTests(unittest.TestCase):
         self.assertEqual(out["posting"]["posting_number"], "0163544192-0175-3")
         mock_refresh.assert_called_once()
         self.assertTrue(mock_refresh.call_args.kwargs["overwrite"])
+        # Only empty siblings — not the already-bound parent.
+        self.assertEqual(
+            mock_refresh.call_args.kwargs["posting_numbers"],
+            ["0163544192-0175-3", "0163544192-0175-5"],
+        )
         self.assertEqual(mock_find.call_count, 2)
         self.assertEqual(
             out["sticker_bindings"]["0163544192-0175-3"]["sticker_barcode"],
             "901963382044000",
         )
+
+    @patch(
+        "review_processor.ozon_fbs_detail._refresh_postings_package_stickers_from_ozon"
+    )
+    @patch("review_processor.ozon_fbs_stickers.find_postings_by_sticker_scan")
+    def test_lookup_skips_refresh_for_non_package_scan(
+        self,
+        mock_find: MagicMock,
+        mock_refresh: MagicMock,
+    ) -> None:
+        mock_find.return_value = {"row": None, "ambiguous": False, "matches": []}
+        out = lookup_posting_by_scan(
+            MagicMock(),
+            user_id=1,
+            source_id=2,
+            scan="short",
+            client=MagicMock(),
+            refresh_posting_numbers=["P-1", "P-2"],
+        )
+        self.assertFalse(out["found"])
+        mock_refresh.assert_not_called()
+        self.assertEqual(mock_find.call_count, 1)
 
     def test_find_by_sticker_barcode(self) -> None:
         repo = MagicMock()

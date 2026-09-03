@@ -3514,19 +3514,73 @@ def _bind_package_stickers_after_label_print(
     until ``/v2/posting/fbs/package-label`` runs. Pre-print ``only_if_empty`` enrich
     therefore leaves siblings unbound while the parent (same posting_number) may
     already have a QR — exactly the «first sticker works, others not found» bug.
-    Overwrite after a successful label fetch so local sticker_* match the print.
+
+    We overwrite after a successful label fetch (parallel get_posting) so local
+    sticker_* match the print. A short retry covers brief Ozon barcode lag.
     """
     nums = [str(x).strip() for x in posting_numbers if str(x).strip()]
     if not nums:
         return 0
-    return oz_detail._refresh_postings_package_stickers_from_ozon(
-        repo,
-        user_id=user_id,
-        source_id=source_id,
-        posting_numbers=nums,
-        client=client,
-        overwrite=True,
-    )
+
+    def _pull(pn: str) -> tuple[str, dict[str, str] | None]:
+        try:
+            remote = client.get_posting(pn)
+        except Exception as exc:
+            _log.warning("ozon post-print sticker get_posting %s: %s", pn, exc)
+            return pn, None
+        if not isinstance(remote, dict):
+            return pn, None
+        hints = oz.sticker_fields_from_posting({**remote, "posting_number": pn})
+        if not (
+            str(hints.get("sticker_barcode") or "").strip()
+            or str(hints.get("sticker_lower_barcode") or "").strip()
+        ):
+            return pn, None
+        return pn, {
+            "sticker_barcode": str(hints.get("sticker_barcode") or "").strip(),
+            "sticker_lower_barcode": str(hints.get("sticker_lower_barcode") or "").strip(),
+            "sticker_part_a": str(hints.get("sticker_part_a") or "").strip(),
+            "sticker_part_b": str(hints.get("sticker_part_b") or "").strip(),
+        }
+
+    def _persist(stickers: dict[str, dict[str, str]]) -> int:
+        if not stickers:
+            return 0
+        try:
+            return int(
+                oz.persist_posting_stickers_batch(
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    stickers=stickers,
+                    only_if_empty=False,
+                )
+                or 0
+            )
+        except Exception as exc:
+            _log.warning("ozon post-print sticker persist failed: %s", exc)
+            return 0
+
+    def _fetch_many(targets: list[str]) -> dict[str, dict[str, str]]:
+        out: dict[str, dict[str, str]] = {}
+        if not targets:
+            return out
+        workers = min(8, max(1, len(targets)))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for pn, hints in pool.map(_pull, targets):
+                if hints:
+                    out[pn] = hints
+        return out
+
+    stickers = _fetch_many(nums)
+    updated = _persist(stickers)
+    # Brief lag: siblings may get barcodes a moment after package-label returns.
+    still = [pn for pn in nums if pn not in stickers]
+    if still:
+        time.sleep(0.35)
+        retry = _fetch_many(still)
+        updated += _persist(retry)
+    return updated
 
 
 def _is_pymupdf_setup_error(exc: BaseException) -> bool:

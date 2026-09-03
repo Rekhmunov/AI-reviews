@@ -381,10 +381,24 @@ def test_bind_package_stickers_after_label_print_overwrites() -> None:
 
     repo = MagicMock()
     client = MagicMock()
-    with patch(
-        "review_processor.ozon_fbs_supplies.oz_detail._refresh_postings_package_stickers_from_ozon",
-        return_value=2,
-    ) as refresh:
+
+    def get_posting(pn: str):
+        return {
+            "posting_number": pn,
+            "barcodes": {
+                "upper_barcode": f"UP-{pn}",
+                "lower_barcode": f"LO-{pn}",
+            },
+        }
+
+    client.get_posting.side_effect = get_posting
+    with (
+        patch(
+            "review_processor.ozon_fbs_supplies.oz.persist_posting_stickers_batch",
+            return_value=2,
+        ) as persist,
+        patch("review_processor.ozon_fbs_supplies.time.sleep") as sleep,
+    ):
         n = _bind_package_stickers_after_label_print(
             repo,
             user_id=1,
@@ -393,10 +407,52 @@ def test_bind_package_stickers_after_label_print_overwrites() -> None:
             posting_numbers=["P-1", "P-1-3", ""],
         )
     assert n == 2
-    refresh.assert_called_once()
-    assert refresh.call_args.kwargs["posting_numbers"] == ["P-1", "P-1-3"]
-    assert refresh.call_args.kwargs["overwrite"] is True
-    assert refresh.call_args.kwargs["client"] is client
+    sleep.assert_not_called()  # nothing empty after first pass
+    persist.assert_called_once()
+    assert persist.call_args.kwargs["only_if_empty"] is False
+    stickers = persist.call_args.kwargs["stickers"]
+    assert stickers["P-1"]["sticker_barcode"] == "UP-P-1"
+    assert stickers["P-1-3"]["sticker_barcode"] == "UP-P-1-3"
+
+
+def test_bind_package_stickers_retries_empty_after_lag() -> None:
+    from review_processor.ozon_fbs_supplies import _bind_package_stickers_after_label_print
+
+    repo = MagicMock()
+    client = MagicMock()
+    calls = {"n": 0}
+
+    def get_posting(pn: str):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return {"posting_number": pn, "barcodes": {}}
+        return {
+            "posting_number": pn,
+            "barcodes": {"upper_barcode": "901963382044000", "lower_barcode": ""},
+        }
+
+    client.get_posting.side_effect = get_posting
+    with (
+        patch(
+            "review_processor.ozon_fbs_supplies.oz.persist_posting_stickers_batch",
+            return_value=1,
+        ) as persist,
+        patch("review_processor.ozon_fbs_supplies.time.sleep") as sleep,
+    ):
+        n = _bind_package_stickers_after_label_print(
+            repo,
+            user_id=1,
+            source_id=2,
+            client=client,
+            posting_numbers=["P-1-3"],
+        )
+    assert n == 1
+    sleep.assert_called_once()
+    assert persist.call_count == 1
+    assert (
+        persist.call_args.kwargs["stickers"]["P-1-3"]["sticker_barcode"]
+        == "901963382044000"
+    )
 
 
 def test_build_stickers_print_binds_after_label_fetch() -> None:

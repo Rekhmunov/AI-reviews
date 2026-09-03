@@ -8138,6 +8138,9 @@
     for (const row of Array.isArray(rows) ? rows : []) {
       const pn = String(row?.posting_number || "").trim();
       if (!pn || seen.has(pn)) continue;
+      const fields = _ozonFbsResolvedStickerFields(row);
+      // Prefer unbound rows (split siblings). Bound rows are already searchable.
+      if (fields.upper || fields.lower) continue;
       seen.add(pn);
       out.push(pn);
       if (out.length >= 80) break;
@@ -8145,13 +8148,22 @@
     return out;
   }
 
+  function _ozonFbsScanLooksLikePackageBarcode(scan) {
+    const raw = _ozonFbsNormalizeScan(scan);
+    if (!raw) return false;
+    const digits = raw.replace(/\D+/g, "");
+    return digits.length >= 12 && digits === raw;
+  }
+
   async function _ozonFbsLookupPostingByScan(scan, rows) {
     const sourceId = supplyDetailState.sourceId || state.sourceId;
     const raw = _ozonFbsNormalizeScan(scan);
     if (!sourceId || !raw) return { found: false };
     const params = new URLSearchParams({ source_id: String(sourceId), scan: raw });
-    const refreshPns = _ozonFbsLookupRefreshPostings(rows);
-    if (refreshPns.length) params.set("refresh_postings", refreshPns.join(","));
+    if (_ozonFbsScanLooksLikePackageBarcode(raw)) {
+      const refreshPns = _ozonFbsLookupRefreshPostings(rows);
+      if (refreshPns.length) params.set("refresh_postings", refreshPns.join(","));
+    }
     const res = await fetch(`/api/ozon-fbs/postings/lookup?${params}`);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return { found: false };

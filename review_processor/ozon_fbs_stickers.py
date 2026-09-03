@@ -249,6 +249,15 @@ def find_postings_by_sticker_scan(
 _LOOKUP_REFRESH_MAX = 80
 
 
+def _looks_like_ozon_package_barcode(scan: str) -> bool:
+    """Ozon package QR/upper barcode is typically a long digit string (e.g. 15)."""
+    raw = normalize_sticker_scan(scan)
+    if not raw:
+        return False
+    digits = re.sub(r"\D+", "", raw)
+    return len(digits) >= 12 and digits == raw
+
+
 def lookup_posting_by_scan(
     repo: ReviewRepository,
     *,
@@ -263,13 +272,15 @@ def lookup_posting_by_scan(
 
     When the scan misses locally and ``refresh_posting_numbers`` + ``client`` are
     set, re-pull package barcodes from Ozon (post-label lag after split) and retry.
+    Refresh runs only for package-like scans and prefers locally empty sticker rows
+    so a typo does not N×get_posting the whole modal.
     """
     from . import ozon_fbs_detail as oz_detail
 
     found = find_postings_by_sticker_scan(
         repo, user_id=user_id, source_id=source_id, scan=scan
     )
-    refreshed_bindings: dict[str, dict[str, str]] = {}
+    refreshed_bindings: dict[str, dict[str, Any]] = {}
     refresh_pns = [
         str(x).strip()
         for x in (refresh_posting_numbers or [])
@@ -280,13 +291,31 @@ def lookup_posting_by_scan(
         and not found.get("ambiguous")
         and client is not None
         and refresh_pns
+        and _looks_like_ozon_package_barcode(scan)
     ):
         try:
-            oz_detail._refresh_postings_package_stickers_from_ozon(
+            local_map = oz.load_posting_sticker_map(
                 repo,
                 user_id=user_id,
                 source_id=source_id,
                 posting_numbers=refresh_pns,
+            )
+            need = [
+                pn
+                for pn in refresh_pns
+                if not (
+                    str((local_map.get(pn) or {}).get("sticker_barcode") or "").strip()
+                    or str((local_map.get(pn) or {}).get("sticker_lower_barcode") or "").strip()
+                )
+            ]
+            # Empty rows first (split siblings). If none empty, overwrite the
+            # provided set once — covers rare barcode rotate after package-label.
+            targets = need or list(refresh_pns)
+            oz_detail._refresh_postings_package_stickers_from_ozon(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                posting_numbers=targets,
                 client=client,
                 overwrite=True,
             )
