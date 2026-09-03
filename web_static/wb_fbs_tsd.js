@@ -2772,7 +2772,6 @@
                     autocomplete="off" enterkeyhint="search"
                     value="${esc(String(state.orderSearch || ""))}" />
                   <button type="button" class="tsd-icon-btn tsd-browse-search-clear" id="tsdBrowseSearchClear"
-                    ${String(state.orderSearch || "").trim() ? "" : "hidden"}
                     aria-label="Очистить поиск" title="Очистить">×</button>
                 </div>
               </div>`
@@ -2854,12 +2853,6 @@
     }
     const browseSearch = document.getElementById("tsdBrowseSearchInput");
     const browseSearchClear = document.getElementById("tsdBrowseSearchClear");
-    const syncBrowseSearchClear = () => {
-      if (!browseSearchClear) return;
-      browseSearchClear.hidden = !String(
-        (browseSearch && browseSearch.value) || state.orderSearch || ""
-      ).trim();
-    };
     if (browseSearchClear) {
       browseSearchClear.addEventListener("click", (ev) => {
         ev.preventDefault();
@@ -2867,7 +2860,6 @@
         if (browseSearch) browseSearch.value = "";
         const headerInput = document.getElementById("tsdOrderSearch");
         if (headerInput) headerInput.value = "";
-        syncBrowseSearchClear();
         refreshSearchResultsOnly();
         if (browseSearch) {
           setTimeout(() => browseSearch.focus(), 20);
@@ -2881,7 +2873,6 @@
         if (headerInput && String(headerInput.value || "") !== state.orderSearch) {
           headerInput.value = state.orderSearch;
         }
-        syncBrowseSearchClear();
         refreshSearchResultsOnly();
       });
       browseSearch.addEventListener("keydown", (ev) => {
@@ -2904,7 +2895,6 @@
           }
         }, 40);
       }
-      syncBrowseSearchClear();
     }
   }
 
@@ -4396,7 +4386,39 @@
     });
     const searchClose = document.getElementById("tsdSearchClose");
     if (searchClose) {
-      searchClose.addEventListener("click", () => closeHeaderSearch());
+      searchClose.addEventListener("click", () => {
+        const input = document.getElementById("tsdOrderSearch");
+        const view = state.route.view;
+        const cur =
+          view === "list"
+            ? String(state.search || "")
+            : String(state.orderSearch || (input && input.value) || "");
+        // × next to the field clears the query; only closes when already empty.
+        if (String(cur || "").trim()) {
+          if (view === "list") {
+            state.search = "";
+            if (input) input.value = "";
+            syncSearchChrome();
+            clearTimeout(listSearchTimer);
+            loadSupplies()
+              .then(() => renderList())
+              .catch((e) => toast(e.message || e));
+            if (input) setTimeout(() => input.focus(), 20);
+            return;
+          }
+          state.orderSearch = "";
+          if (input) input.value = "";
+          const browseSearch = document.getElementById("tsdBrowseSearchInput");
+          if (browseSearch) browseSearch.value = "";
+          syncSearchChrome();
+          refreshSearchResultsOnly();
+          const focusEl =
+            document.getElementById("tsdBrowseSearchInput") || input;
+          if (focusEl) setTimeout(() => focusEl.focus(), 20);
+          return;
+        }
+        closeHeaderSearch();
+      });
     }
     const orderSearch = document.getElementById("tsdOrderSearch");
     if (orderSearch) {
