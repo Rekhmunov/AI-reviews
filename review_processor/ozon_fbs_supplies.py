@@ -3461,6 +3461,45 @@ _PRINTABLE_LABEL_TABS = frozenset(
 )
 
 
+def _enrich_empty_package_stickers_for_print(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    client: oz.OzonFbsClient,
+    posting_numbers: list[str],
+) -> int:
+    """Fill empty sticker_* from Ozon get for postings about to be printed.
+
+    Safe safety-net for older rows / brief barcode lag after split. Never
+    overwrites already bound sticker columns (only_if_empty).
+    """
+    nums = [str(x).strip() for x in posting_numbers if str(x).strip()]
+    if not nums:
+        return 0
+    local = oz.load_posting_sticker_map(
+        repo, user_id=user_id, source_id=source_id, posting_numbers=nums
+    )
+    need = [
+        pn
+        for pn in nums
+        if not (
+            str((local.get(pn) or {}).get("sticker_barcode") or "").strip()
+            or str((local.get(pn) or {}).get("sticker_lower_barcode") or "").strip()
+        )
+    ]
+    if not need:
+        return 0
+    return oz_detail._refresh_postings_package_stickers_from_ozon(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        posting_numbers=need,
+        client=client,
+        overwrite=False,
+    )
+
+
 def _is_pymupdf_setup_error(exc: BaseException) -> bool:
     if isinstance(exc, ImportError):
         return True
@@ -3967,6 +4006,20 @@ def build_stickers_print(
         except Exception:
             pass
     client = oz.OzonFbsClient(client_id, api_key)
+    try:
+        _enrich_empty_package_stickers_for_print(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            client=client,
+            posting_numbers=nums,
+        )
+    except Exception as exc:
+        _log.warning(
+            "ozon stickers pre-print enrich failed supply=%s: %s",
+            supply_id,
+            exc,
+        )
     images = _fetch_label_images(client, nums, progress=progress)
     missing = [pn for pn in nums if not (images.get(pn) or [])]
     missing_reasons: list[str] = []

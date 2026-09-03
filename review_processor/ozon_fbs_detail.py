@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from . import ozon_fbs as oz
 from .repository import ReviewRepository
+
+_log = logging.getLogger(__name__)
 
 
 def get_posting_row(
@@ -178,6 +181,126 @@ def _product_meta_by_sku(base: dict[str, Any]) -> dict[int, dict[str, Any]]:
             "sku": sku,
         }
     return out
+
+
+def _clear_package_sticker_barcodes(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_numbers: list[str],
+) -> None:
+    """Clear package QR/lower barcodes so a following refresh can rebind cleanly.
+
+    After split the parent posting_number often keeps a pre-split QR. Leaving it
+    blocks print-time ``only_if_empty`` enrich. Parts (A/B) stay — they come from
+    posting_number and are still valid.
+    """
+    nums = [str(x).strip() for x in posting_numbers if str(x).strip()]
+    if not nums:
+        return
+    oz.ensure_ozon_fbs_tables(repo)
+    placeholders = ", ".join("?" for _ in nums)
+    try:
+        with repo._connect() as conn:
+            conn.execute(
+                repo._sql(
+                    f"""
+                    UPDATE ozon_fbs_postings
+                    SET sticker_barcode = '',
+                        sticker_lower_barcode = ''
+                    WHERE user_id = ? AND source_id = ?
+                      AND posting_number IN ({placeholders})
+                    """
+                ),
+                (int(user_id), int(source_id), *nums),
+            )
+    except Exception as exc:
+        _log.warning("ozon sticker clear failed: %s", exc)
+
+
+def _refresh_postings_package_stickers_from_ozon(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_numbers: list[str],
+    client: oz.OzonFbsClient,
+    overwrite: bool = True,
+) -> int:
+    """Best-effort: load package barcodes via get_posting and persist sticker_*.
+
+    After split/ship Ozon issues new package labels. Local compose upserts do not
+    carry ``barcodes``, so scan-by-sticker in Marking/Pick would miss until sync.
+    Failures are logged and skipped — split/ship already succeeded locally.
+
+    ``overwrite=True`` replaces stale parent barcodes after split (only_if_empty
+    would keep the pre-split QR linked to the wrong physical label).
+    """
+    updated = 0
+    seen: set[str] = set()
+    for raw_pn in posting_numbers:
+        pn = str(raw_pn or "").strip()
+        if not pn or pn in seen:
+            continue
+        seen.add(pn)
+        try:
+            remote = client.get_posting(pn)
+        except Exception as exc:
+            _log.warning("ozon sticker refresh get_posting %s: %s", pn, exc)
+            continue
+        if not isinstance(remote, dict):
+            continue
+        hints = oz.sticker_fields_from_posting({**remote, "posting_number": pn})
+        if not (
+            str(hints.get("sticker_barcode") or "").strip()
+            or str(hints.get("sticker_lower_barcode") or "").strip()
+        ):
+            # Barcodes can lag briefly after split — do not wipe existing columns.
+            continue
+        try:
+            n = oz.persist_posting_stickers_batch(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                stickers={pn: hints},
+                only_if_empty=not overwrite,
+            )
+            updated += int(n or 0)
+        except Exception as exc:
+            _log.warning("ozon sticker refresh persist %s: %s", pn, exc)
+    return updated
+
+
+def _persist_package_stickers_from_posting(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_number: str,
+    posting: dict[str, Any],
+    overwrite: bool,
+) -> None:
+    """Persist package stickers from an already-fetched Ozon posting payload."""
+    pn = str(posting_number or "").strip()
+    if not pn or not isinstance(posting, dict):
+        return
+    hints = oz.sticker_fields_from_posting({**posting, "posting_number": pn})
+    if not (
+        str(hints.get("sticker_barcode") or "").strip()
+        or str(hints.get("sticker_lower_barcode") or "").strip()
+    ):
+        return
+    try:
+        oz.persist_posting_stickers_batch(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            stickers={pn: hints},
+            only_if_empty=not overwrite,
+        )
+    except Exception as exc:
+        _log.warning("ozon sticker persist from posting %s: %s", pn, exc)
 
 
 def _compose_posting_from_package(
@@ -439,6 +562,21 @@ def split_posting(
         base=base if isinstance(base, dict) else {},
         status=oz.TAB_AWAITING_PACKAGING,
     )
+    # Drop pre-split parent QR, then bind fresh package barcodes for scan.
+    _clear_package_sticker_barcodes(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        posting_numbers=posting_numbers,
+    )
+    _refresh_postings_package_stickers_from_ozon(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        posting_numbers=posting_numbers,
+        client=api,
+        overwrite=True,
+    )
     return {
         "ok": True,
         "posting_number": str(posting_numbers[0] if posting_numbers else posting_number),
@@ -617,7 +755,8 @@ def ship_posting(
     multi_split = len(packages) > 1
     base = remote or row
 
-    # Bulk collect (fast): never N×get_posting — upsert from ship result + packages.
+    # Bulk collect (fast): never N×get_posting for full status — upsert from ship
+    # result + packages, then only refresh package sticker barcodes for scan linking.
     if fast:
         if multi_split:
             _persist_shipped_postings_local(
@@ -627,6 +766,20 @@ def ship_posting(
                 posting_numbers=posting_numbers,
                 packages=packages,
                 base=base if isinstance(base, dict) else {},
+            )
+            _clear_package_sticker_barcodes(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                posting_numbers=posting_numbers,
+            )
+            _refresh_postings_package_stickers_from_ozon(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                posting_numbers=posting_numbers,
+                client=api,
+                overwrite=True,
             )
         else:
             _force_local_awaiting_deliver(
@@ -687,6 +840,16 @@ def ship_posting(
                 posting_number=str(pn),
                 posting=refreshed if refreshed else None,
             )
+        # upsert applies stickers only_if_empty — overwrite from this get so a
+        # pre-ship / pre-split QR cannot block the real package barcodes.
+        _persist_package_stickers_from_posting(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            posting_number=str(pn),
+            posting=refreshed,
+            overwrite=True,
+        )
     return {
         "ok": True,
         "result": result,

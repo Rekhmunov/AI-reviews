@@ -236,11 +236,25 @@ def test_split_posting_persists_siblings_awaiting_packaging() -> None:
 
     repo = MagicMock()
     client = MagicMock()
-    client.get_posting.return_value = {
-        "posting_number": "P-1",
-        "status": "awaiting_packaging",
-        "products": [{"sku": 10, "offer_id": "A", "quantity": 2}],
-    }
+    client.get_posting.side_effect = [
+        {
+            "posting_number": "P-1",
+            "status": "awaiting_packaging",
+            "products": [{"sku": 10, "offer_id": "A", "quantity": 2}],
+        },
+        {
+            "posting_number": "P-1",
+            "status": "awaiting_packaging",
+            "barcodes": {"upper_barcode": "UP-PARENT", "lower_barcode": "LO-PARENT"},
+            "products": [{"sku": 10, "offer_id": "A", "quantity": 1}],
+        },
+        {
+            "posting_number": "P-1-1",
+            "status": "awaiting_packaging",
+            "barcodes": {"upper_barcode": "UP-CHILD", "lower_barcode": "LO-CHILD"},
+            "products": [{"sku": 10, "offer_id": "A", "quantity": 1}],
+        },
+    ]
     client.split_posting.return_value = {
         "parent_posting": {
             "posting_number": "P-1",
@@ -261,6 +275,11 @@ def test_split_posting_persists_siblings_awaiting_packaging() -> None:
     with (
         patch("review_processor.ozon_fbs_detail.get_posting_row", return_value=row),
         patch("review_processor.ozon_fbs_detail.oz.upsert_posting") as upsert,
+        patch("review_processor.ozon_fbs_detail._clear_package_sticker_barcodes") as clear_stickers,
+        patch(
+            "review_processor.ozon_fbs_detail.oz.persist_posting_stickers_batch",
+            return_value=1,
+        ) as persist_stickers,
     ):
         out = split_posting(
             repo,
@@ -288,6 +307,73 @@ def test_split_posting_persists_siblings_awaiting_packaging() -> None:
         }
     ]
     assert sibling_payload["products"][0]["quantity"] == 1
+    # Pre-split get + one get per resulting posting for package barcodes.
+    assert client.get_posting.call_count == 3
+    clear_stickers.assert_called_once()
+    assert clear_stickers.call_args.kwargs["posting_numbers"] == ["P-1", "P-1-1"]
+    assert persist_stickers.call_count == 2
+    first_stickers = persist_stickers.call_args_list[0].kwargs["stickers"]
+    second_stickers = persist_stickers.call_args_list[1].kwargs["stickers"]
+    assert first_stickers["P-1"]["sticker_barcode"] == "UP-PARENT"
+    assert second_stickers["P-1-1"]["sticker_barcode"] == "UP-CHILD"
+    assert persist_stickers.call_args_list[0].kwargs["only_if_empty"] is False
+
+
+def test_refresh_postings_package_stickers_skips_empty_barcodes() -> None:
+    from review_processor.ozon_fbs_detail import _refresh_postings_package_stickers_from_ozon
+
+    repo = MagicMock()
+    client = MagicMock()
+    client.get_posting.return_value = {
+        "posting_number": "P-1",
+        "status": "awaiting_packaging",
+        "products": [{"sku": 1, "quantity": 1}],
+    }
+    with patch(
+        "review_processor.ozon_fbs_detail.oz.persist_posting_stickers_batch"
+    ) as persist:
+        n = _refresh_postings_package_stickers_from_ozon(
+            repo,
+            user_id=1,
+            source_id=2,
+            posting_numbers=["P-1", "P-1", ""],
+            client=client,
+            overwrite=True,
+        )
+    assert n == 0
+    persist.assert_not_called()
+    assert client.get_posting.call_count == 1
+
+
+def test_enrich_empty_package_stickers_skips_already_bound() -> None:
+    from review_processor.ozon_fbs_supplies import _enrich_empty_package_stickers_for_print
+
+    repo = MagicMock()
+    client = MagicMock()
+    with (
+        patch(
+            "review_processor.ozon_fbs_supplies.oz.load_posting_sticker_map",
+            return_value={
+                "P-1": {"sticker_barcode": "UP", "sticker_lower_barcode": ""},
+                "P-2": {"sticker_barcode": "", "sticker_lower_barcode": ""},
+            },
+        ),
+        patch(
+            "review_processor.ozon_fbs_supplies.oz_detail._refresh_postings_package_stickers_from_ozon",
+            return_value=1,
+        ) as refresh,
+    ):
+        n = _enrich_empty_package_stickers_for_print(
+            repo,
+            user_id=1,
+            source_id=2,
+            client=client,
+            posting_numbers=["P-1", "P-2"],
+        )
+    assert n == 1
+    refresh.assert_called_once()
+    assert refresh.call_args.kwargs["posting_numbers"] == ["P-2"]
+    assert refresh.call_args.kwargs["overwrite"] is False
 
 
 def test_parse_split_empty_children_raises() -> None:
