@@ -255,8 +255,49 @@ def test_build_marking_payload_resolves_kiz_then_filters_rows() -> None:
     assert payload["marking_resolve"]["remaining"] == 0
 
 
+def test_refresh_skips_when_sync_already_stamped_catalog_flags() -> None:
+    """After sync warm, modal resolve should be remaining=0 (no upserts)."""
+    repo = MagicMock()
+    conn = MagicMock()
+    repo._connect.return_value.__enter__ = MagicMock(return_value=conn)
+    repo._connect.return_value.__exit__ = MagicMock(return_value=False)
+    repo._sql = lambda s: s
+    repo._row_to_dict = lambda row: row
+    catalog = {"ART-1": True, "555": True}
+    repo.get_product_requires_kiz_map.return_value = catalog
+    posting = {
+        "posting_number": "P-1",
+        "products": [{"sku": 555, "quantity": 1, "offer_id": "ART-1"}],
+    }
+    stamped = oz.apply_catalog_marking_flags(posting, catalog)
+    row = {
+        "posting_number": "P-1",
+        "is_mandatory_mark": False,
+        "raw_json": __import__("json").dumps(stamped),
+        "products_json": "[]",
+    }
+    conn.execute.return_value.fetchall.return_value = [row]
+
+    with patch("review_processor.ozon_fbs_supplies.oz.upsert_posting") as upsert:
+        result = refresh_supply_marking_flags_from_ozon(
+            repo,
+            user_id=1,
+            source_id=2,
+            posting_numbers=["P-1"],
+            client_id="cid",
+            api_key="key",
+        )
+
+    assert result["updated"] == 0
+    assert result["checked"] == 0
+    assert result["remaining"] == 0
+    assert result["total_pending"] == 0
+    upsert.assert_not_called()
+
+
 def test_sync_does_not_call_marking_enrich() -> None:
     repo = MagicMock()
+    repo.get_product_requires_kiz_map.return_value = {"111": True}
     client = MagicMock()
     posting = {
         "posting_number": "P-1",
@@ -266,11 +307,15 @@ def test_sync_does_not_call_marking_enrich() -> None:
     client.list_postings_page.side_effect = lambda **kw: (
         ([posting], False) if kw.get("status") == "awaiting_deliver" else ([], False)
     )
+    saved: list[dict] = []
+
+    def _upsert(*_a, **kw):
+        saved.append(kw.get("posting") or {})
 
     with (
         patch("review_processor.ozon_fbs.OzonFbsClient", return_value=client),
         patch("review_processor.ozon_fbs.ensure_ozon_fbs_tables"),
-        patch("review_processor.ozon_fbs.upsert_posting"),
+        patch("review_processor.ozon_fbs.upsert_posting", side_effect=_upsert),
         patch("review_processor.ozon_fbs.enrich_posting_marking_flags_light") as enrich,
         patch("review_processor.ozon_fbs.time.sleep"),
     ):
@@ -283,6 +328,105 @@ def test_sync_does_not_call_marking_enrich() -> None:
             lookback_days=7,
         )
     enrich.assert_not_called()
+    assert saved
+    req = saved[0].get("requirements") or {}
+    assert req.get("marking_is_required_checked") is True
+    assert "111" in (req.get("products_requiring_mandatory_mark") or [])
+
+
+def test_sync_applies_catalog_kiz_flags_into_upsert() -> None:
+    """Sync must stamp catalog flags into raw_json so modal resolve is a no-op."""
+    repo = MagicMock()
+    repo.get_product_requires_kiz_map.return_value = {
+        "ART-KIZ": True,
+        "555": True,
+    }
+    client = MagicMock()
+    posting = {
+        "posting_number": "P-1",
+        "status": "awaiting_packaging",
+        "products": [
+            {"sku": 555, "offer_id": "ART-KIZ", "quantity": 1},
+            {"sku": 777, "offer_id": "ART-PLAIN", "quantity": 1},
+        ],
+    }
+    client.list_postings_page.side_effect = lambda **kw: (
+        ([posting], False) if kw.get("status") == "awaiting_packaging" else ([], False)
+    )
+    saved: list[dict] = []
+
+    def _upsert(*_a, **kw):
+        saved.append(dict(kw.get("posting") or {}))
+
+    progress_msgs: list[str] = []
+
+    with (
+        patch("review_processor.ozon_fbs.OzonFbsClient", return_value=client),
+        patch("review_processor.ozon_fbs.ensure_ozon_fbs_tables"),
+        patch("review_processor.ozon_fbs.upsert_posting", side_effect=_upsert),
+        patch("review_processor.ozon_fbs.time.sleep"),
+    ):
+        out = oz.sync_ozon_fbs_source(
+            repo,
+            user_id=9,
+            source_id=3,
+            client_id="cid",
+            api_key="key",
+            lookback_days=3,
+            progress=lambda msg, n: progress_msgs.append(msg),
+        )
+
+    assert out["postings"] == 1
+    assert out["stopped"] is False
+    repo.get_product_requires_kiz_map.assert_called_once_with(user_id=9)
+    assert any("каталог КИЗ" in m for m in progress_msgs)
+    req = saved[0].get("requirements") or {}
+    assert req.get("marking_is_required_checked") is True
+    assert req.get("products_requiring_mandatory_mark") == ["555"]
+    assert req.get("marking_check_version") is None
+    # Modal residual skip contract: same apply → already matching.
+    again = oz.apply_catalog_marking_flags(saved[0], {"ART-KIZ": True, "555": True})
+    assert (again.get("requirements") or {}).get(
+        "products_requiring_mandatory_mark"
+    ) == ["555"]
+
+
+def test_sync_skips_catalog_flags_when_map_fails() -> None:
+    repo = MagicMock()
+    repo.get_product_requires_kiz_map.side_effect = RuntimeError("db down")
+    client = MagicMock()
+    posting = {
+        "posting_number": "P-1",
+        "status": "awaiting_deliver",
+        "products": [{"sku": 1, "quantity": 1}],
+    }
+    client.list_postings_page.side_effect = lambda **kw: (
+        ([posting], False) if kw.get("status") == "awaiting_deliver" else ([], False)
+    )
+    saved: list[dict] = []
+
+    def _upsert(*_a, **kw):
+        saved.append(kw.get("posting") or {})
+
+    with (
+        patch("review_processor.ozon_fbs.OzonFbsClient", return_value=client),
+        patch("review_processor.ozon_fbs.ensure_ozon_fbs_tables"),
+        patch("review_processor.ozon_fbs.upsert_posting", side_effect=_upsert),
+        patch("review_processor.ozon_fbs.time.sleep"),
+    ):
+        oz.sync_ozon_fbs_source(
+            repo,
+            user_id=1,
+            source_id=2,
+            client_id="cid",
+            api_key="key",
+            lookback_days=3,
+        )
+
+    assert saved[0] is posting or saved[0].get("requirements") is None
+    assert "requirements" not in saved[0] or not (
+        saved[0].get("requirements") or {}
+    ).get("marking_is_required_checked")
 
 
 def test_resolve_supply_kiz_flags_delegates_to_refresh() -> None:

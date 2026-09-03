@@ -36,6 +36,7 @@ def test_upsert_posting_ensures_tables_by_default() -> None:
 
 def test_sync_keeps_limit_50_and_upserts_without_per_row_ensure() -> None:
     repo = MagicMock()
+    repo.get_product_requires_kiz_map.return_value = {}
     client = MagicMock()
     posting = {
         "posting_number": "P-1",
@@ -76,3 +77,8 @@ def test_sync_keeps_limit_50_and_upserts_without_per_row_ensure() -> None:
     assert all(limit == 50 for limit in seen_limits)
     assert upsert_kwargs
     assert all(kw.get("ensure_tables") is False for kw in upsert_kwargs)
+    repo.get_product_requires_kiz_map.assert_called_once_with(user_id=1)
+    saved = upsert_kwargs[0]["posting"]
+    req = saved.get("requirements") or {}
+    assert req.get("marking_is_required_checked") is True
+    assert req.get("products_requiring_mandatory_mark") == []

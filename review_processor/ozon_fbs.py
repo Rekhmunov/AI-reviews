@@ -2547,6 +2547,23 @@ def sync_ozon_fbs_source(
     date_to = datetime.now(UTC)
     date_from = date_to - timedelta(days=max(1, min(int(lookback_days), 90)))
 
+    # Catalog «Требует КИЗ» once per source. Written into the same raw_json that
+    # sync upserts — otherwise modal open re-runs N×40 flag upserts after wipe.
+    # On map failure skip apply so we do not stamp false «checked» empties.
+    catalog_kiz_ready = False
+    requires_kiz_map: dict[str, bool] = {}
+    try:
+        requires_kiz_map = repo.get_product_requires_kiz_map(user_id=user_id)
+        catalog_kiz_ready = True
+        _prog("Синхронизация… + каталог КИЗ")
+    except Exception as exc:
+        _log.warning(
+            "ozon_fbs catalog kiz map failed user=%s source=%s: %s",
+            user_id,
+            source_id,
+            exc,
+        )
+
     for status in SYNC_STATUSES:
         if _stopped():
             stopped = True
@@ -2576,11 +2593,14 @@ def sync_ozon_fbs_source(
                 pn = str(posting.get("posting_number") or "").strip()
                 if not pn:
                     continue
+                to_save = posting
+                if catalog_kiz_ready and isinstance(posting, dict):
+                    to_save = apply_catalog_marking_flags(posting, requires_kiz_map)
                 upsert_posting(
                     repo,
                     user_id=user_id,
                     source_id=source_id,
-                    posting=posting,
+                    posting=to_save,
                     ensure_tables=False,
                 )
                 seen.add(pn)
