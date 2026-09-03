@@ -1745,11 +1745,6 @@ def build_container_modal_details(
             {
                 "key": "warehouse_date",
                 "label": "Дата склада (Ozon)",
-                "hint": (
-                    "Дата создания ГМ в часовом поясе склада. "
-                    "Часы показываем только если Ozon отдал время в API "
-                    "(часто приходит одна дата без времени)."
-                ),
                 "at": warehouse_raw,
                 "at_display": warehouse_display or "—",
                 "source": "ozon",

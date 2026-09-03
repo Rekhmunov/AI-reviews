@@ -161,7 +161,8 @@ class ContainerModalDetailsTests(unittest.TestCase):
         self.assertEqual(out["warehouse_date"], "2026-09-01T14:25:00")
         self.assertEqual(out["warehouse_date_display"], "01.09.2026 14:25")
         wh_ev = next(x for x in out["timeline"] if x["key"] == "warehouse_date")
-        self.assertIn("Часы показываем", wh_ev["hint"])
+        self.assertEqual(wh_ev["at_display"], "01.09.2026 14:25")
+        self.assertFalse(wh_ev.get("hint"))
 
     def test_build_details_merges_ozon_membership(self) -> None:
         repo = MagicMock()
