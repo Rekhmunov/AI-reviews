@@ -356,9 +356,33 @@ html, body {
 }
 
 .tsd-search-item-ozon {
+  position: relative;
   flex-direction: column;
   gap: 8px;
   align-items: stretch;
+  padding-right: 48px;
+  cursor: default;
+}
+
+.tsd-search-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.tsd-search-item-main:focus-visible {
+  outline: 2px solid var(--tsd-accent);
+  outline-offset: 2px;
+  border-radius: 8px;
 }
 
 .tsd-search-item-ozon .tsd-scanned-name {
@@ -1328,8 +1352,28 @@ html, body {
   border-bottom: 1px solid var(--tsd-line);
 }
 
+.tsd-browse-search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .tsd-browse-search .tsd-search-input {
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+}
+
+.tsd-browse-search-clear {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.tsd-browse-search-clear[hidden] {
+  display: none !important;
 }
 
 .tsd-browse-body {
