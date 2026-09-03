@@ -9382,12 +9382,14 @@
       : "";
     row.pick_barcode = val;
     if (!val) {
+      // Draft empty in the input; keep previous verified until blur/×/Save decides.
+      // Mark unverified only so counters don't stay green on a blank field.
       row.pick_verified = false;
       if (ozonFbsPickState.errors[pn]) delete ozonFbsPickState.errors[pn];
       return;
     }
     // Typing invalidates previous green state until Enter validates.
-    if (row.pick_verified && val !== prevVerifiedBarcode) {
+    if (prevVerifiedBarcode && val !== prevVerifiedBarcode) {
       row.pick_verified = false;
     }
     if (ozonFbsPickState.errors[pn]) delete ozonFbsPickState.errors[pn];
@@ -9399,9 +9401,20 @@
     if (!row || _ozonFbsRowIsCancelled(row)) return false;
     const rawTyped = String(rawValue || "").replace(/\s+/g, "").trim();
     if (!rawTyped) {
-      // Empty draft: don't wipe a saved row on blur; × clears explicitly.
-      if (fromBlur && row.pick_verified && String(row.pick_barcode || "").trim()) {
-        return false;
+      // Empty on blur: restore last saved baseline (× clears explicitly).
+      if (fromBlur) {
+        const base = ozonFbsPickState.baselineByPosting?.[pn] || {};
+        const baseBarcode = String(base.pick_barcode || "").trim();
+        if (base.pick_verified && baseBarcode) {
+          row.pick_verified = true;
+          row.pick_barcode = baseBarcode;
+          const input = document.querySelector(
+            `#ozonFbsPickTbody .ozon-fbs-pick-barcode-input[data-posting="${pn}"]`
+          );
+          if (input) input.value = baseBarcode;
+          if (ozonFbsPickState.errors[pn]) delete ozonFbsPickState.errors[pn];
+          return false;
+        }
       }
       row.pick_barcode = "";
       row.pick_verified = false;
@@ -9445,7 +9458,10 @@
     const row = (ozonFbsPickState.rows || []).find((r) => String(r.posting_number) === pn);
     if (!row || _ozonFbsRowIsCancelled(row)) return;
     const val = String(event?.target?.value || "").trim();
-    if (!val) return;
+    if (!val) {
+      _ozonFbsPickCommitBarcode(pn, "", { fromBlur: true });
+      return;
+    }
     if (row.pick_verified && val === String(row.pick_barcode || "").trim()) return;
     _ozonFbsPickCommitBarcode(pn, val, { fromBlur: true });
   }
