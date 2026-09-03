@@ -119,6 +119,50 @@ class ContainerModalDetailsTests(unittest.TestCase):
         self.assertEqual(kwargs["container"]["container_id"], 7)
         self.assertIsNone(kwargs.get("client"))
 
+    def test_build_details_prefers_richer_warehouse_date_from_get(self) -> None:
+        repo = MagicMock()
+        client = MagicMock()
+        with patch.object(
+            ct,
+            "get_supply_moved_to_delivering_at",
+            return_value="",
+        ), patch.object(
+            ct,
+            "_list_local_container_postings",
+            return_value=[],
+        ), patch.object(
+            ct,
+            "_fetch_container_postings",
+            return_value=(
+                {
+                    "container_id": 99,
+                    "warehouse_date": "2026-09-01T14:25:00",
+                    "created_at": "2026-09-01T11:00:00Z",
+                    "status": "new",
+                    "status_label": "Новое",
+                },
+                [],
+                True,
+            ),
+        ):
+            out = ct.build_container_modal_details(
+                repo,
+                user_id=1,
+                source_id=2,
+                supply_id="sup-1",
+                container={
+                    "container_id": 99,
+                    "status": "new",
+                    "warehouse_date": "2026-09-01",
+                    "created_at": "2026-09-01T11:00:00Z",
+                },
+                client=client,
+            )
+        self.assertEqual(out["warehouse_date"], "2026-09-01T14:25:00")
+        self.assertEqual(out["warehouse_date_display"], "01.09.2026 14:25")
+        wh_ev = next(x for x in out["timeline"] if x["key"] == "warehouse_date")
+        self.assertIn("Часы показываем", wh_ev["hint"])
+
     def test_build_details_merges_ozon_membership(self) -> None:
         repo = MagicMock()
         client = MagicMock()

@@ -1656,6 +1656,54 @@ def build_container_modal_details(
     status_lbl = str(container.get("status_label") or status_label(status) or "—")
     created_raw = str(container.get("created_at") or "").strip()
     warehouse_raw = str(container.get("warehouse_date") or "").strip()
+
+    local_postings = _list_local_container_postings(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        container_id=cid,
+        supply_id=supply_id,
+    )
+    composition_source = "local"
+    ozon_fetch_ok = False
+    postings = list(local_postings)
+    if client is not None and cid > 0:
+        try:
+            meta_get, ozon_pns, exists = _fetch_container_postings(
+                client, container_id=cid
+            )
+            ozon_fetch_ok = bool(exists)
+            # ``container/get`` may carry a richer warehouse_date / created_at than list.
+            if isinstance(meta_get, dict):
+                wh_get = str(meta_get.get("warehouse_date") or "").strip()
+                if wh_get and (len(wh_get) > len(warehouse_raw) or not warehouse_raw):
+                    warehouse_raw = wh_get
+                cr_get = str(meta_get.get("created_at") or "").strip()
+                if cr_get and (len(cr_get) > len(created_raw) or not created_raw):
+                    created_raw = cr_get
+                st_get = str(meta_get.get("status") or "").strip().lower()
+                if st_get:
+                    status = st_get
+                    status_lbl = str(
+                        meta_get.get("status_label") or status_label(status) or "—"
+                    )
+            if ozon_pns:
+                postings = _merge_ozon_container_composition(
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    supply_id=supply_id,
+                    container_id=cid,
+                    ozon_posting_numbers=ozon_pns,
+                    local_postings=local_postings,
+                )
+                composition_source = "ozon"
+            elif exists and not local_postings:
+                composition_source = "ozon"
+        except Exception as exc:
+            _log.warning("ozon container details get cid=%s: %s", cid, exc)
+            ozon_fetch_ok = False
+
     created_display = oz.format_lookup_datetime(created_raw) if created_raw else ""
     warehouse_display = (
         oz.format_warehouse_date(warehouse_raw) if warehouse_raw else ""
@@ -1689,14 +1737,18 @@ def build_container_modal_details(
                 "source": "local",
             }
         )
-    # Official docs: warehouse_date = creation date in warehouse timezone.
-    # Show time when Ozon includes it; do not invent a separate SC-accept clock.
+    # Docs: warehouse_date = creation date in warehouse TZ (string). Ozon often
+    # sends YYYY-MM-DD only; we show HH:MM whenever the payload includes time.
     if warehouse_raw or warehouse_display:
         timeline.append(
             {
                 "key": "warehouse_date",
                 "label": "Дата склада (Ozon)",
-                "hint": "По документации Ozon — дата создания ГМ в часовом поясе склада",
+                "hint": (
+                    "Дата создания ГМ в часовом поясе склада. "
+                    "Часы показываем только если Ozon отдал время в API "
+                    "(часто приходит одна дата без времени)."
+                ),
                 "at": warehouse_raw,
                 "at_display": warehouse_display or "—",
                 "source": "ozon",
@@ -1714,38 +1766,6 @@ def build_container_modal_details(
         }
     )
 
-    local_postings = _list_local_container_postings(
-        repo,
-        user_id=user_id,
-        source_id=source_id,
-        container_id=cid,
-        supply_id=supply_id,
-    )
-    composition_source = "local"
-    ozon_fetch_ok = False
-    postings = list(local_postings)
-    if client is not None and cid > 0:
-        try:
-            _meta, ozon_pns, exists = _fetch_container_postings(
-                client, container_id=cid
-            )
-            ozon_fetch_ok = bool(exists)
-            if ozon_pns:
-                postings = _merge_ozon_container_composition(
-                    repo,
-                    user_id=user_id,
-                    source_id=source_id,
-                    supply_id=supply_id,
-                    container_id=cid,
-                    ozon_posting_numbers=ozon_pns,
-                    local_postings=local_postings,
-                )
-                composition_source = "ozon"
-            elif exists and not local_postings:
-                composition_source = "ozon"
-        except Exception as exc:
-            _log.warning("ozon container details get cid=%s: %s", cid, exc)
-            ozon_fetch_ok = False
     return {
         "ok": True,
         "container_id": cid,
