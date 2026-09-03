@@ -354,41 +354,62 @@
     state.gm.activeBarcode = cid > 0 ? String(cid) : "";
   }
 
+  function gmIconSvg(kind) {
+    if (kind === "refresh") {
+      return `<svg class="tsd-gm-icon-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7a5 5 0 1 1-4.9 6.1H5.04A7 7 0 1 0 17.65 6.35z"/>
+      </svg>`;
+    }
+    if (kind === "cancel" || kind === "reset") {
+      return `<svg class="tsd-gm-icon-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path fill="currentColor" d="M18.3 5.71 12 12l6.3 6.29-1.41 1.42L10.59 13.4 4.3 19.71 2.89 18.3 9.17 12 2.89 5.71 4.3 4.29 10.59 10.6l6.3-6.31z"/>
+      </svg>`;
+    }
+    // Cargo / GM box
+    return `<svg class="tsd-gm-icon-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path fill="currentColor" d="M21 8.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8.5l9-4.5 9 4.5zm-9 1.2L6.2 12 12 14.9 17.8 12 12 9.7zM5 14.2v4.8h6v-3.5L5 14.2zm8 1.3V19h6v-4.8l-6 1.3z"/>
+    </svg>`;
+  }
+
+  function gmIconBtn(id, label, kind, extraClass) {
+    const cls = ["tsd-gm-icon-btn", extraClass].filter(Boolean).join(" ");
+    return `<button type="button" class="${cls}" id="${id}" title="${esc(label)}" aria-label="${esc(
+      label
+    )}">${gmIconSvg(kind)}</button>`;
+  }
+
   function renderGmBarHtml() {
     if (!gmUiVisible()) return "";
-    const refreshBtn = `
-      <button type="button" class="tsd-btn tsd-btn-ghost tsd-gm-refresh" id="tsdGmRefresh"
-        title="Обновить список ГМ" aria-label="Обновить список ГМ">↻</button>`;
+    const refreshBtn = gmIconBtn(
+      "tsdGmRefresh",
+      "Обновить список ГМ",
+      "refresh",
+      "tsd-gm-refresh"
+    );
     if (state.gm.awaitingScan) {
       return `
         <div class="tsd-gm-bar is-awaiting" id="tsdGmBar">
-          <div class="tsd-gm-bar-text">Сканируйте QR грузоместа</div>
-          <div class="tsd-gm-bar-actions">
-            ${refreshBtn}
-            <button type="button" class="tsd-btn tsd-btn-ghost" id="tsdGmCancelScan">Отмена</button>
-          </div>
+          <div class="tsd-gm-field" title="Сканируйте QR грузоместа">Сканируйте QR ГМ</div>
+          ${gmIconBtn("tsdGmCancelScan", "Отмена", "cancel")}
+          ${refreshBtn}
         </div>`;
     }
     if (state.gm.activeId) {
+      const label = activeGmLabel();
       return `
         <div class="tsd-gm-bar is-active" id="tsdGmBar">
-          <div class="tsd-gm-bar-text" title="${esc(activeGmLabel())}">${esc(activeGmLabel())}</div>
-          <div class="tsd-gm-bar-actions">
-            ${refreshBtn}
-            <button type="button" class="tsd-btn tsd-btn-secondary" id="tsdGmChange">Сменить</button>
-            <button type="button" class="tsd-btn tsd-btn-ghost" id="tsdGmReset">Сбросить</button>
-          </div>
+          <div class="tsd-gm-field" title="${esc(label)}">${esc(label)}</div>
+          ${gmIconBtn("tsdGmChange", "Сменить грузоместо", "gm")}
+          ${gmIconBtn("tsdGmReset", "Сбросить грузоместо", "reset")}
+          ${refreshBtn}
         </div>`;
     }
     return `
       <div class="tsd-gm-bar" id="tsdGmBar">
-        <div class="tsd-gm-bar-text">Грузоместо не выбрано</div>
-        <div class="tsd-gm-bar-actions">
-          ${refreshBtn}
-          <button type="button" class="tsd-btn tsd-btn-secondary" id="tsdGmScanBtn">
-            Сканировать ГМ
-          </button>
-        </div>
+        <button type="button" class="tsd-gm-field tsd-gm-field-action" id="tsdGmScanBtn"
+          title="Сканировать ГМ" aria-label="Сканировать ГМ">Сканировать ГМ</button>
+        ${gmIconBtn("tsdGmScanIcon", "Сканировать ГМ", "gm")}
+        ${refreshBtn}
       </div>`;
   }
 
@@ -450,30 +471,31 @@
         }
       });
     }
+    const startGmScan = async () => {
+      await loadGmContainers(true);
+      if (!state.gm.hasFillable) {
+        setBanner(
+          state.gm.loadError
+            ? `Грузоместа: ${state.gm.loadError}`
+            : "Нет доступных грузомест для заполнения",
+          "warn"
+        );
+        refreshGmBar();
+        refreshScanBanner();
+        return;
+      }
+      state.gm.awaitingScan = true;
+      setBanner("Отсканируйте QR грузоместа", "info");
+      if (!patchScanCard(state.route.mode)) renderScan();
+      else {
+        refreshGmBar();
+        refreshScanBanner();
+      }
+    };
     const scanBtn = document.getElementById("tsdGmScanBtn");
-    if (scanBtn) {
-      scanBtn.addEventListener("click", async () => {
-        await loadGmContainers(true);
-        if (!state.gm.hasFillable) {
-          setBanner(
-            state.gm.loadError
-              ? `Грузоместа: ${state.gm.loadError}`
-              : "Нет доступных грузомест для заполнения",
-            "warn"
-          );
-          refreshGmBar();
-          refreshScanBanner();
-          return;
-        }
-        state.gm.awaitingScan = true;
-        setBanner("Отсканируйте QR грузоместа", "info");
-        if (!patchScanCard(state.route.mode)) renderScan();
-        else {
-          refreshGmBar();
-          refreshScanBanner();
-        }
-      });
-    }
+    if (scanBtn) scanBtn.addEventListener("click", startGmScan);
+    const scanIcon = document.getElementById("tsdGmScanIcon");
+    if (scanIcon) scanIcon.addEventListener("click", startGmScan);
     const cancel = document.getElementById("tsdGmCancelScan");
     if (cancel) {
       cancel.addEventListener("click", () => {
