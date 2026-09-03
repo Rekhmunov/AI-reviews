@@ -1586,6 +1586,121 @@ def apply_catalog_marking_flags(
     return out
 
 
+def _catalog_keys_match_posting(
+    *,
+    posting: dict[str, Any],
+    row: dict[str, Any],
+    keys: set[str],
+) -> bool:
+    """True when posting products / row offer+sku hit any catalog key."""
+    if not keys:
+        return False
+
+    def _hit(value: object) -> bool:
+        s = str(value or "").strip()
+        return bool(s) and (s in keys or s.casefold() in keys)
+
+    for p in _products_from_posting(posting):
+        if not isinstance(p, dict):
+            continue
+        if _hit(p.get("offer_id")):
+            return True
+        sku_val = p.get("sku") if p.get("sku") is not None else p.get("product_id")
+        if _hit(sku_val):
+            return True
+    if _hit(row.get("offer_id")) or _hit(row.get("sku")):
+        return True
+    return False
+
+
+def invalidate_catalog_marking_flags_for_keys(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    catalog_keys: list[str] | set[str] | tuple[str, ...],
+) -> int:
+    """Clear ``marking_is_required_checked`` on operational postings matching keys.
+
+    Used when Settings → Products «Требует КИЗ» changes so modal residual resolve
+    re-applies catalog flags. Touches only ``raw_json`` — codes / pick / stickers /
+    supply_id stay intact.
+    """
+    keys: set[str] = set()
+    for raw in catalog_keys or []:
+        s = str(raw or "").strip()
+        if not s:
+            continue
+        keys.add(s)
+        keys.add(s.casefold())
+    if not keys:
+        return 0
+    ensure_ozon_fbs_tables(repo)
+    tabs = tuple(sorted(OPERATIONAL_COUNT_TABS))
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT source_id, posting_number, offer_id, sku, products_json, raw_json
+                FROM ozon_fbs_postings
+                WHERE user_id = ?
+                  AND tab IN ({", ".join("?" for _ in tabs)})
+                """
+            ),
+            (int(user_id), *tabs),
+        ).fetchall()
+    updated = 0
+    for row in rows:
+        d = repo._row_to_dict(row) if row else {}
+        if not d:
+            continue
+        posting = _posting_payload_from_row(d)
+        if not posting:
+            continue
+        if not _catalog_keys_match_posting(posting=posting, row=d, keys=keys):
+            continue
+        req = posting.get("requirements")
+        if not isinstance(req, dict):
+            continue
+        if not req.get("marking_is_required_checked") and req.get(
+            "marking_check_version"
+        ) is None:
+            continue
+        new_req = dict(req)
+        new_req.pop("marking_is_required_checked", None)
+        new_req.pop("marking_check_version", None)
+        new_posting = dict(posting)
+        new_posting["requirements"] = new_req
+        raw = json.dumps(new_posting, ensure_ascii=False)
+        try:
+            sid = int(d.get("source_id"))
+            pn = str(d.get("posting_number") or "").strip()
+        except (TypeError, ValueError):
+            continue
+        if not pn:
+            continue
+        try:
+            with repo._connect() as conn:
+                conn.execute(
+                    repo._sql(
+                        """
+                        UPDATE ozon_fbs_postings
+                        SET raw_json = ?
+                        WHERE user_id = ? AND source_id = ? AND posting_number = ?
+                        """
+                    ),
+                    (raw, int(user_id), sid, pn),
+                )
+            updated += 1
+        except Exception as exc:
+            _log.warning(
+                "ozon invalidate marking flags %s/%s: %s",
+                sid,
+                pn,
+                exc,
+            )
+    return updated
+
+
 def posting_requires_marking(
     row: dict[str, Any],
     *,

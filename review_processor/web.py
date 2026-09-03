@@ -3619,6 +3619,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         if item:
             item["photo_url"] = f"/api/products/photo/{item['id']}" if item.get("photo_path") else None
+            if needs_kiz:
+                try:
+                    ozon_fbs_mod.invalidate_catalog_marking_flags_for_keys(
+                        repository,
+                        user_id=owner_uid,
+                        catalog_keys=[
+                            supplier_article.strip(),
+                            ozon_sku.strip(),
+                        ],
+                    )
+                except Exception:
+                    pass
         return {"ok": True, "item": item}
 
     @app.put("/api/products/{product_id}")
@@ -3640,6 +3652,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     ) -> dict[str, object]:
         user = _require_settings_access(request)
         owner_uid = _tenant_owner_id(user)
+        old_item = next(
+            (
+                i
+                for i in repository.list_product_photos(user_id=owner_uid)
+                if int(i.get("id") or 0) == int(product_id)
+            ),
+            None,
+        )
         new_photo_path: str | None = None
         if photo is not None and str(photo.filename or "").strip():
             new_photo_path = await _save_product_photo_upload(photo)
@@ -3671,6 +3691,26 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         if item:
             item["photo_url"] = f"/api/products/photo/{item['id']}" if item.get("photo_path") else None
+        try:
+            old_flag = bool((old_item or {}).get("requires_kiz"))
+            old_keys = {
+                str((old_item or {}).get("supplier_article") or "").strip(),
+                str((old_item or {}).get("ozon_sku") or "").strip(),
+            }
+            new_keys = {
+                supplier_article.strip(),
+                ozon_sku.strip(),
+            }
+            if old_flag != needs_kiz or (
+                (old_flag or needs_kiz) and old_keys != new_keys
+            ):
+                ozon_fbs_mod.invalidate_catalog_marking_flags_for_keys(
+                    repository,
+                    user_id=owner_uid,
+                    catalog_keys=[*old_keys, *new_keys],
+                )
+        except Exception:
+            pass
         return {"ok": True, "item": item}
 
     @app.delete("/api/products/{product_id}")

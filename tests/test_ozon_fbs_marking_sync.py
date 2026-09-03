@@ -295,6 +295,109 @@ def test_refresh_skips_when_sync_already_stamped_catalog_flags() -> None:
     upsert.assert_not_called()
 
 
+def test_invalidate_catalog_marking_flags_clears_checked_only() -> None:
+    import json
+
+    repo = MagicMock()
+    conn = MagicMock()
+    repo._connect.return_value.__enter__ = MagicMock(return_value=conn)
+    repo._connect.return_value.__exit__ = MagicMock(return_value=False)
+    repo._sql = lambda s: s
+    repo._row_to_dict = lambda row: row
+    stamped = {
+        "posting_number": "P-1",
+        "products": [{"sku": 555, "offer_id": "ART-1", "quantity": 1}],
+        "requirements": {
+            "products_requiring_mandatory_mark": ["555"],
+            "marking_is_required_checked": True,
+        },
+    }
+    other = {
+        "posting_number": "P-2",
+        "products": [{"sku": 777, "offer_id": "OTHER", "quantity": 1}],
+        "requirements": {
+            "products_requiring_mandatory_mark": [],
+            "marking_is_required_checked": True,
+        },
+    }
+    rows = [
+        {
+            "source_id": 2,
+            "posting_number": "P-1",
+            "offer_id": "ART-1",
+            "sku": 555,
+            "products_json": json.dumps(stamped["products"]),
+            "raw_json": json.dumps(stamped),
+        },
+        {
+            "source_id": 2,
+            "posting_number": "P-2",
+            "offer_id": "OTHER",
+            "sku": 777,
+            "products_json": json.dumps(other["products"]),
+            "raw_json": json.dumps(other),
+        },
+    ]
+    conn.execute.return_value.fetchall.return_value = rows
+
+    with patch("review_processor.ozon_fbs.ensure_ozon_fbs_tables"):
+        n = oz.invalidate_catalog_marking_flags_for_keys(
+            repo, user_id=1, catalog_keys=["ART-1"]
+        )
+
+    assert n == 1
+    update_calls = [
+        c for c in conn.execute.call_args_list if "UPDATE ozon_fbs_postings" in str(c[0][0])
+    ]
+    assert len(update_calls) == 1
+    raw = json.loads(update_calls[0][0][1][0])
+    req = raw.get("requirements") or {}
+    assert "marking_is_required_checked" not in req
+    assert req.get("products_requiring_mandatory_mark") == ["555"]
+
+
+def test_invalidate_then_refresh_reapplies_catalog() -> None:
+    """Toggle path: invalidate → modal residual upserts new mark ids."""
+    import json
+
+    repo = MagicMock()
+    conn = MagicMock()
+    repo._connect.return_value.__enter__ = MagicMock(return_value=conn)
+    repo._connect.return_value.__exit__ = MagicMock(return_value=False)
+    repo._sql = lambda s: s
+    repo._row_to_dict = lambda row: row
+    # After invalidate: checked cleared, old mark ids still present.
+    posting = {
+        "posting_number": "P-1",
+        "products": [{"sku": 555, "offer_id": "ART-1", "quantity": 1}],
+        "requirements": {"products_requiring_mandatory_mark": []},
+    }
+    row = {
+        "posting_number": "P-1",
+        "is_mandatory_mark": False,
+        "raw_json": json.dumps(posting),
+        "products_json": "[]",
+    }
+    conn.execute.return_value.fetchall.return_value = [row]
+    repo.get_product_requires_kiz_map.return_value = {"ART-1": True, "555": True}
+
+    with patch("review_processor.ozon_fbs_supplies.oz.upsert_posting") as upsert:
+        result = refresh_supply_marking_flags_from_ozon(
+            repo,
+            user_id=1,
+            source_id=2,
+            posting_numbers=["P-1"],
+            client_id="cid",
+            api_key="key",
+        )
+    assert result["updated"] == 1
+    saved = upsert.call_args.kwargs["posting"]
+    assert (saved.get("requirements") or {}).get("marking_is_required_checked") is True
+    assert "555" in (
+        (saved.get("requirements") or {}).get("products_requiring_mandatory_mark") or []
+    )
+
+
 def test_sync_does_not_call_marking_enrich() -> None:
     repo = MagicMock()
     repo.get_product_requires_kiz_map.return_value = {"111": True}
