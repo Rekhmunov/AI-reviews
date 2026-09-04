@@ -27,6 +27,11 @@ def test_supply_and_gm_cargo_summary_markup() -> None:
     assert ".wb-fbs-sd-cargo-label" in style
     assert ".wb-fbs-sd-cargo-inline" in style
     assert ".wb-fbs-create-trbx-header-main" in style
+    # Cargo stays next to ID/QR chips (meta must not flex-grow and push it to search).
+    assert "flex: 0 1 auto" in style
+    assert "Do not grow" in style or "next to ID/QR" in style
+    assert ".wb-fbs-trbx-cargo.wb-fbs-trbx-cargo-inline" in style
+    assert "align-items: center" in style
 
     assert "function _wbFbsRenderCargoSummary(" in app_js
     assert "wbFbsSupplyDetailCargo" in app_js
