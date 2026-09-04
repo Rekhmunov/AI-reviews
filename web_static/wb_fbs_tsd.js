@@ -4627,7 +4627,9 @@
         }
       }
       const s = document.createElement("script");
-      s.src = "https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js";
+      // Self-hosted: CSP script-src is 'self' only (CDN jsDelivr is blocked →
+      // iPhone Safari has no BarcodeDetector and showed "модуль сканера").
+      s.src = "/static/zxing.min.js?v=0.21.3";
       s.async = true;
       s.dataset.tsdZxing = "1";
       s.onload = () => {

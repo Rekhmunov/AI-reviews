@@ -1409,7 +1409,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "same-origin")
-        response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        # camera=(self): ТСД phone barcode scan needs getUserMedia on same origin.
+        response.headers.setdefault(
+            "Permissions-Policy",
+            "camera=(self), microphone=(), geolocation=()",
+        )
         # CryptoPro ЭЦП Browser plug-in loads nmcades_plugin_api.js from the browser
         # extension and may use an NPAPI <object type="application/x-cades"> fallback.
         response.headers.setdefault(
@@ -1418,6 +1422,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "script-src 'self' 'unsafe-inline' 'unsafe-eval' chrome-extension: moz-extension: safari-extension:; "
             "style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data:; "
+            "media-src 'self' blob: mediastream:; "
             "connect-src 'self' chrome-extension: moz-extension: safari-extension:; "
             "object-src *; "
             "frame-ancestors 'none'; form-action 'self'; base-uri 'self'",
