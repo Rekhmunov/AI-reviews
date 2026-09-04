@@ -62,6 +62,63 @@ def test_tsd_back_arrow_saves_without_confirm() -> None:
     assert "hasPendingKizPush()" in body
 
 
+def test_tsd_autosave_conflict_adopts_server_not_force_overwrite() -> None:
+    """Concurrent PC save must not be wiped by TSD autosave force-retry."""
+    js = TSD_JS.read_text(encoding="utf-8")
+    kiz_start = js.find("async function saveKizLocal")
+    kiz_end = js.find("async function savePickLocal", kiz_start)
+    assert kiz_start > 0 and kiz_end > kiz_start
+    kiz_body = js[kiz_start:kiz_end]
+    assert "result.conflict" in kiz_body
+    assert "force-overwrite" in kiz_body or "Do NOT force-overwrite" in kiz_body
+    assert "if (!retrying) return saveKizLocal" not in kiz_body
+    assert "Array.isArray(result.kiz_codes)" in kiz_body
+    assert "state.baselineKizByOrder[scanId] = serverCodes.slice()" in kiz_body
+
+    pick_start = kiz_end
+    pick_end = js.find("function captureScanBaselines", pick_start)
+    assert pick_end > pick_start
+    pick_body = js[pick_start:pick_end]
+    assert "result.conflict" in pick_body
+    assert "if (!retrying) return savePickLocal" not in pick_body
+    assert "Adopt server pick" in pick_body or "adopt server" in pick_body.lower()
+    assert "delete state.forceSaveByOrder[pickKey]" in pick_body
+
+
+def test_tsd_bulk_save_is_chunked_against_504() -> None:
+    js = TSD_JS.read_text(encoding="utf-8")
+    kiz_start = js.find("async function saveKizPushAll")
+    kiz_end = js.find("async function savePickLocalAll", kiz_start)
+    assert kiz_start > 0 and kiz_end > kiz_start
+    kiz_body = js[kiz_start:kiz_end]
+    assert "const CHUNK =" in kiz_body
+    assert "items.slice(i, i + CHUNK)" in kiz_body
+    # Conflict must adopt server + clear force, not arm overwrite of PC.
+    assert 'status = "conflict"' in kiz_body
+    assert "state.forceSaveByOrder[id] = true" not in kiz_body
+    assert "state.baselineKizByOrder[id] = serverCodes.slice()" in kiz_body
+
+    pick_start = kiz_end
+    pick_end = js.find("function noteSessionScanned", pick_start)
+    assert pick_end > pick_start
+    pick_body = js[pick_start:pick_end]
+    assert "const CHUNK = 40" in pick_body
+    assert "items.slice(i, i + CHUNK)" in pick_body
+    assert 'status = "conflict"' in pick_body
+    assert "state.forceSaveByOrder[pickKey] = true" not in pick_body
+
+
+def test_tsd_back_arrow_stays_on_conflict() -> None:
+    js = TSD_JS.read_text(encoding="utf-8")
+    start = js.find("async function leaveScanScreen")
+    end = js.find("function scanProgress", start)
+    assert start > 0 and end > start
+    body = js[start:end]
+    assert 'result.status === "conflict"' in body
+    assert 'result.status === "error"' in body
+    assert 'result.status === "busy"' in body
+
+
 def test_tsd_clear_kiz_uses_background_autosave() -> None:
     js = TSD_JS.read_text(encoding="utf-8")
     start = js.find("async function clearKizCodes")

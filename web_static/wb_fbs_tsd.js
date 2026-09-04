@@ -1497,11 +1497,15 @@
       ) || null;
     if (!result) throw new Error("Сервер не вернул результат сохранения КИЗ");
     if (result.conflict) {
+      // Another device/operator won — adopt server codes. Do NOT force-overwrite
+      // with stale TSD memory (that used to wipe PC saves on autosave retry).
       row.kiz_saved_at = String(result.kiz_saved_at || row.kiz_saved_at || "");
-      state.forceSaveByOrder[scanId] = true;
-      // Keep scanned codes and retry once — same operator / timezone false conflicts.
-      row.kiz_codes = codes.length ? codes.slice() : [""];
-      if (!retrying) return saveKizLocal(row, { _retry: true });
+      if (Array.isArray(result.kiz_codes)) {
+        const serverCodes = normalizeKizCodesList(result.kiz_codes);
+        row.kiz_codes = serverCodes.length ? serverCodes.slice() : [""];
+        state.baselineKizByOrder[scanId] = serverCodes.slice();
+      }
+      delete state.forceSaveByOrder[scanId];
       throw new Error(
         result.error ||
           "Заказ уже сохранён другим оператором — проверьте КИЗ и повторите"
@@ -1561,11 +1565,21 @@
       ) || null;
     if (!result) throw new Error("Сервер не вернул результат сохранения ШК");
     if (result.conflict) {
+      // Adopt server pick state — do not force-overwrite another device's save.
       row.pick_verified_at = String(result.pick_verified_at || row.pick_verified_at || "");
-      state.forceSaveByOrder[pickKey] = true;
-      row.pick_verified = intendedVerified;
-      row.pick_barcode = intendedBarcode;
-      if (!retrying) return savePickLocal(row, { _retry: true });
+      if (result.pick_verified != null) row.pick_verified = !!result.pick_verified;
+      if (result.pick_barcode != null) {
+        row.pick_barcode = String(result.pick_barcode || "").trim();
+      } else if (result.barcode != null) {
+        row.pick_barcode = String(result.barcode || "").trim();
+      }
+      if (row.pick_verified && row.pick_barcode) {
+        state.baselinePickByOrder[scanId] = {
+          verified: true,
+          barcode: String(row.pick_barcode || "").trim(),
+        };
+      }
+      delete state.forceSaveByOrder[pickKey];
       throw new Error(
         result.error ||
           "Заказ уже сохранён другим оператором — проверьте ШК и повторите"
@@ -1802,18 +1816,31 @@
     let status = "ok";
     try {
       const params = new URLSearchParams({ source_id: String(state.sourceId) });
-      const data = await api(
-        `/api/wb-fbs/tsd/supplies/${encodeURIComponent(state.route.supplyId)}/kiz?${params}`,
-        {
+      const url = `/api/wb-fbs/tsd/supplies/${encodeURIComponent(state.route.supplyId)}/kiz?${params}`;
+      // Chunk like desktop marking — one huge PUT can hit nginx/proxy 504.
+      const CHUNK = isOzon() ? 15 : 20;
+      const allResults = [];
+      for (let i = 0; i < items.length; i += CHUNK) {
+        const chunk = items.slice(i, i + CHUNK);
+        if (items.length > CHUNK) {
+          setBanner(
+            isOzon()
+              ? `Сохранение… ${Math.min(i + CHUNK, items.length)}/${items.length}`
+              : `Сохранение в WB… ${Math.min(i + CHUNK, items.length)}/${items.length}`,
+            "info"
+          );
+        }
+        const data = await api(url, {
           method: "PUT",
           headers: jsonHeaders(),
-          body: JSON.stringify({ items }),
-        }
-      );
+          body: JSON.stringify({ items: chunk }),
+        });
+        allResults.push(...(data.results || []));
+      }
       let okN = 0;
       let errN = 0;
       let conflictN = 0;
-      for (const r of data.results || []) {
+      for (const r of allResults) {
         const id = isOzon()
           ? String(r.posting_number || "")
           : String(Number(r.order_id));
@@ -1821,9 +1848,15 @@
         if (!row) continue;
         if (r.conflict) {
           conflictN += 1;
+          // PC/other TSD won — show their codes; do not arm force (would wipe them).
           row.kiz_saved_at = String(r.kiz_saved_at || row.kiz_saved_at || "");
-          if (Array.isArray(r.kiz_codes)) row.kiz_codes = r.kiz_codes.slice();
-          state.forceSaveByOrder[id] = true;
+          if (Array.isArray(r.kiz_codes)) {
+            const serverCodes = normalizeKizCodesList(r.kiz_codes);
+            row.kiz_codes = serverCodes.length ? serverCodes.slice() : [""];
+            state.baselineKizByOrder[id] = serverCodes.slice();
+          }
+          delete state.forceSaveByOrder[id];
+          delete state.pendingKizClear[id];
           continue;
         }
         if (r.kiz_saved_at) row.kiz_saved_at = String(r.kiz_saved_at);
@@ -1875,9 +1908,9 @@
         }
       }
       if (conflictN) {
-        status = "error";
+        status = "conflict";
         setBanner(
-          `Конфликт у ${conflictN} ${isOzon() ? "отпр." : "заказ(ов)"} — проверьте и сохраните ещё раз`,
+          `На сервере уже другое сохранение (ПК/др. ТСД) у ${conflictN} ${isOzon() ? "отпр." : "заказ(ов)"} — показаны актуальные данные`,
           "err"
         );
       } else if (errN && okN) {
@@ -1953,18 +1986,28 @@
     let status = "ok";
     try {
       const params = new URLSearchParams({ source_id: String(state.sourceId) });
-      const data = await api(
-        `/api/wb-fbs/tsd/supplies/${encodeURIComponent(state.route.supplyId)}/pick-verify?${params}`,
-        {
+      const url = `/api/wb-fbs/tsd/supplies/${encodeURIComponent(state.route.supplyId)}/pick-verify?${params}`;
+      const CHUNK = 40;
+      const allResults = [];
+      for (let i = 0; i < items.length; i += CHUNK) {
+        const chunk = items.slice(i, i + CHUNK);
+        if (items.length > CHUNK) {
+          setBanner(
+            `Сохранение… ${Math.min(i + CHUNK, items.length)}/${items.length}`,
+            "info"
+          );
+        }
+        const data = await api(url, {
           method: "PUT",
           headers: jsonHeaders(),
-          body: JSON.stringify({ items }),
-        }
-      );
+          body: JSON.stringify({ items: chunk }),
+        });
+        allResults.push(...(data.results || []));
+      }
       let okN = 0;
       let errN = 0;
       let conflictN = 0;
-      for (const r of data.results || []) {
+      for (const r of allResults) {
         const id = isOzon()
           ? String(r.posting_number || "")
           : String(Number(r.order_id));
@@ -1973,8 +2016,21 @@
         const pickKey = `pick:${id}`;
         if (r.conflict) {
           conflictN += 1;
+          // Adopt server pick — do not arm force (would wipe PC/other TSD).
           row.pick_verified_at = String(r.pick_verified_at || row.pick_verified_at || "");
-          state.forceSaveByOrder[pickKey] = true;
+          if (r.pick_verified != null) row.pick_verified = !!r.pick_verified;
+          if (r.pick_barcode != null) {
+            row.pick_barcode = String(r.pick_barcode || "").trim();
+          } else if (r.barcode != null) {
+            row.pick_barcode = String(r.barcode || "").trim();
+          }
+          if (row.pick_verified && row.pick_barcode) {
+            state.baselinePickByOrder[id] = {
+              verified: true,
+              barcode: String(row.pick_barcode || "").trim(),
+            };
+          }
+          delete state.forceSaveByOrder[pickKey];
           continue;
         }
         if (r.ok) {
@@ -1986,8 +2042,11 @@
         }
       }
       if (conflictN) {
-        status = "error";
-        setBanner(`Конфликт у ${conflictN} заказ(ов)`, "err");
+        status = "conflict";
+        setBanner(
+          `На сервере уже другое сохранение (ПК/др. ТСД) у ${conflictN} заказ(ов) — показаны актуальные данные`,
+          "err"
+        );
       } else if (errN) {
         status = "error";
         setBanner(`Сохранено ${okN}, ошибок ${errN}`, "warn");
@@ -3671,7 +3730,13 @@
         mode === "kiz"
           ? await saveKizPushAll({ silent: true })
           : await savePickLocalAll({ silent: true });
-      if (result && (result.status === "error" || result.status === "busy")) {
+      // conflict/error: stay — server (PC) data already adopted into the UI.
+      if (
+        result &&
+        (result.status === "error" ||
+          result.status === "conflict" ||
+          result.status === "busy")
+      ) {
         return;
       }
     } else {
