@@ -272,7 +272,7 @@ def test_tsd_phone_camera_scan_button() -> None:
     assert "isSecureContext" in js
     assert ".tsd-cam-overlay" in css
     assert "flex: 0 0 56px" in css
-    assert "wb_fbs_tsd.js?v=68" in html
+    assert "wb_fbs_tsd.js?v=69" in html
     assert "wb_fbs_tsd.css?v=40" in html
     # Camera button rendered before scan field in the same row.
     row_fn = js[js.find("function scanFieldRowHtml") : js.find("function scanFieldRowHtml") + 900]
@@ -280,3 +280,29 @@ def test_tsd_phone_camera_scan_button() -> None:
     assert row_fn.find("tsdScanCamBtn") < row_fn.find("tsdScanInput")
     # Same control class/size as GM side icons.
     assert "tsd-gm-icon-btn" in row_fn
+
+
+def test_tsd_durable_outbox_survives_offline() -> None:
+    """Pending KIZ/pick scans must be stored in localStorage and flushed on online."""
+    js = (STATIC / "wb_fbs_tsd.js").read_text(encoding="utf-8")
+    html = (TEMPLATES / "wb_fbs_tsd.html").read_text(encoding="utf-8")
+    assert 'LS_OUTBOX = "wb_fbs_tsd_outbox_v1"' in js
+    for name in (
+        "outboxRememberKiz",
+        "outboxRememberPick",
+        "outboxApplyToLoadedRows",
+        "outboxRescheduleCurrent",
+        "wireOutboxReconnect",
+        "outboxRemove",
+        "outboxHasPending",
+    ):
+        assert f"function {name}" in js
+    assert 'addEventListener("online"' in js
+    assert "outboxRememberKiz(row)" in js
+    assert "outboxRememberPick(row)" in js
+    assert 'outboxRemove("kiz"' in js
+    assert 'outboxRemove("pick"' in js
+    assert "outboxApplyToLoadedRows(state.route.mode)" in js
+    assert "wireOutboxReconnect()" in js
+    assert "Нет связи — скан сохранён на устройстве" in js
+    assert "wb_fbs_tsd.js?v=69" in html

@@ -72,6 +72,8 @@
   };
 
   const LS_SOURCE = "wb_fbs_tsd_source_id";
+  /** Durable pending KIZ/pick scans — survives reload / brief offline. */
+  const LS_OUTBOX = "wb_fbs_tsd_outbox_v1";
 
   function currentSource() {
     return (
@@ -1648,10 +1650,210 @@
     );
   }
 
+
+  /* —— Durable outbox (localStorage): keep scans if network drops —— */
+  function outboxReadAll() {
+    try {
+      const raw = localStorage.getItem(LS_OUTBOX);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+      return parsed;
+    } catch (_e) {
+      return {};
+    }
+  }
+
+  function outboxWriteAll(map) {
+    try {
+      const keys = Object.keys(map || {});
+      if (!keys.length) {
+        localStorage.removeItem(LS_OUTBOX);
+        return;
+      }
+      localStorage.setItem(LS_OUTBOX, JSON.stringify(map));
+    } catch (_e) {
+      /* quota / private mode — best effort; memory autosave still runs */
+    }
+  }
+
+  function outboxScopeParts() {
+    const sourceId = String(state.sourceId || "").trim();
+    const supplyId = String(state.route.supplyId || "").trim();
+    return { sourceId, supplyId };
+  }
+
+  function outboxEntryKey(kind, orderId) {
+    const { sourceId, supplyId } = outboxScopeParts();
+    const id = String(orderId || "").trim();
+    const k = String(kind || "").trim();
+    if (!sourceId || !supplyId || !id || !k) return "";
+    return `${sourceId}|${supplyId}|${k}|${id}`;
+  }
+
+  function outboxUpsert(kind, orderId, payload) {
+    const key = outboxEntryKey(kind, orderId);
+    if (!key) return;
+    const { sourceId, supplyId } = outboxScopeParts();
+    const map = outboxReadAll();
+    map[key] = {
+      ...(payload || {}),
+      sourceId,
+      supplyId,
+      kind: String(kind),
+      orderId: String(orderId),
+      marketplace: isOzon() ? "ozon" : "wb",
+      updatedAt: Date.now(),
+    };
+    outboxWriteAll(map);
+  }
+
+  function outboxRemove(kind, orderId) {
+    const key = outboxEntryKey(kind, orderId);
+    if (!key) return;
+    const map = outboxReadAll();
+    if (!(key in map)) return;
+    delete map[key];
+    outboxWriteAll(map);
+  }
+
+  function outboxListForCurrent(kind) {
+    const { sourceId, supplyId } = outboxScopeParts();
+    if (!sourceId || !supplyId) return [];
+    const wantKind = String(kind || "");
+    const out = [];
+    const map = outboxReadAll();
+    for (const key of Object.keys(map)) {
+      const e = map[key];
+      if (!e || typeof e !== "object") continue;
+      if (String(e.sourceId) !== sourceId) continue;
+      if (String(e.supplyId) !== supplyId) continue;
+      if (wantKind && String(e.kind) !== wantKind) continue;
+      out.push(e);
+    }
+    return out;
+  }
+
+  function outboxHasPending(kind) {
+    return outboxListForCurrent(kind).length > 0;
+  }
+
+  function outboxRememberKiz(row) {
+    if (!row) return;
+    const id = rowScanId(row);
+    if (!id) return;
+    const codes = normalizeKizCodesList(row.kiz_codes);
+    const clear =
+      !codes.length &&
+      (!!row.kiz_bound || !!row.kiz_local || !!state.pendingKizClear[id]);
+    outboxUpsert("kiz", id, {
+      kiz_codes: codes.slice(),
+      clear: !!clear,
+      pendingKizClear: !!state.pendingKizClear[id],
+      expected_saved_at: String(row.kiz_saved_at || ""),
+      session: true,
+    });
+  }
+
+  function outboxRememberPick(row) {
+    if (!row) return;
+    const id = rowScanId(row);
+    if (!id) return;
+    outboxUpsert("pick", id, {
+      pick_verified: !!row.pick_verified,
+      pick_barcode: String(row.pick_barcode || "").trim(),
+      expected_verified_at: String(row.pick_verified_at || ""),
+      session: true,
+    });
+  }
+
+  /**
+   * After server load + baselines: overlay durable local scans so a reload
+   * while offline does not lose work. Baselines stay on server values, so
+   * rows remain dirty and autosave will flush when online.
+   */
+  function outboxApplyToLoadedRows(mode) {
+    const kind = mode === "pick" ? "pick" : "kiz";
+    const entries = outboxListForCurrent(kind);
+    if (!entries.length) return 0;
+    let applied = 0;
+    for (const e of entries) {
+      const id = String(e.orderId || "").trim();
+      if (!id) continue;
+      if (kind === "kiz") {
+        const row = findRowByScanId(state.kizRows, id);
+        if (!row) continue;
+        const codes = normalizeKizCodesList(e.kiz_codes);
+        row.kiz_codes = codes.length ? codes.slice() : [""];
+        row.kiz_local = true;
+        if (e.pendingKizClear) state.pendingKizClear[id] = true;
+        else delete state.pendingKizClear[id];
+        noteSessionScanned(id);
+        applied += 1;
+      } else {
+        const row = findRowByScanId(state.pickRows, id);
+        if (!row) continue;
+        row.pick_verified = !!e.pick_verified;
+        row.pick_barcode = String(e.pick_barcode || "").trim();
+        noteSessionScanned(id);
+        applied += 1;
+      }
+    }
+    return applied;
+  }
+
+  function outboxRescheduleCurrent() {
+    if (state.route.view !== "scan") return;
+    if (state.route.mode === "kiz") {
+      for (const e of outboxListForCurrent("kiz")) {
+        scheduleKizLocalAutosave(e.orderId);
+      }
+    } else if (state.route.mode === "pick") {
+      for (const e of outboxListForCurrent("pick")) {
+        schedulePickLocalAutosave(e.orderId);
+      }
+    }
+  }
+
+  function outboxNotifyPendingIfNeeded(mode) {
+    if (!outboxHasPending(mode === "pick" ? "pick" : "kiz")) return;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setBanner(
+        "Нет связи — сканы сохранены на устройстве и отправятся при появлении сети",
+        "warn"
+      );
+      return;
+    }
+    setBanner(
+      "Есть несинхронизированные сканы — отправляем на сервер…",
+      "warn"
+    );
+  }
+
+  function wireOutboxReconnect() {
+    if (window.__tsdOutboxOnlineWired) return;
+    window.__tsdOutboxOnlineWired = true;
+    window.addEventListener("online", () => {
+      if (state.route.view !== "scan") return;
+      if (!outboxHasPending(state.route.mode === "pick" ? "pick" : "kiz")) return;
+      setBanner("Связь появилась — синхронизируем сканы…", "ok");
+      outboxRescheduleCurrent();
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState !== "visible") return;
+      if (state.route.view !== "scan") return;
+      if (!outboxHasPending(state.route.mode === "pick" ? "pick" : "kiz")) return;
+      outboxRescheduleCurrent();
+    });
+  }
+
+
   /** Queue silent local-only save — scan path never awaits (parity with desktop modal). */
   function scheduleKizLocalAutosave(orderId) {
     const id = String(orderId || "").trim();
     if (!id) return;
+    const row = findRowByScanId(state.kizRows, id);
+    if (row) outboxRememberKiz(row);
     const seq = (Number(state.localAutosaveSeqByOrder[id]) || 0) + 1;
     state.localAutosaveSeqByOrder[id] = seq;
     const run = () => flushKizLocalAutosave(id, seq);
@@ -1663,6 +1865,8 @@
   function schedulePickLocalAutosave(orderId) {
     const id = String(orderId || "").trim();
     if (!id) return;
+    const row = findRowByScanId(state.pickRows, id);
+    if (row) outboxRememberPick(row);
     const key = `pick:${id}`;
     const seq = (Number(state.localAutosaveSeqByOrder[key]) || 0) + 1;
     state.localAutosaveSeqByOrder[key] = seq;
@@ -1699,8 +1903,14 @@
     const clear =
       !codes.length &&
       (wasBound || hadLocal || !!state.pendingKizClear[id]);
-    if (!codes.length && !clear) return;
-    if (kizBaselineEquals(id, codes) && !clear) return;
+    if (!codes.length && !clear) {
+      outboxRemove("kiz", id);
+      return;
+    }
+    if (kizBaselineEquals(id, codes) && !clear) {
+      outboxRemove("kiz", id);
+      return;
+    }
 
     state.localAutosaveInflight = (Number(state.localAutosaveInflight) || 0) + 1;
     try {
@@ -1708,11 +1918,13 @@
       if ((Number(state.localAutosaveSeqByOrder[id]) || 0) !== seq) return;
       row.kiz_local = true;
       state.baselineKizByOrder[id] = codes.slice();
+      outboxRemove("kiz", id);
     } catch (e) {
       if ((Number(state.localAutosaveSeqByOrder[id]) || 0) !== seq) return;
       // Conflict already adopted server codes — never force-retry (would wipe PC).
       // Still refresh UI: otherwise DOM keeps stale local counts after adopt.
       if (e && e.conflict) {
+        outboxRemove("kiz", id);
         setBanner(e.message || String(e), "err");
         if (!patchScanCard("kiz")) renderScan();
         else refreshScanChrome("kiz");
@@ -1723,7 +1935,14 @@
         if ((Number(state.localAutosaveSeqByOrder[id]) || 0) !== seq) return;
         return flushKizLocalAutosave(id, seq, attempt + 1);
       }
-      setBanner(e.message || String(e), "err");
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        setBanner(
+          "Нет связи — скан сохранён на устройстве и отправится при появлении сети",
+          "warn"
+        );
+      } else {
+        setBanner(e.message || String(e), "err");
+      }
       refreshScanChrome("kiz");
     } finally {
       state.localAutosaveInflight = Math.max(
@@ -1741,7 +1960,10 @@
     if (state.route.view !== "scan" || state.route.mode !== "pick") return;
     const row = findRowByScanId(state.pickRows, id);
     if (!row) return;
-    if (pickBaselineEquals(id, row)) return;
+    if (pickBaselineEquals(id, row)) {
+      outboxRemove("pick", id);
+      return;
+    }
 
     state.localAutosaveInflight = (Number(state.localAutosaveInflight) || 0) + 1;
     try {
@@ -1751,10 +1973,12 @@
         verified: !!row.pick_verified,
         barcode: String(row.pick_barcode || "").trim(),
       };
+      outboxRemove("pick", id);
     } catch (e) {
       if ((Number(state.localAutosaveSeqByOrder[key]) || 0) !== seq) return;
       // Conflict already adopted server pick — do not retry with local ШК.
       if (e && e.conflict) {
+        outboxRemove("pick", id);
         setBanner(e.message || String(e), "err");
         if (!patchScanCard("pick")) renderScan();
         else refreshScanChrome("pick");
@@ -1765,7 +1989,14 @@
         if ((Number(state.localAutosaveSeqByOrder[key]) || 0) !== seq) return;
         return flushPickLocalAutosave(id, seq, attempt + 1);
       }
-      setBanner(e.message || String(e), "err");
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        setBanner(
+          "Нет связи — скан сохранён на устройстве и отправится при появлении сети",
+          "warn"
+        );
+      } else {
+        setBanner(e.message || String(e), "err");
+      }
       refreshScanChrome("pick");
     } finally {
       state.localAutosaveInflight = Math.max(
@@ -1884,6 +2115,7 @@
           }
           delete state.forceSaveByOrder[id];
           delete state.pendingKizClear[id];
+          outboxRemove("kiz", id);
           continue;
         }
         if (r.kiz_saved_at) row.kiz_saved_at = String(r.kiz_saved_at);
@@ -1895,6 +2127,7 @@
             delete state.pendingKizClear[id];
             row.kiz_local = true;
             state.baselineKizByOrder[id] = normalizeKizCodesList(row.kiz_codes);
+            outboxRemove("kiz", id);
           } else {
             errN += 1;
             if (r.error) state.rowErrors[id] = String(r.error);
@@ -1926,6 +2159,8 @@
             row.kiz_codes = pushedCodes.slice();
             if (row.kiz_status === "empty") row.kiz_status = "pending";
           }
+          state.baselineKizByOrder[id] = normalizeKizCodesList(row.kiz_codes);
+          outboxRemove("kiz", id);
         } else if (r.local_ok) {
           errN += 1;
           if (r.error) state.rowErrors[id] = String(r.error);
@@ -2058,12 +2293,18 @@
             };
           }
           delete state.forceSaveByOrder[pickKey];
+          outboxRemove("pick", id);
           continue;
         }
         if (r.ok) {
           okN += 1;
           if (r.pick_verified_at) row.pick_verified_at = String(r.pick_verified_at);
           delete state.forceSaveByOrder[pickKey];
+          state.baselinePickByOrder[id] = {
+            verified: !!row.pick_verified,
+            barcode: String(row.pick_barcode || "").trim(),
+          };
+          outboxRemove("pick", id);
         } else {
           errN += 1;
         }
@@ -4833,6 +5074,11 @@
           resetGmState({ clearList: true });
         }
         captureScanBaselines(state.route.mode);
+        const restored = outboxApplyToLoadedRows(state.route.mode);
+        if (restored > 0) {
+          outboxNotifyPendingIfNeeded(state.route.mode);
+          outboxRescheduleCurrent();
+        }
         stopLoadingUi();
         if (!state.step) state.step = "sticker";
         renderScan();
@@ -5026,6 +5272,7 @@
 
   async function bootApp() {
     bindChrome();
+    wireOutboxReconnect();
     if (!boot.can_view_wb_fbs_tsd) {
       renderDenied();
       return;
