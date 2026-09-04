@@ -10347,6 +10347,24 @@ button.wb-fbs-select-all-link:disabled {
 .wb-fbs-sd-cargo[hidden] {
   display: none !important;
 }
+/* Inline with meta chips / modal title — same row, no extra block margin. */
+.wb-fbs-sd-cargo-inline,
+.wb-fbs-trbx-cargo-inline {
+  margin: 0;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.wb-fbs-create-trbx-header-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.wb-fbs-create-trbx-header-main .wb-fbs-create-trbx-title {
+  flex: 0 1 auto;
+}
 /* Same chip language as .wb-fbs-sd-chip — summary, not a success alert. */
 .wb-fbs-sd-cargo-label {
   display: inline-flex;
@@ -10368,6 +10386,11 @@ button.wb-fbs-select-all-link:disabled {
   font-size: 14px;
   min-height: 32px;
   padding: 6px 12px;
+}
+.wb-fbs-trbx-cargo-inline .wb-fbs-sd-cargo-label {
+  font-size: 13px;
+  min-height: 28px;
+  padding: 4px 12px;
 }
 
 .wb-fbs-sd-chip-qr {

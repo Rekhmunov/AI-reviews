@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=283" />
+  <link rel="stylesheet" href="/static/style.css?v=284" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -3050,12 +3050,12 @@
               <div id="ozonFbsSupplyDetailWarehouse" class="wb-fbs-sd-warehouse">—</div>
               <div class="wb-fbs-sd-meta-row">
                 <div id="ozonFbsSupplyDetailMeta" class="wb-fbs-sd-meta"></div>
+                <div id="ozonFbsSupplyDetailCargo" class="wb-fbs-sd-cargo wb-fbs-sd-cargo-inline" hidden></div>
                 <input id="ozonFbsSupplyDetailSearchFilter" class="wb-fbs-kiz-search" type="search"
                        placeholder="🔍 Поиск..." autocomplete="off"
                        title="Поиск по отправлению, названию товара и ШК"
                        oninput="renderOzonFbsSupplyDetail()" />
               </div>
-              <div id="ozonFbsSupplyDetailCargo" class="wb-fbs-sd-cargo" hidden></div>
               <div class="wb-fbs-sd-actions">
                 <button type="button" class="secondary" id="ozonFbsSupplyDetailCancelledBtn"
                         onclick="openOzonFbsCancelledOrdersModal()"
@@ -3515,11 +3515,13 @@
              onclick="if(event.target===this)closeOzonFbsContainersModal()">
           <div class="modal-card wb-fbs-create-trbx-modal ozon-fbs-containers-modal">
             <div class="wb-fbs-create-trbx-header">
-              <h3 id="ozonFbsContainersTitle" class="wb-fbs-create-trbx-title">Грузоместа</h3>
+              <div class="wb-fbs-create-trbx-header-main">
+                <h3 id="ozonFbsContainersTitle" class="wb-fbs-create-trbx-title">Грузоместа</h3>
+                <div id="ozonFbsContainersCargo" class="wb-fbs-sd-cargo wb-fbs-trbx-cargo wb-fbs-trbx-cargo-inline" hidden></div>
+              </div>
               <button type="button" class="icon-btn secondary" onclick="closeOzonFbsContainersModal()" aria-label="Закрыть">✕</button>
             </div>
             <div class="wb-fbs-create-trbx-body">
-              <div id="ozonFbsContainersCargo" class="wb-fbs-sd-cargo wb-fbs-trbx-cargo" hidden></div>
               <div class="wb-fbs-create-trbx-controls ozon-fbs-containers-controls">
                 <div class="wb-fbs-trbx-stepper" role="group" aria-label="Количество грузомест">
                   <button type="button" class="secondary wb-fbs-trbx-stepper-btn" onclick="ozonFbsContainersStep(-1)" aria-label="Меньше">−</button>
