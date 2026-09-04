@@ -231,6 +231,40 @@ def _supply_ids_with_tab(
     return out
 
 
+def _order_counts_by_supply_for_tab(
+    repo: ReviewRepository, *, user_id: int, source_id: int, tab: str
+) -> dict[str, int]:
+    """Map ``supply_id`` → posting count on a tab (same source as supply list cards)."""
+    ensure_ozon_fbs_supply_schema(repo)
+    tab_key = str(tab or "").strip()
+    if not tab_key:
+        return {}
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                """
+                SELECT supply_id, COUNT(*) AS order_count
+                FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ? AND tab = ?
+                  AND COALESCE(supply_id, '') != ''
+                GROUP BY supply_id
+                """
+            ),
+            (user_id, source_id, tab_key),
+        ).fetchall()
+    out: dict[str, int] = {}
+    for row in rows or []:
+        d = repo._row_to_dict(row) if not isinstance(row, dict) else row
+        sid = str(d.get("supply_id") or "").strip()
+        if not sid:
+            continue
+        try:
+            out[sid] = int(d.get("order_count") or 0)
+        except (TypeError, ValueError):
+            out[sid] = 0
+    return out
+
+
 def list_collect_target_supplies(
     repo: ReviewRepository, *, user_id: int, source_id: int
 ) -> list[dict[str, Any]]:
@@ -238,6 +272,10 @@ def list_collect_target_supplies(
 
     «Доставляются» supplies are excluded (Ozon sync or local «Перенести в доставку»).
     Empty supplies tied to delivering-only postings are excluded as well.
+
+    ``order_count`` matches the supply list/detail for «Ожидают отгрузки»
+    (live ``ozon_fbs_postings`` on that tab), not the possibly stale
+    ``posting_numbers_json`` snapshot on the supply row.
     """
     open_supplies = list_open_supplies(repo, user_id=user_id, source_id=source_id)
     awaiting_ids = _supply_ids_with_tab(
@@ -246,15 +284,25 @@ def list_collect_target_supplies(
     delivering_ids = _supply_ids_with_tab(
         repo, user_id=user_id, source_id=source_id, tab=oz.TAB_DELIVERING
     )
+    awaiting_counts = _order_counts_by_supply_for_tab(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        tab=oz.TAB_AWAITING_DELIVER,
+    )
     eligible: list[dict[str, Any]] = []
     for s in open_supplies:
         sid = str(s.get("supply_id") or "").strip()
         if not sid:
             continue
         if sid in awaiting_ids:
-            eligible.append(s)
+            row = dict(s)
+            row["order_count"] = int(awaiting_counts.get(sid) or 0)
+            eligible.append(row)
         elif s.get("is_empty") and sid not in delivering_ids:
-            eligible.append(s)
+            row = dict(s)
+            row["order_count"] = 0
+            eligible.append(row)
     return eligible
 
 

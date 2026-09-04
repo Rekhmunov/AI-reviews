@@ -113,6 +113,13 @@ class OzonFbsLocalSuppliesTests(unittest.TestCase):
             "review_processor.ozon_fbs_supplies.list_open_supplies",
             return_value=open_supplies,
         ), patch(
+            "review_processor.ozon_fbs_supplies._order_counts_by_supply_for_tab",
+            side_effect=lambda *_a, **_k: {
+                str(s.get("supply_id") or ""): int(s.get("order_count") or 0)
+                for s in open_supplies
+                if str(s.get("supply_id") or "").strip()
+            },
+        ), patch(
             "review_processor.ozon_fbs_supplies._supply_ids_with_tab",
             side_effect=lambda _repo, *, user_id, source_id, tab: (
                 {"OZ-FBS-2-1"} if tab == "awaiting_deliver" else set()
@@ -162,6 +169,13 @@ class OzonFbsLocalSuppliesTests(unittest.TestCase):
         ), patch(
             "review_processor.ozon_fbs_supplies.list_open_supplies",
             return_value=open_supplies,
+        ), patch(
+            "review_processor.ozon_fbs_supplies._order_counts_by_supply_for_tab",
+            side_effect=lambda *_a, **_k: {
+                str(s.get("supply_id") or ""): int(s.get("order_count") or 0)
+                for s in open_supplies
+                if str(s.get("supply_id") or "").strip()
+            },
         ), patch(
             "review_processor.ozon_fbs_supplies._supply_ids_with_tab",
             side_effect=lambda _repo, *, user_id, source_id, tab: (
@@ -216,6 +230,13 @@ class OzonFbsLocalSuppliesTests(unittest.TestCase):
             "review_processor.ozon_fbs_supplies.list_open_supplies",
             return_value=open_supplies,
         ), patch(
+            "review_processor.ozon_fbs_supplies._order_counts_by_supply_for_tab",
+            side_effect=lambda *_a, **_k: {
+                str(s.get("supply_id") or ""): int(s.get("order_count") or 0)
+                for s in open_supplies
+                if str(s.get("supply_id") or "").strip()
+            },
+        ), patch(
             "review_processor.ozon_fbs_supplies._supply_ids_with_tab",
             side_effect=lambda _repo, *, user_id, source_id, tab: (
                 {"OZ-FBS-1", "OZ-FBS-2"} if tab == "awaiting_deliver" else set()
@@ -253,6 +274,13 @@ class OzonFbsLocalSuppliesTests(unittest.TestCase):
             "review_processor.ozon_fbs_supplies.list_open_supplies",
             return_value=open_supplies,
         ), patch(
+            "review_processor.ozon_fbs_supplies._order_counts_by_supply_for_tab",
+            side_effect=lambda *_a, **_k: {
+                str(s.get("supply_id") or ""): int(s.get("order_count") or 0)
+                for s in open_supplies
+                if str(s.get("supply_id") or "").strip()
+            },
+        ), patch(
             "review_processor.ozon_fbs_supplies._supply_ids_with_tab",
             side_effect=lambda _repo, *, user_id, source_id, tab: (
                 {"AD"} if tab == "awaiting_deliver" else {"DL"}
@@ -261,6 +289,76 @@ class OzonFbsLocalSuppliesTests(unittest.TestCase):
             out = list_collect_target_supplies(repo, user_id=1, source_id=2)
         ids = {s["supply_id"] for s in out}
         self.assertEqual(ids, {"AD", "EM"})
+
+    def test_list_collect_target_supplies_order_count_matches_awaiting_tab(
+        self,
+    ) -> None:
+        """Modal count must follow live awaiting_deliver postings, not JSON."""
+        repo = MagicMock()
+        open_supplies = [
+            {
+                "supply_id": "AD",
+                "name": "Awaiting",
+                "warehouse_id": 10,
+                "warehouse_name": "Склад А",
+                "is_empty": False,
+                # Stale snapshot on the supply row (JSON / cached).
+                "order_count": 5,
+                "posting_numbers": ["A", "B", "C", "D", "E"],
+            },
+            {
+                "supply_id": "EM",
+                "name": "Empty",
+                "is_empty": True,
+                "order_count": 0,
+                "posting_numbers": [],
+            },
+        ]
+        with patch(
+            "review_processor.ozon_fbs_supplies.list_open_supplies",
+            return_value=open_supplies,
+        ), patch(
+            "review_processor.ozon_fbs_supplies._order_counts_by_supply_for_tab",
+            return_value={"AD": 2},
+        ), patch(
+            "review_processor.ozon_fbs_supplies._supply_ids_with_tab",
+            side_effect=lambda _repo, *, user_id, source_id, tab: (
+                {"AD"} if tab == "awaiting_deliver" else set()
+            ),
+        ):
+            out = list_collect_target_supplies(repo, user_id=1, source_id=2)
+        by_id = {s["supply_id"]: s for s in out}
+        self.assertEqual(by_id["AD"]["order_count"], 2)
+        self.assertEqual(by_id["EM"]["order_count"], 0)
+
+        rows = [
+            {
+                "posting_number": "N-1",
+                "warehouse_id": 10,
+                "warehouse_name": "Склад А",
+            }
+        ]
+        with patch(
+            "review_processor.ozon_fbs_supplies.ensure_ozon_fbs_supply_schema"
+        ), patch(
+            "review_processor.ozon_fbs_supplies._load_awaiting_packaging_rows",
+            return_value=rows,
+        ), patch(
+            "review_processor.ozon_fbs_supplies.list_open_supplies",
+            return_value=open_supplies,
+        ), patch(
+            "review_processor.ozon_fbs_supplies._order_counts_by_supply_for_tab",
+            return_value={"AD": 2},
+        ), patch(
+            "review_processor.ozon_fbs_supplies._supply_ids_with_tab",
+            side_effect=lambda _repo, *, user_id, source_id, tab: (
+                {"AD"} if tab == "awaiting_deliver" else set()
+            ),
+        ):
+            preview = preview_ship_all_collect(repo, user_id=1, source_id=2)
+        compatible = preview["groups"][0]["compatible_supplies"]
+        ad = next(s for s in compatible if s["supply_id"] == "AD")
+        self.assertEqual(ad["orders_count"], 2)
 
     def test_execute_create_calls_ship_and_local_supply(self) -> None:
         repo = MagicMock()
