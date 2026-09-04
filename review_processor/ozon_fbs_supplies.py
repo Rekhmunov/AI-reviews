@@ -3108,6 +3108,9 @@ def get_supply_detail(
             sticker = oz.posting_sticker_payload_from_row(d)
             d.update(sticker)
             orders.append(d)
+    cargo_summary = oz.compute_ozon_fbs_supply_cargo_summary(
+        repo, user_id=user_id, orders=orders
+    )
     return {
         "supply_id": supply.get("supply_id"),
         "name": supply.get("name"),
@@ -3118,6 +3121,7 @@ def get_supply_detail(
         "source_id": source_id,
         "read_only": read_only,
         "posting_tab": tab_filter,
+        "cargo_summary": cargo_summary,
     }
 
 

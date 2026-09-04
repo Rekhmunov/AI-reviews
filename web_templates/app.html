@@ -2103,6 +2103,7 @@
                        title="Поиск по заказу, стикеру, названию товара и ШК"
                        oninput="renderWbFbsSupplyDetail()" />
               </div>
+              <div id="wbFbsSupplyDetailCargo" class="wb-fbs-sd-cargo" hidden></div>
               <div class="wb-fbs-sd-actions">
                 <button type="button" class="secondary" id="wbFbsSupplyDetailCancelledBtn"
                         onclick="openWbFbsCancelledOrdersModal()"
@@ -2246,6 +2247,7 @@
                 1 короб = 1 грузоместо. Затем распечатайте QR-коды грузомест и наклейте их на каждый короб.
                 Сделайте это до передачи в доставку.
               </p>
+              <div id="wbFbsCreateTrbxCargo" class="wb-fbs-sd-cargo wb-fbs-trbx-cargo" hidden></div>
               <div class="wb-fbs-create-trbx-controls">
                 <div class="wb-fbs-trbx-stepper" role="group" aria-label="Количество коробов">
                   <button type="button" class="secondary wb-fbs-trbx-stepper-btn" onclick="wbFbsTrbxStep(-1)" aria-label="Меньше">−</button>
@@ -3053,6 +3055,7 @@
                        title="Поиск по отправлению, названию товара и ШК"
                        oninput="renderOzonFbsSupplyDetail()" />
               </div>
+              <div id="ozonFbsSupplyDetailCargo" class="wb-fbs-sd-cargo" hidden></div>
               <div class="wb-fbs-sd-actions">
                 <button type="button" class="secondary" id="ozonFbsSupplyDetailCancelledBtn"
                         onclick="openOzonFbsCancelledOrdersModal()"
@@ -3516,6 +3519,7 @@
               <button type="button" class="icon-btn secondary" onclick="closeOzonFbsContainersModal()" aria-label="Закрыть">✕</button>
             </div>
             <div class="wb-fbs-create-trbx-body">
+              <div id="ozonFbsContainersCargo" class="wb-fbs-sd-cargo wb-fbs-trbx-cargo" hidden></div>
               <div class="wb-fbs-create-trbx-controls ozon-fbs-containers-controls">
                 <div class="wb-fbs-trbx-stepper" role="group" aria-label="Количество грузомест">
                   <button type="button" class="secondary wb-fbs-trbx-stepper-btn" onclick="ozonFbsContainersStep(-1)" aria-label="Меньше">−</button>

@@ -3121,6 +3121,43 @@ def compute_ozon_fbs_pallet_summary(
     return summary
 
 
+
+def compute_ozon_fbs_supply_cargo_summary(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    orders: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """Cargo summary for one Ozon FBS supply (postings from supply detail).
+
+    Uses posting ``quantity`` (default 1). Cancelled postings are skipped.
+    Same box/pallet formula as the sync banner.
+    """
+    from .wb_fbs import _product_box_meta_map, summarize_cargo_qty_lines
+
+    product_meta = _product_box_meta_map(repo, user_id=user_id)
+    qty_by_group: dict[tuple[str, str], int] = {}
+    for order in orders or []:
+        if not isinstance(order, dict):
+            continue
+        if order.get("cancelled") or str(order.get("cancel_reason_label") or "").strip():
+            continue
+        offer_id = str(order.get("offer_id") or "").strip()
+        sku = str(order.get("sku") or "").strip()
+        try:
+            qty = int(order.get("quantity") or 1)
+        except (TypeError, ValueError):
+            qty = 1
+        if qty <= 0:
+            continue
+        group = (offer_id, sku)
+        qty_by_group[group] = int(qty_by_group.get(group) or 0) + qty
+    lines: list[tuple[list[str], int]] = []
+    for (offer_id, sku), qty in qty_by_group.items():
+        lines.append(([offer_id, sku], int(qty)))
+    return summarize_cargo_qty_lines(product_meta, lines)
+
+
 def get_sync_state() -> dict[str, object]:
     with _ozon_fbs_sync_lock:
         return _copy_sync_state()

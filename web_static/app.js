@@ -26946,6 +26946,11 @@ function openWbFbsCreateTrbxModal() {
   modal.classList.remove("hidden");
   modal.style.display = "flex";
   modal.setAttribute("aria-hidden", "false");
+  _wbFbsRenderCargoSummary(
+    "wbFbsCreateTrbxCargo",
+    (wbFbsDetailState.supply || {}).cargo_summary,
+  );
+
   loadWbFbsTrbxBoxes({ keepInfo: closed }).catch(() => {});
 }
 window.openWbFbsCreateTrbxModal = openWbFbsCreateTrbxModal;
@@ -26959,6 +26964,7 @@ function closeWbFbsCreateTrbxModal() {
     modal.style.display = "none";
   }
   _wbFbsCreateTrbxSetInfo("");
+  _wbFbsRenderCargoSummary("wbFbsCreateTrbxCargo", null);
   wbFbsDetailState.trbxBoxes = [];
   wbFbsDetailState.trbxLoaded = false;
   wbFbsDetailState.trbxRemaining = 0;
@@ -27155,6 +27161,7 @@ async function openWbFbsSupplyDetailModal(supplyId) {
   if (title) title.textContent = "Загрузка…";
   if (wh) wh.textContent = "—";
   if (meta) meta.innerHTML = "";
+  _wbFbsRenderCargoSummary("wbFbsSupplyDetailCargo", null);
   _wbFbsSupplyDetailHideNewWarn();
   if (info) {
     info.hidden = true;
@@ -27186,6 +27193,21 @@ async function openWbFbsSupplyDetailModal(supplyId) {
   }
 }
 window.openWbFbsSupplyDetailModal = openWbFbsSupplyDetailModal;
+
+
+function _wbFbsRenderCargoSummary(elId, summary) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const label = String(summary?.summary_label || summary?.pallets_label || "").trim();
+  if (!label) {
+    el.hidden = true;
+    el.innerHTML = "";
+    return;
+  }
+  el.hidden = false;
+  el.innerHTML =
+    `<span class="wb-fbs-sd-cargo-label" title="Расчёт по товарам этой поставки (как после синхронизации)">${_wbFbsEsc(label)}</span>`;
+}
 
 function renderWbFbsSupplyDetail(data) {
   const supply = data || wbFbsDetailState.supply;
@@ -27223,6 +27245,7 @@ function renderWbFbsSupplyDetail(data) {
     }
     meta.innerHTML = chips.join("");
   }
+  _wbFbsRenderCargoSummary("wbFbsSupplyDetailCargo", supply.cargo_summary);
   const allOrders = Array.isArray(supply.orders) ? supply.orders : [];
   const searchQ = document.getElementById("wbFbsSupplyDetailSearchFilter")?.value || "";
   const orders = String(searchQ || "").trim()

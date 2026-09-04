@@ -4184,6 +4184,151 @@ def format_boxes_ru(value: float) -> str:
     return f"{text} {word}"
 
 
+
+def format_products_ru(value: float | int) -> str:
+    """Format whole product count + Russian noun (товар/товара/товаров)."""
+    try:
+        whole = int(round(float(value or 0) + 1e-12))
+    except (TypeError, ValueError):
+        whole = 0
+    if whole < 0:
+        whole = 0
+    abs_n = abs(whole) % 100
+    last = abs_n % 10
+    if 11 <= abs_n <= 14:
+        word = "товаров"
+    elif last == 1:
+        word = "товар"
+    elif 2 <= last <= 4:
+        word = "товара"
+    else:
+        word = "товаров"
+    return f"{whole} {word}"
+
+
+def _product_box_meta_map(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+) -> dict[str, tuple[int, int | None]]:
+    """article / nmId / sku / casefold → (box_qty, boxes_per_pallet | None)."""
+    products = repo.list_product_photos(user_id=user_id)
+    categories = repo.list_product_categories(user_id=user_id, seed_defaults=True)
+    cat_boxes: dict[str, int] = {}
+    for cat in categories:
+        name = str(cat.get("name") or "").strip()
+        bpp = _as_positive_int(cat.get("boxes_per_pallet"))
+        if name and bpp is not None:
+            cat_boxes[name] = bpp
+
+    product_meta: dict[str, tuple[int, int | None]] = {}
+    for prod in products:
+        box_qty = _as_positive_int(prod.get("box_qty"))
+        if box_qty is None:
+            continue
+        cat_name = str(prod.get("product_category") or "").strip()
+        bpp = cat_boxes.get(cat_name)
+        meta = (box_qty, bpp)
+        for raw_key in (
+            prod.get("supplier_article"),
+            prod.get("wb_nmid"),
+            prod.get("ozon_sku"),
+            prod.get("yandex_offer_id"),
+        ):
+            key = str(raw_key or "").strip()
+            if not key:
+                continue
+            product_meta[key] = meta
+            product_meta[key.casefold()] = meta
+    return product_meta
+
+
+def summarize_cargo_qty_lines(
+    product_meta: dict[str, tuple[int, int | None]],
+    lines: list[tuple[list[str], int]],
+) -> dict[str, Any]:
+    """Same box/pallet math as sync summary, plus total product units.
+
+    ``lines``: list of (lookup_keys, qty). Products without ``box_qty`` still
+    count toward ``products`` but are skipped for boxes/pallets.
+    """
+    products_total = 0
+    boxes_total = 0.0
+    pallets_total = 0.0
+    for keys, qty_raw in lines:
+        try:
+            qty = int(qty_raw or 0)
+        except (TypeError, ValueError):
+            continue
+        if qty <= 0:
+            continue
+        products_total += qty
+        meta = None
+        for key in keys:
+            k = str(key or "").strip()
+            if not k:
+                continue
+            if k in product_meta:
+                meta = product_meta[k]
+                break
+            cf = k.casefold()
+            if cf in product_meta:
+                meta = product_meta[cf]
+                break
+        if not meta:
+            continue
+        box_qty, bpp = meta
+        boxes = float(qty) / float(box_qty)
+        boxes_total += boxes
+        if bpp is not None:
+            pallets_total += boxes / float(bpp)
+
+    products = int(products_total)
+    boxes = round(float(boxes_total) + 1e-12, 2)
+    pallets = round(float(pallets_total) + 1e-12, 2)
+    products_label = format_products_ru(products)
+    boxes_label = format_boxes_ru(boxes)
+    pallets_only = format_pallets_ru(pallets)
+    pallets_label = f"{pallets_only} ({boxes_label})"
+    summary_label = f"{products_label} · {pallets_label}" if products > 0 else ""
+    return {
+        "products": products,
+        "boxes": boxes,
+        "pallets": pallets,
+        "products_label": products_label,
+        "boxes_label": boxes_label,
+        "pallets_label": pallets_label,
+        "summary_label": summary_label,
+    }
+
+
+def compute_wb_fbs_supply_cargo_summary(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    orders: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """Cargo summary for one WB FBS supply (orders already loaded in detail).
+
+    Each non-cancelled order counts as 1 unit. Formula matches sync banner.
+    """
+    product_meta = _product_box_meta_map(repo, user_id=user_id)
+    qty_by_group: dict[tuple[str, str], int] = {}
+    for order in orders or []:
+        if not isinstance(order, dict):
+            continue
+        if str(order.get("cancel_reason_label") or "").strip():
+            continue
+        article = str(order.get("article") or "").strip()
+        nm_id = str(order.get("nm_id") or "").strip()
+        group = (article, nm_id)
+        qty_by_group[group] = int(qty_by_group.get(group) or 0) + 1
+    lines: list[tuple[list[str], int]] = []
+    for (article, nm_id), qty in qty_by_group.items():
+        lines.append(([article, nm_id], int(qty)))
+    return summarize_cargo_qty_lines(product_meta, lines)
+
+
 def compute_wb_fbs_pallet_summary(
     repo: ReviewRepository,
     *,

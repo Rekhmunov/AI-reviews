@@ -10335,6 +10335,40 @@ button.wb-fbs-select-all-link:disabled {
   font-weight: 600;
   color: #334155;
 }
+
+.wb-fbs-sd-cargo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  min-height: 0;
+}
+.wb-fbs-sd-cargo[hidden] {
+  display: none !important;
+}
+.wb-fbs-sd-cargo-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 12px;
+  border-radius: 8px;
+  border: 1px solid #c7e0d2;
+  background: #f0faf4;
+  color: #166534;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.wb-fbs-trbx-cargo {
+  margin: 0 0 16px;
+}
+.wb-fbs-trbx-cargo .wb-fbs-sd-cargo-label {
+  font-size: 14px;
+  min-height: 32px;
+  padding: 6px 12px;
+}
+
 .wb-fbs-sd-chip-qr {
   gap: 6px;
   padding-right: 4px;

@@ -2777,6 +2777,21 @@
     return (rows || []).filter((r) => !_ozonFbsRowIsCancelled(r));
   }
 
+
+  function _ozonFbsRenderCargoSummary(elId, summary) {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    const label = String(summary?.summary_label || summary?.pallets_label || "").trim();
+    if (!label) {
+      el.hidden = true;
+      el.innerHTML = "";
+      return;
+    }
+    el.hidden = false;
+    el.innerHTML =
+      `<span class="wb-fbs-sd-cargo-label" title="Расчёт по товарам этой поставки (как после синхронизации)">${esc(label)}</span>`;
+  }
+
   function renderSupplyDetail(data) {
     closeOzonFbsRowMenus();
     const supply = data || supplyDetailState.supply;
@@ -2800,6 +2815,7 @@
         sid ? `<span class="wb-fbs-sd-chip">ID ${esc(sid)}</span>` : "",
       ].filter(Boolean).join("");
     }
+    _ozonFbsRenderCargoSummary("ozonFbsSupplyDetailCargo", supply.cargo_summary);
     const allOrdersRaw = Array.isArray(supply.orders) ? supply.orders : [];
     // Modal-only: oldest orders on top. Print endpoints keep their own order.
     const allOrders = sortSupplyDetailOrdersOldestFirst(allOrdersRaw);
@@ -2941,6 +2957,7 @@
     const search = document.getElementById("ozonFbsSupplyDetailSearchFilter");
     if (search) search.value = "";
     if (title) title.textContent = "Загрузка…";
+    _ozonFbsRenderCargoSummary("ozonFbsSupplyDetailCargo", null);
     const readOnly = isDeliveringSuppliesTab();
     syncSupplyDetailReadOnlyMode(readOnly);
     _ozonFbsSyncOwnerOnlyCancelledBtn();
@@ -5153,6 +5170,10 @@
     _ozonFbsContainersSetInfo("");
     _ozonFbsContainersSetVisible(true);
     _ozonFbsContainersSyncBusyUi();
+    _ozonFbsRenderCargoSummary(
+      "ozonFbsContainersCargo",
+      (supplyDetailState.supply || {}).cargo_summary,
+    );
     loadOzonFbsContainers();
   }
 
@@ -5165,6 +5186,7 @@
     containersState.detailsCache = {};
     containersState.detailsLoadingId = null;
     _ozonFbsContainersSetInfo("");
+    _ozonFbsRenderCargoSummary("ozonFbsContainersCargo", null);
   }
 
   function refreshOzonFbsContainers() {
