@@ -2843,6 +2843,9 @@
     if (!needsKiz) _ozonFbsKizSplitSetTone("");
     else _ozonFbsKizSplitSetTone(_ozonFbsKizToneFromSupply(supply));
     _ozonFbsSyncPickVerifyBtn(allOrders);
+    const needsPick = allOrders.some((o) => o && !o.kiz_required && !_ozonFbsRowIsCancelled(o));
+    if (!needsPick) _ozonFbsPickSplitSetTone("");
+    else _ozonFbsPickSplitSetTone(_ozonFbsPickToneFromSupply(supply));
     const searchQ = String(document.getElementById("ozonFbsSupplyDetailSearchFilter")?.value || "").trim().toLowerCase();
     const orders = searchQ
       ? allOrders.filter((o) => {
@@ -2962,8 +2965,11 @@
     supplyDetailState.postingTab = isSuppliesTab() ? String(state.tab || "").trim() : null;
     _ozonFbsSupplyDetailSetActionsReady(false);
     _ozonFbsKizSplitSetTone("");
+    _ozonFbsPickSplitSetTone("");
     const kizSplitOpen = document.getElementById("ozonFbsKizSplit");
     if (kizSplitOpen) kizSplitOpen.hidden = true;
+    const pickSplitOpen = document.getElementById("ozonFbsPickSplit");
+    if (pickSplitOpen) pickSplitOpen.hidden = true;
     const modal = document.getElementById("ozonFbsSupplyDetailModal");
     const title = document.getElementById("ozonFbsSupplyDetailTitle");
     const tbody = document.getElementById("ozonFbsSupplyDetailTbody");
@@ -7874,6 +7880,41 @@
     return required.every((o) => String(o.kiz_status || "") === "ok") ? "ok" : "";
   }
 
+  function _ozonFbsPickToneFromSupply(supply) {
+    const orders = Array.isArray(supply?.orders) ? supply.orders : [];
+    const plain = orders.filter((o) => o && !o.kiz_required && !_ozonFbsRowIsCancelled(o));
+    if (!plain.length) return "";
+    return plain.every(
+      (o) => !!o.pick_verified && !!String(o.pick_barcode || "").trim()
+    ) ? "ok" : "";
+  }
+
+  function _ozonFbsPickSyncToneFromRows(rows) {
+    const supply = supplyDetailState.supply;
+    if (!supply || !Array.isArray(supply.orders)) return;
+    const list = Array.isArray(rows) ? rows : [];
+    const byPn = new Map();
+    for (const row of list) {
+      const pn = String(row?.posting_number || "").trim();
+      if (!pn) continue;
+      byPn.set(pn, row);
+    }
+    for (const o of supply.orders) {
+      if (!o || o.kiz_required || _ozonFbsRowIsCancelled(o)) continue;
+      const pn = String(o.posting_number || "").trim();
+      const row = byPn.get(pn);
+      if (!row) continue;
+      const verified = !!row.pick_verified && !!String(row.pick_barcode || "").trim();
+      o.pick_verified = verified;
+      o.pick_barcode = verified ? String(row.pick_barcode || "").trim() : "";
+    }
+    const needsPick = supply.orders.some(
+      (o) => o && !o.kiz_required && !_ozonFbsRowIsCancelled(o)
+    );
+    if (!needsPick) _ozonFbsPickSplitSetTone("");
+    else _ozonFbsPickSplitSetTone(_ozonFbsPickToneFromSupply(supply));
+  }
+
   function _ozonFbsKizStatusFromRow(row) {
     const codes = (Array.isArray(row?.kiz_codes) ? row.kiz_codes : [])
       .map((c) => String(c || "").trim())
@@ -9953,6 +9994,7 @@
     if (emptyFilter) emptyFilter.checked = false;
     renderOzonFbsPickVerifyTable();
     _ozonFbsPickScheduleLocalAutosave(pn, false);
+    _ozonFbsPickSyncToneFromRows(ozonFbsPickState.rows);
     _ozonFbsPickSetInfo(`ШК проверен локально для ${pn}`, true);
     if (typeof _ozonFbsContainerMaybeBind === "function") {
       void _ozonFbsContainerMaybeBind("pick", pn);
@@ -10104,6 +10146,7 @@
     delete ozonFbsPickState.errors[pn];
     renderOzonFbsPickVerifyTable();
     _ozonFbsPickScheduleLocalAutosave(pn, true);
+    _ozonFbsPickSyncToneFromRows(ozonFbsPickState.rows);
   }
 
   function _ozonFbsPickScheduleLocalAutosave(postingNumber, clear) {
@@ -10278,6 +10321,7 @@
     cancelOzonFbsPickSkuScan();
     renderOzonFbsPickVerifyTable();
     _ozonFbsPickScheduleLocalAutosave(pn, false);
+    _ozonFbsPickSyncToneFromRows(ozonFbsPickState.rows);
     _ozonFbsPickSetInfo(`ШК проверен локально для ${pn}`, true);
     if (typeof _ozonFbsContainerMaybeBind === "function") {
       void _ozonFbsContainerMaybeBind("pick", pn);
@@ -10317,6 +10361,9 @@
       if (supplyDetailState.supplyId !== sid) return;
       if (ozonFbsPickState.statusRefreshGen !== refreshGen) return;
       const st = String(data.status || "");
+      if (Array.isArray(data.orders)) {
+        _ozonFbsPickSyncToneFromRows(data.orders);
+      }
       if (st === "error") {
         const tip = typeof _ozonFbsContainerErrorsTooltip === "function"
           ? _ozonFbsContainerErrorsTooltip(data.container_errors || [])
@@ -10326,7 +10373,7 @@
         _ozonFbsPickSplitSetTone("error");
       } else if (st === "ok") {
         _ozonFbsPickSplitSetTone("ok");
-      } else {
+      } else if (!Array.isArray(data.orders)) {
         _ozonFbsPickSplitSetTone("");
       }
     } catch (e) {
@@ -10469,6 +10516,7 @@
   }
 
   function closeOzonFbsPickVerifyModal() {
+    _ozonFbsPickSyncToneFromRows(ozonFbsPickState.rows);
     ozonFbsPickState.loadGen = Number(ozonFbsPickState.loadGen || 0) + 1;
     if (typeof window._ozonFbsContainerClearOnModalClose === "function") {
       window._ozonFbsContainerClearOnModalClose();
@@ -10600,6 +10648,7 @@
         delete ozonFbsPickState.errors[pn];
       }
       renderOzonFbsPickVerifyTable();
+      _ozonFbsPickSyncToneFromRows(ozonFbsPickState.rows);
       if (errN) {
         const parts = [];
         if (savedTotal) parts.push(`сохранено ${savedTotal}`);

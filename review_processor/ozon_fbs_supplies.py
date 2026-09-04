@@ -3196,6 +3196,12 @@ def get_supply_detail(
                     d["kiz_status"] = "empty"
             else:
                 d["kiz_status"] = "empty"
+            # Normalize pick-verify fields for «Товары без КИЗ» button tone
+            # (same rules as check_supply_pick_verify_status).
+            pick_barcode = str(d.get("pick_barcode") or "").strip()
+            pick_ok = bool(d.get("pick_verified")) and bool(pick_barcode)
+            d["pick_barcode"] = pick_barcode if pick_ok else ""
+            d["pick_verified"] = pick_ok
             sticker = oz.posting_sticker_payload_from_row(d)
             d.update(sticker)
             orders.append(d)
