@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=284" />
+  <link rel="stylesheet" href="/static/style.css?v=285" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2098,12 +2098,12 @@
               <div id="wbFbsSupplyDetailWarehouse" class="wb-fbs-sd-warehouse">—</div>
               <div class="wb-fbs-sd-meta-row">
                 <div id="wbFbsSupplyDetailMeta" class="wb-fbs-sd-meta"></div>
+                <div id="wbFbsSupplyDetailCargo" class="wb-fbs-sd-cargo wb-fbs-sd-cargo-inline" hidden></div>
                 <input id="wbFbsSupplyDetailSearchFilter" class="wb-fbs-kiz-search" type="search"
                        placeholder="🔍 Поиск..." autocomplete="off"
                        title="Поиск по заказу, стикеру, названию товара и ШК"
                        oninput="renderWbFbsSupplyDetail()" />
               </div>
-              <div id="wbFbsSupplyDetailCargo" class="wb-fbs-sd-cargo" hidden></div>
               <div class="wb-fbs-sd-actions">
                 <button type="button" class="secondary" id="wbFbsSupplyDetailCancelledBtn"
                         onclick="openWbFbsCancelledOrdersModal()"
@@ -2237,17 +2237,15 @@
              onclick="if(event.target===this)closeWbFbsCreateTrbxModal()">
           <div class="modal-card wb-fbs-create-trbx-modal">
             <div class="wb-fbs-create-trbx-header">
-              <h3 id="wbFbsCreateTrbxTitle" class="wb-fbs-create-trbx-title">
-                Создайте грузоместа для поставки в ПВЗ
-              </h3>
+              <div class="wb-fbs-create-trbx-header-main">
+                <h3 id="wbFbsCreateTrbxTitle" class="wb-fbs-create-trbx-title">
+                  Создайте грузоместа для поставки в ПВЗ
+                </h3>
+                <div id="wbFbsCreateTrbxCargo" class="wb-fbs-sd-cargo wb-fbs-trbx-cargo wb-fbs-trbx-cargo-inline" hidden></div>
+              </div>
               <button type="button" class="icon-btn secondary" onclick="closeWbFbsCreateTrbxModal()" aria-label="Закрыть">✕</button>
             </div>
             <div class="wb-fbs-create-trbx-body">
-              <p class="wb-fbs-create-trbx-lead">
-                1 короб = 1 грузоместо. Затем распечатайте QR-коды грузомест и наклейте их на каждый короб.
-                Сделайте это до передачи в доставку.
-              </p>
-              <div id="wbFbsCreateTrbxCargo" class="wb-fbs-sd-cargo wb-fbs-trbx-cargo" hidden></div>
               <div class="wb-fbs-create-trbx-controls">
                 <div class="wb-fbs-trbx-stepper" role="group" aria-label="Количество коробов">
                   <button type="button" class="secondary wb-fbs-trbx-stepper-btn" onclick="wbFbsTrbxStep(-1)" aria-label="Меньше">−</button>
