@@ -413,7 +413,81 @@ class OzonFbsMappingTests(unittest.TestCase):
             refresh_mock.call_args.kwargs["remote_status"], "delivering"
         )
 
+
+    def test_lookup_heals_zero_sticker_from_ozon_barcodes(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        from review_processor.ozon_fbs import lookup_posting_by_number
+
+        local = {
+            "posting_number": "48427427-0218-7",
+            "tab": "awaiting_deliver",
+            "status": "awaiting_deliver",
+            "supply_id": "sup-1",
+            "sticker_barcode": "0",
+            "sticker_lower_barcode": "0",
+        }
+        remote = {
+            "posting_number": "48427427-0218-7",
+            "status": "awaiting_deliver",
+            "barcodes": {
+                "upper_barcode": "501969478984000",
+                "lower_barcode": "501969478984000",
+            },
+        }
+        client = MagicMock()
+        client.get_posting.return_value = remote
+
+        def _details(repo, **kw):
+            row = kw["row"]
+            return {
+                "status_label": "Ожидает отгрузки",
+                "status": "awaiting_deliver",
+                "sticker_barcode": str(row.get("sticker_barcode") or ""),
+                "sticker_lower_barcode": str(row.get("sticker_lower_barcode") or ""),
+            }
+
+        with patch(
+            "review_processor.ozon_fbs.get_posting_by_number",
+            return_value=dict(local),
+        ), patch(
+            "review_processor.ozon_fbs.refresh_posting_status_only",
+            return_value=dict(local),
+        ), patch(
+            "review_processor.ozon_fbs.apply_posting_sticker_hints",
+        ) as apply_hints, patch(
+            "review_processor.ozon_fbs._tab_counts",
+            return_value={"awaiting_deliver": 1},
+        ), patch(
+            "review_processor.ozon_fbs.ensure_ozon_fbs_tables"
+        ), patch(
+            "review_processor.ozon_fbs.OzonFbsClient", return_value=client
+        ), patch(
+            "review_processor.ozon_fbs._enrich_posting_list_item",
+            side_effect=lambda repo, **kw: {
+                **kw["row"],
+                "warehouse_label": "—",
+                "tab_label": "Ожидают отгрузки",
+            },
+        ), patch(
+            "review_processor.ozon_fbs.build_posting_lookup_details",
+            side_effect=_details,
+        ):
+            out = lookup_posting_by_number(
+                MagicMock(),
+                user_id=1,
+                source_id=2,
+                posting_number="48427427-0218-7",
+                client_id="cid",
+                api_key="key",
+                allow_remote=True,
+            )
+        apply_hints.assert_called_once()
+        self.assertEqual(out["item"]["sticker_barcode"], "501969478984000")
+        self.assertEqual(out["details"]["sticker_barcode"], "501969478984000")
+
     def test_lookup_skips_remote_when_allow_remote_false(self) -> None:
+
         from unittest.mock import MagicMock, patch
 
         repo = MagicMock()

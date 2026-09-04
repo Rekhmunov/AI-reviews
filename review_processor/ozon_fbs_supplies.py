@@ -3580,9 +3580,9 @@ def _enrich_empty_package_stickers_for_print(
     need = [
         pn
         for pn in nums
-        if not (
-            str((local.get(pn) or {}).get("sticker_barcode") or "").strip()
-            or str((local.get(pn) or {}).get("sticker_lower_barcode") or "").strip()
+        if oz.ozon_package_barcode_is_blank((local.get(pn) or {}).get("sticker_barcode"))
+        and oz.ozon_package_barcode_is_blank(
+            (local.get(pn) or {}).get("sticker_lower_barcode")
         )
     ]
     if not need:

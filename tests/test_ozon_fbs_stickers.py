@@ -213,6 +213,48 @@ class OzonFbsStickerFieldsTests(unittest.TestCase):
         self.assertEqual(payload["sticker_part_a"], "0163799058")
         self.assertEqual(payload["sticker_part_b"], "0084-1")
 
+    def test_normalize_ozon_package_barcode_rejects_placeholders(self) -> None:
+        self.assertEqual(oz.normalize_ozon_package_barcode("0"), "")
+        self.assertEqual(oz.normalize_ozon_package_barcode(0), "")
+        self.assertEqual(oz.normalize_ozon_package_barcode("00"), "")
+        self.assertEqual(oz.normalize_ozon_package_barcode("null"), "")
+        self.assertEqual(
+            oz.normalize_ozon_package_barcode("501969478984000"),
+            "501969478984000",
+        )
+        self.assertTrue(oz.ozon_package_barcode_is_blank("0"))
+        self.assertFalse(oz.ozon_package_barcode_is_blank("501969478984000"))
+
+    def test_sticker_fields_ignore_ozon_zero_placeholder(self) -> None:
+        fields = oz.sticker_fields_from_posting(
+            {
+                "posting_number": "48427427-0218-7",
+                "barcodes": {"upper_barcode": "0", "lower_barcode": "0"},
+            }
+        )
+        self.assertEqual(fields["sticker_barcode"], "")
+        self.assertEqual(fields["sticker_lower_barcode"], "")
+        self.assertEqual(fields["sticker_part_a"], "48427427")
+        self.assertEqual(fields["sticker_part_b"], "0218-7")
+
+    def test_posting_sticker_payload_treats_zero_as_empty_and_falls_back(self) -> None:
+        payload = oz.posting_sticker_payload_from_row(
+            {
+                "posting_number": "48427427-0218-7",
+                "sticker_barcode": "0",
+                "sticker_lower_barcode": "0",
+                "sticker_part_a": "",
+                "sticker_part_b": "",
+                "raw_json": (
+                    '{"posting_number":"48427427-0218-7",'
+                    '"barcodes":{"upper_barcode":"501969478984000",'
+                    '"lower_barcode":"501969478984000"}}'
+                ),
+            }
+        )
+        self.assertEqual(payload["sticker_barcode"], "501969478984000")
+        self.assertEqual(payload["sticker_lower_barcode"], "501969478984000")
+
 
 class OzonFbsStickerPersistTests(unittest.TestCase):
     @patch("review_processor.ozon_fbs.ensure_ozon_fbs_tables")
@@ -238,6 +280,44 @@ class OzonFbsStickerPersistTests(unittest.TestCase):
         )
         self.assertEqual(n, 1)
         conn.execute.assert_called_once()
+
+    @patch("review_processor.ozon_fbs.ensure_ozon_fbs_tables")
+    def test_persist_only_if_empty_overwrites_zero_placeholder(
+        self, _ensure: MagicMock
+    ) -> None:
+        repo = MagicMock()
+        conn = MagicMock()
+        repo._connect.return_value.__enter__.return_value = conn
+        repo._sql.side_effect = lambda sql: sql
+        cur = MagicMock()
+        cur.rowcount = 1
+        conn.execute.return_value = cur
+        n = oz.persist_posting_stickers_batch(
+            repo,
+            user_id=1,
+            source_id=2,
+            stickers={
+                "48427427-0218-7": {
+                    "sticker_barcode": "501969478984000",
+                    "sticker_lower_barcode": "501969478984000",
+                }
+            },
+            only_if_empty=True,
+        )
+        self.assertEqual(n, 1)
+        sql = conn.execute.call_args.args[0]
+        self.assertIn("sticker_barcode = '0'", sql)
+        # Placeholder "0" must not be written when Ozon sends it.
+        n0 = oz.persist_posting_stickers_batch(
+            repo,
+            user_id=1,
+            source_id=2,
+            stickers={"PN-0": {"sticker_barcode": "0", "sticker_part_a": "1"}},
+            only_if_empty=False,
+        )
+        # parts alone may still update; ensure barcode arg normalized to ''
+        args = conn.execute.call_args.args[1]
+        self.assertEqual(args[0], "")
 
 
 class OzonFbsStickerLookupTests(unittest.TestCase):

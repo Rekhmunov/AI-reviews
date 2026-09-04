@@ -944,6 +944,31 @@ def sticker_parts_from_posting_number(posting_number: object) -> tuple[str, str]
     return str(head or "").strip(), str(tail or "").strip()
 
 
+def normalize_ozon_package_barcode(value: object) -> str:
+    """Return a usable Ozon package barcode, or ``""`` for empty/placeholders.
+
+    After split Ozon may briefly return ``"0"`` (or other short digit stubs) in
+    ``barcodes.upper_barcode`` / ``barcodes.lower_barcode`` before the real package QR is
+    issued. Those must not be persisted as bound stickers — they block later
+    ``only_if_empty`` fills and break scan matching.
+    """
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    folded = raw.casefold()
+    if folded in {"0", "null", "none", "nil", "-", "n/a"}:
+        return ""
+    # Digit-only stubs shorter than a real Ozon package QR (≥12 digits).
+    if raw.isdigit() and len(raw) < 12:
+        return ""
+    return raw
+
+
+def ozon_package_barcode_is_blank(value: object) -> bool:
+    """True when value is empty or an Ozon package-barcode placeholder."""
+    return not normalize_ozon_package_barcode(value)
+
+
 def sticker_fields_from_posting(posting: dict[str, Any]) -> dict[str, str]:
     """Derive sticker binding from Ozon posting (``barcodes`` + posting_number).
 
@@ -956,8 +981,8 @@ def sticker_fields_from_posting(posting: dict[str, Any]) -> dict[str, str]:
     lower = ""
     barcodes = posting.get("barcodes")
     if isinstance(barcodes, dict):
-        upper = str(barcodes.get("upper_barcode") or "").strip()
-        lower = str(barcodes.get("lower_barcode") or "").strip()
+        upper = normalize_ozon_package_barcode(barcodes.get("upper_barcode"))
+        lower = normalize_ozon_package_barcode(barcodes.get("lower_barcode"))
     return {
         "sticker_barcode": upper,
         "sticker_lower_barcode": lower,
@@ -971,16 +996,16 @@ def posting_sticker_payload_from_row(row: dict[str, Any]) -> dict[str, Any]:
     pn = str(row.get("posting_number") or "").strip()
     part_a = str(row.get("sticker_part_a") or "").strip()
     part_b = str(row.get("sticker_part_b") or "").strip()
-    upper = str(row.get("sticker_barcode") or "").strip()
-    lower = str(row.get("sticker_lower_barcode") or "").strip()
+    upper = normalize_ozon_package_barcode(row.get("sticker_barcode"))
+    lower = normalize_ozon_package_barcode(row.get("sticker_lower_barcode"))
     if (not upper or not lower or (not part_a and not part_b)) and pn:
         posting = _posting_payload_from_row(row)
         if posting:
             hints = sticker_fields_from_posting({**posting, "posting_number": pn})
             if not upper:
-                upper = str(hints.get("sticker_barcode") or "").strip()
+                upper = normalize_ozon_package_barcode(hints.get("sticker_barcode"))
             if not lower:
-                lower = str(hints.get("sticker_lower_barcode") or "").strip()
+                lower = normalize_ozon_package_barcode(hints.get("sticker_lower_barcode"))
             if not part_a:
                 part_a = str(hints.get("sticker_part_a") or "").strip()
             if not part_b:
@@ -1054,12 +1079,12 @@ def persist_posting_stickers_batch(
             pn = str(pn_raw or st.get("posting_number") or "").strip()
             if not pn:
                 continue
-            barcode = str(
+            barcode = normalize_ozon_package_barcode(
                 st.get("sticker_barcode") or st.get("barcode") or ""
-            ).strip()
-            lower_barcode = str(
+            )
+            lower_barcode = normalize_ozon_package_barcode(
                 st.get("sticker_lower_barcode") or st.get("lower_barcode") or ""
-            ).strip()
+            )
             part_a = str(st.get("sticker_part_a") or st.get("partA") or "").strip()
             part_b = str(st.get("sticker_part_b") or st.get("partB") or "").strip()
             if not part_a and not part_b:
@@ -1076,11 +1101,13 @@ def persist_posting_stickers_batch(
                         """
                         UPDATE ozon_fbs_postings
                         SET sticker_barcode = CASE
-                                WHEN sticker_barcode = '' AND ? <> '' THEN ?
+                                WHEN (sticker_barcode = '' OR sticker_barcode = '0')
+                                     AND ? <> '' THEN ?
                                 ELSE sticker_barcode
                             END,
                             sticker_lower_barcode = CASE
-                                WHEN sticker_lower_barcode = '' AND ? <> '' THEN ?
+                                WHEN (sticker_lower_barcode = '' OR sticker_lower_barcode = '0')
+                                     AND ? <> '' THEN ?
                                 ELSE sticker_lower_barcode
                             END,
                             sticker_part_a = CASE
@@ -2707,8 +2734,12 @@ def build_posting_lookup_details(
         "tab_label": TAB_LABELS.get(tab, tab or "—"),
         "status": status,
         "status_label": ozon_status_label_ru(status),
-        "sticker_barcode": str(sticker.get("sticker_barcode") or "").strip(),
-        "sticker_lower_barcode": str(sticker.get("sticker_lower_barcode") or "").strip(),
+        "sticker_barcode": normalize_ozon_package_barcode(
+            sticker.get("sticker_barcode")
+        ),
+        "sticker_lower_barcode": normalize_ozon_package_barcode(
+            sticker.get("sticker_lower_barcode")
+        ),
         "kiz_codes": kiz_codes,
         "pick_verified": pick_verified,
         "pick_barcode": pick_barcode,
@@ -2738,8 +2769,9 @@ def lookup_posting_by_number(
 ) -> dict[str, Any]:
     """Find posting locally; refresh status from Ozon API when credentials allow.
 
-    Local sticker / marking / supply_id are kept. Only ``status`` and ``tab``
-    are updated from ``/v3/posting/fbs/get``.
+    Local marking / supply_id are kept. ``status`` and ``tab`` are updated from
+    ``/v3/posting/fbs/get``. Empty or placeholder package stickers (``"0"``)
+    may be filled from Ozon ``barcodes``; real sticker values are not overwritten.
     """
     ensure_ozon_fbs_tables(repo)
     pn = parse_posting_number_query(posting_number) or str(posting_number or "").strip()
@@ -2796,6 +2828,39 @@ def lookup_posting_by_number(
                     local = updated
                     status_refreshed = True
                     counts = _tab_counts(repo, user_id=user_id, source_id=sid)
+            # Heal placeholder / empty package stickers without touching real QRs.
+            if remote:
+                try:
+                    apply_posting_sticker_hints(
+                        repo,
+                        user_id=user_id,
+                        source_id=sid,
+                        posting={**remote, "posting_number": pn},
+                    )
+                    hints = sticker_fields_from_posting(
+                        {**remote, "posting_number": pn}
+                    )
+                    hint_upper = str(hints.get("sticker_barcode") or "").strip()
+                    hint_lower = str(
+                        hints.get("sticker_lower_barcode") or ""
+                    ).strip()
+                    if hint_upper or hint_lower:
+                        patched = dict(local)
+                        if hint_upper and ozon_package_barcode_is_blank(
+                            patched.get("sticker_barcode")
+                        ):
+                            patched["sticker_barcode"] = hint_upper
+                        if hint_lower and ozon_package_barcode_is_blank(
+                            patched.get("sticker_lower_barcode")
+                        ):
+                            patched["sticker_lower_barcode"] = hint_lower
+                        local = patched
+                except Exception as heal_exc:
+                    _log.warning(
+                        "ozon_fbs lookup sticker heal failed pn=%s: %s",
+                        pn,
+                        heal_exc,
+                    )
         except Exception as exc:
             _log.warning(
                 "ozon_fbs lookup status refresh failed pn=%s: %s", pn, exc

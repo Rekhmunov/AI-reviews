@@ -303,9 +303,11 @@ def lookup_posting_by_scan(
             need = [
                 pn
                 for pn in refresh_pns
-                if not (
-                    str((local_map.get(pn) or {}).get("sticker_barcode") or "").strip()
-                    or str((local_map.get(pn) or {}).get("sticker_lower_barcode") or "").strip()
+                if oz.ozon_package_barcode_is_blank(
+                    (local_map.get(pn) or {}).get("sticker_barcode")
+                )
+                and oz.ozon_package_barcode_is_blank(
+                    (local_map.get(pn) or {}).get("sticker_lower_barcode")
                 )
             ]
             # Empty rows first (split siblings). If none empty, overwrite the
