@@ -10755,7 +10755,10 @@ button.wb-fbs-select-all-link:disabled {
 
 .wb-fbs-sd-chip-qr {
   gap: 6px;
-  padding: 4px 4px 4px 12px;
+  /* Vertical padding 0 so the print control fits inside the 36px chip border. */
+  padding: 0 2px 0 12px;
+  overflow: hidden;
+  align-items: center;
 }
 .wb-fbs-sd-qr-text {
   min-width: 0;
@@ -10764,8 +10767,10 @@ button.wb-fbs-select-all-link:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
   width: 28px;
   height: 28px;
+  max-height: 100%;
   margin: 0;
   padding: 0;
   border: none;

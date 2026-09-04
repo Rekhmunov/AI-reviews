@@ -27292,8 +27292,34 @@ async function openWbFbsSupplyDetailModal(supplyId) {
 window.openWbFbsSupplyDetailModal = openWbFbsSupplyDetailModal;
 
 
+function _wbFbsFormatCargoQty(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "0";
+  if (Math.abs(n - Math.round(n)) < 1e-9) return String(Math.round(n));
+  return n.toFixed(2).replace(".", ",");
+}
+
+/** Supply/GM cargo line: Товаров: N шт. | Паллет: X шт. | Коробов: Y шт. */
 function _wbFbsCargoSummaryLabel(summary) {
-  return String(summary?.summary_label || summary?.pallets_label || "").trim();
+  if (!summary || typeof summary !== "object") return "";
+  const products = Number(summary.products || 0);
+  const pallets = Number(summary.pallets || 0);
+  const boxes = Number(summary.boxes || 0);
+  const hasNumeric =
+    Number.isFinite(Number(summary.products))
+    || Number.isFinite(Number(summary.pallets))
+    || Number.isFinite(Number(summary.boxes));
+  if (hasNumeric || products > 0) {
+    if (products <= 0 && !String(summary.summary_label || summary.pallets_label || "").trim()) {
+      return "";
+    }
+    return (
+      `Товаров: ${_wbFbsFormatCargoQty(products)} шт. | `
+      + `Паллет: ${_wbFbsFormatCargoQty(pallets)} шт. | `
+      + `Коробов: ${_wbFbsFormatCargoQty(boxes)} шт.`
+    );
+  }
+  return String(summary.summary_label || summary.pallets_label || "").trim();
 }
 
 function _wbFbsRenderCargoSummary(elId, summary) {
@@ -27326,7 +27352,7 @@ function renderWbFbsSupplyDetail(data) {
   if (meta) {
     const chips = [];
     if (supply.cargo_label) chips.push(`<span class="wb-fbs-sd-chip">${_wbFbsEsc(supply.cargo_label)}</span>`);
-    chips.push(`<span class="wb-fbs-sd-chip">Заказы ${_wbFbsEsc(supply.order_count || 0)}</span>`);
+    // order_count chip removed — cargo line already shows product count.
     chips.push(`<span class="wb-fbs-sd-chip">Грузоместа ${_wbFbsEsc(supply.boxes_count || 0)}</span>`);
     chips.push(`<span class="wb-fbs-sd-chip">Создана ${_wbFbsEsc(supply.created_date || "—")}</span>`);
     if (sid) {
