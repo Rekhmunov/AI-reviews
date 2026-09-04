@@ -59,8 +59,16 @@ function makeDom() {
     "ozonFbsPickContainerActiveNum",
     "ozonFbsKizStickerScan",
     "ozonFbsPickStickerScan",
+    "ozonFbsContainerAuthModal",
+    "ozonFbsContainerRebindModal",
   ];
   ids.forEach((id) => el(id, id.includes("Check") ? "input" : "div"));
+  el("ozonFbsContainerAuthModal").classList = {
+    _set: new Set(["hidden"]),
+    add(cls) { this._set.add(cls); },
+    remove(cls) { this._set.delete(cls); },
+    contains(cls) { return this._set.has(cls); },
+  };
 
   return {
     nodes,
@@ -75,9 +83,11 @@ function makeDom() {
   };
 }
 
-function loadBindModule(dom) {
+function loadBindModule(dom, opts = {}) {
   const srcPath = path.join(__dirname, "..", "web_static", "ozon_fbs_container_bind.js");
   const src = fs.readFileSync(srcPath, "utf8");
+  const bindResponse = opts.bindResponse || null;
+  const cleared = { kiz: [], pick: [] };
   const sandbox = {
     window: {
       supplyDetailState: { supplyId: "S1", sourceId: 1 },
@@ -86,16 +96,46 @@ function loadBindModule(dom) {
       esc: (s) => String(s || ""),
       _ozonFbsKizSetInfo() {},
       _ozonFbsPickSetInfo() {},
+      clearOzonFbsKizRow(pn) {
+        cleared.kiz.push(String(pn));
+        const row = (sandbox.window.ozonFbsKizState.rows || []).find(
+          (r) => String(r.posting_number) === String(pn)
+        );
+        if (row) {
+          row.kiz_codes = [""];
+          row.kiz_status = "empty";
+        }
+      },
+      clearOzonFbsPickVerify(pn) {
+        cleared.pick.push(String(pn));
+        const row = (sandbox.window.ozonFbsPickState.rows || []).find(
+          (r) => String(r.posting_number) === String(pn)
+        );
+        if (row) {
+          row.pick_verified = false;
+          row.pick_barcode = "";
+        }
+      },
+      renderOzonFbsKizTable() {},
+      renderOzonFbsPickVerifyTable() {},
     },
     document: dom.document,
     URLSearchParams: global.URLSearchParams,
     fetch: async (url) => {
       if (String(url).includes("/containers/reconcile")) {
-        return { ok: true, json: async () => ({ binds: {}, changes: [] }) };
+        return { ok: true, status: 200, json: async () => ({ binds: {}, changes: [] }) };
       }
       if (String(url).includes("/containers/bind")) {
+        if (bindResponse) {
+          return {
+            ok: !!bindResponse.ok,
+            status: Number(bindResponse.status) || (bindResponse.ok ? 200 : 500),
+            json: async () => bindResponse.body || {},
+          };
+        }
         return {
           ok: true,
+          status: 200,
           json: async () => ({
             container_id: 202174459906000,
             container_barcode: "202174459906000",
@@ -105,6 +145,7 @@ function loadBindModule(dom) {
       }
       return {
         ok: true,
+        status: 200,
         json: async () => ({
           items: [
             {
@@ -131,6 +172,7 @@ function loadBindModule(dom) {
     console,
   };
   sandbox.window.window = sandbox.window;
+  sandbox.cleared = cleared;
   vm.runInNewContext(src, sandbox, { filename: "ozon_fbs_container_bind.js" });
   return sandbox.window;
 }
@@ -189,6 +231,121 @@ async function run() {
     win.ozonFbsKizState.rows[0].container_id === 202174459906000,
     "container bind after successful KIZ"
   );
+
+  // 401 on bind: drop optimistic ГМ + clear KIZ, show auth modal
+  {
+    const dom401 = makeDom();
+    const win401 = loadBindModule(dom401, {
+      bindResponse: {
+        ok: false,
+        status: 401,
+        body: { detail: "Требуется авторизация" },
+      },
+    });
+    win401.ozonFbsContainerBindState.hasContainers = true;
+    win401.ozonFbsContainerBindState.activeId = 202174459906000;
+    win401.ozonFbsContainerBindState.activeBarcode = "202174459906000";
+    win401.ozonFbsContainerBindState.byId.set("202174459906000", {
+      container_id: 202174459906000,
+      can_fill: true,
+      available_actions: ["fill"],
+    });
+    win401.ozonFbsKizState.rows = [{
+      posting_number: "P-AUTH",
+      sticker_barcode: "ST1",
+      kiz_codes: ["01mark"],
+      kiz_status: "ok",
+      container_id: 202174459906000,
+      container_barcode: "202174459906000",
+      container_synced: false,
+      container_sync_error: "",
+    }];
+    await win401._ozonFbsContainerRunBindAndRefresh(
+      "kiz",
+      "P-AUTH",
+      202174459906000,
+      "202174459906000",
+      null
+    );
+    const row = win401.ozonFbsKizState.rows[0];
+    assert(!row.container_id, "401 clears optimistic container_id (kiz)");
+    assert(!row.container_barcode, "401 clears optimistic container_barcode (kiz)");
+    assert(row.kiz_codes[0] === "", "401 clears scanned KIZ");
+    assert(
+      !dom401.nodes.get("ozonFbsContainerAuthModal").classList.contains("hidden"),
+      "401 opens auth modal"
+    );
+  }
+
+  // 401 on bind for pick: clear scanned product barcode (no KIZ)
+  {
+    const domPick = makeDom();
+    const winPick = loadBindModule(domPick, {
+      bindResponse: {
+        ok: false,
+        status: 401,
+        body: { detail: "Требуется авторизация" },
+      },
+    });
+    winPick.ozonFbsPickState.rows = [{
+      posting_number: "P-PICK",
+      sticker_barcode: "ST2",
+      pick_verified: true,
+      pick_barcode: "4601234567890",
+      container_id: 202174459906000,
+      container_barcode: "202174459906000",
+      container_synced: false,
+      container_sync_error: "",
+    }];
+    await winPick._ozonFbsContainerRunBindAndRefresh(
+      "pick",
+      "P-PICK",
+      202174459906000,
+      "202174459906000",
+      null
+    );
+    const row = winPick.ozonFbsPickState.rows[0];
+    assert(!row.container_id, "401 clears optimistic container_id (pick)");
+    assert(!row.pick_verified, "401 clears pick_verified");
+    assert(row.pick_barcode === "", "401 clears scanned product barcode");
+    assert(
+      !domPick.nodes.get("ozonFbsContainerAuthModal").classList.contains("hidden"),
+      "401 opens auth modal for pick"
+    );
+  }
+
+  // Non-401 bind error still keeps optimistic bind
+  {
+    const domFail = makeDom();
+    const winFail = loadBindModule(domFail, {
+      bindResponse: {
+        ok: false,
+        status: 502,
+        body: { detail: "Ozon temporarily unavailable" },
+      },
+    });
+    winFail.ozonFbsKizState.rows = [{
+      posting_number: "P-502",
+      sticker_barcode: "ST3",
+      kiz_codes: ["01keep"],
+      container_id: null,
+      container_barcode: "",
+    }];
+    await winFail._ozonFbsContainerRunBindAndRefresh(
+      "kiz",
+      "P-502",
+      202174459906000,
+      "202174459906000",
+      null
+    );
+    const row = winFail.ozonFbsKizState.rows[0];
+    assert(row.container_id === 202174459906000, "non-401 keeps optimistic bind");
+    assert(row.kiz_codes[0] === "01keep", "non-401 does not clear KIZ");
+    assert(
+      domFail.nodes.get("ozonFbsContainerAuthModal").classList.contains("hidden"),
+      "non-401 does not open auth modal"
+    );
+  }
 
   console.log("test_ozon_fbs_container_bind_ui.js: all checks passed");
 }

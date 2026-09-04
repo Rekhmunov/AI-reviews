@@ -18,6 +18,8 @@
     loading: false,
     rebindResolver: null,
     rebindPayload: null,
+    /** Shown once when cargo-place bind hits 401 (session expired). */
+    authRequiredOpen: false,
     /** Supply id for which activeId is valid — clear on supply change. */
     boundSupplyId: "",
     /** Postings with in-session container edits — skip reconcile overwrite. */
@@ -653,6 +655,85 @@
     }
   }
 
+  function httpError(res, data) {
+    const detail = data && data.detail;
+    const msg = typeof detail === "string"
+      ? detail
+      : (detail != null ? String(detail) : `Ошибка ${res.status}`);
+    const err = new Error(msg || `Ошибка ${res.status}`);
+    err.status = Number(res.status) || 0;
+    return err;
+  }
+
+  function isSessionExpiredError(err) {
+    if (!err) return false;
+    if (Number(err.status) === 401) return true;
+    const msg = String(err.message || err || "").toLowerCase();
+    return msg.includes("требуется авторизация") || msg.includes("требует авторизац");
+  }
+
+  function clearPostingScanForMode(mode, postingNumber) {
+    const pn = String(postingNumber || "").trim();
+    if (!pn) return;
+    if (mode === "kiz") {
+      if (typeof window.clearOzonFbsKizRow === "function") {
+        window.clearOzonFbsKizRow(pn);
+        return;
+      }
+    } else if (typeof window.clearOzonFbsPickVerify === "function") {
+      window.clearOzonFbsPickVerify(pn);
+      return;
+    }
+  }
+
+  function clearOptimisticContainerBind(row, postingNumber) {
+    if (!row) return;
+    row.container_id = null;
+    row.container_barcode = "";
+    row.container_synced = false;
+    row.container_sync_error = "";
+    clearContainerDirty(postingNumber);
+  }
+
+  function openAuthRequiredModal() {
+    state.authRequiredOpen = true;
+    const modal = document.getElementById("ozonFbsContainerAuthModal");
+    if (typeof setModalVisibility === "function") {
+      setModalVisibility("ozonFbsContainerAuthModal", true);
+    } else if (modal) {
+      modal.classList.remove("hidden");
+    }
+  }
+
+  function closeAuthRequiredModal() {
+    state.authRequiredOpen = false;
+    const modal = document.getElementById("ozonFbsContainerAuthModal");
+    if (typeof setModalVisibility === "function") {
+      setModalVisibility("ozonFbsContainerAuthModal", false);
+    } else if (modal) {
+      modal.classList.add("hidden");
+    }
+  }
+
+  function goToLoginFromAuthModal() {
+    closeAuthRequiredModal();
+    window.location.href = "/login";
+  }
+
+  /**
+   * Session expired on cargo-place bind: drop optimistic ГМ, clear scanned
+   * KIZ (marking) or product barcode (pick verify), force re-login.
+   */
+  function handleBindSessionExpired(mode, postingNumber) {
+    const row = findRow(mode, postingNumber);
+    clearOptimisticContainerBind(row, postingNumber);
+    clearPostingScanForMode(mode, postingNumber);
+    updateContainerCounters();
+    // clear* already re-renders tables; still refresh counters/column state.
+    rerenderMode(mode);
+    openAuthRequiredModal();
+  }
+
   async function bindPosting(postingNumber, containerId, containerBarcode, previousId) {
     const { sid, sourceId } = supplyIds();
     if (!sid || !sourceId) return null;
@@ -671,7 +752,7 @@
       }
     );
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || `Ошибка ${res.status}`);
+    if (!res.ok) throw httpError(res, data);
     return data;
   }
 
@@ -691,7 +772,7 @@
       }
     );
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || `Ошибка ${res.status}`);
+    if (!res.ok) throw httpError(res, data);
     return data;
   }
 
@@ -702,6 +783,10 @@
       const data = await bindPosting(postingNumber, containerId, barcode, previousId);
       applyBindResult(row, data);
     } catch (e) {
+      if (isSessionExpiredError(e)) {
+        handleBindSessionExpired(mode, postingNumber);
+        return;
+      }
       // Optimistic local bind (TZ): keep UI bind even if our API/Ozon call fails.
       row.container_id = containerId;
       row.container_barcode = barcode;
@@ -856,6 +941,10 @@
       );
       applyBindResult(row, data);
     } catch (e) {
+      if (isSessionExpiredError(e)) {
+        handleBindSessionExpired(mode, postingNumber);
+        return;
+      }
       row.container_id = nextId;
       row.container_barcode = nextBarcode;
       row.container_synced = false;
@@ -1106,9 +1195,14 @@
   window.clearOzonFbsContainerBind = clearBind;
   window.onOzonFbsContainerCellKey = onContainerCellKey;
   window.closeOzonFbsContainerRebindModal = closeRebindModal;
+  window.closeOzonFbsContainerAuthModal = closeAuthRequiredModal;
+  window.goOzonFbsContainerAuthLogin = goToLoginFromAuthModal;
   window.openOzonFbsMoveContainerPicker = openMoveContainerPicker;
   window.openOzonFbsContainerManualEntry = openContainerManualEntry;
   window.closeOzonFbsMoveContainerModal = closeMoveContainerModal;
   window.selectOzonFbsMoveContainerTarget = selectMoveContainerTarget;
   window._ozonFbsContainerRowCanMove = rowCanMoveContainer;
+  // Test hooks
+  window._ozonFbsContainerRunBindAndRefresh = runBindAndRefresh;
+  window._ozonFbsContainerIsSessionExpiredError = isSessionExpiredError;
 })();

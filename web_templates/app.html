@@ -3491,6 +3491,21 @@
           </div>
         </div>
 
+        <div id="ozonFbsContainerAuthModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsContainerAuthTitle">
+          <div class="modal-card ozon-fbs-container-rebind-modal">
+            <h3 id="ozonFbsContainerAuthTitle" class="wb-fbs-kiz-title">Требуется авторизация</h3>
+            <p id="ozonFbsContainerAuthBody" class="ozon-fbs-container-rebind-text">
+              Сессия истекла. Привязка грузоместа не сохранена.
+              Войдите снова, затем повторно просканируйте КИЗ или ШК товара.
+            </p>
+            <div class="ozon-fbs-container-rebind-actions">
+              <button type="button" class="secondary" onclick="closeOzonFbsContainerAuthModal()">Закрыть</button>
+              <button type="button" onclick="goOzonFbsContainerAuthLogin()">Войти</button>
+            </div>
+          </div>
+        </div>
+
         <div id="ozonFbsContainerMoveModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
              aria-labelledby="ozonFbsContainerMoveTitle">
           <div class="modal-card ozon-fbs-container-move-modal">
@@ -6527,7 +6542,7 @@
   </div>
 
   <script src="/static/ozon_fbs.js?v=114"></script>
-  <script src="/static/ozon_fbs_container_bind.js?v=17"></script>
+  <script src="/static/ozon_fbs_container_bind.js?v=18"></script>
   <script src="/static/app.js?v=534"></script>
 </body>
 </html>
