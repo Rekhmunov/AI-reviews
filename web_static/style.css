@@ -10378,8 +10378,9 @@ button.wb-fbs-select-all-link:disabled {
   flex: 0 1 auto;
   margin: 0;
 }
-/* Same chip language as .wb-fbs-sd-chip — summary, not a success alert. */
-.wb-fbs-sd-cargo-label {
+/* Cargo summary uses the same chip class as meta buttons; keep alias for GM headers. */
+.wb-fbs-sd-cargo-label,
+.wb-fbs-sd-cargo-chip {
   display: inline-flex;
   align-items: center;
   min-height: 28px;
@@ -10391,6 +10392,18 @@ button.wb-fbs-select-all-link:disabled {
   font-size: 13px;
   font-weight: 600;
   line-height: 1.3;
+}
+/* When cargo is rendered as .wb-fbs-sd-chip, inherit chip styles only. */
+.wb-fbs-sd-chip.wb-fbs-sd-cargo-chip {
+  /* identical to .wb-fbs-sd-chip — explicit so it cannot drift */
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
 }
 .wb-fbs-trbx-cargo {
   margin: 0 0 16px;

@@ -34,6 +34,11 @@ def test_supply_and_gm_cargo_summary_markup() -> None:
     assert "align-items: center" in style
 
     assert "function _wbFbsRenderCargoSummary(" in app_js
+    assert "function _wbFbsCargoSummaryLabel(" in app_js
+    assert "wb-fbs-sd-cargo-chip" in app_js
+    # WB supply modal: pallet chip is appended after QR inside meta (not by search).
+    assert 'wb-fbs-sd-chip wb-fbs-sd-chip-qr' in app_js
+    assert '_wbFbsRenderCargoSummary("wbFbsSupplyDetailCargo", null)' in app_js
     assert "wbFbsSupplyDetailCargo" in app_js
     assert "wbFbsCreateTrbxCargo" in app_js
     assert "function _ozonFbsRenderCargoSummary(" in ozon_js

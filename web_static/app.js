@@ -27195,18 +27195,23 @@ async function openWbFbsSupplyDetailModal(supplyId) {
 window.openWbFbsSupplyDetailModal = openWbFbsSupplyDetailModal;
 
 
+function _wbFbsCargoSummaryLabel(summary) {
+  return String(summary?.summary_label || summary?.pallets_label || "").trim();
+}
+
 function _wbFbsRenderCargoSummary(elId, summary) {
   const el = document.getElementById(elId);
   if (!el) return;
-  const label = String(summary?.summary_label || summary?.pallets_label || "").trim();
+  const label = _wbFbsCargoSummaryLabel(summary);
   if (!label) {
     el.hidden = true;
     el.innerHTML = "";
     return;
   }
   el.hidden = false;
+  // Same visual language as .wb-fbs-sd-chip (meta row buttons).
   el.innerHTML =
-    `<span class="wb-fbs-sd-cargo-label" title="Расчёт по товарам этой поставки (как после синхронизации)">${_wbFbsEsc(label)}</span>`;
+    `<span class="wb-fbs-sd-chip wb-fbs-sd-cargo-chip" title="Расчёт по товарам этой поставки (как после синхронизации)">${_wbFbsEsc(label)}</span>`;
 }
 
 function renderWbFbsSupplyDetail(data) {
@@ -27220,6 +27225,7 @@ function renderWbFbsSupplyDetail(data) {
   const sid = String(supply.supply_id || "").trim();
   if (title) title.textContent = supply.name || (`Поставка ${sid}`);
   if (wh) wh.textContent = String(supply.warehouse_label || "—").trim() || "—";
+  const cargoLabel = _wbFbsCargoSummaryLabel(supply.cargo_summary);
   if (meta) {
     const chips = [];
     if (supply.cargo_label) chips.push(`<span class="wb-fbs-sd-chip">${_wbFbsEsc(supply.cargo_label)}</span>`);
@@ -27243,9 +27249,16 @@ function renderWbFbsSupplyDetail(data) {
         `</span>`
       );
     }
+    // Pallet summary right after QR — same chip style as the other meta buttons.
+    if (cargoLabel) {
+      chips.push(
+        `<span class="wb-fbs-sd-chip wb-fbs-sd-cargo-chip" title="Расчёт по товарам этой поставки (как после синхронизации)">${_wbFbsEsc(cargoLabel)}</span>`
+      );
+    }
     meta.innerHTML = chips.join("");
   }
-  _wbFbsRenderCargoSummary("wbFbsSupplyDetailCargo", supply.cargo_summary);
+  // Supply modal renders cargo inside meta; keep the old slot empty/hidden.
+  _wbFbsRenderCargoSummary("wbFbsSupplyDetailCargo", null);
   const allOrders = Array.isArray(supply.orders) ? supply.orders : [];
   const searchQ = document.getElementById("wbFbsSupplyDetailSearchFilter")?.value || "";
   const orders = String(searchQ || "").trim()
