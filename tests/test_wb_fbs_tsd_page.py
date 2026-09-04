@@ -251,3 +251,25 @@ def test_web_py_tsd_kiz_save_supports_local_and_wb() -> None:
     assert "invalidate_supply_detail_cache" in body
     assert "nav-wb-fbs-tsd" in src
     assert "build_tsd_hub_progress" in src
+
+
+def test_tsd_phone_camera_scan_button() -> None:
+    """Phone camera control sits left of scan input; feeds onScanEnter."""
+    js = (STATIC / "wb_fbs_tsd.js").read_text(encoding="utf-8")
+    css = (STATIC / "wb_fbs_tsd.css").read_text(encoding="utf-8")
+    html = (TEMPLATES / "wb_fbs_tsd.html").read_text(encoding="utf-8")
+    assert "tsdScanCamBtn" in js
+    assert "tsd-scan-cam-btn" in js
+    assert "function openPhoneCamScan" in js
+    assert "function closePhoneCamScan" in js
+    assert "BarcodeDetector" in js
+    assert "BrowserMultiFormatReader" in js
+    assert "onScanEnter(input)" in js
+    assert "getUserMedia" in js
+    assert ".tsd-cam-overlay" in css
+    assert "wb_fbs_tsd.js?v=67" in html
+    assert "wb_fbs_tsd.css?v=40" in html
+    # Camera button rendered before scan field in the same row.
+    row_fn = js[js.find("function scanFieldRowHtml") : js.find("function scanFieldRowHtml") + 900]
+    assert "tsdScanCamBtn" in row_fn
+    assert row_fn.find("tsdScanCamBtn") < row_fn.find("tsdScanInput")

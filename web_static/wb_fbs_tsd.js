@@ -435,11 +435,21 @@
     </div>`;
   }
 
+  function cameraIconSvg() {
+    return `<svg class="tsd-gm-icon-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path fill="currentColor" d="M9 3 7.17 5H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-3.17L15 3H9zm3 15a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-2.2A2.8 2.8 0 1 0 12 8.2a2.8 2.8 0 0 0 0 5.6z"/>
+    </svg>`;
+  }
+
   function scanFieldRowHtml() {
     const gmIcons = renderGmSideIconsHtml();
     const withGm = !!gmIcons;
+    // Same 56×56 control as GM icons on the right.
+    const camBtn = `<button type="button" class="tsd-gm-icon-btn tsd-scan-cam-btn" id="tsdScanCamBtn"
+      title="Сканировать камерой телефона" aria-label="Сканировать камерой телефона">${cameraIconSvg()}</button>`;
     return `
       <div class="tsd-scan-row${withGm ? " has-gm-actions" : ""}">
+        ${camBtn}
         <div class="tsd-scan-field">
           <input class="tsd-scan-input" id="tsdScanInput" type="text" autocomplete="off" inputmode="none" />
           <button type="button" class="tsd-scan-clear" id="tsdScanClear" hidden
@@ -3937,10 +3947,327 @@
     });
   }
 
+
+  /* —— Phone camera barcode scan (feeds the same onScanEnter path) —— */
+  const camScan = {
+    open: false,
+    stream: null,
+    raf: 0,
+    detector: null,
+    lastRaw: "",
+    lastAt: 0,
+    zxing: null,
+    zxingBusy: false,
+    video: null,
+    statusEl: null,
+  };
+
+  function camSetStatus(text, kind) {
+    const el = camScan.statusEl || document.getElementById("tsdCamStatus");
+    if (!el) return;
+    el.textContent = String(text || "");
+    el.classList.remove("is-ok", "is-err", "is-warn");
+    if (kind) el.classList.add(`is-${kind}`);
+  }
+
+  function ensureCamOverlay() {
+    let root = document.getElementById("tsdCamOverlay");
+    if (root) {
+      camScan.video = root.querySelector("#tsdCamVideo");
+      camScan.statusEl = root.querySelector("#tsdCamStatus");
+      return root;
+    }
+    root = document.createElement("div");
+    root.id = "tsdCamOverlay";
+    root.className = "tsd-cam-overlay";
+    root.hidden = true;
+    root.setAttribute("role", "dialog");
+    root.setAttribute("aria-modal", "true");
+    root.setAttribute("aria-label", "Сканирование камерой");
+    root.innerHTML = `
+      <div class="tsd-cam-frame">
+        <video id="tsdCamVideo" class="tsd-cam-video" playsinline muted autoplay></video>
+        <div class="tsd-cam-reticle" aria-hidden="true"></div>
+        <div class="tsd-cam-top">
+          <button type="button" class="tsd-cam-close" id="tsdCamClose"
+            aria-label="Закрыть камеру" title="Закрыть">×</button>
+        </div>
+        <div class="tsd-cam-status" id="tsdCamStatus">Наведите на код</div>
+      </div>`;
+    document.body.appendChild(root);
+    root.querySelector("#tsdCamClose").addEventListener("click", () => closePhoneCamScan());
+    root.addEventListener("click", (ev) => {
+      if (ev.target === root) closePhoneCamScan();
+    });
+    if (!window.__tsdCamEscWired) {
+      window.__tsdCamEscWired = true;
+      document.addEventListener("keydown", (ev) => {
+        if (ev.key === "Escape" && camScan.open) {
+          ev.preventDefault();
+          closePhoneCamScan();
+        }
+      });
+    }
+    camScan.video = root.querySelector("#tsdCamVideo");
+    camScan.statusEl = root.querySelector("#tsdCamStatus");
+    return root;
+  }
+
+  function stopCamTracks() {
+    if (camScan.raf) {
+      cancelAnimationFrame(camScan.raf);
+      camScan.raf = 0;
+    }
+    const stream = camScan.stream;
+    camScan.stream = null;
+    if (stream) {
+      try {
+        stream.getTracks().forEach((t) => t.stop());
+      } catch (_e) {
+        /* ignore */
+      }
+    }
+    if (camScan.video) {
+      try {
+        camScan.video.srcObject = null;
+      } catch (_e) {
+        /* ignore */
+      }
+    }
+  }
+
+  function closePhoneCamScan() {
+    camScan.open = false;
+    stopCamTracks();
+    camScan.detector = null;
+    const root = document.getElementById("tsdCamOverlay");
+    if (root) root.hidden = true;
+    document.body.classList.remove("tsd-cam-open");
+    const input = document.getElementById("tsdScanInput");
+    if (input && state.route.view === "scan" && !state.searchOpen) {
+      setTimeout(() => {
+        try {
+          input.focus();
+        } catch (_e) {
+          /* ignore */
+        }
+      }, 40);
+    }
+  }
+
+  function applyCamScanResult(raw) {
+    const code = String(raw || "").trim();
+    if (!code) return;
+    const now = Date.now();
+    if (code === camScan.lastRaw && now - camScan.lastAt < 1200) return;
+    camScan.lastRaw = code;
+    camScan.lastAt = now;
+    const input = document.getElementById("tsdScanInput");
+    if (!input) {
+      closePhoneCamScan();
+      return;
+    }
+    input.value = code;
+    const clearBtn = document.getElementById("tsdScanClear");
+    if (clearBtn) clearBtn.hidden = false;
+    camSetStatus("Считано", "ok");
+    try {
+      if (navigator.vibrate) navigator.vibrate(40);
+    } catch (_e) {
+      /* ignore */
+    }
+    beep(true);
+    closePhoneCamScan();
+    // Same path as hardware wedge / Enter.
+    onScanEnter(input);
+  }
+
+  async function ensureZxing() {
+    if (camScan.zxing) return camScan.zxing;
+    if (window.ZXing && window.ZXing.BrowserMultiFormatReader) {
+      camScan.zxing = window.ZXing;
+      return camScan.zxing;
+    }
+    await new Promise((resolve, reject) => {
+      const existing = document.querySelector("script[data-tsd-zxing]");
+      if (existing) {
+        existing.addEventListener("load", () => resolve());
+        existing.addEventListener("error", () => reject(new Error("zxing load")));
+        return;
+      }
+      const s = document.createElement("script");
+      s.src = "https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js";
+      s.async = true;
+      s.dataset.tsdZxing = "1";
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error("Не удалось загрузить модуль сканера"));
+      document.head.appendChild(s);
+    });
+    if (!window.ZXing || !window.ZXing.BrowserMultiFormatReader) {
+      throw new Error("Модуль сканера недоступен");
+    }
+    camScan.zxing = window.ZXing;
+    return camScan.zxing;
+  }
+
+  async function createBarcodeDetector() {
+    if (typeof window.BarcodeDetector !== "function") return null;
+    try {
+      const wanted = [
+        "qr_code",
+        "ean_13",
+        "ean_8",
+        "code_128",
+        "code_39",
+        "data_matrix",
+        "upc_a",
+        "upc_e",
+      ];
+      let formats = wanted;
+      if (typeof window.BarcodeDetector.getSupportedFormats === "function") {
+        const supported = await window.BarcodeDetector.getSupportedFormats();
+        const set = new Set(supported || []);
+        formats = wanted.filter((f) => set.has(f));
+        if (!formats.length) formats = wanted;
+      }
+      return new window.BarcodeDetector({ formats });
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  function camDetectLoop() {
+    if (!camScan.open || !camScan.detector || !camScan.video) return;
+    const video = camScan.video;
+    if (video.readyState < 2) {
+      camScan.raf = requestAnimationFrame(camDetectLoop);
+      return;
+    }
+    camScan.detector
+      .detect(video)
+      .then((codes) => {
+        if (!camScan.open) return;
+        const hit = (codes || []).find((c) => String(c.rawValue || "").trim());
+        if (hit) {
+          applyCamScanResult(hit.rawValue);
+          return;
+        }
+        camScan.raf = requestAnimationFrame(camDetectLoop);
+      })
+      .catch(() => {
+        if (!camScan.open) return;
+        camScan.raf = requestAnimationFrame(camDetectLoop);
+      });
+  }
+
+  async function startZxingDecode(video) {
+    const ZXing = await ensureZxing();
+    const reader = new ZXing.BrowserMultiFormatReader();
+    camScan.zxingBusy = true;
+    try {
+      const result = await reader.decodeOnceFromVideoElement(video);
+      if (!camScan.open) return;
+      const text = result && (result.text || result.getText && result.getText());
+      if (text) applyCamScanResult(text);
+    } catch (e) {
+      if (!camScan.open) return;
+      // NotFoundException is normal while searching — keep looping lightly.
+      const name = String((e && e.name) || "");
+      if (name === "NotFoundException" || /not.?found/i.test(String(e && e.message || ""))) {
+        setTimeout(() => {
+          if (camScan.open) startZxingDecode(video);
+        }, 120);
+        return;
+      }
+      camSetStatus(e.message || "Ошибка сканера", "err");
+    } finally {
+      camScan.zxingBusy = false;
+      try {
+        reader.reset();
+      } catch (_e) {
+        /* ignore */
+      }
+    }
+  }
+
+  async function openPhoneCamScan() {
+    if (camScan.open) return;
+    if (state.route.view !== "scan") return;
+    if (!window.isSecureContext) {
+      setBanner("Камера доступна только по HTTPS", "err");
+      return;
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setBanner("Этот браузер не умеет открывать камеру", "err");
+      return;
+    }
+    ensureCamOverlay();
+    const root = document.getElementById("tsdCamOverlay");
+    const video = camScan.video;
+    if (!root || !video) return;
+    camScan.open = true;
+    camScan.lastRaw = "";
+    camScan.lastAt = 0;
+    root.hidden = false;
+    document.body.classList.add("tsd-cam-open");
+    camSetStatus("Открываем камеру…");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+      });
+      if (!camScan.open) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      camScan.stream = stream;
+      video.srcObject = stream;
+      try {
+        await video.play();
+      } catch (_e) {
+        /* autoplay policies — playsinline+muted usually ok */
+      }
+      camSetStatus("Наведите на код");
+      const detector = await createBarcodeDetector();
+      if (detector) {
+        camScan.detector = detector;
+        camDetectLoop();
+      } else {
+        camSetStatus("Наведите на код");
+        startZxingDecode(video);
+      }
+    } catch (e) {
+      closePhoneCamScan();
+      const name = String((e && e.name) || "");
+      if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+        setBanner("Нет доступа к камере — разрешите в настройках браузера", "err");
+      } else if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+        setBanner("Камера не найдена на этом устройстве", "err");
+      } else {
+        setBanner(e.message || "Не удалось открыть камеру", "err");
+      }
+    }
+  }
+
+  function wireCamScanButton() {
+    const btn = document.getElementById("tsdScanCamBtn");
+    if (!btn || btn.dataset.camWired === "1") return;
+    btn.dataset.camWired = "1";
+    btn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      openPhoneCamScan();
+    });
+  }
+
   function wireScanInput(mode, opts) {
     const keepSearchFocus = !!(opts && opts.keepSearchFocus);
     const input = document.getElementById("tsdScanInput");
     const clearBtn = document.getElementById("tsdScanClear");
+    wireCamScanButton();
     const syncScanClearBtn = () => {
       if (!clearBtn || !input) return;
       clearBtn.hidden = !String(input.value || "").length;
