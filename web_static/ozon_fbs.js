@@ -8780,7 +8780,8 @@
     row.kiz_codes = [""];
     row.kiz_status = "empty";
     delete ozonFbsKizState.errors[pn];
-    renderOzonFbsKizTable();
+    // Must skip DOM collect: inputs still hold the old mark until re-render.
+    renderOzonFbsKizTable({ skipCollect: true });
     _ozonFbsKizScheduleLocalAutosave(pn, true);
   }
 

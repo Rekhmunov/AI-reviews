@@ -667,7 +667,10 @@
 
   function isSessionExpiredError(err) {
     if (!err) return false;
-    if (Number(err.status) === 401) return true;
+    const status = Number(err.status) || 0;
+    // Prefer HTTP status: bind endpoint maps Ozon failures to 400, session to 401.
+    if (status === 401) return true;
+    if (status > 0) return false;
     const msg = String(err.message || err || "").toLowerCase();
     return msg.includes("требуется авторизация") || msg.includes("требует авторизац");
   }
