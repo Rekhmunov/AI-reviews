@@ -288,6 +288,16 @@
     return rows;
   }
 
+  /** Ozon order_number is often posting_number without the trailing "-N". */
+  function _ozonFbsOrderNumberIsRedundant(orderNumber, postingNumber) {
+    const order = String(orderNumber || "").trim();
+    const posting = String(postingNumber || "").trim();
+    if (!order) return true;
+    if (!posting) return false;
+    if (order === posting) return true;
+    return posting.startsWith(`${order}-`) || posting.startsWith(order);
+  }
+
   function _ozonFbsRenderLookupDetail(details, { viaText = "" } = {}) {
     const box = document.getElementById("ozonFbsLookupDetail");
     if (!box) return;
@@ -297,6 +307,13 @@
       return;
     }
     const pn = String(details.posting_number || "");
+    const offer = String(details.offer_id || "").trim();
+    const orderNumber = String(details.order_number || "").trim();
+    const productName = String(details.product_name || offer || "—").trim() || "—";
+    const showOrder = !_ozonFbsOrderNumberIsRedundant(orderNumber, pn);
+    const subParts = [];
+    if (offer) subParts.push(`Арт. ${offer}`);
+    if (showOrder) subParts.push(`заказ ${orderNumber}`);
     const rows = _ozonFbsLookupDetailRows(details)
       .map(
         ([k, v]) =>
@@ -304,13 +321,12 @@
       )
       .join("");
     box.hidden = false;
+    // No repeated posting number here — the table row already shows the full id.
     box.innerHTML = `
-      <div class="wb-fbs-product">
-        <div class="wb-fbs-product-text">
-          <div class="wb-fbs-kiz-order-id">${formatOzonPostingNumberHtml(pn)}</div>
-          <div class="wb-fbs-product-name">${esc(details.product_name || details.offer_id || "—")}</div>
-          <div class="wb-fbs-product-sub">Арт. ${esc(details.offer_id || "—")} · заказ ${esc(details.order_number || "—")}</div>
-        </div>
+      <div class="ozon-fbs-lookup-detail-head">
+        <div class="ozon-fbs-lookup-detail-title">Детали отправления</div>
+        <div class="wb-fbs-product-name">${esc(productName)}</div>
+        ${subParts.length ? `<div class="wb-fbs-product-sub">${esc(subParts.join(" · "))}</div>` : ""}
       </div>
       <div class="ozon-fbs-lookup-detail-grid">${rows}</div>
       ${viaText ? `<div class="ozon-fbs-lookup-detail-meta">${esc(viaText)}</div>` : ""}
@@ -377,11 +393,9 @@
       : (data.message && String(data.message).startsWith("Статус из базы")
         ? "статус из базы (API недоступен)"
         : "найдено в базе");
+    // Footer already has pagination; tab/status live in the row + detail card.
     const info = document.getElementById("ozonFbsInfo");
-    if (info) {
-      const statusBit = statusLabel ? ` · ${statusLabel}` : "";
-      info.textContent = `Отправление ${postingNumber}: ${tabLabel}${statusBit} · ${via}`;
-    }
+    if (info) info.textContent = "Всего: 1";
     if (details) {
       _ozonFbsRenderLookupDetail(details, { viaText: via });
     } else {
@@ -1056,9 +1070,8 @@
       const ago = agoLabel(created);
       const badges = [];
       if (ago) badges.push(`<span class="wb-fbs-badge time">${esc(ago)}</span>`);
-      if (row.order_number) {
-        badges.push(`<span class="wb-fbs-badge" title="Заказ">${esc(row.order_number)}</span>`);
-      }
+      // Do not show order_number next to the time badge: for Ozon it is usually
+      // the posting number without the last segment and duplicates the id above.
       const photo = row.product_photo
         ? `<img class="wb-fbs-product-photo" src="${esc(row.product_photo)}" alt="" width="144" height="144" loading="lazy">`
         : `<span class="wb-fbs-product-ph" aria-hidden="true"></span>`;
