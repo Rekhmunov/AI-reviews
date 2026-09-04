@@ -140,3 +140,46 @@ def test_tsd_gs_preserve_unchanged_in_wire_scan_input() -> None:
     assert "insertGsIntoInput" in body
     assert "\\u001D" in js
     assert "\\u2194" in js
+
+
+def test_tsd_autosave_conflict_no_retry_refreshes_ui() -> None:
+    """After conflict adopt, autosave must not retry and must refresh the card."""
+    js = TSD_JS.read_text(encoding="utf-8")
+    assert "err.conflict = true" in js
+
+    kiz_start = js.find("async function flushKizLocalAutosave")
+    kiz_end = js.find("async function flushPickLocalAutosave", kiz_start)
+    assert kiz_start > 0 and kiz_end > kiz_start
+    kiz_body = js[kiz_start:kiz_end]
+    assert "e && e.conflict" in kiz_body
+    assert 'patchScanCard("kiz")' in kiz_body
+    # retry only for non-conflict errors
+    assert "if (attempt < 1)" in kiz_body
+    assert kiz_body.find("e && e.conflict") < kiz_body.find("if (attempt < 1)")
+
+    pick_start = kiz_end
+    pick_end = js.find("async function saveKizPushAll", pick_start)
+    assert pick_end > pick_start
+    pick_body = js[pick_start:pick_end]
+    assert "e && e.conflict" in pick_body
+    assert 'patchScanCard("pick")' in pick_body
+    assert pick_body.find("e && e.conflict") < pick_body.find("if (attempt < 1)")
+
+
+def test_tsd_local_save_does_not_force_via_retry_flag() -> None:
+    js = TSD_JS.read_text(encoding="utf-8")
+    kiz_start = js.find("async function saveKizLocal")
+    kiz_end = js.find("async function savePickLocal", kiz_start)
+    kiz_body = js[kiz_start:kiz_end]
+    assert "opts._retry" not in kiz_body
+    assert "|| retrying" not in kiz_body
+
+    pick_start = kiz_end
+    pick_end = js.find("function captureScanBaselines", pick_start)
+    if pick_end < 0:
+        pick_end = js.find("function captureScanBaselines", pick_start)
+    if pick_end < 0:
+        pick_end = js.find("async function flushKizLocalAutosave", pick_start)
+    pick_body = js[pick_start:pick_end]
+    assert "opts._retry" not in pick_body
+    assert "|| retrying" not in pick_body

@@ -125,7 +125,9 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert 'title: "Товары без маркировки"' in js
     assert "Готовим сканирование…" not in js
     assert "Готово к сканированию" not in js
-    assert "opts._retry" in js or "_retry: true" in js
+    # Concurrent PC save: adopt server on conflict — do not force-retry overwrite.
+    assert "err.conflict = true" in js
+    assert "opts._retry" not in js and "_retry: true" not in js
     assert "pendingKizClear" in js
     assert "hasPendingKizPush" in js
     assert "rowNeedsKizWbClear" in js

@@ -1463,14 +1463,13 @@
     const scanId = rowScanId(row);
     const codes = normalizeKizCodesList(row.kiz_codes);
     row.kiz_codes = codes.length ? codes.slice() : [""];
-    const retrying = !!(opts && opts._retry);
     const item = isOzon()
       ? {
           posting_number: scanId,
           kiz_codes: codes,
           clear: !codes.length,
           expected_saved_at: String(row.kiz_saved_at || ""),
-          force: !!state.forceSaveByOrder[scanId] || retrying,
+          force: !!state.forceSaveByOrder[scanId],
         }
       : {
           order_id: Number(row.order_id),
@@ -1478,7 +1477,7 @@
           clear: !codes.length,
           local_only: true,
           expected_saved_at: String(row.kiz_saved_at || ""),
-          force: !!state.forceSaveByOrder[scanId] || retrying,
+          force: !!state.forceSaveByOrder[scanId],
         };
     const data = await api(
       `/api/wb-fbs/tsd/supplies/${encodeURIComponent(state.route.supplyId)}/kiz?${params}`,
@@ -1506,10 +1505,12 @@
         state.baselineKizByOrder[scanId] = serverCodes.slice();
       }
       delete state.forceSaveByOrder[scanId];
-      throw new Error(
+      const err = new Error(
         result.error ||
           "Заказ уже сохранён другим оператором — проверьте КИЗ и повторите"
       );
+      err.conflict = true;
+      throw err;
     }
     if (!result.ok && !result.local_ok) {
       throw new Error(result.error || "Не удалось сохранить КИЗ локально");
@@ -1522,7 +1523,6 @@
   async function savePickLocal(row, opts) {
     const params = new URLSearchParams({ source_id: String(state.sourceId) });
     const scanId = rowScanId(row);
-    const retrying = !!(opts && opts._retry);
     const intendedVerified = !!row.pick_verified;
     const intendedBarcode = String(row.pick_barcode || "").trim();
     // Mirror KIZ: empty/unverified must send clear:true, otherwise the server
@@ -1537,7 +1537,7 @@
           pick_barcode: intendedBarcode,
           clear: clearPick,
           expected_verified_at: String(row.pick_verified_at || ""),
-          force: !!state.forceSaveByOrder[pickKey] || retrying,
+          force: !!state.forceSaveByOrder[pickKey],
         }
       : {
           order_id: Number(row.order_id),
@@ -1546,7 +1546,7 @@
           clear: clearPick,
           local_only: true,
           expected_verified_at: String(row.pick_verified_at || ""),
-          force: !!state.forceSaveByOrder[pickKey] || retrying,
+          force: !!state.forceSaveByOrder[pickKey],
         };
     const data = await api(
       `/api/wb-fbs/tsd/supplies/${encodeURIComponent(state.route.supplyId)}/pick-verify?${params}`,
@@ -1580,10 +1580,12 @@
         };
       }
       delete state.forceSaveByOrder[pickKey];
-      throw new Error(
+      const err = new Error(
         result.error ||
           "Заказ уже сохранён другим оператором — проверьте ШК и повторите"
       );
+      err.conflict = true;
+      throw err;
     }
     if (!result.ok) {
       throw new Error(result.error || "Не удалось сохранить проверку ШК");
@@ -1698,6 +1700,14 @@
       state.baselineKizByOrder[id] = codes.slice();
     } catch (e) {
       if ((Number(state.localAutosaveSeqByOrder[id]) || 0) !== seq) return;
+      // Conflict already adopted server codes — never force-retry (would wipe PC).
+      // Still refresh UI: otherwise DOM keeps stale local counts after adopt.
+      if (e && e.conflict) {
+        setBanner(e.message || String(e), "err");
+        if (!patchScanCard("kiz")) renderScan();
+        else refreshScanChrome("kiz");
+        return;
+      }
       if (attempt < 1) {
         await new Promise((r) => setTimeout(r, 120));
         if ((Number(state.localAutosaveSeqByOrder[id]) || 0) !== seq) return;
@@ -1733,6 +1743,13 @@
       };
     } catch (e) {
       if ((Number(state.localAutosaveSeqByOrder[key]) || 0) !== seq) return;
+      // Conflict already adopted server pick — do not retry with local ШК.
+      if (e && e.conflict) {
+        setBanner(e.message || String(e), "err");
+        if (!patchScanCard("pick")) renderScan();
+        else refreshScanChrome("pick");
+        return;
+      }
       if (attempt < 1) {
         await new Promise((r) => setTimeout(r, 120));
         if ((Number(state.localAutosaveSeqByOrder[key]) || 0) !== seq) return;
