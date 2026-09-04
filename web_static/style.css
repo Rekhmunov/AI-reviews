@@ -10514,6 +10514,15 @@ button.wb-fbs-select-all-link:disabled {
   align-items: center;
   justify-content: center;
 }
+/* Author display:inline-flex above beats UA [hidden]; keep JS .hidden working. */
+.wb-fbs-sd-actions .secondary[hidden],
+.wb-fbs-sd-actions > button[hidden],
+.wb-fbs-sd-actions .wb-fbs-picking-split[hidden],
+.wb-fbs-sd-actions .wb-fbs-kiz-split[hidden],
+.wb-fbs-sd-actions .wb-fbs-picking-split > button.secondary[hidden],
+.wb-fbs-sd-actions .wb-fbs-kiz-split > button.secondary[hidden] {
+  display: none !important;
+}
 .wb-fbs-picking-caret,
 .wb-fbs-kiz-refresh {
   min-width: 36px;
