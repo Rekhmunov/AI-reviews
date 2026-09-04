@@ -3956,7 +3956,10 @@
     detector: null,
     lastRaw: "",
     lastAt: 0,
+    lastDetectAt: 0,
     zxing: null,
+    zxingReader: null,
+    zxingLoad: null,
     zxingBusy: false,
     video: null,
     statusEl: null,
@@ -4013,11 +4016,29 @@
     return root;
   }
 
+  function stopZxingReader() {
+    const reader = camScan.zxingReader;
+    camScan.zxingReader = null;
+    if (!reader) return;
+    try {
+      if (typeof reader.stopAsyncDecode === "function") reader.stopAsyncDecode();
+    } catch (_e) {
+      /* ignore */
+    }
+    try {
+      if (typeof reader.stopContinuousDecode === "function") reader.stopContinuousDecode();
+    } catch (_e) {
+      /* ignore */
+    }
+    // Do not call reader.reset() — it cleans video srcObject / stops tracks we own.
+  }
+
   function stopCamTracks() {
     if (camScan.raf) {
       cancelAnimationFrame(camScan.raf);
       camScan.raf = 0;
     }
+    stopZxingReader();
     const stream = camScan.stream;
     camScan.stream = null;
     if (stream) {
@@ -4076,9 +4097,8 @@
     } catch (_e) {
       /* ignore */
     }
-    beep(true);
     closePhoneCamScan();
-    // Same path as hardware wedge / Enter.
+    // Same path as hardware wedge / Enter (beep lives in onScanEnter).
     onScanEnter(input);
   }
 
@@ -4088,26 +4108,54 @@
       camScan.zxing = window.ZXing;
       return camScan.zxing;
     }
-    await new Promise((resolve, reject) => {
+    if (camScan.zxingLoad) return camScan.zxingLoad;
+    camScan.zxingLoad = new Promise((resolve, reject) => {
+      const finishOk = () => {
+        if (!window.ZXing || !window.ZXing.BrowserMultiFormatReader) {
+          reject(new Error("Модуль сканера недоступен"));
+          return;
+        }
+        camScan.zxing = window.ZXing;
+        resolve(camScan.zxing);
+      };
       const existing = document.querySelector("script[data-tsd-zxing]");
       if (existing) {
-        existing.addEventListener("load", () => resolve());
-        existing.addEventListener("error", () => reject(new Error("zxing load")));
-        return;
+        if (window.ZXing && window.ZXing.BrowserMultiFormatReader) {
+          finishOk();
+          return;
+        }
+        if (existing.dataset.tsdZxingState === "error") {
+          existing.remove();
+        } else {
+          existing.addEventListener("load", finishOk, { once: true });
+          existing.addEventListener(
+            "error",
+            () => {
+              existing.dataset.tsdZxingState = "error";
+              reject(new Error("Не удалось загрузить модуль сканера"));
+            },
+            { once: true }
+          );
+          return;
+        }
       }
       const s = document.createElement("script");
       s.src = "https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js";
       s.async = true;
       s.dataset.tsdZxing = "1";
-      s.onload = () => resolve();
-      s.onerror = () => reject(new Error("Не удалось загрузить модуль сканера"));
+      s.onload = () => {
+        s.dataset.tsdZxingState = "ok";
+        finishOk();
+      };
+      s.onerror = () => {
+        s.dataset.tsdZxingState = "error";
+        reject(new Error("Не удалось загрузить модуль сканера"));
+      };
       document.head.appendChild(s);
+    }).finally(() => {
+      camScan.zxingLoad = null;
     });
-    if (!window.ZXing || !window.ZXing.BrowserMultiFormatReader) {
-      throw new Error("Модуль сканера недоступен");
-    }
-    camScan.zxing = window.ZXing;
-    return camScan.zxing;
+    return camScan.zxingLoad;
   }
 
   async function createBarcodeDetector() {
@@ -4139,10 +4187,13 @@
   function camDetectLoop() {
     if (!camScan.open || !camScan.detector || !camScan.video) return;
     const video = camScan.video;
-    if (video.readyState < 2) {
+    const now = Date.now();
+    // ~8–10 detect/sec — lighter on mid-range phones than every rAF.
+    if (video.readyState < 2 || now - camScan.lastDetectAt < 110) {
       camScan.raf = requestAnimationFrame(camDetectLoop);
       return;
     }
+    camScan.lastDetectAt = now;
     camScan.detector
       .detect(video)
       .then((codes) => {
@@ -4161,32 +4212,31 @@
   }
 
   async function startZxingDecode(video) {
-    const ZXing = await ensureZxing();
-    const reader = new ZXing.BrowserMultiFormatReader();
+    // Use BrowserMultiFormatReader.decodeOnce(video) — the public 0.21.x API.
+    let reader = null;
     camScan.zxingBusy = true;
     try {
-      const result = await reader.decodeOnceFromVideoElement(video);
+      const ZXing = await ensureZxing();
       if (!camScan.open) return;
-      const text = result && (result.text || result.getText && result.getText());
+      reader = new ZXing.BrowserMultiFormatReader();
+      if (typeof reader.timeBetweenDecodingAttempts === "number") {
+        reader.timeBetweenDecodingAttempts = 120;
+      }
+      camScan.zxingReader = reader;
+      const result = await reader.decodeOnce(video, true, true);
+      if (!camScan.open) return;
+      const text =
+        result && (result.text || (typeof result.getText === "function" && result.getText()));
       if (text) applyCamScanResult(text);
     } catch (e) {
       if (!camScan.open) return;
-      // NotFoundException is normal while searching — keep looping lightly.
-      const name = String((e && e.name) || "");
-      if (name === "NotFoundException" || /not.?found/i.test(String(e && e.message || ""))) {
-        setTimeout(() => {
-          if (camScan.open) startZxingDecode(video);
-        }, 120);
-        return;
-      }
-      camSetStatus(e.message || "Ошибка сканера", "err");
+      const msg = String((e && e.message) || "");
+      // Closed overlay / stopped loop — not a user-facing error.
+      if (/ended before any code|stream has ended/i.test(msg)) return;
+      camSetStatus((e && e.message) || "Ошибка сканера", "err");
     } finally {
       camScan.zxingBusy = false;
-      try {
-        reader.reset();
-      } catch (_e) {
-        /* ignore */
-      }
+      if (camScan.zxingReader === reader) camScan.zxingReader = null;
     }
   }
 
@@ -4208,6 +4258,7 @@
     camScan.open = true;
     camScan.lastRaw = "";
     camScan.lastAt = 0;
+    camScan.lastDetectAt = 0;
     root.hidden = false;
     document.body.classList.add("tsd-cam-open");
     camSetStatus("Открываем камеру…");
@@ -4233,12 +4284,15 @@
       }
       camSetStatus("Наведите на код");
       const detector = await createBarcodeDetector();
+      if (!camScan.open) return;
       if (detector) {
         camScan.detector = detector;
         camDetectLoop();
       } else {
-        camSetStatus("Наведите на код");
-        startZxingDecode(video);
+        startZxingDecode(video).catch((err) => {
+          if (!camScan.open) return;
+          camSetStatus((err && err.message) || "Ошибка сканера", "err");
+        });
       }
     } catch (e) {
       closePhoneCamScan();

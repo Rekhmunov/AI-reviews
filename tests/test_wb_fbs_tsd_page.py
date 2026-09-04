@@ -264,12 +264,19 @@ def test_tsd_phone_camera_scan_button() -> None:
     assert "function closePhoneCamScan" in js
     assert "BarcodeDetector" in js
     assert "BrowserMultiFormatReader" in js
+    # Real ZXing 0.21 API on an already-playing video element.
+    assert "reader.decodeOnce(video" in js
+    assert "stopAsyncDecode" in js
     assert "onScanEnter(input)" in js
     assert "getUserMedia" in js
+    assert "isSecureContext" in js
     assert ".tsd-cam-overlay" in css
-    assert "wb_fbs_tsd.js?v=67" in html
+    assert "flex: 0 0 56px" in css
+    assert "wb_fbs_tsd.js?v=68" in html
     assert "wb_fbs_tsd.css?v=40" in html
     # Camera button rendered before scan field in the same row.
     row_fn = js[js.find("function scanFieldRowHtml") : js.find("function scanFieldRowHtml") + 900]
     assert "tsdScanCamBtn" in row_fn
     assert row_fn.find("tsdScanCamBtn") < row_fn.find("tsdScanInput")
+    # Same control class/size as GM side icons.
+    assert "tsd-gm-icon-btn" in row_fn
