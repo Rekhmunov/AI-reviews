@@ -32,6 +32,12 @@ def test_supply_and_gm_cargo_summary_markup() -> None:
     assert "Do not grow" in style or "next to ID/QR" in style
     assert ".wb-fbs-trbx-cargo.wb-fbs-trbx-cargo-inline" in style
     assert "align-items: center" in style
+    # Meta chips / actions match QR control height.
+    assert ".wb-fbs-sd-chip" in style
+    chip = style[style.find(".wb-fbs-sd-chip {"): style.find(".wb-fbs-sd-chip {") + 280]
+    assert "min-height: 36px" in chip
+    assert "height: 36px" in chip
+
 
     assert "function _wbFbsRenderCargoSummary(" in app_js
     assert "function _wbFbsCargoSummaryLabel(" in app_js

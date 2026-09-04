@@ -10331,18 +10331,25 @@ button.wb-fbs-select-all-link:disabled {
 .wb-fbs-sd-meta-row .wb-fbs-kiz-search {
   flex: 0 0 auto;
   margin-left: auto;
+  min-height: 36px;
+  height: 36px;
+  box-sizing: border-box;
 }
 .wb-fbs-sd-chip {
   display: inline-flex;
   align-items: center;
-  min-height: 28px;
-  padding: 4px 10px;
+  box-sizing: border-box;
+  /* Match QR chip height (text + 28px print icon + padding). */
+  min-height: 36px;
+  height: 36px;
+  padding: 4px 12px;
   border-radius: 8px;
   border: 1px solid #e2e8f0;
   background: #f8fafc;
   font-size: 13px;
   font-weight: 600;
   color: #334155;
+  line-height: 1.2;
 }
 
 .wb-fbs-sd-cargo {
@@ -10383,27 +10390,23 @@ button.wb-fbs-select-all-link:disabled {
 .wb-fbs-sd-cargo-chip {
   display: inline-flex;
   align-items: center;
-  min-height: 28px;
-  padding: 4px 10px;
+  box-sizing: border-box;
+  min-height: 36px;
+  height: 36px;
+  padding: 4px 12px;
   border-radius: 8px;
   border: 1px solid #e2e8f0;
   background: #f8fafc;
   color: #334155;
   font-size: 13px;
   font-weight: 600;
-  line-height: 1.3;
+  line-height: 1.2;
 }
-/* When cargo is rendered as .wb-fbs-sd-chip, inherit chip styles only. */
+/* When cargo is rendered as .wb-fbs-sd-chip — inherit QR-row height. */
 .wb-fbs-sd-chip.wb-fbs-sd-cargo-chip {
-  /* identical to .wb-fbs-sd-chip — explicit so it cannot drift */
-  min-height: 28px;
-  padding: 4px 10px;
-  border-radius: 8px;
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
-  color: #334155;
-  font-size: 13px;
-  font-weight: 600;
+  min-height: 36px;
+  height: 36px;
+  padding: 4px 12px;
 }
 .wb-fbs-trbx-cargo {
   margin: 0 0 16px;
@@ -10411,20 +10414,24 @@ button.wb-fbs-select-all-link:disabled {
 .wb-fbs-trbx-cargo.wb-fbs-trbx-cargo-inline {
   margin: 0;
 }
-.wb-fbs-trbx-cargo .wb-fbs-sd-cargo-label {
-  font-size: 14px;
-  min-height: 32px;
-  padding: 6px 12px;
-}
-.wb-fbs-trbx-cargo-inline .wb-fbs-sd-cargo-label {
+.wb-fbs-trbx-cargo .wb-fbs-sd-cargo-label,
+.wb-fbs-trbx-cargo .wb-fbs-sd-chip {
   font-size: 13px;
-  min-height: 28px;
+  min-height: 36px;
+  height: 36px;
+  padding: 4px 12px;
+}
+.wb-fbs-trbx-cargo-inline .wb-fbs-sd-cargo-label,
+.wb-fbs-trbx-cargo-inline .wb-fbs-sd-chip {
+  font-size: 13px;
+  min-height: 36px;
+  height: 36px;
   padding: 4px 12px;
 }
 
 .wb-fbs-sd-chip-qr {
   gap: 6px;
-  padding-right: 4px;
+  padding: 4px 4px 4px 12px;
 }
 .wb-fbs-sd-qr-text {
   min-width: 0;
@@ -10465,10 +10472,35 @@ button.wb-fbs-select-all-link:disabled {
   flex-wrap: wrap;
   gap: 8px;
   flex: 0 0 auto;
+  align-items: stretch;
 }
-.wb-fbs-sd-actions .secondary {
-  min-height: 40px;
-  padding: 8px 14px;
+.wb-fbs-sd-actions .secondary,
+.wb-fbs-sd-actions > button,
+.wb-fbs-sd-actions .wb-fbs-picking-split > button.secondary,
+.wb-fbs-sd-actions .wb-fbs-kiz-split > button.secondary {
+  /* Same control height as QR meta chip (36px content row). */
+  min-height: 36px;
+  height: 36px;
+  padding: 4px 14px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.wb-fbs-picking-caret,
+.wb-fbs-kiz-refresh {
+  min-width: 36px;
+  width: 36px;
+  min-height: 36px;
+  height: 36px;
+  padding: 4px 8px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: 1px solid rgba(148, 163, 184, 0.55);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
 }
 /* Waiting for orders: keep pointer events so title tooltip still shows. */
 .wb-fbs-sd-actions button.is-wait-orders,
@@ -10505,18 +10537,6 @@ button.wb-fbs-select-all-link:disabled {
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
   margin-right: 0;
-}
-.wb-fbs-picking-caret,
-.wb-fbs-kiz-refresh {
-  min-width: 36px;
-  width: 36px;
-  padding: 8px 8px;
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
-  border-left: 1px solid rgba(148, 163, 184, 0.55);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
 }
 .wb-fbs-kiz-refresh svg,
 .wb-fbs-kiz-refresh-ico {
