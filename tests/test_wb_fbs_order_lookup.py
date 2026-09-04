@@ -122,6 +122,9 @@ class LookupOrderByIdTests(unittest.TestCase):
         self.assertEqual(result["tab"], TAB_FINISHED)
         self.assertEqual(result["item"]["order_id"], 13833711)
         self.assertEqual(result["item"]["finished_status_label"], "Заказ выкуплен")
+        self.assertIsInstance(result.get("details"), dict)
+        self.assertEqual(result["details"]["order_id"], 13833711)
+        self.assertEqual(result["details"]["tab_label"], "Завершённые")
 
     @patch("review_processor.wb_fbs.ensure_wb_fbs_tables")
     def test_local_cancelled_order(self, _ensure):
@@ -136,6 +139,8 @@ class LookupOrderByIdTests(unittest.TestCase):
         self.assertTrue(result["found"])
         self.assertEqual(result["tab"], TAB_CANCELLED)
         self.assertEqual(result["item"]["cancel_reason_label"], "Отказ на ПВЗ")
+        self.assertIsInstance(result.get("details"), dict)
+        self.assertEqual(result["details"]["tab"], TAB_CANCELLED)
 
     @patch("review_processor.wb_fbs.WbFbsClient")
     @patch("review_processor.wb_fbs.ensure_wb_fbs_tables")

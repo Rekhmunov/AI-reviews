@@ -26025,6 +26025,79 @@ function _wbFbsSyncTableMode() {
 function _wbFbsClearLookupMode() {
   wbFbsState.lookupMode = false;
   wbFbsState.lookupMeta = null;
+  _wbFbsRenderLookupDetail(null);
+}
+
+function _wbFbsLookupDash(value) {
+  const s = String(value || "").trim();
+  return s || "—";
+}
+
+function _wbFbsLookupDetailRows(details) {
+  if (!details || typeof details !== "object") return [];
+  const kiz = Array.isArray(details.kiz_codes)
+    ? details.kiz_codes.map((c) => String(c || "").trim()).filter(Boolean)
+    : [];
+  const pickOk = !!details.pick_verified && !!String(details.pick_barcode || "").trim();
+  const trbxLabel = String(details.trbx_label || "").trim();
+  const trbxCount = Number(details.trbx_count || 0) || 0;
+  let trbxValue = "—";
+  if (trbxLabel) trbxValue = trbxLabel;
+  else if (trbxCount > 0) trbxValue = `${trbxCount} шт.`;
+
+  const rows = [
+    ["Вкладка", _wbFbsLookupDash(details.tab_label)],
+    ["Статус WB", _wbFbsLookupDash(details.status_label || details.status)],
+    ["Поставка", _wbFbsLookupDash(details.supply_id)],
+    ["Стикер", _wbFbsLookupDash(details.sticker_label || details.sticker_barcode)],
+    ["КИЗ", kiz.length ? kiz.join(", ") : "не сохранён"],
+    ["Проверка ШК", pickOk ? String(details.pick_barcode) : "не проверен"],
+    ["Короба TRBX", trbxValue],
+  ];
+  if (details.warehouse_label) rows.push(["Склад", details.warehouse_label]);
+  if (details.cargo_label) rows.push(["Тип груза", details.cargo_label]);
+  if (details.created_at_wb) rows.push(["Создан", details.created_at_wb]);
+  if (details.price_display) rows.push(["Цена", details.price_display]);
+  const barcodes = Array.isArray(details.barcodes)
+    ? details.barcodes.map((b) => String(b || "").trim()).filter(Boolean)
+    : [];
+  if (barcodes.length) rows.push(["Штрихкод", barcodes.join(", ")]);
+  return rows;
+}
+
+function _wbFbsRenderLookupDetail(details, { viaText = "" } = {}) {
+  const box = document.getElementById("wbFbsLookupDetail");
+  if (!box) return;
+  if (!details) {
+    box.hidden = true;
+    box.innerHTML = "";
+    return;
+  }
+  const article = String(details.article || "").trim();
+  const nmId = String(details.nm_id || "").trim();
+  const orderId = details.order_id != null ? String(details.order_id) : "";
+  const productName = String(details.product_name || article || "—").trim() || "—";
+  const subParts = [];
+  if (article) subParts.push(`Арт. ${article}`);
+  if (nmId) subParts.push(`nmId ${nmId}`);
+  if (orderId) subParts.push(`заказ ${orderId}`);
+  const rows = _wbFbsLookupDetailRows(details)
+    .map(
+      ([k, v]) =>
+        `<div class="ozon-fbs-lookup-k">${_wbFbsEsc(k)}</div>`
+        + `<div class="ozon-fbs-lookup-v">${_wbFbsEsc(v)}</div>`
+    )
+    .join("");
+  box.hidden = false;
+  box.innerHTML = `
+    <div class="ozon-fbs-lookup-detail-head">
+      <div class="ozon-fbs-lookup-detail-title">Детали заказа</div>
+      <div class="wb-fbs-product-name">${_wbFbsEsc(productName)}</div>
+      ${subParts.length ? `<div class="wb-fbs-product-sub">${_wbFbsEsc(subParts.join(" · "))}</div>` : ""}
+    </div>
+    <div class="ozon-fbs-lookup-detail-grid">${rows}</div>
+    ${viaText ? `<div class="ozon-fbs-lookup-detail-meta">${_wbFbsEsc(viaText)}</div>` : ""}
+  `;
 }
 
 async function _wbFbsLookupOrderById(orderId, { signal, seq } = {}) {
@@ -26077,11 +26150,34 @@ function _wbFbsApplyLookupResult(data, orderId) {
   }
   _wbFbsSyncTableMode();
   renderWbFbsOrdersTable();
+  const details = data.details && typeof data.details === "object" ? data.details : null;
+  const tabLabel = String(
+    (details && details.tab_label) || WB_FBS_TAB_LABELS[tab] || tab || "—"
+  ).trim();
+  const via = data.source === "remote" ? "загружен из WB API" : "найден в базе";
   const info = document.getElementById("wbFbsInfo");
-  if (info) {
-    const tabLabel = WB_FBS_TAB_LABELS[tab] || tab || "—";
-    const via = data.source === "remote" ? "загружен из WB API" : "найден в базе";
-    info.textContent = `Заказ ${orderId}: ${tabLabel} · ${via}`;
+  // Footer keeps pagination only; tab/status live in the row + detail card.
+  if (info) info.textContent = "Всего: 1";
+  if (details) {
+    _wbFbsRenderLookupDetail(details, { viaText: via });
+  } else {
+    _wbFbsRenderLookupDetail({
+      order_id: orderId,
+      product_name: item.product_name || item.article || "—",
+      article: item.article || "",
+      nm_id: item.nm_id || "",
+      tab_label: tabLabel,
+      status_label: item.cancel_reason_label || item.finished_status_label || "",
+      supply_id: item.supply_id || "",
+      sticker_label: "",
+      sticker_barcode: item.sticker_barcode || "",
+      kiz_codes: [],
+      pick_verified: false,
+      pick_barcode: "",
+      trbx_label: "",
+      warehouse_label: item.warehouse_label || "",
+      cargo_label: item.cargo_label || "",
+    }, { viaText: via });
   }
   const pageInfo = document.getElementById("wbFbsPageInfo");
   if (pageInfo) pageInfo.textContent = "1 / 1";
@@ -26101,6 +26197,7 @@ async function loadWbFbsOrders(resetPage = false) {
   if (!wbFbsState.sourceId) {
     if (tbody) tbody.innerHTML = `<tr><td colspan="${_wbFbsColspan()}" class="small" style="padding:16px;color:#94a3b8">Выберите источник ВБ в Поставки → Настройки → Источники</td></tr>`;
     if (info) info.textContent = "";
+    _wbFbsRenderLookupDetail(null);
     _wbFbsUpdateCounts({});
     return;
   }

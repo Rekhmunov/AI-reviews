@@ -37,6 +37,15 @@ TAB_FINISHED = "finished"       # sold etc.
 TAB_CANCELLED = "cancelled"
 TAB_ARCHIVE = "archive"
 
+TAB_LABELS: dict[str, str] = {
+    TAB_NEW: "Новые",
+    TAB_ASSEMBLY: "На сборке",
+    TAB_DELIVERY: "В доставке",
+    TAB_FINISHED: "Завершённые",
+    TAB_CANCELLED: "Отменённые",
+    TAB_ARCHIVE: "Архив",
+}
+
 # Hidden for everyone — not used in operator workflow; sync skips archive and
 # does not re-poll finished/cancelled statuses. Alias kept for older imports.
 HIDDEN_TABS = frozenset({TAB_FINISHED, TAB_CANCELLED, TAB_ARCHIVE})
@@ -3060,6 +3069,138 @@ def _fetch_order_payload_from_wb(
     return {"id": oid}, False, status_row
 
 
+def _format_lookup_datetime(value: object) -> str:
+    """Operator-facing datetime for search cards (MSK ``DD.MM.YYYY HH:MM``)."""
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        try:
+            dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except Exception:
+            return text
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    try:
+        dt = dt.astimezone(_MSK)
+    except Exception:
+        dt = dt.astimezone(UTC)
+    return dt.strftime("%d.%m.%Y %H:%M")
+
+
+def _sticker_label_from_row(row: Mapping[str, Any] | None) -> str:
+    d = row if isinstance(row, Mapping) else {}
+    part_a = str(d.get("sticker_part_a") or "").strip()
+    part_b = str(d.get("sticker_part_b") or "").strip()
+    if part_a and part_b:
+        return f"{part_a} {part_b}"
+    barcode = str(d.get("sticker_barcode") or "").strip()
+    if barcode:
+        return barcode
+    number = str(d.get("sticker_number") or "").strip()
+    return part_a or part_b or number
+
+
+def _kiz_codes_from_row(row: Mapping[str, Any] | None) -> list[str]:
+    d = row if isinstance(row, Mapping) else {}
+    raw = d.get("kiz_codes")
+    if not isinstance(raw, list):
+        try:
+            parsed = json.loads(str(d.get("kiz_codes_json") or "[]"))
+        except Exception:
+            parsed = []
+        raw = parsed if isinstance(parsed, list) else []
+    out: list[str] = []
+    for item in raw:
+        code = _kiz_code_clean(item)
+        if code and code not in out:
+            out.append(code)
+    return out
+
+
+def build_order_lookup_details(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    row: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Structured card for toolbar order search (status, supply, sticker, KIZ, pick, TRBX)."""
+    d = dict(row or {})
+    tab = str(d.get("tab") or "").strip().lower()
+    supplier_status = str(d.get("supplier_status") or "").strip()
+    wb_status = str(d.get("wb_status") or "").strip()
+    status_label = (
+        str(d.get("cancel_reason_label") or "").strip()
+        or str(d.get("finished_status_label") or "").strip()
+        or order_portal_status_label(
+            supplier_status=supplier_status, wb_status=wb_status
+        )
+        or ""
+    )
+    supply_id = str(d.get("supply_id") or "").strip()
+    trbx_ids: list[str] = []
+    if supply_id:
+        try:
+            boxes_map = cached_supply_boxes_by_id(
+                repo,
+                user_id=user_id,
+                source_id=int(source_id),
+                supply_ids=[supply_id],
+            )
+            for box in boxes_map.get(supply_id) or []:
+                bid = _trbx_box_id(box)
+                if bid and bid not in trbx_ids:
+                    trbx_ids.append(bid)
+        except Exception as exc:
+            _log.debug("wb lookup trbx supply=%s: %s", supply_id, exc)
+
+    pick_barcode = str(d.get("pick_barcode") or "").strip()
+    pick_verified = bool(d.get("pick_verified")) and bool(pick_barcode)
+    barcodes = d.get("barcodes") if isinstance(d.get("barcodes"), list) else []
+    if not barcodes:
+        barcodes = d.get("skus") if isinstance(d.get("skus"), list) else []
+    barcodes = [str(x).strip() for x in barcodes if str(x or "").strip()]
+
+    try:
+        order_id = int(d.get("order_id") or 0)
+    except (TypeError, ValueError):
+        order_id = 0
+
+    return {
+        "order_id": order_id or None,
+        "product_name": str(d.get("product_name") or d.get("article") or "—").strip() or "—",
+        "article": str(d.get("article") or "").strip(),
+        "nm_id": str(d.get("nm_id") or "").strip(),
+        "tab": tab,
+        "tab_label": TAB_LABELS.get(tab, tab or "—"),
+        "status": wb_status or supplier_status,
+        "status_label": status_label,
+        "supplier_status": supplier_status,
+        "wb_status": wb_status,
+        "supply_id": supply_id,
+        "sticker_barcode": str(d.get("sticker_barcode") or "").strip(),
+        "sticker_part_a": str(d.get("sticker_part_a") or "").strip(),
+        "sticker_part_b": str(d.get("sticker_part_b") or "").strip(),
+        "sticker_label": _sticker_label_from_row(d),
+        "kiz_codes": _kiz_codes_from_row(d),
+        "pick_verified": pick_verified,
+        "pick_barcode": pick_barcode,
+        "trbx_ids": trbx_ids,
+        "trbx_count": len(trbx_ids),
+        "trbx_label": ", ".join(trbx_ids),
+        "barcodes": barcodes,
+        "warehouse_label": str(d.get("warehouse_label") or "").strip(),
+        "cargo_label": str(d.get("cargo_label") or cargo_type_label(d.get("cargo_type"))).strip(),
+        "created_at_wb": _format_lookup_datetime(d.get("created_at_wb")),
+        "price_display": str(d.get("price_display") or "").strip(),
+    }
+
+
 def lookup_order_by_id(
     repo: ReviewRepository,
     *,
@@ -3088,6 +3229,9 @@ def lookup_order_by_id(
             "order_id": oid,
             "tab": str(item.get("tab") or ""),
             "item": item,
+            "details": build_order_lookup_details(
+                repo, user_id=user_id, source_id=sid, row=item
+            ),
             "counts": counts,
         }
 
@@ -3178,6 +3322,9 @@ def lookup_order_by_id(
         "order_id": oid,
         "tab": str(item.get("tab") or ""),
         "item": item,
+        "details": build_order_lookup_details(
+            repo, user_id=user_id, source_id=sid, row=item
+        ),
         "counts": counts,
         "is_archive": bool(is_archive),
     }

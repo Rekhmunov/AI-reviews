@@ -5311,7 +5311,8 @@ body.sst-col-resizing * {
 }
 .supplies-total { color: #64748b; font-size: 13px; }
 
-.ozon-fbs-lookup-detail {
+.ozon-fbs-lookup-detail,
+.wb-fbs-lookup-detail {
   margin: 12px 0 0;
   padding: 16px 20px;
   border: 1px solid #e2e8f0;
@@ -5319,7 +5320,8 @@ body.sst-col-resizing * {
   background: #f8fafc;
   max-width: none;
 }
-.ozon-fbs-lookup-detail[hidden] {
+.ozon-fbs-lookup-detail[hidden],
+.wb-fbs-lookup-detail[hidden] {
   display: none !important;
 }
 .ozon-fbs-lookup-detail-head {

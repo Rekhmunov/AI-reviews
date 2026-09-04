@@ -10284,6 +10284,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 )
             except Exception as exc:
                 _log.warning("wb-fbs order lookup sticker enrich: %s", exc)
+            # Refresh detail card after sticker parts are attached.
+            if isinstance(payload, dict) and payload.get("found"):
+                payload["details"] = wb_fbs_mod.build_order_lookup_details(
+                    repository,
+                    user_id=owner_id,
+                    source_id=int(source_id),
+                    row=item,
+                )
         return payload
 
     @app.get("/api/wb-fbs/supplies")
