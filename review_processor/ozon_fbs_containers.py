@@ -1474,11 +1474,10 @@ def enrich_containers_for_supply_modal(
             except (TypeError, ValueError):
                 ozon_orders = 0
             row["order_count_ozon"] = max(0, ozon_orders)
+            # Only rewrite when this supply has local binds for THIS container.
+            # Do not zero other warehouse GMs (list is warehouse-wide).
             if cid > 0 and cid in local_counts:
                 row["order_count"] = max(0, int(local_counts.get(cid) or 0))
-            elif cid > 0 and local_counts:
-                # Supply has local binds elsewhere — empty here means 0 active, not Ozon's stale count.
-                row["order_count"] = 0
             items.append(row)
     out = dict(listed) if isinstance(listed, dict) else {"ok": True, "items": []}
     out["items"] = items
