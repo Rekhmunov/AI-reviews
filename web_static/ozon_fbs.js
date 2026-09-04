@@ -2524,6 +2524,28 @@
     return !!(modal && !modal.classList.contains("hidden"));
   }
 
+  function _ozonFbsSupplyDetailHideNewWarn() {
+    const el = document.getElementById("ozonFbsSupplyDetailNewWarn");
+    if (el) el.hidden = true;
+  }
+
+  function _ozonFbsSupplyDetailUpdateNewWarn() {
+    const el = document.getElementById("ozonFbsSupplyDetailNewWarn");
+    if (!el) return;
+    // Only when opening a local supply from «Ожидают отгрузки» (parity with WB «На сборке»).
+    const postingTab = String(supplyDetailState.postingTab || "").trim();
+    if (postingTab !== "awaiting_deliver" && state.tab !== "awaiting_deliver") {
+      el.hidden = true;
+      return;
+    }
+    const counts = state.counts || {};
+    const packagingCount = Number(counts.awaiting_packaging || 0);
+    const deliverCount = Number(counts.awaiting_deliver || 0);
+    // «Ожидают сборки» still has orders, and at least one local supply already exists.
+    const show = packagingCount > 0 && deliverCount > 0;
+    el.hidden = !show;
+  }
+
   function closeSupplyDetailModal() {
     // Nested marking first (async autosave) — same pattern as WB supply close.
     // Closing supply alone used to leave RU-layout swallow active → wedge "dead".
@@ -2538,6 +2560,7 @@
     document.getElementById("ozonFbsSupplyDetailModal")?.classList.add("hidden");
     syncSupplyDetailReadOnlyMode(false);
     closeStickersMenu();
+    _ozonFbsSupplyDetailHideNewWarn();
     supplyDetailState.supplyId = null;
     supplyDetailState.sourceId = null;
     supplyDetailState.supply = null;
@@ -3011,6 +3034,7 @@
     if (search) search.value = "";
     if (title) title.textContent = "Загрузка…";
     _ozonFbsRenderCargoSummary("ozonFbsSupplyDetailCargo", null);
+    _ozonFbsSupplyDetailHideNewWarn();
     const readOnly = isDeliveringSuppliesTab();
     syncSupplyDetailReadOnlyMode(readOnly);
     _ozonFbsSyncOwnerOnlyCancelledBtn();
@@ -3027,8 +3051,10 @@
       if (!res.ok) throw new Error(detailText(data.detail) || "Не найдено");
       renderSupplyDetail(data);
       _ozonFbsSupplyDetailSetActionsReady(true);
+      _ozonFbsSupplyDetailUpdateNewWarn();
     } catch (e) {
       _ozonFbsSupplyDetailSetActionsReady(false);
+      _ozonFbsSupplyDetailHideNewWarn();
       if (title) title.textContent = "Ошибка";
       if (tbody) {
         tbody.innerHTML = `<tr><td colspan="${detailColspan}" class="wb-fbs-empty" style="color:#b91c1c">${esc(e.message)}</td></tr>`;
