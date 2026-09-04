@@ -1101,12 +1101,26 @@ def persist_posting_stickers_batch(
                         """
                         UPDATE ozon_fbs_postings
                         SET sticker_barcode = CASE
-                                WHEN (sticker_barcode = '' OR sticker_barcode = '0')
+                                WHEN (
+                                        sticker_barcode = ''
+                                        OR sticker_barcode = '0'
+                                        OR (
+                                            sticker_barcode ~ '^[0-9]+$'
+                                            AND LENGTH(sticker_barcode) < 12
+                                        )
+                                     )
                                      AND ? <> '' THEN ?
                                 ELSE sticker_barcode
                             END,
                             sticker_lower_barcode = CASE
-                                WHEN (sticker_lower_barcode = '' OR sticker_lower_barcode = '0')
+                                WHEN (
+                                        sticker_lower_barcode = ''
+                                        OR sticker_lower_barcode = '0'
+                                        OR (
+                                            sticker_lower_barcode ~ '^[0-9]+$'
+                                            AND LENGTH(sticker_lower_barcode) < 12
+                                        )
+                                     )
                                      AND ? <> '' THEN ?
                                 ELSE sticker_lower_barcode
                             END,

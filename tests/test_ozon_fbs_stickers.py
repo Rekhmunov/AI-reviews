@@ -307,6 +307,7 @@ class OzonFbsStickerPersistTests(unittest.TestCase):
         self.assertEqual(n, 1)
         sql = conn.execute.call_args.args[0]
         self.assertIn("sticker_barcode = '0'", sql)
+        self.assertIn("LENGTH(sticker_barcode) < 12", sql)
         # Placeholder "0" must not be written when Ozon sends it.
         n0 = oz.persist_posting_stickers_batch(
             repo,
