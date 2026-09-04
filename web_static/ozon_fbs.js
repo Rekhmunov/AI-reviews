@@ -10755,45 +10755,6 @@
   window.closeOzonFbsSelectionSupplyModal = closeSelectionSupplyModal;
   window.ozonFbsSelectionSupplyNameInput = selectionSupplyNameInput;
 
-  async function loadOzonFbsPostingScansJournal() {
-    const tbody = document.getElementById("ozonFbsStickerLookupJournalTbody");
-    const sourceId = state.sourceId;
-    if (!tbody || !sourceId) return;
-    try {
-      const res = await fetch(
-        `/api/ozon-fbs/postings/scans?source_id=${encodeURIComponent(sourceId)}&limit=80`
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
-      const items = Array.isArray(data.items) ? data.items : [];
-      if (!items.length) {
-        tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">Журнал пуст</td></tr>`;
-        return;
-      }
-      const typeLabel = (t) => {
-        const k = String(t || "").trim();
-        if (k === "assembly_sticker") return "Стикер";
-        if (k === "kiz") return "КИЗ";
-        if (k === "pick_barcode") return "ШК";
-        if (k === "lookup") return "Поиск";
-        return k || "—";
-      };
-      tbody.innerHTML = items.map((it) => {
-        const at = String(it.scanned_at || "").replace("T", " ").slice(0, 19);
-        const pn = String(it.posting_number || "—");
-        const raw = String(it.scan_raw || it.sticker_barcode || it.kiz_code || it.pick_barcode || "—");
-        return `<tr>
-          <td class="small">${esc(at)}</td>
-          <td>${esc(typeLabel(it.scan_type))}</td>
-          <td>${formatOzonPostingNumberHtml(pn)}</td>
-          <td class="small">${esc(raw.length > 48 ? `${raw.slice(0, 48)}…` : raw)}</td>
-        </tr>`;
-      }).join("");
-    } catch (e) {
-      tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty" style="color:#b91c1c">${esc(e.message)}</td></tr>`;
-    }
-  }
-
   function _ozonFbsStickerLookupSetInfo(text, ok) {
     const el = document.getElementById("ozonFbsStickerLookupInfo");
     if (!el) return;
@@ -10874,12 +10835,10 @@
       }
       if (!data.found || !data.posting) {
         _ozonFbsStickerLookupSetInfo(`Отправление не найдено: «${raw}»`, false);
-        await loadOzonFbsPostingScansJournal();
         return;
       }
       _ozonFbsRenderStickerLookupResult(data.posting);
       _ozonFbsStickerLookupSetInfo("Найдено", true);
-      await loadOzonFbsPostingScansJournal();
     } catch (e) {
       _ozonFbsStickerLookupSetInfo(String(e.message || e), false);
     }
@@ -10903,7 +10862,6 @@
     else document.getElementById("ozonFbsStickerLookupModal")?.classList.remove("hidden");
     _ozonFbsStickerLookupSetInfo("");
     _ozonFbsRenderStickerLookupResult(null);
-    loadOzonFbsPostingScansJournal();
     const scan = document.getElementById("ozonFbsStickerLookupScan");
     if (scan) {
       scan.value = "";
