@@ -1652,28 +1652,53 @@
 
 
   /* —— Durable outbox (localStorage): keep scans if network drops —— */
+  // In-memory mirror avoids JSON.parse/stringify on every scan (TSD speed).
+  let outboxCache = null;
+  let outboxFlushTimer = 0;
+  let outboxRescheduleTimer = 0;
+
   function outboxReadAll() {
+    if (outboxCache) return outboxCache;
     try {
       const raw = localStorage.getItem(LS_OUTBOX);
-      if (!raw) return {};
+      if (!raw) {
+        outboxCache = {};
+        return outboxCache;
+      }
       const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-      return parsed;
+      outboxCache =
+        parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+      return outboxCache;
     } catch (_e) {
-      return {};
+      outboxCache = {};
+      return outboxCache;
     }
   }
 
-  function outboxWriteAll(map) {
+  function outboxPersistSoon() {
+    if (outboxFlushTimer) return;
+    // Persist ASAP but after paint/input handling — keeps scan UI snappy.
+    outboxFlushTimer = window.setTimeout(() => {
+      outboxFlushTimer = 0;
+      outboxPersistNow();
+    }, 0);
+  }
+
+  function outboxPersistNow() {
+    if (outboxFlushTimer) {
+      window.clearTimeout(outboxFlushTimer);
+      outboxFlushTimer = 0;
+    }
+    const map = outboxCache || {};
     try {
-      const keys = Object.keys(map || {});
+      const keys = Object.keys(map);
       if (!keys.length) {
         localStorage.removeItem(LS_OUTBOX);
         return;
       }
       localStorage.setItem(LS_OUTBOX, JSON.stringify(map));
     } catch (_e) {
-      /* quota / private mode — best effort; memory autosave still runs */
+      /* quota / private mode — memory autosave still runs */
     }
   }
 
@@ -1705,7 +1730,9 @@
       marketplace: isOzon() ? "ozon" : "wb",
       updatedAt: Date.now(),
     };
-    outboxWriteAll(map);
+    outboxCache = map;
+    // Critical durability: write immediately so a kill mid-scan still keeps codes.
+    outboxPersistNow();
   }
 
   function outboxRemove(kind, orderId) {
@@ -1714,7 +1741,8 @@
     const map = outboxReadAll();
     if (!(key in map)) return;
     delete map[key];
-    outboxWriteAll(map);
+    outboxCache = map;
+    outboxPersistSoon();
   }
 
   function outboxListForCurrent(kind) {
@@ -1802,15 +1830,31 @@
     return applied;
   }
 
+  /** Re-queue network flush only — do not rewrite localStorage entries. */
   function outboxRescheduleCurrent() {
     if (state.route.view !== "scan") return;
     if (state.route.mode === "kiz") {
       for (const e of outboxListForCurrent("kiz")) {
-        scheduleKizLocalAutosave(e.orderId);
+        const id = String(e.orderId || "").trim();
+        if (!id) continue;
+        const seq = (Number(state.localAutosaveSeqByOrder[id]) || 0) + 1;
+        state.localAutosaveSeqByOrder[id] = seq;
+        const run = () => flushKizLocalAutosave(id, seq);
+        state.localAutosaveChain = (state.localAutosaveChain || Promise.resolve())
+          .then(run, run)
+          .catch(() => {});
       }
     } else if (state.route.mode === "pick") {
       for (const e of outboxListForCurrent("pick")) {
-        schedulePickLocalAutosave(e.orderId);
+        const id = String(e.orderId || "").trim();
+        if (!id) continue;
+        const key = `pick:${id}`;
+        const seq = (Number(state.localAutosaveSeqByOrder[key]) || 0) + 1;
+        state.localAutosaveSeqByOrder[key] = seq;
+        const run = () => flushPickLocalAutosave(id, seq);
+        state.localAutosaveChain = (state.localAutosaveChain || Promise.resolve())
+          .then(run, run)
+          .catch(() => {});
       }
     }
   }
@@ -1830,20 +1874,37 @@
     );
   }
 
+  function outboxSoftStatus(text, kind) {
+    // Never overwrite a fresh success banner — operator must keep scanning fast.
+    if (state.banner && state.banner.kind === "ok") return;
+    setBanner(text, kind || "warn");
+  }
+
   function wireOutboxReconnect() {
     if (window.__tsdOutboxOnlineWired) return;
     window.__tsdOutboxOnlineWired = true;
     window.addEventListener("online", () => {
       if (state.route.view !== "scan") return;
       if (!outboxHasPending(state.route.mode === "pick" ? "pick" : "kiz")) return;
-      setBanner("Связь появилась — синхронизируем сканы…", "ok");
+      outboxSoftStatus("Связь появилась — синхронизируем сканы…", "ok");
       outboxRescheduleCurrent();
     });
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState !== "visible") return;
       if (state.route.view !== "scan") return;
       if (!outboxHasPending(state.route.mode === "pick" ? "pick" : "kiz")) return;
-      outboxRescheduleCurrent();
+      // Debounce: Android focus blips must not re-queue every pending save.
+      if (outboxRescheduleTimer) window.clearTimeout(outboxRescheduleTimer);
+      outboxRescheduleTimer = window.setTimeout(() => {
+        outboxRescheduleTimer = 0;
+        if (state.route.view !== "scan") return;
+        if (!outboxHasPending(state.route.mode === "pick" ? "pick" : "kiz")) return;
+        outboxRescheduleCurrent();
+      }, 400);
+    });
+    // Best-effort flush if the tab is being killed after a scan.
+    window.addEventListener("pagehide", () => {
+      outboxPersistNow();
     });
   }
 
@@ -1936,12 +1997,12 @@
         return flushKizLocalAutosave(id, seq, attempt + 1);
       }
       if (typeof navigator !== "undefined" && navigator.onLine === false) {
-        setBanner(
+        outboxSoftStatus(
           "Нет связи — скан сохранён на устройстве и отправится при появлении сети",
           "warn"
         );
       } else {
-        setBanner(e.message || String(e), "err");
+        outboxSoftStatus(e.message || String(e), "err");
       }
       refreshScanChrome("kiz");
     } finally {
@@ -1990,12 +2051,12 @@
         return flushPickLocalAutosave(id, seq, attempt + 1);
       }
       if (typeof navigator !== "undefined" && navigator.onLine === false) {
-        setBanner(
+        outboxSoftStatus(
           "Нет связи — скан сохранён на устройстве и отправится при появлении сети",
           "warn"
         );
       } else {
-        setBanner(e.message || String(e), "err");
+        outboxSoftStatus(e.message || String(e), "err");
       }
       refreshScanChrome("pick");
     } finally {
@@ -4883,7 +4944,6 @@
         if (!placed) row.kiz_codes.push(mark);
         row.kiz_local = true;
         noteSessionScanned(rowId);
-        scheduleKizLocalAutosave(rowId);
         const kizN = filledKizEntries(row).length;
         const label = rowDisplayLabel(row);
         setBanner(
@@ -4904,7 +4964,6 @@
         row.pick_verified = true;
         row.pick_barcode = digitsOnly(raw);
         noteSessionScanned(rowId);
-        schedulePickLocalAutosave(rowId);
         setBanner(`ШК подтверждён · ${rowDisplayLabel(row)}`, "ok");
       }
       // TZ: return to sticker immediately; bind is background except rebind confirm.
@@ -4912,6 +4971,9 @@
       state.pendingOrderId = null;
       state.step = "sticker";
       patchScanAfterSuccess(mode, input);
+      // After UI/focus: durable outbox + background network (must not slow scan loop).
+      if (mode === "kiz") scheduleKizLocalAutosave(rowId);
+      else schedulePickLocalAutosave(rowId);
       await maybeBindGmAfterSuccess(row);
     } catch (e) {
       setBanner(e.message || String(e), "err");

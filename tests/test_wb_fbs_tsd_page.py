@@ -272,7 +272,20 @@ def test_tsd_phone_camera_scan_button() -> None:
     assert "isSecureContext" in js
     assert ".tsd-cam-overlay" in css
     assert "flex: 0 0 56px" in css
-    assert "wb_fbs_tsd.js?v=69" in html
+    assert "wb_fbs_tsd.js?v=70" in html
+    assert "function outboxSoftStatus" in js
+    assert "outboxCache" in js
+    # Scan path: UI/focus first, then outbox+network (speed).
+    enter = js[js.find("async function onScanEnter") : js.find("async function onRoute")]
+    marker = "After UI/focus: durable outbox"
+    assert marker in enter
+    assert enter.find("patchScanAfterSuccess(mode, input)") < enter.find(marker)
+    assert enter.find(marker) < enter.find('if (mode === "kiz") scheduleKizLocalAutosave(rowId)')
+    assert "await saveKizLocal" not in enter
+    assert "await outbox" not in enter
+    assert "outboxRescheduleCurrent" in js
+    # visibility reconnect is debounced so focus blips do not stall scanning
+    assert "outboxRescheduleTimer" in js
     assert "wb_fbs_tsd.css?v=40" in html
     # Camera button rendered before scan field in the same row.
     row_fn = js[js.find("function scanFieldRowHtml") : js.find("function scanFieldRowHtml") + 900]
@@ -305,4 +318,17 @@ def test_tsd_durable_outbox_survives_offline() -> None:
     assert "outboxApplyToLoadedRows(state.route.mode)" in js
     assert "wireOutboxReconnect()" in js
     assert "Нет связи — скан сохранён на устройстве" in js
-    assert "wb_fbs_tsd.js?v=69" in html
+    assert "wb_fbs_tsd.js?v=70" in html
+    assert "function outboxSoftStatus" in js
+    assert "outboxCache" in js
+    # Scan path: UI/focus first, then outbox+network (speed).
+    enter = js[js.find("async function onScanEnter") : js.find("async function onRoute")]
+    marker = "After UI/focus: durable outbox"
+    assert marker in enter
+    assert enter.find("patchScanAfterSuccess(mode, input)") < enter.find(marker)
+    assert enter.find(marker) < enter.find('if (mode === "kiz") scheduleKizLocalAutosave(rowId)')
+    assert "await saveKizLocal" not in enter
+    assert "await outbox" not in enter
+    assert "outboxRescheduleCurrent" in js
+    # visibility reconnect is debounced so focus blips do not stall scanning
+    assert "outboxRescheduleTimer" in js
