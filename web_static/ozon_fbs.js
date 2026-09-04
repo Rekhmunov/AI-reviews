@@ -451,8 +451,12 @@
       col.style.display = readOnly ? "none" : "";
     });
     const moveBtn = document.getElementById("ozonFbsSupplyDetailMoveDeliveringBtn");
-    // Local «Перенести в доставку» only from «Ожидают отгрузки».
-    if (moveBtn) moveBtn.hidden = !!readOnly || isDeliveringSuppliesTab();
+    // Local «Перенести в доставку» only from «Ожидают отгрузки» (never on delivering).
+    const hideMove =
+      !!readOnly
+      || isDeliveringSuppliesTab()
+      || String(supplyDetailState.postingTab || "").trim() === "delivering";
+    if (moveBtn) moveBtn.hidden = hideMove;
     const info = document.getElementById("ozonFbsSupplyDetailInfo");
     if (info) {
       if (readOnly) {
