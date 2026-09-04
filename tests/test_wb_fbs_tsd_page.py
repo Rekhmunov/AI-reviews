@@ -272,7 +272,7 @@ def test_tsd_phone_camera_scan_button() -> None:
     assert "isSecureContext" in js
     assert ".tsd-cam-overlay" in css
     assert "flex: 0 0 56px" in css
-    assert "wb_fbs_tsd.js?v=70" in html
+    assert "wb_fbs_tsd.js?v=71" in html
     assert "function outboxSoftStatus" in js
     assert "outboxCache" in js
     # Scan path: UI/focus first, then outbox+network (speed).
@@ -286,6 +286,13 @@ def test_tsd_phone_camera_scan_button() -> None:
     assert "outboxRescheduleCurrent" in js
     # visibility reconnect is debounced so focus blips do not stall scanning
     assert "outboxRescheduleTimer" in js
+    # Ozon GM bind/unbind must also be durable offline.
+    assert "function outboxRememberGmBind" in js
+    assert "function outboxRememberGmUnbind" in js
+    assert "function outboxApplyGmToLoadedRows" in js
+    assert "function outboxFlushGmPending" in js
+    assert "outboxRememberGmBind(row" in js
+    assert 'outboxRemove("gm"' in js
     assert "wb_fbs_tsd.css?v=40" in html
     # Camera button rendered before scan field in the same row.
     row_fn = js[js.find("function scanFieldRowHtml") : js.find("function scanFieldRowHtml") + 900]
@@ -318,7 +325,7 @@ def test_tsd_durable_outbox_survives_offline() -> None:
     assert "outboxApplyToLoadedRows(state.route.mode)" in js
     assert "wireOutboxReconnect()" in js
     assert "Нет связи — скан сохранён на устройстве" in js
-    assert "wb_fbs_tsd.js?v=70" in html
+    assert "wb_fbs_tsd.js?v=71" in html
     assert "function outboxSoftStatus" in js
     assert "outboxCache" in js
     # Scan path: UI/focus first, then outbox+network (speed).
@@ -332,3 +339,10 @@ def test_tsd_durable_outbox_survives_offline() -> None:
     assert "outboxRescheduleCurrent" in js
     # visibility reconnect is debounced so focus blips do not stall scanning
     assert "outboxRescheduleTimer" in js
+    # Ozon GM bind/unbind must also be durable offline.
+    assert "function outboxRememberGmBind" in js
+    assert "function outboxRememberGmUnbind" in js
+    assert "function outboxApplyGmToLoadedRows" in js
+    assert "function outboxFlushGmPending" in js
+    assert "outboxRememberGmBind(row" in js
+    assert 'outboxRemove("gm"' in js

@@ -758,6 +758,10 @@
     row.container_barcode = nextBarcode;
     row.container_synced = false;
     row.container_sync_error = "";
+    // Durable: remember GM bind before network (same idea as KIZ/pick outbox).
+    outboxRememberGmBind(row, {
+      previousId: prevId && prevId !== activeId ? prevId : null,
+    });
     const modeAtBind = state.route.mode;
     const labelAtBind = activeGmLabel();
     // Optimistic chrome: badge/counter update before API returns.
@@ -775,9 +779,13 @@
         );
         applyGmBindResult(row, data);
         if (row.container_sync_error) {
+          if (isLockedGmError(row.container_sync_error)) {
+            outboxRemove("gm", postingNumber);
+          }
           setBanner(`В ГМ локально, Ozon: ${row.container_sync_error}`, "warn");
           refreshScanBanner();
         } else {
+          outboxRemove("gm", postingNumber);
           toast(`В ${labelAtBind}`);
         }
       } catch (e) {
@@ -787,6 +795,7 @@
         row.container_synced = false;
         row.container_sync_error = msg;
         if (isLockedGmError(msg)) {
+          outboxRemove("gm", postingNumber);
           setActiveGm(null);
           state.gm.awaitingScan = false;
           void loadGmContainers(true).then(() => {
@@ -797,6 +806,7 @@
             "err"
           );
         } else {
+          // Keep GM outbox entry for online retry.
           setBanner(`В ГМ локально, Ozon: ${msg}`, "warn");
         }
         refreshScanBanner();
@@ -1795,6 +1805,165 @@
     });
   }
 
+  /** Ozon cargo-place bind/unbind — same durable outbox as KIZ/pick. */
+  function outboxRememberGmBind(row, opts) {
+    if (!isOzon() || !row) return;
+    const id = String(row.posting_number || rowScanId(row) || "").trim();
+    if (!id) return;
+    const cid = Number(row.container_id || 0) || 0;
+    if (!cid) return;
+    const o = opts || {};
+    outboxUpsert("gm", id, {
+      action: "bind",
+      container_id: cid,
+      container_barcode: String(row.container_barcode || cid),
+      previous_container_id: Number(o.previousId || 0) || null,
+      session: true,
+    });
+  }
+
+  function outboxRememberGmUnbind(postingNumber, containerId) {
+    if (!isOzon()) return;
+    const id = String(postingNumber || "").trim();
+    if (!id) return;
+    outboxUpsert("gm", id, {
+      action: "unbind",
+      container_id: Number(containerId || 0) || null,
+      container_barcode: "",
+      previous_container_id: null,
+      session: true,
+    });
+  }
+
+  function outboxFindRowForGm(postingNumber) {
+    const id = String(postingNumber || "").trim();
+    if (!id) return null;
+    return (
+      findRowByScanId(state.kizRows, id) ||
+      findRowByScanId(state.pickRows, id) ||
+      null
+    );
+  }
+
+  function outboxApplyGmToLoadedRows() {
+    if (!isOzon()) return 0;
+    const entries = outboxListForCurrent("gm");
+    if (!entries.length) return 0;
+    let applied = 0;
+    for (const e of entries) {
+      const id = String(e.orderId || "").trim();
+      if (!id) continue;
+      const row = outboxFindRowForGm(id);
+      if (!row) continue;
+      const action = String(e.action || "bind");
+      if (action === "unbind") {
+        row.container_id = null;
+        row.container_barcode = "";
+        row.container_synced = false;
+        row.container_sync_error = "";
+        applied += 1;
+        continue;
+      }
+      const cid = Number(e.container_id || 0) || 0;
+      if (!cid) continue;
+      // Server already has the same bind — drop stale outbox entry.
+      if (
+        Number(row.container_id || 0) === cid &&
+        row.container_synced &&
+        !String(row.container_sync_error || "").trim()
+      ) {
+        outboxRemove("gm", id);
+        continue;
+      }
+      row.container_id = cid;
+      row.container_barcode = String(e.container_barcode || cid);
+      row.container_synced = false;
+      row.container_sync_error = "";
+      applied += 1;
+    }
+    return applied;
+  }
+
+  let outboxGmFlushChain = null;
+
+  async function outboxFlushGmEntry(entry) {
+    if (!entry || !isOzon()) return;
+    const id = String(entry.orderId || "").trim();
+    if (!id) return;
+    const action = String(entry.action || "bind");
+    const cid = Number(entry.container_id || 0) || 0;
+    const row = outboxFindRowForGm(id);
+    try {
+      if (action === "unbind") {
+        await unbindGmPosting(id, cid || null);
+        if (row) {
+          row.container_id = null;
+          row.container_barcode = "";
+          row.container_synced = false;
+          row.container_sync_error = "";
+        }
+        outboxRemove("gm", id);
+        return;
+      }
+      if (!cid) {
+        outboxRemove("gm", id);
+        return;
+      }
+      const prev = Number(entry.previous_container_id || 0) || null;
+      const data = await bindGmPosting(
+        id,
+        cid,
+        String(entry.container_barcode || cid),
+        prev && prev !== cid ? prev : null
+      );
+      if (row) applyGmBindResult(row, data);
+      if (row && row.container_sync_error) {
+        // Keep outbox for retry unless GM is permanently locked.
+        if (isLockedGmError(row.container_sync_error)) {
+          outboxRemove("gm", id);
+        }
+        return;
+      }
+      outboxRemove("gm", id);
+    } catch (e) {
+      const msg = String((e && e.message) || e);
+      if (row) {
+        row.container_synced = false;
+        row.container_sync_error = msg;
+      }
+      if (isLockedGmError(msg)) outboxRemove("gm", id);
+      // Soft status only — do not block / clobber OK scan banners.
+      outboxSoftStatus(`ГМ: ${msg}`, "warn");
+    }
+  }
+
+  function outboxFlushGmPending() {
+    if (!isOzon()) return;
+    const entries = outboxListForCurrent("gm");
+    if (!entries.length) return;
+    const run = async () => {
+      // Re-read each loop so a newer bind/unbind supersedes mid-flush.
+      const todo = outboxListForCurrent("gm").slice();
+      for (const e of todo) {
+        const latest = outboxListForCurrent("gm").find(
+          (x) => String(x.orderId) === String(e.orderId)
+        );
+        if (!latest) continue;
+        await outboxFlushGmEntry(latest);
+      }
+      if (state.route.view === "scan") {
+        const mode = state.route.mode === "pick" ? "pick" : "kiz";
+        refreshScannedListSection(mode);
+        refreshScanStats(mode);
+        refreshGmBar();
+      }
+    };
+    outboxGmFlushChain = (outboxGmFlushChain || Promise.resolve())
+      .then(run, run)
+      .catch(() => {});
+  }
+
+
   /**
    * After server load + baselines: overlay durable local scans so a reload
    * while offline does not lose work. Baselines stay on server values, so
@@ -1857,10 +2026,14 @@
           .catch(() => {});
       }
     }
+    // Ozon GM binds are independent of kiz/pick mode.
+    outboxFlushGmPending();
   }
 
   function outboxNotifyPendingIfNeeded(mode) {
-    if (!outboxHasPending(mode === "pick" ? "pick" : "kiz")) return;
+    const scanPending = outboxHasPending(mode === "pick" ? "pick" : "kiz");
+    const gmPending = isOzon() && outboxHasPending("gm");
+    if (!scanPending && !gmPending) return;
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
       setBanner(
         "Нет связи — сканы сохранены на устройстве и отправятся при появлении сети",
@@ -1885,20 +2058,29 @@
     window.__tsdOutboxOnlineWired = true;
     window.addEventListener("online", () => {
       if (state.route.view !== "scan") return;
-      if (!outboxHasPending(state.route.mode === "pick" ? "pick" : "kiz")) return;
+      const pending =
+        outboxHasPending(state.route.mode === "pick" ? "pick" : "kiz") ||
+        (isOzon() && outboxHasPending("gm"));
+      if (!pending) return;
       outboxSoftStatus("Связь появилась — синхронизируем сканы…", "ok");
       outboxRescheduleCurrent();
     });
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState !== "visible") return;
       if (state.route.view !== "scan") return;
-      if (!outboxHasPending(state.route.mode === "pick" ? "pick" : "kiz")) return;
+      const pendingVis =
+        outboxHasPending(state.route.mode === "pick" ? "pick" : "kiz") ||
+        (isOzon() && outboxHasPending("gm"));
+      if (!pendingVis) return;
       // Debounce: Android focus blips must not re-queue every pending save.
       if (outboxRescheduleTimer) window.clearTimeout(outboxRescheduleTimer);
       outboxRescheduleTimer = window.setTimeout(() => {
         outboxRescheduleTimer = 0;
         if (state.route.view !== "scan") return;
-        if (!outboxHasPending(state.route.mode === "pick" ? "pick" : "kiz")) return;
+        const stillPending =
+          outboxHasPending(state.route.mode === "pick" ? "pick" : "kiz") ||
+          (isOzon() && outboxHasPending("gm"));
+        if (!stillPending) return;
         outboxRescheduleCurrent();
       }, 400);
     });
@@ -2880,9 +3062,12 @@
       }
 
       if (hadGm) {
+        // Remember unbind durably so offline clear still syncs later.
+        outboxRememberGmUnbind(postingNumber, prevCid || null);
         try {
           await unbindGmPosting(postingNumber, prevCid || null);
           clearRowGmLocal(row);
+          outboxRemove("gm", postingNumber);
         } catch (e) {
           row.container_sync_error = String(e.message || e);
           setBanner(
@@ -5137,9 +5322,13 @@
         }
         captureScanBaselines(state.route.mode);
         const restored = outboxApplyToLoadedRows(state.route.mode);
-        if (restored > 0) {
+        const restoredGm = outboxApplyGmToLoadedRows();
+        if (restored > 0 || restoredGm > 0) {
           outboxNotifyPendingIfNeeded(state.route.mode);
           outboxRescheduleCurrent();
+          outboxFlushGmPending();
+        } else if (outboxHasPending("gm")) {
+          outboxFlushGmPending();
         }
         stopLoadingUi();
         if (!state.step) state.step = "sticker";
