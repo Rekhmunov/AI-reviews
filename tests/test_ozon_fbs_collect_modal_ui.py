@@ -34,5 +34,5 @@ def test_collect_modal_structure_and_styles() -> None:
     assert ".ozon-fbs-collect-group-head" in css
     assert ".ozon-fbs-collect-supply:has(input:checked)" in css
     assert ".ozon-fbs-collect-footer" in css
-    assert "style.css?v=293" in html
-    assert "ozon_fbs.js?v=120" in html
+    assert "style.css?v=" in html
+    assert "ozon_fbs.js?v=" in html

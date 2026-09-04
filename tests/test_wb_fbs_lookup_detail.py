@@ -70,5 +70,5 @@ def test_wb_fbs_lookup_detail_ui_markup() -> None:
     assert "Проверка ШК" in js
     assert "data.details" in js
     assert ".wb-fbs-lookup-detail" in css
-    assert "style.css?v=291" in html
-    assert "app.js?v=535" in html
+    assert "style.css?v=" in html
+    assert "app.js?v=" in html

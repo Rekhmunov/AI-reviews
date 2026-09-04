@@ -2540,10 +2540,9 @@
     }
     const counts = state.counts || {};
     const packagingCount = Number(counts.awaiting_packaging || 0);
-    const deliverCount = Number(counts.awaiting_deliver || 0);
-    // «Ожидают сборки» still has orders, and at least one local supply already exists.
-    const show = packagingCount > 0 && deliverCount > 0;
-    el.hidden = !show;
+    // Opening a supply already means collect started; warn if packaging still has leftovers.
+    // Do not require awaiting_deliver>0 — local supplies can exist while that tab count is 0.
+    el.hidden = packagingCount <= 0;
   }
 
   function closeSupplyDetailModal() {

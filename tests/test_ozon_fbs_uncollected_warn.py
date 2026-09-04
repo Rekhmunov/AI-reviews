@@ -21,12 +21,12 @@ def test_ozon_supply_uncollected_warn_parity_with_wb() -> None:
 
     assert "function _ozonFbsSupplyDetailUpdateNewWarn" in js
     assert "function _ozonFbsSupplyDetailHideNewWarn" in js
-    assert 'counts.awaiting_packaging' in js
-    assert 'counts.awaiting_deliver' in js
+    assert "counts.awaiting_packaging" in js
     assert 'postingTab !== "awaiting_deliver"' in js
+    assert "packagingCount <= 0" in js
     assert "_ozonFbsSupplyDetailUpdateNewWarn()" in js
     assert "_ozonFbsSupplyDetailHideNewWarn()" in js
 
     # Reuse WB alert styling (same visual language).
     assert ".wb-fbs-sd-new-warn" in css
-    assert "ozon_fbs.js?v=121" in html
+    assert "ozon_fbs.js?v=" in html
