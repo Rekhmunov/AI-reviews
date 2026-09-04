@@ -10347,15 +10347,16 @@ button.wb-fbs-select-all-link:disabled {
 .wb-fbs-sd-cargo[hidden] {
   display: none !important;
 }
+/* Same chip language as .wb-fbs-sd-chip — summary, not a success alert. */
 .wb-fbs-sd-cargo-label {
   display: inline-flex;
   align-items: center;
   min-height: 28px;
   padding: 4px 12px;
   border-radius: 8px;
-  border: 1px solid #c7e0d2;
-  background: #f0faf4;
-  color: #166534;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #0f172a;
   font-size: 13px;
   font-weight: 600;
   line-height: 1.3;
