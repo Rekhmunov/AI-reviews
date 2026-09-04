@@ -347,6 +347,23 @@ async function run() {
     );
   }
 
+  // Session detector must not treat non-401 statuses as auth loss
+  {
+    const winDet = loadBindModule(makeDom());
+    const e400 = new Error("Требуется авторизация");
+    e400.status = 400;
+    assert(
+      winDet._ozonFbsContainerIsSessionExpiredError(e400) === false,
+      "400 with auth-like text is not session expiry"
+    );
+    const e401 = new Error("nope");
+    e401.status = 401;
+    assert(
+      winDet._ozonFbsContainerIsSessionExpiredError(e401) === true,
+      "401 status is session expiry"
+    );
+  }
+
   console.log("test_ozon_fbs_container_bind_ui.js: all checks passed");
 }
 
