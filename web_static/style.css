@@ -8822,6 +8822,301 @@ button.ozon-fbs-ship-all-btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
+
+/* Ozon FBS «Собрать все заказы» modal */
+.ozon-fbs-collect-modal {
+  width: min(640px, 96vw);
+  max-height: min(88vh, 820px);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.18);
+}
+.ozon-fbs-collect-result-modal {
+  width: min(560px, 96vw);
+}
+.ozon-fbs-collect-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid #e2e8f0;
+  flex: 0 0 auto;
+}
+.ozon-fbs-collect-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.3;
+}
+.ozon-fbs-collect-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 24px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.ozon-fbs-collect-lead {
+  margin: 0;
+  font-size: 16px;
+  color: #475569;
+  line-height: 1.45;
+}
+.ozon-fbs-collect-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ozon-fbs-collect-empty {
+  padding: 20px 16px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 16px;
+  text-align: center;
+  line-height: 1.45;
+}
+.ozon-fbs-collect-group {
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ozon-fbs-collect-group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ozon-fbs-collect-group-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.3;
+  min-width: 0;
+}
+.ozon-fbs-collect-group-meta {
+  margin: 0;
+  font-size: 14px;
+  color: #64748b;
+  line-height: 1.35;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.ozon-fbs-collect-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ozon-fbs-collect-field-label,
+.ozon-fbs-collect-field label {
+  display: block;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+  line-height: 1.35;
+}
+.ozon-fbs-collect-field input[type="text"] {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 15px;
+  color: #0f172a;
+  background: #fff;
+  line-height: 1.3;
+}
+.ozon-fbs-collect-field input[type="text"]:hover {
+  border-color: #94a3b8;
+}
+.ozon-fbs-collect-field input[type="text"]:focus {
+  outline: none;
+  border-color: #005bff;
+  box-shadow: 0 0 0 3px rgba(0, 91, 255, 0.16);
+}
+.ozon-fbs-collect-warn {
+  margin: 0;
+  font-size: 14px;
+  color: #b45309;
+  line-height: 1.4;
+}
+.ozon-fbs-collect-warn[hidden] {
+  display: none !important;
+}
+.ozon-fbs-collect-supplies {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ozon-fbs-collect-supply {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.ozon-fbs-collect-supply:hover {
+  border-color: #93c5fd;
+  background: #f8fbff;
+}
+.ozon-fbs-collect-supply:has(input:checked) {
+  border-color: #005bff;
+  background: #eff6ff;
+}
+.ozon-fbs-collect-supply:focus-within {
+  border-color: #005bff;
+  box-shadow: 0 0 0 3px rgba(0, 91, 255, 0.16);
+}
+.ozon-fbs-collect-supply input[type="radio"] {
+  margin: 2px 0 0;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  accent-color: #005bff;
+}
+.ozon-fbs-collect-supply-text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.ozon-fbs-collect-supply-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #0f172a;
+  line-height: 1.35;
+  word-break: break-word;
+}
+.ozon-fbs-collect-supply-meta {
+  font-size: 14px;
+  color: #64748b;
+  line-height: 1.35;
+  word-break: break-word;
+}
+.ozon-fbs-collect-new-name {
+  margin-top: 0;
+}
+.ozon-fbs-collect-new-name[hidden] {
+  display: none !important;
+}
+.ozon-fbs-collect-auto {
+  padding: 12px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  font-size: 14px;
+  color: #334155;
+  line-height: 1.45;
+}
+.ozon-fbs-collect-err {
+  margin: 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  font-size: 14px;
+  line-height: 1.45;
+  white-space: pre-line;
+}
+.ozon-fbs-collect-err[hidden] {
+  display: none !important;
+}
+.ozon-fbs-collect-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 24px 20px;
+  border-top: 1px solid #e2e8f0;
+  flex: 0 0 auto;
+  background: #fff;
+}
+.ozon-fbs-collect-footer .secondary {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.ozon-fbs-collect-footer .secondary:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+.ozon-fbs-collect-footer .secondary:active {
+  background: #f1f5f9;
+}
+.ozon-fbs-collect-footer .secondary:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+.ozon-fbs-collect-footer .ozon-fbs-ship-all-btn {
+  margin: 0;
+  min-height: 40px;
+}
+.ozon-fbs-collect-result-body {
+  font-size: 16px;
+  color: #0f172a;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ozon-fbs-collect-result-body > p {
+  margin: 0;
+}
+.ozon-fbs-collect-result-body ul {
+  margin: 0;
+  padding-left: 20px;
+}
+.ozon-fbs-collect-result-body li {
+  margin: 4px 0;
+}
+.ozon-fbs-collect-result-ok {
+  color: #166534;
+  font-weight: 600;
+}
+.ozon-fbs-collect-result-err {
+  color: #b91c1c;
+  font-weight: 600;
+}
+.ozon-fbs-collect-result-section-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+}
+
 .ozon-fbs-packaging-actions {
   display: inline-flex;
   align-items: center;
@@ -14641,27 +14936,46 @@ button.wb-fbs-kiz-add:disabled {
     gap: 4px;
   }
 
-  #ozonFbsCollectModal .wb-fbs-collect-mgt-modal,
-  #ozonFbsCollectResultModal .wb-fbs-collect-mgt-result-modal,
+  #ozonFbsCollectModal .ozon-fbs-collect-modal,
+  #ozonFbsCollectResultModal .ozon-fbs-collect-modal,
   #ozonFbsSelectionSupplyModal .wb-fbs-collect-mgt-modal {
     width: 100%;
     max-width: 100%;
     max-height: calc(100dvh - 24px);
-    padding: 16px;
     border-radius: 12px;
   }
 
-  #ozonFbsCollectModal .wb-fbs-collect-mgt-footer,
-  #ozonFbsCollectResultModal .wb-fbs-collect-mgt-footer,
+  #ozonFbsCollectModal .ozon-fbs-collect-header,
+  #ozonFbsCollectResultModal .ozon-fbs-collect-header {
+    padding: 16px 16px 12px;
+  }
+
+  #ozonFbsCollectModal .ozon-fbs-collect-group-head,
+  #ozonFbsCollectResultModal .ozon-fbs-collect-group-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  #ozonFbsCollectModal .ozon-fbs-collect-group-meta {
+    white-space: normal;
+  }
+
+  #ozonFbsCollectModal .ozon-fbs-collect-content,
+  #ozonFbsCollectResultModal .ozon-fbs-collect-content {
+    padding: 12px 16px 8px;
+  }
+
+  #ozonFbsCollectModal .ozon-fbs-collect-footer,
+  #ozonFbsCollectResultModal .ozon-fbs-collect-footer,
   #ozonFbsSelectionSupplyModal .wb-fbs-collect-mgt-footer {
     flex-direction: column-reverse;
     gap: 8px;
-    margin-top: 16px;
-    padding-top: 12px;
+    padding: 12px 16px 16px;
   }
 
-  #ozonFbsCollectModal .wb-fbs-collect-mgt-footer button,
-  #ozonFbsCollectResultModal .wb-fbs-collect-mgt-footer button,
+  #ozonFbsCollectModal .ozon-fbs-collect-footer button,
+  #ozonFbsCollectResultModal .ozon-fbs-collect-footer button,
   #ozonFbsSelectionSupplyModal .wb-fbs-collect-mgt-footer button {
     width: 100%;
     min-height: 44px;

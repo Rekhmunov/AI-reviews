@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=291" />
+  <link rel="stylesheet" href="/static/style.css?v=293" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2778,31 +2778,37 @@
         </div>
 
         <div id="ozonFbsCollectModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
-             aria-labelledby="ozonFbsCollectTitle">
-          <div class="modal-card wb-fbs-collect-mgt-modal">
-            <div class="wb-fbs-collect-mgt-header">
-              <h3 id="ozonFbsCollectTitle" class="wb-fbs-collect-mgt-title">Собрать все заказы</h3>
+             aria-labelledby="ozonFbsCollectTitle"
+             onclick="if(event.target===this)closeOzonFbsCollectModal()">
+          <div class="modal-card ozon-fbs-collect-modal">
+            <div class="ozon-fbs-collect-header">
+              <h3 id="ozonFbsCollectTitle" class="ozon-fbs-collect-title">Собрать все заказы</h3>
               <button type="button" class="icon-btn secondary" onclick="closeOzonFbsCollectModal()" aria-label="Закрыть">✕</button>
             </div>
-            <p id="ozonFbsCollectLead" class="wb-fbs-collect-mgt-lead"></p>
-            <div id="ozonFbsCollectBody" class="wb-fbs-collect-mgt-body"></div>
-            <div id="ozonFbsCollectErr" class="wb-fbs-collect-mgt-err" hidden></div>
-            <div class="wb-fbs-collect-mgt-footer">
+            <div class="ozon-fbs-collect-content">
+              <p id="ozonFbsCollectLead" class="ozon-fbs-collect-lead"></p>
+              <div id="ozonFbsCollectBody" class="ozon-fbs-collect-body"></div>
+              <div id="ozonFbsCollectErr" class="ozon-fbs-collect-err" hidden></div>
+            </div>
+            <div class="ozon-fbs-collect-footer">
               <button type="button" class="secondary" onclick="closeOzonFbsCollectModal()">Отмена</button>
               <button type="button" id="ozonFbsCollectConfirmBtn" class="ozon-fbs-ship-all-btn" onclick="confirmOzonFbsCollect()">Собрать</button>
             </div>
           </div>
         </div>
         <div id="ozonFbsCollectResultModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
-             aria-labelledby="ozonFbsCollectResultTitle">
-          <div class="modal-card wb-fbs-collect-mgt-result-modal">
-            <div class="wb-fbs-collect-mgt-header">
-              <h3 id="ozonFbsCollectResultTitle" class="wb-fbs-collect-mgt-title">Результат</h3>
+             aria-labelledby="ozonFbsCollectResultTitle"
+             onclick="if(event.target===this)closeOzonFbsCollectResultModal()">
+          <div class="modal-card ozon-fbs-collect-modal ozon-fbs-collect-result-modal">
+            <div class="ozon-fbs-collect-header">
+              <h3 id="ozonFbsCollectResultTitle" class="ozon-fbs-collect-title">Результат</h3>
               <button type="button" class="icon-btn secondary" onclick="closeOzonFbsCollectResultModal()" aria-label="Закрыть">✕</button>
             </div>
-            <div id="ozonFbsCollectResultBody" class="wb-fbs-collect-mgt-result-body"></div>
-            <div class="wb-fbs-collect-mgt-footer">
-              <button type="button" class="secondary" onclick="closeOzonFbsCollectResultModal()">Закрыть</button>
+            <div class="ozon-fbs-collect-content">
+              <div id="ozonFbsCollectResultBody" class="ozon-fbs-collect-result-body"></div>
+            </div>
+            <div class="ozon-fbs-collect-footer">
+              <button type="button" class="ozon-fbs-ship-all-btn" onclick="closeOzonFbsCollectResultModal()">Понятно</button>
             </div>
           </div>
         </div>
@@ -6542,7 +6548,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=118"></script>
+  <script src="/static/ozon_fbs.js?v=120"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=19"></script>
   <script src="/static/app.js?v=535"></script>
 </body>

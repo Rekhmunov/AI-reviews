@@ -2092,20 +2092,21 @@
     const errors = Array.isArray(data?.errors) ? data.errors : [];
     const groupLines = Array.isArray(data?.group_lines) ? data.group_lines : [];
     const created = Array.isArray(data?.created_supplies) ? data.created_supplies : [];
-    let html = `<p class="${ok ? "wb-fbs-collect-mgt-result-ok" : "wb-fbs-collect-mgt-result-err"}">${esc(data?.message || "")}</p>`;
+    let html = `<p class="${ok ? "ozon-fbs-collect-result-ok" : "ozon-fbs-collect-result-err"}">${esc(data?.message || "")}</p>`;
     if (groupLines.length) {
       html += "<ul>" + groupLines.map((g) => `<li>${esc(g)}</li>`).join("") + "</ul>";
     }
     if (created.length) {
-      html += "<p>Созданы поставки:</p><ul>" + created.map((s) =>
-        `<li>${esc(s.name || s.supply_id || "")}</li>`
-      ).join("") + "</ul>";
+      html += `<p class="ozon-fbs-collect-result-section-title">Созданы поставки:</p><ul>` +
+        created.map((s) => `<li>${esc(s.name || s.supply_id || "")}</li>`).join("") + "</ul>";
     }
     if (errors.length) {
-      html += `<p class="wb-fbs-collect-mgt-result-err">Ошибки:</p><ul class="wb-fbs-collect-mgt-result-err ozon-fbs-collect-err-list">` +
+      html += `<p class="ozon-fbs-collect-result-err ozon-fbs-collect-result-section-title">Ошибки:</p>` +
+        `<ul class="ozon-fbs-collect-err-list">` +
         errors.map((e) => formatCollectErrorItemHtml(e)).join("") + "</ul>";
     }
     body.innerHTML = html;
+    body.classList.add("ozon-fbs-collect-result-body");
     modal.classList.remove("hidden");
   }
 
@@ -2138,6 +2139,10 @@
       lead.textContent = splitNote ? `${base} ${splitNote}` : base;
     }
     if (!body) return;
+    if (!groups.length) {
+      body.innerHTML = `<div class="ozon-fbs-collect-empty">Нет заказов для сборки.</div>`;
+      return;
+    }
     body.innerHTML = groups.map((g, idx) => {
       const gkey = String(g.group_key || `g${idx}`);
       const mode = String(g.mode || "create");
@@ -2149,12 +2154,12 @@
         const name = String(g.suggested_name || "");
         const conflict = existing.has(name.trim());
         inner = `
-          <div class="wb-fbs-collect-mgt-field">
+          <div class="ozon-fbs-collect-field">
             <label for="ozonFbsCollectName_${esc(gkey)}">Название новой поставки</label>
             <input type="text" id="ozonFbsCollectName_${esc(gkey)}" data-group-key="${esc(gkey)}"
                    value="${esc(name)}" autocomplete="off"
                    oninput="ozonFbsCollectNameInput(this)" />
-            <p class="wb-fbs-collect-mgt-warn" id="ozonFbsCollectWarn_${esc(gkey)}" ${conflict ? "" : "hidden"}>
+            <p class="ozon-fbs-collect-warn" id="ozonFbsCollectWarn_${esc(gkey)}" ${conflict ? "" : "hidden"}>
               Поставка с таким названием уже есть — измените название.
             </p>
           </div>`;
@@ -2163,9 +2168,9 @@
         const suggested = String(g.suggested_name || "");
         const conflict = existing.has(suggested.trim());
         inner = `
-          <div class="wb-fbs-collect-mgt-field">
-            <label>Куда собрать заказы</label>
-            <div class="wb-fbs-collect-mgt-supplies">
+          <div class="ozon-fbs-collect-field">
+            <div class="ozon-fbs-collect-field-label">Куда собрать заказы</div>
+            <div class="ozon-fbs-collect-supplies" role="radiogroup" aria-label="Куда собрать заказы">
               ${supplies.map((s, si) => {
                 const sid = String(s.supply_id || "");
                 const sname = String(s.name || sid);
@@ -2174,34 +2179,34 @@
                   `${Number(s.orders_count || 0)} отпр.`,
                 ].filter(Boolean).join(" · ");
                 return `
-                  <label class="wb-fbs-collect-mgt-supply">
+                  <label class="ozon-fbs-collect-supply">
                     <input type="radio" name="ozonFbsCollectSupply_${esc(gkey)}" value="${esc(sid)}"
                            ${si === 0 ? "checked" : ""}
                            onchange="ozonFbsCollectTargetChanged('${esc(gkey)}')" />
-                    <span>
-                      <span class="wb-fbs-collect-mgt-supply-name">${esc(sname)}</span>
-                      <span class="wb-fbs-collect-mgt-supply-meta">${esc(meta)}</span>
+                    <span class="ozon-fbs-collect-supply-text">
+                      <span class="ozon-fbs-collect-supply-name">${esc(sname)}</span>
+                      <span class="ozon-fbs-collect-supply-meta">${esc(meta)}</span>
                     </span>
                   </label>`;
               }).join("")}
-              <label class="wb-fbs-collect-mgt-supply">
+              <label class="ozon-fbs-collect-supply">
                 <input type="radio" name="ozonFbsCollectSupply_${esc(gkey)}" value="__new__"
                        ${supplies.length ? "" : "checked"}
                        onchange="ozonFbsCollectTargetChanged('${esc(gkey)}')" />
-                <span>
-                  <span class="wb-fbs-collect-mgt-supply-name">Создать новую поставку</span>
-                  <span class="wb-fbs-collect-mgt-supply-meta">отдельная поставка для этих заказов</span>
+                <span class="ozon-fbs-collect-supply-text">
+                  <span class="ozon-fbs-collect-supply-name">Создать новую поставку</span>
+                  <span class="ozon-fbs-collect-supply-meta">отдельная поставка для этих заказов</span>
                 </span>
               </label>
             </div>
           </div>
-          <div class="wb-fbs-collect-mgt-field wb-fbs-collect-mgt-new-name" id="ozonFbsCollectNewWrap_${esc(gkey)}"
+          <div class="ozon-fbs-collect-field ozon-fbs-collect-new-name" id="ozonFbsCollectNewWrap_${esc(gkey)}"
                ${supplies.length ? "hidden" : ""}>
             <label for="ozonFbsCollectName_${esc(gkey)}">Название новой поставки</label>
             <input type="text" id="ozonFbsCollectName_${esc(gkey)}" data-group-key="${esc(gkey)}"
                    value="${esc(suggested)}" autocomplete="off"
                    oninput="ozonFbsCollectNameInput(this)" />
-            <p class="wb-fbs-collect-mgt-warn" id="ozonFbsCollectWarn_${esc(gkey)}" ${conflict ? "" : "hidden"}>
+            <p class="ozon-fbs-collect-warn" id="ozonFbsCollectWarn_${esc(gkey)}" ${conflict ? "" : "hidden"}>
               Поставка с таким названием уже есть — измените название.
             </p>
           </div>`;
@@ -2211,12 +2216,14 @@
         const match = (Array.isArray(g.compatible_supplies) ? g.compatible_supplies : [])
           .find((s) => String(s.supply_id || "") === sid);
         const sname = match ? String(match.name || sid) : sid;
-        inner = `<div class="wb-fbs-collect-mgt-auto">Будет добавлено в поставку «${esc(sname)}».</div>`;
+        inner = `<div class="ozon-fbs-collect-auto">Будет добавлено в поставку «${esc(sname)}».</div>`;
       }
       return `
-        <section class="wb-fbs-collect-mgt-group" data-group-key="${esc(gkey)}" data-mode="${esc(mode)}">
-          <h4 class="wb-fbs-collect-mgt-group-title">${esc(label)}</h4>
-          <p class="wb-fbs-collect-mgt-group-meta">${esc(metaParts.join(" · "))}</p>
+        <section class="ozon-fbs-collect-group" data-group-key="${esc(gkey)}" data-mode="${esc(mode)}">
+          <div class="ozon-fbs-collect-group-head">
+            <h4 class="ozon-fbs-collect-group-title">${esc(label)}</h4>
+            <p class="ozon-fbs-collect-group-meta">${esc(metaParts.join(" · "))}</p>
+          </div>
           ${inner}
         </section>`;
     }).join("");
