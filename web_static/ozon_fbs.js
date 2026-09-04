@@ -2791,10 +2791,32 @@
   }
 
 
+  function _ozonFbsFormatCargoQty(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return "0";
+    if (Math.abs(n - Math.round(n)) < 1e-9) return String(Math.round(n));
+    return n.toFixed(2).replace(".", ",");
+  }
+
+  /** Supply/GM cargo line: Товаров: N шт. | Паллет: X шт. | Коробов: Y шт. */
+  function _ozonFbsCargoSummaryText(summary) {
+    if (!summary || typeof summary !== "object") return "";
+    const products = Number(summary.products || 0);
+    const pallets = Number(summary.pallets || 0);
+    const boxes = Number(summary.boxes || 0);
+    const hasLegacy = !!String(summary.summary_label || summary.pallets_label || "").trim();
+    if (products <= 0 && !hasLegacy) return "";
+    return (
+      `Товаров: ${_ozonFbsFormatCargoQty(products)} шт. | `
+      + `Паллет: ${_ozonFbsFormatCargoQty(pallets)} шт. | `
+      + `Коробов: ${_ozonFbsFormatCargoQty(boxes)} шт.`
+    );
+  }
+
   function _ozonFbsRenderCargoSummary(elId, summary) {
     const el = document.getElementById(elId);
     if (!el) return;
-    const label = String(summary?.summary_label || summary?.pallets_label || "").trim();
+    const label = _ozonFbsCargoSummaryText(summary);
     if (!label) {
       el.hidden = true;
       el.innerHTML = "";
@@ -2823,11 +2845,12 @@
     if (renameBtn) renameBtn.hidden = !!readOnly;
     if (wh) wh.textContent = String(supply.warehouse_label || "—").trim() || "—";
     if (meta) {
-      meta.innerHTML = [
-        `<span class="wb-fbs-sd-chip">Отправлений ${esc(supply.order_count || 0)}</span>`,
-        sid ? `<span class="wb-fbs-sd-chip">ID ${esc(sid)}</span>` : "",
-      ].filter(Boolean).join("");
+      // order_count chip removed — cargo line already shows product count.
+      meta.innerHTML = sid
+        ? `<span class="wb-fbs-sd-chip">ID ${esc(sid)}</span>`
+        : "";
     }
+
     _ozonFbsRenderCargoSummary("ozonFbsSupplyDetailCargo", supply.cargo_summary);
     const allOrdersRaw = Array.isArray(supply.orders) ? supply.orders : [];
     // Modal-only: oldest orders on top. Print endpoints keep their own order.

@@ -48,8 +48,17 @@ def test_supply_and_gm_cargo_summary_markup() -> None:
     assert "wbFbsSupplyDetailCargo" in app_js
     assert "wbFbsCreateTrbxCargo" in app_js
     assert "function _ozonFbsRenderCargoSummary(" in ozon_js
+    assert "function _ozonFbsCargoSummaryText(" in ozon_js
+    assert "function _ozonFbsFormatCargoQty(" in ozon_js
+    assert "Товаров:" in ozon_js
+    assert "Паллет:" in ozon_js
+    assert "Коробов:" in ozon_js
+    assert " шт. | " in ozon_js
     assert "ozonFbsSupplyDetailCargo" in ozon_js
     assert "ozonFbsContainersCargo" in ozon_js
+    # Supply modal: no redundant «Отправлений N» chip under the title.
+    assert 'Отправлений ${esc(supply.order_count' not in ozon_js
+    assert "Отправлений ${" not in ozon_js
 
 
 def test_ozon_cargo_summary_inline_with_meta_and_title() -> None:
