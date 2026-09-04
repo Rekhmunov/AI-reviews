@@ -5289,6 +5289,8 @@
         source_id: String(sourceId),
         container_id: String(cid),
       });
+      const postingTab = String(supplyDetailState.postingTab || "").trim();
+      if (postingTab) params.set("posting_tab", postingTab);
       const preRes = await fetch(
         `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/containers/approve-precheck?${params}`,
         { headers: jsonHeaders() }

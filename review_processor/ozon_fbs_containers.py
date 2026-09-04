@@ -604,6 +604,7 @@ def build_approve_precheck(
     source_id: int,
     supply_id: str,
     container_id: int,
+    posting_tab: str | None = None,
 ) -> dict[str, Any]:
     """Local readiness check before confirming a cargo place.
 
@@ -611,6 +612,10 @@ def build_approve_precheck(
       (requires explicit force to approve).
     - ``has_unbound``: supply still has postings without any cargo place
       (warning only).
+
+    Counts use live active assembly postings (same rules as the supply detail),
+    not the stale ``posting_numbers_json`` snapshot — so refusals/cancelled that
+    already left the supply tab are not counted as «заказов в поставке».
     """
     try:
         cid = int(container_id)
@@ -618,14 +623,15 @@ def build_approve_precheck(
         raise ValueError("Некорректный container_id") from exc
     if cid <= 0:
         raise ValueError("Укажите ID грузоместа")
-    supply = oz_sup.get_supply(
-        repo, user_id=user_id, source_id=source_id, supply_id=str(supply_id)
+    sid = str(supply_id or "").strip()
+    tab_key = str(posting_tab or "").strip() or None
+    nums = oz_sup.list_active_supply_posting_numbers(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=sid,
+        posting_tab=tab_key,
     )
-    nums = [
-        str(x).strip()
-        for x in ((supply or {}).get("posting_numbers") or [])
-        if str(x).strip()
-    ]
     binds = load_container_bind_map(
         repo, user_id=user_id, source_id=source_id, posting_numbers=nums
     )
@@ -1366,6 +1372,49 @@ def get_supply_moved_to_delivering_at(
     return str(created).strip()
 
 
+def _active_local_order_counts_by_container(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+) -> dict[int, int]:
+    """Map container_id → count of non-cancelled supply postings bound locally."""
+    sid = str(supply_id or "").strip()
+    if not sid:
+        return {}
+    oz.ensure_ozon_fbs_tables(repo)
+    not_cancelled = oz.sql_exclude_cancelled_postings_clause()
+    out: dict[int, int] = {}
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT container_id, COUNT(*) AS order_count
+                FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                  AND COALESCE(container_id, 0) > 0
+                  AND ({not_cancelled})
+                GROUP BY container_id
+                """
+            ),
+            (int(user_id), int(source_id), sid),
+        ).fetchall()
+    for row in rows or []:
+        d = repo._row_to_dict(row) if not isinstance(row, dict) else row
+        try:
+            cid = int(d.get("container_id") or 0)
+        except (TypeError, ValueError):
+            cid = 0
+        if cid <= 0:
+            continue
+        try:
+            out[cid] = int(d.get("order_count") or 0)
+        except (TypeError, ValueError):
+            out[cid] = 0
+    return out
+
+
 def enrich_containers_for_supply_modal(
     repo: ReviewRepository,
     *,
@@ -1374,9 +1423,11 @@ def enrich_containers_for_supply_modal(
     supply_id: str,
     listed: dict[str, Any],
 ) -> dict[str, Any]:
-    """Cheap list enrichment: display dates + one supply-level delivering move time.
+    """List enrichment: dates, delivering move time, active local order counts.
 
-    Does not call Ozon beyond the already-fetched ``list`` payload.
+    ``order_count`` is rewritten from local non-cancelled binds so the column
+    matches the supply (Ozon ``count_of_postings`` often still includes refusals).
+    Original portal count is kept as ``order_count_ozon``.
     """
     moved_raw = get_supply_moved_to_delivering_at(
         repo,
@@ -1385,6 +1436,20 @@ def enrich_containers_for_supply_modal(
         supply_id=supply_id,
     )
     moved_display = oz.format_lookup_datetime(moved_raw) if moved_raw else ""
+    local_counts = _active_local_order_counts_by_container(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=supply_id,
+    )
+    active_supply_total = len(
+        oz_sup.list_active_supply_posting_numbers(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=str(supply_id or ""),
+        )
+    )
     items_in = listed.get("items") if isinstance(listed, dict) else None
     items: list[dict[str, Any]] = []
     if isinstance(items_in, list):
@@ -1400,11 +1465,26 @@ def enrich_containers_for_supply_modal(
             )
             row["moved_to_delivering_at"] = moved_raw
             row["moved_to_delivering_at_display"] = moved_display
+            try:
+                cid = int(row.get("container_id") or 0)
+            except (TypeError, ValueError):
+                cid = 0
+            try:
+                ozon_orders = int(row.get("order_count") or 0)
+            except (TypeError, ValueError):
+                ozon_orders = 0
+            row["order_count_ozon"] = max(0, ozon_orders)
+            if cid > 0 and cid in local_counts:
+                row["order_count"] = max(0, int(local_counts.get(cid) or 0))
+            elif cid > 0 and local_counts:
+                # Supply has local binds elsewhere — empty here means 0 active, not Ozon's stale count.
+                row["order_count"] = 0
             items.append(row)
     out = dict(listed) if isinstance(listed, dict) else {"ok": True, "items": []}
     out["items"] = items
     out["moved_to_delivering_at"] = moved_raw
     out["moved_to_delivering_at_display"] = moved_display
+    out["active_order_count"] = active_supply_total
     return out
 
 
@@ -1422,6 +1502,7 @@ def _list_local_container_postings(
     if cid <= 0:
         return []
     sid = str(supply_id or "").strip()
+    not_cancelled = oz.sql_exclude_cancelled_postings_clause()
     clauses = [
         "user_id = ?",
         "source_id = ?",
@@ -1431,6 +1512,7 @@ def _list_local_container_postings(
     if sid:
         clauses.append("supply_id = ?")
         params.append(sid)
+    clauses.append(f"({not_cancelled})")
     where = " AND ".join(clauses)
     with repo._connect() as conn:
         rows = conn.execute(
@@ -1704,6 +1786,16 @@ def build_container_modal_details(
         except Exception as exc:
             _log.warning("ozon container details get cid=%s: %s", cid, exc)
             ozon_fetch_ok = False
+
+    # Hide refusals/cancelled from composition so «Состав (N)» matches supply.
+    postings = [
+        p
+        for p in postings
+        if isinstance(p, dict)
+        and not oz.is_cancelled_posting(
+            status=p.get("status"), tab=p.get("tab")
+        )
+    ]
 
     created_display = oz.format_lookup_datetime(created_raw) if created_raw else ""
     warehouse_display = (

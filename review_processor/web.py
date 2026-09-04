@@ -14655,6 +14655,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(
                 status_code=400, detail="Укажите source_id и container_id"
             )
+        posting_tab = str(request.query_params.get("posting_tab") or "").strip() or None
         try:
             return oz_ct.build_approve_precheck(
                 repository,
@@ -14662,6 +14663,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 source_id=source_id,
                 supply_id=str(supply_id),
                 container_id=container_id,
+                posting_tab=posting_tab,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

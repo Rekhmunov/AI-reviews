@@ -234,19 +234,21 @@ def _supply_ids_with_tab(
 def _order_counts_by_supply_for_tab(
     repo: ReviewRepository, *, user_id: int, source_id: int, tab: str
 ) -> dict[str, int]:
-    """Map ``supply_id`` → posting count on a tab (same source as supply list cards)."""
+    """Map ``supply_id`` → active posting count on a tab (excludes cancelled)."""
     ensure_ozon_fbs_supply_schema(repo)
     tab_key = str(tab or "").strip()
     if not tab_key:
         return {}
+    not_cancelled = oz.sql_exclude_cancelled_postings_clause()
     with repo._connect() as conn:
         rows = conn.execute(
             repo._sql(
-                """
+                f"""
                 SELECT supply_id, COUNT(*) AS order_count
                 FROM ozon_fbs_postings
                 WHERE user_id = ? AND source_id = ? AND tab = ?
                   AND COALESCE(supply_id, '') != ''
+                  AND ({not_cancelled})
                 GROUP BY supply_id
                 """
             ),
@@ -2180,10 +2182,11 @@ def _build_supply_items_for_tab(
     tab_key = str(tab or "").strip()
     if not tab_key:
         return []
+    not_cancelled = oz.sql_exclude_cancelled_postings_clause()
     with repo._connect() as conn:
         groups = conn.execute(
             repo._sql(
-                """
+                f"""
                 SELECT supply_id,
                        COUNT(*) AS order_count,
                        MAX(warehouse_name) AS warehouse_name,
@@ -2192,6 +2195,7 @@ def _build_supply_items_for_tab(
                 FROM ozon_fbs_postings
                 WHERE user_id = ? AND source_id = ? AND tab = ?
                   AND COALESCE(supply_id, '') != ''
+                  AND ({not_cancelled})
                 GROUP BY supply_id
                 ORDER BY last_posting_at DESC NULLS LAST, supply_id DESC
                 """
@@ -2556,6 +2560,45 @@ def _assembly_posting_numbers_for_supply(
             ),
             (user_id, source_id, sid),
         ).fetchall()
+    for row in rows:
+        pn = str(row["posting_number"] if hasattr(row, "keys") else row[0]).strip()
+        if pn:
+            nums.append(pn)
+    return nums
+
+
+def list_active_supply_posting_numbers(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    posting_tab: str | None = None,
+) -> list[str]:
+    """Live assembly posting numbers for a supply, excluding cancelled/refused.
+
+    Matches what the supply detail / list show for workload (not the possibly
+    stale ``posting_numbers_json`` snapshot that may still list refusals).
+    """
+    ensure_ozon_fbs_supply_schema(repo)
+    sid = str(supply_id or "").strip()
+    if not sid:
+        return []
+    tab_key = str(posting_tab or "").strip() or None
+    not_cancelled = oz.sql_exclude_cancelled_postings_clause()
+    sql = f"""
+        SELECT posting_number FROM ozon_fbs_postings
+        WHERE user_id = ? AND source_id = ? AND supply_id = ?
+          AND ({not_cancelled})
+    """
+    params: list[Any] = [user_id, source_id, sid]
+    if tab_key:
+        sql += " AND tab = ?"
+        params.append(tab_key)
+    sql += " ORDER BY posting_number ASC"
+    nums: list[str] = []
+    with repo._connect() as conn:
+        rows = conn.execute(repo._sql(sql), tuple(params)).fetchall()
     for row in rows:
         pn = str(row["posting_number"] if hasattr(row, "keys") else row[0]).strip()
         if pn:
@@ -3159,12 +3202,14 @@ def get_supply_detail(
     cargo_summary = oz.compute_ozon_fbs_supply_cargo_summary(
         repo, user_id=user_id, orders=orders
     )
+    active_orders = _orders_excluding_cancelled(orders)
     return {
         "supply_id": supply.get("supply_id"),
         "name": supply.get("name"),
         "warehouse_label": supply.get("warehouse_name") or "—",
         "warehouse_id": supply.get("warehouse_id"),
-        "order_count": len(orders),
+        # Chip / header count = active only; cancelled rows stay in ``orders`` for UI.
+        "order_count": len(active_orders),
         "orders": orders,
         "source_id": source_id,
         "read_only": read_only,

@@ -371,8 +371,8 @@ def test_build_approve_precheck_flags_sync_errors_and_unbound() -> None:
     repo = MagicMock()
     with patch.object(
         ct.oz_sup,
-        "get_supply",
-        return_value={"posting_numbers": ["A-1", "B-1", "C-1", "D-1"]},
+        "list_active_supply_posting_numbers",
+        return_value=["A-1", "B-1", "C-1", "D-1"],
     ), patch.object(
         ct,
         "load_container_bind_map",
@@ -399,8 +399,8 @@ def test_build_approve_precheck_flags_sync_errors_and_unbound() -> None:
 
     with patch.object(
         ct.oz_sup,
-        "get_supply",
-        return_value={"posting_numbers": ["A-1", "B-1"]},
+        "list_active_supply_posting_numbers",
+        return_value=["A-1", "B-1"],
     ), patch.object(
         ct,
         "load_container_bind_map",
@@ -416,3 +416,78 @@ def test_build_approve_precheck_flags_sync_errors_and_unbound() -> None:
     assert clean["has_sync_errors"] is False
     assert clean["has_unbound"] is False
     assert clean["bound_to_container"] == 2
+
+
+def test_build_approve_precheck_excludes_cancelled_via_active_list() -> None:
+    """Refusals left in posting_numbers_json must not inflate supply totals."""
+    from unittest.mock import MagicMock, patch
+
+    repo = MagicMock()
+    with patch.object(
+        ct.oz_sup,
+        "list_active_supply_posting_numbers",
+        return_value=["A-1", "B-1", "C-1"],
+    ) as active_list, patch.object(
+        ct,
+        "load_container_bind_map",
+        return_value={
+            "A-1": {"container_id": 10, "container_sync_error": ""},
+            "B-1": {"container_id": 10, "container_sync_error": ""},
+            "C-1": {"container_id": 10, "container_sync_error": ""},
+        },
+    ):
+        out = ct.build_approve_precheck(
+            repo,
+            user_id=1,
+            source_id=2,
+            supply_id="S1",
+            container_id=10,
+            posting_tab="awaiting_deliver",
+        )
+    active_list.assert_called_once_with(
+        repo,
+        user_id=1,
+        source_id=2,
+        supply_id="S1",
+        posting_tab="awaiting_deliver",
+    )
+    assert out["total_orders"] == 3
+    assert out["bound_to_container"] == 3
+    assert out["unbound"] == 0
+    assert out["has_unbound"] is False
+
+
+def test_enrich_containers_rewrites_order_count_from_local_active() -> None:
+    from unittest.mock import MagicMock, patch
+
+    repo = MagicMock()
+    listed = {
+        "ok": True,
+        "items": [
+            {"container_id": 10, "order_count": 100},
+            {"container_id": 20, "order_count": 40},
+            {"container_id": 30, "order_count": 5},
+        ],
+    }
+    with patch.object(
+        ct, "get_supply_moved_to_delivering_at", return_value=""
+    ), patch.object(
+        ct,
+        "_active_local_order_counts_by_container",
+        return_value={10: 80, 20: 36},
+    ), patch.object(
+        ct.oz_sup,
+        "list_active_supply_posting_numbers",
+        return_value=["x"] * 116,
+    ):
+        out = ct.enrich_containers_for_supply_modal(
+            repo, user_id=1, source_id=2, supply_id="S1", listed=listed
+        )
+    by_id = {int(x["container_id"]): x for x in out["items"]}
+    assert by_id[10]["order_count"] == 80
+    assert by_id[10]["order_count_ozon"] == 100
+    assert by_id[20]["order_count"] == 36
+    assert by_id[30]["order_count"] == 0
+    assert out["active_order_count"] == 116
+
+
