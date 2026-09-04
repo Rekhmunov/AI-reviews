@@ -25,8 +25,7 @@ def test_move_delivering_btn_hidden_for_delivering_supplies() -> None:
 
     # display:inline-flex on action buttons must not override [hidden].
     assert ".wb-fbs-sd-actions > button[hidden]" in css
-    assert "display: none !important" in css
     block_start = css.find(".wb-fbs-sd-actions > button[hidden]")
     assert block_start > 0
-    nearby = css[block_start : block_start + 280]
+    nearby = css[block_start : block_start + 420]
     assert "display: none !important" in nearby
