@@ -222,33 +222,18 @@ def record_posting_scan(
         pick_val = str(row.get("pick_barcode") or "").strip()
     matched = matched_posting_numbers or ([pn] if pn else [])
     supply_val = str(supply_id or row.get("supply_id") or "").strip()
-    try:
-        item = insert_posting_scan(
-            repo,
-            user_id=user_id,
-            source_id=source_id,
-            payload={
-                "scan_type": scan_type,
-                "scan_raw": raw,
-                "posting_number": pn,
-                "order_id": row.get("order_id") if row else None,
-                "order_number": str(row.get("order_number") or sticker.get("order_number") or ""),
-                "supply_id": supply_val,
-                "sticker_barcode": str(
-                    sticker.get("sticker_barcode") or raw
-                ).strip(),
-                "sticker_part_a": str(sticker.get("sticker_part_a") or "").strip(),
-                "sticker_part_b": str(sticker.get("sticker_part_b") or "").strip(),
-                "kiz_code": kiz_val,
-                "pick_barcode": pick_val,
-                "matched_posting_numbers": matched,
-                "product_name": str(row.get("product_name") or "").strip(),
-                "offer_id": str(row.get("offer_id") or "").strip(),
-            },
-        )
-    except Exception as exc:
-        _log.warning("ozon posting scan journal: %s", exc)
-        return None
+    # Persistent ozon_fbs_posting_scans journal removed from UI — do not grow the table.
+    # Keep ops-log (gear) so operators still see scan history with lookback retention.
+    item = {
+        "scan_type": str(scan_type or "").strip(),
+        "scan_raw": raw,
+        "posting_number": pn,
+        "supply_id": supply_val,
+        "sticker_barcode": str(sticker.get("sticker_barcode") or raw).strip(),
+        "kiz_code": kiz_val,
+        "pick_barcode": pick_val,
+        "matched_posting_numbers": matched,
+    }
     try:
         from . import ozon_fbs_ops_log as ops_log
 
