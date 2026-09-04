@@ -693,13 +693,29 @@ class OzonFbsClient:
         return []
 
 
+# FBS posting ``status`` values from Seller API (/v3/posting/fbs/*).
+# Container (грузоместо) statuses live in ozon_fbs_containers.status_label —
+# do not reuse those wording here (e.g. acceptance_in_progress ≠ «Принято на СЦ»).
 _OZON_LABEL_STATUS_RU: dict[str, str] = {
+    # Working tabs (our product wording).
     TAB_AWAITING_PACKAGING: "Ожидает сборки",
     TAB_AWAITING_DELIVER: "Ожидает отгрузки",
     TAB_DELIVERING: "Доставляется",
     TAB_DELIVERED: "Доставлено",
     TAB_CANCELLED: "Отменено",
     TAB_ARBITRATION: "Арбитраж",
+    # Early / registration lifecycle.
+    "awaiting_registration": "Ожидает регистрации",
+    "acceptance_in_progress": "Идёт приёмка",
+    "awaiting_approve": "Ожидает подтверждения",
+    # Official aliases / adjacent statuses.
+    "awaiting_packaging": "Ожидает сборки",
+    "awaiting_deliver": "Ожидает отгрузки",
+    "client_arbitration": "Клиентский арбитраж",
+    "driver_pickup": "У водителя",
+    "not_accepted": "Не принято на СЦ",
+    "sent_by_seller": "Отправлено продавцом",
+    "cancelled_from_split_pending": "Отменено (разделение)",
 }
 
 
@@ -2391,7 +2407,7 @@ def list_postings(
             fs = str(first.get("sku") or "").strip()
             d["product_photo"] = photo_map.get(fa) or photo_map.get(fs) or ""
         d["tab_label"] = TAB_LABELS.get(str(d.get("tab") or ""), str(d.get("tab") or ""))
-        d["status_label"] = str(d.get("status") or "")
+        d["status_label"] = ozon_status_label_ru(d.get("status"))
         try:
             stored_barcodes = json.loads(d.get("barcodes_json") or "[]")
         except json.JSONDecodeError:
@@ -2513,7 +2529,7 @@ def _enrich_posting_list_item(
         fs = str(first.get("sku") or "").strip()
         d["product_photo"] = photos.get(fa) or photos.get(fs) or ""
     d["tab_label"] = TAB_LABELS.get(str(d.get("tab") or ""), str(d.get("tab") or ""))
-    d["status_label"] = str(d.get("status") or "")
+    d["status_label"] = ozon_status_label_ru(d.get("status"))
     try:
         stored_barcodes = json.loads(d.get("barcodes_json") or "[]")
     except json.JSONDecodeError:
