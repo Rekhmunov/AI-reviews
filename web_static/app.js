@@ -28206,21 +28206,22 @@ function _wbFbsAutoRefreshSplitTones() {
   const needsKiz = orders.some((o) => o && o.kiz_required);
   const needsPick = orders.some((o) => o && !o.kiz_required);
   if (!needsKiz && !needsPick) return;
-  void (async () => {
-    try {
-      // Sequential: kiz refresh re-renders detail; pick API tone must win after.
-      if (needsKiz) await refreshWbFbsKizStatus(null, { silent: true });
-      if (
-        needsPick
-        && String(wbFbsDetailState.supplyId || "") === sid
-        && _wbFbsSupplyDetailActionsReady()
-      ) {
-        await refreshWbFbsPickVerifyStatus(null, { silent: true });
-      }
-    } catch (_) {
-      /* silent — manual «Обновить» still available */
-    }
-  })();
+  // Parallel + silent: no spinner / no full re-render — open stays snappy.
+  const tasks = [];
+  if (needsKiz) tasks.push(refreshWbFbsKizStatus(null, { silent: true }));
+  if (needsPick) tasks.push(refreshWbFbsPickVerifyStatus(null, { silent: true }));
+  void Promise.all(tasks).catch(() => {});
+}
+
+function _wbFbsStatusCooldownOk(kind, ms) {
+  const key = kind === "pick" ? "_pickStatusAt" : "_kizStatusAt";
+  const at = Number(wbFbsDetailState[key] || 0);
+  return !at || (Date.now() - at) >= (ms || 1500);
+}
+
+function _wbFbsStatusCooldownTouch(kind) {
+  const key = kind === "pick" ? "_pickStatusAt" : "_kizStatusAt";
+  wbFbsDetailState[key] = Date.now();
 }
 
 function _wbFbsKizClearOrderFields(order) {
@@ -28290,11 +28291,13 @@ async function refreshWbFbsKizStatus(event, opts) {
   wbFbsKizState.statusRefreshGen = refreshGen;
   wbFbsKizState.statusRefreshing = true;
   wbFbsKizState.statusRefreshQueued = false;
-  if (refreshBtn) {
-    refreshBtn.disabled = true;
-    refreshBtn.classList.add("is-spinning");
+  if (!silent) {
+    if (refreshBtn) {
+      refreshBtn.disabled = true;
+      refreshBtn.classList.add("is-spinning");
+    }
+    if (kizBtn) kizBtn.disabled = true;
   }
-  if (kizBtn) kizBtn.disabled = true;
   try {
     const params = new URLSearchParams({ source_id: String(wbFbsState.sourceId) });
     const res = await fetch(
@@ -28307,13 +28310,16 @@ async function refreshWbFbsKizStatus(event, opts) {
     if (wbFbsDetailState.supplyId !== sid) return;
     if (wbFbsKizState.statusRefreshGen !== refreshGen) return;
     _wbFbsKizMergeStatusIntoDetail(data.orders || []);
-    const info = document.getElementById("wbFbsSupplyDetailInfo");
-    if (info) {
-      info.hidden = true;
-      info.textContent = "";
+    if (!silent) {
+      const info = document.getElementById("wbFbsSupplyDetailInfo");
+      if (info) {
+        info.hidden = true;
+        info.textContent = "";
+      }
+      // Manual refresh: full re-render then tone.
+      if (wbFbsDetailState.supply) renderWbFbsSupplyDetail(wbFbsDetailState.supply);
     }
-    // Render first, then apply tone — render must not wipe the refresh color.
-    if (wbFbsDetailState.supply) renderWbFbsSupplyDetail(wbFbsDetailState.supply);
+    _wbFbsStatusCooldownTouch("kiz");
     _wbFbsKizSplitSetTone(data.status);
   } catch (e) {
     if (
@@ -28816,8 +28822,10 @@ async function closeWbFbsKizModal(opts) {
   _wbFbsKizResetFilters();
   _wbFbsKizSetFiltersReady(false);
   _wbFbsKizSetInfo("");
-  // Re-check after autosaves — same rules as «Обновить».
-  void refreshWbFbsKizStatus(null, { silent: true });
+  // Skip if save/open just refreshed (avoid double network on close).
+  if (_wbFbsStatusCooldownOk("kiz")) {
+    void refreshWbFbsKizStatus(null, { silent: true });
+  }
   return true;
 }
 window.closeWbFbsKizModal = closeWbFbsKizModal;
@@ -30100,11 +30108,13 @@ async function refreshWbFbsPickVerifyStatus(event, opts) {
   wbFbsPickState.statusRefreshGen = refreshGen;
   wbFbsPickState.statusRefreshing = true;
   wbFbsPickState.statusRefreshQueued = false;
-  if (refreshBtn) {
-    refreshBtn.disabled = true;
-    refreshBtn.classList.add("is-spinning");
+  if (!silent) {
+    if (refreshBtn) {
+      refreshBtn.disabled = true;
+      refreshBtn.classList.add("is-spinning");
+    }
+    if (pickBtn) pickBtn.disabled = true;
   }
-  if (pickBtn) pickBtn.disabled = true;
   try {
     const params = new URLSearchParams({ source_id: String(wbFbsState.sourceId) });
     const res = await fetch(
@@ -30116,6 +30126,7 @@ async function refreshWbFbsPickVerifyStatus(event, opts) {
     }
     if (wbFbsDetailState.supplyId !== sid) return;
     if (wbFbsPickState.statusRefreshGen !== refreshGen) return;
+    _wbFbsStatusCooldownTouch("pick");
     const st = String(data.status || "");
     if (st === "ok") {
       _wbFbsPickSplitSetTone("ok");
@@ -30322,8 +30333,10 @@ async function closeWbFbsPickVerifyModal(opts) {
   _wbFbsPickResetFilters();
   _wbFbsPickSetFiltersReady(false);
   _wbFbsPickSetInfo("");
-  // Re-check after autosaves / edits — same rules as «Обновить».
-  void refreshWbFbsPickVerifyStatus(null, { silent: true });
+  // Skip if save/open just refreshed (avoid double network on close).
+  if (_wbFbsStatusCooldownOk("pick")) {
+    void refreshWbFbsPickVerifyStatus(null, { silent: true });
+  }
   return true;
 }
 window.closeWbFbsPickVerifyModal = closeWbFbsPickVerifyModal;

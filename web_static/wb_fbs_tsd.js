@@ -3975,11 +3975,13 @@
     const refreshBtn = document.getElementById("tsdPickRefreshBtn");
     const pickBtn = document.getElementById("tsdTilePick");
     state.pickStatusRefreshing = true;
-    if (refreshBtn) {
-      refreshBtn.disabled = true;
-      refreshBtn.classList.add("is-spinning");
+    if (!silent) {
+      if (refreshBtn) {
+        refreshBtn.disabled = true;
+        refreshBtn.classList.add("is-spinning");
+      }
+      if (pickBtn) pickBtn.disabled = true;
     }
-    if (pickBtn) pickBtn.disabled = true;
     try {
       const params = new URLSearchParams({ source_id: String(state.sourceId) });
       const data = await api(
@@ -4024,11 +4026,13 @@
     const refreshBtn = document.getElementById("tsdKizRefreshBtn");
     const kizBtn = document.getElementById("tsdTileKiz");
     state.kizStatusRefreshing = true;
-    if (refreshBtn) {
-      refreshBtn.disabled = true;
-      refreshBtn.classList.add("is-spinning");
+    if (!silent) {
+      if (refreshBtn) {
+        refreshBtn.disabled = true;
+        refreshBtn.classList.add("is-spinning");
+      }
+      if (kizBtn) kizBtn.disabled = true;
     }
-    if (kizBtn) kizBtn.disabled = true;
     try {
       const params = new URLSearchParams({ source_id: String(state.sourceId) });
       const data = await api(
@@ -4061,20 +4065,11 @@
   function autoRefreshHubTones({ kizDisabled = false, pickDisabled = false } = {}) {
     const sid = String(state.route.supplyId || (state.supply && state.supply.supply_id) || "").trim();
     if (!sid || !state.sourceId || state.route.view !== "hub") return;
-    void (async () => {
-      try {
-        if (!kizDisabled) await refreshHubKizStatus(null, { silent: true });
-        if (
-          !pickDisabled
-          && String(state.route.supplyId || "") === sid
-          && state.route.view === "hub"
-        ) {
-          await refreshHubPickStatus(null, { silent: true });
-        }
-      } catch (_) {
-        /* silent — manual refresh still available */
-      }
-    })();
+    // Parallel silent checks — hub stays interactive, no sequential wait.
+    const tasks = [];
+    if (!kizDisabled) tasks.push(refreshHubKizStatus(null, { silent: true }));
+    if (!pickDisabled) tasks.push(refreshHubPickStatus(null, { silent: true }));
+    void Promise.all(tasks).catch(() => {});
   }
 
   function renderHub() {

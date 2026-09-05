@@ -25,6 +25,9 @@ def test_ozon_pc_auto_refresh_split_tones() -> None:
     html = APP_HTML.read_text(encoding="utf-8")
 
     assert "function _ozonFbsAutoRefreshSplitTones" in js
+    assert "Promise.all(tasks)" in js
+    assert "if (!silent && refreshBtn)" in js
+    assert "_ozonFbsStatusCooldownOk" in js
     assert "refreshOzonFbsMarkingStatus(null, { silent: true })" in js
     assert "refreshOzonFbsPickVerifyStatus(null, { silent: true })" in js
     assert "async function refreshOzonFbsMarkingStatus(event, opts)" in js
@@ -56,7 +59,7 @@ def test_ozon_pc_auto_refresh_split_tones() -> None:
     assert "refreshOzonFbsPickVerifyStatus(null, { silent: true })" in save_pick
     assert "statusRefreshQueued" in js
 
-    assert "ozon_fbs.js?v=125" in html
+    assert "ozon_fbs.js?v=126" in html
 
 
 def test_wb_pc_auto_refresh_split_tones() -> None:
@@ -64,6 +67,8 @@ def test_wb_pc_auto_refresh_split_tones() -> None:
     html = APP_HTML.read_text(encoding="utf-8")
 
     assert "function _wbFbsAutoRefreshSplitTones" in js
+    assert "Promise.all(tasks)" in js
+    assert "_wbFbsStatusCooldownOk" in js
     assert "refreshWbFbsKizStatus(null, { silent: true })" in js
     assert "refreshWbFbsPickVerifyStatus(null, { silent: true })" in js
     assert "async function refreshWbFbsKizStatus(event, opts)" in js
@@ -94,7 +99,7 @@ def test_wb_pc_auto_refresh_split_tones() -> None:
     assert "refreshWbFbsPickVerifyStatus(null, { silent: true })" in save_pick
     assert "statusRefreshQueued" in js
 
-    assert "app.js?v=538" in html
+    assert "app.js?v=539" in html
 
 
 def test_tsd_hub_auto_refresh_tones() -> None:
@@ -102,9 +107,10 @@ def test_tsd_hub_auto_refresh_tones() -> None:
     html = TSD_HTML.read_text(encoding="utf-8")
 
     assert "function autoRefreshHubTones" in js
+    assert "Promise.all(tasks)" in js
     assert "refreshHubKizStatus(null, { silent: true })" in js
     assert "refreshHubPickStatus(null, { silent: true })" in js
     assert "async function refreshHubKizStatus(event, opts)" in js
     assert "async function refreshHubPickStatus(event, opts)" in js
     assert "autoRefreshHubTones({ kizDisabled, pickDisabled })" in js
-    assert "wb_fbs_tsd.js?v=74" in html
+    assert "wb_fbs_tsd.js?v=75" in html
