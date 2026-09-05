@@ -13520,6 +13520,73 @@ button.wb-fbs-kiz-add:disabled {
 .sb-movements-qty.is-zero {
   color: #334155;
 }
+
+/* Остатки → Сформировать на дату → Движение товаров (period journal) */
+#supplyBalancesTable.sb-movements-report-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+#supplyBalancesTable.sb-movements-report-table .sb-mov-col-date {
+  width: 88px;
+}
+#supplyBalancesTable.sb-movements-report-table .sb-mov-col-item {
+  width: 36%;
+}
+#supplyBalancesTable.sb-movements-report-table .sb-mov-col-kind {
+  width: 140px;
+}
+#supplyBalancesTable.sb-movements-report-table .sb-mov-col-qty {
+  width: 104px;
+}
+#supplyBalancesTable.sb-movements-report-table .sb-mov-col-comment {
+  width: auto;
+}
+#supplyBalancesTable.sb-movements-report-table th,
+#supplyBalancesTable.sb-movements-report-table td {
+  vertical-align: top;
+  padding: 12px 12px;
+}
+#supplyBalancesTable.sb-movements-report-table .sb-mov-date {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: #0f172a;
+  font-weight: 600;
+}
+#supplyBalancesTable.sb-movements-report-table .sb-mov-name {
+  font-weight: 600;
+  color: #0f172a;
+  line-height: 1.35;
+}
+#supplyBalancesTable.sb-movements-report-table .sb-mov-meta {
+  margin-top: 4px;
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.35;
+}
+#supplyBalancesTable.sb-movements-report-table .sb-mov-kind {
+  color: #334155;
+}
+#supplyBalancesTable.sb-movements-report-table .sb-mov-qty {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+#supplyBalancesTable.sb-movements-report-table .sb-mov-qty.is-pos {
+  color: #047857;
+}
+#supplyBalancesTable.sb-movements-report-table .sb-mov-qty.is-neg {
+  color: #b91c1c;
+}
+#supplyBalancesTable.sb-movements-report-table .sb-mov-qty.is-zero {
+  color: #334155;
+}
+#supplyBalancesTable.sb-movements-report-table .sb-mov-comment {
+  color: #475569;
+  font-size: 14px;
+  line-height: 1.4;
+  word-break: break-word;
+}
 .supply-balances-table .sb-unit {
   color: #64748b;
   font-size: 14px;
@@ -13941,6 +14008,23 @@ button.wb-fbs-kiz-add:disabled {
   }
   .sb-movements-qty {
     justify-self: start;
+  }
+  #supplyBalancesTable.sb-movements-report-table {
+    table-layout: auto;
+    min-width: 640px;
+  }
+  #supplyBalancesTable.sb-movements-report-table th,
+  #supplyBalancesTable.sb-movements-report-table td {
+    padding: 12px 8px;
+  }
+  #supplyBalancesTable.sb-movements-report-table .sb-mov-col-date {
+    width: 72px;
+  }
+  #supplyBalancesTable.sb-movements-report-table .sb-mov-col-kind {
+    width: 120px;
+  }
+  #supplyBalancesTable.sb-movements-report-table .sb-mov-col-qty {
+    width: 88px;
   }
   .sb-doc-fields-search-end {
     flex-direction: column;
