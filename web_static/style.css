@@ -8868,6 +8868,9 @@ button.ozon-fbs-ship-all-btn:disabled {
   color: #475569;
   line-height: 1.45;
 }
+.ozon-fbs-collect-lead[hidden] {
+  display: none !important;
+}
 .ozon-fbs-collect-body {
   display: flex;
   flex-direction: column;
@@ -8964,8 +8967,8 @@ button.ozon-fbs-ship-all-btn:disabled {
 }
 .ozon-fbs-collect-supply {
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
+  flex-direction: column;
+  gap: 4px;
   margin: 0;
   padding: 12px;
   border: 1px solid #e2e8f0;
@@ -8986,8 +8989,14 @@ button.ozon-fbs-ship-all-btn:disabled {
   border-color: #005bff;
   box-shadow: 0 0 0 3px rgba(0, 91, 255, 0.16);
 }
+.ozon-fbs-collect-supply-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
 .ozon-fbs-collect-supply input[type="radio"] {
-  margin: 2px 0 0;
+  margin: 0;
   flex: 0 0 auto;
   width: 16px;
   height: 16px;
@@ -9004,10 +9013,12 @@ button.ozon-fbs-ship-all-btn:disabled {
   font-size: 15px;
   font-weight: 600;
   color: #0f172a;
-  line-height: 1.35;
+  line-height: 20px;
   word-break: break-word;
+  min-width: 0;
 }
 .ozon-fbs-collect-supply-meta {
+  margin: 0 0 0 28px;
   font-size: 14px;
   color: #64748b;
   line-height: 1.35;
