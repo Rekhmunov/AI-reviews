@@ -492,9 +492,12 @@
         info.hidden = false;
         info.textContent =
           "Состав поставки изменению не подлежит — отправления уже в доставке.";
+        info.classList.remove("is-ok");
+        info.classList.add("is-warn");
       } else {
         info.hidden = true;
         info.textContent = "";
+        info.classList.remove("is-ok", "is-warn");
       }
     }
     // Delivering: KIZ/pick stay as green status tones but must not open editors.
