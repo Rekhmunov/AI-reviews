@@ -13664,47 +13664,44 @@ class ReviewRepository:
         After opening/adjustment the physical count already includes goods that
         left with open deliveries — those order ids must not auto-ship later.
         New orders (not settled) still ship on enter delivery/finished.
+
+        Uses one INSERT…SELECT (not per-order inserts) so adjustment save stays
+        fast even with thousands of historical delivery/finished orders.
         """
         now = _utc_now()
         reason_s = str(reason or "adjustment").strip() or "adjustment"
-        settled = 0
+        uid = int(user_id)
+        pid = int(production_id)
         with self._connect() as conn:
             self._ensure_supply_balances_tables(conn)
             try:
-                rows = conn.execute(
+                cur = conn.execute(
                     self._sql(
                         """
-                        SELECT order_id FROM wb_fbs_orders
-                        WHERE user_id = ?
-                          AND is_archive = FALSE
-                          AND tab IN ('delivery', 'finished')
+                        INSERT INTO supply_stock_fbs_settled
+                            (user_id, order_id, production_id, settled_at, reason)
+                        SELECT ?, o.order_id, ?, ?, ?
+                        FROM wb_fbs_orders o
+                        WHERE o.user_id = ?
+                          AND o.is_archive = FALSE
+                          AND o.tab IN ('delivery', 'finished')
+                          AND o.order_id IS NOT NULL
+                          AND o.order_id > 0
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM supply_stock_fbs_settled s
+                              WHERE s.user_id = ?
+                                AND s.order_id = o.order_id
+                          )
+                        ON CONFLICT (user_id, order_id) DO NOTHING
                         """
                     ),
-                    (user_id,),
-                ).fetchall()
+                    (uid, pid, now, reason_s, uid, uid),
+                )
             except Exception:
                 # wb_fbs_orders may be absent in some environments/tests
                 return 0
-            for r in rows:
-                d = self._row_to_dict(r)
-                try:
-                    oid = int(d.get("order_id") or 0)
-                except (TypeError, ValueError):
-                    continue
-                if oid <= 0:
-                    continue
-                cur = conn.execute(
-                    self._sql(
-                        "INSERT INTO supply_stock_fbs_settled "
-                        "(user_id, order_id, production_id, settled_at, reason) "
-                        "VALUES (?, ?, ?, ?, ?) "
-                        "ON CONFLICT (user_id, order_id) DO NOTHING"
-                    ),
-                    (user_id, oid, int(production_id), now, reason_s),
-                )
-                if int(getattr(cur, "rowcount", 0) or 0) > 0:
-                    settled += 1
-        return settled
+            return max(0, int(getattr(cur, "rowcount", 0) or 0))
 
     def is_wb_fbs_order_stock_settled(
         self, conn, *, user_id: int, order_id: int
@@ -13942,42 +13939,42 @@ class ReviewRepository:
         production_id: int,
         reason: str = "adjustment",
     ) -> int:
-        """Freeze delivering/delivered Ozon FBS postings after stock opening/adjustment."""
+        """Freeze delivering/delivered Ozon FBS postings after stock opening/adjustment.
+
+        One INSERT…SELECT — same reason as WB settle (avoid N round-trips on save).
+        """
         now = _utc_now()
         reason_s = str(reason or "adjustment").strip() or "adjustment"
-        settled = 0
+        uid = int(user_id)
+        pid = int(production_id)
         with self._connect() as conn:
             self._ensure_supply_balances_tables(conn)
             try:
-                rows = conn.execute(
-                    self._sql(
-                        """
-                        SELECT posting_number FROM ozon_fbs_postings
-                        WHERE user_id = ?
-                          AND tab IN ('delivering', 'delivered')
-                        """
-                    ),
-                    (user_id,),
-                ).fetchall()
-            except Exception:
-                return 0
-            for r in rows:
-                d = self._row_to_dict(r)
-                pn = str(d.get("posting_number") or "").strip()
-                if not pn:
-                    continue
                 cur = conn.execute(
                     self._sql(
-                        "INSERT INTO supply_stock_ozon_fbs_settled "
-                        "(user_id, posting_number, production_id, settled_at, reason) "
-                        "VALUES (?, ?, ?, ?, ?) "
-                        "ON CONFLICT (user_id, posting_number) DO NOTHING"
+                        """
+                        INSERT INTO supply_stock_ozon_fbs_settled
+                            (user_id, posting_number, production_id, settled_at, reason)
+                        SELECT ?, o.posting_number, ?, ?, ?
+                        FROM ozon_fbs_postings o
+                        WHERE o.user_id = ?
+                          AND o.tab IN ('delivering', 'delivered')
+                          AND o.posting_number IS NOT NULL
+                          AND TRIM(o.posting_number) <> ''
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM supply_stock_ozon_fbs_settled s
+                              WHERE s.user_id = ?
+                                AND s.posting_number = o.posting_number
+                          )
+                        ON CONFLICT (user_id, posting_number) DO NOTHING
+                        """
                     ),
-                    (user_id, pn, int(production_id), now, reason_s),
+                    (uid, pid, now, reason_s, uid, uid),
                 )
-                if int(getattr(cur, "rowcount", 0) or 0) > 0:
-                    settled += 1
-        return settled
+            except Exception:
+                return 0
+            return max(0, int(getattr(cur, "rowcount", 0) or 0))
 
     def reconcile_ozon_fbs_stock_postings(
         self,

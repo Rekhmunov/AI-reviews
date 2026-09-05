@@ -338,14 +338,10 @@ def test_settle_open_wb_fbs_orders_inserts_unique() -> None:
     repo = ReviewRepository.__new__(ReviewRepository)
     repo._sql = lambda q: q  # type: ignore[method-assign]
     repo._ensure_supply_balances_tables = lambda conn: None  # type: ignore[method-assign]
-    repo._row_to_dict = lambda r: dict(r)  # type: ignore[method-assign]
     executed: list[str] = []
 
     class _Cur:
-        rowcount = 1
-
-        def fetchall(self):
-            return [{"order_id": 5}, {"order_id": 6}]
+        rowcount = 2
 
     class _Conn:
         def __enter__(self):
@@ -363,7 +359,44 @@ def test_settle_open_wb_fbs_orders_inserts_unique() -> None:
         repo, user_id=1, production_id=3, reason="opening"
     )
     assert n == 2
-    assert any("supply_stock_fbs_settled" in s and "INSERT" in s for s in executed)
+    assert len(executed) == 1
+    sql = executed[0]
+    assert "INSERT INTO supply_stock_fbs_settled" in sql
+    assert "SELECT" in sql
+    assert "wb_fbs_orders" in sql
+    assert "ON CONFLICT" in sql
+
+
+def test_settle_open_ozon_fbs_postings_bulk_insert() -> None:
+    repo = ReviewRepository.__new__(ReviewRepository)
+    repo._sql = lambda q: q  # type: ignore[method-assign]
+    repo._ensure_supply_balances_tables = lambda conn: None  # type: ignore[method-assign]
+    executed: list[str] = []
+
+    class _Cur:
+        rowcount = 5
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def execute(self, sql, params=()):
+            executed.append(str(sql))
+            return _Cur()
+
+    repo._connect = lambda: _Conn()  # type: ignore[method-assign]
+    n = ReviewRepository.settle_open_ozon_fbs_postings_for_stock(
+        repo, user_id=1, production_id=3, reason="adjustment"
+    )
+    assert n == 5
+    assert len(executed) == 1
+    sql = executed[0]
+    assert "INSERT INTO supply_stock_ozon_fbs_settled" in sql
+    assert "ozon_fbs_postings" in sql
+    assert "SELECT" in sql
 
 
 def test_parse_supply_balance_min_qty() -> None:

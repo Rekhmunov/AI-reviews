@@ -19400,9 +19400,11 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         if not lines:
             raise HTTPException(status_code=400, detail="Добавьте позиции")
         _reject_hidden_stock_lines(owner_id, lines)
+        t0 = time.perf_counter()
         current = repository.sum_supply_stock_balances(
             user_id=owner_id, production_id=pid, as_of=date_s
         )
+        t_balances = time.perf_counter()
         import uuid as _uuid
 
         items: list[dict[str, object]] = []
@@ -19426,25 +19428,43 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             if line.get("comment"):
                 row_out["comment"] = str(line.get("comment") or "")
             items.append(row_out)
-        if not items:
-            # Still freeze current FBS deliveries: user confirmed the on-hand figure.
-            settled = 0
+
+        def _settle_fbs() -> int:
+            settled_n = 0
             try:
-                settled = repository.settle_open_wb_fbs_orders_for_stock(
+                settled_n = repository.settle_open_wb_fbs_orders_for_stock(
                     user_id=owner_id,
                     production_id=pid,
                     reason=mode,
                 )
             except Exception:
-                settled = 0
+                settled_n = 0
             try:
-                settled += repository.settle_open_ozon_fbs_postings_for_stock(
+                settled_n += repository.settle_open_ozon_fbs_postings_for_stock(
                     user_id=owner_id,
                     production_id=pid,
                     reason=mode,
                 )
             except Exception:
                 pass
+            return settled_n
+
+        if not items:
+            # Still freeze current FBS deliveries: user confirmed the on-hand figure.
+            t_save = time.perf_counter()
+            settled = _settle_fbs()
+            t_end = time.perf_counter()
+            _log.info(
+                "supply_stock_adjustment owner=%s mode=%s lines=%s saved=0 "
+                "fbs_settled=%s balances_ms=%.0f save_ms=0 settle_ms=%.0f total_ms=%.0f",
+                owner_id,
+                mode,
+                len(lines),
+                settled,
+                (t_balances - t0) * 1000,
+                (t_end - t_save) * 1000,
+                (t_end - t0) * 1000,
+            )
             return {
                 "ok": True,
                 "saved": 0,
@@ -19463,25 +19483,24 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             comment=str(payload.comment or "").strip(),
             created_by=int(user.get("id") or 0) or None,
         )
+        t_save = time.perf_counter()
         # Physical count after correction already includes open deliveries —
         # freeze those FBS order ids so sync will not deduct them again.
-        settled = 0
-        try:
-            settled = repository.settle_open_wb_fbs_orders_for_stock(
-                user_id=owner_id,
-                production_id=pid,
-                reason=mode,
-            )
-        except Exception:
-            settled = 0
-        try:
-            settled += repository.settle_open_ozon_fbs_postings_for_stock(
-                user_id=owner_id,
-                production_id=pid,
-                reason=mode,
-            )
-        except Exception:
-            pass
+        settled = _settle_fbs()
+        t_end = time.perf_counter()
+        _log.info(
+            "supply_stock_adjustment owner=%s mode=%s lines=%s saved=%s "
+            "fbs_settled=%s balances_ms=%.0f save_ms=%.0f settle_ms=%.0f total_ms=%.0f",
+            owner_id,
+            mode,
+            len(lines),
+            saved,
+            settled,
+            (t_balances - t0) * 1000,
+            (t_save - t_balances) * 1000,
+            (t_end - t_save) * 1000,
+            (t_end - t0) * 1000,
+        )
         return {
             "ok": True,
             "saved": saved,
