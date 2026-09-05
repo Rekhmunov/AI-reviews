@@ -30,4 +30,4 @@ def test_receipt_scan_autofocus_skips_touch() -> None:
 
 def test_style_cache_bump() -> None:
     assert "style.css?v=305" in APP_HTML
-    assert "app.js?v=549" in APP_HTML
+    assert "app.js?v=550" in APP_HTML

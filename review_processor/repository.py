@@ -13338,7 +13338,7 @@ class ReviewRepository:
         production_id: int,
         item_type: str,
         item_id: int,
-        limit: int = 100,
+        limit: int = 1000,
     ) -> list[dict[str, Any]]:
         """Recent ledger rows for one catalog item (newest first)."""
         itype = str(item_type or "").strip().lower()
@@ -13352,7 +13352,7 @@ class ReviewRepository:
             return []
         if iid <= 0 or pid <= 0:
             return []
-        lim = max(1, min(lim, 200))
+        lim = max(1, min(lim, 2000))
         with self._connect() as conn:
             self._ensure_supply_balances_tables(conn)
             rows = conn.execute(

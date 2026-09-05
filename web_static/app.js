@@ -15918,7 +15918,8 @@ async function openSupplyStockMovementsModal(itemType, itemId) {
     const params = new URLSearchParams({
       item_type: itype,
       item_id: String(iid),
-      limit: "100",
+      // High-volume FBS items can exceed 100 rows in 1–2 days; keep a deep window.
+      limit: "1000",
     });
     if (pid) params.set("production_id", String(pid));
     const res = await fetch(`/api/supply-balances/movements?${params.toString()}`);
@@ -15937,7 +15938,10 @@ async function openSupplyStockMovementsModal(itemType, itemId) {
     const balText = _sbQtyText(data.balance);
     if (title) title.textContent = name || "Журнал движений";
     if (lead) {
-      lead.textContent = `Текущий остаток: ${balText} ${unit}. Дни свёрнуты — раскройте, чтобы увидеть движения.`;
+      const truncNote = data.truncated
+        ? ` Показаны последние ${Array.isArray(data.items) ? data.items.length : 0} записей.`
+        : "";
+      lead.textContent = `Текущий остаток: ${balText} ${unit}. Дни свёрнуты — раскройте, чтобы увидеть движения.${truncNote}`;
     }
     const items = Array.isArray(data.items) ? data.items : [];
     if (!items.length) {

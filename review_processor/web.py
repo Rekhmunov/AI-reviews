@@ -19789,7 +19789,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         production_id: int = 0,
         item_type: str = "",
         item_id: int = 0,
-        limit: int = 100,
+        limit: int = 1000,
     ) -> dict[str, object]:
         """Read-only ledger journal for one Остатки row."""
         user = _require_user(request)
@@ -19816,10 +19816,10 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         if pid <= 0 or pid not in prod_ids:
             pid = int(prods[0]["id"])
         try:
-            lim = int(limit or 100)
+            lim = int(limit or 1000)
         except (TypeError, ValueError):
-            lim = 100
-        lim = max(1, min(lim, 200))
+            lim = 1000
+        lim = max(1, min(lim, 2000))
         name = ""
         unit = "шт"
         found = False
@@ -19847,8 +19847,11 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             production_id=pid,
             item_type=itype,
             item_id=iid,
-            limit=lim,
+            limit=lim + 1,
         )
+        truncated = len(rows) > lim
+        if truncated:
+            rows = rows[:lim]
         kind_labels = {
             "opening": "Начальный остаток",
             "receipt": "Приход",
@@ -19924,6 +19927,8 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             "unit": unit,
             "balance": balance,
             "items": items,
+            "truncated": truncated,
+            "limit": lim,
         }
 
     @app.get("/api/supply-contractors")
