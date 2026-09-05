@@ -28039,6 +28039,8 @@ const wbFbsKizState = {
   statusRefreshing: false,
   /** Monotonic token so a stale refresh cannot re-enable the wrong modal. */
   statusRefreshGen: 0,
+  /** Re-run status once current refresh finishes (open+save race). */
+  statusRefreshQueued: false,
   /** Input id to refocus after RU-layout warning is dismissed. */
   ruLayoutFocusId: null,
   /**
@@ -28277,7 +28279,9 @@ async function refreshWbFbsKizStatus(event, opts) {
   }
   const silent = !!(opts && opts.silent);
   const sid = String(wbFbsDetailState.supplyId || "").trim();
-  if (!sid || !wbFbsState.sourceId || !_wbFbsSupplyDetailActionsReady() || wbFbsKizState.statusRefreshing) {
+  if (!sid || !wbFbsState.sourceId || !_wbFbsSupplyDetailActionsReady()) return;
+  if (wbFbsKizState.statusRefreshing) {
+    wbFbsKizState.statusRefreshQueued = true;
     return;
   }
   const refreshBtn = document.getElementById("wbFbsSupplyDetailKizRefreshBtn");
@@ -28285,6 +28289,7 @@ async function refreshWbFbsKizStatus(event, opts) {
   const refreshGen = Number(wbFbsKizState.statusRefreshGen || 0) + 1;
   wbFbsKizState.statusRefreshGen = refreshGen;
   wbFbsKizState.statusRefreshing = true;
+  wbFbsKizState.statusRefreshQueued = false;
   if (refreshBtn) {
     refreshBtn.disabled = true;
     refreshBtn.classList.add("is-spinning");
@@ -28330,6 +28335,10 @@ async function refreshWbFbsKizStatus(event, opts) {
         refreshBtn.classList.remove("is-spinning");
       }
       if (kizBtn) kizBtn.disabled = false;
+      if (wbFbsKizState.statusRefreshQueued) {
+        wbFbsKizState.statusRefreshQueued = false;
+        void refreshWbFbsKizStatus(null, { silent: true });
+      }
     }
   }
 }
@@ -30035,6 +30044,8 @@ const wbFbsPickState = {
   forceSaveByOrder: {},
   statusRefreshing: false,
   statusRefreshGen: 0,
+  /** Re-run status once current refresh finishes (open+save race). */
+  statusRefreshQueued: false,
   /**
    * Silent FeedPilot autosave after scan/clear (pick-verify is local-only).
    * Same queue pattern as Маркировка — never blocks the scan UI path.
@@ -30078,7 +30089,9 @@ async function refreshWbFbsPickVerifyStatus(event, opts) {
   }
   const silent = !!(opts && opts.silent);
   const sid = String(wbFbsDetailState.supplyId || "").trim();
-  if (!sid || !wbFbsState.sourceId || !_wbFbsSupplyDetailActionsReady() || wbFbsPickState.statusRefreshing) {
+  if (!sid || !wbFbsState.sourceId || !_wbFbsSupplyDetailActionsReady()) return;
+  if (wbFbsPickState.statusRefreshing) {
+    wbFbsPickState.statusRefreshQueued = true;
     return;
   }
   const refreshBtn = document.getElementById("wbFbsSupplyDetailPickRefreshBtn");
@@ -30086,6 +30099,7 @@ async function refreshWbFbsPickVerifyStatus(event, opts) {
   const refreshGen = Number(wbFbsPickState.statusRefreshGen || 0) + 1;
   wbFbsPickState.statusRefreshGen = refreshGen;
   wbFbsPickState.statusRefreshing = true;
+  wbFbsPickState.statusRefreshQueued = false;
   if (refreshBtn) {
     refreshBtn.disabled = true;
     refreshBtn.classList.add("is-spinning");
@@ -30129,6 +30143,10 @@ async function refreshWbFbsPickVerifyStatus(event, opts) {
         refreshBtn.classList.remove("is-spinning");
       }
       if (pickBtn) pickBtn.disabled = false;
+      if (wbFbsPickState.statusRefreshQueued) {
+        wbFbsPickState.statusRefreshQueued = false;
+        void refreshWbFbsPickVerifyStatus(null, { silent: true });
+      }
     }
   }
 }
@@ -31161,6 +31179,8 @@ async function saveWbFbsPickVerifyModal() {
         true
       );
     }
+    // Same status rules as «Обновить» — update supply-detail tone after save.
+    void refreshWbFbsPickVerifyStatus(null, { silent: true });
   } catch (e) {
     _wbFbsPickSetInfo(String(e.message || e));
   } finally {

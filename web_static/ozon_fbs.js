@@ -6584,6 +6584,8 @@
     stickerIndex: new Map(),
     statusRefreshing: false,
     statusRefreshGen: 0,
+    /** Re-run status once current refresh finishes (open+save race). */
+    statusRefreshQueued: false,
     /** Bumped to abort in-flight marking resolve when modal closes / reopens. */
     loadGen: 0,
     /** @type {Array<object>} conflicts from last import (sticker has other KIZ) */
@@ -6606,6 +6608,8 @@
     localAutosaveInflight: 0,
     statusRefreshing: false,
     statusRefreshGen: 0,
+    /** Re-run status once current refresh finishes (open+save race). */
+    statusRefreshQueued: false,
     /** Bumped to abort in-flight pick-verify resolve when modal closes / reopens. */
     loadGen: 0,
   };
@@ -9701,13 +9705,16 @@
     const silent = !!(opts && opts.silent);
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
-    if (!sid || !sourceId || !_ozonFbsSupplyActionsReady() || ozonFbsKizState.statusRefreshing) {
+    if (!sid || !sourceId || !_ozonFbsSupplyActionsReady()) return;
+    if (ozonFbsKizState.statusRefreshing) {
+      ozonFbsKizState.statusRefreshQueued = true;
       return;
     }
     const refreshBtn = document.getElementById("ozonFbsSupplyDetailKizRefreshBtn");
     const refreshGen = Number(ozonFbsKizState.statusRefreshGen || 0) + 1;
     ozonFbsKizState.statusRefreshGen = refreshGen;
     ozonFbsKizState.statusRefreshing = true;
+    ozonFbsKizState.statusRefreshQueued = false;
     if (refreshBtn) {
       refreshBtn.disabled = true;
       refreshBtn.classList.add("is-spinning");
@@ -9772,6 +9779,10 @@
         if (refreshBtn) {
           refreshBtn.disabled = false;
           refreshBtn.classList.remove("is-spinning");
+        }
+        if (ozonFbsKizState.statusRefreshQueued) {
+          ozonFbsKizState.statusRefreshQueued = false;
+          void refreshOzonFbsMarkingStatus(null, { silent: true });
         }
       }
     }
@@ -10431,13 +10442,16 @@
     const silent = !!(opts && opts.silent);
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
-    if (!sid || !sourceId || !_ozonFbsSupplyActionsReady() || ozonFbsPickState.statusRefreshing) {
+    if (!sid || !sourceId || !_ozonFbsSupplyActionsReady()) return;
+    if (ozonFbsPickState.statusRefreshing) {
+      ozonFbsPickState.statusRefreshQueued = true;
       return;
     }
     const refreshBtn = document.getElementById("ozonFbsSupplyDetailPickRefreshBtn");
     const refreshGen = (Number(ozonFbsPickState.statusRefreshGen) || 0) + 1;
     ozonFbsPickState.statusRefreshGen = refreshGen;
     ozonFbsPickState.statusRefreshing = true;
+    ozonFbsPickState.statusRefreshQueued = false;
     if (refreshBtn) {
       refreshBtn.disabled = true;
       refreshBtn.classList.add("is-spinning");
@@ -10488,6 +10502,10 @@
         if (refreshBtn) {
           refreshBtn.disabled = false;
           refreshBtn.classList.remove("is-spinning");
+        }
+        if (ozonFbsPickState.statusRefreshQueued) {
+          ozonFbsPickState.statusRefreshQueued = false;
+          void refreshOzonFbsPickVerifyStatus(null, { silent: true });
         }
       }
     }
@@ -10746,6 +10764,8 @@
       }
       renderOzonFbsPickVerifyTable();
       _ozonFbsPickSyncToneFromRows(ozonFbsPickState.rows);
+      // Same status rules as «Обновить» (incl. container errors) — not only local rows.
+      void refreshOzonFbsPickVerifyStatus(null, { silent: true });
       if (errN) {
         const parts = [];
         if (savedTotal) parts.push(`сохранено ${savedTotal}`);
