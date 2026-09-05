@@ -19611,6 +19611,178 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         )
         return {"ok": True, "saved": saved}
 
+    @app.get("/api/supply-balances/movements-report")
+    def get_supply_balance_movements_report(
+        request: Request,
+        production_id: int = 0,
+        date_from: str = "",
+        date_to: str = "",
+        limit: int = 2000,
+    ) -> dict[str, object]:
+        """Ledger journal for all items in an inclusive date range (Остатки report)."""
+        user = _require_user(request)
+        if not _can_view_supply_stock(user):
+            raise HTTPException(status_code=403, detail="Нет доступа к остаткам")
+        owner_id = _supply_owner_id(user)
+        productions = _stock_productions_for_user(user)
+        today = _moscow_today()
+        if not productions:
+            return {
+                "today": today,
+                "date_from": today,
+                "date_to": today,
+                "production_id": None,
+                "rows": [],
+                "truncated": False,
+                "limit": 0,
+                "mode": "movements",
+            }
+        prod_ids = [int(p["id"]) for p in productions]
+        pid = int(production_id or 0)
+        if pid <= 0 or pid not in prod_ids:
+            pid = prod_ids[0]
+        raw_from = str(date_from or "").strip() or today
+        raw_to = str(date_to or "").strip() or raw_from
+        from_s = _parse_stock_date(raw_from, today=today)
+        to_s = _parse_stock_date(raw_to, today=today)
+        if from_s > to_s:
+            from_s, to_s = to_s, from_s
+        try:
+            lim = int(limit or 2000)
+        except (TypeError, ValueError):
+            lim = 2000
+        lim = max(1, min(lim, 5000))
+        rows = repository.list_supply_stock_movements(
+            user_id=owner_id,
+            production_id=pid,
+            date_from=from_s,
+            date_to=to_s,
+            limit=lim + 1,
+        )
+        truncated = len(rows) > lim
+        if truncated:
+            rows = rows[:lim]
+        kind_labels = {
+            "opening": "Начальный остаток",
+            "receipt": "Приход",
+            "fbs_ship": "Списание FBS",
+            "adjustment": "Корректировка",
+            "fbs_reverse": "Возврат FBS",
+        }
+        materials = {
+            int(m.get("id") or 0): m
+            for m in repository.list_feedback_materials(user_id=owner_id)
+            if int(m.get("id") or 0) > 0
+        }
+        products = {
+            int(p.get("id") or 0): p
+            for p in repository.list_product_photos(user_id=owner_id)
+            if int(p.get("id") or 0) > 0
+        }
+        vis_map = _stock_item_visible_map(owner_id)
+        creator_ids = {
+            int(r["created_by"])
+            for r in rows
+            if r.get("created_by") not in (None, "")
+        }
+        creator_names: dict[int, str] = {}
+        for uid in creator_ids:
+            u = repository.get_user_by_id(uid)
+            if not u:
+                continue
+            label = str(u.get("full_name") or "").strip() or str(u.get("email") or "").strip()
+            if label:
+                creator_names[uid] = label
+
+        def _fbs_order_ref(source_type: str, source_id: str) -> str:
+            st = str(source_type or "")
+            sid = str(source_id or "").strip()
+            if not sid:
+                return ""
+            if st not in {"wb_fbs_order", "wb_fbs_order_reverse", "ozon_fbs_posting", "ozon_fbs_posting_reverse"} and not sid[:1].isdigit():
+                return ""
+            head = sid.split(":", 1)[0].strip()
+            if head.isdigit():
+                return f"Заказ #{head}"
+            if head:
+                return head
+            return ""
+
+        out_rows: list[dict[str, object]] = []
+        categories: set[str] = set()
+        for r in rows:
+            itype = str(r.get("item_type") or "")
+            try:
+                iid = int(r.get("item_id") or 0)
+            except (TypeError, ValueError):
+                continue
+            if iid <= 0:
+                continue
+            if not vis_map.get((itype, iid), True):
+                continue
+            name = ""
+            unit = "шт"
+            article = ""
+            product_category = ""
+            if itype == "material":
+                m = materials.get(iid) or {}
+                name = str(m.get("name") or "").strip() or f"Материал #{iid}"
+                unit = str(m.get("unit") or "шт")
+            else:
+                p = products.get(iid) or {}
+                name = str(p.get("name") or "").strip() or f"Товар #{iid}"
+                article = str(p.get("supplier_article") or "").strip()
+                product_category = str(p.get("product_category") or "").strip()
+                if product_category:
+                    categories.add(product_category)
+            kind = str(r.get("kind") or "")
+            comment = str(r.get("comment") or "").strip()
+            order_ref = _fbs_order_ref(
+                str(r.get("source_type") or ""),
+                str(r.get("source_id") or ""),
+            )
+            if order_ref and order_ref not in comment:
+                comment = f"{comment} · {order_ref}".strip(" ·") if comment else order_ref
+            created_by = r.get("created_by")
+            try:
+                created_by_i = int(created_by) if created_by not in (None, "") else None
+            except (TypeError, ValueError):
+                created_by_i = None
+            out_rows.append(
+                {
+                    "id": int(r.get("id") or 0),
+                    "movement_date": str(r.get("movement_date") or ""),
+                    "item_type": itype,
+                    "item_id": iid,
+                    "name": name,
+                    "unit": unit,
+                    "supplier_article": article,
+                    "product_category": product_category,
+                    "kind": kind,
+                    "kind_label": kind_labels.get(kind, kind or "Движение"),
+                    "qty": r.get("qty"),
+                    "comment": comment,
+                    "created_by": created_by_i,
+                    "created_by_name": (
+                        creator_names.get(created_by_i)
+                        if created_by_i is not None
+                        else ("Система" if kind.startswith("fbs_") else "")
+                    ),
+                }
+            )
+        return {
+            "today": today,
+            "date_from": from_s,
+            "date_to": to_s,
+            "production_id": pid,
+            "productions": productions,
+            "rows": out_rows,
+            "categories": sorted(categories),
+            "truncated": truncated,
+            "limit": lim,
+            "mode": "movements",
+        }
+
     @app.get("/api/supply-balances/movements")
     def get_supply_balance_movements(
         request: Request,

@@ -13429,6 +13429,82 @@ class ReviewRepository:
                 out.append(val)
         return out
 
+    def list_supply_stock_movements(
+        self,
+        *,
+        user_id: int,
+        production_id: int,
+        date_from: str,
+        date_to: str,
+        limit: int = 2000,
+    ) -> list[dict[str, Any]]:
+        """Ledger rows for a production across all items in an inclusive date range.
+
+        Newest first. Used by Остатки → «Сформировать на дату» → Движение товаров.
+        """
+        from_s = str(date_from or "").strip()
+        to_s = str(date_to or "").strip()
+        if not from_s or not to_s:
+            return []
+        if from_s > to_s:
+            from_s, to_s = to_s, from_s
+        try:
+            pid = int(production_id or 0)
+            lim = int(limit or 0)
+        except (TypeError, ValueError):
+            return []
+        if pid <= 0:
+            return []
+        lim = max(1, min(lim, 5000))
+        with self._connect() as conn:
+            self._ensure_supply_balances_tables(conn)
+            rows = conn.execute(
+                self._sql(
+                    "SELECT id, item_type, item_id, qty, movement_date, kind, "
+                    "source_type, source_id, comment, created_at, created_by "
+                    "FROM supply_stock_movements "
+                    "WHERE user_id = ? AND production_id = ? "
+                    "AND movement_date >= ? AND movement_date <= ? "
+                    "ORDER BY movement_date DESC, id DESC "
+                    "LIMIT ?"
+                ),
+                (user_id, pid, from_s, to_s, lim),
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            d = self._row_to_dict(r)
+            try:
+                d["id"] = int(d.get("id") or 0)
+            except (TypeError, ValueError):
+                d["id"] = 0
+            itype = str(d.get("item_type") or "").strip().lower()
+            if itype not in {"material", "product"}:
+                continue
+            d["item_type"] = itype
+            try:
+                d["item_id"] = int(d.get("item_id") or 0)
+            except (TypeError, ValueError):
+                continue
+            if int(d["item_id"]) <= 0:
+                continue
+            try:
+                d["qty"] = float(d.get("qty"))
+            except (TypeError, ValueError):
+                continue
+            try:
+                created_by = d.get("created_by")
+                d["created_by"] = int(created_by) if created_by not in (None, "") else None
+            except (TypeError, ValueError):
+                d["created_by"] = None
+            d["movement_date"] = str(d.get("movement_date") or "")
+            d["kind"] = str(d.get("kind") or "")
+            d["source_type"] = str(d.get("source_type") or "")
+            d["source_id"] = str(d.get("source_id") or "")
+            d["comment"] = str(d.get("comment") or "")
+            d["created_at"] = str(d.get("created_at") or "")
+            out.append(d)
+        return out
+
     def sum_supply_stock_balances(
         self,
         *,

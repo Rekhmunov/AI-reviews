@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=303" />
+  <link rel="stylesheet" href="/static/style.css?v=304" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -3943,7 +3943,7 @@
                 <span class="sb-btn-short" aria-hidden="true">История</span>
               </button>
               <button type="button" class="secondary" onclick="openSupplyStockAsOfModal()"
-                      title="Сформировать остатки или продажи на дату">
+                      title="Сформировать остатки, продажи или движение товаров на дату">
                 <span class="sb-btn-full">Сформировать на дату</span>
                 <span class="sb-btn-short" aria-hidden="true">На дату</span>
               </button>
@@ -6475,6 +6475,7 @@
             <select id="supplyStockAsOfMode">
               <option value="balance">Остатки</option>
               <option value="sales">Продажи</option>
+              <option value="movements">Движение товаров</option>
             </select>
           </label>
           <label class="sb-doc-field" for="supplyStockAsOfCategory">
@@ -6558,6 +6559,6 @@
 
   <script src="/static/ozon_fbs.js?v=131"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=20"></script>
-  <script src="/static/app.js?v=547"></script>
+  <script src="/static/app.js?v=548"></script>
 </body>
 </html>
