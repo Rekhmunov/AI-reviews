@@ -430,11 +430,40 @@
   }
 
   /**
-   * Composition lock for «Доставляются»: нельзя менять состав/название,
-   * но Маркировка и Проверка ШК остаются доступны (локальная БД).
+   * Composition lock for «Доставляются»: нельзя менять состав/название.
+   * «Товары с/без КИЗ» остаются видимыми как индикаторы статуса, но модалки не открываются.
    */
   function isSupplyDetailReadOnly() {
     return Boolean(supplyDetailState.supply?.read_only) || isDeliveringSuppliesTab();
+  }
+
+  function _ozonFbsSyncSupplyDetailToneOnlySplits(toneOnly) {
+    const tip =
+      "Только индикатор статуса — изменение недоступно: отправления уже в доставке";
+    const defaults = {
+      ozonFbsSupplyDetailKizBtn: "Товары с КИЗ — коды маркировки «Честный знак»",
+      ozonFbsSupplyDetailPickVerifyBtn: "Товары без КИЗ — проверка штрихкодов",
+    };
+    Object.keys(defaults).forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (toneOnly) {
+        el.classList.add("is-tone-only");
+        // Do not override wait-orders lock.
+        if (!el.classList.contains("is-wait-orders")) {
+          el.setAttribute("aria-disabled", "true");
+          el.tabIndex = -1;
+          el.setAttribute("title", tip);
+        }
+      } else {
+        el.classList.remove("is-tone-only");
+        if (!el.classList.contains("is-wait-orders") && _ozonFbsSupplyActionsReady()) {
+          el.removeAttribute("aria-disabled");
+          el.removeAttribute("tabindex");
+          el.setAttribute("title", defaults[id]);
+        }
+      }
+    });
   }
 
   function syncSupplyDetailReadOnlyMode(readOnly) {
@@ -443,7 +472,7 @@
     const checkTh = modal?.querySelector("th.wb-fbs-sd-col-check");
     const actTh = modal?.querySelector("th.wb-fbs-sd-col-act");
     if (modal) modal.classList.toggle("wb-fbs-sd--readonly", !!readOnly);
-    // Keep action bar visible so Marking / Pick-verify stay reachable on delivering.
+    // Keep action bar visible so KIZ/pick status buttons remain visible on delivering.
     if (actions) actions.hidden = false;
     if (checkTh) checkTh.hidden = !!readOnly;
     if (actTh) actTh.hidden = !!readOnly;
@@ -462,13 +491,14 @@
       if (readOnly) {
         info.hidden = false;
         info.textContent =
-          "Состав поставки изменению не подлежит — отправления уже в доставке. "
-          + "Маркировку и проверку ШК можно заносить локально.";
+          "Состав поставки изменению не подлежит — отправления уже в доставке.";
       } else {
         info.hidden = true;
         info.textContent = "";
       }
     }
+    // Delivering: KIZ/pick stay as green status tones but must not open editors.
+    _ozonFbsSyncSupplyDetailToneOnlySplits(!!readOnly);
   }
 
   function colspan() {
@@ -2606,6 +2636,8 @@
       closeStickersMenu();
     }
     _ozonFbsSyncPickVerifyBtn(supplyDetailState.supply?.orders || []);
+    // Delivering: KIZ/pick remain visible as status tones but must not open editors.
+    _ozonFbsSyncSupplyDetailToneOnlySplits(isSupplyDetailReadOnly());
   }
 
   function onSupplyDetailCheckboxChange() {
@@ -2891,7 +2923,7 @@
     const kizSplit = document.getElementById("ozonFbsKizSplit");
     const kizBtn = document.getElementById("ozonFbsSupplyDetailKizBtn");
     const kizRefreshBtn = document.getElementById("ozonFbsSupplyDetailKizRefreshBtn");
-    // Marking + Pick-verify stay available even when composition is locked (delivering).
+    // KIZ + Pick stay visible for status tones even when composition is locked (delivering).
     const needsKiz = allOrders.some((o) => o && o.kiz_required && !_ozonFbsRowIsCancelled(o));
     if (kizSplit) kizSplit.hidden = !allOrders.length;
     if (kizBtn) kizBtn.hidden = !allOrders.length;
@@ -9432,6 +9464,7 @@
   }
 
   async function openOzonFbsKizModal() {
+    if (isSupplyDetailReadOnly()) return;
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
     if (!sid || !sourceId || !_ozonFbsSupplyActionsReady()) return;
@@ -10520,6 +10553,7 @@
   }
 
   async function openOzonFbsPickVerifyModal() {
+    if (isSupplyDetailReadOnly()) return;
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
     if (!sid || !sourceId || !_ozonFbsSupplyActionsReady()) return;
