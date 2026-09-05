@@ -351,11 +351,13 @@
     el.hidden = !show;
     if (!show) {
       el.textContent = "";
+      el.classList.remove("is-complete");
       return;
     }
     const total =
       list.filter((r) => !String(r?.cancel_reason_label || "").trim()).length || list.length;
     el.textContent = `Прикреплено к грузоместам ${bound} из ${total}`;
+    el.classList.toggle("is-complete", total > 0 && bound === total);
   }
 
   function containerCellHtml(row, mode) {
