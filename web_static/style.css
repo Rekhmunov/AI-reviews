@@ -9477,6 +9477,9 @@ button.ozon-fbs-split-multi-btn[hidden] {
   color: #475569;
   line-height: 1.45;
 }
+.wb-fbs-collect-mgt-lead[hidden] {
+  display: none !important;
+}
 .wb-fbs-collect-mgt-body {
   display: flex;
   flex-direction: column;
@@ -9619,8 +9622,9 @@ button.ozon-fbs-split-multi-btn[hidden] {
 }
 .wb-fbs-collect-mgt-supply {
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
   padding: 12px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
@@ -9639,9 +9643,17 @@ button.ozon-fbs-split-multi-btn[hidden] {
   outline: 2px solid #334155;
   outline-offset: 2px;
 }
-.wb-fbs-collect-mgt-supply input {
-  margin-top: 2px;
+.wb-fbs-collect-mgt-supply-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.wb-fbs-collect-mgt-supply input[type="radio"] {
+  margin: 0;
   flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
 }
 .wb-fbs-collect-mgt-supply-text {
   display: flex;
@@ -9652,11 +9664,16 @@ button.ozon-fbs-split-multi-btn[hidden] {
   font-size: 15px;
   font-weight: 600;
   color: #0f172a;
+  line-height: 20px;
+  min-width: 0;
+  word-break: break-word;
 }
 .wb-fbs-collect-mgt-supply-meta {
-  margin-top: 4px;
+  margin: 0 0 0 28px;
   font-size: 13px;
   color: #64748b;
+  line-height: 1.35;
+  word-break: break-word;
 }
 .wb-fbs-collect-mgt-new-name {
   margin-top: 12px;

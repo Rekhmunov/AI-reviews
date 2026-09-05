@@ -31634,7 +31634,6 @@ function _wbFbsRenderSelectionAddModal(preview) {
   if (confirmBtn) confirmBtn.textContent = "Добавить";
   const count = Number(preview.order_count || 0);
   const supplies = Array.isArray(preview.compatible_supplies) ? preview.compatible_supplies : [];
-  const traits = preview.traits || {};
   if (lead) {
     lead.textContent = supplies.length
       ? `Выберите открытую поставку для ${count} заказ(ов). Показаны только совместимые по типу WB.`
@@ -31643,7 +31642,6 @@ function _wbFbsRenderSelectionAddModal(preview) {
   if (!body) return;
   if (!supplies.length) {
     body.innerHTML = `
-      ${_wbFbsSelectionTraitsHtml(traits)}
       <div class="wb-fbs-collect-mgt-auto">
         Нет открытых поставок с тем же типом габарита, B2B и складом.
         Создайте новую поставку или выберите другой набор заказов.
@@ -31652,8 +31650,8 @@ function _wbFbsRenderSelectionAddModal(preview) {
     return;
   }
   if (confirmBtn) confirmBtn.disabled = false;
+  // No MGT / B2B / warehouse / cross-border chips — already filtered to compatible.
   body.innerHTML = `
-    ${_wbFbsSelectionTraitsHtml(traits)}
     <div class="wb-fbs-collect-mgt-field">
       <label>Поставка</label>
       <div class="wb-fbs-collect-mgt-supplies">
@@ -31661,18 +31659,16 @@ function _wbFbsRenderSelectionAddModal(preview) {
           const sid = String(s.supply_id || "");
           const sname = String(s.name || sid);
           const meta = [
-            s.is_empty ? "пустая" : (s.cargo_label || "МГТ"),
-            s.is_b2b === true ? "B2B" : (s.is_b2b === false ? "не B2B" : null),
+            s.is_empty ? "пустая" : null,
             `${Number(s.orders_count || 0)} заказ.`,
-            s.warehouse_id != null ? `склад ${s.warehouse_id}` : null,
           ].filter(Boolean).join(" · ");
           return `
             <label class="wb-fbs-collect-mgt-supply">
-              <input type="radio" name="wbFbsSelectionSupplyPick" value="${_wbFbsEsc(sid)}" ${si === 0 ? "checked" : ""} />
-              <span>
+              <span class="wb-fbs-collect-mgt-supply-main">
+                <input type="radio" name="wbFbsSelectionSupplyPick" value="${_wbFbsEsc(sid)}" ${si === 0 ? "checked" : ""} />
                 <span class="wb-fbs-collect-mgt-supply-name">${_wbFbsEsc(sname)}</span>
-                <span class="wb-fbs-collect-mgt-supply-meta">${_wbFbsEsc(meta)}</span>
               </span>
+              <span class="wb-fbs-collect-mgt-supply-meta">${_wbFbsEsc(meta)}</span>
             </label>`;
         }).join("")}
       </div>
@@ -31914,6 +31910,13 @@ function closeWbFbsCollectMgtModal() {
     err.hidden = true;
     err.textContent = "";
   }
+  const title = document.getElementById("wbFbsCollectMgtTitle");
+  if (title) title.textContent = "Собрать все МГТ-заказы";
+  const lead = document.getElementById("wbFbsCollectMgtLead");
+  if (lead) {
+    lead.hidden = true;
+    lead.textContent = "";
+  }
 }
 window.closeWbFbsCollectMgtModal = closeWbFbsCollectMgtModal;
 
@@ -31976,6 +31979,7 @@ function _wbFbsCollectMgtShowResult(data) {
 function _wbFbsCollectMgtRenderModal(preview) {
   const body = document.getElementById("wbFbsCollectMgtBody");
   const lead = document.getElementById("wbFbsCollectMgtLead");
+  const title = document.getElementById("wbFbsCollectMgtTitle");
   const err = document.getElementById("wbFbsCollectMgtErr");
   if (err) {
     err.hidden = true;
@@ -31986,8 +31990,16 @@ function _wbFbsCollectMgtRenderModal(preview) {
     (Array.isArray(preview?.existing_names) ? preview.existing_names : [])
       .map((x) => String(x || "").trim()).filter(Boolean)
   );
+  const mgtCount = Number(preview?.mgt_count || 0);
+  if (title) {
+    title.textContent = mgtCount > 0
+      ? `Собрать все МГТ-заказы: ${mgtCount} шт.`
+      : "Собрать все МГТ-заказы";
+  }
+  // Count lives in the title — no separate lead line.
   if (lead) {
-    lead.textContent = `Новых МГТ заказов: ${preview?.mgt_count || 0}.`;
+    lead.hidden = true;
+    lead.textContent = "";
   }
   if (!body) return;
   if (!groups.length) {
@@ -31998,7 +32010,6 @@ function _wbFbsCollectMgtRenderModal(preview) {
     const gkey = String(g.group_key || `g${idx}`);
     const mode = String(g.mode || "create");
     const label = String(g.label || (g.is_b2b ? "B2B" : "не B2B"));
-    const count = Number(g.order_count || 0);
     let inner = "";
     if (mode === "create") {
       const name = String(g.suggested_name || "");
@@ -32031,23 +32042,23 @@ function _wbFbsCollectMgtRenderModal(preview) {
               ].filter(Boolean).join(" · ");
               return `
                 <label class="wb-fbs-collect-mgt-supply">
-                  <input type="radio" name="wbFbsCollectMgtSupply_${_wbFbsEsc(gkey)}" value="${_wbFbsEsc(sid)}"
-                         ${si === 0 ? "checked" : ""}
-                         onchange="wbFbsCollectMgtTargetChanged('${_wbFbsEsc(gkey)}')" />
-                  <span class="wb-fbs-collect-mgt-supply-text">
+                  <span class="wb-fbs-collect-mgt-supply-main">
+                    <input type="radio" name="wbFbsCollectMgtSupply_${_wbFbsEsc(gkey)}" value="${_wbFbsEsc(sid)}"
+                           ${si === 0 ? "checked" : ""}
+                           onchange="wbFbsCollectMgtTargetChanged('${_wbFbsEsc(gkey)}')" />
                     <span class="wb-fbs-collect-mgt-supply-name">${_wbFbsEsc(sname)}</span>
-                    <span class="wb-fbs-collect-mgt-supply-meta">${_wbFbsEsc(meta)}</span>
                   </span>
+                  <span class="wb-fbs-collect-mgt-supply-meta">${_wbFbsEsc(meta)}</span>
                 </label>`;
             }).join("")}
             <label class="wb-fbs-collect-mgt-supply">
-              <input type="radio" name="wbFbsCollectMgtSupply_${_wbFbsEsc(gkey)}" value="__new__"
-                     ${supplies.length ? "" : "checked"}
-                     onchange="wbFbsCollectMgtTargetChanged('${_wbFbsEsc(gkey)}')" />
-              <span class="wb-fbs-collect-mgt-supply-text">
+              <span class="wb-fbs-collect-mgt-supply-main">
+                <input type="radio" name="wbFbsCollectMgtSupply_${_wbFbsEsc(gkey)}" value="__new__"
+                       ${supplies.length ? "" : "checked"}
+                       onchange="wbFbsCollectMgtTargetChanged('${_wbFbsEsc(gkey)}')" />
                 <span class="wb-fbs-collect-mgt-supply-name">Создать новую поставку</span>
-                <span class="wb-fbs-collect-mgt-supply-meta">отдельная поставка для этих заказов</span>
               </span>
+              <span class="wb-fbs-collect-mgt-supply-meta">отдельная поставка для этих заказов</span>
             </label>
           </div>
         </div>
@@ -32069,12 +32080,9 @@ function _wbFbsCollectMgtRenderModal(preview) {
       const sname = match ? String(match.name || sid) : sid;
       inner = `<div class="wb-fbs-collect-mgt-auto">Будет добавлено в поставку «${_wbFbsEsc(sname)}».</div>`;
     }
+    // No warehouse/B2B/cross-border group header — count is in the modal title.
     return `
-      <section class="wb-fbs-collect-mgt-group" data-group-key="${_wbFbsEsc(gkey)}" data-is-b2b="${g.is_b2b ? "1" : "0"}" data-mode="${_wbFbsEsc(mode)}">
-        <div class="wb-fbs-collect-mgt-group-head">
-          <h4 class="wb-fbs-collect-mgt-group-title">${_wbFbsEsc(label)}</h4>
-          <p class="wb-fbs-collect-mgt-group-meta">${_wbFbsEsc(`${count} заказ.`)}</p>
-        </div>
+      <section class="wb-fbs-collect-mgt-group" data-group-key="${_wbFbsEsc(gkey)}" data-is-b2b="${g.is_b2b ? "1" : "0"}" data-mode="${_wbFbsEsc(mode)}" data-label="${_wbFbsEsc(label)}">
         ${inner}
       </section>`;
   }).join("");
