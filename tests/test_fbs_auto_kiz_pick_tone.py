@@ -48,7 +48,15 @@ def test_ozon_pc_auto_refresh_split_tones() -> None:
     )
     assert "refreshOzonFbsPickVerifyStatus(null, { silent: true })" in close_pick
 
-    assert "ozon_fbs.js?v=124" in html
+    save_pick = _slice_fn(
+        js,
+        "async function saveOzonFbsPickVerifyModal",
+        "window.initOzonFbsSection",
+    )
+    assert "refreshOzonFbsPickVerifyStatus(null, { silent: true })" in save_pick
+    assert "statusRefreshQueued" in js
+
+    assert "ozon_fbs.js?v=125" in html
 
 
 def test_wb_pc_auto_refresh_split_tones() -> None:
@@ -78,7 +86,15 @@ def test_wb_pc_auto_refresh_split_tones() -> None:
     )
     assert "refreshWbFbsPickVerifyStatus(null, { silent: true })" in close_pick
 
-    assert "app.js?v=537" in html
+    save_pick = _slice_fn(
+        js,
+        "async function saveWbFbsPickVerifyModal",
+        "window.saveWbFbsPickVerifyModal",
+    )
+    assert "refreshWbFbsPickVerifyStatus(null, { silent: true })" in save_pick
+    assert "statusRefreshQueued" in js
+
+    assert "app.js?v=538" in html
 
 
 def test_tsd_hub_auto_refresh_tones() -> None:
@@ -91,4 +107,4 @@ def test_tsd_hub_auto_refresh_tones() -> None:
     assert "async function refreshHubKizStatus(event, opts)" in js
     assert "async function refreshHubPickStatus(event, opts)" in js
     assert "autoRefreshHubTones({ kizDisabled, pickDisabled })" in js
-    assert "wb_fbs_tsd.js?v=73" in html
+    assert "wb_fbs_tsd.js?v=74" in html
