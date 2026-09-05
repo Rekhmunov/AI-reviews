@@ -15637,6 +15637,73 @@ async function saveSupplyBalancesVisibility() {
 }
 window.saveSupplyBalancesVisibility = saveSupplyBalancesVisibility;
 
+/** Group ledger rows by movement_date, preserving newest-first order. */
+function _sbGroupMovementsByDay(items) {
+  const groups = [];
+  const byDate = new Map();
+  for (const m of items || []) {
+    const date = String(m?.movement_date || "").trim() || "—";
+    let group = byDate.get(date);
+    if (!group) {
+      group = { date, items: [] };
+      byDate.set(date, group);
+      groups.push(group);
+    }
+    group.items.push(m);
+  }
+  return groups;
+}
+
+function _sbMovementsCountLabel(n) {
+  const k = Math.abs(Number(n) || 0) % 100;
+  const k1 = k % 10;
+  if (k > 10 && k < 20) return `${n} движений`;
+  if (k1 === 1) return `${n} движение`;
+  if (k1 >= 2 && k1 <= 4) return `${n} движения`;
+  return `${n} движений`;
+}
+
+function _sbRenderMovementRow(m, unit) {
+  const qty = Number(m.qty);
+  const qtyClass = !Number.isFinite(qty)
+    ? ""
+    : (qty < 0 ? "is-neg" : (qty > 0 ? "is-pos" : "is-zero"));
+  const qtyText = Number.isFinite(qty)
+    ? (qty > 0 ? `+${_sbQtyText(qty)}` : _sbQtyText(qty))
+    : "—";
+  const who = String(m.created_by_name || "").trim();
+  const comment = String(m.comment || "").trim();
+  const meta = [who, comment].filter(Boolean).join(" · ");
+  return `<div class="sb-movements-row">
+    <div class="sb-movements-main">
+      <div class="sb-movements-kind">${esc(m.kind_label || m.kind || "Движение")}</div>
+      ${meta ? `<div class="sb-movements-meta">${esc(meta)}</div>` : ""}
+    </div>
+    <div class="sb-movements-qty ${qtyClass}">${esc(qtyText)} <span>${esc(unit)}</span></div>
+  </div>`;
+}
+
+function _sbRenderMovementsByDay(items, unit) {
+  return _sbGroupMovementsByDay(items).map((group) => {
+    const net = group.items.reduce((sum, m) => {
+      const q = Number(m.qty);
+      return Number.isFinite(q) ? sum + q : sum;
+    }, 0);
+    const netClass = net < 0 ? "is-neg" : (net > 0 ? "is-pos" : "is-zero");
+    const netText = net > 0 ? `+${_sbQtyText(net)}` : _sbQtyText(net);
+    const rows = group.items.map((m) => _sbRenderMovementRow(m, unit)).join("");
+    return `<details class="sb-movements-day">
+      <summary class="sb-movements-day-summary">
+        <span class="sb-movements-day-chevron" aria-hidden="true"></span>
+        <span class="sb-movements-day-date">${esc(_sbFormatDateLabel(group.date))}</span>
+        <span class="sb-movements-day-count">${esc(_sbMovementsCountLabel(group.items.length))}</span>
+        <span class="sb-movements-day-net ${netClass}">${esc(netText)} <span>${esc(unit)}</span></span>
+      </summary>
+      <div class="sb-movements-day-body">${rows}</div>
+    </details>`;
+  }).join("");
+}
+
 async function openSupplyStockMovementsModal(itemType, itemId) {
   const itype = String(itemType || "").trim().toLowerCase();
   const iid = Number(itemId || 0);
@@ -15672,35 +15739,14 @@ async function openSupplyStockMovementsModal(itemType, itemId) {
     const balText = _sbQtyText(data.balance);
     if (title) title.textContent = name || "Журнал движений";
     if (lead) {
-      lead.textContent = `Текущий остаток: ${balText} ${unit}. Показаны последние движения.`;
+      lead.textContent = `Текущий остаток: ${balText} ${unit}. Дни свёрнуты — раскройте, чтобы увидеть движения.`;
     }
     const items = Array.isArray(data.items) ? data.items : [];
     if (!items.length) {
       if (list) list.innerHTML = `<div class="sb-doc-empty">Движений пока нет</div>`;
       return;
     }
-    if (list) {
-      list.innerHTML = items.map((m) => {
-        const qty = Number(m.qty);
-        const qtyClass = !Number.isFinite(qty)
-          ? ""
-          : (qty < 0 ? "is-neg" : (qty > 0 ? "is-pos" : "is-zero"));
-        const qtyText = Number.isFinite(qty)
-          ? (qty > 0 ? `+${_sbQtyText(qty)}` : _sbQtyText(qty))
-          : "—";
-        const who = String(m.created_by_name || "").trim();
-        const comment = String(m.comment || "").trim();
-        const meta = [who, comment].filter(Boolean).join(" · ");
-        return `<div class="sb-movements-row">
-          <div class="sb-movements-date">${esc(_sbFormatDateLabel(m.movement_date))}</div>
-          <div class="sb-movements-main">
-            <div class="sb-movements-kind">${esc(m.kind_label || m.kind || "Движение")}</div>
-            ${meta ? `<div class="sb-movements-meta">${esc(meta)}</div>` : ""}
-          </div>
-          <div class="sb-movements-qty ${qtyClass}">${esc(qtyText)} <span>${esc(unit)}</span></div>
-        </div>`;
-      }).join("");
-    }
+    if (list) list.innerHTML = _sbRenderMovementsByDay(items, unit);
   } catch (e) {
     if (lead) lead.textContent = "";
     const rawDetail = e && e.message !== undefined ? e.message : e;
