@@ -15918,8 +15918,8 @@ async function openSupplyStockMovementsModal(itemType, itemId) {
     const params = new URLSearchParams({
       item_type: itype,
       item_id: String(iid),
-      // High-volume FBS items can exceed 100 rows in 1–2 days; keep a deep window.
-      limit: "1000",
+      // Last N calendar days (not a row-count window) so high-volume SKUs keep history.
+      days: "10",
     });
     if (pid) params.set("production_id", String(pid));
     const res = await fetch(`/api/supply-balances/movements?${params.toString()}`);
@@ -15936,16 +15936,27 @@ async function openSupplyStockMovementsModal(itemType, itemId) {
     const name = String(data.name || "");
     const unit = String(data.unit || "шт");
     const balText = _sbQtyText(data.balance);
+    const daysN = Number(data.days || 10) || 10;
+    const dateFrom = String(data.date_from || "").trim();
+    const dateTo = String(data.date_to || "").trim();
+    const periodText = dateFrom && dateTo
+      ? `${dateFrom} — ${dateTo}`
+      : `последние ${daysN} дн.`;
     if (title) title.textContent = name || "Журнал движений";
     if (lead) {
       const truncNote = data.truncated
-        ? ` Показаны последние ${Array.isArray(data.items) ? data.items.length : 0} записей.`
+        ? " В окне слишком много записей — показана часть (новые сверху)."
         : "";
-      lead.textContent = `Текущий остаток: ${balText} ${unit}. Дни свёрнуты — раскройте, чтобы увидеть движения.${truncNote}`;
+      lead.textContent =
+        `Текущий остаток: ${balText} ${unit}. За последние ${daysN} дн. (${periodText}). ` +
+        `Дни свёрнуты — раскройте, чтобы увидеть движения.${truncNote}`;
     }
     const items = Array.isArray(data.items) ? data.items : [];
     if (!items.length) {
-      if (list) list.innerHTML = `<div class="sb-doc-empty">Движений пока нет</div>`;
+      if (list) {
+        list.innerHTML =
+          `<div class="sb-doc-empty">Движений за последние ${daysN} дн. нет</div>`;
+      }
       return;
     }
     if (list) list.innerHTML = _sbRenderMovementsByDay(items, unit);

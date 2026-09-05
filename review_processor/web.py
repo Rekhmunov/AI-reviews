@@ -19789,9 +19789,15 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         production_id: int = 0,
         item_type: str = "",
         item_id: int = 0,
-        limit: int = 1000,
+        days: int = 10,
+        date_from: str = "",
+        date_to: str = "",
+        limit: int = 20000,
     ) -> dict[str, object]:
-        """Read-only ledger journal for one Остатки row."""
+        """Read-only ledger journal for one Остатки row.
+
+        Default window: last ``days`` calendar days (inclusive), Moscow today.
+        """
         user = _require_user(request)
         if not _can_view_supply_stock(user):
             raise HTTPException(status_code=403, detail="Нет доступа к остаткам")
@@ -19815,11 +19821,28 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         pid = int(production_id or 0)
         if pid <= 0 or pid not in prod_ids:
             pid = int(prods[0]["id"])
+        today = _moscow_today()
         try:
-            lim = int(limit or 1000)
+            days_n = int(days or 10)
         except (TypeError, ValueError):
-            lim = 1000
-        lim = max(1, min(lim, 2000))
+            days_n = 10
+        days_n = max(1, min(days_n, 90))
+        raw_to = str(date_to or "").strip() or today
+        to_s = _parse_stock_date(raw_to, today=today)
+        raw_from = str(date_from or "").strip()
+        if raw_from:
+            from_s = _parse_stock_date(raw_from, today=today)
+        else:
+            from datetime import date as _date
+
+            from_s = (_date.fromisoformat(to_s) - timedelta(days=days_n - 1)).isoformat()
+        if from_s > to_s:
+            from_s, to_s = to_s, from_s
+        try:
+            lim = int(limit or 20000)
+        except (TypeError, ValueError):
+            lim = 20000
+        lim = max(1, min(lim, 50000))
         name = ""
         unit = "шт"
         found = False
@@ -19839,7 +19862,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         if not found:
             raise HTTPException(status_code=404, detail="Позиция не найдена")
         bal_map = repository.sum_supply_stock_balances(
-            user_id=owner_id, production_id=pid, as_of=_moscow_today()
+            user_id=owner_id, production_id=pid, as_of=today
         )
         balance = bal_map.get((itype, iid))
         rows = repository.list_supply_stock_movements_for_item(
@@ -19847,6 +19870,8 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             production_id=pid,
             item_type=itype,
             item_id=iid,
+            date_from=from_s,
+            date_to=to_s,
             limit=lim + 1,
         )
         truncated = len(rows) > lim
@@ -19880,7 +19905,6 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                 return ""
             if st not in {"wb_fbs_order", "wb_fbs_order_reverse"} and not sid[:1].isdigit():
                 return ""
-            # source_id forms: "123", "123:s:1", "123:r:1"
             head = sid.split(":", 1)[0].strip()
             if head.isdigit():
                 return f"Заказ #{head}"
@@ -19927,6 +19951,9 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             "unit": unit,
             "balance": balance,
             "items": items,
+            "date_from": from_s,
+            "date_to": to_s,
+            "days": days_n,
             "truncated": truncated,
             "limit": lim,
         }

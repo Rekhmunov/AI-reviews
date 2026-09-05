@@ -13338,9 +13338,15 @@ class ReviewRepository:
         production_id: int,
         item_type: str,
         item_id: int,
-        limit: int = 1000,
+        date_from: str = "",
+        date_to: str = "",
+        limit: int = 20000,
     ) -> list[dict[str, Any]]:
-        """Recent ledger rows for one catalog item (newest first)."""
+        """Ledger rows for one catalog item (newest first).
+
+        Optional inclusive ``date_from``/``date_to`` (YYYY-MM-DD). ``limit`` is a
+        safety cap only — the journal UI is day-window based.
+        """
         itype = str(item_type or "").strip().lower()
         if itype not in {"material", "product"}:
             return []
@@ -13352,7 +13358,25 @@ class ReviewRepository:
             return []
         if iid <= 0 or pid <= 0:
             return []
-        lim = max(1, min(lim, 2000))
+        lim = max(1, min(lim, 50000))
+        from_s = str(date_from or "").strip()
+        to_s = str(date_to or "").strip()
+        if from_s and to_s and from_s > to_s:
+            from_s, to_s = to_s, from_s
+        clauses = [
+            "user_id = ?",
+            "production_id = ?",
+            "item_type = ?",
+            "item_id = ?",
+        ]
+        params: list[Any] = [user_id, pid, itype, iid]
+        if from_s:
+            clauses.append("movement_date >= ?")
+            params.append(from_s)
+        if to_s:
+            clauses.append("movement_date <= ?")
+            params.append(to_s)
+        params.append(lim)
         with self._connect() as conn:
             self._ensure_supply_balances_tables(conn)
             rows = conn.execute(
@@ -13360,12 +13384,11 @@ class ReviewRepository:
                     "SELECT id, item_type, item_id, qty, movement_date, kind, "
                     "source_type, source_id, comment, created_at, created_by "
                     "FROM supply_stock_movements "
-                    "WHERE user_id = ? AND production_id = ? "
-                    "AND item_type = ? AND item_id = ? "
+                    f"WHERE {' AND '.join(clauses)} "
                     "ORDER BY movement_date DESC, id DESC "
                     "LIMIT ?"
                 ),
-                (user_id, pid, itype, iid, lim),
+                tuple(params),
             ).fetchall()
         out: list[dict[str, Any]] = []
         for r in rows:

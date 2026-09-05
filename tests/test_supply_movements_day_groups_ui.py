@@ -28,4 +28,4 @@ def test_movements_day_group_styles_and_cache() -> None:
     assert ".sb-movements-day-chevron" in STYLE_CSS
     assert ".sb-movements-day[open]" in STYLE_CSS
     assert "style.css?v=305" in APP_HTML
-    assert "app.js?v=550" in APP_HTML
+    assert "app.js?v=551" in APP_HTML
