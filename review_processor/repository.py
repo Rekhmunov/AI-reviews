@@ -13561,7 +13561,11 @@ class ReviewRepository:
         comment: str = "",
         created_by: int | None = None,
     ) -> int:
-        """Insert signed ledger rows. Each item needs qty and unique source_id."""
+        """Insert signed ledger rows. Each item needs qty and unique source_id.
+
+        Uses batched multi-row INSERT (not one round-trip per line) so opening
+        balance / adjustment with dozens of lines stays fast.
+        """
         import uuid as _uuid
 
         kind_s = str(kind or "").strip().lower()
@@ -13573,50 +13577,70 @@ class ReviewRepository:
         src_type = str(source_type or "manual").strip() or "manual"
         comment_s = str(comment or "").strip()
         now = _utc_now()
+        rows: list[tuple[Any, ...]] = []
+        seen_source: set[str] = set()
+        for item in items or []:
+            item_type = str(item.get("item_type") or "").strip().lower()
+            if item_type not in {"material", "product"}:
+                continue
+            try:
+                item_id = int(item.get("item_id") or 0)
+                qty = float(item.get("qty"))
+            except (TypeError, ValueError):
+                continue
+            if item_id <= 0 or qty == 0:
+                continue
+            source_id = str(item.get("source_id") or "").strip()
+            if not source_id:
+                source_id = f"{src_type}:{kind_s}:{_uuid.uuid4().hex}"
+            # Same-batch duplicates would error even with ON CONFLICT DO NOTHING.
+            if source_id in seen_source:
+                continue
+            seen_source.add(source_id)
+            row_comment = str(item.get("comment") or comment_s or "").strip()
+            rows.append(
+                (
+                    user_id,
+                    int(production_id),
+                    item_type,
+                    item_id,
+                    qty,
+                    date_s,
+                    kind_s,
+                    src_type,
+                    source_id,
+                    row_comment,
+                    now,
+                    created_by,
+                )
+            )
+        if not rows:
+            return 0
+
         saved = 0
+        chunk_size = 200
         with self._connect() as conn:
             self._ensure_supply_balances_tables(conn)
-            for item in items or []:
-                item_type = str(item.get("item_type") or "").strip().lower()
-                if item_type not in {"material", "product"}:
-                    continue
-                try:
-                    item_id = int(item.get("item_id") or 0)
-                    qty = float(item.get("qty"))
-                except (TypeError, ValueError):
-                    continue
-                if item_id <= 0 or qty == 0:
-                    continue
-                source_id = str(item.get("source_id") or "").strip()
-                if not source_id:
-                    source_id = f"{src_type}:{kind_s}:{_uuid.uuid4().hex}"
-                row_comment = str(item.get("comment") or comment_s or "").strip()
+            for offset in range(0, len(rows), chunk_size):
+                chunk = rows[offset : offset + chunk_size]
+                placeholders = ", ".join(
+                    ["(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"] * len(chunk)
+                )
+                flat: list[Any] = []
+                for tup in chunk:
+                    flat.extend(tup)
                 cur = conn.execute(
                     self._sql(
                         "INSERT INTO supply_stock_movements "
                         "(user_id, production_id, item_type, item_id, qty, "
                         "movement_date, kind, source_type, source_id, comment, "
                         "created_at, created_by) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                        f"VALUES {placeholders} "
                         "ON CONFLICT (user_id, source_type, source_id) DO NOTHING"
                     ),
-                    (
-                        user_id,
-                        int(production_id),
-                        item_type,
-                        item_id,
-                        qty,
-                        date_s,
-                        kind_s,
-                        src_type,
-                        source_id,
-                        row_comment,
-                        now,
-                        created_by,
-                    ),
+                    tuple(flat),
                 )
-                if int(getattr(cur, "rowcount", 0) or 0) > 0:
-                    saved += 1
+                saved += max(0, int(getattr(cur, "rowcount", 0) or 0))
         return saved
 
     def _fbs_stock_ship_counts(

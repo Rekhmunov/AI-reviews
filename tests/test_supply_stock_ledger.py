@@ -28,11 +28,9 @@ def test_add_supply_stock_movements_counts_only_inserted() -> None:
     repo._sql = lambda q: q  # type: ignore[method-assign]
     repo._ensure_supply_balances_tables = lambda conn: None  # type: ignore[method-assign]
     executed: list[tuple[str, tuple]] = []
-    rowcounts = [1, 0]  # second conflicts
 
     class _Cur:
-        def __init__(self, rc):
-            self.rowcount = rc
+        rowcount = 1
 
     class _Conn:
         def __enter__(self):
@@ -43,8 +41,7 @@ def test_add_supply_stock_movements_counts_only_inserted() -> None:
 
         def execute(self, sql, params=()):
             executed.append((str(sql), tuple(params)))
-            rc = rowcounts.pop(0) if rowcounts else 1
-            return _Cur(rc)
+            return _Cur()
 
     repo._connect = lambda: _Conn()  # type: ignore[method-assign]
     saved = ReviewRepository.add_supply_stock_movements(
@@ -67,11 +64,67 @@ def test_add_supply_stock_movements_counts_only_inserted() -> None:
                 "qty": 10,
                 "source_id": "receipt:1",
             },
+            {
+                "item_type": "product",
+                "item_id": 6,
+                "qty": 3,
+                "source_id": "receipt:2",
+            },
         ],
         created_by=3,
     )
-    assert saved == 1
-    assert any("ON CONFLICT" in sql for sql, _ in executed)
+    # Duplicate source_id in the same batch is dropped before INSERT.
+    assert saved == 1  # mock rowcount of the single batch execute
+    assert len(executed) == 1
+    sql, params = executed[0]
+    assert "ON CONFLICT" in sql
+    assert sql.count("(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)") == 2
+    assert "receipt:1" in params
+    assert "receipt:2" in params
+
+
+def test_add_supply_stock_movements_batches_many_rows() -> None:
+    repo = ReviewRepository.__new__(ReviewRepository)
+    repo._sql = lambda q: q  # type: ignore[method-assign]
+    repo._ensure_supply_balances_tables = lambda conn: None  # type: ignore[method-assign]
+    executed: list[str] = []
+
+    class _Cur:
+        rowcount = 50
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def execute(self, sql, params=()):
+            executed.append(str(sql))
+            return _Cur()
+
+    repo._connect = lambda: _Conn()  # type: ignore[method-assign]
+    items = [
+        {
+            "item_type": "product",
+            "item_id": i,
+            "qty": float(i),
+            "source_id": f"opening:{i}",
+        }
+        for i in range(1, 51)
+    ]
+    saved = ReviewRepository.add_supply_stock_movements(
+        repo,
+        user_id=1,
+        production_id=9,
+        movement_date="2026-09-05",
+        kind="opening",
+        source_type="manual_opening",
+        items=items,
+    )
+    assert saved == 50
+    assert len(executed) == 1
+    assert "VALUES" in executed[0]
 
 
 def test_reconcile_ships_reverses_and_recycles() -> None:
