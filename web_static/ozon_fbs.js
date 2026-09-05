@@ -7948,21 +7948,22 @@
     const needsKiz = orders.some((o) => o && o.kiz_required && !_ozonFbsRowIsCancelled(o));
     const needsPick = orders.some((o) => o && !o.kiz_required && !_ozonFbsRowIsCancelled(o));
     if (!needsKiz && !needsPick) return;
-    void (async () => {
-      try {
-        // Sequential: marking refresh re-renders detail and would wipe pick API tone.
-        if (needsKiz) await refreshOzonFbsMarkingStatus(null, { silent: true });
-        if (
-          needsPick
-          && String(supplyDetailState.supplyId || "") === sid
-          && _ozonFbsSupplyActionsReady()
-        ) {
-          await refreshOzonFbsPickVerifyStatus(null, { silent: true });
-        }
-      } catch (_) {
-        /* silent — manual «Обновить» still available */
-      }
-    })();
+    // Parallel + silent: no spinner, no full re-render — open stays snappy.
+    const tasks = [];
+    if (needsKiz) tasks.push(refreshOzonFbsMarkingStatus(null, { silent: true }));
+    if (needsPick) tasks.push(refreshOzonFbsPickVerifyStatus(null, { silent: true }));
+    void Promise.all(tasks).catch(() => {});
+  }
+
+  function _ozonFbsStatusCooldownOk(kind, ms) {
+    const key = kind === "pick" ? "_pickStatusAt" : "_kizStatusAt";
+    const at = Number(supplyDetailState[key] || 0);
+    return !at || (Date.now() - at) >= (ms || 1500);
+  }
+
+  function _ozonFbsStatusCooldownTouch(kind) {
+    const key = kind === "pick" ? "_pickStatusAt" : "_kizStatusAt";
+    supplyDetailState[key] = Date.now();
   }
 
   function _ozonFbsKizToneFromSupply(supply) {
@@ -9597,8 +9598,10 @@
     ozonFbsKizState.localAutosaveDirty = new Set();
     _ozonFbsKizSetFiltersReady(false);
     _ozonFbsKizSetInfo("");
-    // Re-check after autosaves — same rules as «Обновить».
-    void refreshOzonFbsMarkingStatus(null, { silent: true });
+    // Skip if save/open just refreshed (avoid double network on close).
+    if (_ozonFbsStatusCooldownOk("kiz")) {
+      void refreshOzonFbsMarkingStatus(null, { silent: true });
+    }
   }
 
   async function saveOzonFbsKizModal() {
@@ -9715,7 +9718,7 @@
     ozonFbsKizState.statusRefreshGen = refreshGen;
     ozonFbsKizState.statusRefreshing = true;
     ozonFbsKizState.statusRefreshQueued = false;
-    if (refreshBtn) {
+    if (!silent && refreshBtn) {
       refreshBtn.disabled = true;
       refreshBtn.classList.add("is-spinning");
     }
@@ -9732,7 +9735,9 @@
       if (supplyDetailState.supplyId !== sid) return;
       if (ozonFbsKizState.statusRefreshGen !== refreshGen) return;
       _ozonFbsKizMergeStatusIntoDetail(data.orders || []);
-      if (supplyDetailState.supply) renderSupplyDetail();
+      // Manual refresh: full re-render. Silent/auto: tone only (detail already painted).
+      if (!silent && supplyDetailState.supply) renderSupplyDetail();
+      _ozonFbsStatusCooldownTouch("kiz");
       const st = String(data.status || "");
       const split = document.getElementById("ozonFbsKizSplit");
       const refreshBtn = document.getElementById("ozonFbsSupplyDetailKizRefreshBtn");
@@ -10452,7 +10457,7 @@
     ozonFbsPickState.statusRefreshGen = refreshGen;
     ozonFbsPickState.statusRefreshing = true;
     ozonFbsPickState.statusRefreshQueued = false;
-    if (refreshBtn) {
+    if (!silent && refreshBtn) {
       refreshBtn.disabled = true;
       refreshBtn.classList.add("is-spinning");
     }
@@ -10468,6 +10473,7 @@
       }
       if (supplyDetailState.supplyId !== sid) return;
       if (ozonFbsPickState.statusRefreshGen !== refreshGen) return;
+      _ozonFbsStatusCooldownTouch("pick");
       const st = String(data.status || "");
       if (Array.isArray(data.orders)) {
         _ozonFbsPickSyncToneFromRows(data.orders);
@@ -10640,8 +10646,10 @@
     cancelOzonFbsPickSkuScan();
     ozonFbsPickState.rows = [];
     _ozonFbsPickSetInfo("");
-    // Include container-error rules from /pick-verify/status (local rows alone miss them).
-    void refreshOzonFbsPickVerifyStatus(null, { silent: true });
+    // Skip if save/open just refreshed (avoid double network on close).
+    if (_ozonFbsStatusCooldownOk("pick")) {
+      void refreshOzonFbsPickVerifyStatus(null, { silent: true });
+    }
   }
 
   async function saveOzonFbsPickVerifyModal() {
