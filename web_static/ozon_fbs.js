@@ -1928,6 +1928,13 @@
       err.hidden = true;
       err.textContent = "";
     }
+    const title = document.getElementById("ozonFbsCollectTitle");
+    if (title) title.textContent = "Собрать все заказы";
+    const lead = document.getElementById("ozonFbsCollectLead");
+    if (lead) {
+      lead.hidden = true;
+      lead.textContent = "";
+    }
   }
 
   function closeCollectResultModal() {
@@ -2156,6 +2163,7 @@
   function renderCollectModal(preview) {
     const body = document.getElementById("ozonFbsCollectBody");
     const lead = document.getElementById("ozonFbsCollectLead");
+    const title = document.getElementById("ozonFbsCollectTitle");
     const err = document.getElementById("ozonFbsCollectErr");
     if (err) {
       err.hidden = true;
@@ -2166,22 +2174,34 @@
       (Array.isArray(preview?.existing_names) ? preview.existing_names : [])
         .map((x) => String(x || "").trim()).filter(Boolean)
     );
+    const postingCount = Number(preview?.posting_count || preview?.mgt_count || 0);
+    if (title) {
+      title.textContent = postingCount > 0
+        ? `Собрать все заказы: ${postingCount} шт.`
+        : "Собрать все заказы";
+    }
+    // Count lives in the title. Keep lead only for multi-posting split note.
+    const splitNote = shipSplitPreviewNote(preview);
     if (lead) {
-      const base = `Отправлений в «Ожидают сборки»: ${preview?.posting_count || preview?.mgt_count || 0}.`;
-      const splitNote = shipSplitPreviewNote(preview);
-      lead.textContent = splitNote ? `${base} ${splitNote}` : base;
+      if (splitNote) {
+        lead.hidden = false;
+        lead.textContent = splitNote;
+      } else {
+        lead.hidden = true;
+        lead.textContent = "";
+      }
     }
     if (!body) return;
     if (!groups.length) {
       body.innerHTML = `<div class="ozon-fbs-collect-empty">Нет заказов для сборки.</div>`;
       return;
     }
+    const showGroupHead = groups.length > 1;
     body.innerHTML = groups.map((g, idx) => {
       const gkey = String(g.group_key || `g${idx}`);
       const mode = String(g.mode || "create");
       const label = String(g.label || "Склад");
       const count = Number(g.order_count || 0);
-      const metaParts = [`${count} отпр.`];
       let inner = "";
       if (mode === "create") {
         const name = String(g.suggested_name || "");
@@ -2213,23 +2233,23 @@
                 ].filter(Boolean).join(" · ");
                 return `
                   <label class="ozon-fbs-collect-supply">
-                    <input type="radio" name="ozonFbsCollectSupply_${esc(gkey)}" value="${esc(sid)}"
-                           ${si === 0 ? "checked" : ""}
-                           onchange="ozonFbsCollectTargetChanged('${esc(gkey)}')" />
-                    <span class="ozon-fbs-collect-supply-text">
+                    <span class="ozon-fbs-collect-supply-main">
+                      <input type="radio" name="ozonFbsCollectSupply_${esc(gkey)}" value="${esc(sid)}"
+                             ${si === 0 ? "checked" : ""}
+                             onchange="ozonFbsCollectTargetChanged('${esc(gkey)}')" />
                       <span class="ozon-fbs-collect-supply-name">${esc(sname)}</span>
-                      <span class="ozon-fbs-collect-supply-meta">${esc(meta)}</span>
                     </span>
+                    <span class="ozon-fbs-collect-supply-meta">${esc(meta)}</span>
                   </label>`;
               }).join("")}
               <label class="ozon-fbs-collect-supply">
-                <input type="radio" name="ozonFbsCollectSupply_${esc(gkey)}" value="__new__"
-                       ${supplies.length ? "" : "checked"}
-                       onchange="ozonFbsCollectTargetChanged('${esc(gkey)}')" />
-                <span class="ozon-fbs-collect-supply-text">
+                <span class="ozon-fbs-collect-supply-main">
+                  <input type="radio" name="ozonFbsCollectSupply_${esc(gkey)}" value="__new__"
+                         ${supplies.length ? "" : "checked"}
+                         onchange="ozonFbsCollectTargetChanged('${esc(gkey)}')" />
                   <span class="ozon-fbs-collect-supply-name">Создать новую поставку</span>
-                  <span class="ozon-fbs-collect-supply-meta">отдельная поставка для этих заказов</span>
                 </span>
+                <span class="ozon-fbs-collect-supply-meta">отдельная поставка для этих заказов</span>
               </label>
             </div>
           </div>
@@ -2251,12 +2271,15 @@
         const sname = match ? String(match.name || sid) : sid;
         inner = `<div class="ozon-fbs-collect-auto">Будет добавлено в поставку «${esc(sname)}».</div>`;
       }
-      return `
-        <section class="ozon-fbs-collect-group" data-group-key="${esc(gkey)}" data-mode="${esc(mode)}">
-          <div class="ozon-fbs-collect-group-head">
+      const head = showGroupHead
+        ? `<div class="ozon-fbs-collect-group-head">
             <h4 class="ozon-fbs-collect-group-title">${esc(label)}</h4>
-            <p class="ozon-fbs-collect-group-meta">${esc(metaParts.join(" · "))}</p>
-          </div>
+            <p class="ozon-fbs-collect-group-meta">${esc(`${count} отпр.`)}</p>
+          </div>`
+        : "";
+      return `
+        <section class="ozon-fbs-collect-group" data-group-key="${esc(gkey)}" data-mode="${esc(mode)}" data-label="${esc(label)}">
+          ${head}
           ${inner}
         </section>`;
     }).join("");
@@ -4623,7 +4646,6 @@
     if (!body) return;
     if (!supplies.length) {
       body.innerHTML = `
-        ${selectionTraitsHtml(preview.traits)}
         <div class="wb-fbs-collect-mgt-auto">
           Нет открытых поставок с тем же складом. Создайте новую поставку или выберите другой набор.
         </div>`;
@@ -4631,8 +4653,8 @@
       return;
     }
     if (confirmBtn) confirmBtn.disabled = false;
+    // No warehouse trait chips — list already filtered by warehouse.
     body.innerHTML = `
-      ${selectionTraitsHtml(preview.traits)}
       <div class="wb-fbs-collect-mgt-field">
         <label>Поставка</label>
         <div class="wb-fbs-collect-mgt-supplies">
@@ -4640,17 +4662,16 @@
             const sid = String(s.supply_id || "");
             const sname = String(s.name || sid);
             const meta = [
-              s.is_empty ? "пустая" : "открытая",
+              s.is_empty ? "пустая" : null,
               `${Number(s.orders_count || 0)} отпр.`,
-              s.warehouse_name || (s.warehouse_id != null ? `склад ${s.warehouse_id}` : null),
             ].filter(Boolean).join(" · ");
             return `
               <label class="wb-fbs-collect-mgt-supply">
-                <input type="radio" name="ozonFbsSelectionSupplyPick" value="${esc(sid)}" ${si === 0 ? "checked" : ""} />
-                <span>
+                <span class="wb-fbs-collect-mgt-supply-main">
+                  <input type="radio" name="ozonFbsSelectionSupplyPick" value="${esc(sid)}" ${si === 0 ? "checked" : ""} />
                   <span class="wb-fbs-collect-mgt-supply-name">${esc(sname)}</span>
-                  <span class="wb-fbs-collect-mgt-supply-meta">${esc(meta)}</span>
                 </span>
+                <span class="wb-fbs-collect-mgt-supply-meta">${esc(meta)}</span>
               </label>`;
           }).join("")}
         </div>
