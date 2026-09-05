@@ -3964,11 +3964,12 @@
     if (state.pickHubTone === "ok") split.classList.add("is-ok");
   }
 
-  async function refreshHubPickStatus(event) {
+  async function refreshHubPickStatus(event, opts) {
     if (event) {
       event.preventDefault();
       event.stopPropagation();
     }
+    const silent = !!(opts && opts.silent);
     const sid = String(state.route.supplyId || (state.supply && state.supply.supply_id) || "").trim();
     if (!sid || !state.sourceId || state.pickStatusRefreshing) return;
     const refreshBtn = document.getElementById("tsdPickRefreshBtn");
@@ -3993,7 +3994,7 @@
         setPickHubTone("");
       }
     } catch (e) {
-      if (String(state.route.supplyId || "") === sid && state.route.view === "hub") {
+      if (!silent && String(state.route.supplyId || "") === sid && state.route.view === "hub") {
         toast(e.message || String(e));
       }
     } finally {
@@ -4012,11 +4013,12 @@
     }
   }
 
-  async function refreshHubKizStatus(event) {
+  async function refreshHubKizStatus(event, opts) {
     if (event) {
       event.preventDefault();
       event.stopPropagation();
     }
+    const silent = !!(opts && opts.silent);
     const sid = String(state.route.supplyId || (state.supply && state.supply.supply_id) || "").trim();
     if (!sid || !state.sourceId || state.kizStatusRefreshing) return;
     const refreshBtn = document.getElementById("tsdKizRefreshBtn");
@@ -4036,7 +4038,7 @@
       state.kizHubToneSupplyId = sid;
       setKizHubTone(data.status);
     } catch (e) {
-      if (String(state.route.supplyId || "") === sid && state.route.view === "hub") {
+      if (!silent && String(state.route.supplyId || "") === sid && state.route.view === "hub") {
         toast(e.message || String(e));
       }
     } finally {
@@ -4053,6 +4055,26 @@
         kizBtn.disabled = kizDisabled || state.kizStatusRefreshing;
       }
     }
+  }
+
+  /** After hub paint: same status endpoints as tile refresh, without a click. */
+  function autoRefreshHubTones({ kizDisabled = false, pickDisabled = false } = {}) {
+    const sid = String(state.route.supplyId || (state.supply && state.supply.supply_id) || "").trim();
+    if (!sid || !state.sourceId || state.route.view !== "hub") return;
+    void (async () => {
+      try {
+        if (!kizDisabled) await refreshHubKizStatus(null, { silent: true });
+        if (
+          !pickDisabled
+          && String(state.route.supplyId || "") === sid
+          && state.route.view === "hub"
+        ) {
+          await refreshHubPickStatus(null, { silent: true });
+        }
+      } catch (_) {
+        /* silent — manual refresh still available */
+      }
+    })();
   }
 
   function renderHub() {
@@ -4184,6 +4206,7 @@
     if (pickRefreshBtn && !pickDisabled) {
       pickRefreshBtn.addEventListener("click", (ev) => refreshHubPickStatus(ev));
     }
+    autoRefreshHubTones({ kizDisabled, pickDisabled });
   }
 
   function remainingRows(mode) {
