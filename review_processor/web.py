@@ -19903,11 +19903,18 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             sid = str(source_id or "").strip()
             if not sid:
                 return ""
-            if st not in {"wb_fbs_order", "wb_fbs_order_reverse"} and not sid[:1].isdigit():
+            if st not in {
+                "wb_fbs_order",
+                "wb_fbs_order_reverse",
+                "ozon_fbs_posting",
+                "ozon_fbs_posting_reverse",
+            } and not sid[:1].isdigit():
                 return ""
             head = sid.split(":", 1)[0].strip()
             if head.isdigit():
                 return f"Заказ #{head}"
+            if head:
+                return head
             return ""
 
         items: list[dict[str, object]] = []
