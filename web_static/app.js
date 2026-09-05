@@ -25854,6 +25854,117 @@ function initWbFbsColumnResizer() {
 }
 window.initWbFbsColumnResizer = initWbFbsColumnResizer;
 
+function _fbsSourcePickerEls(prefix) {
+  return {
+    wrap: document.getElementById(`${prefix}Picker`),
+    btn: document.getElementById(`${prefix}Btn`),
+    label: document.getElementById(`${prefix}BtnLabel`),
+    menu: document.getElementById(`${prefix}Menu`),
+    sel: document.getElementById(`${prefix}Select`),
+  };
+}
+
+function closeFbsSourcePicker(prefix) {
+  const { btn, menu } = _fbsSourcePickerEls(prefix);
+  if (btn) btn.setAttribute("aria-expanded", "false");
+  if (menu) {
+    menu.classList.add("hidden");
+    menu.hidden = true;
+  }
+}
+
+function closeAllFbsSourcePickers(exceptPrefix) {
+  ["wbFbsSource", "ozonFbsSource"].forEach((prefix) => {
+    if (exceptPrefix && prefix === exceptPrefix) return;
+    closeFbsSourcePicker(prefix);
+  });
+}
+
+function syncFbsSourcePickerLabel(prefix) {
+  const { btn, label, sel } = _fbsSourcePickerEls(prefix);
+  if (!sel) return;
+  const opt = sel.selectedOptions && sel.selectedOptions[0]
+    ? sel.selectedOptions[0]
+    : sel.options[sel.selectedIndex];
+  const text = String(opt?.textContent || opt?.label || "Источник").trim() || "Источник";
+  if (label) label.textContent = text;
+  if (btn) btn.title = text;
+}
+window.syncFbsSourcePickerLabel = syncFbsSourcePickerLabel;
+
+function rebuildFbsSourcePickerMenu(prefix) {
+  const { menu, sel } = _fbsSourcePickerEls(prefix);
+  if (!menu || !sel) return;
+  const current = String(sel.value || "");
+  const options = Array.from(sel.options || []);
+  if (!options.length) {
+    menu.innerHTML = `<div class="fbs-source-picker-option" role="option" aria-disabled="true">Нет источников</div>`;
+    return;
+  }
+  menu.innerHTML = options.map((opt) => {
+    const value = String(opt.value || "");
+    const text = String(opt.textContent || opt.label || value).trim();
+    const active = value === current;
+    return `<button type="button" class="fbs-source-picker-option${active ? " is-active" : ""}"
+                role="option" aria-selected="${active ? "true" : "false"}"
+                data-value="${esc(value)}"
+                onclick="pickFbsSourceOption('${prefix}', this.dataset.value, event)">${esc(text)}</button>`;
+  }).join("");
+}
+
+function syncFbsSourcePicker(prefix) {
+  syncFbsSourcePickerLabel(prefix);
+  rebuildFbsSourcePickerMenu(prefix);
+}
+window.syncFbsSourcePicker = syncFbsSourcePicker;
+
+function pickFbsSourceOption(prefix, value, event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  const { sel } = _fbsSourcePickerEls(prefix);
+  if (!sel) return;
+  const next = String(value ?? "");
+  const prev = String(sel.value || "");
+  if (next !== prev) {
+    sel.value = next;
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  syncFbsSourcePickerLabel(prefix);
+  closeFbsSourcePicker(prefix);
+}
+window.pickFbsSourceOption = pickFbsSourceOption;
+
+function toggleFbsSourcePicker(prefix, event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  const { btn, menu } = _fbsSourcePickerEls(prefix);
+  if (!btn || !menu) return;
+  const open = btn.getAttribute("aria-expanded") === "true";
+  if (open) {
+    closeFbsSourcePicker(prefix);
+    return;
+  }
+  closeAllFbsSourcePickers(prefix);
+  rebuildFbsSourcePickerMenu(prefix);
+  menu.classList.remove("hidden");
+  menu.hidden = false;
+  btn.setAttribute("aria-expanded", "true");
+}
+window.toggleFbsSourcePicker = toggleFbsSourcePicker;
+
+document.addEventListener("click", (event) => {
+  const t = event.target;
+  if (t && typeof t.closest === "function" && t.closest(".fbs-source-picker")) return;
+  closeAllFbsSourcePickers();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeAllFbsSourcePickers();
+});
+
 async function loadWbFbsSources() {
   const sel = document.getElementById("wbFbsSourceSelect");
   if (!sel) return;
@@ -25880,11 +25991,13 @@ async function loadWbFbsSources() {
     sel.innerHTML = '<option value="">Ошибка загрузки источников</option>';
     wbFbsState.sourceId = null;
   }
+  syncFbsSourcePicker("wbFbsSource");
 }
 
 function onWbFbsSourceChange() {
   const sel = document.getElementById("wbFbsSourceSelect");
   wbFbsState.sourceId = sel?.value ? Number(sel.value) : null;
+  syncFbsSourcePickerLabel("wbFbsSource");
   closeWbFbsSelectionSupplyModal();
   clearWbFbsSelection();
   loadWbFbsOrders(true);

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=300" />
+  <link rel="stylesheet" href="/static/style.css?v=301" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1650,7 +1650,17 @@
       <section id="section-supplies-wb-fbs" class="hidden wb-fbs-section">
         <div class="wb-fbs-title-row">
           <h3 class="section-title no-margin">Поставки — ВБ ФБС</h3>
-          <select id="wbFbsSourceSelect" class="wb-fbs-source-select" onchange="onWbFbsSourceChange()" title="Источник"></select>
+          <div class="fbs-source-picker" id="wbFbsSourcePicker">
+            <button type="button" class="fbs-source-picker-btn" id="wbFbsSourceBtn"
+                    aria-haspopup="listbox" aria-expanded="false" aria-controls="wbFbsSourceMenu"
+                    title="Источник" onclick="toggleFbsSourcePicker('wbFbsSource', event)">
+              <span class="fbs-source-picker-label" id="wbFbsSourceBtnLabel">Источник</span>
+              <span class="fbs-source-picker-caret" aria-hidden="true"></span>
+            </button>
+            <div class="fbs-source-picker-menu hidden" id="wbFbsSourceMenu" role="listbox" hidden></div>
+            <select id="wbFbsSourceSelect" class="fbs-source-picker-native" hidden
+                    onchange="onWbFbsSourceChange()" title="Источник" tabindex="-1" aria-hidden="true"></select>
+          </div>
         </div>
         <div class="panel supplies-toolbar-panel wb-fbs-toolbar">
           <div class="supplies-top-controls">
@@ -2665,7 +2675,17 @@
       <section id="section-supplies-ozon-fbs" class="hidden wb-fbs-section">
         <div class="wb-fbs-title-row">
           <h3 class="section-title no-margin">Поставки — ОЗОН ФБС</h3>
-          <select id="ozonFbsSourceSelect" class="wb-fbs-source-select" onchange="onOzonFbsSourceChange()" title="Источник"></select>
+          <div class="fbs-source-picker" id="ozonFbsSourcePicker">
+            <button type="button" class="fbs-source-picker-btn" id="ozonFbsSourceBtn"
+                    aria-haspopup="listbox" aria-expanded="false" aria-controls="ozonFbsSourceMenu"
+                    title="Источник" onclick="toggleFbsSourcePicker('ozonFbsSource', event)">
+              <span class="fbs-source-picker-label" id="ozonFbsSourceBtnLabel">Источник</span>
+              <span class="fbs-source-picker-caret" aria-hidden="true"></span>
+            </button>
+            <div class="fbs-source-picker-menu hidden" id="ozonFbsSourceMenu" role="listbox" hidden></div>
+            <select id="ozonFbsSourceSelect" class="fbs-source-picker-native" hidden
+                    onchange="onOzonFbsSourceChange()" title="Источник" tabindex="-1" aria-hidden="true"></select>
+          </div>
         </div>
         <div class="panel supplies-toolbar-panel wb-fbs-toolbar">
           <div class="supplies-top-controls">
@@ -6536,8 +6556,8 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=130"></script>
+  <script src="/static/ozon_fbs.js?v=131"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=20"></script>
-  <script src="/static/app.js?v=544"></script>
+  <script src="/static/app.js?v=545"></script>
 </body>
 </html>

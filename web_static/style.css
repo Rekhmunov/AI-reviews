@@ -7355,16 +7355,126 @@ tr.dnd-over td {
   flex-wrap: wrap;
   margin: 0;
 }
-.wb-fbs-source-select {
+.wb-fbs-source-select,
+.fbs-source-picker-btn {
   min-width: 180px;
   max-width: 280px;
   height: 36px;
-  padding: 0 12px;
+  min-height: 36px;
+  padding: 0 36px 0 12px;
   border: 1px solid #d7e0ef;
   border-radius: 8px;
   background: #fff;
   color: #0f172a;
   font-size: 14px;
+  line-height: 1.2;
+  box-sizing: border-box;
+}
+.fbs-source-picker {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+  max-width: 280px;
+}
+.fbs-source-picker-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  position: relative;
+}
+.fbs-source-picker-btn:hover {
+  border-color: #94a3b8;
+  background: #f8fafc;
+}
+.fbs-source-picker-btn:focus-visible {
+  outline: 2px solid #334155;
+  outline-offset: 2px;
+}
+.fbs-source-picker-btn[aria-expanded="true"] {
+  border-color: #334155;
+}
+.fbs-source-picker-label {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fbs-source-picker-caret {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin-top: -2px;
+  border-right: 1.5px solid #64748b;
+  border-bottom: 1.5px solid #64748b;
+  transform: translateY(-50%) rotate(45deg);
+  pointer-events: none;
+}
+.fbs-source-picker-btn[aria-expanded="true"] .fbs-source-picker-caret {
+  margin-top: 2px;
+  transform: translateY(-50%) rotate(225deg);
+}
+.fbs-source-picker-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 80;
+  margin: 0;
+  padding: 4px;
+  min-width: 100%;
+  width: max-content;
+  max-width: min(360px, 92vw);
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+.fbs-source-picker-menu[hidden],
+.fbs-source-picker-menu.hidden {
+  display: none !important;
+}
+.fbs-source-picker-option {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #0f172a;
+  font-size: 14px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+.fbs-source-picker-option:hover,
+.fbs-source-picker-option:focus-visible {
+  background: #f1f5f9;
+  outline: none;
+}
+.fbs-source-picker-option.is-active {
+  background: #eff6ff;
+  font-weight: 600;
+}
+.fbs-source-picker-native {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
 }
 #wbFbsCreateTrbxModal.modal-overlay {
   /* Above supply-detail overlay (same base z-index), so create never looks "closed". */
@@ -11189,7 +11299,12 @@ button.wb-fbs-sd-portal-btn:focus-visible {
 }
 @media (max-width: 900px) {
   .wb-fbs-search { width: 100%; }
-  .wb-fbs-source-select { max-width: 100%; width: 100%; }
+  .wb-fbs-source-select,
+  .fbs-source-picker,
+  .fbs-source-picker-btn {
+    max-width: 100%;
+    width: 100%;
+  }
   .wb-fbs-bottom-bar {
     left: 12px;
     right: 12px;
