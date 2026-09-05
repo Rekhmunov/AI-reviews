@@ -59,7 +59,7 @@ def test_ozon_pc_auto_refresh_split_tones() -> None:
     assert "refreshOzonFbsPickVerifyStatus(null, { silent: true })" in save_pick
     assert "statusRefreshQueued" in js
 
-    assert "ozon_fbs.js?v=128" in html
+    assert "ozon_fbs.js?v=129" in html
 
 
 def test_wb_pc_auto_refresh_split_tones() -> None:

@@ -37,6 +37,6 @@ def test_complete_green_css_and_cache() -> None:
     assert ".ozon-fbs-container-count.is-complete" in css
     assert "color: #15803d" in css
     assert "app.js?v=541" in html
-    assert "ozon_fbs.js?v=128" in html
+    assert "ozon_fbs.js?v=129" in html
     assert "ozon_fbs_container_bind.js?v=20" in html
     assert "style.css?v=297" in html

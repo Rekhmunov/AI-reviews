@@ -28,6 +28,7 @@ def test_ozon_delivering_banner_no_local_edit_hint() -> None:
     assert "Состав поставки изменению не подлежит — отправления уже в доставке." in sync_fn
     assert "можно заносить локально" not in sync_fn
     assert "_ozonFbsSyncSupplyDetailToneOnlySplits(!!readOnly)" in sync_fn
+    assert 'info.classList.add("is-warn")' in sync_fn
     assert "actions.hidden = false" in sync_fn
 
 
@@ -61,7 +62,7 @@ def test_ozon_delivering_kiz_pick_tone_only_no_modal() -> None:
     assert 'id="ozonFbsSupplyDetailPickVerifyBtn"' in html
     assert 'id="ozonFbsSupplyDetailKizRefreshBtn"' in html
     assert 'id="ozonFbsSupplyDetailPickRefreshBtn"' in html
-    assert "ozon_fbs.js?v=128" in html
+    assert "ozon_fbs.js?v=129" in html
 
 
 def test_ozon_delivering_auto_tones_still_run() -> None:
