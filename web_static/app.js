@@ -14850,7 +14850,9 @@ async function openSupplyStockReceiptModal() {
     await _sbLoadCatalogItems();
     renderSupplyStockReceiptList();
     onSupplyStockModalSearch("receipt");
-    setTimeout(() => scanEl?.focus(), 40);
+    // Desktop only: autofocus opens the soft keyboard on phones and hides the list/footer.
+    const finePointer = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+    if (finePointer) setTimeout(() => scanEl?.focus(), 40);
   } catch (e) {
     _sbSetDocErr("supplyStockReceiptErr", String(e.message || e));
     if (list) list.innerHTML = `<div class="sb-doc-empty">Не удалось загрузить список</div>`;
