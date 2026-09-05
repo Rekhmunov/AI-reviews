@@ -3051,6 +3051,8 @@
       renderSupplyDetail(data);
       _ozonFbsSupplyDetailSetActionsReady(true);
       _ozonFbsSupplyDetailUpdateNewWarn();
+      // Same ok/error rules as «Обновить», without requiring a click.
+      _ozonFbsAutoRefreshSplitTones();
     } catch (e) {
       _ozonFbsSupplyDetailSetActionsReady(false);
       _ozonFbsSupplyDetailHideNewWarn();
@@ -7932,6 +7934,33 @@
     }
   }
 
+  /** Fire-and-forget: reuse marking/pick status endpoints (same tone rules as refresh). */
+  function _ozonFbsAutoRefreshSplitTones() {
+    const sid = String(supplyDetailState.supplyId || "").trim();
+    if (!sid || !_ozonFbsSupplyActionsReady()) return;
+    const orders = Array.isArray(supplyDetailState.supply?.orders)
+      ? supplyDetailState.supply.orders
+      : [];
+    const needsKiz = orders.some((o) => o && o.kiz_required && !_ozonFbsRowIsCancelled(o));
+    const needsPick = orders.some((o) => o && !o.kiz_required && !_ozonFbsRowIsCancelled(o));
+    if (!needsKiz && !needsPick) return;
+    void (async () => {
+      try {
+        // Sequential: marking refresh re-renders detail and would wipe pick API tone.
+        if (needsKiz) await refreshOzonFbsMarkingStatus(null, { silent: true });
+        if (
+          needsPick
+          && String(supplyDetailState.supplyId || "") === sid
+          && _ozonFbsSupplyActionsReady()
+        ) {
+          await refreshOzonFbsPickVerifyStatus(null, { silent: true });
+        }
+      } catch (_) {
+        /* silent — manual «Обновить» still available */
+      }
+    })();
+  }
+
   function _ozonFbsKizToneFromSupply(supply) {
     const orders = Array.isArray(supply?.orders) ? supply.orders : [];
     const required = orders.filter((o) => o && o.kiz_required && !_ozonFbsRowIsCancelled(o));
@@ -9291,6 +9320,7 @@
     if (supplyDetailState.supply) {
       renderSupplyDetail();
       _ozonFbsKizSplitSetTone(_ozonFbsKizToneFromSupply(supplyDetailState.supply));
+      void refreshOzonFbsMarkingStatus(null, { silent: true });
     }
   }
 
@@ -9563,6 +9593,8 @@
     ozonFbsKizState.localAutosaveDirty = new Set();
     _ozonFbsKizSetFiltersReady(false);
     _ozonFbsKizSetInfo("");
+    // Re-check after autosaves — same rules as «Обновить».
+    void refreshOzonFbsMarkingStatus(null, { silent: true });
   }
 
   async function saveOzonFbsKizModal() {
@@ -9661,11 +9693,12 @@
     }
   }
 
-  async function refreshOzonFbsMarkingStatus(event) {
+  async function refreshOzonFbsMarkingStatus(event, opts) {
     if (event) {
       event.preventDefault();
       event.stopPropagation();
     }
+    const silent = !!(opts && opts.silent);
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
     if (!sid || !sourceId || !_ozonFbsSupplyActionsReady() || ozonFbsKizState.statusRefreshing) {
@@ -9723,7 +9756,8 @@
       }
     } catch (e) {
       if (
-        supplyDetailState.supplyId === sid
+        !silent
+        && supplyDetailState.supplyId === sid
         && ozonFbsKizState.statusRefreshGen === refreshGen
       ) {
         const info = document.getElementById("ozonFbsSupplyDetailInfo");
@@ -10389,11 +10423,12 @@
     if (rowEl) rowEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
 
-  async function refreshOzonFbsPickVerifyStatus(event) {
+  async function refreshOzonFbsPickVerifyStatus(event, opts) {
     if (event) {
       event.preventDefault();
       event.stopPropagation();
     }
+    const silent = !!(opts && opts.silent);
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
     if (!sid || !sourceId || !_ozonFbsSupplyActionsReady() || ozonFbsPickState.statusRefreshing) {
@@ -10437,7 +10472,8 @@
       }
     } catch (e) {
       if (
-        supplyDetailState.supplyId === sid
+        !silent
+        && supplyDetailState.supplyId === sid
         && ozonFbsPickState.statusRefreshGen === refreshGen
       ) {
         const info = document.getElementById("ozonFbsSupplyDetailInfo");
@@ -10586,6 +10622,8 @@
     cancelOzonFbsPickSkuScan();
     ozonFbsPickState.rows = [];
     _ozonFbsPickSetInfo("");
+    // Include container-error rules from /pick-verify/status (local rows alone miss them).
+    void refreshOzonFbsPickVerifyStatus(null, { silent: true });
   }
 
   async function saveOzonFbsPickVerifyModal() {

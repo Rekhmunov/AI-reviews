@@ -29,4 +29,5 @@ def test_pick_button_tone_persists_like_kiz() -> None:
 
     assert 'd["pick_verified"] = pick_ok' in supplies
     assert "Normalize pick-verify fields" in supplies
-    assert "ozon_fbs.js?v=117" in html
+    assert "ozon_fbs.js?v=" in html
+    assert "_ozonFbsAutoRefreshSplitTones()" in js

@@ -27275,6 +27275,8 @@ async function openWbFbsSupplyDetailModal(supplyId) {
     renderWbFbsSupplyDetail(data);
     _wbFbsSupplyDetailSetActionsReady(true);
     _wbFbsSupplyDetailUpdateNewWarn();
+    // Same ok/error rules as «Обновить», without requiring a click.
+    _wbFbsAutoRefreshSplitTones();
   } catch (e) {
     if (wbFbsDetailState.supplyId === sid) {
       _wbFbsSupplyDetailSetActionsReady(false);
@@ -28192,6 +28194,33 @@ function _wbFbsKizSplitSetTone(tone) {
   // pending / none / unknown → leave default secondary styling
 }
 
+/** Fire-and-forget: reuse kiz/pick status endpoints (same tone rules as refresh). */
+function _wbFbsAutoRefreshSplitTones() {
+  const sid = String(wbFbsDetailState.supplyId || "").trim();
+  if (!sid || !wbFbsState.sourceId || !_wbFbsSupplyDetailActionsReady()) return;
+  const orders = Array.isArray(wbFbsDetailState.supply?.orders)
+    ? wbFbsDetailState.supply.orders
+    : [];
+  const needsKiz = orders.some((o) => o && o.kiz_required);
+  const needsPick = orders.some((o) => o && !o.kiz_required);
+  if (!needsKiz && !needsPick) return;
+  void (async () => {
+    try {
+      // Sequential: kiz refresh re-renders detail; pick API tone must win after.
+      if (needsKiz) await refreshWbFbsKizStatus(null, { silent: true });
+      if (
+        needsPick
+        && String(wbFbsDetailState.supplyId || "") === sid
+        && _wbFbsSupplyDetailActionsReady()
+      ) {
+        await refreshWbFbsPickVerifyStatus(null, { silent: true });
+      }
+    } catch (_) {
+      /* silent — manual «Обновить» still available */
+    }
+  })();
+}
+
 function _wbFbsKizClearOrderFields(order) {
   if (!order || typeof order !== "object") return;
   order.kiz_required = false;
@@ -28241,11 +28270,12 @@ function _wbFbsKizMergeStatusIntoDetail(orders) {
   });
 }
 
-async function refreshWbFbsKizStatus(event) {
+async function refreshWbFbsKizStatus(event, opts) {
   if (event) {
     event.preventDefault();
     event.stopPropagation();
   }
+  const silent = !!(opts && opts.silent);
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId || !_wbFbsSupplyDetailActionsReady() || wbFbsKizState.statusRefreshing) {
     return;
@@ -28282,7 +28312,8 @@ async function refreshWbFbsKizStatus(event) {
     _wbFbsKizSplitSetTone(data.status);
   } catch (e) {
     if (
-      wbFbsDetailState.supplyId === sid
+      !silent
+      && wbFbsDetailState.supplyId === sid
       && wbFbsKizState.statusRefreshGen === refreshGen
     ) {
       const info = document.getElementById("wbFbsSupplyDetailInfo");
@@ -28776,6 +28807,8 @@ async function closeWbFbsKizModal(opts) {
   _wbFbsKizResetFilters();
   _wbFbsKizSetFiltersReady(false);
   _wbFbsKizSetInfo("");
+  // Re-check after autosaves — same rules as «Обновить».
+  void refreshWbFbsKizStatus(null, { silent: true });
   return true;
 }
 window.closeWbFbsKizModal = closeWbFbsKizModal;
@@ -30038,11 +30071,12 @@ function _wbFbsPickSplitSetTone(tone) {
   else if (t === "error") split.classList.add("is-error");
 }
 
-async function refreshWbFbsPickVerifyStatus(event) {
+async function refreshWbFbsPickVerifyStatus(event, opts) {
   if (event) {
     event.preventDefault();
     event.stopPropagation();
   }
+  const silent = !!(opts && opts.silent);
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId || !_wbFbsSupplyDetailActionsReady() || wbFbsPickState.statusRefreshing) {
     return;
@@ -30077,7 +30111,8 @@ async function refreshWbFbsPickVerifyStatus(event) {
     }
   } catch (e) {
     if (
-      wbFbsDetailState.supplyId === sid
+      !silent
+      && wbFbsDetailState.supplyId === sid
       && wbFbsPickState.statusRefreshGen === refreshGen
     ) {
       const info = document.getElementById("wbFbsSupplyDetailInfo");
@@ -30269,6 +30304,8 @@ async function closeWbFbsPickVerifyModal(opts) {
   _wbFbsPickResetFilters();
   _wbFbsPickSetFiltersReady(false);
   _wbFbsPickSetInfo("");
+  // Re-check after autosaves / edits — same rules as «Обновить».
+  void refreshWbFbsPickVerifyStatus(null, { silent: true });
   return true;
 }
 window.closeWbFbsPickVerifyModal = closeWbFbsPickVerifyModal;
