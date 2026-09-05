@@ -26754,6 +26754,83 @@ function _wbFbsSupplyDetailSetActionsReady(ready) {
     _wbFbsCloseStickersMenu();
   }
   _wbFbsSyncPickVerifyBtn();
+  // Delivery: KIZ/pick remain visible as status tones but must not open editors.
+  _wbFbsSyncSupplyDetailToneOnlySplits(_wbFbsIsSupplyDetailReadOnly());
+}
+
+
+function _wbFbsIsDeliverySuppliesTab() {
+  return wbFbsState.tab === "delivery";
+}
+
+/** Delivery tab: composition is view-only; KIZ/pick stay as status indicators only. */
+function _wbFbsIsSupplyDetailReadOnly() {
+  return _wbFbsIsDeliverySuppliesTab();
+}
+
+function _wbFbsIsSupplyDetailCargoLocked() {
+  return _wbFbsIsSupplyDetailReadOnly() || !!(wbFbsDetailState.supply || {}).done;
+}
+
+const _WB_FBS_SD_READONLY_BANNER =
+  "Состав поставки изменению не подлежит — отправления уже в доставке.";
+
+function _wbFbsSyncSupplyDetailToneOnlySplits(toneOnly) {
+  const tip =
+    "Только индикатор статуса — изменение недоступно: отправления уже в доставке";
+  const defaults = {
+    wbFbsSupplyDetailKizBtn: "Товары с КИЗ — коды маркировки «Честный знак»",
+    wbFbsSupplyDetailPickVerifyBtn: "Товары без КИЗ — проверка штрихкодов",
+  };
+  Object.keys(defaults).forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (toneOnly) {
+      el.classList.add("is-tone-only");
+      // Do not override wait-orders lock.
+      if (!el.classList.contains("is-wait-orders")) {
+        el.setAttribute("aria-disabled", "true");
+        el.tabIndex = -1;
+        el.setAttribute("title", tip);
+      }
+    } else {
+      el.classList.remove("is-tone-only");
+      if (!el.classList.contains("is-wait-orders") && _wbFbsSupplyDetailActionsReady()) {
+        el.removeAttribute("aria-disabled");
+        el.removeAttribute("tabindex");
+        el.setAttribute("title", defaults[id]);
+      }
+    }
+  });
+}
+
+function _wbFbsSyncSupplyDetailReadOnlyMode(readOnly) {
+  const modal = document.getElementById("wbFbsSupplyDetailModal");
+  const checkTh = modal?.querySelector("th.wb-fbs-sd-col-check");
+  const actTh = modal?.querySelector("th.wb-fbs-sd-col-act");
+  if (modal) modal.classList.toggle("wb-fbs-sd--readonly", !!readOnly);
+  if (checkTh) checkTh.hidden = !!readOnly;
+  if (actTh) actTh.hidden = !!readOnly;
+  document.querySelectorAll("#wbFbsSupplyDetailColgroup col[data-fixed]").forEach((col) => {
+    col.style.display = readOnly ? "none" : "";
+  });
+  const info = document.getElementById("wbFbsSupplyDetailInfo");
+  if (info) {
+    if (readOnly) {
+      info.hidden = false;
+      info.textContent = _WB_FBS_SD_READONLY_BANNER;
+      info.classList.remove("is-ok");
+      info.classList.add("is-warn");
+    } else if (
+      info.classList.contains("is-warn")
+      && String(info.textContent || "").includes("изменению не подлежит")
+    ) {
+      info.hidden = true;
+      info.textContent = "";
+      info.classList.remove("is-warn");
+    }
+  }
+  _wbFbsSyncSupplyDetailToneOnlySplits(!!readOnly);
 }
 
 function _wbFbsSupplyDetailResetSearch() {
@@ -26813,6 +26890,7 @@ function closeWbFbsSupplyDetailModal() {
   _wbFbsCloseStickersMenu();
   _wbFbsSupplyDetailResetSearch();
   _wbFbsSupplyDetailHideNewWarn();
+  _wbFbsSyncSupplyDetailReadOnlyMode(false);
   closeWbFbsCreateTrbxModal();
   closeWbFbsCancelledOrdersModal();
   closeWbFbsStickersByCategoryModal();
@@ -26873,7 +26951,7 @@ function wbFbsTrbxAmountChanged() {
     // Keep empty for 0 so "0" stays a placeholder, not a typed value.
     input.value = n > 0 ? String(n) : "";
   }
-  const closed = !!(wbFbsDetailState.supply || {}).done;
+  const closed = _wbFbsIsSupplyDetailCargoLocked();
   const canCreate = !closed
     && max >= 1
     && !wbFbsDetailState.trbxBusy
@@ -26949,13 +27027,22 @@ function _wbFbsRenderTrbxBoxesList(boxes) {
   }
   section.hidden = false;
   const printSupply = document.getElementById("wbFbsTrbxPrintSupplyQrBtn");
+  const cargoLocked = _wbFbsIsSupplyDetailCargoLocked();
   if (printAll) printAll.disabled = !!wbFbsDetailState.trbxBusy;
   if (printSupply) printSupply.disabled = !!wbFbsDetailState.trbxBusy;
-  if (deleteAll) deleteAll.disabled = !!wbFbsDetailState.trbxBusy;
+  if (deleteAll) {
+    deleteAll.disabled = !!wbFbsDetailState.trbxBusy || cargoLocked;
+    deleteAll.hidden = cargoLocked;
+  }
   list.innerHTML = wbFbsDetailState.trbxBoxes.map((b) => {
     const safeAttr = _wbFbsEsc(b.id);
     const safeJs = JSON.stringify(b.id);
     const busy = wbFbsDetailState.trbxBusy ? "disabled" : "";
+    const deleteBtn = cargoLocked
+      ? ""
+      : `<button type="button" class="wb-fbs-trbx-box-delete" title="Удалить короб"
+                  aria-label="Удалить ${safeAttr}" ${busy}
+                  onclick='wbFbsDeleteTrbxBox(${safeJs})'>✕</button>`;
     return `<tr>
       <td><span class="wb-fbs-trbx-box-id">${safeAttr}</span></td>
       <td class="wb-fbs-trbx-boxes-col-act">
@@ -26963,9 +27050,7 @@ function _wbFbsRenderTrbxBoxesList(boxes) {
           <button type="button" class="wb-fbs-trbx-box-print" title="Печать QR"
                   aria-label="Печать ${safeAttr}" ${busy}
                   onclick='wbFbsPrintTrbxStickers(${safeJs})'>⎙</button>
-          <button type="button" class="wb-fbs-trbx-box-delete" title="Удалить короб"
-                  aria-label="Удалить ${safeAttr}" ${busy}
-                  onclick='wbFbsDeleteTrbxBox(${safeJs})'>✕</button>
+          ${deleteBtn}
         </div>
       </td>
     </tr>`;
@@ -27017,7 +27102,7 @@ function openWbFbsCreateTrbxModal() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId || !_wbFbsSupplyDetailActionsReady()) return;
   const supply = wbFbsDetailState.supply || {};
-  const closed = !!supply.done;
+  const closed = _wbFbsIsSupplyDetailCargoLocked();
   const modal = document.getElementById("wbFbsCreateTrbxModal");
   if (!modal) return;
   wbFbsDetailState.trbxBoxes = [];
@@ -27031,7 +27116,9 @@ function openWbFbsCreateTrbxModal() {
   _wbFbsRenderTrbxBoxesList([]);
   if (closed) {
     _wbFbsCreateTrbxSetInfo(
-      "Поставка уже закрыта — создать грузоместа нельзя. Можно распечатать QR существующих.",
+      _wbFbsIsSupplyDetailReadOnly()
+        ? "Состав поставки в доставке — создать грузоместа нельзя. Можно распечатать QR существующих."
+        : "Поставка уже закрыта — создать грузоместа нельзя. Можно распечатать QR существующих.",
       "error",
     );
   } else {
@@ -27109,6 +27196,7 @@ async function _wbFbsDeleteTrbxBoxes(boxIds, { okMessage = "Грузоместа
     .map((x) => String(x || "").trim())
     .filter(Boolean);
   if (!sid || !ids.length || !wbFbsState.sourceId || wbFbsDetailState.trbxBusy) return false;
+  if (_wbFbsIsSupplyDetailCargoLocked()) return false;
   wbFbsDetailState.trbxBusy = true;
   _wbFbsTrbxSetCreateEnabled(false);
   _wbFbsRenderTrbxBoxesList(wbFbsDetailState.trbxBoxes);
@@ -27186,6 +27274,7 @@ window.confirmWbFbsDeleteAllTrbx = confirmWbFbsDeleteAllTrbx;
 async function submitWbFbsCreateTrbx() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId || wbFbsDetailState.trbxBusy) return;
+  if (_wbFbsIsSupplyDetailCargoLocked()) return;
   const amount = _wbFbsTrbxAmountValue();
   if (amount < 1) return;
   const submitBtn = document.getElementById("wbFbsCreateTrbxSubmitBtn");
@@ -27263,8 +27352,12 @@ async function openWbFbsSupplyDetailModal(supplyId) {
   if (info) {
     info.hidden = true;
     info.textContent = "";
+    info.classList.remove("is-ok", "is-warn");
   }
-  if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">Загрузка…</td></tr>`;
+  const readOnlyOpen = _wbFbsIsSupplyDetailReadOnly();
+  _wbFbsSyncSupplyDetailReadOnlyMode(readOnlyOpen);
+  const openColspan = readOnlyOpen ? 2 : 4;
+  if (tbody) tbody.innerHTML = `<tr><td colspan="${openColspan}" class="wb-fbs-empty">Загрузка…</td></tr>`;
   try {
     const params = new URLSearchParams({ source_id: String(wbFbsState.sourceId) });
     const res = await fetch(`/api/wb-fbs/supplies/${encodeURIComponent(sid)}/detail?${params}`);
@@ -27285,9 +27378,11 @@ async function openWbFbsSupplyDetailModal(supplyId) {
     if (info) {
       info.hidden = false;
       info.textContent = String(e.message || e);
+      info.classList.remove("is-ok", "is-warn");
     }
+    const errColspan = _wbFbsIsSupplyDetailReadOnly() ? 2 : 4;
     if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty" style="color:#b91c1c">${_wbFbsEsc(e.message || e)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="${errColspan}" class="wb-fbs-empty" style="color:#b91c1c">${_wbFbsEsc(e.message || e)}</td></tr>`;
     }
   }
 }
@@ -27397,6 +27492,9 @@ function renderWbFbsSupplyDetail(data) {
     if (!needsKiz) _wbFbsKizSplitSetTone("");
   }
   _wbFbsSyncPickVerifyBtn();
+  const readOnly = _wbFbsIsSupplyDetailReadOnly();
+  _wbFbsSyncSupplyDetailReadOnlyMode(readOnly);
+  const detailColspan = readOnly ? 2 : 4;
   const trbxBtn = document.getElementById("wbFbsSupplyDetailTrbxBtn");
   if (trbxBtn) {
     // Always show: owner needs print/create even when WB already has boxes.
@@ -27405,18 +27503,20 @@ function renderWbFbsSupplyDetail(data) {
     trbxBtn.hidden = false;
     trbxBtn.style.display = "";
     trbxBtn.style.visibility = "visible";
-    const closed = !!supply.done;
-    trbxBtn.title = closed
-      ? "Грузоместа: просмотр и печать QR (поставка уже закрыта — создать нельзя)"
+    const cargoLocked = _wbFbsIsSupplyDetailCargoLocked();
+    trbxBtn.title = cargoLocked
+      ? (readOnly
+        ? "Грузоместа: просмотр и печать QR (поставка в доставке — создать нельзя)"
+        : "Грузоместа: просмотр и печать QR (поставка уже закрыта — создать нельзя)")
       : "Создать грузоместа (короба) для ПВЗ";
   }
   if (!tbody) return;
   if (!allOrders.length) {
-    tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">В поставке нет заказов</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${detailColspan}" class="wb-fbs-empty">В поставке нет заказов</td></tr>`;
     return;
   }
   if (!orders.length) {
-    tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">Нет заказов по выбранному фильтру</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${detailColspan}" class="wb-fbs-empty">Нет заказов по выбранному фильтру</td></tr>`;
     const selAllEmpty = document.getElementById("wbFbsSupplyDetailSelectAll");
     if (selAllEmpty) {
       selAllEmpty.checked = false;
@@ -27446,8 +27546,26 @@ function renderWbFbsSupplyDetail(data) {
     const kizHtml = o.kiz_required ? _wbFbsKizBadgeHtml(o) : "";
     const safeKey = `sd_${oid}`;
     const stickerHtml = _wbFbsKizStickerHtml(o);
+    const checkCell = readOnly
+      ? ""
+      : `<td><input type="checkbox" class="wb-fbs-sd-cb" data-order-id="${oid}" ${checked} onchange="onWbFbsDetailCheckboxChange()" /></td>`;
+    const actCell = readOnly
+      ? ""
+      : `<td>
+        <div class="wb-fbs-row-menu-wrap">
+          <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
+                  onclick="toggleWbFbsRowMenu(event, '${safeKey}')" aria-haspopup="menu">⋮</button>
+          <div id="wbFbsRowMenu_${safeKey}" class="wb-fbs-row-menu" data-order-id="${safeKey}" role="menu">
+            <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
+                    onclick="wbFbsPrintOneOrderStickerFromDetail(${oid})">
+              ${_wbFbsQrMenuIconHtml()}
+              Напечатать стикер
+            </button>
+          </div>
+        </div>
+      </td>`;
     return `<tr class="wb-fbs-sd-click-row">
-      <td><input type="checkbox" class="wb-fbs-sd-cb" data-order-id="${oid}" ${checked} onchange="onWbFbsDetailCheckboxChange()" /></td>
+      ${checkCell}
       <td>
         <div class="wb-fbs-sd-order-id">${_wbFbsEsc(oid)}</div>
         <div class="wb-fbs-sd-sticker">${stickerHtml}</div>
@@ -27466,19 +27584,7 @@ function renderWbFbsSupplyDetail(data) {
           </div>
         </div>
       </td>
-      <td>
-        <div class="wb-fbs-row-menu-wrap">
-          <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
-                  onclick="toggleWbFbsRowMenu(event, '${safeKey}')" aria-haspopup="menu">⋮</button>
-          <div id="wbFbsRowMenu_${safeKey}" class="wb-fbs-row-menu" data-order-id="${safeKey}" role="menu">
-            <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
-                    onclick="wbFbsPrintOneOrderStickerFromDetail(${oid})">
-              ${_wbFbsQrMenuIconHtml()}
-              Напечатать стикер
-            </button>
-          </div>
-        </div>
-      </td>
+      ${actCell}
     </tr>`;
   }).join("");
   const selAll = document.getElementById("wbFbsSupplyDetailSelectAll");
@@ -28831,6 +28937,7 @@ async function closeWbFbsKizModal(opts) {
 window.closeWbFbsKizModal = closeWbFbsKizModal;
 
 async function openWbFbsKizModal() {
+  if (_wbFbsIsSupplyDetailReadOnly()) return;
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId || !_wbFbsSupplyDetailActionsReady()) return;
   setModalVisibility("wbFbsKizModal", true);
@@ -30343,6 +30450,7 @@ async function closeWbFbsPickVerifyModal(opts) {
 window.closeWbFbsPickVerifyModal = closeWbFbsPickVerifyModal;
 
 async function openWbFbsPickVerifyModal() {
+  if (_wbFbsIsSupplyDetailReadOnly()) return;
   if (!isTenantOwner()) {
     alert("«Товары без КИЗ» доступны только главному пользователю");
     return;
@@ -32199,8 +32307,9 @@ function renderWbFbsSuppliesTable() {
     const midCells = isAssembly
       ? `${ordersCell}${statusCell}`
       : `${statusCell}${scanCell}${ordersCell}`;
-    const nameCls = isAssembly ? "wb-fbs-supply-name is-link" : "wb-fbs-supply-name";
-    const nameClick = isAssembly
+    const canOpenDetail = isAssembly || wbFbsState.tab === "delivery";
+    const nameCls = canOpenDetail ? "wb-fbs-supply-name is-link" : "wb-fbs-supply-name";
+    const nameClick = canOpenDetail
       ? ` role="button" tabindex="0" onclick="openWbFbsSupplyDetailModal('${_wbFbsEsc(sid)}')" onkeydown="if(event.key==='Enter')openWbFbsSupplyDetailModal('${_wbFbsEsc(sid)}')"`
       : "";
     return `<tr>

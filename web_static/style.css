@@ -10859,6 +10859,19 @@ button.wb-fbs-select-all-link:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
+/* Delivery readonly: KIZ/pick buttons keep tone but are not editable entry points. */
+.wb-fbs-sd-actions button.is-tone-only,
+.wb-fbs-sd-actions button.is-tone-only:hover,
+.wb-fbs-sd-actions button.is-tone-only:active,
+.wb-fbs-sd-actions button.is-tone-only:focus {
+  cursor: default;
+}
+.wb-fbs-kiz-split.is-ok > .secondary.is-tone-only:not(.wb-fbs-kiz-refresh),
+.wb-fbs-kiz-split.is-ok > .secondary.is-tone-only:not(.wb-fbs-kiz-refresh):hover,
+.wb-fbs-kiz-split.is-error > .secondary.is-tone-only:not(.wb-fbs-kiz-refresh),
+.wb-fbs-kiz-split.is-error > .secondary.is-tone-only:not(.wb-fbs-kiz-refresh):hover {
+  cursor: default;
+}
 .wb-fbs-picking-split,
 .wb-fbs-kiz-split {
   position: relative;
