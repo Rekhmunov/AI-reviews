@@ -19429,40 +19429,15 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                 row_out["comment"] = str(line.get("comment") or "")
             items.append(row_out)
 
-        def _settle_fbs() -> int:
-            settled_n = 0
-            try:
-                settled_n = repository.settle_open_wb_fbs_orders_for_stock(
-                    user_id=owner_id,
-                    production_id=pid,
-                    reason=mode,
-                )
-            except Exception:
-                settled_n = 0
-            try:
-                settled_n += repository.settle_open_ozon_fbs_postings_for_stock(
-                    user_id=owner_id,
-                    production_id=pid,
-                    reason=mode,
-                )
-            except Exception:
-                pass
-            return settled_n
-
         if not items:
-            # Still freeze current FBS deliveries: user confirmed the on-hand figure.
-            t_save = time.perf_counter()
-            settled = _settle_fbs()
             t_end = time.perf_counter()
             _log.info(
                 "supply_stock_adjustment owner=%s mode=%s lines=%s saved=0 "
-                "fbs_settled=%s balances_ms=%.0f save_ms=0 settle_ms=%.0f total_ms=%.0f",
+                "balances_ms=%.0f save_ms=0 total_ms=%.0f",
                 owner_id,
                 mode,
                 len(lines),
-                settled,
                 (t_balances - t0) * 1000,
-                (t_end - t_save) * 1000,
                 (t_end - t0) * 1000,
             )
             return {
@@ -19471,7 +19446,6 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                 "date": date_s,
                 "production_id": pid,
                 "message": "Изменений нет",
-                "fbs_settled": settled,
             }
         saved = repository.add_supply_stock_movements(
             user_id=owner_id,
@@ -19483,22 +19457,18 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             comment=str(payload.comment or "").strip(),
             created_by=int(user.get("id") or 0) or None,
         )
-        t_save = time.perf_counter()
-        # Physical count after correction already includes open deliveries —
-        # freeze those FBS order ids so sync will not deduct them again.
-        settled = _settle_fbs()
         t_end = time.perf_counter()
+        # FBS write-off happens on tab transition (delivery/delivering) via
+        # reconcile_* — do not freeze open FBS rows on manual adjustment.
         _log.info(
             "supply_stock_adjustment owner=%s mode=%s lines=%s saved=%s "
-            "fbs_settled=%s balances_ms=%.0f save_ms=%.0f settle_ms=%.0f total_ms=%.0f",
+            "balances_ms=%.0f save_ms=%.0f total_ms=%.0f",
             owner_id,
             mode,
             len(lines),
             saved,
-            settled,
             (t_balances - t0) * 1000,
-            (t_save - t_balances) * 1000,
-            (t_end - t_save) * 1000,
+            (t_end - t_balances) * 1000,
             (t_end - t0) * 1000,
         )
         return {
@@ -19506,7 +19476,6 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             "saved": saved,
             "date": date_s,
             "production_id": pid,
-            "fbs_settled": settled,
         }
 
     @app.put("/api/supply-balances")
