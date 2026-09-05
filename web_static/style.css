@@ -11287,6 +11287,9 @@ button.wb-fbs-sd-portal-btn:focus-visible {
   white-space: nowrap;
   text-align: right;
 }
+.wb-fbs-kiz-scan-count.is-complete {
+  color: #15803d;
+}
 .wb-fbs-kiz-toolbar-actions .secondary {
   min-height: 36px;
   padding: 8px 12px;
@@ -15074,6 +15077,9 @@ button.wb-fbs-kiz-add:disabled {
   margin-top: 4px;
   color: #475569;
 }
+.ozon-fbs-container-count.is-complete {
+  color: #15803d;
+}
 .ozon-fbs-container-count[hidden] { display: none !important; }
 
 .wb-fbs-kiz-filter-count {
@@ -15096,6 +15102,10 @@ button.wb-fbs-kiz-add:disabled {
 #ozonFbsPickVerifyModal .ozon-fbs-kiz-counters .ozon-fbs-container-count {
   margin-top: 0;
   color: #0f172a;
+}
+#ozonFbsKizModal .ozon-fbs-kiz-counters .ozon-fbs-container-count.is-complete,
+#ozonFbsPickVerifyModal .ozon-fbs-kiz-counters .ozon-fbs-container-count.is-complete {
+  color: #15803d;
 }
 .wb-fbs-kiz-col-container {
   min-width: 140px;

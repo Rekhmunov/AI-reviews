@@ -28945,6 +28945,7 @@ function _wbFbsKizUpdateScanCounter() {
     }
   }
   el.textContent = `Просканировано ${filled} из ${total} КИЗ`;
+  el.classList.toggle("is-complete", total > 0 && filled === total);
 }
 
 /** Highlight pending scan row without rebuilding the whole table. */
@@ -30613,6 +30614,7 @@ function _wbFbsPickUpdateScanCounter() {
     if (row.pick_verified && String(row.pick_barcode || "").trim()) filled += 1;
   }
   el.textContent = `Проверено ${filled} из ${total}`;
+  el.classList.toggle("is-complete", total > 0 && filled === total);
 }
 
 function _wbFbsPickRowMatchesSearch(row, q) {
