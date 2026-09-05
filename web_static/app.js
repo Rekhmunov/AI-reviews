@@ -14111,7 +14111,7 @@ function _sbRenderItemRow(row, dates, asOf) {
     const minHint = isAsOf && minLabel
       ? `<span class="sb-min-hint${belowMin ? " is-below" : ""}">${esc(minLabel)}</span>`
       : "";
-    return `<td class="${isAsOf ? "sb-col-today" : "sb-col-date"}">
+    return `<td class="${isAsOf ? "sb-col-today" : "sb-col-date"}" data-sb-date="${esc(d)}">
       <div class="sb-qty-wrap">
         <span class="${qtyClass}">${esc(_sbQtyText(raw))}</span>
         <span class="sb-unit">${unit}</span>
@@ -14345,8 +14345,14 @@ function renderSupplyBalancesTable() {
       `<col data-sb-col="date" data-sb-date="${esc(d)}" style="width:${dateWidths[i]}px">`
     ),
   ].join("");
-  table.style.width = `${totalW}px`;
-  table.style.minWidth = `${totalW}px`;
+  // On phones keep fluid width — fixed px width forces a desktop spreadsheet + horizontal scroll.
+  if (_sbIsCompactViewport()) {
+    table.style.width = "100%";
+    table.style.minWidth = "0";
+  } else {
+    table.style.width = `${totalW}px`;
+    table.style.minWidth = `${totalW}px`;
+  }
 
   thead.innerHTML = `<tr>
     <th class="sb-col-name sb-resizable" data-sb-col="name">
