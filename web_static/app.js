@@ -31990,9 +31990,15 @@ function _wbFbsCollectMgtRenderModal(preview) {
     lead.textContent = `Новых МГТ заказов: ${preview?.mgt_count || 0}.`;
   }
   if (!body) return;
+  if (!groups.length) {
+    body.innerHTML = `<div class="wb-fbs-collect-mgt-auto">Нет заказов для сборки.</div>`;
+    return;
+  }
   body.innerHTML = groups.map((g, idx) => {
     const gkey = String(g.group_key || `g${idx}`);
     const mode = String(g.mode || "create");
+    const label = String(g.label || (g.is_b2b ? "B2B" : "не B2B"));
+    const count = Number(g.order_count || 0);
     let inner = "";
     if (mode === "create") {
       const name = String(g.suggested_name || "");
@@ -32009,10 +32015,12 @@ function _wbFbsCollectMgtRenderModal(preview) {
         </div>`;
     } else if (mode === "choose") {
       const supplies = Array.isArray(g.compatible_supplies) ? g.compatible_supplies : [];
+      const suggested = String(g.suggested_name || "");
+      const conflict = existing.has(suggested.trim());
       inner = `
         <div class="wb-fbs-collect-mgt-field">
-          <label>Выберите поставку</label>
-          <div class="wb-fbs-collect-mgt-supplies">
+          <div class="wb-fbs-collect-mgt-field-label">Куда собрать заказы</div>
+          <div class="wb-fbs-collect-mgt-supplies" role="radiogroup" aria-label="Куда собрать заказы">
             ${supplies.map((s, si) => {
               const sid = String(s.supply_id || "");
               const sname = String(s.name || sid);
@@ -32023,16 +32031,38 @@ function _wbFbsCollectMgtRenderModal(preview) {
               ].filter(Boolean).join(" · ");
               return `
                 <label class="wb-fbs-collect-mgt-supply">
-                  <input type="radio" name="wbFbsCollectMgtSupply_${_wbFbsEsc(gkey)}" value="${_wbFbsEsc(sid)}" ${si === 0 ? "checked" : ""} />
-                  <span>
+                  <input type="radio" name="wbFbsCollectMgtSupply_${_wbFbsEsc(gkey)}" value="${_wbFbsEsc(sid)}"
+                         ${si === 0 ? "checked" : ""}
+                         onchange="wbFbsCollectMgtTargetChanged('${_wbFbsEsc(gkey)}')" />
+                  <span class="wb-fbs-collect-mgt-supply-text">
                     <span class="wb-fbs-collect-mgt-supply-name">${_wbFbsEsc(sname)}</span>
                     <span class="wb-fbs-collect-mgt-supply-meta">${_wbFbsEsc(meta)}</span>
                   </span>
                 </label>`;
             }).join("")}
+            <label class="wb-fbs-collect-mgt-supply">
+              <input type="radio" name="wbFbsCollectMgtSupply_${_wbFbsEsc(gkey)}" value="__new__"
+                     ${supplies.length ? "" : "checked"}
+                     onchange="wbFbsCollectMgtTargetChanged('${_wbFbsEsc(gkey)}')" />
+              <span class="wb-fbs-collect-mgt-supply-text">
+                <span class="wb-fbs-collect-mgt-supply-name">Создать новую поставку</span>
+                <span class="wb-fbs-collect-mgt-supply-meta">отдельная поставка для этих заказов</span>
+              </span>
+            </label>
           </div>
+        </div>
+        <div class="wb-fbs-collect-mgt-field wb-fbs-collect-mgt-new-name" id="wbFbsCollectMgtNewWrap_${_wbFbsEsc(gkey)}"
+             ${supplies.length ? "hidden" : ""}>
+          <label for="wbFbsCollectMgtName_${_wbFbsEsc(gkey)}">Название новой поставки</label>
+          <input type="text" id="wbFbsCollectMgtName_${_wbFbsEsc(gkey)}" data-group-key="${_wbFbsEsc(gkey)}"
+                 value="${_wbFbsEsc(suggested)}" autocomplete="off"
+                 oninput="wbFbsCollectMgtNameInput(this)" />
+          <p class="wb-fbs-collect-mgt-warn" id="wbFbsCollectMgtWarn_${_wbFbsEsc(gkey)}" ${conflict ? "" : "hidden"}>
+            Поставка с таким названием уже есть — измените название.
+          </p>
         </div>`;
     } else {
+      // Legacy add_one (should not appear after preview always uses choose/create).
       const sid = String(g.default_supply_id || "");
       const match = (Array.isArray(g.compatible_supplies) ? g.compatible_supplies : [])
         .find((s) => String(s.supply_id || "") === sid);
@@ -32041,10 +32071,30 @@ function _wbFbsCollectMgtRenderModal(preview) {
     }
     return `
       <section class="wb-fbs-collect-mgt-group" data-group-key="${_wbFbsEsc(gkey)}" data-is-b2b="${g.is_b2b ? "1" : "0"}" data-mode="${_wbFbsEsc(mode)}">
+        <div class="wb-fbs-collect-mgt-group-head">
+          <h4 class="wb-fbs-collect-mgt-group-title">${_wbFbsEsc(label)}</h4>
+          <p class="wb-fbs-collect-mgt-group-meta">${_wbFbsEsc(`${count} заказ.`)}</p>
+        </div>
         ${inner}
       </section>`;
   }).join("");
 }
+
+function wbFbsCollectMgtTargetChanged(gkey) {
+  const key = String(gkey || "");
+  const wrap = document.getElementById(`wbFbsCollectMgtNewWrap_${key}`);
+  if (!wrap) return;
+  const checked = document.querySelector(`input[name="wbFbsCollectMgtSupply_${key}"]:checked`);
+  const isNew = String(checked?.value || "") === "__new__";
+  wrap.hidden = !isNew;
+  if (isNew) {
+    const input = document.getElementById(`wbFbsCollectMgtName_${key}`);
+    if (input) {
+      try { input.focus(); } catch (_e) { /* ignore */ }
+    }
+  }
+}
+window.wbFbsCollectMgtTargetChanged = wbFbsCollectMgtTargetChanged;
 
 function wbFbsCollectMgtNameInput(input) {
   if (!input) return;
@@ -32106,7 +32156,22 @@ function _wbFbsCollectMgtCollectDecisions() {
         errors.push(`${label}: выберите поставку`);
         continue;
       }
-      decisions.push({ group_key: gkey, is_b2b: isB2b, action: "choose", supply_id: supplyId });
+      if (supplyId === "__new__") {
+        const input = document.getElementById(`wbFbsCollectMgtName_${gkey}`);
+        const name = String(input?.value || g.suggested_name || "").trim();
+        if (!name) {
+          errors.push(`${label}: укажите название новой поставки`);
+          continue;
+        }
+        if (existing.has(name) || usedNames.has(name)) {
+          errors.push(`${label}: поставка «${name}» уже есть — измените название`);
+          continue;
+        }
+        usedNames.add(name);
+        decisions.push({ group_key: gkey, is_b2b: isB2b, action: "create", name });
+      } else {
+        decisions.push({ group_key: gkey, is_b2b: isB2b, action: "choose", supply_id: supplyId });
+      }
     } else {
       decisions.push({
         group_key: gkey,

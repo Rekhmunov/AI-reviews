@@ -46,6 +46,7 @@ def test_msk_window_overnight_active_and_inactive() -> None:
 
 
 def test_auto_plan_add_one_when_single_mgt() -> None:
+    """Legacy add_one still auto-executes; planner now emits choose for 1 supply."""
     preview = {
         "mgt_count": 2,
         "existing_names": ["Поставка МГТ"],
@@ -73,6 +74,30 @@ def test_auto_plan_add_one_when_single_mgt() -> None:
             "supply_id": "WB-GI-1",
         }
     ]
+
+
+def test_auto_plan_skips_when_planner_emits_choose_for_one_supply() -> None:
+    """Manual path uses choose for 1 existing supply — auto must not silent-add."""
+    preview = {
+        "mgt_count": 1,
+        "existing_names": ["Поставка МГТ"],
+        "groups": [
+            {
+                "group_key": "non_wh1_cbna",
+                "is_b2b": False,
+                "mode": "choose",
+                "default_supply_id": "WB-GI-1",
+            }
+        ],
+    }
+    open_supplies = [
+        {"supply_id": "WB-GI-1", "cargo_type": 1, "order_ids": [1], "name": "Поставка МГТ"}
+    ]
+    decisions, reason = plan_auto_collect_mgt_decisions(
+        preview, open_supplies=open_supplies
+    )
+    assert decisions is None
+    assert reason == "needs_choice"
 
 
 def test_auto_plan_skips_when_several_mgt_or_empty() -> None:

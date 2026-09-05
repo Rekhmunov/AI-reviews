@@ -5801,15 +5801,12 @@ def _plan_mgt_group(
         group["mode"] = "create"
         existing_names.add(suggested)
         return group
-    if len(candidates) == 1:
-        chosen = candidates[0]
-        sid = str(chosen.get("supply_id") or "")
-        group["mode"] = "add_one"
-        group["default_supply_id"] = sid
-        if _supply_is_empty(chosen):
-            empties[:] = [s for s in empties if str(s.get("supply_id") or "") != sid]
-        return group
+    # From 1+ compatible open supply — always ask (existing vs create new), like Ozon.
+    # Previously a single match used silent ``add_one`` (no modal).
     group["mode"] = "choose"
+    group["default_supply_id"] = str(candidates[0].get("supply_id") or "")
+    # Reserve suggested title for the «create new» option across buckets.
+    existing_names.add(suggested)
     # Reserve empties offered in choose so another bucket cannot claim the same ones.
     claimed_empty_ids = {
         str(s.get("supply_id") or "")
