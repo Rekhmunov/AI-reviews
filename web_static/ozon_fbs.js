@@ -535,6 +535,7 @@
       sel.innerHTML = '<option value="">Ошибка загрузки источников</option>';
       state.sourceId = null;
     }
+    if (typeof syncFbsSourcePicker === "function") syncFbsSourcePicker("ozonFbsSource");
   }
 
   function updateTabCounts(counts) {
@@ -4226,6 +4227,7 @@
   function onSourceChange() {
     const sel = document.getElementById("ozonFbsSourceSelect");
     state.sourceId = sel?.value ? Number(sel.value) : null;
+    if (typeof syncFbsSourcePickerLabel === "function") syncFbsSourcePickerLabel("ozonFbsSource");
     state.selected.clear();
     loadPostings(true);
   }
