@@ -15444,6 +15444,7 @@ async function saveSupplyStockAdjustment() {
         quantity_mode: "absolute",
         date: String(dateEl?.value || ""),
         comment: "",
+        production_id: Number(supplyBalancesState.productionId || 0) || 0,
         items,
       }),
     });
@@ -16161,7 +16162,9 @@ function _sbRenderMovementRow(m, unit) {
     : "—";
   const who = String(m.created_by_name || "").trim();
   const comment = String(m.comment || "").trim();
-  const meta = [who, comment].filter(Boolean).join(" · ");
+  const metaParts = [who, comment];
+  if (m && m.outside_window) metaParts.push("раньше выбранного периода");
+  const meta = metaParts.filter(Boolean).join(" · ");
   return `<div class="sb-movements-row">
     <div class="sb-movements-main">
       <div class="sb-movements-kind">${esc(m.kind_label || m.kind || "Движение")}</div>
@@ -16237,15 +16240,22 @@ async function openSupplyStockMovementsModal(itemType, itemId) {
       const truncNote = data.truncated
         ? " В окне слишком много записей — показана часть (новые сверху)."
         : "";
+      const basisN = Number(data.basis_added || 0) || 0;
+      const basisNote = basisN > 0
+        ? ` Добавлены более ранние приходы/корректировки (${basisN}), из которых сложился текущий остаток.`
+        : "";
       lead.textContent =
         `Текущий остаток: ${balText} ${unit}. За последние ${daysN} дн. (${periodText}). ` +
-        `Дни свёрнуты — раскройте, чтобы увидеть движения.${truncNote}`;
+        `Дни свёрнуты — раскройте, чтобы увидеть движения.${basisNote}${truncNote}`;
     }
     const items = Array.isArray(data.items) ? data.items : [];
     if (!items.length) {
       if (list) {
-        list.innerHTML =
-          `<div class="sb-doc-empty">Движений за последние ${daysN} дн. нет</div>`;
+        const balNum = Number(data.balance);
+        const emptyHint = Number.isFinite(balNum) && balNum !== 0
+          ? `Движений за последние ${daysN} дн. нет. Остаток ${balText} ${unit} сложился из более ранних записей — смените период в отчёте «На дату», если нужна полная история.`
+          : `Движений за последние ${daysN} дн. нет`;
+        list.innerHTML = `<div class="sb-doc-empty">${esc(emptyHint)}</div>`;
       }
       return;
     }

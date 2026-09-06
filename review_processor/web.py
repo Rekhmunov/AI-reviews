@@ -810,6 +810,7 @@ class SupplyStockAdjustmentRequest(BaseModel):
     quantity_mode: str = Field(default="absolute", max_length=32)
     date: str = Field(default="", max_length=20)
     comment: str = Field(default="", max_length=500)
+    production_id: int = 0
     items: list[dict[str, object]] = Field(default_factory=list)
 
 
@@ -19382,7 +19383,15 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         if not _can_view_supply_stock(user):
             raise HTTPException(status_code=403, detail="Нет доступа к остаткам")
         owner_id = _supply_owner_id(user)
-        pid = _default_stock_production_id(user)
+        prods = _stock_productions_for_user(user)
+        if not prods:
+            raise HTTPException(
+                status_code=400,
+                detail="Добавьте производство в Поставки → Настройки → Производства",
+            )
+        prod_ids = {int(p["id"]) for p in prods}
+        req_pid = int(getattr(payload, "production_id", 0) or 0)
+        pid = req_pid if req_pid in prod_ids else _default_stock_production_id(user)
         if not pid:
             raise HTTPException(
                 status_code=400,
@@ -19877,6 +19886,36 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         truncated = len(rows) > lim
         if truncated:
             rows = rows[:lim]
+        # Day window can hide older opening/adjustment «+» while balance stays
+        # correct (SUM of all history). Pull those basis rows back into the journal.
+        basis_kinds = {"opening", "adjustment", "receipt"}
+        has_plus_basis = any(
+            float(r.get("qty") or 0) > 0
+            and str(r.get("kind") or "").strip().lower() in basis_kinds
+            for r in rows
+        )
+        try:
+            bal_num = float(balance) if balance is not None else 0.0
+        except (TypeError, ValueError):
+            bal_num = 0.0
+        basis_rows: list[dict] = []
+        if bal_num != 0 and not has_plus_basis:
+            seen_ids = {
+                int(r.get("id") or 0)
+                for r in rows
+                if int(r.get("id") or 0) > 0
+            }
+            basis_rows = repository.list_supply_stock_basis_movements_for_item(
+                user_id=owner_id,
+                production_id=pid,
+                item_type=itype,
+                item_id=iid,
+                before_date=from_s,
+                exclude_ids=seen_ids,
+                limit=20,
+            )
+            if basis_rows:
+                rows = list(rows) + basis_rows
         kind_labels = {
             "opening": "Начальный остаток",
             "receipt": "Приход",
@@ -19948,6 +19987,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                         if created_by_i is not None
                         else ("Система" if kind.startswith("fbs_") else "")
                     ),
+                    "outside_window": bool(r.get("outside_window")),
                 }
             )
         return {
@@ -19961,6 +20001,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             "date_from": from_s,
             "date_to": to_s,
             "days": days_n,
+            "basis_added": len(basis_rows),
             "truncated": truncated,
             "limit": lim,
         }
