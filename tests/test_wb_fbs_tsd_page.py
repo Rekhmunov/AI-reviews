@@ -122,6 +122,10 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "Для 2-го КИЗ снова сканируйте стикер" not in js
     assert "scanPendingContextText" in js
     assert 'return `Отпр. ${label}`' in js or "return `Отпр. ${label}`" in js
+    # Ozon: «Отпр.» lives under the input with the product — not above the wedge field.
+    assert "tsd-product-posting" in js
+    assert "never put «Отпр.» above the wedge field" in js
+    assert 'document.querySelectorAll(".tsd-scan-context, .tsd-product-posting")' in js
     # Successful GM bind must not toast over the scan field on TSD.
     assert "toast(`В ${labelAtBind}`)" not in js
     assert "Этот КИЗ уже в этом заказе" in js
@@ -314,7 +318,7 @@ def test_tsd_phone_camera_scan_button() -> None:
     assert "isSecureContext" in js
     assert ".tsd-cam-overlay" in css
     assert "flex: 0 0 56px" in css
-    assert "wb_fbs_tsd.js?v=89" in html
+    assert "wb_fbs_tsd.js?v=91" in html
     # Self-hosted ZXing (CSP blocks CDN script-src on iPhone Safari).
     assert (STATIC / "zxing.min.js").is_file()
     assert "/static/zxing.min.js" in js
@@ -343,7 +347,7 @@ def test_tsd_phone_camera_scan_button() -> None:
     assert "function outboxFlushGmPending" in js
     assert "outboxRememberGmBind(row" in js
     assert 'outboxRemove("gm"' in js
-    assert "wb_fbs_tsd.css?v=47" in html
+    assert "wb_fbs_tsd.css?v=48" in html
     assert "Match camera control size" in css
     assert ".tsd-gm-icon-btn" in css
     gm_btn = css[css.find(".tsd-gm-icon-btn {") : css.find(".tsd-gm-icon-btn {") + 280]
@@ -395,7 +399,7 @@ def test_tsd_durable_outbox_survives_offline() -> None:
     assert "outboxApplyToLoadedRows(state.route.mode)" in js
     assert "wireOutboxReconnect()" in js
     assert "Нет связи — скан сохранён на устройстве" in js
-    assert "wb_fbs_tsd.js?v=89" in html
+    assert "wb_fbs_tsd.js?v=91" in html
     assert "function outboxSoftStatus" in js
     assert "outboxCache" in js
     # Scan path: UI/focus first, then outbox+network (speed).

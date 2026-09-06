@@ -4527,13 +4527,23 @@
     const pendingBarcodesHtml = pendingBarcodes
       ? `<div class="tsd-product-barcodes">${esc(pendingBarcodes)}</div>`
       : "";
+    // Ozon: never put «Отпр.» above the wedge field — it stayed in view after a
+    // successful add. Keep posting identity under the input with the product.
+    // WB keeps the compact context line above the field.
+    const contextHtml = isOzon()
+      ? ""
+      : `<div class="tsd-scan-context">${esc(scanPendingContextText(pending))}</div>`;
+    const ozonPostingHtml = isOzon()
+      ? `<div class="tsd-product-posting">${esc(scanPendingContextText(pending))}</div>`
+      : "";
     return `
         <div class="tsd-scan-card" id="tsdScanCard">
           ${scanPromptRowHtml(prompt)}
           ${multiHint}
-          <div class="tsd-scan-context">${esc(scanPendingContextText(pending))}</div>
+          ${contextHtml}
           ${scanFieldRowHtml()}
           <div class="tsd-product">${photo}<div>
+            ${ozonPostingHtml}
             <div class="tsd-product-name">${esc(pending.product_name || pending.article || "—")}</div>
             <div class="tsd-product-sub">${esc([pending.brand, pending.article].filter(Boolean).join(" · "))}</div>
             ${pendingBarcodesHtml}
@@ -5146,10 +5156,17 @@
   }
 
   function patchScanAfterSuccess(mode, _input) {
+    // Guaranteed idle sticker UI: drop mid-scan «Отпр.» / product block.
+    state.pendingOrderId = null;
+    state.step = "sticker";
     if (!patchScanCard(mode)) {
       renderScan();
       return;
     }
+    // Belt-and-suspenders: never leave a stale context line above the field.
+    document.querySelectorAll(".tsd-scan-context, .tsd-product-posting").forEach((el) => {
+      el.remove();
+    });
     refreshScanChrome(mode);
     // Card rebuild replaces #tsdScanInput — never focus the old (detached) node.
     const field = document.getElementById("tsdScanInput");
