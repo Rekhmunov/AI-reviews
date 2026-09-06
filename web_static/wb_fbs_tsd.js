@@ -2298,6 +2298,8 @@
         });
         continue;
       }
+      // Same as desktop marking: skip unchanged already-synced codes.
+      if (!rowNeedsKizWbPush(row)) continue;
       row.kiz_codes = codes.slice();
       items.push({
         order_id: oid,
@@ -2331,7 +2333,82 @@
       const url = `/api/wb-fbs/tsd/supplies/${encodeURIComponent(state.route.supplyId)}/kiz?${params}`;
       // Chunk like desktop marking — one huge PUT can hit nginx/proxy 504.
       const CHUNK = isOzon() ? 15 : 20;
-      const allResults = [];
+      let okN = 0;
+      let errN = 0;
+      let conflictN = 0;
+      const applyKizPushResults = (chunkResults) => {
+        for (const r of chunkResults || []) {
+          const id = isOzon()
+            ? String(r.posting_number || "")
+            : String(Number(r.order_id));
+          const row = findRowByScanId(rows, id);
+          if (!row) continue;
+          if (r.conflict) {
+            conflictN += 1;
+            // PC/other TSD won — show their codes; do not arm force (would wipe them).
+            row.kiz_saved_at = String(r.kiz_saved_at || row.kiz_saved_at || "");
+            if (Array.isArray(r.kiz_codes)) {
+              const serverCodes = normalizeKizCodesList(r.kiz_codes);
+              row.kiz_codes = serverCodes.length ? serverCodes.slice() : [""];
+              state.baselineKizByOrder[id] = serverCodes.slice();
+            }
+            delete state.forceSaveByOrder[id];
+            delete state.pendingKizClear[id];
+            outboxRemove("kiz", id);
+            continue;
+          }
+          if (r.kiz_saved_at) row.kiz_saved_at = String(r.kiz_saved_at);
+          if (isOzon()) {
+            if (r.ok) {
+              okN += 1;
+              delete state.forceSaveByOrder[id];
+              delete state.rowErrors[id];
+              delete state.pendingKizClear[id];
+              row.kiz_local = true;
+              state.baselineKizByOrder[id] = normalizeKizCodesList(row.kiz_codes);
+              outboxRemove("kiz", id);
+            } else {
+              errN += 1;
+              if (r.error) state.rowErrors[id] = String(r.error);
+            }
+            continue;
+          }
+          if (r.kiz_wb_synced != null) row.kiz_wb_synced = !!r.kiz_wb_synced;
+          if (r.ok || r.wb_ok) {
+            okN += 1;
+            delete state.forceSaveByOrder[id];
+            delete state.rowErrors[id];
+            const pushedCodes = normalizeKizCodesList(
+              Array.isArray(r.kiz_codes) ? r.kiz_codes : row.kiz_codes
+            );
+            if (!pushedCodes.length) {
+              delete state.pendingKizClear[id];
+              row.kiz_bound = false;
+              row.kiz_local = false;
+              row.kiz_wb_synced = true;
+              row.kiz_status = "empty";
+              row.kiz_codes = [""];
+              state.sessionScannedIds = (state.sessionScannedIds || []).filter(
+                (x) => String(x) !== id
+              );
+            } else {
+              delete state.pendingKizClear[id];
+              row.kiz_bound = true;
+              row.kiz_local = true;
+              row.kiz_wb_synced = true;
+              row.kiz_codes = pushedCodes.slice();
+              if (row.kiz_status === "empty") row.kiz_status = "pending";
+            }
+            state.baselineKizByOrder[id] = normalizeKizCodesList(row.kiz_codes);
+            outboxRemove("kiz", id);
+          } else {
+            errN += 1;
+            // Keep retrying only failed rows on the next back/save.
+            row.kiz_wb_synced = false;
+            if (r.error) state.rowErrors[id] = String(r.error);
+          }
+        }
+      };
       for (let i = 0; i < items.length; i += CHUNK) {
         const chunk = items.slice(i, i + CHUNK);
         if (items.length > CHUNK) {
@@ -2347,81 +2424,8 @@
           headers: jsonHeaders(),
           body: JSON.stringify({ items: chunk }),
         });
-        allResults.push(...(data.results || []));
-      }
-      let okN = 0;
-      let errN = 0;
-      let conflictN = 0;
-      for (const r of allResults) {
-        const id = isOzon()
-          ? String(r.posting_number || "")
-          : String(Number(r.order_id));
-        const row = findRowByScanId(rows, id);
-        if (!row) continue;
-        if (r.conflict) {
-          conflictN += 1;
-          // PC/other TSD won — show their codes; do not arm force (would wipe them).
-          row.kiz_saved_at = String(r.kiz_saved_at || row.kiz_saved_at || "");
-          if (Array.isArray(r.kiz_codes)) {
-            const serverCodes = normalizeKizCodesList(r.kiz_codes);
-            row.kiz_codes = serverCodes.length ? serverCodes.slice() : [""];
-            state.baselineKizByOrder[id] = serverCodes.slice();
-          }
-          delete state.forceSaveByOrder[id];
-          delete state.pendingKizClear[id];
-          outboxRemove("kiz", id);
-          continue;
-        }
-        if (r.kiz_saved_at) row.kiz_saved_at = String(r.kiz_saved_at);
-        if (isOzon()) {
-          if (r.ok) {
-            okN += 1;
-            delete state.forceSaveByOrder[id];
-            delete state.rowErrors[id];
-            delete state.pendingKizClear[id];
-            row.kiz_local = true;
-            state.baselineKizByOrder[id] = normalizeKizCodesList(row.kiz_codes);
-            outboxRemove("kiz", id);
-          } else {
-            errN += 1;
-            if (r.error) state.rowErrors[id] = String(r.error);
-          }
-          continue;
-        }
-        if (r.kiz_wb_synced != null) row.kiz_wb_synced = !!r.kiz_wb_synced;
-        if (r.ok || r.wb_ok) {
-          okN += 1;
-          delete state.forceSaveByOrder[id];
-          delete state.rowErrors[id];
-          const pushedCodes = normalizeKizCodesList(
-            Array.isArray(r.kiz_codes) ? r.kiz_codes : row.kiz_codes
-          );
-          if (!pushedCodes.length) {
-            delete state.pendingKizClear[id];
-            row.kiz_bound = false;
-            row.kiz_local = false;
-            row.kiz_wb_synced = true;
-            row.kiz_status = "empty";
-            row.kiz_codes = [""];
-            state.sessionScannedIds = (state.sessionScannedIds || []).filter(
-              (x) => String(x) !== id
-            );
-          } else {
-            delete state.pendingKizClear[id];
-            row.kiz_bound = true;
-            row.kiz_local = true;
-            row.kiz_codes = pushedCodes.slice();
-            if (row.kiz_status === "empty") row.kiz_status = "pending";
-          }
-          state.baselineKizByOrder[id] = normalizeKizCodesList(row.kiz_codes);
-          outboxRemove("kiz", id);
-        } else if (r.local_ok) {
-          errN += 1;
-          if (r.error) state.rowErrors[id] = String(r.error);
-        } else {
-          errN += 1;
-          if (r.error) state.rowErrors[id] = String(r.error);
-        }
+        // Apply each chunk immediately so a later timeout does not redo successes.
+        applyKizPushResults(data.results || []);
       }
       if (conflictN) {
         status = "conflict";
@@ -2605,6 +2609,20 @@
     return false;
   }
 
+  function rowNeedsKizWbPush(row) {
+    /** WB: push only changed / unsynced / clear — never re-send the whole supply. */
+    if (isOzon()) return false;
+    const id = rowScanId(row);
+    if (!id) return false;
+    if (rowNeedsKizWbClear(row)) return true;
+    const codes = normalizeKizCodesList(row.kiz_codes);
+    if (!codes.length) return false;
+    if (!kizBaselineEquals(id, codes)) return true;
+    // Local draft not yet accepted by WB (retry after partial/failed push).
+    if (row.kiz_wb_synced === false) return true;
+    return false;
+  }
+
   function hasPendingKizPush() {
     if (isOzon()) {
       return (state.kizRows || []).some((row) => {
@@ -2614,12 +2632,7 @@
         return !kizBaselineEquals(id, codes) || !!state.pendingKizClear[id];
       });
     }
-    return (state.kizRows || []).some((row) => {
-      const id = rowScanId(row);
-      if (!id) return false;
-      if (rowNeedsKizWbClear(row)) return true;
-      return rowKizFilled(row);
-    });
+    return (state.kizRows || []).some((row) => rowNeedsKizWbPush(row));
   }
 
   function removeSessionScanned(orderId) {
@@ -4270,7 +4283,7 @@
           const codes = normalizeKizCodesList(row.kiz_codes);
           return rowKizFilled(row) || !kizBaselineEquals(id, codes);
         }
-        return rowNeedsKizWbClear(row) || rowKizFilled(row);
+        return rowNeedsKizWbPush(row);
       });
     }
     return (state.pickRows || []).some(
@@ -4278,7 +4291,10 @@
     );
   }
 
-  /** Back arrow: always save (no confirm), then leave. Stay on error/conflict. */
+  /** Back arrow: always save (no confirm), then leave.
+   * Stay only on conflict/busy. On push error still leave — local drafts remain
+   * and only unsynced rows retry next time (avoids endless «Сохранение N в WB»).
+   */
   async function leaveScanScreen() {
     if (state.route.view !== "scan") return;
     const sid = state.route.supplyId;
@@ -4292,13 +4308,7 @@
         mode === "kiz"
           ? await saveKizPushAll({ silent: true })
           : await savePickLocalAll({ silent: true });
-      // conflict/error: stay — server (PC) data already adopted into the UI.
-      if (
-        result &&
-        (result.status === "error" ||
-          result.status === "conflict" ||
-          result.status === "busy")
-      ) {
+      if (result && (result.status === "conflict" || result.status === "busy")) {
         return;
       }
     } else {
