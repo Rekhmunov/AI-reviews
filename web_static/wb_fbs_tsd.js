@@ -780,15 +780,7 @@
     const resolve = state.gm.rebindResolver;
     state.gm.rebindResolver = null;
     if (typeof resolve === "function") resolve(!!yes);
-    const scanInput = document.getElementById("tsdScanInput");
-    if (
-      scanInput &&
-      state.route.view === "scan" &&
-      !state.searchOpen &&
-      !shouldShowBrowseSheet()
-    ) {
-      setTimeout(() => scanInput.focus(), 40);
-    }
+    focusScanInput({ delays: [40] });
   }
 
   async function handleGmScan(rawScan) {
@@ -886,6 +878,8 @@
     if (state.route.view === "scan" && state.route.mode === modeAtBind) {
       refreshScannedListSection(modeAtBind);
       refreshScanStats(modeAtBind);
+      // List rebuild must not leave the wedge field unfocused.
+      focusScanInput({ delays: [0, 50] });
     }
     void (async () => {
       try {
@@ -5023,6 +5017,36 @@
     });
   }
 
+  /** Focus the live wedge field after card re-render (never a detached node). */
+  function focusScanInput(opts) {
+    if (state.route.view !== "scan") return;
+    if (state.searchOpen || shouldShowBrowseSheet()) return;
+    const rebind = document.getElementById("tsdGmRebindSheet");
+    if (rebind && !rebind.hidden) return;
+    const delays = (opts && Array.isArray(opts.delays) && opts.delays.length)
+      ? opts.delays
+      : [0, 40, 120];
+    delays.forEach((ms) => {
+      setTimeout(() => {
+        if (state.route.view !== "scan") return;
+        if (state.searchOpen || shouldShowBrowseSheet()) return;
+        const sheet = document.getElementById("tsdGmRebindSheet");
+        if (sheet && !sheet.hidden) return;
+        const field = document.getElementById("tsdScanInput");
+        if (!field || field.disabled) return;
+        try {
+          field.focus({ preventScroll: true });
+        } catch (_e) {
+          try {
+            field.focus();
+          } catch (__e) {
+            /* ignore */
+          }
+        }
+      }, ms);
+    });
+  }
+
   function wireScanInput(mode, opts) {
     const keepSearchFocus = !!(opts && opts.keepSearchFocus);
     const input = document.getElementById("tsdScanInput");
@@ -5032,8 +5056,8 @@
       if (!clearBtn || !input) return;
       clearBtn.hidden = !String(input.value || "").length;
     };
-    if (input && !keepSearchFocus && !state.searchOpen && !shouldShowBrowseSheet()) {
-      setTimeout(() => input.focus(), 40);
+    if (input && !keepSearchFocus) {
+      focusScanInput({ delays: [40] });
     }
     if (input) {
       syncScanClearBtn();
@@ -5121,19 +5145,16 @@
     return true;
   }
 
-  function patchScanAfterSuccess(mode, input) {
+  function patchScanAfterSuccess(mode, _input) {
     if (!patchScanCard(mode)) {
       renderScan();
       return;
     }
     refreshScanChrome(mode);
-    const field = input || document.getElementById("tsdScanInput");
-    if (field) {
-      field.value = "";
-      if (!state.searchOpen && !shouldShowBrowseSheet()) {
-        setTimeout(() => field.focus(), 0);
-      }
-    }
+    // Card rebuild replaces #tsdScanInput — never focus the old (detached) node.
+    const field = document.getElementById("tsdScanInput");
+    if (field) field.value = "";
+    focusScanInput();
   }
 
   function patchScanAfterStickerMatch(mode) {
@@ -5142,10 +5163,7 @@
       return;
     }
     refreshScanChrome(mode);
-    const input = document.getElementById("tsdScanInput");
-    if (input && !state.searchOpen && !shouldShowBrowseSheet()) {
-      setTimeout(() => input.focus(), 40);
-    }
+    focusScanInput();
   }
 
   function renderScan(opts) {
@@ -5254,10 +5272,7 @@
           refreshGmBar();
           refreshScanBanner();
         }
-        const field = document.getElementById("tsdScanInput");
-        if (field && !state.searchOpen && !shouldShowBrowseSheet()) {
-          setTimeout(() => field.focus(), 0);
-        }
+        focusScanInput();
       } else {
         input.select();
         refreshScanBanner();

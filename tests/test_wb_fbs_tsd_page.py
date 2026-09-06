@@ -314,7 +314,7 @@ def test_tsd_phone_camera_scan_button() -> None:
     assert "isSecureContext" in js
     assert ".tsd-cam-overlay" in css
     assert "flex: 0 0 56px" in css
-    assert "wb_fbs_tsd.js?v=88" in html
+    assert "wb_fbs_tsd.js?v=89" in html
     # Self-hosted ZXing (CSP blocks CDN script-src on iPhone Safari).
     assert (STATIC / "zxing.min.js").is_file()
     assert "/static/zxing.min.js" in js
@@ -322,6 +322,10 @@ def test_tsd_phone_camera_scan_button() -> None:
     assert "function outboxSoftStatus" in js
     assert "outboxCache" in js
     # Scan path: UI/focus first, then outbox+network (speed).
+    assert "function focusScanInput" in js
+    assert "Card rebuild replaces #tsdScanInput" in js
+    assert "never focus the old (detached) node" in js
+    # After success, focus live input — not the node replaced by outerHTML.
     enter = js[js.find("async function onScanEnter") : js.find("async function onRoute")]
     marker = "After UI/focus: durable outbox"
     assert marker in enter
@@ -391,7 +395,7 @@ def test_tsd_durable_outbox_survives_offline() -> None:
     assert "outboxApplyToLoadedRows(state.route.mode)" in js
     assert "wireOutboxReconnect()" in js
     assert "Нет связи — скан сохранён на устройстве" in js
-    assert "wb_fbs_tsd.js?v=88" in html
+    assert "wb_fbs_tsd.js?v=89" in html
     assert "function outboxSoftStatus" in js
     assert "outboxCache" in js
     # Scan path: UI/focus first, then outbox+network (speed).
