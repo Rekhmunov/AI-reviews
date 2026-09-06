@@ -4435,6 +4435,8 @@
     if (old) old.replaceWith(next);
     else shell.appendChild(next);
     wireScannedList(mode);
+    // List node was replaced — rebind scroll for the top FAB.
+    wireScanListScroll();
     return true;
   }
 
