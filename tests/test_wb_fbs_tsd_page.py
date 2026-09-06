@@ -136,6 +136,8 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "function persistActiveGm" in js
     assert "function restorePersistedActiveGm" in js
     assert "restorePersistedActiveGm()" in js
+    assert "wipePersisted" in js
+    assert "Keep localStorage — next successful load can restore the active GM." in js
     assert "Готовим сканирование…" not in js
     assert "Готово к сканированию" not in js
     # Concurrent PC save: adopt server on conflict — do not force-retry overwrite.
@@ -306,7 +308,7 @@ def test_tsd_phone_camera_scan_button() -> None:
     assert "isSecureContext" in js
     assert ".tsd-cam-overlay" in css
     assert "flex: 0 0 56px" in css
-    assert "wb_fbs_tsd.js?v=85" in html
+    assert "wb_fbs_tsd.js?v=86" in html
     # Self-hosted ZXing (CSP blocks CDN script-src on iPhone Safari).
     assert (STATIC / "zxing.min.js").is_file()
     assert "/static/zxing.min.js" in js
@@ -383,7 +385,7 @@ def test_tsd_durable_outbox_survives_offline() -> None:
     assert "outboxApplyToLoadedRows(state.route.mode)" in js
     assert "wireOutboxReconnect()" in js
     assert "Нет связи — скан сохранён на устройстве" in js
-    assert "wb_fbs_tsd.js?v=85" in html
+    assert "wb_fbs_tsd.js?v=86" in html
     assert "function outboxSoftStatus" in js
     assert "outboxCache" in js
     # Scan path: UI/focus first, then outbox+network (speed).
