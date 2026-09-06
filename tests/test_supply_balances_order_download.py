@@ -49,8 +49,10 @@ def test_order_modal_filters_and_table() -> None:
     assert "_sbBuildSimpleXlsxBlob" in APP_JS
     assert '["Товар", "Заказ"]' in APP_JS or "[[\"Товар\", \"Заказ\"]]" in APP_JS
     assert "zakaz_ostatki_" in APP_JS
+    assert 'viewMode !== "balance"' in APP_JS
+    assert "supplyBalancesOrderDownloadBtn" in APP_JS
 
 
 def test_cache_bump_order_feature() -> None:
-    assert "style.css?v=306" in APP_HTML
-    assert "app.js?v=552" in APP_HTML
+    assert "style.css?v=307" in APP_HTML
+    assert "app.js?v=553" in APP_HTML

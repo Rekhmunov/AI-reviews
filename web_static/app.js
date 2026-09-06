@@ -13818,6 +13818,14 @@ function _sbUpdateBelowMinBtn() {
     : on
       ? "Показать все позиции"
       : "Показать только позиции ниже минимума";
+  const dlBtn = document.getElementById("supplyBalancesOrderDownloadBtn");
+  if (dlBtn) {
+    const canOrder = !periodMode;
+    dlBtn.disabled = !canOrder;
+    dlBtn.title = canOrder
+      ? "Скачать заказ (Excel)"
+      : "Скачивание заказа доступно только в режиме остатков";
+  }
 }
 
 function toggleSupplyBalancesBelowMin() {
@@ -13968,6 +13976,16 @@ window.onSupplyBalancesOrderFiltersChange = onSupplyBalancesOrderFiltersChange;
 
 function openSupplyBalancesOrderModal() {
   _sbOrderSetErr("");
+  // Order Excel is built from ledger balances (min qty + current stock).
+  // Sales/movements modes replace or clear those rows — do not mix them.
+  if (supplyBalancesState.viewMode !== "balance") {
+    _sbSetStatus("Сначала вернитесь к остаткам (не продажи/движение), затем скачайте заказ", "error");
+    return;
+  }
+  if (!Array.isArray(supplyBalancesState.rows) || !supplyBalancesState.rows.length) {
+    _sbSetStatus("Нет позиций остатков для заказа", "error");
+    return;
+  }
   supplyBalancesOrderState.qtys = Object.create(null);
   const belowEl = document.getElementById("supplyBalancesOrderBelowFilter");
   const catEl = document.getElementById("supplyBalancesOrderCategoryFilter");
