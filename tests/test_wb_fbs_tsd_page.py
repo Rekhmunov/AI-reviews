@@ -339,7 +339,10 @@ def test_tsd_phone_camera_scan_button() -> None:
     assert "function outboxFlushGmPending" in js
     assert "outboxRememberGmBind(row" in js
     assert 'outboxRemove("gm"' in js
-    assert "wb_fbs_tsd.css?v=47" in html
+    assert "wb_fbs_tsd.css?v=48" in html
+    assert "Scan (С КИЗ / Без КИЗ): pin filter" in css
+    assert ".tsd-app.is-scan .tsd-filter-wrap:not([hidden])" in css
+    assert "margin-left: auto" in css
     assert "Match camera control size" in css
     assert ".tsd-gm-icon-btn" in css
     gm_btn = css[css.find(".tsd-gm-icon-btn {") : css.find(".tsd-gm-icon-btn {") + 280]
