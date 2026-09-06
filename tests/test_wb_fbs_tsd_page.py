@@ -136,7 +136,8 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "applyKizPushResults" in js
     # Back from KIZ must not await WB push (floppy «Сохранить» does that).
     leave = js[js.find("async function leaveScanScreen") : js.find("async function leaveScanScreen") + 1100]
-    assert "awaitLocalAutosaves()" in leave
+    assert "void awaitLocalAutosaves()" in leave
+    assert "state.kizPushCancel = true" in leave
     assert "saveKizPushAll" not in leave
     assert "savePickLocalAll" in leave
 
@@ -281,7 +282,7 @@ def test_tsd_phone_camera_scan_button() -> None:
     assert "isSecureContext" in js
     assert ".tsd-cam-overlay" in css
     assert "flex: 0 0 56px" in css
-    assert "wb_fbs_tsd.js?v=80" in html
+    assert "wb_fbs_tsd.js?v=81" in html
     # Self-hosted ZXing (CSP blocks CDN script-src on iPhone Safari).
     assert (STATIC / "zxing.min.js").is_file()
     assert "/static/zxing.min.js" in js
@@ -358,7 +359,7 @@ def test_tsd_durable_outbox_survives_offline() -> None:
     assert "outboxApplyToLoadedRows(state.route.mode)" in js
     assert "wireOutboxReconnect()" in js
     assert "Нет связи — скан сохранён на устройстве" in js
-    assert "wb_fbs_tsd.js?v=80" in html
+    assert "wb_fbs_tsd.js?v=81" in html
     assert "function outboxSoftStatus" in js
     assert "outboxCache" in js
     # Scan path: UI/focus first, then outbox+network (speed).

@@ -2264,8 +2264,10 @@
   async function saveKizPushAll(opts) {
     const silent = !!(opts && opts.silent);
     if (state.saving) return { status: "busy" };
+    state.kizPushCancel = false;
     clearBanner({ silent: true });
     await awaitLocalAutosaves();
+    if (state.kizPushCancel) return { status: "cancelled" };
     const rows = state.kizRows || [];
     const items = [];
     for (const row of rows) {
@@ -2410,6 +2412,10 @@
         }
       };
       for (let i = 0; i < items.length; i += CHUNK) {
+        if (state.kizPushCancel || state.route.view !== "scan") {
+          status = "cancelled";
+          break;
+        }
         const chunk = items.slice(i, i + CHUNK);
         if (items.length > CHUNK) {
           setBanner(
@@ -4291,24 +4297,27 @@
     );
   }
 
-  /** Back arrow: flush local drafts, then leave immediately.
-   * WB KIZ → marketplace push is only the floppy «Сохранить». Waiting for WB
-   * on back re-sends every unsynced row (~7s/chunk) and traps the operator.
-   * Pick mode still does a quiet local batch save when there is scan work.
+  /** Back arrow: leave immediately for KIZ; never await WB push.
+   * Floppy «Сохранить» is the only marketplace push. Awaiting anything on back
+   * (including local autosave chain) can hang on a slow PUT and trap the operator
+   * on «Сохранение N в WB…». Pick mode still quiet-saves when there is scan work.
    */
   async function leaveScanScreen() {
     if (state.route.view !== "scan") return;
     const sid = state.route.supplyId;
     const mode = state.route.mode;
+    // Abort in-flight floppy push between chunks so a busy save cannot trap Back.
+    state.kizPushCancel = true;
     if (mode === "kiz") {
-      await awaitLocalAutosaves();
+      // Fire-and-forget local drafts — do not block navigation.
+      void awaitLocalAutosaves();
     } else if (orderedScannedRows(mode).length > 0) {
       const result = await savePickLocalAll({ silent: true });
       if (result && (result.status === "conflict" || result.status === "busy")) {
         return;
       }
     } else {
-      await awaitLocalAutosaves();
+      void awaitLocalAutosaves();
     }
     if (state.route.view !== "scan") return;
     state.pendingOrderId = null;
