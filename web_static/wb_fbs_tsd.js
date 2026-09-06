@@ -226,10 +226,13 @@
 
   function resetGmState(opts) {
     const clearActive = !(opts && opts.keepActive);
+    // wipePersisted only on explicit discard (source change / user reset).
+    // Navigating list↔hub must NOT erase the saved active GM for the supply.
+    const wipePersisted = !!(opts && opts.wipePersisted);
     state.gm.awaitingScan = false;
     state.gm.loadError = "";
     if (clearActive) {
-      if (state.gm.activeId) clearPersistedActiveGm();
+      if (wipePersisted && state.gm.activeId) clearPersistedActiveGm();
       state.gm.activeId = null;
       state.gm.activeBarcode = "";
     }
@@ -397,7 +400,7 @@
       state.gm.boundSupplyId = sid;
       state.gm.hasFillable = items.some((c) => containerAcceptsFill(c));
       if (!state.gm.hasFillable) {
-        if (state.gm.activeId) clearPersistedActiveGm();
+        // No fillable GMs in this supply — drop memory only; keep LS for later.
         state.gm.activeId = null;
         state.gm.activeBarcode = "";
         state.gm.awaitingScan = false;
@@ -407,6 +410,8 @@
           clearPersistedActiveGm();
           state.gm.activeId = null;
           state.gm.activeBarcode = "";
+          // Try a previously saved GM for this supply (e.g. after supply switch).
+          restorePersistedActiveGm();
         } else {
           persistActiveGm();
         }
@@ -432,7 +437,7 @@
       state.gm.loadOk = false;
       state.gm.containers = [];
       state.gm.hasFillable = false;
-      if (state.gm.activeId) clearPersistedActiveGm();
+      // Keep localStorage — next successful load can restore the active GM.
       state.gm.activeId = null;
       state.gm.activeBarcode = "";
       state.gm.awaitingScan = false;
@@ -5520,12 +5525,17 @@
         if (seq !== state.loadSeq) return;
         if (isOzon()) {
           const sidNow = String(state.route.supplyId || "");
-          // Drop active GM when switching to another supply.
+          // Switching supply: clear in-memory GM only. Persist is per supply key,
+          // so the previous supply's saved GM stays available if we return later.
           if (state.gm.boundSupplyId && state.gm.boundSupplyId !== sidNow) {
-            setActiveGm(null);
+            state.gm.activeId = null;
+            state.gm.activeBarcode = "";
+            state.gm.awaitingScan = false;
           }
           await loadGmContainers(state.gm.boundSupplyId !== sidNow);
           if (seq !== state.loadSeq) return;
+          // Safety net after rows+containers load (covers leave→hub→scan and refresh).
+          if (!state.gm.activeId) restorePersistedActiveGm();
         } else {
           closeGmRebind(false);
           resetGmState({ clearList: true });
@@ -5563,7 +5573,7 @@
       sel.addEventListener("change", async () => {
         // Phase 2: hard GM reset on source change (before navigation).
         closeGmRebind(false);
-        resetGmState({ clearList: true });
+        resetGmState({ clearList: true, wipePersisted: true });
         state.sourceId = sel.value ? Number(sel.value) : null;
         if (state.sourceId) localStorage.setItem(LS_SOURCE, String(state.sourceId));
         if (state.route.view !== "list") navigate("#/");
