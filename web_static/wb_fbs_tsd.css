@@ -219,6 +219,16 @@ html, body {
   display: none !important;
 }
 
+/* Scan (С КИЗ / Без КИЗ): pin filter + save to the right edge.
+   Back + title stay left; source select is hidden on scan. */
+.tsd-app.is-scan .tsd-filter-wrap:not([hidden]) {
+  margin-left: auto;
+}
+
+.tsd-app.is-scan .tsd-filter-wrap[hidden] ~ .tsd-save-btn:not([hidden]) {
+  margin-left: auto;
+}
+
 .tsd-filter-menu {
   position: absolute;
   /* Sit below the header row / progress, over the browse sheet */
