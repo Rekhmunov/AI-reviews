@@ -140,6 +140,11 @@ html, body {
   text-overflow: ellipsis;
 }
 
+/* Main list screen: only search + source select in the header (no «ТСД» label). */
+.tsd-top-title[hidden] {
+  display: none !important;
+}
+
 .tsd-icon-btn {
   flex: 0 0 44px;
   width: 44px;
