@@ -113,6 +113,7 @@ assert(
 );
 assert(src.includes("seenBc"), "sticker barcode matches deduped");
 assert(src.includes("Сканируйте QR грузоместа"), "awaiting-scan prompt above input");
+assert(!src.includes('tsd-scan-step">Грузоместо'), "no Грузоместо step label above GM prompt");
 assert(!src.includes("Отсканируйте QR грузоместа"), "no blue banner for GM scan prompt");
 assert(!src.includes("Отсканируйте QR другого грузоместа"), "no blue banner for GM change prompt");
 assert(src.includes('function renderGmBarHtml') || src.includes("renderGmBarHtml()"), "legacy GM bar hook kept empty");
