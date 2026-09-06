@@ -4504,7 +4504,6 @@
     if (isOzon() && state.gm.awaitingScan && gmUiVisible()) {
       return `
         <div class="tsd-scan-card" id="tsdScanCard">
-          <div class="tsd-scan-step">Грузоместо</div>
           ${scanPromptRowHtml("Сканируйте QR грузоместа")}
           ${scanFieldRowHtml()}
         </div>`;
@@ -5359,7 +5358,7 @@
         const label = rowDisplayLabel(row);
         setBanner(
           kizN <= 1
-            ? `КИЗ записан · ${label}. Для 2-го КИЗ снова сканируйте стикер`
+            ? `КИЗ записан · ${label}`
             : `КИЗ ${kizN} записан · ${label}`,
           "ok"
         );
