@@ -272,7 +272,7 @@ def test_tsd_phone_camera_scan_button() -> None:
     assert "isSecureContext" in js
     assert ".tsd-cam-overlay" in css
     assert "flex: 0 0 56px" in css
-    assert "wb_fbs_tsd.js?v=77" in html
+    assert "wb_fbs_tsd.js?v=78" in html
     # Self-hosted ZXing (CSP blocks CDN script-src on iPhone Safari).
     assert (STATIC / "zxing.min.js").is_file()
     assert "/static/zxing.min.js" in js
@@ -297,7 +297,7 @@ def test_tsd_phone_camera_scan_button() -> None:
     assert "function outboxFlushGmPending" in js
     assert "outboxRememberGmBind(row" in js
     assert 'outboxRemove("gm"' in js
-    assert "wb_fbs_tsd.css?v=41" in html
+    assert "wb_fbs_tsd.css?v=42" in html
     # Camera sits in the prompt row (keeps laser/wedge input wide on TSD).
     assert "function scanCamBtnHtml" in js
     assert "function scanPromptRowHtml" in js
@@ -312,10 +312,12 @@ def test_tsd_phone_camera_scan_button() -> None:
     field_fn = js[js.find("function scanFieldRowHtml") : js.find("function scanFieldRowHtml") + 700]
     assert "tsdScanInput" in field_fn
     assert "tsdScanCamBtn" not in field_fn
-    assert ".tsd-app.is-scan .tsd-scanned" in css
     assert ".tsd-scan-prompt-row" in css
-    # After list refresh the scroll node is replaced — must rewire.
-    assert "wireScanListScroll()" in js[js.find("function refreshScannedListSection") : js.find("function refreshScannedListSection") + 700]
+    # Scan page scrolls as a whole — top chrome is not trapped above a nested list scroller.
+    assert "overflow: auto" in css[css.find(".tsd-app.is-scan") : css.find(".tsd-app.is-scan") + 280]
+    assert ".tsd-app.is-scan .tsd-scanned" not in css
+    assert "function scanPageScrollEl" in js
+    assert "function wireScanPageScroll" in js
 
 
 def test_tsd_durable_outbox_survives_offline() -> None:
@@ -341,7 +343,7 @@ def test_tsd_durable_outbox_survives_offline() -> None:
     assert "outboxApplyToLoadedRows(state.route.mode)" in js
     assert "wireOutboxReconnect()" in js
     assert "Нет связи — скан сохранён на устройстве" in js
-    assert "wb_fbs_tsd.js?v=77" in html
+    assert "wb_fbs_tsd.js?v=78" in html
     assert "function outboxSoftStatus" in js
     assert "outboxCache" in js
     # Scan path: UI/focus first, then outbox+network (speed).

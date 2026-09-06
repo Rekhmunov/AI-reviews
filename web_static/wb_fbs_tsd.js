@@ -3838,14 +3838,14 @@
     refreshSearchResultsOnly();
   }
 
-  function scanListScrollEl() {
-    return document.querySelector(".tsd-app.is-scan .tsd-scanned");
+  function scanPageScrollEl() {
+    return document.querySelector(".tsd-app.is-scan");
   }
 
   function scrollToScanInput() {
-    const list = scanListScrollEl();
-    if (list) {
-      list.scrollTo({ top: 0, behavior: "smooth" });
+    const page = scanPageScrollEl();
+    if (page) {
+      page.scrollTo({ top: 0, behavior: "smooth" });
     } else {
       const target =
         document.getElementById("tsdScanInput") ||
@@ -3866,17 +3866,17 @@
     const fab = document.getElementById("tsdScrollTop");
     if (!fab) return;
     const onScan = state.route.view === "scan";
-    const list = scanListScrollEl();
-    const y = list ? list.scrollTop : window.scrollY;
+    const page = scanPageScrollEl();
+    const y = page ? page.scrollTop : window.scrollY;
     const show = onScan && y > 120;
     fab.hidden = !show;
   }
 
-  function wireScanListScroll() {
-    const list = scanListScrollEl();
-    if (!list || list.dataset.scrollWired === "1") return;
-    list.dataset.scrollWired = "1";
-    list.addEventListener("scroll", () => syncScrollTopFab(), { passive: true });
+  function wireScanPageScroll() {
+    const page = scanPageScrollEl();
+    if (!page || page.dataset.scrollWired === "1") return;
+    page.dataset.scrollWired = "1";
+    page.addEventListener("scroll", () => syncScrollTopFab(), { passive: true });
   }
 
 
@@ -4435,8 +4435,6 @@
     if (old) old.replaceWith(next);
     else shell.appendChild(next);
     wireScannedList(mode);
-    // List node was replaced — rebind scroll for the top FAB.
-    wireScanListScroll();
     return true;
   }
 
@@ -5051,7 +5049,7 @@
     wireBannerDismiss(main);
     wireScanInput(mode, { keepSearchFocus });
     wireScanFooter(mode);
-    wireScanListScroll();
+    wireScanPageScroll();
     syncScrollTopFab();
   }
 
