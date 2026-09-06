@@ -3921,29 +3921,13 @@
     if (input) setTimeout(() => input.focus(), 280);
   }
 
-  function syncScrollTopFab() {
-    const fab = document.getElementById("tsdScrollTop");
-    if (!fab) return;
-    const onScan = state.route.view === "scan";
-    const page = scanPageScrollEl();
-    const y = page ? page.scrollTop : window.scrollY;
-    const show = onScan && y > 120;
-    fab.hidden = !show;
-  }
 
-  function wireScanPageScroll() {
-    const page = scanPageScrollEl();
-    if (!page || page.dataset.scrollWired === "1") return;
-    page.dataset.scrollWired = "1";
-    page.addEventListener("scroll", () => syncScrollTopFab(), { passive: true });
-  }
 
 
   function renderDenied() {
     const main = document.getElementById("tsdMain");
     syncSourceSelectVisibility();
     syncSearchChrome();
-    syncScrollTopFab();
     const back = document.getElementById("tsdBackBtn");
     if (back) {
       back.hidden = false;
@@ -3966,7 +3950,6 @@
     const prog = document.getElementById("tsdProgressBar");
     syncSourceSelectVisibility();
     syncSearchChrome();
-    syncScrollTopFab();
     if (prog) prog.hidden = true;
     // Start screen is the TSD entry point — no back to web /app.
     if (back) {
@@ -4170,7 +4153,6 @@
     const prog = document.getElementById("tsdProgressBar");
     syncSourceSelectVisibility();
     syncSearchChrome();
-    syncScrollTopFab();
     if (prog) prog.hidden = true;
     if (back) {
       back.hidden = false;
@@ -4533,7 +4515,6 @@
     refreshScanBanner();
     refreshScannedListSection(mode);
     refreshSaveButton(mode);
-    syncScrollTopFab();
     // Keep filter/search sheet in sync after clear × on browse cards.
     if (state.route.view === "scan" && shouldShowBrowseSheet()) {
       openBrowseSheet({ keepLimit: true });
@@ -5110,8 +5091,8 @@
       wrap.innerHTML = browseHtml;
       const sheet = wrap.firstElementChild;
       if (sheet) {
-        const scrollTop = document.getElementById("tsdScrollTop");
-        if (scrollTop && scrollTop.parentNode === app) app.insertBefore(sheet, scrollTop);
+        const toast = document.getElementById("tsdToast");
+        if (toast && toast.parentNode === app) app.insertBefore(sheet, toast);
         else app.appendChild(sheet);
       }
       wireBrowseSheet();
@@ -5121,8 +5102,6 @@
     wireBannerDismiss(main);
     wireScanInput(mode, { keepSearchFocus });
     wireScanFooter(mode);
-    wireScanPageScroll();
-    syncScrollTopFab();
   }
 
   async function onScanEnter(input) {
@@ -5626,15 +5605,10 @@
         }
       });
     }
-    const scrollTop = document.getElementById("tsdScrollTop");
-    if (scrollTop) {
-      scrollTop.addEventListener("click", () => scrollToScanInput());
-    }
     window.addEventListener(
       "scroll",
       () => {
-        syncScrollTopFab();
-        if (document.getElementById("tsdBrowseSheet")) syncBrowseSheetPosition();
+            if (document.getElementById("tsdBrowseSheet")) syncBrowseSheetPosition();
       },
       { passive: true }
     );

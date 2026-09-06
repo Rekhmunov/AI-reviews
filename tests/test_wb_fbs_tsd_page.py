@@ -168,7 +168,7 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert 'id="tsdCloseBtn"' not in html
     assert 'id="tsdFilterErrors"' in html
     assert 'id="tsdOrderSearch"' in html
-    assert 'id="tsdScrollTop"' in html
+    assert 'id="tsdScrollTop"' not in html
     assert "tsdFilterSearchBtn" in js
     assert "Standalone search icon only on supply list" in js
     assert "openOrderSearch" in js
@@ -183,7 +183,9 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert 'view === "list"' in js or "view === \"list\"" in js
     assert "filterOrdersBySearch" in js
     assert "scrollToScanInput" in js
-    assert "syncScrollTopFab" in js
+    assert "syncScrollTopFab" not in js
+    assert "tsd-scroll-top" not in js
+    assert "wireScanPageScroll" not in js
     assert "renderOzonOrderCardBodyHtml" in js
     assert "renderOzonOrderCardHtml" in js
     assert "renderWbOrderCardHtml" in js
@@ -191,6 +193,10 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "Start screen is the TSD entry point" in js
     css = (ROOT / "web_static" / "wb_fbs_tsd.css").read_text(encoding="utf-8")
     assert ".tsd-back[hidden]" in css
+    assert ".tsd-scroll-top" not in css
+    gm_btn = css.split(".tsd-gm-icon-btn {", 1)[1].split("}", 1)[0]
+    cam = css.split(".tsd-scan-prompt-row .tsd-scan-cam-btn {", 1)[1].split("}", 1)[0]
+    assert "44px" in gm_btn and "44px" in cam
     html = (TEMPLATES / "wb_fbs_tsd.html").read_text(encoding="utf-8")
     assert 'id="tsdBackBtn"' in html
     assert 'href="/app"' not in html.split('id="tsdBackBtn"', 1)[1].split("</a>", 1)[0]
@@ -287,7 +293,7 @@ def test_tsd_phone_camera_scan_button() -> None:
     assert "isSecureContext" in js
     assert ".tsd-cam-overlay" in css
     assert "flex: 0 0 56px" in css
-    assert "wb_fbs_tsd.js?v=83" in html
+    assert "wb_fbs_tsd.js?v=84" in html
     # Self-hosted ZXing (CSP blocks CDN script-src on iPhone Safari).
     assert (STATIC / "zxing.min.js").is_file()
     assert "/static/zxing.min.js" in js
@@ -312,7 +318,7 @@ def test_tsd_phone_camera_scan_button() -> None:
     assert "function outboxFlushGmPending" in js
     assert "outboxRememberGmBind(row" in js
     assert 'outboxRemove("gm"' in js
-    assert "wb_fbs_tsd.css?v=43" in html
+    assert "wb_fbs_tsd.css?v=44" in html
     assert "Match camera control size" in css
     assert ".tsd-gm-icon-btn" in css
     gm_btn = css[css.find(".tsd-gm-icon-btn {") : css.find(".tsd-gm-icon-btn {") + 280]
@@ -338,7 +344,7 @@ def test_tsd_phone_camera_scan_button() -> None:
     assert "overflow: auto" in css[css.find(".tsd-app.is-scan") : css.find(".tsd-app.is-scan") + 280]
     assert ".tsd-app.is-scan .tsd-scanned" not in css
     assert "function scanPageScrollEl" in js
-    assert "function wireScanPageScroll" in js
+    assert "function wireScanPageScroll" not in js
 
 
 def test_tsd_durable_outbox_survives_offline() -> None:
@@ -364,7 +370,7 @@ def test_tsd_durable_outbox_survives_offline() -> None:
     assert "outboxApplyToLoadedRows(state.route.mode)" in js
     assert "wireOutboxReconnect()" in js
     assert "Нет связи — скан сохранён на устройстве" in js
-    assert "wb_fbs_tsd.js?v=83" in html
+    assert "wb_fbs_tsd.js?v=84" in html
     assert "function outboxSoftStatus" in js
     assert "outboxCache" in js
     # Scan path: UI/focus first, then outbox+network (speed).
