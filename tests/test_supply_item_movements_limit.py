@@ -37,6 +37,9 @@ def test_item_movements_api_uses_day_window() -> None:
     assert "limit=lim + 1" in WEB_PY
     assert '"truncated": truncated' in WEB_PY
     assert "movement_date >=" in REPO_PY
+    assert "list_supply_stock_basis_movements_for_item" in REPO_PY
+    assert "basis_added" in WEB_PY
+    assert "outside_window" in WEB_PY
     assert "movement_date <=" in REPO_PY
     assert "date_from: str = \"\"" in REPO_PY or 'date_from: str = ""' in REPO_PY
-    assert "app.js?v=553" in APP_HTML
+    assert "app.js?v=554" in APP_HTML

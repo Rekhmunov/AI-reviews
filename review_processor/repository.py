@@ -13420,6 +13420,97 @@ class ReviewRepository:
             out.append(d)
         return out
 
+    def list_supply_stock_basis_movements_for_item(
+        self,
+        *,
+        user_id: int,
+        production_id: int,
+        item_type: str,
+        item_id: int,
+        before_date: str = "",
+        exclude_ids: set[int] | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Positive opening/adjustment/receipt rows that explain on-hand stock.
+
+        Used when the day-window journal hides older «+» while the balance is
+        still non-zero (common after dating an opening/adjustment in the past).
+        """
+        itype = str(item_type or "").strip().lower()
+        if itype not in {"material", "product"}:
+            return []
+        try:
+            iid = int(item_id or 0)
+            pid = int(production_id or 0)
+            lim = int(limit or 0)
+        except (TypeError, ValueError):
+            return []
+        if iid <= 0 or pid <= 0:
+            return []
+        lim = max(1, min(lim, 100))
+        before_s = str(before_date or "").strip()
+        clauses = [
+            "user_id = ?",
+            "production_id = ?",
+            "item_type = ?",
+            "item_id = ?",
+            "kind IN ('opening', 'adjustment', 'receipt')",
+            "qty > 0",
+        ]
+        params: list[Any] = [user_id, pid, itype, iid]
+        if before_s:
+            clauses.append("movement_date < ?")
+            params.append(before_s)
+        skip = {int(x) for x in (exclude_ids or set()) if int(x) > 0}
+        params.append(lim + len(skip) + 5)
+        with self._connect() as conn:
+            self._ensure_supply_balances_tables(conn)
+            rows = conn.execute(
+                self._sql(
+                    "SELECT id, item_type, item_id, qty, movement_date, kind, "
+                    "source_type, source_id, comment, created_at, created_by "
+                    "FROM supply_stock_movements "
+                    f"WHERE {' AND '.join(clauses)} "
+                    "ORDER BY movement_date DESC, id DESC "
+                    "LIMIT ?"
+                ),
+                tuple(params),
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            d = self._row_to_dict(r)
+            try:
+                rid = int(d.get("id") or 0)
+            except (TypeError, ValueError):
+                continue
+            if rid <= 0 or rid in skip:
+                continue
+            try:
+                d["id"] = rid
+                d["item_id"] = int(d.get("item_id") or 0)
+                d["qty"] = float(d.get("qty"))
+            except (TypeError, ValueError):
+                continue
+            if float(d["qty"]) <= 0:
+                continue
+            try:
+                created_by = d.get("created_by")
+                d["created_by"] = int(created_by) if created_by not in (None, "") else None
+            except (TypeError, ValueError):
+                d["created_by"] = None
+            d["item_type"] = str(d.get("item_type") or itype)
+            d["movement_date"] = str(d.get("movement_date") or "")
+            d["kind"] = str(d.get("kind") or "")
+            d["source_type"] = str(d.get("source_type") or "")
+            d["source_id"] = str(d.get("source_id") or "")
+            d["comment"] = str(d.get("comment") or "")
+            d["created_at"] = str(d.get("created_at") or "")
+            d["outside_window"] = True
+            out.append(d)
+            if len(out) >= lim:
+                break
+        return out
+
     def list_supply_stock_movement_dates(
         self, *, user_id: int, production_id: int, as_of: str | None = None
     ) -> list[str]:
