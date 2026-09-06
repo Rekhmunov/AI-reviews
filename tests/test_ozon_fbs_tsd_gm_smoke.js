@@ -126,4 +126,13 @@ assert(src.includes("formatBoldLastDigits"), "WB sticker last-4 highlight");
 assert(src.includes("tsd-scanned-item-wb"), "WB scanned card class");
 assert(!src.includes("Шаг 2"), "Шаг 2 removed from scan chrome");
 
+
+assert(src.includes("LS_ACTIVE_GM"), "active GM localStorage key");
+assert(src.includes("persistActiveGm"), "persist active GM");
+assert(src.includes("restorePersistedActiveGm"), "restore active GM");
+assert(src.includes("Товары с КИЗ"), "hub tile renamed to КИЗ");
+assert(src.includes("Товары без КИЗ"), "hub pick tile renamed to без КИЗ");
+assert(!src.includes("Товары с маркировкой"), "old маркировкой tile title removed");
+assert(!src.includes("Товары без маркировки"), "old без маркировки tile title removed");
+
 console.log("ok - ozon_fbs_tsd_gm_smoke");

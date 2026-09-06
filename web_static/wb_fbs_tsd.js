@@ -74,6 +74,8 @@
   const LS_SOURCE = "wb_fbs_tsd_source_id";
   /** Durable pending KIZ/pick scans — survives reload / brief offline. */
   const LS_OUTBOX = "wb_fbs_tsd_outbox_v1";
+  /** Active Ozon cargo place (ГМ) per source+supply — survives leave/re-enter and refresh. */
+  const LS_ACTIVE_GM = "wb_fbs_tsd_active_gm_v1";
 
   function currentSource() {
     return (
@@ -135,11 +137,99 @@
     return null;
   }
 
+  function activeGmStorageKey(sourceId, supplyId) {
+    return `${Number(sourceId) || 0}:${String(supplyId || "").trim()}`;
+  }
+
+  function readActiveGmMap() {
+    try {
+      const raw = localStorage.getItem(LS_ACTIVE_GM);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (_e) {
+      return {};
+    }
+  }
+
+  function writeActiveGmMap(map) {
+    try {
+      const keys = Object.keys(map || {});
+      if (!keys.length) localStorage.removeItem(LS_ACTIVE_GM);
+      else localStorage.setItem(LS_ACTIVE_GM, JSON.stringify(map));
+    } catch (_e) {
+      /* ignore quota / private mode */
+    }
+  }
+
+  function persistActiveGm() {
+    const sourceId = Number(state.sourceId || 0) || 0;
+    const supplyId = String(
+      state.route.supplyId || state.gm.boundSupplyId || ""
+    ).trim();
+    if (!sourceId || !supplyId) return;
+    const key = activeGmStorageKey(sourceId, supplyId);
+    const map = readActiveGmMap();
+    if (!state.gm.activeId) {
+      if (map[key]) {
+        delete map[key];
+        writeActiveGmMap(map);
+      }
+      return;
+    }
+    map[key] = {
+      id: Number(state.gm.activeId) || 0,
+      barcode: String(state.gm.activeBarcode || state.gm.activeId || "").trim(),
+    };
+    writeActiveGmMap(map);
+  }
+
+  function clearPersistedActiveGm(sourceId, supplyId) {
+    const sid = sourceId != null ? sourceId : state.sourceId;
+    const supply =
+      supplyId != null
+        ? supplyId
+        : state.route.supplyId || state.gm.boundSupplyId;
+    const key = activeGmStorageKey(sid, supply);
+    if (!String(key).includes(":")) return;
+    const map = readActiveGmMap();
+    if (!map[key]) return;
+    delete map[key];
+    writeActiveGmMap(map);
+  }
+
+  /** Restore last active GM for this source+supply after reload / re-enter. */
+  function restorePersistedActiveGm() {
+    if (!isOzon() || state.gm.activeId) return false;
+    const sourceId = Number(state.sourceId || 0) || 0;
+    const supplyId = String(
+      state.route.supplyId || state.gm.boundSupplyId || ""
+    ).trim();
+    if (!sourceId || !supplyId || !state.gm.hasFillable) return false;
+    const saved = readActiveGmMap()[activeGmStorageKey(sourceId, supplyId)];
+    if (!saved || !(Number(saved.id) > 0)) return false;
+    const cid = Number(saved.id) || 0;
+    const found =
+      (state.gm.containers || []).find(
+        (c) => String(c.container_id || "") === String(cid)
+      ) || null;
+    if (!found || !containerAcceptsFill(found)) {
+      clearPersistedActiveGm(sourceId, supplyId);
+      return false;
+    }
+    state.gm.activeId = cid;
+    state.gm.activeBarcode =
+      String(saved.barcode || "").trim() ||
+      String(found.container_barcode || found.container_id || cid).trim();
+    return true;
+  }
+
   function resetGmState(opts) {
     const clearActive = !(opts && opts.keepActive);
     state.gm.awaitingScan = false;
     state.gm.loadError = "";
     if (clearActive) {
+      if (state.gm.activeId) clearPersistedActiveGm();
       state.gm.activeId = null;
       state.gm.activeBarcode = "";
     }
@@ -266,6 +356,7 @@
       state.gm.boundSupplyId === sid &&
       !state.gm.loading
     ) {
+      if (!state.gm.activeId) restorePersistedActiveGm();
       return state.gm.hasFillable;
     }
     const gen = (state.gm.loadGen = Number(state.gm.loadGen || 0) + 1);
@@ -306,15 +397,21 @@
       state.gm.boundSupplyId = sid;
       state.gm.hasFillable = items.some((c) => containerAcceptsFill(c));
       if (!state.gm.hasFillable) {
+        if (state.gm.activeId) clearPersistedActiveGm();
         state.gm.activeId = null;
         state.gm.activeBarcode = "";
         state.gm.awaitingScan = false;
       } else if (state.gm.activeId) {
         const cur = activeGmContainer();
         if (!cur || !containerAcceptsFill(cur)) {
+          clearPersistedActiveGm();
           state.gm.activeId = null;
           state.gm.activeBarcode = "";
+        } else {
+          persistActiveGm();
         }
+      } else {
+        restorePersistedActiveGm();
       }
       return state.gm.hasFillable;
     } catch (e) {
@@ -335,6 +432,7 @@
       state.gm.loadOk = false;
       state.gm.containers = [];
       state.gm.hasFillable = false;
+      if (state.gm.activeId) clearPersistedActiveGm();
       state.gm.activeId = null;
       state.gm.activeBarcode = "";
       state.gm.awaitingScan = false;
@@ -347,13 +445,18 @@
 
   function setActiveGm(container) {
     if (!container) {
+      if (state.gm.activeId) clearPersistedActiveGm();
       state.gm.activeId = null;
       state.gm.activeBarcode = "";
       return;
     }
     const cid = Number(container.container_id || 0) || 0;
     state.gm.activeId = cid > 0 ? cid : null;
-    state.gm.activeBarcode = cid > 0 ? String(cid) : "";
+    state.gm.activeBarcode =
+      cid > 0
+        ? String(container.container_barcode || container.container_id || cid).trim()
+        : "";
+    persistActiveGm();
   }
 
   function gmIconSvg(kind) {
@@ -774,7 +877,6 @@
       previousId: prevId && prevId !== activeId ? prevId : null,
     });
     const modeAtBind = state.route.mode;
-    const labelAtBind = activeGmLabel();
     // Optimistic chrome: badge/counter update before API returns.
     if (state.route.view === "scan" && state.route.mode === modeAtBind) {
       refreshScannedListSection(modeAtBind);
@@ -797,7 +899,7 @@
           refreshScanBanner();
         } else {
           outboxRemove("gm", postingNumber);
-          toast(`В ${labelAtBind}`);
+          // No toast: on TSD it covers the scan field; GM is already in the hint under input.
         }
       } catch (e) {
         const msg = String(e.message || e);
@@ -843,6 +945,21 @@
       return String(row.posting_number || row.order_number || "—");
     }
     return String(row.order_id || "—");
+  }
+
+  /** Scan card context under the prompt. Ozon posting ≈ sticker — skip duplicate. */
+  function scanPendingContextText(row) {
+    const label = rowDisplayLabel(row);
+    if (isOzon()) {
+      const sticker = String(row?.sticker_number || "").trim();
+      const posting = String(row?.posting_number || label || "").trim();
+      if (!sticker || sticker === posting || sticker === String(label).trim()) {
+        return `Отпр. ${label}`;
+      }
+      return `Отпр. ${label} · стикер ${sticker}`;
+    }
+    const sticker = String(row?.sticker_number || row?.posting_number || "—").trim();
+    return `Заказ ${label} · стикер ${sticker || "—"}`;
   }
 
   function rowMatchesScanId(row, id) {
@@ -3907,29 +4024,13 @@
     if (input) setTimeout(() => input.focus(), 280);
   }
 
-  function syncScrollTopFab() {
-    const fab = document.getElementById("tsdScrollTop");
-    if (!fab) return;
-    const onScan = state.route.view === "scan";
-    const page = scanPageScrollEl();
-    const y = page ? page.scrollTop : window.scrollY;
-    const show = onScan && y > 120;
-    fab.hidden = !show;
-  }
 
-  function wireScanPageScroll() {
-    const page = scanPageScrollEl();
-    if (!page || page.dataset.scrollWired === "1") return;
-    page.dataset.scrollWired = "1";
-    page.addEventListener("scroll", () => syncScrollTopFab(), { passive: true });
-  }
 
 
   function renderDenied() {
     const main = document.getElementById("tsdMain");
     syncSourceSelectVisibility();
     syncSearchChrome();
-    syncScrollTopFab();
     const back = document.getElementById("tsdBackBtn");
     if (back) {
       back.hidden = false;
@@ -3952,7 +4053,6 @@
     const prog = document.getElementById("tsdProgressBar");
     syncSourceSelectVisibility();
     syncSearchChrome();
-    syncScrollTopFab();
     if (prog) prog.hidden = true;
     // Start screen is the TSD entry point — no back to web /app.
     if (back) {
@@ -4156,7 +4256,6 @@
     const prog = document.getElementById("tsdProgressBar");
     syncSourceSelectVisibility();
     syncSearchChrome();
-    syncScrollTopFab();
     if (prog) prog.hidden = true;
     if (back) {
       back.hidden = false;
@@ -4201,7 +4300,7 @@
           <button type="button" class="tsd-tile tsd-tile-main" id="tsdTileKiz" ${
             kizDisabled ? "disabled" : ""
           }>
-            <span class="tsd-tile-title">Товары с маркировкой</span>
+            <span class="tsd-tile-title">Товары с КИЗ</span>
             <span class="tsd-tile-prog">${
               kizError
                 ? "Ошибка загрузки"
@@ -4230,7 +4329,7 @@
           <button type="button" class="tsd-tile tsd-tile-main" id="tsdTilePick" ${
             pickDisabled ? "disabled" : ""
           }>
-            <span class="tsd-tile-title">Товары без маркировки</span>
+            <span class="tsd-tile-title">Товары без КИЗ</span>
             <span class="tsd-tile-prog">${
               pickError
                 ? "Ошибка загрузки"
@@ -4426,7 +4525,7 @@
         <div class="tsd-scan-card" id="tsdScanCard">
           ${scanPromptRowHtml(prompt)}
           ${multiHint}
-          <div class="tsd-scan-context">${isOzon() ? "Отпр." : "Заказ"} ${esc(rowDisplayLabel(pending))} · стикер ${esc(pending.sticker_number || pending.posting_number || "—")}</div>
+          <div class="tsd-scan-context">${esc(scanPendingContextText(pending))}</div>
           ${scanFieldRowHtml()}
           <div class="tsd-product">${photo}<div>
             <div class="tsd-product-name">${esc(pending.product_name || pending.article || "—")}</div>
@@ -4519,7 +4618,6 @@
     refreshScanBanner();
     refreshScannedListSection(mode);
     refreshSaveButton(mode);
-    syncScrollTopFab();
     // Keep filter/search sheet in sync after clear × on browse cards.
     if (state.route.view === "scan" && shouldShowBrowseSheet()) {
       openBrowseSheet({ keepLimit: true });
@@ -5056,7 +5154,7 @@
       };
       back.textContent = "←";
     }
-    title.textContent = mode === "kiz" ? "С маркировкой" : "Без маркировки";
+    title.textContent = mode === "kiz" ? "С КИЗ" : "Без КИЗ";
     updateProgressBar(mode);
 
     const { total, done, left } = scanProgress(mode);
@@ -5096,8 +5194,8 @@
       wrap.innerHTML = browseHtml;
       const sheet = wrap.firstElementChild;
       if (sheet) {
-        const scrollTop = document.getElementById("tsdScrollTop");
-        if (scrollTop && scrollTop.parentNode === app) app.insertBefore(sheet, scrollTop);
+        const toast = document.getElementById("tsdToast");
+        if (toast && toast.parentNode === app) app.insertBefore(sheet, toast);
         else app.appendChild(sheet);
       }
       wireBrowseSheet();
@@ -5107,8 +5205,6 @@
     wireBannerDismiss(main);
     wireScanInput(mode, { keepSearchFocus });
     wireScanFooter(mode);
-    wireScanPageScroll();
-    syncScrollTopFab();
   }
 
   async function onScanEnter(input) {
@@ -5297,7 +5393,7 @@
       showLoadingScreen({
         title: `Открываем ${supplyNameHint(state.route.supplyId)}`,
         status: "Ищем поставку…",
-        stages: ["Открытие", "С маркировкой", "Без маркировки"],
+        stages: ["Открытие", "С КИЗ", "Без КИЗ"],
       });
     } else if (state.route.view === "scan") {
       // Switch chrome immediately so the hub title/strip never lingers under load.
@@ -5306,7 +5402,7 @@
       const titleEl = document.getElementById("tsdTitle");
       if (titleEl) {
         titleEl.textContent =
-          state.route.mode === "kiz" ? "С маркировкой" : "Без маркировки";
+          state.route.mode === "kiz" ? "С КИЗ" : "Без КИЗ";
       }
       const backEl = document.getElementById("tsdBackBtn");
       if (backEl) {
@@ -5320,12 +5416,12 @@
       }
       if (state.route.mode === "kiz") {
         showLoadingScreen({
-          title: "Товары с маркировкой",
+          title: "Товары с КИЗ",
           simple: true,
         });
       } else {
         showLoadingScreen({
-          title: "Товары без маркировки",
+          title: "Товары без КИЗ",
           simple: true,
         });
       }
@@ -5612,15 +5708,10 @@
         }
       });
     }
-    const scrollTop = document.getElementById("tsdScrollTop");
-    if (scrollTop) {
-      scrollTop.addEventListener("click", () => scrollToScanInput());
-    }
     window.addEventListener(
       "scroll",
       () => {
-        syncScrollTopFab();
-        if (document.getElementById("tsdBrowseSheet")) syncBrowseSheetPosition();
+            if (document.getElementById("tsdBrowseSheet")) syncBrowseSheetPosition();
       },
       { passive: true }
     );
