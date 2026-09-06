@@ -207,8 +207,9 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     css = (ROOT / "web_static" / "wb_fbs_tsd.css").read_text(encoding="utf-8")
     assert ".tsd-back[hidden]" in css
     assert ".tsd-scroll-top" not in css
-    assert "flex: 0 1 220px" in css
-    assert "max-width: 68%" in css
+    assert "flex: 1 1 260px" in css
+    assert "max-width: 78%" in css
+    assert "min-width: 200px" in css
     gm_btn = css.split(".tsd-gm-icon-btn {", 1)[1].split("}", 1)[0]
     cam = css.split(".tsd-scan-prompt-row .tsd-scan-cam-btn {", 1)[1].split("}", 1)[0]
     assert "44px" in gm_btn and "44px" in cam
@@ -333,7 +334,7 @@ def test_tsd_phone_camera_scan_button() -> None:
     assert "function outboxFlushGmPending" in js
     assert "outboxRememberGmBind(row" in js
     assert 'outboxRemove("gm"' in js
-    assert "wb_fbs_tsd.css?v=45" in html
+    assert "wb_fbs_tsd.css?v=46" in html
     assert "Match camera control size" in css
     assert ".tsd-gm-icon-btn" in css
     gm_btn = css[css.find(".tsd-gm-icon-btn {") : css.find(".tsd-gm-icon-btn {") + 280]
