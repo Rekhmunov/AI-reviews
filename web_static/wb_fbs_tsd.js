@@ -774,7 +774,6 @@
       previousId: prevId && prevId !== activeId ? prevId : null,
     });
     const modeAtBind = state.route.mode;
-    const labelAtBind = activeGmLabel();
     // Optimistic chrome: badge/counter update before API returns.
     if (state.route.view === "scan" && state.route.mode === modeAtBind) {
       refreshScannedListSection(modeAtBind);
@@ -797,7 +796,7 @@
           refreshScanBanner();
         } else {
           outboxRemove("gm", postingNumber);
-          toast(`В ${labelAtBind}`);
+          // No toast: on TSD it covers the scan field; GM is already in the hint under input.
         }
       } catch (e) {
         const msg = String(e.message || e);
@@ -843,6 +842,21 @@
       return String(row.posting_number || row.order_number || "—");
     }
     return String(row.order_id || "—");
+  }
+
+  /** Scan card context under the prompt. Ozon posting ≈ sticker — skip duplicate. */
+  function scanPendingContextText(row) {
+    const label = rowDisplayLabel(row);
+    if (isOzon()) {
+      const sticker = String(row?.sticker_number || "").trim();
+      const posting = String(row?.posting_number || label || "").trim();
+      if (!sticker || sticker === posting || sticker === String(label).trim()) {
+        return `Отпр. ${label}`;
+      }
+      return `Отпр. ${label} · стикер ${sticker}`;
+    }
+    const sticker = String(row?.sticker_number || row?.posting_number || "—").trim();
+    return `Заказ ${label} · стикер ${sticker || "—"}`;
   }
 
   function rowMatchesScanId(row, id) {
@@ -4426,7 +4440,7 @@
         <div class="tsd-scan-card" id="tsdScanCard">
           ${scanPromptRowHtml(prompt)}
           ${multiHint}
-          <div class="tsd-scan-context">${isOzon() ? "Отпр." : "Заказ"} ${esc(rowDisplayLabel(pending))} · стикер ${esc(pending.sticker_number || pending.posting_number || "—")}</div>
+          <div class="tsd-scan-context">${esc(scanPendingContextText(pending))}</div>
           ${scanFieldRowHtml()}
           <div class="tsd-product">${photo}<div>
             <div class="tsd-product-name">${esc(pending.product_name || pending.article || "—")}</div>
