@@ -49,7 +49,7 @@ def test_tsd_explicit_save_waits_for_autosave_chain() -> None:
     assert "await awaitLocalAutosaves()" in js[pick_start:pick_end]
 
 
-def test_tsd_back_arrow_leaves_kiz_without_wb_push() -> None:
+def test_tsd_back_arrow_smart_saves_session_then_leaves() -> None:
     js = TSD_JS.read_text(encoding="utf-8")
     start = js.find("async function leaveScanScreen")
     end = js.find("function scanProgress", start)
@@ -57,9 +57,10 @@ def test_tsd_back_arrow_leaves_kiz_without_wb_push() -> None:
     body = js[start:end]
     assert "confirm(" not in body
     assert "Закрыть без сохранения" not in js
-    assert "saveKizPushAll" not in body
-    assert "void awaitLocalAutosaves()" in body
-    assert "state.kizPushCancel = true" in body
+    assert "await awaitLocalAutosaves()" in body
+    assert "hasPendingKizLeaveSave()" in body
+    assert "leaveSave: true" in body
+    assert "saveKizPushAll({ silent: true, leaveSave: true })" in body
     assert "savePickLocalAll({ silent: true })" in body
 
 
@@ -117,8 +118,10 @@ def test_tsd_back_arrow_pick_stays_on_conflict_or_busy() -> None:
     body = js[start:end]
     assert 'result.status === "conflict"' in body or 'result.status === "busy"' in body
     assert 'result.status === "busy"' in body
-    # KIZ back must not wait for push completion / errors.
-    assert "saveKizPushAll" not in body
+    # KIZ back saves only this session; stay on conflict/busy/error/cancelled.
+    assert "leaveSave: true" in body
+    assert 'result.status === "error"' in body
+    assert 'result.status === "cancelled"' in body
 
 
 def test_tsd_clear_kiz_uses_background_autosave() -> None:

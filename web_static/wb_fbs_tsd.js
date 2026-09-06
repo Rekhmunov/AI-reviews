@@ -2260,9 +2260,12 @@
     }
   }
 
-  /** Explicit «Сохранить»: WB pushes to API; Ozon saves locally only. */
+  /** Explicit «Сохранить»: WB pushes to API; Ozon saves locally only.
+   * opts.leaveSave — only this session's dirty rows (smart back), not whole supply.
+   */
   async function saveKizPushAll(opts) {
     const silent = !!(opts && opts.silent);
+    const leaveSave = !!(opts && opts.leaveSave);
     if (state.saving) return { status: "busy" };
     state.kizPushCancel = false;
     clearBanner({ silent: true });
@@ -2273,6 +2276,7 @@
     for (const row of rows) {
       const id = rowScanId(row);
       if (!id) continue;
+      if (leaveSave && !rowTouchedThisKizSession(row)) continue;
       const codes = normalizeKizCodesList(row.kiz_codes);
       if (isOzon()) {
         const changed =
@@ -2639,6 +2643,28 @@
       });
     }
     return (state.kizRows || []).some((row) => rowNeedsKizWbPush(row));
+  }
+
+  /** Back-save scope: only this session's work — never re-push whole supply. */
+  function rowTouchedThisKizSession(row) {
+    const id = rowScanId(row);
+    if (!id) return false;
+    if (state.pendingKizClear[id]) return true;
+    return (state.sessionScannedIds || []).some((x) => String(x) === id);
+  }
+
+  function rowNeedsKizLeaveSave(row) {
+    if (!rowTouchedThisKizSession(row)) return false;
+    if (isOzon()) {
+      const id = rowScanId(row);
+      const codes = normalizeKizCodesList(row.kiz_codes);
+      return !kizBaselineEquals(id, codes) || !!state.pendingKizClear[id];
+    }
+    return rowNeedsKizWbPush(row);
+  }
+
+  function hasPendingKizLeaveSave() {
+    return (state.kizRows || []).some((row) => rowNeedsKizLeaveSave(row));
   }
 
   function removeSessionScanned(orderId) {
@@ -4297,27 +4323,44 @@
     );
   }
 
-  /** Back arrow: leave immediately for KIZ; never await WB push.
-   * Floppy «Сохранить» is the only marketplace push. Awaiting anything on back
-   * (including local autosave chain) can hang on a slow PUT and trap the operator
-   * on «Сохранение N в WB…». Pick mode still quiet-saves when there is scan work.
+  /** Back: flush local drafts, then smart-save this session to WB/Ozon, then leave.
+   * Never re-push the whole supply — only rows touched this session.
+   * Floppy «Сохранить» still syncs all pending. Stay on conflict/busy/error.
    */
   async function leaveScanScreen() {
     if (state.route.view !== "scan") return;
     const sid = state.route.supplyId;
     const mode = state.route.mode;
-    // Abort in-flight floppy push between chunks so a busy save cannot trap Back.
-    state.kizPushCancel = true;
     if (mode === "kiz") {
-      // Fire-and-forget local drafts — do not block navigation.
-      void awaitLocalAutosaves();
+      // Stop any previous floppy mid-flight; leave-save starts a fresh push.
+      state.kizPushCancel = true;
+      setBanner("Сохранение…", "info");
+      try {
+        await awaitLocalAutosaves();
+      } catch (e) {
+        setBanner(e.message || String(e), "err");
+        return;
+      }
+      if (state.route.view !== "scan") return;
+      if (hasPendingKizLeaveSave()) {
+        const result = await saveKizPushAll({ silent: true, leaveSave: true });
+        if (
+          result &&
+          (result.status === "conflict" ||
+            result.status === "busy" ||
+            result.status === "error" ||
+            result.status === "cancelled")
+        ) {
+          return;
+        }
+      }
     } else if (orderedScannedRows(mode).length > 0) {
       const result = await savePickLocalAll({ silent: true });
       if (result && (result.status === "conflict" || result.status === "busy")) {
         return;
       }
     } else {
-      void awaitLocalAutosaves();
+      await awaitLocalAutosaves();
     }
     if (state.route.view !== "scan") return;
     state.pendingOrderId = null;
