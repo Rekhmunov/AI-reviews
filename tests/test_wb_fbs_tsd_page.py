@@ -306,7 +306,13 @@ def test_tsd_phone_camera_scan_button() -> None:
     assert "function outboxFlushGmPending" in js
     assert "outboxRememberGmBind(row" in js
     assert 'outboxRemove("gm"' in js
-    assert "wb_fbs_tsd.css?v=42" in html
+    assert "wb_fbs_tsd.css?v=43" in html
+    assert "Match camera control size" in css
+    assert ".tsd-gm-icon-btn" in css
+    gm_btn = css[css.find(".tsd-gm-icon-btn {") : css.find(".tsd-gm-icon-btn {") + 280]
+    assert "44px" in gm_btn
+    cam_btn = css[css.find(".tsd-scan-prompt-row .tsd-scan-cam-btn") : css.find(".tsd-scan-prompt-row .tsd-scan-cam-btn") + 220]
+    assert "44px" in cam_btn
     # Camera sits in the prompt row (keeps laser/wedge input wide on TSD).
     assert "function scanCamBtnHtml" in js
     assert "function scanPromptRowHtml" in js
