@@ -443,17 +443,28 @@
     </svg>`;
   }
 
+  function scanCamBtnHtml() {
+    return `<button type="button" class="tsd-gm-icon-btn tsd-scan-cam-btn" id="tsdScanCamBtn"
+      title="Сканировать камерой телефона" aria-label="Сканировать камерой телефона">${cameraIconSvg()}</button>`;
+  }
+
+  /** Prompt + phone-camera control (camera stays out of the wedge input row). */
+  function scanPromptRowHtml(promptText) {
+    return `<div class="tsd-scan-prompt-row">
+      <p class="tsd-scan-prompt">${promptText}</p>
+      ${scanCamBtnHtml()}
+    </div>`;
+  }
+
   function scanFieldRowHtml() {
     const gmIcons = renderGmSideIconsHtml();
     const withGm = !!gmIcons;
-    // Same 56×56 control as GM icons on the right.
-    const camBtn = `<button type="button" class="tsd-gm-icon-btn tsd-scan-cam-btn" id="tsdScanCamBtn"
-      title="Сканировать камерой телефона" aria-label="Сканировать камерой телефона">${cameraIconSvg()}</button>`;
+    // Laser/wedge field stays wide; GM icons (if any) sit on the right.
     return `
       <div class="tsd-scan-row${withGm ? " has-gm-actions" : ""}">
-        ${camBtn}
         <div class="tsd-scan-field">
-          <input class="tsd-scan-input" id="tsdScanInput" type="text" autocomplete="off" inputmode="none" />
+          <input class="tsd-scan-input" id="tsdScanInput" type="text" autocomplete="off" inputmode="none"
+            aria-label="Поле сканера" />
           <button type="button" class="tsd-scan-clear" id="tsdScanClear" hidden
             aria-label="Очистить поле" title="Очистить">×</button>
         </div>
@@ -3827,17 +3838,26 @@
     refreshSearchResultsOnly();
   }
 
+  function scanListScrollEl() {
+    return document.querySelector(".tsd-app.is-scan .tsd-scanned");
+  }
+
   function scrollToScanInput() {
-    const target =
-      document.getElementById("tsdScanInput") ||
-      document.querySelector(".tsd-scan-card") ||
-      document.getElementById("tsdMain");
-    if (!target) {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      return;
+    const list = scanListScrollEl();
+    if (list) {
+      list.scrollTo({ top: 0, behavior: "smooth" });
+    } else {
+      const target =
+        document.getElementById("tsdScanInput") ||
+        document.querySelector(".tsd-scan-card") ||
+        document.getElementById("tsdMain");
+      if (!target) {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      } else {
+        const top = Math.max(0, target.getBoundingClientRect().top + window.scrollY - 72);
+        window.scrollTo({ top, behavior: "smooth" });
+      }
     }
-    const top = Math.max(0, target.getBoundingClientRect().top + window.scrollY - 72);
-    window.scrollTo({ top, behavior: "smooth" });
     const input = document.getElementById("tsdScanInput");
     if (input) setTimeout(() => input.focus(), 280);
   }
@@ -3846,9 +3866,19 @@
     const fab = document.getElementById("tsdScrollTop");
     if (!fab) return;
     const onScan = state.route.view === "scan";
-    const show = onScan && window.scrollY > 160;
+    const list = scanListScrollEl();
+    const y = list ? list.scrollTop : window.scrollY;
+    const show = onScan && y > 120;
     fab.hidden = !show;
   }
+
+  function wireScanListScroll() {
+    const list = scanListScrollEl();
+    if (!list || list.dataset.scrollWired === "1") return;
+    list.dataset.scrollWired = "1";
+    list.addEventListener("scroll", () => syncScrollTopFab(), { passive: true });
+  }
+
 
   function renderDenied() {
     const main = document.getElementById("tsdMain");
@@ -4305,19 +4335,19 @@
       return `
         <div class="tsd-scan-card" id="tsdScanCard">
           <div class="tsd-scan-step">Грузоместо</div>
-          <p class="tsd-scan-prompt">Сканируйте QR грузоместа</p>
+          ${scanPromptRowHtml("Сканируйте QR грузоместа")}
           ${scanFieldRowHtml()}
         </div>`;
     }
     if (step === "sticker" || !pending) {
       return `
         <div class="tsd-scan-card" id="tsdScanCard">
-          <p class="tsd-scan-prompt">Сканируйте стикер заказа</p>
+          ${scanPromptRowHtml("Сканируйте стикер заказа")}
           ${scanFieldRowHtml()}
         </div>`;
     }
     const photo = pending.product_photo
-      ? `<img src="${esc(pending.product_photo)}" alt="" width="64" height="64" />`
+      ? `<img src="${esc(pending.product_photo)}" alt="" width="48" height="48" />`
       : "";
     const existingKizN = mode === "kiz" ? filledKizEntries(pending).length : 0;
     const prompt =
@@ -4336,7 +4366,7 @@
       : "";
     return `
         <div class="tsd-scan-card" id="tsdScanCard">
-          <p class="tsd-scan-prompt">${prompt}</p>
+          ${scanPromptRowHtml(prompt)}
           ${multiHint}
           <div class="tsd-scan-context">${isOzon() ? "Отпр." : "Заказ"} ${esc(rowDisplayLabel(pending))} · стикер ${esc(pending.sticker_number || pending.posting_number || "—")}</div>
           ${scanFieldRowHtml()}
@@ -4354,6 +4384,7 @@
   function refreshScanBanner() {
     const shell = document.querySelector(".tsd-scan-shell");
     if (!shell) return;
+    const head = shell.querySelector(".tsd-scan-head") || shell;
     const banner = state.banner;
     let ban = shell.querySelector(".tsd-banner:not(.tsd-gm-load-err)");
     if (!banner) {
@@ -4363,10 +4394,10 @@
     if (!ban) {
       ban = document.createElement("div");
       const gmBar = document.getElementById("tsdGmBar");
-      const stats = shell.querySelector(".tsd-stats");
+      const stats = head.querySelector(".tsd-stats");
       const anchor = gmBar || stats;
-      if (anchor && anchor.nextSibling) shell.insertBefore(ban, anchor.nextSibling);
-      else shell.insertBefore(ban, shell.children[1] || null);
+      if (anchor && anchor.nextSibling) head.insertBefore(ban, anchor.nextSibling);
+      else head.insertBefore(ban, head.children[1] || null);
     }
     const wrap = document.createElement("div");
     wrap.innerHTML = bannerHtml(banner);
@@ -4912,8 +4943,10 @@
     } else if (empty) {
       empty.outerHTML = html;
     } else {
+      const head = shell.querySelector(".tsd-scan-head");
       const scanned = shell.querySelector(".tsd-scanned");
-      if (scanned) scanned.insertAdjacentHTML("beforebegin", html);
+      if (head) head.insertAdjacentHTML("beforeend", html);
+      else if (scanned) scanned.insertAdjacentHTML("beforebegin", html);
       else shell.insertAdjacentHTML("beforeend", html);
     }
     wireScanInput(mode);
@@ -4981,15 +5014,17 @@
 
     main.innerHTML = `
       <div class="tsd-scan-shell">
-        <div class="tsd-stats">
-          <span>Готово ${done} / ${total}${
-            showGmStat ? ` · В ГМ ${gmN}` : ""
-          }</span>
-          <span>Осталось ${left}</span>
+        <div class="tsd-scan-head">
+          <div class="tsd-stats">
+            <span>Готово ${done} / ${total}${
+              showGmStat ? ` · В ГМ ${gmN}` : ""
+            }</span>
+            <span>Осталось ${left}</span>
+          </div>
+          ${loadErr}
+          ${bannerHtml(banner)}
+          ${body}
         </div>
-        ${loadErr}
-        ${bannerHtml(banner)}
-        ${body}
         ${renderScannedListHtml(mode)}
       </div>`;
 
@@ -5014,6 +5049,7 @@
     wireBannerDismiss(main);
     wireScanInput(mode, { keepSearchFocus });
     wireScanFooter(mode);
+    wireScanListScroll();
     syncScrollTopFab();
   }
 

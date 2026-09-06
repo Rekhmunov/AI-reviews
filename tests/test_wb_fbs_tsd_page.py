@@ -254,7 +254,7 @@ def test_web_py_tsd_kiz_save_supports_local_and_wb() -> None:
 
 
 def test_tsd_phone_camera_scan_button() -> None:
-    """Phone camera control sits left of scan input; feeds onScanEnter."""
+    """Phone camera control sits beside scan prompt; feeds onScanEnter."""
     js = (STATIC / "wb_fbs_tsd.js").read_text(encoding="utf-8")
     css = (STATIC / "wb_fbs_tsd.css").read_text(encoding="utf-8")
     html = (TEMPLATES / "wb_fbs_tsd.html").read_text(encoding="utf-8")
@@ -272,7 +272,7 @@ def test_tsd_phone_camera_scan_button() -> None:
     assert "isSecureContext" in js
     assert ".tsd-cam-overlay" in css
     assert "flex: 0 0 56px" in css
-    assert "wb_fbs_tsd.js?v=75" in html
+    assert "wb_fbs_tsd.js?v=76" in html
     # Self-hosted ZXing (CSP blocks CDN script-src on iPhone Safari).
     assert (STATIC / "zxing.min.js").is_file()
     assert "/static/zxing.min.js" in js
@@ -297,13 +297,23 @@ def test_tsd_phone_camera_scan_button() -> None:
     assert "function outboxFlushGmPending" in js
     assert "outboxRememberGmBind(row" in js
     assert 'outboxRemove("gm"' in js
-    assert "wb_fbs_tsd.css?v=40" in html
-    # Camera button rendered before scan field in the same row.
-    row_fn = js[js.find("function scanFieldRowHtml") : js.find("function scanFieldRowHtml") + 900]
-    assert "tsdScanCamBtn" in row_fn
-    assert row_fn.find("tsdScanCamBtn") < row_fn.find("tsdScanInput")
-    # Same control class/size as GM side icons.
-    assert "tsd-gm-icon-btn" in row_fn
+    assert "wb_fbs_tsd.css?v=41" in html
+    # Camera sits in the prompt row (keeps laser/wedge input wide on TSD).
+    assert "function scanCamBtnHtml" in js
+    assert "function scanPromptRowHtml" in js
+    assert "tsd-scan-prompt-row" in js
+    assert "tsd-scan-head" in js
+    cam_fn = js[js.find("function scanCamBtnHtml") : js.find("function scanCamBtnHtml") + 400]
+    assert "tsdScanCamBtn" in cam_fn
+    assert "tsd-gm-icon-btn" in cam_fn
+    prompt_fn = js[js.find("function scanPromptRowHtml") : js.find("function scanPromptRowHtml") + 350]
+    assert "scanCamBtnHtml()" in prompt_fn
+    assert "tsd-scan-prompt" in prompt_fn
+    field_fn = js[js.find("function scanFieldRowHtml") : js.find("function scanFieldRowHtml") + 700]
+    assert "tsdScanInput" in field_fn
+    assert "tsdScanCamBtn" not in field_fn
+    assert ".tsd-app.is-scan .tsd-scanned" in css
+    assert ".tsd-scan-prompt-row" in css
 
 
 def test_tsd_durable_outbox_survives_offline() -> None:
@@ -329,7 +339,7 @@ def test_tsd_durable_outbox_survives_offline() -> None:
     assert "outboxApplyToLoadedRows(state.route.mode)" in js
     assert "wireOutboxReconnect()" in js
     assert "Нет связи — скан сохранён на устройстве" in js
-    assert "wb_fbs_tsd.js?v=75" in html
+    assert "wb_fbs_tsd.js?v=76" in html
     assert "function outboxSoftStatus" in js
     assert "outboxCache" in js
     # Scan path: UI/focus first, then outbox+network (speed).
