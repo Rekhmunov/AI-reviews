@@ -4043,6 +4043,7 @@
       back.textContent = "←";
     }
     document.getElementById("tsdTitle").textContent = "ТСД";
+    document.getElementById("tsdTitle").hidden = false;
     main.innerHTML = `
       <div class="tsd-denied">
         <h1>Нет доступа</h1>
@@ -4065,7 +4066,11 @@
       back.onclick = null;
       back.removeAttribute("href");
     }
-    title.textContent = "ТСД";
+    // Main screen: search + source only — no «ТСД» label in the header.
+    if (title) {
+      title.textContent = "";
+      title.hidden = true;
+    }
 
     if (!state.sources.length) {
       main.innerHTML = `<div class="tsd-empty">Нет доступных кабинетов FBS для ТСД</div>`;
@@ -4275,7 +4280,10 @@
       };
       back.textContent = "←";
     }
-    title.textContent = "Поставка";
+    if (title) {
+      title.hidden = false;
+      title.textContent = "Поставка";
+    }
 
     const kiz = s.kiz || { done: 0, total: 0 };
     const pick = s.pick || { done: 0, total: 0 };
@@ -5159,7 +5167,10 @@
       };
       back.textContent = "←";
     }
-    title.textContent = mode === "kiz" ? "С КИЗ" : "Без КИЗ";
+    if (title) {
+      title.hidden = false;
+      title.textContent = mode === "kiz" ? "С КИЗ" : "Без КИЗ";
+    }
     updateProgressBar(mode);
 
     const { total, done, left } = scanProgress(mode);
@@ -5406,6 +5417,7 @@
       syncSearchChrome();
       const titleEl = document.getElementById("tsdTitle");
       if (titleEl) {
+        titleEl.hidden = false;
         titleEl.textContent =
           state.route.mode === "kiz" ? "С КИЗ" : "Без КИЗ";
       }

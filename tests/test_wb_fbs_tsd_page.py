@@ -205,6 +205,11 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     # List (start) screen hides back-to-/app; hub/scan keep ←.
     assert "Start screen is the TSD entry point" in js
     css = (ROOT / "web_static" / "wb_fbs_tsd.css").read_text(encoding="utf-8")
+    html = (TEMPLATES / "wb_fbs_tsd.html").read_text(encoding="utf-8")
+    # Main list header: search + source only (no «ТСД» label).
+    assert "title.hidden = true" in js
+    assert 'id="tsdTitle" hidden' in html
+    assert ".tsd-top-title[hidden]" in css
     assert ".tsd-back[hidden]" in css
     assert ".tsd-scroll-top" not in css
     assert "flex: 1 1 260px" in css
@@ -213,7 +218,6 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     gm_btn = css.split(".tsd-gm-icon-btn {", 1)[1].split("}", 1)[0]
     cam = css.split(".tsd-scan-prompt-row .tsd-scan-cam-btn {", 1)[1].split("}", 1)[0]
     assert "44px" in gm_btn and "44px" in cam
-    html = (TEMPLATES / "wb_fbs_tsd.html").read_text(encoding="utf-8")
     assert 'id="tsdBackBtn"' in html
     assert 'href="/app"' not in html.split('id="tsdBackBtn"', 1)[1].split("</a>", 1)[0]
     chrome = js.split("function refreshScanChrome", 1)[1].split("function wireScannedList", 1)[0]
@@ -309,7 +313,7 @@ def test_tsd_phone_camera_scan_button() -> None:
     assert "isSecureContext" in js
     assert ".tsd-cam-overlay" in css
     assert "flex: 0 0 56px" in css
-    assert "wb_fbs_tsd.js?v=86" in html
+    assert "wb_fbs_tsd.js?v=87" in html
     # Self-hosted ZXing (CSP blocks CDN script-src on iPhone Safari).
     assert (STATIC / "zxing.min.js").is_file()
     assert "/static/zxing.min.js" in js
@@ -334,7 +338,7 @@ def test_tsd_phone_camera_scan_button() -> None:
     assert "function outboxFlushGmPending" in js
     assert "outboxRememberGmBind(row" in js
     assert 'outboxRemove("gm"' in js
-    assert "wb_fbs_tsd.css?v=46" in html
+    assert "wb_fbs_tsd.css?v=47" in html
     assert "Match camera control size" in css
     assert ".tsd-gm-icon-btn" in css
     gm_btn = css[css.find(".tsd-gm-icon-btn {") : css.find(".tsd-gm-icon-btn {") + 280]
@@ -386,7 +390,7 @@ def test_tsd_durable_outbox_survives_offline() -> None:
     assert "outboxApplyToLoadedRows(state.route.mode)" in js
     assert "wireOutboxReconnect()" in js
     assert "Нет связи — скан сохранён на устройстве" in js
-    assert "wb_fbs_tsd.js?v=86" in html
+    assert "wb_fbs_tsd.js?v=87" in html
     assert "function outboxSoftStatus" in js
     assert "outboxCache" in js
     # Scan path: UI/focus first, then outbox+network (speed).
