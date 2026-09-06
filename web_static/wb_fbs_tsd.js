@@ -4291,23 +4291,19 @@
     );
   }
 
-  /** Back arrow: always save (no confirm), then leave.
-   * Stay only on conflict/busy. On push error still leave — local drafts remain
-   * and only unsynced rows retry next time (avoids endless «Сохранение N в WB»).
+  /** Back arrow: flush local drafts, then leave immediately.
+   * WB KIZ → marketplace push is only the floppy «Сохранить». Waiting for WB
+   * on back re-sends every unsynced row (~7s/chunk) and traps the operator.
+   * Pick mode still does a quiet local batch save when there is scan work.
    */
   async function leaveScanScreen() {
     if (state.route.view !== "scan") return;
     const sid = state.route.supplyId;
     const mode = state.route.mode;
-    const shouldSave =
-      mode === "kiz"
-        ? hasPendingKizPush()
-        : orderedScannedRows(mode).length > 0;
-    if (shouldSave) {
-      const result =
-        mode === "kiz"
-          ? await saveKizPushAll({ silent: true })
-          : await savePickLocalAll({ silent: true });
+    if (mode === "kiz") {
+      await awaitLocalAutosaves();
+    } else if (orderedScannedRows(mode).length > 0) {
+      const result = await savePickLocalAll({ silent: true });
       if (result && (result.status === "conflict" || result.status === "busy")) {
         return;
       }
