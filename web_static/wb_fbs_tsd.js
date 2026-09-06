@@ -74,6 +74,8 @@
   const LS_SOURCE = "wb_fbs_tsd_source_id";
   /** Durable pending KIZ/pick scans — survives reload / brief offline. */
   const LS_OUTBOX = "wb_fbs_tsd_outbox_v1";
+  /** Active Ozon cargo place (ГМ) per source+supply — survives leave/re-enter and refresh. */
+  const LS_ACTIVE_GM = "wb_fbs_tsd_active_gm_v1";
 
   function currentSource() {
     return (
@@ -135,11 +137,99 @@
     return null;
   }
 
+  function activeGmStorageKey(sourceId, supplyId) {
+    return `${Number(sourceId) || 0}:${String(supplyId || "").trim()}`;
+  }
+
+  function readActiveGmMap() {
+    try {
+      const raw = localStorage.getItem(LS_ACTIVE_GM);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (_e) {
+      return {};
+    }
+  }
+
+  function writeActiveGmMap(map) {
+    try {
+      const keys = Object.keys(map || {});
+      if (!keys.length) localStorage.removeItem(LS_ACTIVE_GM);
+      else localStorage.setItem(LS_ACTIVE_GM, JSON.stringify(map));
+    } catch (_e) {
+      /* ignore quota / private mode */
+    }
+  }
+
+  function persistActiveGm() {
+    const sourceId = Number(state.sourceId || 0) || 0;
+    const supplyId = String(
+      state.route.supplyId || state.gm.boundSupplyId || ""
+    ).trim();
+    if (!sourceId || !supplyId) return;
+    const key = activeGmStorageKey(sourceId, supplyId);
+    const map = readActiveGmMap();
+    if (!state.gm.activeId) {
+      if (map[key]) {
+        delete map[key];
+        writeActiveGmMap(map);
+      }
+      return;
+    }
+    map[key] = {
+      id: Number(state.gm.activeId) || 0,
+      barcode: String(state.gm.activeBarcode || state.gm.activeId || "").trim(),
+    };
+    writeActiveGmMap(map);
+  }
+
+  function clearPersistedActiveGm(sourceId, supplyId) {
+    const sid = sourceId != null ? sourceId : state.sourceId;
+    const supply =
+      supplyId != null
+        ? supplyId
+        : state.route.supplyId || state.gm.boundSupplyId;
+    const key = activeGmStorageKey(sid, supply);
+    if (!String(key).includes(":")) return;
+    const map = readActiveGmMap();
+    if (!map[key]) return;
+    delete map[key];
+    writeActiveGmMap(map);
+  }
+
+  /** Restore last active GM for this source+supply after reload / re-enter. */
+  function restorePersistedActiveGm() {
+    if (!isOzon() || state.gm.activeId) return false;
+    const sourceId = Number(state.sourceId || 0) || 0;
+    const supplyId = String(
+      state.route.supplyId || state.gm.boundSupplyId || ""
+    ).trim();
+    if (!sourceId || !supplyId || !state.gm.hasFillable) return false;
+    const saved = readActiveGmMap()[activeGmStorageKey(sourceId, supplyId)];
+    if (!saved || !(Number(saved.id) > 0)) return false;
+    const cid = Number(saved.id) || 0;
+    const found =
+      (state.gm.containers || []).find(
+        (c) => String(c.container_id || "") === String(cid)
+      ) || null;
+    if (!found || !containerAcceptsFill(found)) {
+      clearPersistedActiveGm(sourceId, supplyId);
+      return false;
+    }
+    state.gm.activeId = cid;
+    state.gm.activeBarcode =
+      String(saved.barcode || "").trim() ||
+      String(found.container_barcode || found.container_id || cid).trim();
+    return true;
+  }
+
   function resetGmState(opts) {
     const clearActive = !(opts && opts.keepActive);
     state.gm.awaitingScan = false;
     state.gm.loadError = "";
     if (clearActive) {
+      if (state.gm.activeId) clearPersistedActiveGm();
       state.gm.activeId = null;
       state.gm.activeBarcode = "";
     }
@@ -266,6 +356,7 @@
       state.gm.boundSupplyId === sid &&
       !state.gm.loading
     ) {
+      if (!state.gm.activeId) restorePersistedActiveGm();
       return state.gm.hasFillable;
     }
     const gen = (state.gm.loadGen = Number(state.gm.loadGen || 0) + 1);
@@ -306,15 +397,21 @@
       state.gm.boundSupplyId = sid;
       state.gm.hasFillable = items.some((c) => containerAcceptsFill(c));
       if (!state.gm.hasFillable) {
+        if (state.gm.activeId) clearPersistedActiveGm();
         state.gm.activeId = null;
         state.gm.activeBarcode = "";
         state.gm.awaitingScan = false;
       } else if (state.gm.activeId) {
         const cur = activeGmContainer();
         if (!cur || !containerAcceptsFill(cur)) {
+          clearPersistedActiveGm();
           state.gm.activeId = null;
           state.gm.activeBarcode = "";
+        } else {
+          persistActiveGm();
         }
+      } else {
+        restorePersistedActiveGm();
       }
       return state.gm.hasFillable;
     } catch (e) {
@@ -335,6 +432,7 @@
       state.gm.loadOk = false;
       state.gm.containers = [];
       state.gm.hasFillable = false;
+      if (state.gm.activeId) clearPersistedActiveGm();
       state.gm.activeId = null;
       state.gm.activeBarcode = "";
       state.gm.awaitingScan = false;
@@ -347,13 +445,18 @@
 
   function setActiveGm(container) {
     if (!container) {
+      if (state.gm.activeId) clearPersistedActiveGm();
       state.gm.activeId = null;
       state.gm.activeBarcode = "";
       return;
     }
     const cid = Number(container.container_id || 0) || 0;
     state.gm.activeId = cid > 0 ? cid : null;
-    state.gm.activeBarcode = cid > 0 ? String(cid) : "";
+    state.gm.activeBarcode =
+      cid > 0
+        ? String(container.container_barcode || container.container_id || cid).trim()
+        : "";
+    persistActiveGm();
   }
 
   function gmIconSvg(kind) {
@@ -4197,7 +4300,7 @@
           <button type="button" class="tsd-tile tsd-tile-main" id="tsdTileKiz" ${
             kizDisabled ? "disabled" : ""
           }>
-            <span class="tsd-tile-title">Товары с маркировкой</span>
+            <span class="tsd-tile-title">Товары с КИЗ</span>
             <span class="tsd-tile-prog">${
               kizError
                 ? "Ошибка загрузки"
@@ -4226,7 +4329,7 @@
           <button type="button" class="tsd-tile tsd-tile-main" id="tsdTilePick" ${
             pickDisabled ? "disabled" : ""
           }>
-            <span class="tsd-tile-title">Товары без маркировки</span>
+            <span class="tsd-tile-title">Товары без КИЗ</span>
             <span class="tsd-tile-prog">${
               pickError
                 ? "Ошибка загрузки"
@@ -5051,7 +5154,7 @@
       };
       back.textContent = "←";
     }
-    title.textContent = mode === "kiz" ? "С маркировкой" : "Без маркировки";
+    title.textContent = mode === "kiz" ? "С КИЗ" : "Без КИЗ";
     updateProgressBar(mode);
 
     const { total, done, left } = scanProgress(mode);
@@ -5290,7 +5393,7 @@
       showLoadingScreen({
         title: `Открываем ${supplyNameHint(state.route.supplyId)}`,
         status: "Ищем поставку…",
-        stages: ["Открытие", "С маркировкой", "Без маркировки"],
+        stages: ["Открытие", "С КИЗ", "Без КИЗ"],
       });
     } else if (state.route.view === "scan") {
       // Switch chrome immediately so the hub title/strip never lingers under load.
@@ -5299,7 +5402,7 @@
       const titleEl = document.getElementById("tsdTitle");
       if (titleEl) {
         titleEl.textContent =
-          state.route.mode === "kiz" ? "С маркировкой" : "Без маркировки";
+          state.route.mode === "kiz" ? "С КИЗ" : "Без КИЗ";
       }
       const backEl = document.getElementById("tsdBackBtn");
       if (backEl) {
@@ -5313,12 +5416,12 @@
       }
       if (state.route.mode === "kiz") {
         showLoadingScreen({
-          title: "Товары с маркировкой",
+          title: "Товары с КИЗ",
           simple: true,
         });
       } else {
         showLoadingScreen({
-          title: "Товары без маркировки",
+          title: "Товары без КИЗ",
           simple: true,
         });
       }

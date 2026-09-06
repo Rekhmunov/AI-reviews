@@ -125,8 +125,17 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "toast(`В ${labelAtBind}`)" not in js
     assert "Этот КИЗ уже в этом заказе" in js
     assert "simple: true" in js
-    assert 'title: "Товары с маркировкой"' in js
-    assert 'title: "Товары без маркировки"' in js
+    assert 'title: "Товары с КИЗ"' in js
+    assert 'title: "Товары без КИЗ"' in js
+    assert 'tsd-tile-title">Товары с КИЗ</span>' in js
+    assert 'tsd-tile-title">Товары без КИЗ</span>' in js
+    assert 'mode === "kiz" ? "С КИЗ" : "Без КИЗ"' in js
+    assert "Товары с маркировкой" not in js
+    assert "Товары без маркировки" not in js
+    assert 'LS_ACTIVE_GM = "wb_fbs_tsd_active_gm_v1"' in js
+    assert "function persistActiveGm" in js
+    assert "function restorePersistedActiveGm" in js
+    assert "restorePersistedActiveGm()" in js
     assert "Готовим сканирование…" not in js
     assert "Готово к сканированию" not in js
     # Concurrent PC save: adopt server on conflict — do not force-retry overwrite.
@@ -139,12 +148,14 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     assert "skip unchanged already-synced codes" in js
     assert "applyKizPushResults" in js
     # Back from KIZ: local flush + session-scoped WB save (not whole supply).
-    leave = js[js.find("async function leaveScanScreen") : js.find("async function leaveScanScreen") + 1600]
+    leave = js[js.find("async function leaveScanScreen") : js.find("async function leaveScanScreen") + 2000]
     assert "await awaitLocalAutosaves()" in leave
     assert "hasPendingKizLeaveSave()" in leave
     assert "leaveSave: true" in leave
     assert "rowTouchedThisKizSession" in js
     assert "savePickLocalAll" in leave
+    assert "Keep active GM within the same supply" in leave
+    assert "setActiveGm(null)" not in leave
 
     assert "removeSessionScanned" in js
     assert "убран из списка" in js
@@ -194,6 +205,8 @@ def test_tsd_js_uses_dedicated_api_prefix() -> None:
     css = (ROOT / "web_static" / "wb_fbs_tsd.css").read_text(encoding="utf-8")
     assert ".tsd-back[hidden]" in css
     assert ".tsd-scroll-top" not in css
+    assert "flex: 0 1 220px" in css
+    assert "max-width: 68%" in css
     gm_btn = css.split(".tsd-gm-icon-btn {", 1)[1].split("}", 1)[0]
     cam = css.split(".tsd-scan-prompt-row .tsd-scan-cam-btn {", 1)[1].split("}", 1)[0]
     assert "44px" in gm_btn and "44px" in cam
@@ -293,7 +306,7 @@ def test_tsd_phone_camera_scan_button() -> None:
     assert "isSecureContext" in js
     assert ".tsd-cam-overlay" in css
     assert "flex: 0 0 56px" in css
-    assert "wb_fbs_tsd.js?v=84" in html
+    assert "wb_fbs_tsd.js?v=85" in html
     # Self-hosted ZXing (CSP blocks CDN script-src on iPhone Safari).
     assert (STATIC / "zxing.min.js").is_file()
     assert "/static/zxing.min.js" in js
@@ -318,7 +331,7 @@ def test_tsd_phone_camera_scan_button() -> None:
     assert "function outboxFlushGmPending" in js
     assert "outboxRememberGmBind(row" in js
     assert 'outboxRemove("gm"' in js
-    assert "wb_fbs_tsd.css?v=44" in html
+    assert "wb_fbs_tsd.css?v=45" in html
     assert "Match camera control size" in css
     assert ".tsd-gm-icon-btn" in css
     gm_btn = css[css.find(".tsd-gm-icon-btn {") : css.find(".tsd-gm-icon-btn {") + 280]
@@ -370,7 +383,7 @@ def test_tsd_durable_outbox_survives_offline() -> None:
     assert "outboxApplyToLoadedRows(state.route.mode)" in js
     assert "wireOutboxReconnect()" in js
     assert "Нет связи — скан сохранён на устройстве" in js
-    assert "wb_fbs_tsd.js?v=84" in html
+    assert "wb_fbs_tsd.js?v=85" in html
     assert "function outboxSoftStatus" in js
     assert "outboxCache" in js
     # Scan path: UI/focus first, then outbox+network (speed).

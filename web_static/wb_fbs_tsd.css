@@ -411,8 +411,9 @@ html, body {
 
 
 .tsd-source {
-  flex: 0 1 140px;
-  max-width: 46%;
+  flex: 0 1 220px;
+  max-width: 68%;
+  min-width: 160px;
   height: 44px;
   border-radius: 12px;
   border: 1px solid var(--tsd-line);
