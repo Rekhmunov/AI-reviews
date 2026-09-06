@@ -12492,6 +12492,113 @@ button.wb-fbs-kiz-add:disabled {
 .sb-toolbar-filters {
   flex: 1 1 auto;
 }
+.sb-below-min-cluster {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.sb-below-min-cluster .sb-below-min-btn {
+  padding-left: 10px;
+  padding-right: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.sb-below-min-cluster .sb-order-dl-btn {
+  flex: 0 0 auto;
+  width: 40px;
+  min-width: 40px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.sb-below-min-cluster .sb-order-dl-icon {
+  display: block;
+}
+.sb-order-modal {
+  width: min(920px, 100%);
+  max-height: min(90vh, 900px);
+  display: flex;
+  flex-direction: column;
+}
+.sb-order-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+.sb-order-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.sb-order-table-wrap {
+  min-height: 220px;
+  max-height: min(52vh, 520px);
+  overflow: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+}
+.sb-order-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.sb-order-table th,
+.sb-order-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+  vertical-align: middle;
+  font-size: 14px;
+}
+.sb-order-table th {
+  position: sticky;
+  top: 0;
+  background: #f8fafc;
+  z-index: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+}
+.sb-order-table th:nth-child(2),
+.sb-order-table th:nth-child(3),
+.sb-order-table th:nth-child(4),
+.sb-order-table td.sb-order-num,
+.sb-order-table td.sb-order-qty {
+  width: 96px;
+  text-align: right;
+}
+.sb-order-name-main {
+  font-weight: 600;
+  color: #0f172a;
+  line-height: 1.35;
+}
+.sb-order-name-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #64748b;
+}
+.sb-order-qty input {
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  text-align: right;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.sb-order-qty input:focus {
+  outline: 2px solid #93c5fd;
+  outline-offset: 1px;
+  border-color: #60a5fa;
+}
+
 .sb-toolbar-primary {
   justify-content: flex-end;
   margin-left: auto;
@@ -13876,6 +13983,30 @@ button.wb-fbs-kiz-add:disabled {
     width: 100%;
     margin-left: 0;
   }
+  #section-supplies-balances .sb-below-min-cluster {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    gap: 8px;
+    width: 100%;
+  }
+  #section-supplies-balances .sb-below-min-cluster .sb-below-min-btn,
+  #section-supplies-balances .sb-below-min-cluster .sb-order-dl-btn {
+    width: 100%;
+    min-height: 44px;
+  }
+  #section-supplies-balances .sb-below-min-cluster .sb-order-dl-btn {
+    min-width: 44px;
+    width: 44px;
+  }
+  .sb-order-filters {
+    grid-template-columns: 1fr;
+  }
+  .sb-order-table-wrap {
+    max-height: none;
+    flex: 1 1 auto;
+  }
+
   #section-supplies-balances .sb-toolbar-grid button {
     width: 100%;
     min-height: 44px;
@@ -13955,6 +14086,15 @@ button.wb-fbs-kiz-add:disabled {
   #section-supplies-balances .supply-balances-table tr.sb-item-row--below-min {
     border-color: #fecaca;
     background: #fff7f7;
+  }
+  /* Card display:grid/block must not override row hide from «Ниже мин.» / search */
+  #section-supplies-balances .supply-balances-table tr.sb-item-row.hidden,
+  #section-supplies-balances .supply-balances-table tr.sb-item-row[hidden],
+  #section-supplies-balances .supply-balances-table tr.sb-group-row.hidden,
+  #section-supplies-balances .supply-balances-table tr.sb-group-row[hidden],
+  #section-supplies-balances .supply-balances-table tr.sb-search-empty.hidden,
+  #section-supplies-balances .supply-balances-table tr.sb-search-empty[hidden] {
+    display: none !important;
   }
   #section-supplies-balances .supply-balances-table tr.sb-item-row td {
     display: block;
@@ -14091,7 +14231,8 @@ button.wb-fbs-kiz-add:disabled {
   #supplyStockReceiptModal,
   #supplyStockAdjustmentModal,
   #supplyStockAsOfModal,
-  #supplyStockMovementsModal {
+  #supplyStockMovementsModal,
+  #supplyBalancesOrderModal {
     padding: 0 !important;
     align-items: stretch !important;
     justify-content: stretch !important;
@@ -14105,7 +14246,9 @@ button.wb-fbs-kiz-add:disabled {
   #supplyStockAsOfModal > .sb-sheet-modal,
   #supplyStockAsOfModal > .modal-card,
   #supplyStockMovementsModal > .sb-sheet-modal,
-  #supplyStockMovementsModal > .modal-card {
+  #supplyStockMovementsModal > .modal-card,
+  #supplyBalancesOrderModal > .sb-sheet-modal,
+  #supplyBalancesOrderModal > .modal-card {
     width: 100% !important;
     max-width: 100% !important;
     height: 100dvh !important;
@@ -14117,7 +14260,8 @@ button.wb-fbs-kiz-add:disabled {
   #supplyStockReceiptModal .sb-sheet-header,
   #supplyStockAdjustmentModal .sb-sheet-header,
   #supplyStockAsOfModal .sb-sheet-header,
-  #supplyStockMovementsModal .sb-sheet-header {
+  #supplyStockMovementsModal .sb-sheet-header,
+  #supplyBalancesOrderModal .sb-sheet-header {
     padding: 16px;
     padding-top: max(16px, env(safe-area-inset-top));
     gap: 8px;
@@ -14126,14 +14270,16 @@ button.wb-fbs-kiz-add:disabled {
   #supplyStockReceiptModal .sb-sheet-title,
   #supplyStockAdjustmentModal .sb-sheet-title,
   #supplyStockAsOfModal .sb-sheet-title,
-  #supplyStockMovementsModal .sb-sheet-title {
+  #supplyStockMovementsModal .sb-sheet-title,
+  #supplyBalancesOrderModal .sb-sheet-title {
     font-size: 20px;
   }
   #supplyBalancesVisibilityModal .icon-btn,
   #supplyStockReceiptModal .icon-btn,
   #supplyStockAdjustmentModal .icon-btn,
   #supplyStockAsOfModal .icon-btn,
-  #supplyStockMovementsModal .icon-btn {
+  #supplyStockMovementsModal .icon-btn,
+  #supplyBalancesOrderModal .icon-btn {
     min-width: 44px;
     min-height: 44px;
   }
@@ -14141,7 +14287,8 @@ button.wb-fbs-kiz-add:disabled {
   #supplyStockReceiptModal .sb-sheet-footer,
   #supplyStockAdjustmentModal .sb-sheet-footer,
   #supplyStockAsOfModal .sb-sheet-footer,
-  #supplyStockMovementsModal .sb-sheet-footer {
+  #supplyStockMovementsModal .sb-sheet-footer,
+  #supplyBalancesOrderModal .sb-sheet-footer {
     flex-direction: column-reverse;
     align-items: stretch;
     gap: 8px;
@@ -14152,7 +14299,8 @@ button.wb-fbs-kiz-add:disabled {
   #supplyStockReceiptModal .sb-sheet-footer button,
   #supplyStockAdjustmentModal .sb-sheet-footer button,
   #supplyStockAsOfModal .sb-sheet-footer button,
-  #supplyStockMovementsModal .sb-sheet-footer button {
+  #supplyStockMovementsModal .sb-sheet-footer button,
+  #supplyBalancesOrderModal .sb-sheet-footer button {
     width: 100%;
     min-height: 44px;
     flex: 0 0 auto;

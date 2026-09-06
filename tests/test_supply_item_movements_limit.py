@@ -39,4 +39,4 @@ def test_item_movements_api_uses_day_window() -> None:
     assert "movement_date >=" in REPO_PY
     assert "movement_date <=" in REPO_PY
     assert "date_from: str = \"\"" in REPO_PY or 'date_from: str = ""' in REPO_PY
-    assert "app.js?v=551" in APP_HTML
+    assert "app.js?v=552" in APP_HTML

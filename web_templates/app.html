@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=305" />
+  <link rel="stylesheet" href="/static/style.css?v=306" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -3928,12 +3928,21 @@
               </select>
             </div>
             <div class="sb-toolbar-filters" role="group" aria-label="Фильтры остатков">
-              <button type="button" class="secondary" id="supplyBalancesBelowMinBtn"
-                      onclick="toggleSupplyBalancesBelowMin()" aria-pressed="false"
-                      title="Показать только позиции ниже минимума">
-                <span class="sb-btn-full">Ниже минимума</span>
-                <span class="sb-btn-short" aria-hidden="true">Ниже мин.</span>
-              </button>
+              <div class="sb-below-min-cluster" role="group" aria-label="Ниже минимума и заказ">
+                <button type="button" class="secondary sb-below-min-btn" id="supplyBalancesBelowMinBtn"
+                        onclick="toggleSupplyBalancesBelowMin()" aria-pressed="false"
+                        title="Показать только позиции ниже минимума">
+                  <span class="sb-btn-full">Ниже минимума</span>
+                  <span class="sb-btn-short" aria-hidden="true">Ниже мин.</span>
+                </button>
+                <button type="button" class="secondary sb-order-dl-btn" id="supplyBalancesOrderDownloadBtn"
+                        onclick="openSupplyBalancesOrderModal()"
+                        title="Скачать заказ (Excel)" aria-label="Скачать заказ">
+                  <svg class="sb-order-dl-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+                    <path fill="currentColor" d="M12 3a1 1 0 0 1 1 1v9.59l2.3-2.3a1 1 0 1 1 1.4 1.42l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 1 1 1.4-1.42L11 13.59V4a1 1 0 0 1 1-1Zm-7 14a1 1 0 0 1 1 1v1h12v-1a1 1 0 1 1 2 0v2a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1Z"/>
+                  </svg>
+                </button>
+              </div>
               <button type="button" class="secondary" onclick="openSupplyBalancesVisibilityModal()"
                       title="Вывод в таблице" aria-label="Вывод в таблице">Вывод</button>
               <button type="button" class="secondary" id="supplyBalancesHistoryBtn"
@@ -6521,6 +6530,59 @@
       </div>
     </div>
   </div>
+
+  <!-- Supply stock: order / download Excel -->
+  <div id="supplyBalancesOrderModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+       aria-labelledby="supplyBalancesOrderTitle">
+    <div class="modal-card sb-sheet-modal sb-order-modal">
+      <div class="sb-sheet-header">
+        <div class="sb-sheet-title-row">
+          <h3 id="supplyBalancesOrderTitle" class="sb-sheet-title">Заказ по остаткам</h3>
+          <button type="button" class="icon-btn secondary" onclick="closeSupplyBalancesOrderModal()" aria-label="Закрыть">✕</button>
+        </div>
+        <p class="sb-sheet-lead">Отметьте фильтры, при необходимости поправьте количество к заказу и скачайте Excel.</p>
+      </div>
+      <div class="sb-doc-body sb-order-body">
+        <div class="sb-order-filters">
+          <label class="sb-doc-field" for="supplyBalancesOrderBelowFilter">
+            <span>Ниже минимума</span>
+            <select id="supplyBalancesOrderBelowFilter" onchange="onSupplyBalancesOrderFiltersChange()">
+              <option value="below">Только ниже минимума</option>
+              <option value="all">Все позиции</option>
+            </select>
+          </label>
+          <label class="sb-doc-field" for="supplyBalancesOrderCategoryFilter">
+            <span>Категория</span>
+            <select id="supplyBalancesOrderCategoryFilter" onchange="onSupplyBalancesOrderFiltersChange()">
+              <option value="">Все</option>
+              <option value="__materials__">Материалы</option>
+            </select>
+          </label>
+        </div>
+        <div id="supplyBalancesOrderErr" class="sb-doc-err" hidden></div>
+        <div class="sb-order-table-wrap">
+          <table class="sb-order-table" id="supplyBalancesOrderTable">
+            <thead>
+              <tr>
+                <th scope="col">Товар</th>
+                <th scope="col">Мин.</th>
+                <th scope="col">Остаток</th>
+                <th scope="col">К заказу</th>
+              </tr>
+            </thead>
+            <tbody id="supplyBalancesOrderTbody">
+              <tr><td class="sb-empty-cell" colspan="4">Нет данных</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="sb-sheet-footer">
+        <button type="button" class="secondary" onclick="closeSupplyBalancesOrderModal()">Отмена</button>
+        <button type="button" id="supplyBalancesOrderExportBtn" onclick="exportSupplyBalancesOrderXlsx()">Скачать Excel</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Supply stock: item movement journal -->
   <div id="supplyStockMovementsModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
        aria-labelledby="supplyStockMovementsTitle">
@@ -6559,6 +6621,6 @@
 
   <script src="/static/ozon_fbs.js?v=131"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=20"></script>
-  <script src="/static/app.js?v=551"></script>
+  <script src="/static/app.js?v=552"></script>
 </body>
 </html>

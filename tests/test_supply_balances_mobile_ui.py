@@ -26,6 +26,7 @@ def test_balances_section_and_modals_exist() -> None:
         "supplyStockAdjustmentModal",
         "supplyStockAsOfModal",
         "supplyStockMovementsModal",
+        "supplyBalancesOrderModal",
     ):
         assert f'id="{mid}"' in APP_HTML
 
@@ -49,6 +50,7 @@ def test_mobile_balances_modals_full_bleed() -> None:
         "supplyStockAdjustmentModal",
         "supplyStockAsOfModal",
         "supplyStockMovementsModal",
+        "supplyBalancesOrderModal",
     ):
         assert f"#{mid}" in block
         assert f"#{mid} > .modal-card" in block or f"#{mid} > .sb-sheet-modal" in block
@@ -66,5 +68,5 @@ def test_js_fluid_table_width_on_compact() -> None:
 
 
 def test_cache_bump() -> None:
-    assert "style.css?v=305" in APP_HTML
-    assert "app.js?v=551" in APP_HTML
+    assert "style.css?v=306" in APP_HTML
+    assert "app.js?v=552" in APP_HTML

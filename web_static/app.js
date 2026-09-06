@@ -13828,6 +13828,278 @@ function toggleSupplyBalancesBelowMin() {
 }
 window.toggleSupplyBalancesBelowMin = toggleSupplyBalancesBelowMin;
 
+const supplyBalancesOrderState = {
+  belowMode: "below", // below | all
+  category: "",
+  qtys: Object.create(null),
+};
+
+function _sbOrderRowKey(row) {
+  return `${String(row?.item_type || "")}:${Number(row?.item_id || 0)}`;
+}
+
+function _sbOrderCurrentQty(row) {
+  const asOf = String(supplyBalancesState.asOf || supplyBalancesState.today || "");
+  const values = row && row.values && typeof row.values === "object" ? row.values : {};
+  let raw = values[asOf];
+  if (raw === null || raw === undefined || raw === "") raw = row?.balance;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function _sbOrderMinQty(row) {
+  const raw = row?.min_qty;
+  if (raw === null || raw === undefined || raw === "") return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+function _sbOrderDefaultQty(row) {
+  const minQty = _sbOrderMinQty(row);
+  if (minQty === null) return 0;
+  const need = minQty - _sbOrderCurrentQty(row);
+  return need > 0 ? Math.round(need * 1000) / 1000 : 0;
+}
+
+function _sbOrderSetErr(msg) {
+  const el = document.getElementById("supplyBalancesOrderErr");
+  if (!el) return;
+  const text = String(msg || "").trim();
+  el.hidden = !text;
+  el.textContent = text;
+}
+
+function _sbSyncOrderCategoryOptions() {
+  const sel = document.getElementById("supplyBalancesOrderCategoryFilter");
+  if (!sel) return;
+  const current = String(supplyBalancesOrderState.category || sel.value || "");
+  const cats = Array.isArray(supplyBalancesState.categories)
+    ? supplyBalancesState.categories.map((c) => String(c || "").trim()).filter(Boolean)
+    : [];
+  const opts = [
+    { value: "", label: "Все" },
+    { value: "__materials__", label: "Материалы" },
+  ];
+  cats.forEach((name) => opts.push({ value: name, label: name }));
+  sel.innerHTML = opts.map((o) =>
+    `<option value="${esc(o.value)}">${esc(o.label)}</option>`
+  ).join("");
+  const ok = opts.some((o) => o.value === current);
+  supplyBalancesOrderState.category = ok ? current : "";
+  sel.value = supplyBalancesOrderState.category;
+}
+
+function _sbOrderFilteredRows() {
+  const belowMode = String(supplyBalancesOrderState.belowMode || "below");
+  const category = String(supplyBalancesOrderState.category || "");
+  const rows = Array.isArray(supplyBalancesState.rows) ? supplyBalancesState.rows : [];
+  return rows.filter((row) => {
+    if (belowMode === "below" && !row.below_min) return false;
+    return _sbRowMatchesCategoryValue(row, category);
+  });
+}
+
+function _sbReadOrderQtyInput(input) {
+  if (!input) return 0;
+  const raw = String(input.value || "").trim().replace(",", ".");
+  if (!raw) return 0;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.round(n * 1000) / 1000;
+}
+
+function onSupplyBalancesOrderQtyInput(input) {
+  const key = String(input?.getAttribute("data-order-key") || "");
+  if (!key) return;
+  supplyBalancesOrderState.qtys[key] = _sbReadOrderQtyInput(input);
+}
+window.onSupplyBalancesOrderQtyInput = onSupplyBalancesOrderQtyInput;
+
+function renderSupplyBalancesOrderTable() {
+  const tbody = document.getElementById("supplyBalancesOrderTbody");
+  if (!tbody) return;
+  const rows = _sbOrderFilteredRows();
+  if (!rows.length) {
+    tbody.innerHTML =
+      `<tr><td class="sb-empty-cell" colspan="4">Нет позиций по выбранным фильтрам</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map((row) => {
+    const key = _sbOrderRowKey(row);
+    const name = String(row.name || "").trim() || "—";
+    const unit = String(row.unit || "шт");
+    const typeLabel = String(row.item_type || "") === "material" ? "Материал" : "Товар";
+    const article = String(row.supplier_article || "").trim();
+    const minQty = _sbOrderMinQty(row);
+    const curQty = _sbOrderCurrentQty(row);
+    let orderQty = supplyBalancesOrderState.qtys[key];
+    if (orderQty === undefined || orderQty === null || orderQty === "") {
+      orderQty = _sbOrderDefaultQty(row);
+      supplyBalancesOrderState.qtys[key] = orderQty;
+    }
+    const sub = [typeLabel, article, unit].filter(Boolean).join(" · ");
+    return `<tr class="sb-order-row" data-order-key="${esc(key)}">
+      <td class="sb-order-name">
+        <div class="sb-order-name-main">${esc(name)}</div>
+        <div class="sb-order-name-sub">${esc(sub)}</div>
+      </td>
+      <td class="sb-order-num">${esc(minQty === null ? "—" : _sbQtyText(minQty))}</td>
+      <td class="sb-order-num">${esc(_sbQtyText(curQty))}</td>
+      <td class="sb-order-qty">
+        <input type="number" min="0" step="any" inputmode="decimal"
+          data-order-key="${esc(key)}"
+          value="${esc(String(orderQty))}"
+          oninput="onSupplyBalancesOrderQtyInput(this)"
+          aria-label="К заказу: ${esc(name)}" />
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+function onSupplyBalancesOrderFiltersChange() {
+  const belowEl = document.getElementById("supplyBalancesOrderBelowFilter");
+  const catEl = document.getElementById("supplyBalancesOrderCategoryFilter");
+  supplyBalancesOrderState.belowMode = String(belowEl?.value || "below");
+  supplyBalancesOrderState.category = String(catEl?.value || "");
+  _sbOrderSetErr("");
+  renderSupplyBalancesOrderTable();
+}
+window.onSupplyBalancesOrderFiltersChange = onSupplyBalancesOrderFiltersChange;
+
+function openSupplyBalancesOrderModal() {
+  _sbOrderSetErr("");
+  supplyBalancesOrderState.qtys = Object.create(null);
+  const belowEl = document.getElementById("supplyBalancesOrderBelowFilter");
+  const catEl = document.getElementById("supplyBalancesOrderCategoryFilter");
+  // Default shortlist: below minimum (main ordering use-case).
+  supplyBalancesOrderState.belowMode = "below";
+  supplyBalancesOrderState.category = String(supplyBalancesState.categoryFilter || "");
+  if (belowEl) belowEl.value = supplyBalancesOrderState.belowMode;
+  _sbSyncOrderCategoryOptions();
+  if (catEl) catEl.value = supplyBalancesOrderState.category;
+  setModalVisibility("supplyBalancesOrderModal", true);
+  renderSupplyBalancesOrderTable();
+}
+window.openSupplyBalancesOrderModal = openSupplyBalancesOrderModal;
+
+function closeSupplyBalancesOrderModal() {
+  setModalVisibility("supplyBalancesOrderModal", false);
+}
+window.closeSupplyBalancesOrderModal = closeSupplyBalancesOrderModal;
+
+function _sbXmlEscape(text) {
+  return String(text ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function _sbColLetter(index) {
+  let n = Number(index) + 1;
+  let s = "";
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    s = String.fromCharCode(65 + rem) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+
+async function _sbBuildSimpleXlsxBlob(rows) {
+  if (typeof JSZip === "undefined") {
+    throw new Error("JSZip не загружен. Обновите страницу.");
+  }
+  const sheetRows = rows.map((cells, rIdx) => {
+    const r = rIdx + 1;
+    const xmlCells = cells.map((val, cIdx) => {
+      const ref = `${_sbColLetter(cIdx)}${r}`;
+      if (typeof val === "number" && Number.isFinite(val)) {
+        return `<c r="${ref}"><v>${val}</v></c>`;
+      }
+      const t = _sbXmlEscape(val);
+      return `<c r="${ref}" t="inlineStr"><is><t>${t}</t></is></c>`;
+    }).join("");
+    return `<row r="${r}">${xmlCells}</row>`;
+  }).join("");
+  const sheetXml =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
+    `<sheetData>${sheetRows}</sheetData></worksheet>`;
+  const workbookXml =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ` +
+    `xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">` +
+    `<sheets><sheet name="Заказ" sheetId="1" r:id="rId1"/></sheets></workbook>`;
+  const relsXml =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+    `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>` +
+    `</Relationships>`;
+  const wbRelsXml =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+    `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>` +
+    `</Relationships>`;
+  const contentTypes =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
+    `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
+    `<Default Extension="xml" ContentType="application/xml"/>` +
+    `<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>` +
+    `<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>` +
+    `</Types>`;
+  const zip = new JSZip();
+  zip.file("[Content_Types].xml", contentTypes);
+  zip.folder("_rels").file(".rels", relsXml);
+  const xl = zip.folder("xl");
+  xl.file("workbook.xml", workbookXml);
+  xl.folder("_rels").file("workbook.xml.rels", wbRelsXml);
+  xl.folder("worksheets").file("sheet1.xml", sheetXml);
+  return zip.generateAsync({
+    type: "blob",
+    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+}
+
+async function exportSupplyBalancesOrderXlsx() {
+  _sbOrderSetErr("");
+  document.querySelectorAll("#supplyBalancesOrderTbody input[data-order-key]").forEach((input) => {
+    onSupplyBalancesOrderQtyInput(input);
+  });
+  const rows = _sbOrderFilteredRows();
+  const out = [["Товар", "Заказ"]];
+  for (const row of rows) {
+    const key = _sbOrderRowKey(row);
+    const qty = Number(supplyBalancesOrderState.qtys[key] || 0);
+    if (!Number.isFinite(qty) || qty <= 0) continue;
+    const name = String(row.name || "").trim() || "Без названия";
+    out.push([name, qty]);
+  }
+  if (out.length <= 1) {
+    _sbOrderSetErr("Нет строк с количеством к заказу больше 0");
+    return;
+  }
+  try {
+    const blob = await _sbBuildSimpleXlsxBlob(out);
+    const asOf = String(supplyBalancesState.asOf || supplyBalancesState.today || "").replace(/[^\d-]/g, "") || "order";
+    const a = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    a.href = url;
+    a.download = `zakaz_ostatki_${asOf}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    _sbSetStatus(`Excel: заказ · ${out.length - 1} поз.`, "ok");
+  } catch (e) {
+    _sbOrderSetErr(String(e.message || e));
+  }
+}
+window.exportSupplyBalancesOrderXlsx = exportSupplyBalancesOrderXlsx;
+
+
+
 async function toggleSupplyBalancesHistory() {
   if (supplyBalancesState.viewMode === "sales" || supplyBalancesState.viewMode === "movements") return;
   supplyBalancesState.showHistory = !supplyBalancesState.showHistory;

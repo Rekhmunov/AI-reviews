@@ -127,5 +127,5 @@ def test_movements_report_api_and_ui_wired() -> None:
     assert "/api/supply-balances/movements-report" in APP_JS
     assert "sb-movements-report-table" in APP_JS
     assert "#supplyBalancesTable.sb-movements-report-table" in STYLE_CSS
-    assert "style.css?v=305" in APP_HTML
-    assert "app.js?v=551" in APP_HTML
+    assert "style.css?v=306" in APP_HTML
+    assert "app.js?v=552" in APP_HTML
