@@ -283,7 +283,7 @@
       ]);
     }
     if (details.in_process_at) rows.push(["В обработке с", details.in_process_at]);
-    if (details.shipment_date) rows.push(["Дата отгрузки", details.shipment_date]);
+    if (details.shipment_date) rows.push(["Крайний срок сдачи", details.shipment_date]);
     if (details.delivering_date) rows.push(["Передано в доставку", details.delivering_date]);
     return rows;
   }
