@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=308" />
+  <link rel="stylesheet" href="/static/style.css?v=309" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -6354,6 +6354,13 @@
           <button type="button" class="icon-btn secondary" onclick="closeSupplyStockReceiptModal()" aria-label="Закрыть">✕</button>
         </div>
         <div class="sb-doc-fields sb-doc-fields-search-end sb-receipt-toolbar">
+          <label class="sb-doc-field sb-doc-field-bare" for="supplyStockReceiptKind">
+            <select id="supplyStockReceiptKind" aria-label="Тип" title="Тип"
+                    onchange="onSupplyStockReceiptKindChange()">
+              <option value="receipt">Приход</option>
+              <option value="return">Возврат</option>
+            </select>
+          </label>
           <label class="sb-doc-field sb-doc-field-bare" for="supplyStockReceiptDate">
             <input type="date" id="supplyStockReceiptDate" aria-label="Дата" title="Дата" />
           </label>
@@ -6630,6 +6637,6 @@
 
   <script src="/static/ozon_fbs.js?v=131"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=20"></script>
-  <script src="/static/app.js?v=555"></script>
+  <script src="/static/app.js?v=556"></script>
 </body>
 </html>

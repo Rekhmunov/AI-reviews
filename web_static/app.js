@@ -15232,6 +15232,7 @@ window.onSupplyStockReceiptScanKey = onSupplyStockReceiptScanKey;
 function _sbCollectReceiptItemsFromList() {
   const list = document.getElementById("supplyStockReceiptList");
   if (!list) return [];
+  const typeTag = _sbReceiptKindCommentTag();
   const items = [];
   list.querySelectorAll(".sb-adj-row").forEach((row) => {
     const itemType = String(row.getAttribute("data-sb-type") || "");
@@ -15246,22 +15247,55 @@ function _sbCollectReceiptItemsFromList() {
       item_type: itemType,
       item_id: itemId,
       qty,
-      comment: String(commentEl?.value || "").trim(),
+      comment: _sbMergeReceiptKindComment(String(commentEl?.value || "").trim(), typeTag),
     });
   });
   return items;
 }
+
+function _sbReceiptKindValue() {
+  const el = document.getElementById("supplyStockReceiptKind");
+  const raw = String(el?.value || "receipt").trim().toLowerCase();
+  return raw === "return" ? "return" : "receipt";
+}
+
+function _sbReceiptKindCommentTag(kind) {
+  const k = kind || _sbReceiptKindValue();
+  // Exact labels requested for ledger comments.
+  return k === "return" ? "Возврат" : "приход";
+}
+
+function _sbMergeReceiptKindComment(userComment, typeTag) {
+  const tag = String(typeTag || "").trim();
+  const base = String(userComment || "").trim();
+  if (!tag) return base;
+  if (!base) return tag;
+  // Avoid duplicating the type word if the user already typed it.
+  const parts = base.split("·").map((p) => p.trim()).filter(Boolean);
+  if (parts.some((p) => p.toLowerCase() === tag.toLowerCase())) return base;
+  return `${base} · ${tag}`;
+}
+
+function onSupplyStockReceiptKindChange() {
+  const btn = document.getElementById("supplyStockReceiptSaveBtn");
+  if (!btn) return;
+  btn.textContent = _sbReceiptKindValue() === "return" ? "Сохранить возврат" : "Сохранить приход";
+}
+window.onSupplyStockReceiptKindChange = onSupplyStockReceiptKindChange;
 
 async function openSupplyStockReceiptModal() {
   _sbSetDocErr("supplyStockReceiptErr", "");
   _sbSetReceiptScanInfo("");
   setSupplyStockReceiptBulkPanelOpen(false);
   setModalVisibility("supplyStockReceiptModal", true);
+  const kindEl = document.getElementById("supplyStockReceiptKind");
   const dateEl = document.getElementById("supplyStockReceiptDate");
   const list = document.getElementById("supplyStockReceiptList");
   const bulkEl = document.getElementById("supplyStockReceiptBulkValue");
   const searchEl = document.getElementById("supplyStockReceiptSearch");
   const scanEl = document.getElementById("supplyStockReceiptScan");
+  if (kindEl) kindEl.value = "receipt";
+  onSupplyStockReceiptKindChange();
   if (dateEl) dateEl.value = supplyBalancesState.today || "";
   if (bulkEl) bulkEl.value = "";
   if (searchEl) searchEl.value = "";
