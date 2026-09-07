@@ -15353,6 +15353,7 @@ async function saveSupplyStockReceipt() {
   const btn = document.getElementById("supplyStockReceiptSaveBtn");
   const dateEl = document.getElementById("supplyStockReceiptDate");
   _sbSetDocErr("supplyStockReceiptErr", "");
+  const kind = _sbReceiptKindValue();
   const items = _sbCollectReceiptItemsFromList();
   if (!items.length) {
     _sbSetDocErr("supplyStockReceiptErr", "Укажите количество хотя бы по одной позиции");
@@ -15373,7 +15374,8 @@ async function saveSupplyStockReceipt() {
     if (!res.ok) throw new Error(data.detail || "Ошибка сохранения");
     closeSupplyStockReceiptModal();
     await loadSupplyBalancesData();
-    _sbSetStatus(`Приход сохранён: ${data.saved || 0} · ${_sbFormatDateLabel(data.date)}`, "ok");
+    const doneLabel = kind === "return" ? "Возврат сохранён" : "Приход сохранён";
+    _sbSetStatus(`${doneLabel}: ${data.saved || 0} · ${_sbFormatDateLabel(data.date)}`, "ok");
   } catch (e) {
     _sbSetDocErr("supplyStockReceiptErr", String(e.message || e));
   } finally {
