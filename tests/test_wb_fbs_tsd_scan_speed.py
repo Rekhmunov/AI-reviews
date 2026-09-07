@@ -162,6 +162,30 @@ def test_tsd_autosave_conflict_no_retry_refreshes_ui() -> None:
     # (parity with web modal _wbFbsKizFlushLocalAutosave).
     assert "kiz_wb_synced = false" in kiz_body
     assert 'refreshScanChrome("kiz")' in kiz_body
+    # Background WB push is scheduled off the local chain (scan path stays fast).
+    assert "scheduleKizWbAutoPush(id)" in kiz_body
+    assert "scheduleKizWbAutoPush(id)" in js
+    assert "function scheduleKizWbAutoPush" in js
+    assert "async function flushKizWbAutoPush" in js
+    assert "wbAutoPushChain" in js
+    assert "cancelPendingWbAutoPushes" in js
+    # Separate chain — must not be awaited from scheduleKizLocalAutosave.
+    local_sched = js[
+        js.find("function scheduleKizLocalAutosave") : js.find(
+            "function scheduleKizWbAutoPush"
+        )
+    ]
+    assert "flushKizLocalAutosave" in local_sched
+    assert "flushKizWbAutoPush" not in local_sched
+    assert "await flushKizWbAutoPush" not in js
+    # Floppy/leave cancel background pushes before owning WB traffic.
+    push_all = js[
+        js.find("async function saveKizPushAll") : js.find(
+            "async function saveKizPushAll"
+        )
+        + 900
+    ]
+    assert "cancelPendingWbAutoPushes()" in push_all
     # retry only for non-conflict errors
     assert "if (attempt < 1)" in kiz_body
     assert kiz_body.find("e && e.conflict") < kiz_body.find("if (attempt < 1)")
