@@ -2287,8 +2287,12 @@
       await saveKizLocal(row);
       if ((Number(state.localAutosaveSeqByOrder[id]) || 0) !== seq) return;
       row.kiz_local = true;
+      // Mirror web modal: local draft is not on WB yet. Without this, baseline
+      // matches codes while kiz_wb_synced stays true → floppy/leave skip push.
+      if (!isOzon()) row.kiz_wb_synced = false;
       state.baselineKizByOrder[id] = codes.slice();
       outboxRemove("kiz", id);
+      refreshScanChrome("kiz");
     } catch (e) {
       if ((Number(state.localAutosaveSeqByOrder[id]) || 0) !== seq) return;
       // Conflict already adopted server codes — never force-retry (would wipe PC).
@@ -5385,6 +5389,9 @@
         }
         if (!placed) row.kiz_codes.push(mark);
         row.kiz_local = true;
+        // Mark unsynced immediately so floppy / leave-save can push before
+        // background local autosave finishes (same intent as web modal).
+        if (!isOzon()) row.kiz_wb_synced = false;
         noteSessionScanned(rowId);
         const kizN = filledKizEntries(row).length;
         const label = rowDisplayLabel(row);

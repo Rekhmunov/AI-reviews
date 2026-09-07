@@ -113,4 +113,4 @@ def test_tsd_hub_auto_refresh_tones() -> None:
     assert "async function refreshHubKizStatus(event, opts)" in js
     assert "async function refreshHubPickStatus(event, opts)" in js
     assert "autoRefreshHubTones({ kizDisabled, pickDisabled })" in js
-    assert "wb_fbs_tsd.js?v=75" in html
+    assert "wb_fbs_tsd.js?v=92" in html

@@ -158,6 +158,10 @@ def test_tsd_autosave_conflict_no_retry_refreshes_ui() -> None:
     kiz_body = js[kiz_start:kiz_end]
     assert "e && e.conflict" in kiz_body
     assert 'patchScanCard("kiz")' in kiz_body
+    # After local autosave, mark draft unsynced so floppy/leave still push to WB
+    # (parity with web modal _wbFbsKizFlushLocalAutosave).
+    assert "kiz_wb_synced = false" in kiz_body
+    assert 'refreshScanChrome("kiz")' in kiz_body
     # retry only for non-conflict errors
     assert "if (attempt < 1)" in kiz_body
     assert kiz_body.find("e && e.conflict") < kiz_body.find("if (attempt < 1)")
