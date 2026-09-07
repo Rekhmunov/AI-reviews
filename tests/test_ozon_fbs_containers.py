@@ -476,6 +476,13 @@ def test_enrich_containers_rewrites_order_count_from_local_active() -> None:
         "_active_local_order_counts_by_container",
         return_value={10: 80, 20: 36},
     ), patch.object(
+        ct,
+        "_bound_supply_counts_by_container",
+        return_value={
+            10: [("S1", 80)],
+            20: [("S1", 36)],
+        },
+    ), patch.object(
         ct.oz_sup,
         "list_active_supply_posting_numbers",
         return_value=["x"] * 116,
@@ -486,10 +493,174 @@ def test_enrich_containers_rewrites_order_count_from_local_active() -> None:
     by_id = {int(x["container_id"]): x for x in out["items"]}
     assert by_id[10]["order_count"] == 80
     assert by_id[10]["order_count_ozon"] == 100
+    assert by_id[10]["bound_to_open_supply"] is True
     assert by_id[20]["order_count"] == 36
     # No local binds for 30 → keep Ozon count (warehouse list is shared).
     assert by_id[30]["order_count"] == 5
     assert by_id[30]["order_count_ozon"] == 5
+    assert by_id[30]["bound_to_open_supply"] is False
+    assert by_id[30]["moved_to_delivering_at"] == ""
     assert out["active_order_count"] == 116
 
+
+def test_enrich_containers_ship_date_from_bound_supply_not_open_modal() -> None:
+    """Unrelated GM must not inherit open supply move-to-delivering time."""
+    from unittest.mock import MagicMock, patch
+
+    repo = MagicMock()
+    listed = {
+        "ok": True,
+        "items": [
+            {"container_id": 101, "order_count": 2},  # belongs to open S-OLD
+            {"container_id": 202, "order_count": 1},  # belongs to other supply
+            {"container_id": 303, "order_count": 0},  # unbound / new pallet
+        ],
+    }
+
+    def _moved(_repo, *, user_id, source_id, supply_id):
+        return {
+            "S-OLD": "2026-09-05T15:35:00+00:00",
+            "S-OTHER": "2026-09-07T12:00:00+00:00",
+        }.get(str(supply_id), "")
+
+    with patch.object(
+        ct, "get_supply_moved_to_delivering_at", side_effect=_moved
+    ), patch.object(
+        ct,
+        "_active_local_order_counts_by_container",
+        return_value={101: 2},
+    ), patch.object(
+        ct,
+        "_bound_supply_counts_by_container",
+        return_value={
+            101: [("S-OLD", 2)],
+            202: [("S-OTHER", 1)],
+        },
+    ), patch.object(
+        ct.oz_sup, "list_active_supply_posting_numbers", return_value=["a", "b"]
+    ):
+        out = ct.enrich_containers_for_supply_modal(
+            repo, user_id=1, source_id=2, supply_id="S-OLD", listed=listed
+        )
+    by_id = {int(x["container_id"]): x for x in out["items"]}
+    assert by_id[101]["moved_to_delivering_at"] == "2026-09-05T15:35:00+00:00"
+    assert by_id[101]["bound_supply_id"] == "S-OLD"
+    assert by_id[202]["moved_to_delivering_at"] == "2026-09-07T12:00:00+00:00"
+    assert by_id[202]["bound_supply_id"] == "S-OTHER"
+    assert by_id[202]["bound_to_open_supply"] is False
+    assert by_id[303]["moved_to_delivering_at"] == ""
+    assert by_id[303]["bound_supply_id"] == ""
+    # Open-supply level stamp stays on the response root.
+    assert out["moved_to_delivering_at"] == "2026-09-05T15:35:00+00:00"
+
+
+def test_enrich_containers_only_this_supply_filter() -> None:
+    from unittest.mock import MagicMock, patch
+
+    repo = MagicMock()
+    listed = {
+        "ok": True,
+        "items": [
+            {"container_id": 10, "order_count": 3},
+            {"container_id": 20, "order_count": 1},
+            {"container_id": 30, "order_count": 0},
+        ],
+    }
+    with patch.object(
+        ct, "get_supply_moved_to_delivering_at", return_value=""
+    ), patch.object(
+        ct, "_active_local_order_counts_by_container", return_value={10: 3}
+    ), patch.object(
+        ct,
+        "_bound_supply_counts_by_container",
+        return_value={10: [("S1", 3)], 20: [("S2", 1)]},
+    ), patch.object(
+        ct.oz_sup, "list_active_supply_posting_numbers", return_value=["x"] * 3
+    ):
+        out = ct.enrich_containers_for_supply_modal(
+            repo,
+            user_id=1,
+            source_id=2,
+            supply_id="S1",
+            listed=listed,
+            only_this_supply=True,
+        )
+    ids = [int(x["container_id"]) for x in out["items"]]
+    assert ids == [10]
+    assert out["only_this_supply"] is True
+    assert out["total"] == 1
+
+
+def test_resolve_container_bound_supply_prefers_open_supply() -> None:
+    from unittest.mock import MagicMock
+
+    repo = MagicMock()
+    bound = {
+        7: [("S-A", 1), ("S-B", 5)],
+    }
+    # Prefer wins even when another supply has more binds.
+    assert (
+        ct.resolve_container_bound_supply_id(
+            repo,
+            user_id=1,
+            source_id=2,
+            container_id=7,
+            prefer_supply_id="S-A",
+            bound_map=bound,
+        )
+        == "S-A"
+    )
+    assert (
+        ct.resolve_container_bound_supply_id(
+            repo,
+            user_id=1,
+            source_id=2,
+            container_id=7,
+            prefer_supply_id="",
+            bound_map=bound,
+        )
+        == "S-B"
+    )
+    assert (
+        ct.resolve_container_bound_supply_id(
+            repo,
+            user_id=1,
+            source_id=2,
+            container_id=9,
+            prefer_supply_id="S-A",
+            bound_map=bound,
+        )
+        == ""
+    )
+
+
+def test_build_details_ship_date_empty_without_binds() -> None:
+    """New pallet without KIZ/pick binds must not show open-supply ship date."""
+    from unittest.mock import MagicMock, patch
+
+    repo = MagicMock()
+    with patch.object(
+        ct,
+        "get_container_moved_to_delivering_at",
+        return_value=("", ""),
+    ) as moved, patch.object(
+        ct, "_list_local_container_postings", return_value=[]
+    ):
+        out = ct.build_container_modal_details(
+            repo,
+            user_id=1,
+            source_id=2,
+            supply_id="S-OLD",
+            container={
+                "container_id": 55,
+                "status": "new",
+                "created_at": "2026-09-07T13:15:00Z",
+            },
+        )
+    moved.assert_called_once()
+    assert moved.call_args.kwargs["container_id"] == 55
+    assert moved.call_args.kwargs["prefer_supply_id"] == "S-OLD"
+    assert out["moved_to_delivering_at"] == ""
+    move_ev = next(x for x in out["timeline"] if x["key"] == "moved_to_delivering")
+    assert move_ev["at_display"] == "—"
 

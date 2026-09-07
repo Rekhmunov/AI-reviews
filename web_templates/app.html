@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=315" />
+  <link rel="stylesheet" href="/static/style.css?v=316" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -3576,11 +3576,18 @@
               </div>
               <div id="ozonFbsContainersInfo" class="wb-fbs-create-trbx-info" hidden></div>
               <div class="wb-fbs-trbx-print-section ozon-fbs-containers-table-section">
-                <label class="ozon-fbs-containers-show-sc" for="ozonFbsContainersShowScAccepted">
-                  <input type="checkbox" id="ozonFbsContainersShowScAccepted"
-                         onchange="onOzonFbsContainersShowScChange()" />
-                  <span>Показать принятые / завершённые на СЦ</span>
-                </label>
+                <div class="ozon-fbs-containers-filters">
+                  <label class="ozon-fbs-containers-show-sc" for="ozonFbsContainersShowScAccepted">
+                    <input type="checkbox" id="ozonFbsContainersShowScAccepted"
+                           onchange="onOzonFbsContainersShowScChange()" />
+                    <span>Показать принятые / завершённые на СЦ</span>
+                  </label>
+                  <label class="ozon-fbs-containers-show-sc" for="ozonFbsContainersOnlyThisSupply">
+                    <input type="checkbox" id="ozonFbsContainersOnlyThisSupply"
+                           onchange="onOzonFbsContainersOnlyThisSupplyChange()" />
+                    <span>ГМ у этой поставки</span>
+                  </label>
+                </div>
                 <div class="wb-fbs-trbx-boxes-wrap">
                   <table class="wb-fbs-trbx-boxes-table ozon-fbs-containers-table" aria-label="Грузоместа">
                     <thead>
@@ -6667,7 +6674,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=137"></script>
+  <script src="/static/ozon_fbs.js?v=138"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=20"></script>
   <script src="/static/app.js?v=560"></script>
 </body>

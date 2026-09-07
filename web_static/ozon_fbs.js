@@ -122,6 +122,7 @@
     loading: false,
     busy: false,
     showScAccepted: false,
+    onlyThisSupply: false,
     expandedId: null,
     detailsCache: {},
     detailsLoadingId: null,
@@ -5030,23 +5031,41 @@
     if (containersState.showScAccepted) {
       params.set("include_sc_accepted", "1");
     }
+    if (containersState.onlyThisSupply) {
+      params.set("only_this_supply", "1");
+    }
     return params;
   }
 
   function _ozonFbsContainersSyncShowScUi() {
-    const cb = document.getElementById("ozonFbsContainersShowScAccepted");
-    if (!cb) return;
-    cb.checked = !!containersState.showScAccepted;
     const busy = !!containersState.busy || !!containersState.loading;
-    cb.disabled = busy;
-    const label = cb.closest(".ozon-fbs-containers-show-sc");
-    if (label) label.classList.toggle("is-wait-rows", busy);
+    const scCb = document.getElementById("ozonFbsContainersShowScAccepted");
+    if (scCb) {
+      scCb.checked = !!containersState.showScAccepted;
+      scCb.disabled = busy;
+      const scLabel = scCb.closest(".ozon-fbs-containers-show-sc");
+      if (scLabel) scLabel.classList.toggle("is-wait-rows", busy);
+    }
+    const supplyCb = document.getElementById("ozonFbsContainersOnlyThisSupply");
+    if (supplyCb) {
+      supplyCb.checked = !!containersState.onlyThisSupply;
+      supplyCb.disabled = busy;
+      const supplyLabel = supplyCb.closest(".ozon-fbs-containers-show-sc");
+      if (supplyLabel) supplyLabel.classList.toggle("is-wait-rows", busy);
+    }
   }
 
   function onOzonFbsContainersShowScChange() {
     if (containersState.busy || containersState.loading) return;
     const cb = document.getElementById("ozonFbsContainersShowScAccepted");
     containersState.showScAccepted = !!cb?.checked;
+    loadOzonFbsContainers();
+  }
+
+  function onOzonFbsContainersOnlyThisSupplyChange() {
+    if (containersState.busy || containersState.loading) return;
+    const cb = document.getElementById("ozonFbsContainersOnlyThisSupply");
+    containersState.onlyThisSupply = !!cb?.checked;
     loadOzonFbsContainers();
   }
 
@@ -5353,10 +5372,11 @@
       const wh = String(data.warehouse_name || "").trim();
       if (!keepInfo) {
         const scHint = containersState.showScAccepted ? " · включая принятые на СЦ" : "";
+        const supplyHint = containersState.onlyThisSupply ? " · только ГМ этой поставки" : "";
         _ozonFbsContainersSetInfo(
           total
-            ? `Активных грузомест: ${total}${scHint}${wh ? ` · ${wh}` : ""}`
-            : `Нет активных грузомест${scHint}${wh ? ` · ${wh}` : ""}`,
+            ? `Активных грузомест: ${total}${scHint}${supplyHint}${wh ? ` · ${wh}` : ""}`
+            : `Нет активных грузомест${scHint}${supplyHint}${wh ? ` · ${wh}` : ""}`,
           "ok"
         );
       }
@@ -5387,6 +5407,7 @@
     containersState.items = [];
     containersState.busy = false;
     containersState.showScAccepted = false;
+    containersState.onlyThisSupply = false;
     containersState.expandedId = null;
     containersState.detailsCache = {};
     containersState.detailsLoadingId = null;
@@ -11342,6 +11363,7 @@
   window.printOzonFbsContainerLabel = printOzonFbsContainerLabel;
   window.ozonFbsContainersStep = ozonFbsContainersStep;
   window.onOzonFbsContainersShowScChange = onOzonFbsContainersShowScChange;
+  window.onOzonFbsContainersOnlyThisSupplyChange = onOzonFbsContainersOnlyThisSupplyChange;
   window.moveOzonFbsSupplyToDelivering = moveOzonFbsSupplyToDelivering;
   window.closeOzonFbsMoveDeliveringModal = closeOzonFbsMoveDeliveringModal;
   window.confirmOzonFbsMoveDelivering = confirmOzonFbsMoveDelivering;

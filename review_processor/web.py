@@ -14437,6 +14437,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         supply_id: str,
         source_id: int,
         include_sc_accepted: bool = False,
+        only_this_supply: bool = False,
     ) -> dict[str, object]:
         """List active Ozon FBS cargo places (containers) for the supply warehouse."""
         from . import ozon_fbs as ozon_fbs_mod
@@ -14468,6 +14469,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     source_id=int(source_id),
                     supply_id=str(supply_id),
                     listed=out,
+                    only_this_supply=bool(only_this_supply),
                 )
             except Exception:
                 # Enrichment is best-effort: never block the containers modal list.

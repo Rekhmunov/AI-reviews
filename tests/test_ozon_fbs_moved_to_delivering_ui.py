@@ -37,8 +37,26 @@ def test_moved_to_delivering_markup_and_render() -> None:
     assert ".ozon-fbs-sd-moved" in css
     assert ".ozon-fbs-sd-moved-hist-btn" in css
     assert ".ozon-fbs-sd-moved-hist" in css
-    assert "ozon_fbs.js?v=137" in html
-    assert "style.css?v=315" in html
+    assert "ozon_fbs.js?v=138" in html
+    assert "style.css?v=316" in html
+
+
+def test_containers_only_this_supply_filter_ui() -> None:
+    html = HTML.read_text(encoding="utf-8")
+    js = JS.read_text(encoding="utf-8")
+    css = CSS.read_text(encoding="utf-8")
+
+    assert 'id="ozonFbsContainersOnlyThisSupply"' in html
+    assert "ГМ у этой поставки" in html
+    sc_idx = html.find('id="ozonFbsContainersShowScAccepted"')
+    only_idx = html.find('id="ozonFbsContainersOnlyThisSupply"')
+    assert sc_idx > 0 and only_idx > sc_idx
+
+    assert "onlyThisSupply" in js
+    assert "only_this_supply" in js
+    assert "onOzonFbsContainersOnlyThisSupplyChange" in js
+    assert "только ГМ этой поставки" in js
+    assert ".ozon-fbs-containers-filters" in css
 
 
 def test_list_supply_moved_events_oldest_first_latest_via_getter() -> None:

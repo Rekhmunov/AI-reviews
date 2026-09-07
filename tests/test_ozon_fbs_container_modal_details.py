@@ -30,8 +30,8 @@ class ContainerModalDetailsTests(unittest.TestCase):
         repo = MagicMock()
         with patch.object(
             ct,
-            "get_supply_moved_to_delivering_at",
-            return_value="2026-03-21T10:00:00+00:00",
+            "get_container_moved_to_delivering_at",
+            return_value=("2026-03-21T10:00:00+00:00", "sup-1"),
         ), patch.object(
             ct,
             "_list_local_container_postings",
@@ -71,7 +71,9 @@ class ContainerModalDetailsTests(unittest.TestCase):
         )
         move_ev = next(x for x in out["timeline"] if x["key"] == "moved_to_delivering")
         self.assertEqual(move_ev["label"], "Дата отгрузки с нашего склада")
+        self.assertEqual(move_ev.get("bound_supply_id"), "sup-1")
         self.assertTrue(out["moved_to_delivering_at_display"])
+        self.assertEqual(out["bound_supply_id"], "sup-1")
         self.assertEqual(out["postings_count"], 1)
         self.assertEqual(out["warehouse_date_display"], "20.03.2026 15:30")
         self.assertTrue(out["moved_to_delivering_at_display"])
@@ -91,6 +93,12 @@ class ContainerModalDetailsTests(unittest.TestCase):
         }
         with patch.object(
             ct, "get_supply_moved_to_delivering_at", return_value=""
+        ), patch.object(
+            ct, "_bound_supply_counts_by_container", return_value={}
+        ), patch.object(
+            ct, "_active_local_order_counts_by_container", return_value={}
+        ), patch.object(
+            ct.oz_sup, "list_active_supply_posting_numbers", return_value=[]
         ):
             out = ct.enrich_containers_for_supply_modal(
                 repo,
@@ -103,6 +111,7 @@ class ContainerModalDetailsTests(unittest.TestCase):
         self.assertEqual(row["warehouse_date_display"], "20.03.2026 15:30")
         self.assertTrue(row["created_at_display"])
         self.assertEqual(row["moved_to_delivering_at"], "")
+        self.assertFalse(row["bound_to_open_supply"])
 
     def test_get_details_is_local_only(self) -> None:
         repo = MagicMock()
@@ -127,8 +136,8 @@ class ContainerModalDetailsTests(unittest.TestCase):
         client = MagicMock()
         with patch.object(
             ct,
-            "get_supply_moved_to_delivering_at",
-            return_value="",
+            "get_container_moved_to_delivering_at",
+            return_value=("", ""),
         ), patch.object(
             ct,
             "_list_local_container_postings",
@@ -172,8 +181,8 @@ class ContainerModalDetailsTests(unittest.TestCase):
         client = MagicMock()
         with patch.object(
             ct,
-            "get_supply_moved_to_delivering_at",
-            return_value="",
+            "get_container_moved_to_delivering_at",
+            return_value=("", ""),
         ), patch.object(
             ct,
             "_list_local_container_postings",

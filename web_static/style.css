@@ -7959,6 +7959,13 @@ tr.dnd-over td {
   gap: 12px;
   margin-top: 16px;
 }
+.ozon-fbs-containers-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  align-self: flex-start;
+}
 .ozon-fbs-containers-show-sc {
   display: inline-flex;
   align-items: center;

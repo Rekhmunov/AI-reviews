@@ -181,8 +181,8 @@ class UiReplaceTests(unittest.TestCase):
         self.assertNotIn('id="ozonFbsStickerLookupModal"', html)
         self.assertIn("_ozonFbsSyncOwnerOnlyShipmentQualityBtn", js)
         self.assertIn("/api/ozon-fbs/shipment-quality/support-report", js)
-        self.assertIn("ozon_fbs.js?v=137", html)
-        self.assertIn("style.css?v=315", html)
+        self.assertIn("ozon_fbs.js?v=138", html)
+        self.assertIn("style.css?v=316", html)
 
 
 if __name__ == "__main__":

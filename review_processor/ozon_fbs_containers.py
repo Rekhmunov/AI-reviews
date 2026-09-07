@@ -1435,6 +1435,161 @@ def _active_local_order_counts_by_container(
     return out
 
 
+def _bound_supply_counts_by_container(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    container_ids: list[int] | None = None,
+) -> dict[int, list[tuple[str, int]]]:
+    """Map container_id → [(supply_id, order_count), ...] by local KIZ/pick binds.
+
+    Counts are non-cancelled postings with ``container_id`` set (from «Товары с
+    КИЗ» / «Товары без КИЗ»). Each list is sorted by order_count DESC, then
+    supply_id ASC for stable ties.
+    """
+    oz.ensure_ozon_fbs_tables(repo)
+    not_cancelled = oz.sql_exclude_cancelled_postings_clause()
+    ids: list[int] = []
+    for raw in container_ids or []:
+        try:
+            cid = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if cid > 0:
+            ids.append(cid)
+    ids = list(dict.fromkeys(ids))
+    clauses = [
+        "user_id = ?",
+        "source_id = ?",
+        "COALESCE(container_id, 0) > 0",
+        "COALESCE(supply_id, '') <> ''",
+        f"({not_cancelled})",
+    ]
+    params: list[Any] = [int(user_id), int(source_id)]
+    if ids:
+        placeholders = ", ".join("?" for _ in ids)
+        clauses.append(f"container_id IN ({placeholders})")
+        params.extend(ids)
+    where = " AND ".join(clauses)
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT container_id, supply_id, COUNT(*) AS order_count
+                FROM ozon_fbs_postings
+                WHERE {where}
+                GROUP BY container_id, supply_id
+                """
+            ),
+            tuple(params),
+        ).fetchall()
+    grouped: dict[int, list[tuple[str, int]]] = {}
+    for row in rows or []:
+        d = repo._row_to_dict(row) if not isinstance(row, dict) else row
+        try:
+            cid = int(d.get("container_id") or 0)
+        except (TypeError, ValueError):
+            cid = 0
+        sid = str(d.get("supply_id") or "").strip()
+        if cid <= 0 or not sid:
+            continue
+        try:
+            n = int(d.get("order_count") or 0)
+        except (TypeError, ValueError):
+            n = 0
+        grouped.setdefault(cid, []).append((sid, max(0, n)))
+    for cid, pairs in grouped.items():
+        pairs.sort(key=lambda x: (-int(x[1]), str(x[0])))
+        grouped[cid] = pairs
+    return grouped
+
+
+def resolve_container_bound_supply_id(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    container_id: int,
+    prefer_supply_id: str = "",
+    bound_map: dict[int, list[tuple[str, int]]] | None = None,
+) -> str:
+    """Supply that owns this GM via local binds (KIZ / pick), or ``\"\"``.
+
+    If ``prefer_supply_id`` has binds to the GM, it wins (open-modal context).
+    Otherwise the supply with the most active binds is used.
+    """
+    try:
+        cid = int(container_id or 0)
+    except (TypeError, ValueError):
+        cid = 0
+    if cid <= 0:
+        return ""
+    prefer = str(prefer_supply_id or "").strip()
+    mapping = bound_map
+    if mapping is None:
+        mapping = _bound_supply_counts_by_container(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            container_ids=[cid],
+        )
+    pairs = mapping.get(cid) or []
+    if not pairs:
+        return ""
+    if prefer and any(sid == prefer for sid, _ in pairs):
+        return prefer
+    # Bound map may be unsorted when injected by callers/tests — pick max binds.
+    best_sid, best_n = "", -1
+    for sid, n in pairs:
+        s = str(sid or "").strip()
+        if not s:
+            continue
+        try:
+            count = int(n)
+        except (TypeError, ValueError):
+            count = 0
+        if count > best_n or (count == best_n and (not best_sid or s < best_sid)):
+            best_sid, best_n = s, count
+    return best_sid
+
+
+def get_container_moved_to_delivering_at(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    container_id: int,
+    prefer_supply_id: str = "",
+    bound_map: dict[int, list[tuple[str, int]]] | None = None,
+    move_by_supply: dict[str, str] | None = None,
+) -> tuple[str, str]:
+    """Ship-from-warehouse time for a GM from its bound supply.
+
+    Returns ``(moved_at_iso, bound_supply_id)``. Empty when the GM has no local
+    binds from «Товары с КИЗ» / «Товары без КИЗ».
+    """
+    bound_sid = resolve_container_bound_supply_id(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        container_id=container_id,
+        prefer_supply_id=prefer_supply_id,
+        bound_map=bound_map,
+    )
+    if not bound_sid:
+        return "", ""
+    if move_by_supply is not None and bound_sid in move_by_supply:
+        return str(move_by_supply.get(bound_sid) or ""), bound_sid
+    moved = get_supply_moved_to_delivering_at(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=bound_sid,
+    )
+    return moved, bound_sid
+
+
 def enrich_containers_for_supply_modal(
     repo: ReviewRepository,
     *,
@@ -1442,53 +1597,113 @@ def enrich_containers_for_supply_modal(
     source_id: int,
     supply_id: str,
     listed: dict[str, Any],
+    only_this_supply: bool = False,
 ) -> dict[str, Any]:
     """List enrichment: dates, delivering move time, active local order counts.
 
     ``order_count`` is rewritten from local non-cancelled binds so the column
     matches the supply (Ozon ``count_of_postings`` often still includes refusals).
     Original portal count is kept as ``order_count_ozon``.
+
+    «Дата отгрузки с нашего склада» on each GM comes from the supply that GM is
+    bound to via local KIZ/pick scans — not from the open modal supply alone.
+
+    When ``only_this_supply`` is true, keep only GMs with local binds to
+    ``supply_id`` («ГМ у этой поставки»).
     """
-    moved_raw = get_supply_moved_to_delivering_at(
+    open_sid = str(supply_id or "").strip()
+    open_moved_raw = get_supply_moved_to_delivering_at(
         repo,
         user_id=user_id,
         source_id=source_id,
-        supply_id=supply_id,
+        supply_id=open_sid,
     )
-    moved_display = oz.format_lookup_datetime(moved_raw) if moved_raw else ""
+    open_moved_display = (
+        oz.format_lookup_datetime(open_moved_raw) if open_moved_raw else ""
+    )
     local_counts = _active_local_order_counts_by_container(
         repo,
         user_id=user_id,
         source_id=source_id,
-        supply_id=supply_id,
+        supply_id=open_sid,
     )
     active_supply_total = len(
         oz_sup.list_active_supply_posting_numbers(
             repo,
             user_id=user_id,
             source_id=source_id,
-            supply_id=str(supply_id or ""),
+            supply_id=open_sid,
         )
     )
     items_in = listed.get("items") if isinstance(listed, dict) else None
+    listed_cids: list[int] = []
+    if isinstance(items_in, list):
+        for raw in items_in:
+            if not isinstance(raw, dict):
+                continue
+            try:
+                cid = int(raw.get("container_id") or 0)
+            except (TypeError, ValueError):
+                cid = 0
+            if cid > 0:
+                listed_cids.append(cid)
+    bound_map = _bound_supply_counts_by_container(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        container_ids=listed_cids or None,
+    )
+    needed_sids: set[str] = set()
+    if open_sid:
+        needed_sids.add(open_sid)
+    for pairs in bound_map.values():
+        for sid, _n in pairs:
+            if sid:
+                needed_sids.add(sid)
+    move_by_supply: dict[str, str] = {}
+    for sid in needed_sids:
+        if sid == open_sid:
+            move_by_supply[sid] = open_moved_raw
+            continue
+        move_by_supply[sid] = get_supply_moved_to_delivering_at(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=sid,
+        )
     items: list[dict[str, Any]] = []
     if isinstance(items_in, list):
         for raw in items_in:
             if not isinstance(raw, dict):
                 continue
             row = dict(raw)
+            try:
+                cid = int(row.get("container_id") or 0)
+            except (TypeError, ValueError):
+                cid = 0
+            bound_to_open = bool(cid > 0 and cid in local_counts)
+            if only_this_supply and not bound_to_open:
+                continue
             wh = row.get("warehouse_date")
             created = row.get("created_at")
             row["warehouse_date_display"] = oz.format_warehouse_date(wh) if wh else ""
             row["created_at_display"] = (
                 oz.format_lookup_datetime(created) if created else ""
             )
+            moved_raw, bound_sid = get_container_moved_to_delivering_at(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                container_id=cid,
+                prefer_supply_id=open_sid,
+                bound_map=bound_map,
+                move_by_supply=move_by_supply,
+            )
+            moved_display = oz.format_lookup_datetime(moved_raw) if moved_raw else ""
             row["moved_to_delivering_at"] = moved_raw
             row["moved_to_delivering_at_display"] = moved_display
-            try:
-                cid = int(row.get("container_id") or 0)
-            except (TypeError, ValueError):
-                cid = 0
+            row["bound_supply_id"] = bound_sid
+            row["bound_to_open_supply"] = bound_to_open
             try:
                 ozon_orders = int(row.get("order_count") or 0)
             except (TypeError, ValueError):
@@ -1496,14 +1711,18 @@ def enrich_containers_for_supply_modal(
             row["order_count_ozon"] = max(0, ozon_orders)
             # Only rewrite when this supply has local binds for THIS container.
             # Do not zero other warehouse GMs (list is warehouse-wide).
-            if cid > 0 and cid in local_counts:
+            if bound_to_open:
                 row["order_count"] = max(0, int(local_counts.get(cid) or 0))
             items.append(row)
     out = dict(listed) if isinstance(listed, dict) else {"ok": True, "items": []}
     out["items"] = items
-    out["moved_to_delivering_at"] = moved_raw
-    out["moved_to_delivering_at_display"] = moved_display
+    if only_this_supply:
+        out["total"] = len(items)
+    # Supply-level stamp for the open modal (header / summary); per-row dates differ.
+    out["moved_to_delivering_at"] = open_moved_raw
+    out["moved_to_delivering_at_display"] = open_moved_display
     out["active_order_count"] = active_supply_total
+    out["only_this_supply"] = bool(only_this_supply)
     return out
 
 
@@ -1820,11 +2039,14 @@ def build_container_modal_details(
     warehouse_display = (
         oz.format_warehouse_date(warehouse_raw) if warehouse_raw else ""
     )
-    moved_raw = get_supply_moved_to_delivering_at(
+    # Ship-from-warehouse date belongs to the supply this GM is bound to via
+    # local KIZ/pick scans — not to whatever supply modal is currently open.
+    moved_raw, bound_supply_id = get_container_moved_to_delivering_at(
         repo,
         user_id=user_id,
         source_id=source_id,
-        supply_id=supply_id,
+        container_id=cid,
+        prefer_supply_id=str(supply_id or "").strip(),
     )
     moved_display = oz.format_lookup_datetime(moved_raw) if moved_raw else ""
 
@@ -1839,7 +2061,7 @@ def build_container_modal_details(
                 "source": "ozon",
             }
         )
-    # Local ops_log: when the supply (with this GM) was moved to «Доставляются».
+    # Local ops_log of the bound supply (when it was moved to «Доставляются»).
     timeline.append(
         {
             "key": "moved_to_delivering",
@@ -1847,6 +2069,7 @@ def build_container_modal_details(
             "at": moved_raw,
             "at_display": moved_display or "—",
             "source": "local",
+            "bound_supply_id": bound_supply_id,
         }
     )
     # Docs: warehouse_date = creation date in warehouse TZ (string). Ozon often
@@ -1885,6 +2108,7 @@ def build_container_modal_details(
         "created_at_display": created_display,
         "moved_to_delivering_at": moved_raw,
         "moved_to_delivering_at_display": moved_display,
+        "bound_supply_id": bound_supply_id,
         "timeline": timeline,
         "postings": postings,
         "postings_count": len(postings),
