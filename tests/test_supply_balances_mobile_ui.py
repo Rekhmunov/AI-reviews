@@ -69,7 +69,7 @@ def test_js_fluid_table_width_on_compact() -> None:
 
 def test_cache_bump() -> None:
     assert "style.css?v=309" in APP_HTML
-    assert "app.js?v=556" in APP_HTML
+    assert "app.js?v=557" in APP_HTML
 
 
 def test_receipt_modal_compact_bulk_under_filter() -> None:
@@ -112,10 +112,16 @@ def test_receipt_kind_select_left_of_date() -> None:
     assert 'return k === "return" ? "Возврат" : "приход"' in APP_JS
     assert "function _sbMergeReceiptKindComment" in APP_JS
     assert "_sbMergeReceiptKindComment(" in APP_JS
-    assert "onSupplyStockReceiptKindChange" in APP_JS
-    assert 'btn.textContent = _sbReceiptKindValue() === "return" ? "Сохранить возврат" : "Сохранить приход"' in APP_JS
+    assert 'id="supplyStockReceiptSaveBtn"' in block
+    assert ">Сохранить<" in block
+    assert "Сохранить приход" not in block
+    assert "Сохранить возврат" not in APP_JS
     # Unit-ish: merge helper behaviour encoded in source order / tags.
-    merge = APP_JS[APP_JS.find("function _sbMergeReceiptKindComment") : APP_JS.find("function onSupplyStockReceiptKindChange")]
+    merge = APP_JS[
+        APP_JS.find("function _sbMergeReceiptKindComment") : APP_JS.find(
+            "async function openSupplyStockReceiptModal"
+        )
+    ]
     assert "if (!base) return tag;" in merge
     assert "return `${base} · ${tag}`;" in merge
     assert "#supplyStockReceiptModal .sb-doc-field-bare select" in STYLE

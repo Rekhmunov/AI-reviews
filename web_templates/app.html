@@ -6355,8 +6355,7 @@
         </div>
         <div class="sb-doc-fields sb-doc-fields-search-end sb-receipt-toolbar">
           <label class="sb-doc-field sb-doc-field-bare" for="supplyStockReceiptKind">
-            <select id="supplyStockReceiptKind" aria-label="Тип" title="Тип"
-                    onchange="onSupplyStockReceiptKindChange()">
+            <select id="supplyStockReceiptKind" aria-label="Тип" title="Тип">
               <option value="receipt">Приход</option>
               <option value="return">Возврат</option>
             </select>
@@ -6420,7 +6419,7 @@
       <div id="supplyStockReceiptErr" class="sb-doc-err sb-sheet-err" hidden></div>
       <div class="sb-sheet-footer">
         <button type="button" class="secondary" onclick="closeSupplyStockReceiptModal()">Отмена</button>
-        <button type="button" id="supplyStockReceiptSaveBtn" onclick="saveSupplyStockReceipt()">Сохранить приход</button>
+        <button type="button" id="supplyStockReceiptSaveBtn" onclick="saveSupplyStockReceipt()">Сохранить</button>
       </div>
     </div>
   </div>
@@ -6637,6 +6636,6 @@
 
   <script src="/static/ozon_fbs.js?v=131"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=20"></script>
-  <script src="/static/app.js?v=556"></script>
+  <script src="/static/app.js?v=557"></script>
 </body>
 </html>

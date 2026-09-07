@@ -15276,13 +15276,6 @@ function _sbMergeReceiptKindComment(userComment, typeTag) {
   return `${base} · ${tag}`;
 }
 
-function onSupplyStockReceiptKindChange() {
-  const btn = document.getElementById("supplyStockReceiptSaveBtn");
-  if (!btn) return;
-  btn.textContent = _sbReceiptKindValue() === "return" ? "Сохранить возврат" : "Сохранить приход";
-}
-window.onSupplyStockReceiptKindChange = onSupplyStockReceiptKindChange;
-
 async function openSupplyStockReceiptModal() {
   _sbSetDocErr("supplyStockReceiptErr", "");
   _sbSetReceiptScanInfo("");
@@ -15295,7 +15288,6 @@ async function openSupplyStockReceiptModal() {
   const searchEl = document.getElementById("supplyStockReceiptSearch");
   const scanEl = document.getElementById("supplyStockReceiptScan");
   if (kindEl) kindEl.value = "receipt";
-  onSupplyStockReceiptKindChange();
   if (dateEl) dateEl.value = supplyBalancesState.today || "";
   if (bulkEl) bulkEl.value = "";
   if (searchEl) searchEl.value = "";
