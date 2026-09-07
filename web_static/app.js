@@ -13623,10 +13623,13 @@ const supplyBalancesState = {
 };
 
 const SB_COL_WIDTHS_KEY = "supply_balances_col_widths_v2";
-const SB_NAME_COL_DEFAULT = 360;
-const SB_DATE_COL_DEFAULT = 120;
-const SB_NAME_COL_MIN = 260;
-const SB_DATE_COL_MIN = 88;
+const SB_NAME_COL_DEFAULT = 420;
+const SB_DATE_COL_DEFAULT = 128;
+const SB_NAME_COL_MIN = 300;
+const SB_DATE_COL_MIN = 96;
+const SB_DATE_COL_MAX = 280;
+const SB_DATE_COL_MAX_FILL = 2400;
+const SB_PRODUCT_THUMB_PX = 112;
 
 function _sbIsCompactViewport() {
   try {
@@ -13647,14 +13650,93 @@ function _sbClampNameColWidth(width) {
   return Math.max(min, Math.min(max, n));
 }
 
-function _sbClampDateColWidth(width) {
+function _sbDateColMax(opts) {
+  if (_sbIsCompactViewport()) return 112;
+  if (opts && opts.fill) {
+    const avail = Number(opts.availMax);
+    if (Number.isFinite(avail) && avail > 0) {
+      return Math.max(SB_DATE_COL_MAX, Math.min(SB_DATE_COL_MAX_FILL, Math.floor(avail)));
+    }
+    return SB_DATE_COL_MAX_FILL;
+  }
+  return SB_DATE_COL_MAX;
+}
+
+function _sbClampDateColWidth(width, opts) {
   const n = Number(width);
   const compact = _sbIsCompactViewport();
   const min = compact ? 72 : SB_DATE_COL_MIN;
-  const max = compact ? 112 : 280;
+  const max = _sbDateColMax(opts);
   if (!Number.isFinite(n)) return compact ? 88 : SB_DATE_COL_DEFAULT;
   return Math.max(min, Math.min(max, n));
 }
+
+function _sbBalancesWrapAvailWidth() {
+  const wrap = document.getElementById("supplyBalancesTableWrap");
+  const w = Number(wrap?.clientWidth || 0);
+  return w > 0 ? w : 0;
+}
+
+/** Build date column widths: single today fills the wrap; history keeps focus on last/as-of. */
+function _sbComputeBalancesDateWidths(dates, nameW, widths, asOf) {
+  const list = Array.isArray(dates) ? dates : [];
+  const base = list.map((d) => _sbClampDateColWidth(_sbDateColWidth(widths, d)));
+  if (_sbIsCompactViewport() || !list.length) return base;
+  const avail = _sbBalancesWrapAvailWidth();
+  if (avail <= 0) return base;
+  const fillBudget = Math.max(SB_DATE_COL_MIN, avail - nameW);
+  if (list.length === 1) {
+    // One date (today / as-of): stretch to the full table wrap so it can use whole width.
+    base[0] = _sbClampDateColWidth(Math.max(base[0], fillBudget), {
+      fill: true,
+      availMax: fillBudget,
+    });
+    return base;
+  }
+  // History: keep earlier dates at readable fixed width; give leftover to the last (today/as-of).
+  const lastIdx = list.length - 1;
+  let histSum = 0;
+  for (let i = 0; i < lastIdx; i += 1) histSum += base[i];
+  const leftover = fillBudget - histSum;
+  if (leftover > base[lastIdx]) {
+    base[lastIdx] = _sbClampDateColWidth(leftover, {
+      fill: true,
+      availMax: Math.max(leftover, SB_DATE_COL_MAX),
+    });
+  } else if (String(list[lastIdx] || "") === String(asOf || "")) {
+    // Ensure as-of stays at least a bit wider than history cols when space is tight.
+    base[lastIdx] = Math.max(base[lastIdx], Math.min(SB_DATE_COL_MAX, SB_DATE_COL_DEFAULT + 24));
+  }
+  return base;
+}
+
+function _sbScrollBalancesToTodayCol() {
+  const wrap = document.getElementById("supplyBalancesTableWrap");
+  if (!wrap || _sbIsCompactViewport()) return;
+  const run = () => {
+    // Dates are ASC; as-of/today is last — pin scroll to the right edge.
+    const maxScroll = Math.max(0, wrap.scrollWidth - wrap.clientWidth);
+    if (maxScroll > 0) wrap.scrollLeft = maxScroll;
+  };
+  requestAnimationFrame(() => requestAnimationFrame(run));
+}
+
+let _sbBalancesResizeTimer = null;
+let _sbBalancesResizeBound = false;
+function _sbBindBalancesTableResizeReflow() {
+  if (_sbBalancesResizeBound) return;
+  _sbBalancesResizeBound = true;
+  window.addEventListener("resize", () => {
+    const section = document.getElementById("section-supplies-balances");
+    if (!section || section.classList.contains("hidden")) return;
+    if (supplyBalancesState.viewMode === "movements") return;
+    clearTimeout(_sbBalancesResizeTimer);
+    _sbBalancesResizeTimer = setTimeout(() => {
+      if (typeof renderSupplyBalancesTable === "function") renderSupplyBalancesTable();
+    }, 120);
+  });
+}
+_sbBindBalancesTableResizeReflow();
 
 function _sbFormatDateLabel(iso) {
   const s = String(iso || "").trim();
@@ -14399,7 +14481,7 @@ function _sbProductCardHtml(row) {
     codes.push(ozonSku);
   }
   const photo = photoUrl
-    ? `<img class="wb-fbs-product-photo" src="${esc(photoUrl)}" alt="" width="88" height="88" loading="lazy" onerror="this.style.display='none'">`
+    ? `<img class="wb-fbs-product-photo" src="${esc(photoUrl)}" alt="" width="${SB_PRODUCT_THUMB_PX}" height="${SB_PRODUCT_THUMB_PX}" loading="lazy" onerror="this.style.display='none'">`
     : `<span class="wb-fbs-product-ph" aria-hidden="true"></span>`;
   const sub = article
     ? `<div class="wb-fbs-product-sub">Арт. ${esc(article)}</div>`
@@ -14681,7 +14763,7 @@ function renderSupplyBalancesTable() {
   const today = String(supplyBalancesState.today || "");
   const widths = _sbLoadColWidths();
   const nameW = _sbClampNameColWidth(widths.name);
-  const dateWidths = dates.map((d) => _sbClampDateColWidth(_sbDateColWidth(widths, d)));
+  const dateWidths = _sbComputeBalancesDateWidths(dates, nameW, widths, asOf);
   const totalW = nameW + dateWidths.reduce((a, b) => a + b, 0);
 
   colgroup.innerHTML = [
@@ -14696,7 +14778,7 @@ function renderSupplyBalancesTable() {
     table.style.minWidth = "0";
   } else {
     table.style.width = `${totalW}px`;
-    table.style.minWidth = `${totalW}px`;
+    table.style.minWidth = `${Math.max(totalW, _sbBalancesWrapAvailWidth() || totalW)}px`;
   }
 
   thead.innerHTML = `<tr>
@@ -14727,6 +14809,7 @@ function renderSupplyBalancesTable() {
   if (!supplyBalancesState.rows.length) {
     tbody.innerHTML = `<tr><td class="sb-empty-cell" colspan="${dates.length + 1}">Нет данных для отображения</td></tr>`;
     initSupplyBalancesColumnResizer();
+    _sbScrollBalancesToTodayCol();
     return;
   }
 
@@ -14744,6 +14827,7 @@ function renderSupplyBalancesTable() {
   tbody.innerHTML = parts.join("");
   initSupplyBalancesColumnResizer();
   applySupplyBalancesSearchFilter();
+  _sbScrollBalancesToTodayCol();
 }
 
 function initSupplyBalancesColumnResizer() {
@@ -14787,13 +14871,24 @@ function initSupplyBalancesColumnResizer() {
         ? (_sbIsCompactViewport() ? 148 : SB_NAME_COL_MIN)
         : (_sbIsCompactViewport() ? 72 : SB_DATE_COL_MIN);
       const raw = Math.round(startW + (ev.clientX - startX));
-      const newW = kind === "name" ? _sbClampNameColWidth(raw) : _sbClampDateColWidth(raw);
+      let newW;
+      if (kind === "name") {
+        newW = _sbClampNameColWidth(raw);
+      } else {
+        const dateCols = document.querySelectorAll('#supplyBalancesColgroup col[data-sb-col="date"]');
+        const fillSingle = dateCols.length === 1;
+        const nameCol = document.querySelector('#supplyBalancesColgroup col[data-sb-col="name"]');
+        const namePx = parseFloat(nameCol?.style.width) || SB_NAME_COL_DEFAULT;
+        const avail = Math.max(SB_DATE_COL_MIN, (_sbBalancesWrapAvailWidth() || 0) - namePx);
+        newW = _sbClampDateColWidth(raw, fillSingle ? { fill: true, availMax: Math.max(avail, raw) } : null);
+      }
       const width = Math.max(minW, newW);
       colEl.style.width = `${width}px`;
       const cols = Array.from(document.querySelectorAll("#supplyBalancesColgroup col"));
       const total = cols.reduce((sum, col) => sum + (parseFloat(col.style.width) || 0), 0);
-      table.style.width = `${total}px`;
-      table.style.minWidth = `${total}px`;
+      const floor = _sbBalancesWrapAvailWidth() || total;
+      table.style.width = `${Math.max(total, floor)}px`;
+      table.style.minWidth = `${Math.max(total, floor)}px`;
     }
 
     function onUp() {
@@ -14805,18 +14900,29 @@ function initSupplyBalancesColumnResizer() {
       if (!colEl) return;
       const store = _sbLoadColWidths();
       const parsed = Math.round(parseFloat(colEl.style.width) || 0);
-      const width = kind === "name"
-        ? _sbClampNameColWidth(parsed)
-        : _sbClampDateColWidth(parsed);
+      let width;
       if (kind === "name") {
+        width = _sbClampNameColWidth(parsed);
         store.name = width;
-      } else if (dateKey) {
-        store.dates = store.dates || {};
-        store.dates[dateKey] = width;
-        // Remember last resized date width as default for new date columns.
-        store.dateDefault = width;
+      } else {
+        const dateCols = document.querySelectorAll('#supplyBalancesColgroup col[data-sb-col="date"]');
+        const fillSingle = dateCols.length === 1;
+        const nameCol = document.querySelector('#supplyBalancesColgroup col[data-sb-col="name"]');
+        const namePx = parseFloat(nameCol?.style.width) || SB_NAME_COL_DEFAULT;
+        const avail = Math.max(SB_DATE_COL_MIN, (_sbBalancesWrapAvailWidth() || 0) - namePx);
+        width = _sbClampDateColWidth(
+          parsed,
+          fillSingle ? { fill: true, availMax: Math.max(avail, parsed) } : null
+        );
+        if (dateKey) {
+          store.dates = store.dates || {};
+          store.dates[dateKey] = width;
+          // Remember last resized date width as default for new history date columns.
+          store.dateDefault = Math.min(width, SB_DATE_COL_MAX);
+        }
       }
       _sbSaveColWidths(store);
+      colEl.style.width = `${width}px`;
       colEl = null;
     }
   });

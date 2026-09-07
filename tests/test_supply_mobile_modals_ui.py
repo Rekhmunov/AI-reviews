@@ -29,8 +29,8 @@ def test_receipt_scan_autofocus_skips_touch() -> None:
 
 
 def test_style_cache_bump() -> None:
-    assert "style.css?v=311" in APP_HTML
-    assert "app.js?v=559" in APP_HTML
+    assert "style.css?v=312" in APP_HTML
+    assert "app.js?v=560" in APP_HTML
 
 
 def test_balances_toolbar_filter_panel_layout() -> None:

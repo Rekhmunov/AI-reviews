@@ -68,8 +68,28 @@ def test_js_fluid_table_width_on_compact() -> None:
 
 
 def test_cache_bump() -> None:
-    assert "style.css?v=311" in APP_HTML
-    assert "app.js?v=559" in APP_HTML
+    assert "style.css?v=312" in APP_HTML
+    assert "app.js?v=560" in APP_HTML
+
+
+def test_balances_table_readable_and_today_fill() -> None:
+    """Larger thumbs/fonts; today column can fill wrap; history scrolls to last date."""
+    assert "SB_PRODUCT_THUMB_PX = 112" in APP_JS
+    assert "function _sbComputeBalancesDateWidths" in APP_JS
+    assert "function _sbScrollBalancesToTodayCol" in APP_JS
+    assert "_sbScrollBalancesToTodayCol()" in APP_JS
+    assert "fillBudget" in APP_JS
+    assert "SB_DATE_COL_MAX_FILL" in APP_JS
+    assert "width: 112px !important" in STYLE
+    assert ".supply-balances-table .sb-col-name .wb-fbs-product-name" in STYLE
+    assert "font-size: 18px" in STYLE
+    # History scroll pins to right (today/as-of is last ASC date).
+    scroll = APP_JS[
+        APP_JS.find("function _sbScrollBalancesToTodayCol") : APP_JS.find(
+            "function _sbBindBalancesTableResizeReflow"
+        )
+    ]
+    assert "wrap.scrollLeft = maxScroll" in scroll
 
 
 def test_receipt_modal_compact_bulk_under_filter() -> None:
