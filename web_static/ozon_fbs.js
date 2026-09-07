@@ -2627,10 +2627,12 @@
     }
     _ozonFbsClearRuLayoutGuard();
     closeOzonFbsRowMenus();
+    _ozonFbsCloseMovedToDeliveringHistory();
     document.getElementById("ozonFbsSupplyDetailModal")?.classList.add("hidden");
     syncSupplyDetailReadOnlyMode(false);
     closeStickersMenu();
     _ozonFbsSupplyDetailHideNewWarn();
+    _ozonFbsRenderMovedToDelivering(null);
     supplyDetailState.supplyId = null;
     supplyDetailState.sourceId = null;
     supplyDetailState.supply = null;
@@ -2934,8 +2936,67 @@
       `<span class="wb-fbs-sd-cargo-label" title="Расчёт по товарам этой поставки (как после синхронизации)">${esc(label)}</span>`;
   }
 
+  function _ozonFbsCloseMovedToDeliveringHistory() {
+    const el = document.getElementById("ozonFbsSupplyDetailMovedAt");
+    if (!el) return;
+    const btn = el.querySelector(".ozon-fbs-sd-moved-hist-btn");
+    const panel = el.querySelector(".ozon-fbs-sd-moved-hist");
+    if (btn) btn.setAttribute("aria-expanded", "false");
+    if (panel) panel.hidden = true;
+  }
+
+  function _ozonFbsRenderMovedToDelivering(supply) {
+    const el = document.getElementById("ozonFbsSupplyDetailMovedAt");
+    if (!el) return;
+    const display = String(supply?.moved_to_delivering_at_display || "").trim();
+    const history = Array.isArray(supply?.moved_to_delivering_history)
+      ? supply.moved_to_delivering_history.filter(
+          (h) => h && String(h.at_display || "").trim()
+        )
+      : [];
+    if (!display) {
+      el.hidden = true;
+      el.innerHTML = "";
+      return;
+    }
+    const showHist = history.length > 1;
+    let html =
+      `<span class="wb-fbs-sd-cargo-label" title="Дата нажатия «Перенести в доставку»">`
+      + `Перенесена в доставку: ${esc(display)}</span>`;
+    if (showHist) {
+      const items = history
+        .map(
+          (h) =>
+            `<div class="ozon-fbs-sd-moved-hist-item" role="listitem">${esc(
+              String(h.at_display || "").trim()
+            )}</div>`
+        )
+        .join("");
+      html +=
+        `<span class="ozon-fbs-sd-moved-wrap">`
+        + `<button type="button" class="ozon-fbs-sd-moved-hist-btn" aria-expanded="false" `
+        + `aria-label="История переносов в доставку" title="История переносов">▾</button>`
+        + `<div class="ozon-fbs-sd-moved-hist" hidden role="list">${items}</div>`
+        + `</span>`;
+    }
+    el.hidden = false;
+    el.innerHTML = html;
+    const btn = el.querySelector(".ozon-fbs-sd-moved-hist-btn");
+    const panel = el.querySelector(".ozon-fbs-sd-moved-hist");
+    if (btn && panel) {
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const open = panel.hidden;
+        panel.hidden = !open;
+        btn.setAttribute("aria-expanded", open ? "true" : "false");
+      });
+    }
+  }
+
   function renderSupplyDetail(data) {
     closeOzonFbsRowMenus();
+    _ozonFbsCloseMovedToDeliveringHistory();
     const supply = data || supplyDetailState.supply;
     if (!supply) return;
     if (data) supplyDetailState.supply = data;
@@ -2959,6 +3020,7 @@
     }
 
     _ozonFbsRenderCargoSummary("ozonFbsSupplyDetailCargo", supply.cargo_summary);
+    _ozonFbsRenderMovedToDelivering(supply);
     const allOrdersRaw = Array.isArray(supply.orders) ? supply.orders : [];
     // Modal-only: oldest orders on top. Print endpoints keep their own order.
     const allOrders = sortSupplyDetailOrdersOldestFirst(allOrdersRaw);
@@ -3107,6 +3169,7 @@
     if (search) search.value = "";
     if (title) title.textContent = "Загрузка…";
     _ozonFbsRenderCargoSummary("ozonFbsSupplyDetailCargo", null);
+    _ozonFbsRenderMovedToDelivering(null);
     _ozonFbsSupplyDetailHideNewWarn();
     const readOnly = isDeliveringSuppliesTab();
     syncSupplyDetailReadOnlyMode(readOnly);
@@ -3905,6 +3968,9 @@
     ) {
       closeOzonFbsRowMenus();
     }
+    if (!t.closest("#ozonFbsSupplyDetailMovedAt")) {
+      _ozonFbsCloseMovedToDeliveringHistory();
+    }
   });
 
   document.addEventListener("keydown", (event) => {
@@ -3913,6 +3979,7 @@
     if (stickersCat && !stickersCat.classList.contains("hidden")) {
       closeStickersByCategoryModal();
     }
+    _ozonFbsCloseMovedToDeliveringHistory();
   });
 
   async function initSection() {

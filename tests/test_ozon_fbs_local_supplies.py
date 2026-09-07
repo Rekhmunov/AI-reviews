@@ -675,6 +675,123 @@ class OzonFbsDeliveringSuppliesTests(unittest.TestCase):
         self.assertTrue(detail["read_only"])
         self.assertEqual(detail["posting_tab"], oz.TAB_DELIVERING)
         self.assertEqual(detail["order_count"], 1)
+        self.assertEqual(detail["moved_to_delivering_at"], "")
+        self.assertEqual(detail["moved_to_delivering_at_display"], "")
+        self.assertEqual(detail["moved_to_delivering_history"], [])
+
+    def test_get_supply_detail_delivering_moved_at_and_history(self) -> None:
+        from review_processor import ozon_fbs as oz
+        from review_processor.ozon_fbs_supplies import get_supply_detail
+
+        repo = MagicMock()
+        repo.get_product_name_by_article.return_value = {}
+        repo.get_product_name_by_ozon_sku.return_value = {}
+        repo.get_product_barcodes_map.return_value = {}
+        repo.get_product_photo_map.return_value = {}
+        supply_row = {
+            "supply_id": "OZ-1",
+            "name": "Поставка",
+            "warehouse_name": "Склад",
+            "posting_numbers": ["P-1"],
+        }
+        posting_row = {
+            "posting_number": "P-1",
+            "offer_id": "art",
+            "sku": "",
+            "warehouse_name": "Склад",
+            "barcodes_json": "[]",
+            "marking_codes_json": "[]",
+            "tab": oz.TAB_DELIVERING,
+        }
+        events = [
+            "2026-03-01T10:00:00+00:00",
+            "2026-03-05T12:30:00+00:00",
+        ]
+        with patch(
+            "review_processor.ozon_fbs_supplies.ensure_ozon_fbs_supply_schema"
+        ), patch(
+            "review_processor.ozon_fbs_supplies.get_supply",
+            return_value=supply_row,
+        ), patch(
+            "review_processor.ozon_fbs_supplies._assembly_posting_numbers_for_supply_tab",
+            return_value=["P-1"],
+        ), patch(
+            "review_processor.ozon_fbs_containers.list_supply_moved_to_delivering_events",
+            return_value=events,
+        ) as list_ev, patch.object(repo, "_connect") as conn_ctx:
+            conn = MagicMock()
+            conn_ctx.return_value.__enter__.return_value = conn
+            conn.execute.return_value.fetchall.return_value = [posting_row]
+            repo._row_to_dict.side_effect = lambda r: r
+            detail = get_supply_detail(
+                repo,
+                user_id=1,
+                source_id=17,
+                supply_id="OZ-1",
+                posting_tab=oz.TAB_DELIVERING,
+            )
+        list_ev.assert_called_once()
+        self.assertEqual(detail["moved_to_delivering_at"], events[-1])
+        self.assertTrue(detail["moved_to_delivering_at_display"])
+        self.assertEqual(len(detail["moved_to_delivering_history"]), 2)
+        self.assertEqual(
+            detail["moved_to_delivering_history"][-1]["at"], events[-1]
+        )
+        self.assertEqual(
+            detail["moved_to_delivering_at_display"],
+            detail["moved_to_delivering_history"][-1]["at_display"],
+        )
+
+    def test_get_supply_detail_awaiting_omits_moved_at_lookup(self) -> None:
+        from review_processor import ozon_fbs as oz
+        from review_processor.ozon_fbs_supplies import get_supply_detail
+
+        repo = MagicMock()
+        repo.get_product_name_by_article.return_value = {}
+        repo.get_product_name_by_ozon_sku.return_value = {}
+        repo.get_product_barcodes_map.return_value = {}
+        repo.get_product_photo_map.return_value = {}
+        supply_row = {
+            "supply_id": "OZ-A",
+            "name": "Поставка",
+            "warehouse_name": "Склад",
+            "posting_numbers": ["P-1"],
+        }
+        posting_row = {
+            "posting_number": "P-1",
+            "offer_id": "art",
+            "sku": "",
+            "warehouse_name": "Склад",
+            "barcodes_json": "[]",
+            "marking_codes_json": "[]",
+            "tab": oz.TAB_AWAITING_DELIVER,
+        }
+        with patch(
+            "review_processor.ozon_fbs_supplies.ensure_ozon_fbs_supply_schema"
+        ), patch(
+            "review_processor.ozon_fbs_supplies.get_supply",
+            return_value=supply_row,
+        ), patch(
+            "review_processor.ozon_fbs_supplies._assembly_posting_numbers_for_supply_tab",
+            return_value=["P-1"],
+        ), patch(
+            "review_processor.ozon_fbs_containers.list_supply_moved_to_delivering_events",
+            return_value=["2026-03-01T10:00:00+00:00"],
+        ) as list_ev, patch.object(repo, "_connect") as conn_ctx:
+            conn = MagicMock()
+            conn_ctx.return_value.__enter__.return_value = conn
+            conn.execute.return_value.fetchall.return_value = [posting_row]
+            repo._row_to_dict.side_effect = lambda r: r
+            detail = get_supply_detail(
+                repo,
+                user_id=1,
+                source_id=17,
+                supply_id="OZ-A",
+                posting_tab=oz.TAB_AWAITING_DELIVER,
+            )
+        list_ev.assert_not_called()
+        self.assertEqual(detail["moved_to_delivering_at"], "")
+        self.assertEqual(detail["moved_to_delivering_history"], [])
 
     def test_get_supply_detail_for_print_respects_posting_tab(self) -> None:
         from review_processor.ozon_fbs_supplies import get_supply_detail_for_print

@@ -1318,23 +1318,23 @@ def container_bind_fields_from_map(
     }
 
 
-def get_supply_moved_to_delivering_at(
+def list_supply_moved_to_delivering_events(
     repo: ReviewRepository,
     *,
     user_id: int,
     source_id: int,
     supply_id: str,
-) -> str:
-    """Latest local «move to Доставляются» timestamp for the supply (ISO), or ``""``."""
+) -> list[str]:
+    """All local «move to Доставляются» timestamps for the supply (ISO UTC), oldest first."""
     from . import ozon_fbs_ops_log as ops_log
 
     sid = str(supply_id or "").strip()
     if not sid:
-        return ""
+        return []
     try:
         ops_log.ensure_ozon_fbs_ops_log_table(repo)
         with repo._connect() as conn:
-            row = conn.execute(
+            rows = conn.execute(
                 repo._sql(
                     """
                     SELECT created_at
@@ -1343,8 +1343,7 @@ def get_supply_moved_to_delivering_at(
                       AND source_id = ?
                       AND supply_id = ?
                       AND action = ?
-                    ORDER BY created_at DESC, id DESC
-                    LIMIT 1
+                    ORDER BY created_at ASC, id ASC
                     """
                 ),
                 (
@@ -1353,23 +1352,44 @@ def get_supply_moved_to_delivering_at(
                     sid,
                     ops_log.ACTION_MOVE_DELIVERING,
                 ),
-            ).fetchone()
+            ).fetchall()
     except Exception as exc:
         _log.warning(
-            "ozon fbs move-delivering lookup failed supply=%s: %s", sid, exc
+            "ozon fbs move-delivering history failed supply=%s: %s", sid, exc
         )
-        return ""
-    if not row:
-        return ""
-    d = repo._row_to_dict(row)
-    created = d.get("created_at")
-    if created is None:
-        return ""
-    if isinstance(created, datetime):
-        if created.tzinfo is None:
-            created = created.replace(tzinfo=UTC)
-        return created.astimezone(UTC).isoformat()
-    return str(created).strip()
+        return []
+    out: list[str] = []
+    for row in rows:
+        d = repo._row_to_dict(row)
+        created = d.get("created_at")
+        if created is None:
+            continue
+        if isinstance(created, datetime):
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=UTC)
+            out.append(created.astimezone(UTC).isoformat())
+        else:
+            text = str(created).strip()
+            if text:
+                out.append(text)
+    return out
+
+
+def get_supply_moved_to_delivering_at(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+) -> str:
+    """Latest local «move to Доставляются» timestamp for the supply (ISO), or ``""``."""
+    events = list_supply_moved_to_delivering_events(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=supply_id,
+    )
+    return events[-1] if events else ""
 
 
 def _active_local_order_counts_by_container(

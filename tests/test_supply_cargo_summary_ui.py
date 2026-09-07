@@ -68,6 +68,8 @@ def test_supply_and_gm_cargo_summary_markup() -> None:
     assert " шт. | " in ozon_js
     assert "ozonFbsSupplyDetailCargo" in ozon_js
     assert "ozonFbsContainersCargo" in ozon_js
+    assert "ozonFbsSupplyDetailMovedAt" in app_html
+    assert "_ozonFbsRenderMovedToDelivering" in ozon_js
     # Supply modal: no redundant «Отправлений N» chip under the title.
     assert 'Отправлений ${esc(supply.order_count' not in ozon_js
     assert "Отправлений ${" not in ozon_js

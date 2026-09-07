@@ -3209,6 +3209,26 @@ def get_supply_detail(
         repo, user_id=user_id, orders=orders
     )
     active_orders = _orders_excluding_cancelled(orders)
+    moved_history: list[dict[str, str]] = []
+    moved_at = ""
+    moved_display = ""
+    if read_only or tab_filter == oz.TAB_DELIVERING:
+        from . import ozon_fbs_containers as oz_ct
+
+        events = oz_ct.list_supply_moved_to_delivering_events(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=str(supply_id),
+        )
+        for raw in events:
+            disp = oz.format_lookup_datetime(raw)
+            if not disp:
+                continue
+            moved_history.append({"at": str(raw), "at_display": disp})
+        if moved_history:
+            moved_at = moved_history[-1]["at"]
+            moved_display = moved_history[-1]["at_display"]
     return {
         "supply_id": supply.get("supply_id"),
         "name": supply.get("name"),
@@ -3221,6 +3241,9 @@ def get_supply_detail(
         "read_only": read_only,
         "posting_tab": tab_filter,
         "cargo_summary": cargo_summary,
+        "moved_to_delivering_at": moved_at,
+        "moved_to_delivering_at_display": moved_display,
+        "moved_to_delivering_history": moved_history,
     }
 
 
