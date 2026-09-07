@@ -183,9 +183,10 @@ def test_tsd_autosave_conflict_no_retry_refreshes_ui() -> None:
         js.find("async function saveKizPushAll") : js.find(
             "async function saveKizPushAll"
         )
-        + 900
+        + 1200
     ]
-    assert "cancelPendingWbAutoPushes()" in push_all
+    assert push_all.count("cancelPendingWbAutoPushes()") >= 2
+    assert "re-queued WB auto-push" in push_all
     # retry only for non-conflict errors
     assert "if (attempt < 1)" in kiz_body
     assert kiz_body.find("e && e.conflict") < kiz_body.find("if (attempt < 1)")

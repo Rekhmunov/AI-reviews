@@ -2558,6 +2558,8 @@
     clearBanner({ silent: true });
     await awaitLocalAutosaves();
     if (state.kizPushCancel) return { status: "cancelled" };
+    // Local flush during await may have re-queued WB auto-push — drop it again.
+    cancelPendingWbAutoPushes();
     const rows = state.kizRows || [];
     const items = [];
     for (const row of rows) {
