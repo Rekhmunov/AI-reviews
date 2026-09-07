@@ -14,7 +14,7 @@ import time
 import urllib.error
 import urllib.request
 from datetime import UTC, date, datetime, timedelta
-from typing import Any
+from typing import Any, Mapping
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
@@ -2170,6 +2170,321 @@ def process_return_scan(
         "error": "not_found",
         "message": "Не удалось распознать скан. Синхронизируйте возвраты WB или проверьте сканирование.",
     }
+
+
+_RESTORE_NOT_FOUND_MSG = (
+    "Не найдено в уже загруженных отчётах. "
+    "Сначала синхронизируйте в «ВБ ФБС → Возвраты → Синхр. WB», затем повторите скан."
+)
+_RESTORE_AMBIGUOUS_MSG = "Найдено в нескольких кабинетах — уточните скан или источник"
+_RESTORE_DUPLICATE_MSG = "Уже был в журнале — можно распечатать снова"
+
+
+def _restore_source_meta(source: Mapping[str, Any] | dict[str, Any]) -> dict[str, Any]:
+    try:
+        sid = int(source.get("id") or source.get("source_id") or 0)
+    except (TypeError, ValueError):
+        sid = 0
+    return {
+        "source_id": sid,
+        "source_name": str(source.get("name") or "").strip(),
+    }
+
+
+def _goods_return_identity(row: dict[str, Any]) -> tuple[str, str]:
+    try:
+        order_id = int(row.get("wb_order_id") or 0)
+    except (TypeError, ValueError):
+        order_id = 0
+    if order_id > 0:
+        return ("order", str(order_id))
+    sticker = str(row.get("sticker_id") or "").strip()
+    if sticker:
+        return ("sticker", sticker)
+    srid = str(row.get("srid") or "").strip()
+    if srid:
+        return ("srid", srid)
+    barcode = str(row.get("barcode") or row.get("shk_id") or "").strip()
+    if barcode:
+        return ("barcode", barcode)
+    return ("row", str(row.get("id") or ""))
+
+
+def _finalize_restore_scan_result(
+    result: dict[str, Any],
+    *,
+    source: Mapping[str, Any] | dict[str, Any],
+) -> dict[str, Any]:
+    meta = _restore_source_meta(source)
+    if result.get("ok"):
+        item = result.get("item") if isinstance(result.get("item"), dict) else {}
+        _log.info(
+            "restore_scan hit source_id=%s order_id=%s scan_type=%s",
+            meta["source_id"],
+            item.get("order_id"),
+            item.get("scan_type"),
+        )
+        return {
+            "ok": True,
+            "duplicate": False,
+            "item": item,
+            "source_id": meta["source_id"],
+            "source_name": meta["source_name"],
+        }
+    if str(result.get("error") or "") == "duplicate":
+        item = result.get("item") if isinstance(result.get("item"), dict) else {}
+        _log.info(
+            "restore_scan duplicate source_id=%s scan_id=%s",
+            meta["source_id"],
+            item.get("id"),
+        )
+        return {
+            "ok": True,
+            "duplicate": True,
+            "item": item,
+            "source_id": meta["source_id"],
+            "source_name": meta["source_name"],
+            "message": _RESTORE_DUPLICATE_MSG,
+        }
+    return result
+
+
+def _run_restore_scan_on_source(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source: Mapping[str, Any] | dict[str, Any],
+    scan: str,
+) -> dict[str, Any]:
+    """Process scan on one source using local DB only (empty api_key)."""
+    meta = _restore_source_meta(source)
+    sid = int(meta["source_id"] or 0)
+    if sid <= 0:
+        return {
+            "ok": False,
+            "error": "invalid_source",
+            "message": "Некорректный источник",
+        }
+    result = process_return_scan(
+        repo,
+        user_id=user_id,
+        source_id=sid,
+        api_key="",
+        scan=scan,
+    )
+    return _finalize_restore_scan_result(result, source=source)
+
+
+def _process_restore_kiz_scan(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    sources: list[Mapping[str, Any] | dict[str, Any]],
+    scan: str,
+) -> dict[str, Any]:
+    code = kiz_restore.normalize_kiz_mark(scan)
+    hits: list[tuple[Mapping[str, Any] | dict[str, Any], list[int]]] = []
+    order_ids: set[int] = set()
+    for source in sources:
+        meta = _restore_source_meta(source)
+        sid = int(meta["source_id"] or 0)
+        if sid <= 0:
+            continue
+        db_hit = kiz_restore.find_kiz_in_local_database(
+            repo, user_id=user_id, source_id=sid, kiz_code=code
+        )
+        if not db_hit.get("found"):
+            continue
+        matched = [int(x) for x in (db_hit.get("order_ids") or []) if int(x) > 0]
+        if not matched:
+            continue
+        hits.append((source, matched))
+        order_ids.update(matched)
+
+    if len(order_ids) > 1:
+        _log.info("restore_scan ambiguous_kiz orders=%s", sorted(order_ids)[:10])
+        return {
+            "ok": False,
+            "error": "ambiguous",
+            "message": _RESTORE_AMBIGUOUS_MSG,
+            "order_ids": sorted(order_ids)[:10],
+        }
+
+    if hits:
+        return _run_restore_scan_on_source(
+            repo, user_id=user_id, source=hits[0][0], scan=scan
+        )
+
+    # No local order link — still allow reprint (same as admin KIZ path warnings).
+    return _run_restore_scan_on_source(
+        repo, user_id=user_id, source=sources[0], scan=scan
+    )
+
+
+def process_restore_scan(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    sources: list[Mapping[str, Any] | dict[str, Any]],
+    scan: str,
+) -> dict[str, Any]:
+    """Stock «Восстановить данные»: scan across all WB FBS sources, local cache only.
+
+    Never calls WB Analytics. Uses ``api_key=""`` so KIZ/order resolve stay local.
+    Duplicate journal rows still return a printable card (``duplicate: true``).
+    """
+    scan_text = str(scan or "").strip()
+    if not scan_text:
+        return {"ok": False, "error": "empty_scan", "message": "Пустое сканирование"}
+
+    cleaned: list[Mapping[str, Any] | dict[str, Any]] = []
+    for source in sources or []:
+        meta = _restore_source_meta(source)
+        if meta["source_id"] > 0:
+            cleaned.append(source)
+    if not cleaned:
+        return {
+            "ok": False,
+            "error": "no_sources",
+            "message": "Нет источников WB FBS",
+        }
+
+    if kiz_restore.looks_like_kiz_scan(scan_text):
+        return _process_restore_kiz_scan(
+            repo, user_id=user_id, sources=cleaned, scan=scan_text
+        )
+
+    goods_by_identity: dict[tuple[str, str], tuple[Mapping[str, Any] | dict[str, Any], dict[str, Any]]] = {}
+    for source in cleaned:
+        meta = _restore_source_meta(source)
+        sid = int(meta["source_id"] or 0)
+        hit = find_goods_return_by_scan(
+            repo, user_id=user_id, source_id=sid, scan=scan_text
+        )
+        if not hit:
+            continue
+        identity = _goods_return_identity(hit)
+        prev = goods_by_identity.get(identity)
+        if prev is None:
+            goods_by_identity[identity] = (source, hit)
+            continue
+        # Same identity in another cabinet — keep first source.
+
+    if len(goods_by_identity) > 1:
+        _log.info(
+            "restore_scan ambiguous_goods identities=%s",
+            list(goods_by_identity.keys())[:10],
+        )
+        return {
+            "ok": False,
+            "error": "ambiguous",
+            "message": _RESTORE_AMBIGUOUS_MSG,
+        }
+    if len(goods_by_identity) == 1:
+        source, _goods = next(iter(goods_by_identity.values()))
+        return _run_restore_scan_on_source(
+            repo, user_id=user_id, source=source, scan=scan_text
+        )
+
+    assembly_by_order: dict[int, Mapping[str, Any] | dict[str, Any]] = {}
+    for source in cleaned:
+        meta = _restore_source_meta(source)
+        sid = int(meta["source_id"] or 0)
+        sticker_hit = kiz_restore.find_orders_by_sticker_scan(
+            repo, user_id=user_id, source_id=sid, scan=scan_text
+        )
+        if sticker_hit.get("ambiguous"):
+            ids = [
+                int(r.get("order_id"))
+                for r in (sticker_hit.get("matches") or [])
+                if r.get("order_id") is not None
+            ]
+            _log.info("restore_scan ambiguous_sticker source_id=%s orders=%s", sid, ids[:10])
+            return {
+                "ok": False,
+                "error": "ambiguous",
+                "message": _RESTORE_AMBIGUOUS_MSG,
+                "order_ids": ids[:10],
+            }
+        row = sticker_hit.get("row")
+        if not row:
+            continue
+        try:
+            order_id = int(row.get("order_id") or 0)
+        except (TypeError, ValueError):
+            order_id = 0
+        if order_id <= 0:
+            continue
+        if order_id in assembly_by_order:
+            continue
+        assembly_by_order[order_id] = source
+
+    if len(assembly_by_order) > 1:
+        _log.info(
+            "restore_scan ambiguous_assembly orders=%s",
+            sorted(assembly_by_order.keys())[:10],
+        )
+        return {
+            "ok": False,
+            "error": "ambiguous",
+            "message": _RESTORE_AMBIGUOUS_MSG,
+            "order_ids": sorted(assembly_by_order.keys())[:10],
+        }
+    if len(assembly_by_order) == 1:
+        source = next(iter(assembly_by_order.values()))
+        return _run_restore_scan_on_source(
+            repo, user_id=user_id, source=source, scan=scan_text
+        )
+
+    _log.info("restore_scan not_found")
+    return {
+        "ok": False,
+        "error": "not_found",
+        "message": _RESTORE_NOT_FOUND_MSG,
+    }
+
+
+def restore_cache_info(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    sources: list[Mapping[str, Any] | dict[str, Any]],
+) -> dict[str, Any]:
+    """Local goods-return cache summary for stock restore status line (no WB calls)."""
+    ensure_wb_fbs_returns_tables(repo)
+    items: list[dict[str, Any]] = []
+    total = 0
+    with repo._connect() as conn:
+        for source in sources or []:
+            meta = _restore_source_meta(source)
+            sid = int(meta["source_id"] or 0)
+            if sid <= 0:
+                continue
+            row = conn.execute(
+                repo._sql(
+                    """
+                    SELECT COUNT(*) AS cnt, MAX(synced_at) AS last_synced_at
+                    FROM wb_fbs_goods_returns
+                    WHERE user_id = ? AND source_id = ?
+                    """
+                ),
+                (user_id, sid),
+            ).fetchone()
+            d = repo._row_to_dict(row) if row else {}
+            try:
+                count = int(d.get("cnt") or 0)
+            except (TypeError, ValueError):
+                count = 0
+            total += count
+            items.append(
+                {
+                    "source_id": sid,
+                    "name": meta["source_name"],
+                    "goods_rows": count,
+                    "last_synced_at": str(d.get("last_synced_at") or "").strip() or None,
+                }
+            )
+    return {"sources": items, "total_goods_rows": total}
 
 
 def _process_return_sticker_scan(

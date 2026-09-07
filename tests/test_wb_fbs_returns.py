@@ -1026,5 +1026,149 @@ class GoodsReturnSourceFilterTests(unittest.TestCase):
         gate.set()
 
 
+class RestoreScanTests(unittest.TestCase):
+    @patch("review_processor.wb_fbs_returns.process_return_scan")
+    @patch("review_processor.wb_fbs_returns.find_goods_return_by_scan")
+    @patch("review_processor.wb_fbs_returns.kiz_restore.looks_like_kiz_scan", return_value=False)
+    def test_restore_scan_hits_first_source(self, _looks, find_goods, process):
+        find_goods.side_effect = [
+            {"sticker_id": "445566", "wb_order_id": 1001},
+            None,
+        ]
+        process.return_value = {
+            "ok": True,
+            "item": {
+                "id": 7,
+                "scan_type": "return_sticker",
+                "order_id": 1001,
+                "kiz_code": "010467012345678921X",
+            },
+        }
+        repo = MagicMock()
+        sources = [{"id": 19, "name": "A"}, {"id": 21, "name": "B"}]
+        result = returns.process_restore_scan(
+            repo, user_id=1, sources=sources, scan="445566"
+        )
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["duplicate"])
+        self.assertEqual(result["source_id"], 19)
+        self.assertEqual(result["source_name"], "A")
+        process.assert_called_once()
+        self.assertEqual(process.call_args.kwargs["source_id"], 19)
+        self.assertEqual(process.call_args.kwargs["api_key"], "")
+
+    @patch("review_processor.wb_fbs_returns.process_return_scan")
+    @patch("review_processor.wb_fbs_returns.find_goods_return_by_scan")
+    @patch("review_processor.wb_fbs_returns.kiz_restore.looks_like_kiz_scan", return_value=False)
+    def test_restore_scan_duplicate_printable(self, _looks, find_goods, process):
+        find_goods.return_value = {"sticker_id": "445566", "wb_order_id": 1001}
+        process.return_value = {
+            "ok": False,
+            "error": "duplicate",
+            "message": "already",
+            "item": {"id": 11, "scan_type": "return_sticker", "kiz_code": "01X"},
+        }
+        repo = MagicMock()
+        result = returns.process_restore_scan(
+            repo,
+            user_id=1,
+            sources=[{"id": 21, "name": "B"}],
+            scan="445566",
+        )
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["duplicate"])
+        self.assertEqual(result["item"]["id"], 11)
+        self.assertIn("распечатать", result["message"].lower())
+
+    @patch("review_processor.wb_fbs_returns.find_goods_return_by_scan")
+    @patch("review_processor.wb_fbs_returns.kiz_restore.looks_like_kiz_scan", return_value=False)
+    def test_restore_scan_ambiguous_across_sources(self, _looks, find_goods):
+        find_goods.side_effect = [
+            {"sticker_id": "1", "wb_order_id": 100},
+            {"sticker_id": "1", "wb_order_id": 200},
+        ]
+        repo = MagicMock()
+        result = returns.process_restore_scan(
+            repo,
+            user_id=1,
+            sources=[{"id": 19, "name": "A"}, {"id": 21, "name": "B"}],
+            scan="999",
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "ambiguous")
+
+    @patch("review_processor.wb_fbs_returns.kiz_restore.find_orders_by_sticker_scan")
+    @patch("review_processor.wb_fbs_returns.find_goods_return_by_scan", return_value=None)
+    @patch("review_processor.wb_fbs_returns.kiz_restore.looks_like_kiz_scan", return_value=False)
+    def test_restore_scan_not_found_mentions_sync(self, _looks, _goods, sticker):
+        sticker.return_value = {"row": None, "ambiguous": False}
+        repo = MagicMock()
+        result = returns.process_restore_scan(
+            repo,
+            user_id=1,
+            sources=[{"id": 21, "name": "B"}],
+            scan="nope",
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "not_found")
+        self.assertIn("ВБ ФБС", result["message"])
+        self.assertIn("Синхр", result["message"])
+
+    @patch("review_processor.wb_fbs_returns.process_return_scan")
+    @patch("review_processor.wb_fbs_returns.kiz_restore.find_kiz_in_local_database")
+    @patch("review_processor.wb_fbs_returns.kiz_restore.normalize_kiz_mark", side_effect=lambda x: x)
+    @patch("review_processor.wb_fbs_returns.kiz_restore.looks_like_kiz_scan", return_value=True)
+    def test_restore_kiz_uses_matching_source(self, _looks, _norm, find_kiz, process):
+        find_kiz.side_effect = [
+            {"found": False, "order_ids": []},
+            {"found": True, "order_ids": [555]},
+        ]
+        process.return_value = {
+            "ok": True,
+            "item": {"id": 3, "scan_type": "kiz", "order_id": 555, "kiz_code": "01X"},
+        }
+        repo = MagicMock()
+        result = returns.process_restore_scan(
+            repo,
+            user_id=1,
+            sources=[{"id": 19, "name": "A"}, {"id": 21, "name": "B"}],
+            scan="010467012345678921X",
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["source_id"], 21)
+        self.assertEqual(process.call_args.kwargs["api_key"], "")
+
+    def test_restore_cache_info_counts(self):
+        repo = MagicMock()
+        repo._sql = lambda sql: sql
+        repo._row_to_dict = lambda row: dict(row)
+
+        class _Result:
+            def __init__(self, payload):
+                self._payload = payload
+
+            def fetchone(self):
+                return self._payload
+
+        conn = MagicMock()
+        conn.execute = MagicMock(
+            side_effect=[
+                _Result({"cnt": 12, "last_synced_at": "2026-09-01T10:00:00+00:00"}),
+                _Result({"cnt": 0, "last_synced_at": None}),
+            ]
+        )
+        repo._connect.return_value.__enter__ = MagicMock(return_value=conn)
+        repo._connect.return_value.__exit__ = MagicMock(return_value=False)
+        with patch("review_processor.wb_fbs_returns.ensure_wb_fbs_returns_tables"):
+            info = returns.restore_cache_info(
+                repo,
+                user_id=1,
+                sources=[{"id": 21, "name": "B"}, {"id": 19, "name": "A"}],
+            )
+        self.assertEqual(info["total_goods_rows"], 12)
+        self.assertEqual(info["sources"][0]["goods_rows"], 12)
+        self.assertEqual(info["sources"][1]["goods_rows"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

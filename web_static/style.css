@@ -13031,7 +13031,165 @@ button.wb-fbs-kiz-add:disabled {
 }
 #supplyStockReceiptModal .sb-receipt-scan-bar {
   padding-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 12px;
 }
+#supplyStockReceiptModal .sb-receipt-scan-field {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+#supplyStockReceiptRestoreBtn.sb-receipt-restore-btn {
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 8px 16px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+#supplyStockReceiptRestoreBtn.sb-receipt-restore-btn[hidden] {
+  display: none !important;
+}
+
+#supplyStockReturnRestoreModal {
+  z-index: 1250;
+}
+#wbFbsReturnsBarcodeModal {
+  z-index: 1350;
+}
+.sb-return-restore-modal {
+  width: min(520px, 100%);
+  max-width: min(520px, 100%);
+  max-height: min(92vh, 720px);
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  padding: 0;
+}
+.sb-return-restore-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 20px 0;
+}
+.sb-return-restore-header-main {
+  min-width: 0;
+}
+.sb-return-restore-sub {
+  margin: 4px 0 0;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #64748b;
+}
+.sb-return-restore-cache {
+  margin: 12px 20px 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  font-size: 13px;
+  line-height: 1.35;
+  color: #475569;
+}
+.sb-return-restore-scan-bar {
+  padding: 16px 20px 0;
+}
+.sb-return-restore-result {
+  padding: 12px 20px 20px;
+}
+.sb-return-restore-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+}
+.sb-return-restore-meta {
+  font-size: 13px;
+  line-height: 1.35;
+  color: #64748b;
+}
+.sb-return-restore-product {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.sb-return-restore-photo,
+.sb-return-restore-photo-ph {
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  flex: 0 0 auto;
+  object-fit: cover;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+}
+.sb-return-restore-product-text {
+  min-width: 0;
+}
+.sb-return-restore-name {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: #0f172a;
+  word-break: break-word;
+}
+.sb-return-restore-article {
+  margin-top: 4px;
+  font-size: 14px;
+  color: #64748b;
+}
+.sb-return-restore-kiz {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.sb-return-restore-kiz-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+.sb-return-restore-kiz-value {
+  font-size: 13px;
+  line-height: 1.35;
+  word-break: break-all;
+  color: #0f172a;
+}
+.sb-return-restore-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.sb-return-restore-actions button {
+  min-height: 40px;
+  padding: 8px 16px;
+  font-size: 14px;
+}
+.sb-return-restore-hint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #64748b;
+}
+@media (max-width: 480px) {
+  .sb-return-restore-actions {
+    flex-direction: column;
+  }
+  .sb-return-restore-actions button {
+    width: 100%;
+  }
+  #supplyStockReceiptRestoreBtn.sb-receipt-restore-btn {
+    width: 100%;
+  }
+}
+
 /* Beat .sb-adj-row { display:grid } / .sb-vis-row { display:flex } so filter can hide rows */
 .sb-adj-row.hidden,
 .sb-adj-group.hidden,

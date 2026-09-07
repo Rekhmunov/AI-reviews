@@ -11679,6 +11679,70 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=status, detail=msg)
         return result
 
+    def _wb_fbs_restore_sources(owner_id: int) -> list[dict[str, object]]:
+        return [
+            s
+            for s in repository.list_supply_sources(user_id=owner_id)
+            if isinstance(s, dict) and wb_fbs_mod.is_wb_fbs_source(s)
+        ]
+
+    def _can_use_stock_return_restore(user: dict[str, object]) -> bool:
+        return bool(_can_view_supply_stock(user) or _can_view_wb_fbs(user))
+
+    @app.post("/api/wb-fbs/returns/restore/scan")
+    async def wb_fbs_returns_restore_scan(request: Request) -> dict[str, object]:
+        """Stock «Восстановить данные»: scan all WB FBS sources from local cache only."""
+        from . import wb_fbs_returns as returns_mod
+
+        user = _require_user(request)
+        if not _can_use_stock_return_restore(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        scan = str(body.get("scan") or "").strip()
+        if not scan:
+            raise HTTPException(status_code=400, detail="Пустое сканирование")
+        sources = _wb_fbs_restore_sources(owner_id)
+        if not sources:
+            raise HTTPException(status_code=400, detail="Нет источников WB FBS")
+        result = returns_mod.process_restore_scan(
+            repository,
+            user_id=owner_id,
+            sources=sources,
+            scan=scan,
+        )
+        if not result.get("ok"):
+            err = str(result.get("error") or "scan_failed")
+            msg = str(result.get("message") or "Не удалось обработать скан")
+            status = (
+                404
+                if err in {"not_found", "ambiguous", "ambiguous_sticker"}
+                else 400
+            )
+            raise HTTPException(status_code=status, detail=msg)
+        return result
+
+    @app.get("/api/wb-fbs/returns/restore/cache-info")
+    def wb_fbs_returns_restore_cache_info(request: Request) -> dict[str, object]:
+        """Local goods-return cache summary for stock restore (no WB calls)."""
+        from . import wb_fbs_returns as returns_mod
+
+        user = _require_user(request)
+        if not _can_use_stock_return_restore(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        sources = _wb_fbs_restore_sources(owner_id)
+        return returns_mod.restore_cache_info(
+            repository,
+            user_id=owner_id,
+            sources=sources,
+        )
+
     @app.get("/api/wb-fbs/returns/scans")
     def wb_fbs_returns_scans(
         request: Request,
@@ -11774,7 +11838,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         from . import wb_fbs_returns as returns_mod
 
         user = _require_user(request)
-        if not _can_view_wb_fbs(user):
+        if not (_can_view_wb_fbs(user) or _can_view_supply_stock(user)):
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
         if not source_id:
