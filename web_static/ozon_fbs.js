@@ -431,10 +431,23 @@
 
   /**
    * Composition lock for «Доставляются»: нельзя менять состав/название.
-   * «Товары с/без КИЗ» остаются видимыми как индикаторы статуса, но модалки не открываются.
+   * «Товары с/без КИЗ» для менеджеров — только индикаторы статуса;
+   * главному пользователю модалки можно открывать (просмотр / правка).
    */
   function isSupplyDetailReadOnly() {
     return Boolean(supplyDetailState.supply?.read_only) || isDeliveringSuppliesTab();
+  }
+
+  function _ozonFbsIsTenantOwner() {
+    return typeof isTenantOwner === "function" && isTenantOwner();
+  }
+
+  function _ozonFbsCanOpenKizPickWhileReadOnly() {
+    return _ozonFbsIsTenantOwner();
+  }
+
+  function _ozonFbsKizPickLockedAsToneOnly() {
+    return isSupplyDetailReadOnly() && !_ozonFbsCanOpenKizPickWhileReadOnly();
   }
 
   function _ozonFbsSyncSupplyDetailToneOnlySplits(toneOnly) {
@@ -501,7 +514,7 @@
       }
     }
     // Delivering: KIZ/pick stay as green status tones but must not open editors.
-    _ozonFbsSyncSupplyDetailToneOnlySplits(!!readOnly);
+    _ozonFbsSyncSupplyDetailToneOnlySplits(_ozonFbsKizPickLockedAsToneOnly());
   }
 
   function colspan() {
@@ -2663,8 +2676,8 @@
       closeStickersMenu();
     }
     _ozonFbsSyncPickVerifyBtn(supplyDetailState.supply?.orders || []);
-    // Delivering: KIZ/pick remain visible as status tones but must not open editors.
-    _ozonFbsSyncSupplyDetailToneOnlySplits(isSupplyDetailReadOnly());
+    // Delivering: managers see KIZ/pick as tones; tenant owner may open modals.
+    _ozonFbsSyncSupplyDetailToneOnlySplits(_ozonFbsKizPickLockedAsToneOnly());
   }
 
   function onSupplyDetailCheckboxChange() {
@@ -9490,7 +9503,7 @@
   }
 
   async function openOzonFbsKizModal() {
-    if (isSupplyDetailReadOnly()) return;
+    if (isSupplyDetailReadOnly() && !_ozonFbsCanOpenKizPickWhileReadOnly()) return;
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
     if (!sid || !sourceId || !_ozonFbsSupplyActionsReady()) return;
@@ -10579,7 +10592,7 @@
   }
 
   async function openOzonFbsPickVerifyModal() {
-    if (isSupplyDetailReadOnly()) return;
+    if (isSupplyDetailReadOnly() && !_ozonFbsCanOpenKizPickWhileReadOnly()) return;
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
     if (!sid || !sourceId || !_ozonFbsSupplyActionsReady()) return;

@@ -1,4 +1,4 @@
-"""Ozon FBS «Доставляются»: KIZ/pick stay as tones, modals do not open."""
+"""Ozon FBS «Доставляются»: KIZ/pick tones; owner may open modals."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def test_ozon_delivering_banner_no_local_edit_hint() -> None:
     )
     assert "Состав поставки изменению не подлежит — отправления уже в доставке." in sync_fn
     assert "можно заносить локально" not in sync_fn
-    assert "_ozonFbsSyncSupplyDetailToneOnlySplits(!!readOnly)" in sync_fn
+    assert "_ozonFbsSyncSupplyDetailToneOnlySplits(_ozonFbsKizPickLockedAsToneOnly())" in sync_fn
     assert 'info.classList.add("is-warn")' in sync_fn
     assert "actions.hidden = false" in sync_fn
 
@@ -38,6 +38,8 @@ def test_ozon_delivering_kiz_pick_tone_only_no_modal() -> None:
     css = STYLE_CSS.read_text(encoding="utf-8")
 
     assert "function _ozonFbsSyncSupplyDetailToneOnlySplits(" in js
+    assert "function _ozonFbsCanOpenKizPickWhileReadOnly(" in js
+    assert "function _ozonFbsKizPickLockedAsToneOnly(" in js
     assert "is-tone-only" in js
     assert "is-tone-only" in css
 
@@ -47,22 +49,27 @@ def test_ozon_delivering_kiz_pick_tone_only_no_modal() -> None:
         "async function openOzonFbsPickVerifyModal(",
         "window.openOzonFbsPickVerifyModal",
     )
-    assert "if (isSupplyDetailReadOnly()) return;" in kiz_fn
-    assert "if (isSupplyDetailReadOnly()) return;" in pick_fn
+    # Managers stay blocked; tenant owner may open for view/edit on delivering.
+    assert "if (isSupplyDetailReadOnly() && !_ozonFbsCanOpenKizPickWhileReadOnly()) return;" in kiz_fn
+    assert "if (isSupplyDetailReadOnly() && !_ozonFbsCanOpenKizPickWhileReadOnly()) return;" in pick_fn
+    assert "if (isSupplyDetailReadOnly()) return;" not in kiz_fn
+    assert "if (isSupplyDetailReadOnly()) return;" not in pick_fn
+    assert "_ozonFbsIsTenantOwner()" in js
+    assert "return _ozonFbsIsTenantOwner();" in js
 
     ready_fn = _slice_fn(
         js,
         "function _ozonFbsSupplyDetailSetActionsReady(",
         "function onSupplyDetailCheckboxChange(",
     )
-    assert "_ozonFbsSyncSupplyDetailToneOnlySplits(isSupplyDetailReadOnly())" in ready_fn
+    assert "_ozonFbsSyncSupplyDetailToneOnlySplits(_ozonFbsKizPickLockedAsToneOnly())" in ready_fn
 
     # Buttons still present in markup; refresh remains for tone updates.
     assert 'id="ozonFbsSupplyDetailKizBtn"' in html
     assert 'id="ozonFbsSupplyDetailPickVerifyBtn"' in html
     assert 'id="ozonFbsSupplyDetailKizRefreshBtn"' in html
     assert 'id="ozonFbsSupplyDetailPickRefreshBtn"' in html
-    assert "ozon_fbs.js?v=129" in html
+    assert "ozon_fbs.js?v=132" in html
 
 
 def test_ozon_delivering_auto_tones_still_run() -> None:
