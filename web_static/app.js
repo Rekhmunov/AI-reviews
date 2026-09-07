@@ -13796,7 +13796,61 @@ function _sbUpdateHistoryBtn() {
     : on
       ? "Скрыть колонки прошлых дат"
       : "Показать колонки по датам движений";
+  _sbSyncBalancesFilterBtnActive();
 }
+
+function setSupplyBalancesFilterPanelOpen(open) {
+  const panel = document.getElementById("supplyBalancesFilterPanel");
+  const btn = document.getElementById("supplyBalancesFilterBtn");
+  if (!panel) return;
+  if (open) panel.removeAttribute("hidden");
+  else panel.setAttribute("hidden", "");
+  if (btn) {
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    btn.classList.toggle("is-open", !!open);
+  }
+  _sbSyncBalancesFilterBtnActive();
+}
+
+function toggleSupplyBalancesFilterPanel(force) {
+  const panel = document.getElementById("supplyBalancesFilterPanel");
+  if (!panel) return;
+  const next =
+    force === true ? true : force === false ? false : panel.hasAttribute("hidden");
+  setSupplyBalancesFilterPanelOpen(next);
+}
+window.toggleSupplyBalancesFilterPanel = toggleSupplyBalancesFilterPanel;
+window.setSupplyBalancesFilterPanelOpen = setSupplyBalancesFilterPanelOpen;
+
+function _sbSyncBalancesFilterBtnActive() {
+  const btn = document.getElementById("supplyBalancesFilterBtn");
+  if (!btn) return;
+  const cat = document.getElementById("supplyBalancesCategoryFilter");
+  const catOn = !!(cat && String(cat.value || "").trim());
+  const histOn = !!supplyBalancesState.showHistory
+    && supplyBalancesState.viewMode !== "sales"
+    && supplyBalancesState.viewMode !== "movements";
+  const open = btn.getAttribute("aria-expanded") === "true";
+  btn.classList.toggle("is-active", open || catOn || histOn);
+}
+
+let _sbBalancesFilterOutsideBound = false;
+function _sbBindBalancesFilterOutsideClose() {
+  if (_sbBalancesFilterOutsideBound) return;
+  _sbBalancesFilterOutsideBound = true;
+  document.addEventListener("pointerdown", (ev) => {
+    const panel = document.getElementById("supplyBalancesFilterPanel");
+    const wrap = document.querySelector("#section-supplies-balances .sb-toolbar-filter-wrap");
+    if (!panel || panel.hasAttribute("hidden") || !wrap) return;
+    if (wrap.contains(ev.target)) return;
+    setSupplyBalancesFilterPanelOpen(false);
+  });
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Escape") return;
+    setSupplyBalancesFilterPanelOpen(false);
+  });
+}
+_sbBindBalancesFilterOutsideClose();
 
 function _sbUpdateBelowMinBtn() {
   const btn = document.getElementById("supplyBalancesBelowMinBtn");
@@ -14465,6 +14519,7 @@ function onSupplyBalancesCategoryChange() {
   const sel = document.getElementById("supplyBalancesCategoryFilter");
   supplyBalancesState.categoryFilter = String(sel?.value || "");
   applySupplyBalancesSearchFilter();
+  _sbSyncBalancesFilterBtnActive();
 }
 window.onSupplyBalancesCategoryChange = onSupplyBalancesCategoryChange;
 
@@ -15879,6 +15934,7 @@ async function openSupplyBalancesVisibilityModal() {
   const list = document.getElementById("supplyBalancesVisibilityList");
   const searchEl = document.getElementById("supplyBalancesVisibilitySearch");
   const countEl = document.getElementById("supplyBalancesVisibilityFilterCount");
+  setSupplyBalancesFilterPanelOpen(false);
   setModalVisibility("supplyBalancesVisibilityModal", true);
   if (searchEl) searchEl.value = "";
   if (countEl) {

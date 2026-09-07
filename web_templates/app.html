@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=310" />
+  <link rel="stylesheet" href="/static/style.css?v=311" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -3910,22 +3910,47 @@
         </div>
         <div class="panel supplies-toolbar-panel sb-toolbar">
           <div class="sb-toolbar-grid" role="toolbar" aria-label="Фильтры и действия остатков">
-            <div class="sb-toolbar-search">
-              <label class="sr-only" for="supplyBalancesSearchFilter">Поиск</label>
-              <div class="sb-search-row">
-                <input id="supplyBalancesSearchFilter" type="search" placeholder="Поиск: название, артикул, ШК…"
-                       autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-                       oninput="onSupplyBalancesSearchInput()" />
-                <span id="supplyBalancesFilterCount" class="small supplies-filter-count" hidden></span>
+            <div class="sb-toolbar-leading">
+              <div class="sb-toolbar-filter-wrap">
+                <button type="button" id="supplyBalancesFilterBtn"
+                        class="icon-btn secondary sb-bulk-filter-btn"
+                        title="Фильтры" aria-label="Фильтры"
+                        aria-expanded="false" aria-controls="supplyBalancesFilterPanel"
+                        aria-haspopup="true"
+                        onclick="toggleSupplyBalancesFilterPanel()">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M4 6h16M7 12h10M10 18h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                  </svg>
+                </button>
+                <div id="supplyBalancesFilterPanel" class="sb-balances-filter-panel" hidden role="menu">
+                  <div class="sb-toolbar-category">
+                    <label class="sr-only" for="supplyBalancesCategoryFilter">Категория</label>
+                    <select id="supplyBalancesCategoryFilter" onchange="onSupplyBalancesCategoryChange()"
+                            title="Фильтр по категории товаров или материалам">
+                      <option value="">Все</option>
+                      <option value="__materials__">Материалы</option>
+                    </select>
+                  </div>
+                  <button type="button" class="secondary" role="menuitem"
+                          onclick="openSupplyBalancesVisibilityModal()"
+                          title="Вывод в таблице" aria-label="Вывод в таблице">Вывод</button>
+                  <button type="button" class="secondary" id="supplyBalancesHistoryBtn" role="menuitem"
+                          onclick="toggleSupplyBalancesHistory()" aria-pressed="false"
+                          title="Показать колонки по датам движений">
+                    <span class="sb-btn-full">История дат</span>
+                    <span class="sb-btn-short" aria-hidden="true">История</span>
+                  </button>
+                </div>
               </div>
-            </div>
-            <div class="sb-toolbar-category">
-              <label class="sr-only" for="supplyBalancesCategoryFilter">Категория</label>
-              <select id="supplyBalancesCategoryFilter" onchange="onSupplyBalancesCategoryChange()"
-                      title="Фильтр по категории товаров или материалам">
-                <option value="">Все</option>
-                <option value="__materials__">Материалы</option>
-              </select>
+              <div class="sb-toolbar-search">
+                <label class="sr-only" for="supplyBalancesSearchFilter">Поиск</label>
+                <div class="sb-search-row">
+                  <input id="supplyBalancesSearchFilter" type="search" placeholder="Поиск: название, артикул, ШК…"
+                         autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                         oninput="onSupplyBalancesSearchInput()" />
+                  <span id="supplyBalancesFilterCount" class="small supplies-filter-count" hidden></span>
+                </div>
+              </div>
             </div>
             <div class="sb-toolbar-filters" role="group" aria-label="Фильтры остатков">
               <div class="sb-below-min-cluster" role="group" aria-label="Ниже минимума и заказ">
@@ -3943,14 +3968,6 @@
                   </svg>
                 </button>
               </div>
-              <button type="button" class="secondary" onclick="openSupplyBalancesVisibilityModal()"
-                      title="Вывод в таблице" aria-label="Вывод в таблице">Вывод</button>
-              <button type="button" class="secondary" id="supplyBalancesHistoryBtn"
-                      onclick="toggleSupplyBalancesHistory()" aria-pressed="false"
-                      title="Показать колонки по датам движений">
-                <span class="sb-btn-full">История дат</span>
-                <span class="sb-btn-short" aria-hidden="true">История</span>
-              </button>
               <button type="button" class="secondary" onclick="openSupplyStockAsOfModal()"
                       title="Сформировать остатки, продажи или движение товаров на дату">
                 <span class="sb-btn-full">Сформировать на дату</span>
@@ -6647,6 +6664,6 @@
 
   <script src="/static/ozon_fbs.js?v=131"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=20"></script>
-  <script src="/static/app.js?v=558"></script>
+  <script src="/static/app.js?v=559"></script>
 </body>
 </html>

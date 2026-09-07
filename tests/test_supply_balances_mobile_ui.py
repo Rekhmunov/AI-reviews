@@ -68,8 +68,8 @@ def test_js_fluid_table_width_on_compact() -> None:
 
 
 def test_cache_bump() -> None:
-    assert "style.css?v=310" in APP_HTML
-    assert "app.js?v=558" in APP_HTML
+    assert "style.css?v=311" in APP_HTML
+    assert "app.js?v=559" in APP_HTML
 
 
 def test_receipt_modal_compact_bulk_under_filter() -> None:
