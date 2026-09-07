@@ -45,11 +45,6 @@
     baselinePickByOrder: {},
     saving: false,
     clearing: false,
-    /** Background WB meta/sgtin after local autosave — never on the scan await path. */
-    wbAutoPushSeqByOrder: {},
-    wbAutoPushChain: null,
-    wbAutoPushInflight: 0,
-    wbAutoPushGen: 0,
     loadUi: {
       token: 0,
       hintTimer: null,
@@ -2237,164 +2232,6 @@
       .catch(() => {});
   }
 
-  /**
-   * After local FeedPilot autosave: push this order to WB in the background.
-   * Separate chain from localAutosaveChain so scan latency stays unchanged.
-   * Floppy / leave-save remain the safety net if this fails or is cancelled.
-   */
-  function scheduleKizWbAutoPush(orderId) {
-    if (isOzon()) return;
-    const id = String(orderId || "").trim();
-    if (!id) return;
-    const seq = (Number(state.wbAutoPushSeqByOrder[id]) || 0) + 1;
-    state.wbAutoPushSeqByOrder[id] = seq;
-    const gen = Number(state.wbAutoPushGen) || 0;
-    const run = () => flushKizWbAutoPush(id, seq, gen);
-    state.wbAutoPushChain = (state.wbAutoPushChain || Promise.resolve())
-      .then(run, run)
-      .catch(() => {});
-  }
-
-  function cancelPendingWbAutoPushes() {
-    state.wbAutoPushGen = (Number(state.wbAutoPushGen) || 0) + 1;
-  }
-
-  async function flushKizWbAutoPush(orderId, seq, gen, attempt = 0) {
-    if (isOzon()) return;
-    const id = String(orderId || "").trim();
-    if (!id) return;
-    if ((Number(state.wbAutoPushGen) || 0) !== gen) return;
-    if ((Number(state.wbAutoPushSeqByOrder[id]) || 0) !== seq) return;
-    // Explicit floppy/leave owns WB traffic — do not race it.
-    if (state.saving) return;
-    if (state.route.view !== "scan" || state.route.mode !== "kiz") return;
-    const row = findRowByScanId(state.kizRows, id);
-    if (!row) return;
-    if (!rowNeedsKizWbPush(row)) return;
-    const oid = Number(row.order_id);
-    if (!Number.isFinite(oid)) return;
-    const codes = normalizeKizCodesList(row.kiz_codes);
-    const clear = !codes.length;
-    if (clear && !rowNeedsKizWbClear(row)) return;
-
-    const item = {
-      order_id: oid,
-      kiz_codes: codes,
-      clear,
-      expected_saved_at: String(row.kiz_saved_at || ""),
-      force: !!state.forceSaveByOrder[id],
-    };
-
-    state.wbAutoPushInflight = (Number(state.wbAutoPushInflight) || 0) + 1;
-    try {
-      const params = new URLSearchParams({ source_id: String(state.sourceId) });
-      const url = `/api/wb-fbs/tsd/supplies/${encodeURIComponent(state.route.supplyId)}/kiz?${params}`;
-      const data = await api(url, {
-        method: "PUT",
-        headers: jsonHeaders(),
-        body: JSON.stringify({ items: [item] }),
-        keepalive: true,
-      });
-      if ((Number(state.wbAutoPushGen) || 0) !== gen) return;
-      if ((Number(state.wbAutoPushSeqByOrder[id]) || 0) !== seq) return;
-      if (state.saving) return;
-      if (state.route.view !== "scan" || state.route.mode !== "kiz") return;
-
-      const result =
-        (data.results || []).find((r) => Number(r.order_id) === oid) || null;
-      if (!result) return;
-
-      if (result.conflict) {
-        row.kiz_saved_at = String(result.kiz_saved_at || row.kiz_saved_at || "");
-        if (Array.isArray(result.kiz_codes)) {
-          const serverCodes = normalizeKizCodesList(result.kiz_codes);
-          row.kiz_codes = serverCodes.length ? serverCodes.slice() : [""];
-          state.baselineKizByOrder[id] = serverCodes.slice();
-        }
-        delete state.forceSaveByOrder[id];
-        delete state.pendingKizClear[id];
-        outboxRemove("kiz", id);
-        outboxSoftStatus(
-          result.error ||
-            "На сервере уже другое сохранение — показаны актуальные КИЗ",
-          "err"
-        );
-        refreshScanChrome("kiz");
-        return;
-      }
-
-      if (result.kiz_saved_at) row.kiz_saved_at = String(result.kiz_saved_at);
-      if (result.ok || result.wb_ok) {
-        delete state.forceSaveByOrder[id];
-        delete state.rowErrors[id];
-        const pushedCodes = normalizeKizCodesList(
-          Array.isArray(result.kiz_codes) ? result.kiz_codes : row.kiz_codes
-        );
-        if (!pushedCodes.length) {
-          delete state.pendingKizClear[id];
-          row.kiz_bound = false;
-          row.kiz_local = false;
-          row.kiz_wb_synced = true;
-          row.kiz_status = "empty";
-          row.kiz_codes = [""];
-        } else {
-          delete state.pendingKizClear[id];
-          row.kiz_bound = true;
-          row.kiz_local = true;
-          row.kiz_wb_synced = true;
-          row.kiz_codes = pushedCodes.slice();
-          if (row.kiz_status === "empty") row.kiz_status = "pending";
-        }
-        state.baselineKizByOrder[id] = normalizeKizCodesList(row.kiz_codes);
-        outboxRemove("kiz", id);
-        refreshScanChrome("kiz");
-        return;
-      }
-
-      // WB rejected — keep unsynced so floppy/leave can retry.
-      row.kiz_wb_synced = false;
-      if (result.error) state.rowErrors[id] = String(result.error);
-      if (attempt < 1) {
-        await new Promise((r) => setTimeout(r, 200));
-        if ((Number(state.wbAutoPushGen) || 0) !== gen) return;
-        if ((Number(state.wbAutoPushSeqByOrder[id]) || 0) !== seq) return;
-        return flushKizWbAutoPush(id, seq, gen, attempt + 1);
-      }
-      outboxSoftStatus(
-        result.error || "Не удалось отправить КИЗ в WB — нажмите «Сохранить»",
-        "warn"
-      );
-      refreshScanChrome("kiz");
-    } catch (e) {
-      if ((Number(state.wbAutoPushGen) || 0) !== gen) return;
-      if ((Number(state.wbAutoPushSeqByOrder[id]) || 0) !== seq) return;
-      row.kiz_wb_synced = false;
-      if (attempt < 1) {
-        await new Promise((r) => setTimeout(r, 200));
-        if ((Number(state.wbAutoPushGen) || 0) !== gen) return;
-        if ((Number(state.wbAutoPushSeqByOrder[id]) || 0) !== seq) return;
-        return flushKizWbAutoPush(id, seq, gen, attempt + 1);
-      }
-      if (typeof navigator !== "undefined" && navigator.onLine === false) {
-        outboxSoftStatus(
-          "Нет связи — КИЗ сохранён локально, в WB уйдёт при «Сохранить» или появлении сети",
-          "warn"
-        );
-      } else {
-        outboxSoftStatus(
-          (e && e.message) || "Не удалось отправить КИЗ в WB — нажмите «Сохранить»",
-          "warn"
-        );
-      }
-      refreshScanChrome("kiz");
-    } finally {
-      state.wbAutoPushInflight = Math.max(
-        0,
-        (Number(state.wbAutoPushInflight) || 1) - 1
-      );
-    }
-  }
-
   function schedulePickLocalAutosave(orderId) {
     const id = String(orderId || "").trim();
     if (!id) return;
@@ -2456,8 +2293,6 @@
       state.baselineKizByOrder[id] = codes.slice();
       outboxRemove("kiz", id);
       refreshScanChrome("kiz");
-      // Fire-and-forget WB push on a separate chain — must not delay the next scan.
-      if (!isOzon()) scheduleKizWbAutoPush(id);
     } catch (e) {
       if ((Number(state.localAutosaveSeqByOrder[id]) || 0) !== seq) return;
       // Conflict already adopted server codes — never force-retry (would wipe PC).
@@ -2553,13 +2388,9 @@
     const leaveSave = !!(opts && opts.leaveSave);
     if (state.saving) return { status: "busy" };
     state.kizPushCancel = false;
-    // Floppy / leave own WB traffic — cancel background auto-pushes first.
-    cancelPendingWbAutoPushes();
     clearBanner({ silent: true });
     await awaitLocalAutosaves();
     if (state.kizPushCancel) return { status: "cancelled" };
-    // Local flush during await may have re-queued WB auto-push — drop it again.
-    cancelPendingWbAutoPushes();
     const rows = state.kizRows || [];
     const items = [];
     for (const row of rows) {

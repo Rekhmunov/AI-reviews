@@ -162,31 +162,28 @@ def test_tsd_autosave_conflict_no_retry_refreshes_ui() -> None:
     # (parity with web modal _wbFbsKizFlushLocalAutosave).
     assert "kiz_wb_synced = false" in kiz_body
     assert 'refreshScanChrome("kiz")' in kiz_body
-    # Background WB push is scheduled off the local chain (scan path stays fast).
-    assert "scheduleKizWbAutoPush(id)" in kiz_body
-    assert "scheduleKizWbAutoPush(id)" in js
-    assert "function scheduleKizWbAutoPush" in js
-    assert "async function flushKizWbAutoPush" in js
-    assert "wbAutoPushChain" in js
-    assert "cancelPendingWbAutoPushes" in js
-    # Separate chain — must not be awaited from scheduleKizLocalAutosave.
+    # No background WB auto-push — only floppy / leave push to WB.
+    assert "scheduleKizWbAutoPush" not in js
+    assert "flushKizWbAutoPush" not in js
+    assert "wbAutoPushChain" not in js
+    assert "cancelPendingWbAutoPushes" not in js
+    # Local autosave chain must not await WB traffic.
     local_sched = js[
         js.find("function scheduleKizLocalAutosave") : js.find(
-            "function scheduleKizWbAutoPush"
+            "function schedulePickLocalAutosave"
         )
     ]
     assert "flushKizLocalAutosave" in local_sched
-    assert "flushKizWbAutoPush" not in local_sched
-    assert "await flushKizWbAutoPush" not in js
-    # Floppy/leave cancel background pushes before owning WB traffic.
+    assert "set_order_sgtin" not in local_sched
+    # Floppy/leave still own explicit WB push after local flush.
     push_all = js[
         js.find("async function saveKizPushAll") : js.find(
             "async function saveKizPushAll"
         )
         + 1200
     ]
-    assert push_all.count("cancelPendingWbAutoPushes()") >= 2
-    assert "re-queued WB auto-push" in push_all
+    assert "await awaitLocalAutosaves()" in push_all
+    assert "cancelPendingWbAutoPushes" not in push_all
     # retry only for non-conflict errors
     assert "if (attempt < 1)" in kiz_body
     assert kiz_body.find("e && e.conflict") < kiz_body.find("if (attempt < 1)")
