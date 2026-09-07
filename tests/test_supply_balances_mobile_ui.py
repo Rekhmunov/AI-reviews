@@ -68,7 +68,7 @@ def test_js_fluid_table_width_on_compact() -> None:
 
 
 def test_cache_bump() -> None:
-    assert "style.css?v=312" in APP_HTML
+    assert "style.css?v=313" in APP_HTML
     assert "app.js?v=560" in APP_HTML
 
 

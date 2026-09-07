@@ -1,4 +1,4 @@
-"""Ozon FBS supply modal: hide «Перенести в доставку» on delivering supplies."""
+"""Ozon FBS: «Перенести в доставку» only when KIZ/pick splits are green."""
 
 from __future__ import annotations
 
@@ -29,3 +29,22 @@ def test_move_delivering_btn_hidden_for_delivering_supplies() -> None:
     assert block_start > 0
     nearby = css[block_start : block_start + 420]
     assert "display: none !important" in nearby
+
+
+def test_move_delivering_requires_green_kiz_and_pick() -> None:
+    js = (STATIC / "ozon_fbs.js").read_text(encoding="utf-8")
+    css = (STATIC / "style.css").read_text(encoding="utf-8")
+    html = (TEMPLATES / "app.html").read_text(encoding="utf-8")
+
+    assert "function _ozonFbsCanMoveToDelivering(" in js
+    assert "function _ozonFbsSyncMoveDeliveringEnabled(" in js
+    assert "is-scan-incomplete" in js
+    assert "is-scan-incomplete" in css
+    assert 'classList.contains("is-ok")' in js
+    assert "_ozonFbsKizToneFromSupply(supply) !== \"ok\"" in js
+    assert "_ozonFbsPickToneFromSupply(supply) !== \"ok\"" in js
+    # Wired into tone updates + action ready + click/confirm guards.
+    assert "_ozonFbsSyncMoveDeliveringEnabled()" in js
+    assert "if (!_ozonFbsCanMoveToDelivering())" in js
+    assert "должны быть зелёными" in js
+    assert "ozon_fbs.js?v=133" in html

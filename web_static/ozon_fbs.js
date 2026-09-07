@@ -515,6 +515,7 @@
     }
     // Delivering: KIZ/pick stay as green status tones but must not open editors.
     _ozonFbsSyncSupplyDetailToneOnlySplits(_ozonFbsKizPickLockedAsToneOnly());
+    _ozonFbsSyncMoveDeliveringEnabled();
   }
 
   function colspan() {
@@ -2678,6 +2679,7 @@
     _ozonFbsSyncPickVerifyBtn(supplyDetailState.supply?.orders || []);
     // Delivering: managers see KIZ/pick as tones; tenant owner may open modals.
     _ozonFbsSyncSupplyDetailToneOnlySplits(_ozonFbsKizPickLockedAsToneOnly());
+    _ozonFbsSyncMoveDeliveringEnabled();
   }
 
   function onSupplyDetailCheckboxChange() {
@@ -6006,6 +6008,14 @@
       );
       return;
     }
+    if (!_ozonFbsCanMoveToDelivering()) {
+      _ozonFbsSyncMoveDeliveringEnabled();
+      _ozonFbsMoveDeliveringNotice(
+        "Сначала завершите сканирование: «Товары с КИЗ» и «Товары без КИЗ» должны быть зелёными",
+        { title: "Перенести в доставку", kind: "error" }
+      );
+      return;
+    }
     const name = String(supplyDetailState.supply?.name || sid).trim();
     const orderN = Number(supplyDetailState.supply?.order_count || 0);
     const orderLabel = orderN > 0 ? String(orderN) : "Все";
@@ -6034,6 +6044,14 @@
     if (!sid || !sourceId) {
       _ozonFbsMoveDeliveringNotice(
         "Откройте поставку и дождитесь загрузки заказов",
+        { title: "Перенести в доставку", kind: "error" }
+      );
+      return;
+    }
+    if (!_ozonFbsCanMoveToDelivering()) {
+      _ozonFbsSyncMoveDeliveringEnabled();
+      _ozonFbsMoveDeliveringNotice(
+        "Сначала завершите сканирование: «Товары с КИЗ» и «Товары без КИЗ» должны быть зелёными",
         { title: "Перенести в доставку", kind: "error" }
       );
       return;
@@ -6087,8 +6105,8 @@
         confirmBtn.textContent = "Перенести";
       }
       if (btn) {
-        btn.removeAttribute("aria-disabled");
         btn.classList.remove("is-wait-orders");
+        _ozonFbsSyncMoveDeliveringEnabled();
       }
     }
   }
@@ -7891,6 +7909,7 @@
         delete split.dataset.containerErrorTip;
       }
     }
+    _ozonFbsSyncMoveDeliveringEnabled();
   }
 
   function kizBadgeHtml(order) {
@@ -8007,6 +8026,7 @@
       const tip = split.dataset.containerErrorTip || refreshBtn.title || "Ошибка привязки к грузоместу";
       refreshBtn.title = tip;
     }
+    _ozonFbsSyncMoveDeliveringEnabled();
   }
 
   /** Fire-and-forget: reuse marking/pick status endpoints (same tone rules as refresh). */
@@ -8051,6 +8071,59 @@
     return plain.every(
       (o) => !!o.pick_verified && !!String(o.pick_barcode || "").trim()
     ) ? "ok" : "";
+  }
+
+  /**
+   * «Перенести в доставку» only when every present scan group is green:
+   * - KIZ rows → «Товары с КИЗ» is-ok
+   * - plain rows → «Товары без КИЗ» is-ok
+   * Missing group is not required. Cancelled postings are ignored.
+   */
+  function _ozonFbsCanMoveToDelivering() {
+    if (isDeliveringSuppliesTab() || isSupplyDetailReadOnly()) return false;
+    if (!_ozonFbsSupplyActionsReady()) return false;
+    const supply = supplyDetailState.supply;
+    const orders = Array.isArray(supply?.orders) ? supply.orders : [];
+    const needsKiz = orders.some((o) => o && o.kiz_required && !_ozonFbsRowIsCancelled(o));
+    const needsPick = orders.some((o) => o && !o.kiz_required && !_ozonFbsRowIsCancelled(o));
+    if (!needsKiz && !needsPick) return false;
+    if (needsKiz) {
+      const kizSplit = document.getElementById("ozonFbsKizSplit");
+      if (!kizSplit || kizSplit.hidden || !kizSplit.classList.contains("is-ok")) return false;
+      if (_ozonFbsKizToneFromSupply(supply) !== "ok") return false;
+    }
+    if (needsPick) {
+      const pickSplit = document.getElementById("ozonFbsPickSplit");
+      if (!pickSplit || pickSplit.hidden || !pickSplit.classList.contains("is-ok")) return false;
+      if (_ozonFbsPickToneFromSupply(supply) !== "ok") return false;
+    }
+    return true;
+  }
+
+  function _ozonFbsSyncMoveDeliveringEnabled() {
+    const btn = document.getElementById("ozonFbsSupplyDetailMoveDeliveringBtn");
+    if (!btn || btn.hidden) return;
+    // While orders are loading / request in flight, leave wait-orders alone.
+    if (!supplyDetailState.ordersReady || btn.classList.contains("is-wait-orders")) {
+      btn.classList.remove("is-scan-incomplete");
+      return;
+    }
+    const tipOk =
+      "Локально перенести поставку в «Доставляются» и списать с Остатки (без отправки в Ozon)";
+    const tipScan =
+      "Сначала завершите сканирование: «Товары с КИЗ» и «Товары без КИЗ» должны быть зелёными";
+    const can = _ozonFbsCanMoveToDelivering();
+    if (can) {
+      btn.removeAttribute("aria-disabled");
+      btn.classList.remove("is-scan-incomplete");
+      btn.removeAttribute("tabindex");
+      btn.setAttribute("title", tipOk);
+    } else {
+      btn.setAttribute("aria-disabled", "true");
+      btn.classList.add("is-scan-incomplete");
+      btn.tabIndex = -1;
+      btn.setAttribute("title", tipScan);
+    }
   }
 
   function _ozonFbsPickSyncToneFromRows(rows) {

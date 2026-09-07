@@ -11010,7 +11010,11 @@ button.wb-fbs-select-all-link:disabled {
 .wb-fbs-sd-actions button.is-wait-orders,
 .wb-fbs-sd-actions button.is-wait-orders:hover,
 .wb-fbs-sd-actions button.is-wait-orders:active,
-.wb-fbs-sd-actions button.is-wait-orders:focus {
+.wb-fbs-sd-actions button.is-wait-orders:focus,
+.wb-fbs-sd-actions button.is-scan-incomplete,
+.wb-fbs-sd-actions button.is-scan-incomplete:hover,
+.wb-fbs-sd-actions button.is-scan-incomplete:active,
+.wb-fbs-sd-actions button.is-scan-incomplete:focus {
   opacity: 0.5;
   cursor: not-allowed;
   transform: none;
