@@ -15255,6 +15255,7 @@ function _sbCollectReceiptItemsFromList() {
 async function openSupplyStockReceiptModal() {
   _sbSetDocErr("supplyStockReceiptErr", "");
   _sbSetReceiptScanInfo("");
+  setSupplyStockReceiptBulkPanelOpen(false);
   setModalVisibility("supplyStockReceiptModal", true);
   const dateEl = document.getElementById("supplyStockReceiptDate");
   const list = document.getElementById("supplyStockReceiptList");
@@ -15280,6 +15281,28 @@ async function openSupplyStockReceiptModal() {
 }
 window.openSupplyStockReceiptModal = openSupplyStockReceiptModal;
 
+function setSupplyStockReceiptBulkPanelOpen(open) {
+  const panel = document.getElementById("supplyStockReceiptBulkPanel");
+  const btn = document.getElementById("supplyStockReceiptFilterBtn");
+  if (!panel) return;
+  if (open) panel.removeAttribute("hidden");
+  else panel.setAttribute("hidden", "");
+  if (btn) {
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    btn.classList.toggle("is-active", !!open);
+  }
+}
+
+function toggleSupplyStockReceiptBulkPanel(force) {
+  const panel = document.getElementById("supplyStockReceiptBulkPanel");
+  if (!panel) return;
+  const next =
+    force === true ? true : force === false ? false : panel.hasAttribute("hidden");
+  setSupplyStockReceiptBulkPanelOpen(next);
+}
+window.toggleSupplyStockReceiptBulkPanel = toggleSupplyStockReceiptBulkPanel;
+window.setSupplyStockReceiptBulkPanelOpen = setSupplyStockReceiptBulkPanelOpen;
+
 function closeSupplyStockReceiptModal() {
   if (_sbReceiptScanHighlightTimer) {
     clearTimeout(_sbReceiptScanHighlightTimer);
@@ -15287,6 +15310,7 @@ function closeSupplyStockReceiptModal() {
   }
   _sbReceiptScanBusy = false;
   _sbSetReceiptScanInfo("");
+  setSupplyStockReceiptBulkPanelOpen(false);
   setModalVisibility("supplyStockReceiptModal", false);
 }
 window.closeSupplyStockReceiptModal = closeSupplyStockReceiptModal;

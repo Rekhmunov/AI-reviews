@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=307" />
+  <link rel="stylesheet" href="/static/style.css?v=308" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -6353,28 +6353,37 @@
           <h3 id="supplyStockReceiptTitle" class="sb-sheet-title">Добавить на склад</h3>
           <button type="button" class="icon-btn secondary" onclick="closeSupplyStockReceiptModal()" aria-label="Закрыть">✕</button>
         </div>
-        <p class="sb-sheet-lead">Укажите количество прихода. Пустые строки не сохраняются.</p>
-        <div class="sb-doc-fields sb-doc-fields-search-end">
-          <label class="sb-doc-field" for="supplyStockReceiptDate">
-            <span>Дата</span>
-            <input type="date" id="supplyStockReceiptDate" />
+        <div class="sb-doc-fields sb-doc-fields-search-end sb-receipt-toolbar">
+          <label class="sb-doc-field sb-doc-field-bare" for="supplyStockReceiptDate">
+            <input type="date" id="supplyStockReceiptDate" aria-label="Дата" title="Дата" />
           </label>
           <div class="sb-sheet-search-end">
+            <button type="button" id="supplyStockReceiptFilterBtn"
+                    class="icon-btn secondary sb-receipt-filter-btn"
+                    title="Массовые действия" aria-label="Массовые действия"
+                    aria-expanded="false" aria-controls="supplyStockReceiptBulkPanel"
+                    onclick="toggleSupplyStockReceiptBulkPanel()">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M4 6h16M7 12h10M10 18h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+            </button>
             <input type="search" id="supplyStockReceiptSearch" class="sb-sheet-search" placeholder="Поиск..."
                    autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
                    aria-label="Поиск" oninput="onSupplyStockModalSearch('receipt')" />
             <span id="supplyStockReceiptFilterCount" class="sb-modal-filter-count" hidden></span>
           </div>
         </div>
-        <div class="sb-bulk-bar">
-          <label class="sb-bulk-value-field" for="supplyStockReceiptBulkValue">
-            <span>Значение</span>
-            <input type="number" id="supplyStockReceiptBulkValue" min="0" step="any" inputmode="decimal" placeholder="0" />
-          </label>
-          <button type="button" class="secondary" onclick="supplyStockBulkFill('receipt','all')">Ко всем</button>
-          <button type="button" class="secondary" onclick="supplyStockBulkFill('receipt','selected')">К выбранным</button>
-          <button type="button" class="secondary" onclick="supplyStockBulkClear('receipt','all')">Обнулить все</button>
-          <button type="button" class="secondary" onclick="supplyStockBulkClear('receipt','selected')">Обнулить выбранные</button>
+        <div id="supplyStockReceiptBulkPanel" class="sb-bulk-panel" hidden>
+          <div class="sb-bulk-bar">
+            <label class="sb-bulk-value-field" for="supplyStockReceiptBulkValue">
+              <span>Значение</span>
+              <input type="number" id="supplyStockReceiptBulkValue" min="0" step="any" inputmode="decimal" placeholder="0" />
+            </label>
+            <button type="button" class="secondary" onclick="supplyStockBulkFill('receipt','all')">Ко всем</button>
+            <button type="button" class="secondary" onclick="supplyStockBulkFill('receipt','selected')">К выбранным</button>
+            <button type="button" class="secondary" onclick="supplyStockBulkClear('receipt','all')">Обнулить все</button>
+            <button type="button" class="secondary" onclick="supplyStockBulkClear('receipt','selected')">Обнулить выбранные</button>
+          </div>
         </div>
         <div class="sb-receipt-scan-bar">
           <label class="sb-receipt-scan-label" for="supplyStockReceiptScan">Сканирование</label>
@@ -6621,6 +6630,6 @@
 
   <script src="/static/ozon_fbs.js?v=131"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=20"></script>
-  <script src="/static/app.js?v=554"></script>
+  <script src="/static/app.js?v=555"></script>
 </body>
 </html>

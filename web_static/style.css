@@ -12806,6 +12806,56 @@ button.wb-fbs-kiz-add:disabled {
   max-width: 200px;
   flex: 0 0 200px;
 }
+.sb-doc-field-bare {
+  gap: 0;
+  min-width: 0;
+}
+.sb-doc-field-bare > span {
+  display: none;
+}
+#supplyStockReceiptModal .sb-sheet-header {
+  gap: 8px;
+  padding: 16px 24px 12px;
+}
+#supplyStockReceiptModal .sb-receipt-toolbar {
+  align-items: center;
+}
+#supplyStockReceiptModal .sb-sheet-search-end {
+  gap: 8px;
+}
+#supplyStockReceiptModal .sb-receipt-filter-btn {
+  flex: 0 0 auto;
+  width: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0;
+  color: #475569;
+}
+#supplyStockReceiptModal .sb-receipt-filter-btn:hover {
+  color: #0f172a;
+  border-color: #94a3b8;
+}
+#supplyStockReceiptModal .sb-receipt-filter-btn:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 1px;
+}
+#supplyStockReceiptModal .sb-receipt-filter-btn.is-active {
+  color: #1d4ed8;
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+#supplyStockReceiptModal .sb-receipt-filter-btn svg {
+  display: block;
+}
+#supplyStockReceiptModal .sb-bulk-panel {
+  padding: 4px 0 0;
+}
+#supplyStockReceiptModal .sb-bulk-panel[hidden] {
+  display: none !important;
+}
+#supplyStockReceiptModal .sb-receipt-scan-bar {
+  padding-top: 4px;
+}
 /* Beat .sb-adj-row { display:grid } / .sb-vis-row { display:flex } so filter can hide rows */
 .sb-adj-row.hidden,
 .sb-adj-group.hidden,
@@ -14339,22 +14389,34 @@ button.wb-fbs-kiz-add:disabled {
     margin-left: 0;
     width: 100%;
   }
+  #supplyStockReceiptModal .sb-sheet-search-end {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 8px;
+  }
+  #supplyStockReceiptModal .sb-receipt-filter-btn {
+    width: 44px;
+    min-width: 44px;
+    min-height: 44px;
+  }
   #supplyStockReceiptModal .sb-sheet-search-end .sb-sheet-search,
   #supplyStockAdjustmentModal .sb-sheet-search-end .sb-sheet-search {
     width: 100%;
     max-width: none;
+    flex: 1 1 auto;
   }
-  #supplyStockReceiptModal .sb-bulk-bar,
+  #supplyStockReceiptModal .sb-bulk-panel .sb-bulk-bar,
   #supplyStockAdjustmentModal .sb-bulk-bar {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 8px;
   }
-  #supplyStockReceiptModal .sb-bulk-bar .sb-bulk-value-field,
+  #supplyStockReceiptModal .sb-bulk-panel .sb-bulk-bar .sb-bulk-value-field,
   #supplyStockAdjustmentModal .sb-bulk-bar .sb-bulk-value-field {
     grid-column: 1 / -1;
   }
-  #supplyStockReceiptModal .sb-bulk-bar button.secondary,
+  #supplyStockReceiptModal .sb-bulk-panel .sb-bulk-bar button.secondary,
   #supplyStockAdjustmentModal .sb-bulk-bar button.secondary {
     width: 100%;
     min-height: 44px;

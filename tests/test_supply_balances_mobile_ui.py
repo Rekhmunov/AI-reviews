@@ -68,5 +68,30 @@ def test_js_fluid_table_width_on_compact() -> None:
 
 
 def test_cache_bump() -> None:
-    assert "style.css?v=307" in APP_HTML
-    assert "app.js?v=553" in APP_HTML
+    assert "style.css?v=308" in APP_HTML
+    assert "app.js?v=555" in APP_HTML
+
+
+def test_receipt_modal_compact_bulk_under_filter() -> None:
+    """Добавить на склад: lead gone, date label gone, bulk under filter icon."""
+    start = APP_HTML.find('id="supplyStockReceiptModal"')
+    end = APP_HTML.find('id="supplyStockAdjustmentModal"')
+    assert start > 0 and end > start
+    block = APP_HTML[start:end]
+    assert "Укажите количество прихода" not in block
+    assert ">Дата<" not in block
+    assert 'aria-label="Дата"' in block
+    assert 'id="supplyStockReceiptFilterBtn"' in block
+    assert 'id="supplyStockReceiptBulkPanel" class="sb-bulk-panel" hidden>' in block
+    # Filter icon sits left of search in the same search-end cluster.
+    filter_i = block.find('id="supplyStockReceiptFilterBtn"')
+    search_i = block.find('id="supplyStockReceiptSearch"')
+    assert 0 < filter_i < search_i
+    assert "toggleSupplyStockReceiptBulkPanel" in APP_JS
+    assert "setSupplyStockReceiptBulkPanelOpen" in APP_JS
+    assert "#supplyStockReceiptModal .sb-receipt-filter-btn" in STYLE
+    assert "#supplyStockReceiptModal .sb-bulk-panel[hidden]" in STYLE
+    assert "#supplyStockReceiptModal .sb-sheet-header" in STYLE
+    assert "Ко всем" in block
+    assert "Обнулить выбранные" in block
+    assert "supplyStockReceiptBulkValue" in block
