@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=309" />
+  <link rel="stylesheet" href="/static/style.css?v=310" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -6365,7 +6365,7 @@
           </label>
           <div class="sb-sheet-search-end">
             <button type="button" id="supplyStockReceiptFilterBtn"
-                    class="icon-btn secondary sb-receipt-filter-btn"
+                    class="icon-btn secondary sb-bulk-filter-btn sb-receipt-filter-btn"
                     title="Массовые действия" aria-label="Массовые действия"
                     aria-expanded="false" aria-controls="supplyStockReceiptBulkPanel"
                     onclick="toggleSupplyStockReceiptBulkPanel()">
@@ -6446,21 +6446,32 @@
             <input type="date" id="supplyStockAdjDate" />
           </label>
           <div class="sb-sheet-search-end">
+            <button type="button" id="supplyStockAdjFilterBtn"
+                    class="icon-btn secondary sb-bulk-filter-btn"
+                    title="Массовые действия" aria-label="Массовые действия"
+                    aria-expanded="false" aria-controls="supplyStockAdjBulkPanel"
+                    onclick="toggleSupplyStockAdjBulkPanel()">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M4 6h16M7 12h10M10 18h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+            </button>
             <input type="search" id="supplyStockAdjSearch" class="sb-sheet-search" placeholder="Поиск..."
                    autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
                    aria-label="Поиск" oninput="onSupplyStockModalSearch('adj')" />
             <span id="supplyStockAdjFilterCount" class="sb-modal-filter-count" hidden></span>
           </div>
         </div>
-        <div class="sb-bulk-bar">
-          <label class="sb-bulk-value-field" for="supplyStockAdjBulkValue">
-            <span>Значение</span>
-            <input type="number" id="supplyStockAdjBulkValue" min="0" step="any" inputmode="decimal" placeholder="0" />
-          </label>
-          <button type="button" class="secondary" onclick="supplyStockBulkFill('adj','all')">Ко всем</button>
-          <button type="button" class="secondary" onclick="supplyStockBulkFill('adj','selected')">К выбранным</button>
-          <button type="button" class="secondary" onclick="supplyStockBulkClear('adj','all')">Обнулить все</button>
-          <button type="button" class="secondary" onclick="supplyStockBulkClear('adj','selected')">Обнулить выбранные</button>
+        <div id="supplyStockAdjBulkPanel" class="sb-bulk-panel" hidden>
+          <div class="sb-bulk-bar">
+            <label class="sb-bulk-value-field" for="supplyStockAdjBulkValue">
+              <span>Значение</span>
+              <input type="number" id="supplyStockAdjBulkValue" min="0" step="any" inputmode="decimal" placeholder="0" />
+            </label>
+            <button type="button" class="secondary" onclick="supplyStockBulkFill('adj','all')">Ко всем</button>
+            <button type="button" class="secondary" onclick="supplyStockBulkFill('adj','selected')">К выбранным</button>
+            <button type="button" class="secondary" onclick="supplyStockBulkClear('adj','all')">Обнулить все</button>
+            <button type="button" class="secondary" onclick="supplyStockBulkClear('adj','selected')">Обнулить выбранные</button>
+          </div>
         </div>
       </div>
       <div class="sb-adj-list-wrap">
@@ -6636,6 +6647,6 @@
 
   <script src="/static/ozon_fbs.js?v=131"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=20"></script>
-  <script src="/static/app.js?v=557"></script>
+  <script src="/static/app.js?v=558"></script>
 </body>
 </html>

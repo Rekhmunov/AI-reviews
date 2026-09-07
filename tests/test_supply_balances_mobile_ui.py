@@ -68,8 +68,8 @@ def test_js_fluid_table_width_on_compact() -> None:
 
 
 def test_cache_bump() -> None:
-    assert "style.css?v=309" in APP_HTML
-    assert "app.js?v=557" in APP_HTML
+    assert "style.css?v=310" in APP_HTML
+    assert "app.js?v=558" in APP_HTML
 
 
 def test_receipt_modal_compact_bulk_under_filter() -> None:
@@ -89,12 +89,32 @@ def test_receipt_modal_compact_bulk_under_filter() -> None:
     assert 0 < filter_i < search_i
     assert "toggleSupplyStockReceiptBulkPanel" in APP_JS
     assert "setSupplyStockReceiptBulkPanelOpen" in APP_JS
-    assert "#supplyStockReceiptModal .sb-receipt-filter-btn" in STYLE
-    assert "#supplyStockReceiptModal .sb-bulk-panel[hidden]" in STYLE
+    assert ".sb-adj-modal .sb-bulk-filter-btn" in STYLE
+    assert ".sb-adj-modal .sb-bulk-panel[hidden]" in STYLE
     assert "#supplyStockReceiptModal .sb-sheet-header" in STYLE
     assert "Ко всем" in block
     assert "Обнулить выбранные" in block
     assert "supplyStockReceiptBulkValue" in block
+
+
+def test_adj_modal_bulk_under_filter() -> None:
+    """Корректировка: bulk-панель под иконкой фильтра слева от поиска."""
+    start = APP_HTML.find('id="supplyStockAdjustmentModal"')
+    end = APP_HTML.find('id="supplyStockAsOfModal"')
+    assert start > 0 and end > start
+    block = APP_HTML[start:end]
+    assert 'id="supplyStockAdjFilterBtn"' in block
+    assert 'id="supplyStockAdjBulkPanel" class="sb-bulk-panel" hidden>' in block
+    filter_i = block.find('id="supplyStockAdjFilterBtn"')
+    search_i = block.find('id="supplyStockAdjSearch"')
+    assert 0 < filter_i < search_i
+    assert "Ко всем" in block
+    assert "Обнулить выбранные" in block
+    assert "supplyStockAdjBulkValue" in block
+    assert "toggleSupplyStockAdjBulkPanel" in APP_JS
+    assert "setSupplyStockAdjBulkPanelOpen" in APP_JS
+    assert "setSupplyStockAdjBulkPanelOpen(false)" in APP_JS
+    assert "#supplyStockAdjustmentModal .sb-sheet-header" in STYLE
 
 
 def test_receipt_kind_select_left_of_date() -> None:

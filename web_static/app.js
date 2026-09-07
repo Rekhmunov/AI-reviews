@@ -15307,9 +15307,23 @@ async function openSupplyStockReceiptModal() {
 }
 window.openSupplyStockReceiptModal = openSupplyStockReceiptModal;
 
-function setSupplyStockReceiptBulkPanelOpen(open) {
-  const panel = document.getElementById("supplyStockReceiptBulkPanel");
-  const btn = document.getElementById("supplyStockReceiptFilterBtn");
+function _sbBulkPanelIds(kind) {
+  if (kind === "adj") {
+    return {
+      panel: "supplyStockAdjBulkPanel",
+      btn: "supplyStockAdjFilterBtn",
+    };
+  }
+  return {
+    panel: "supplyStockReceiptBulkPanel",
+    btn: "supplyStockReceiptFilterBtn",
+  };
+}
+
+function setSupplyStockBulkPanelOpen(kind, open) {
+  const ids = _sbBulkPanelIds(kind);
+  const panel = document.getElementById(ids.panel);
+  const btn = document.getElementById(ids.btn);
   if (!panel) return;
   if (open) panel.removeAttribute("hidden");
   else panel.setAttribute("hidden", "");
@@ -15319,15 +15333,34 @@ function setSupplyStockReceiptBulkPanelOpen(open) {
   }
 }
 
-function toggleSupplyStockReceiptBulkPanel(force) {
-  const panel = document.getElementById("supplyStockReceiptBulkPanel");
+function toggleSupplyStockBulkPanel(kind, force) {
+  const ids = _sbBulkPanelIds(kind);
+  const panel = document.getElementById(ids.panel);
   if (!panel) return;
   const next =
     force === true ? true : force === false ? false : panel.hasAttribute("hidden");
-  setSupplyStockReceiptBulkPanelOpen(next);
+  setSupplyStockBulkPanelOpen(kind, next);
+}
+
+function setSupplyStockReceiptBulkPanelOpen(open) {
+  setSupplyStockBulkPanelOpen("receipt", open);
+}
+
+function toggleSupplyStockReceiptBulkPanel(force) {
+  toggleSupplyStockBulkPanel("receipt", force);
+}
+
+function setSupplyStockAdjBulkPanelOpen(open) {
+  setSupplyStockBulkPanelOpen("adj", open);
+}
+
+function toggleSupplyStockAdjBulkPanel(force) {
+  toggleSupplyStockBulkPanel("adj", force);
 }
 window.toggleSupplyStockReceiptBulkPanel = toggleSupplyStockReceiptBulkPanel;
 window.setSupplyStockReceiptBulkPanelOpen = setSupplyStockReceiptBulkPanelOpen;
+window.toggleSupplyStockAdjBulkPanel = toggleSupplyStockAdjBulkPanel;
+window.setSupplyStockAdjBulkPanelOpen = setSupplyStockAdjBulkPanelOpen;
 
 function closeSupplyStockReceiptModal() {
   if (_sbReceiptScanHighlightTimer) {
@@ -15426,6 +15459,7 @@ function renderSupplyStockAdjList() {
 
 async function openSupplyStockAdjustmentModal() {
   _sbSetDocErr("supplyStockAdjErr", "");
+  setSupplyStockAdjBulkPanelOpen(false);
   setModalVisibility("supplyStockAdjustmentModal", true);
   const dateEl = document.getElementById("supplyStockAdjDate");
   const modeEl = document.getElementById("supplyStockAdjMode");
@@ -15449,6 +15483,7 @@ async function openSupplyStockAdjustmentModal() {
 window.openSupplyStockAdjustmentModal = openSupplyStockAdjustmentModal;
 
 function closeSupplyStockAdjustmentModal() {
+  setSupplyStockAdjBulkPanelOpen(false);
   setModalVisibility("supplyStockAdjustmentModal", false);
 }
 window.closeSupplyStockAdjustmentModal = closeSupplyStockAdjustmentModal;

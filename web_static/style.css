@@ -12836,10 +12836,11 @@ button.wb-fbs-kiz-add:disabled {
   outline-offset: 1px;
   border-color: #60a5fa;
 }
-#supplyStockReceiptModal .sb-sheet-search-end {
+#supplyStockReceiptModal .sb-sheet-search-end,
+#supplyStockAdjustmentModal .sb-sheet-search-end {
   gap: 8px;
 }
-#supplyStockReceiptModal .sb-receipt-filter-btn {
+.sb-adj-modal .sb-bulk-filter-btn {
   flex: 0 0 auto;
   width: 40px;
   min-width: 40px;
@@ -12847,27 +12848,31 @@ button.wb-fbs-kiz-add:disabled {
   padding: 0;
   color: #475569;
 }
-#supplyStockReceiptModal .sb-receipt-filter-btn:hover {
+.sb-adj-modal .sb-bulk-filter-btn:hover {
   color: #0f172a;
   border-color: #94a3b8;
 }
-#supplyStockReceiptModal .sb-receipt-filter-btn:focus-visible {
+.sb-adj-modal .sb-bulk-filter-btn:focus-visible {
   outline: 2px solid #93c5fd;
   outline-offset: 1px;
 }
-#supplyStockReceiptModal .sb-receipt-filter-btn.is-active {
+.sb-adj-modal .sb-bulk-filter-btn.is-active {
   color: #1d4ed8;
   border-color: #93c5fd;
   background: #eff6ff;
 }
-#supplyStockReceiptModal .sb-receipt-filter-btn svg {
+.sb-adj-modal .sb-bulk-filter-btn svg {
   display: block;
 }
-#supplyStockReceiptModal .sb-bulk-panel {
+.sb-adj-modal .sb-bulk-panel {
   padding: 4px 0 0;
 }
-#supplyStockReceiptModal .sb-bulk-panel[hidden] {
+.sb-adj-modal .sb-bulk-panel[hidden] {
   display: none !important;
+}
+#supplyStockAdjustmentModal .sb-sheet-header {
+  gap: 8px;
+  padding: 16px 24px 12px;
 }
 #supplyStockReceiptModal .sb-receipt-scan-bar {
   padding-top: 4px;
@@ -14412,7 +14417,14 @@ button.wb-fbs-kiz-add:disabled {
     align-items: center;
     gap: 8px;
   }
-  #supplyStockReceiptModal .sb-receipt-filter-btn {
+  #supplyStockAdjustmentModal .sb-sheet-search-end {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 8px;
+  }
+  #supplyStockReceiptModal .sb-bulk-filter-btn,
+  #supplyStockAdjustmentModal .sb-bulk-filter-btn {
     width: 44px;
     min-width: 44px;
     min-height: 44px;
@@ -14424,17 +14436,17 @@ button.wb-fbs-kiz-add:disabled {
     flex: 1 1 auto;
   }
   #supplyStockReceiptModal .sb-bulk-panel .sb-bulk-bar,
-  #supplyStockAdjustmentModal .sb-bulk-bar {
+  #supplyStockAdjustmentModal .sb-bulk-panel .sb-bulk-bar {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 8px;
   }
   #supplyStockReceiptModal .sb-bulk-panel .sb-bulk-bar .sb-bulk-value-field,
-  #supplyStockAdjustmentModal .sb-bulk-bar .sb-bulk-value-field {
+  #supplyStockAdjustmentModal .sb-bulk-panel .sb-bulk-bar .sb-bulk-value-field {
     grid-column: 1 / -1;
   }
   #supplyStockReceiptModal .sb-bulk-panel .sb-bulk-bar button.secondary,
-  #supplyStockAdjustmentModal .sb-bulk-bar button.secondary {
+  #supplyStockAdjustmentModal .sb-bulk-panel .sb-bulk-bar button.secondary {
     width: 100%;
     min-height: 44px;
     flex: none;
