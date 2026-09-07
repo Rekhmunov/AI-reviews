@@ -3925,6 +3925,7 @@
     }
     _ozonFbsSyncOwnerOnlyGear();
     _ozonFbsSyncOwnerOnlyCancelledBtn();
+    _ozonFbsSyncOwnerOnlyShipmentQualityBtn();
     syncTableMode();
     initColumnResizer();
     ozonFbsSupplyDetailColResizer.init();
@@ -3988,6 +3989,14 @@
 
   function _ozonFbsSyncOwnerOnlyCancelledBtn() {
     const btn = document.getElementById("ozonFbsSupplyDetailCancelledBtn");
+    if (!btn) return;
+    const can = typeof isTenantOwner === "function" && isTenantOwner();
+    btn.hidden = !can;
+    btn.style.display = can ? "" : "none";
+  }
+
+  function _ozonFbsSyncOwnerOnlyShipmentQualityBtn() {
+    const btn = document.getElementById("ozonFbsShipmentQualityBtn");
     if (!btn) return;
     const can = typeof isTenantOwner === "function" && isTenantOwner();
     btn.hidden = !can;
@@ -11068,26 +11077,153 @@
   }
 
   function openOzonFbsStickerLookupModal() {
+    // Replaced by «Качество отгрузок» (owner-only). Keep no-op for old callers.
+    openOzonFbsShipmentQualityModal();
+  }
+
+  function closeOzonFbsStickerLookupModal() {
+    closeOzonFbsShipmentQualityModal();
+  }
+
+  const shipmentQualityState = {
+    file: null,
+    generating: false,
+  };
+
+  function _ozonFbsShipmentQualitySetInfo(text, ok) {
+    const el = document.getElementById("ozonFbsShipmentQualityInfo");
+    if (!el) return;
+    el.textContent = String(text || "");
+    el.classList.remove("is-ok", "is-error");
+    if (text && ok === true) el.classList.add("is-ok");
+    if (text && ok === false) el.classList.add("is-error");
+  }
+
+  function _ozonFbsShipmentQualitySyncGenerateBtn() {
+    const btn = document.getElementById("ozonFbsShipmentQualityGenerateBtn");
+    if (!btn) return;
+    btn.disabled = !shipmentQualityState.file || !!shipmentQualityState.generating;
+  }
+
+  function pickOzonFbsShipmentQualityFile() {
+    const input = document.getElementById("ozonFbsShipmentQualityFile");
+    if (!input) return;
+    input.value = "";
+    input.onchange = () => {
+      const file = input.files && input.files[0] ? input.files[0] : null;
+      if (!file) return;
+      const name = String(file.name || "").toLowerCase();
+      if (!/\.(xlsx|xlsm|xltx|xltm)$/.test(name)) {
+        shipmentQualityState.file = null;
+        _ozonFbsShipmentQualitySetInfo("Нужен файл Excel (.xlsx)", false);
+        _ozonFbsShipmentQualitySyncGenerateBtn();
+        return;
+      }
+      shipmentQualityState.file = file;
+      _ozonFbsShipmentQualitySetInfo(`Загружен файл: ${file.name}`, true);
+      _ozonFbsShipmentQualitySyncGenerateBtn();
+    };
+    input.click();
+  }
+
+  async function generateOzonFbsShipmentQualityReport() {
+    if (shipmentQualityState.generating) return;
+    if (typeof isTenantOwner === "function" && !isTenantOwner()) {
+      _ozonFbsShipmentQualitySetInfo(
+        "Качество отгрузок доступно только главному пользователю",
+        false
+      );
+      return;
+    }
+    const sourceId = state.sourceId;
+    const file = shipmentQualityState.file;
+    if (!sourceId) {
+      _ozonFbsShipmentQualitySetInfo("Выберите источник OZON ФБС", false);
+      return;
+    }
+    if (!file) {
+      _ozonFbsShipmentQualitySetInfo("Сначала загрузите отчёт качества", false);
+      return;
+    }
+    shipmentQualityState.generating = true;
+    _ozonFbsShipmentQualitySyncGenerateBtn();
+    _ozonFbsShipmentQualitySetInfo("Формируем отчёт…");
+    try {
+      const body = new FormData();
+      body.append("file", file, file.name || "rating.xlsx");
+      const headers = { ...jsonHeaders() };
+      delete headers["Content-Type"];
+      delete headers["content-type"];
+      const res = await fetch(
+        `/api/ozon-fbs/shipment-quality/support-report?source_id=${encodeURIComponent(sourceId)}`,
+        { method: "POST", body, headers }
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      }
+      const blob = await res.blob();
+      const cd = String(res.headers.get("Content-Disposition") || "");
+      let fname = "ozon-fbs-shipment-quality-support.xlsx";
+      const m = /filename\*=UTF-8''([^;]+)|filename="([^"]+)"/i.exec(cd);
+      if (m) {
+        try {
+          fname = decodeURIComponent(m[1] || m[2] || fname);
+        } catch (_e) {
+          fname = m[1] || m[2] || fname;
+        }
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fname;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      _ozonFbsShipmentQualitySetInfo("Отчёт для поддержки скачан", true);
+    } catch (e) {
+      _ozonFbsShipmentQualitySetInfo(String(e.message || e), false);
+    } finally {
+      shipmentQualityState.generating = false;
+      _ozonFbsShipmentQualitySyncGenerateBtn();
+    }
+  }
+
+  function openOzonFbsShipmentQualityModal() {
+    if (typeof isTenantOwner === "function" && !isTenantOwner()) {
+      alert("Качество отгрузок доступно только главному пользователю");
+      return;
+    }
     if (!state.sourceId) {
       alert("Выберите источник Ozon FBS");
       return;
     }
-    if (typeof setModalVisibility === "function") setModalVisibility("ozonFbsStickerLookupModal", true);
-    else document.getElementById("ozonFbsStickerLookupModal")?.classList.remove("hidden");
-    _ozonFbsStickerLookupSetInfo("");
-    _ozonFbsRenderStickerLookupResult(null);
-    const scan = document.getElementById("ozonFbsStickerLookupScan");
-    if (scan) {
-      scan.value = "";
-      setTimeout(() => scan.focus(), 40);
+    if (typeof setModalVisibility === "function") {
+      setModalVisibility("ozonFbsShipmentQualityModal", true);
+    } else {
+      document.getElementById("ozonFbsShipmentQualityModal")?.classList.remove("hidden");
+    }
+    _ozonFbsShipmentQualitySetInfo(
+      shipmentQualityState.file
+        ? `Загружен файл: ${shipmentQualityState.file.name}`
+        : ""
+    );
+    _ozonFbsShipmentQualitySyncGenerateBtn();
+  }
+
+  function closeOzonFbsShipmentQualityModal() {
+    if (typeof setModalVisibility === "function") {
+      setModalVisibility("ozonFbsShipmentQualityModal", false);
+    } else {
+      document.getElementById("ozonFbsShipmentQualityModal")?.classList.add("hidden");
     }
   }
 
-  function closeOzonFbsStickerLookupModal() {
-    if (typeof setModalVisibility === "function") setModalVisibility("ozonFbsStickerLookupModal", false);
-    else document.getElementById("ozonFbsStickerLookupModal")?.classList.add("hidden");
-  }
-
+  window.openOzonFbsShipmentQualityModal = openOzonFbsShipmentQualityModal;
+  window.closeOzonFbsShipmentQualityModal = closeOzonFbsShipmentQualityModal;
+  window.pickOzonFbsShipmentQualityFile = pickOzonFbsShipmentQualityFile;
+  window.generateOzonFbsShipmentQualityReport = generateOzonFbsShipmentQualityReport;
   window.openOzonFbsStickerLookupModal = openOzonFbsStickerLookupModal;
   window.closeOzonFbsStickerLookupModal = closeOzonFbsStickerLookupModal;
   window.onOzonFbsStickerLookupScanKey = onOzonFbsStickerLookupScanKey;

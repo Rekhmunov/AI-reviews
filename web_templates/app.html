@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=313" />
+  <link rel="stylesheet" href="/static/style.css?v=314" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2703,10 +2703,11 @@
               </button>
             </div>
             <div class="wb-fbs-toolbar-right">
-              <button type="button" id="ozonFbsStickerLookupBtn" class="secondary"
-                      onclick="openOzonFbsStickerLookupModal()"
-                      title="Найти отправление по стикеру или номеру">
-                Поиск по стикеру
+              <button type="button" id="ozonFbsShipmentQualityBtn" class="secondary"
+                      onclick="openOzonFbsShipmentQualityModal()"
+                      title="Отчёт качества отгрузок FBS для поддержки"
+                      hidden>
+                Качество отгрузок
               </button>
               <input id="ozonFbsSearchFilter" class="wb-fbs-search" type="search"
                      placeholder="Поиск по отправлению, артикулу, ШК…"
@@ -2872,30 +2873,33 @@
           </div>
         </div>
 
-        <div id="ozonFbsStickerLookupModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
-             aria-labelledby="ozonFbsStickerLookupTitle">
-          <div class="modal-card wb-fbs-kiz-modal" style="max-width:720px">
+        <div id="ozonFbsShipmentQualityModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsShipmentQualityTitle">
+          <div class="modal-card wb-fbs-kiz-modal" style="max-width:560px">
             <div class="wb-fbs-kiz-header">
               <div class="wb-fbs-kiz-header-main">
-                <h3 id="ozonFbsStickerLookupTitle" class="wb-fbs-kiz-title">Поиск по стикеру</h3>
-                <p class="wb-fbs-kiz-sub">Сканируйте этикетку отправления или введите номер. Показываются локальные КИЗ и проверка ШК.</p>
+                <h3 id="ozonFbsShipmentQualityTitle" class="wb-fbs-kiz-title">Качество отгрузок</h3>
+                <p class="wb-fbs-kiz-sub">
+                  Загрузите отчёт Ozon FBS (general_fbs_rfbs_rating.xlsx) и сформируйте файл для поддержки:
+                  номер отправления и дата переноса поставки в «Доставляются».
+                </p>
               </div>
-              <button type="button" class="icon-btn secondary" onclick="closeOzonFbsStickerLookupModal()" aria-label="Закрыть">✕</button>
+              <button type="button" class="icon-btn secondary" onclick="closeOzonFbsShipmentQualityModal()" aria-label="Закрыть">✕</button>
             </div>
-            <div class="wb-fbs-kiz-scan-bar">
-              <label class="wb-fbs-kiz-scan-label" for="ozonFbsStickerLookupScan">Сканирование</label>
-              <div class="wb-fbs-kiz-scan-field">
-                <input id="ozonFbsStickerLookupScan" class="wb-fbs-kiz-scan-input" type="text" autocomplete="off"
-                       placeholder="Стикер или номер отправления"
-                       onkeydown="onOzonFbsStickerLookupScanKey(event)" />
-                <button type="button" class="wb-fbs-kiz-scan-clear" title="Очистить"
-                        onclick="document.getElementById('ozonFbsStickerLookupScan').value=''">✕</button>
-              </div>
+            <div class="ozon-fbs-shipment-quality-body">
+              <input id="ozonFbsShipmentQualityFile" type="file" accept=".xlsx,.xlsm,.xltx,.xltm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden />
+              <button type="button" id="ozonFbsShipmentQualityUploadBtn" class="secondary"
+                      onclick="pickOzonFbsShipmentQualityFile()">
+                Загрузить отчет качества отгрузок по ФБС
+              </button>
+              <div id="ozonFbsShipmentQualityInfo" class="wb-fbs-kiz-info" aria-live="polite"></div>
+              <button type="button" id="ozonFbsShipmentQualityGenerateBtn"
+                      onclick="generateOzonFbsShipmentQualityReport()" disabled>
+                Сформировать отчет для поддержки
+              </button>
             </div>
-            <div id="ozonFbsStickerLookupInfo" class="wb-fbs-kiz-info" aria-live="polite"></div>
-            <div id="ozonFbsStickerLookupResult" class="wb-fbs-collect-mgt-body" hidden></div>
             <div class="wb-fbs-collect-mgt-footer" style="margin-top:16px">
-              <button type="button" class="secondary" onclick="closeOzonFbsStickerLookupModal()">Закрыть</button>
+              <button type="button" class="secondary" onclick="closeOzonFbsShipmentQualityModal()">Закрыть</button>
             </div>
           </div>
         </div>
@@ -6662,7 +6666,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=134"></script>
+  <script src="/static/ozon_fbs.js?v=135"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=20"></script>
   <script src="/static/app.js?v=560"></script>
 </body>

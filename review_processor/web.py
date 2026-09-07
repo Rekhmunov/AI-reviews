@@ -13010,6 +13010,70 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             refresh_posting_numbers=refresh_pns or None,
         )
 
+    @app.post("/api/ozon-fbs/shipment-quality/support-report")
+    async def ozon_fbs_shipment_quality_support_report(
+        request: Request,
+        source_id: int,
+        file: UploadFile = File(...),
+    ) -> StreamingResponse:
+        """Build support XLSX from Ozon FBS quality rating report (owner only).
+
+        Column A posting numbers → local date when the supply was moved to
+        «Доставляются» (ops_log), date-only.
+        """
+        from urllib.parse import quote
+
+        from . import ozon_fbs_shipment_quality as oz_sq
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        if not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Качество отгрузок доступно только главному пользователю",
+            )
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _require_ozon_fbs_source(user, int(source_id))
+        filename = (file.filename or "").lower()
+        if filename and not filename.endswith((".xlsx", ".xlsm", ".xltx", ".xltm")):
+            raise HTTPException(
+                status_code=400,
+                detail="Поддерживаются только файлы Excel формата .xlsx",
+            )
+        content = await file.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="Файл пустой")
+        try:
+            posting_numbers = oz_sq.extract_posting_numbers_from_rating_xlsx(content)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        owner_id = _supply_owner_id(user)
+        try:
+            payload, fname, _meta = oz_sq.build_support_report_xlsx(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                posting_numbers=posting_numbers,
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        safe = quote(fname)
+        return StreamingResponse(
+            io.BytesIO(payload),
+            media_type=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="{fname}"; filename*=UTF-8\'\'{safe}'
+                )
+            },
+        )
+
     @app.get("/api/ozon-fbs/postings/find")
     def ozon_fbs_posting_find(
         request: Request,

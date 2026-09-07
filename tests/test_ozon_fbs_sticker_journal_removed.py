@@ -1,4 +1,4 @@
-"""Ozon FBS sticker lookup: scan journal removed from UI (ops-log remains)."""
+"""Ozon FBS: sticker lookup modal replaced; scan journal remains off."""
 
 from __future__ import annotations
 
@@ -10,17 +10,17 @@ from review_processor import ozon_fbs_scans as scans
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_sticker_lookup_modal_has_no_scan_journal_ui() -> None:
+def test_shipment_quality_modal_has_no_scan_journal_ui() -> None:
     html = (ROOT / "web_templates" / "app.html").read_text(encoding="utf-8")
     js = (ROOT / "web_static" / "ozon_fbs.js").read_text(encoding="utf-8")
 
-    assert 'id="ozonFbsStickerLookupModal"' in html
+    assert 'id="ozonFbsShipmentQualityModal"' in html
     assert "ozonFbsStickerLookupJournalTbody" not in html
-    assert "Журнал сканов" not in html.split('id="ozonFbsStickerLookupModal"', 1)[1].split(
+    assert "Журнал сканов" not in html.split('id="ozonFbsShipmentQualityModal"', 1)[1].split(
         'id="ozonFbsOrdersTable"', 1
     )[0]
     assert "loadOzonFbsPostingScansJournal" not in js
-    assert "ozon_fbs.js?v=123" in html
+    assert "ozon_fbs.js?v=135" in html
 
 
 def test_record_posting_scan_skips_persistent_journal_keeps_ops_log() -> None:
