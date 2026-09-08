@@ -19369,6 +19369,11 @@ async function _pickCryptoProThumb(preferred) {
     const until = _formatCertValidTo(c.validTo);
     return `${i + 1}) ${_subjectCn(c.subject)} · …${c.thumbprint.slice(-8)}${until ? ` · до ${until}` : ""}`;
   });
+  // prompt часто оказывается «под» модалкой — сначала явный alert.
+  window.alert(
+    "Сейчас откроется выбор сертификата УКЭП.\n"
+    + "Если окно не видно — проверьте, не перекрыто ли оно модалкой браузера.",
+  );
   const answer = window.prompt(
     `Выберите сертификат УКЭП (номер 1–${valid.length}):\n\n${lines.join("\n")}`,
     "1",
@@ -23353,6 +23358,7 @@ async function runSupplyGtdChzOp(op) {
   const opLabel = op === "withdraw" ? "Вывод из оборота" : "Ввод в оборот";
   _supplyGtdChzState.busy = true;
   _supplyGtdChzUpdateActionButtons();
+  _supplyGtdChzEnsureLogOpen();
   try {
     _supplyGtdChzAppendLog(`${opLabel}: подготовка (${selected.length} КИЗ)…`);
     const prepRes = await fetch(`/api/supply-gtd/${gid}/chz/prepare`, {
