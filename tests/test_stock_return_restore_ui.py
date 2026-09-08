@@ -39,14 +39,18 @@ def test_restore_modal_markup() -> None:
     assert 'id="supplyStockReturnRestoreResult"' in block
     assert 'id="supplyStockReturnRestoreCacheInfo"' in block
     assert 'id="supplyStockReturnRestoreTable"' in block
+    assert 'id="supplyStockReturnRestoreColgroup"' in block
     assert 'id="supplyStockReturnRestoreTbody"' in block
+    assert 'data-col="order"' in block
+    assert 'data-col="product"' in block
+    assert "col-resize-handle" in block
     assert "Сканируйте заказ, стикер, КИЗ или ШК из каталога" not in block
     assert "sb-return-restore-sub" not in block
     assert "sb-sheet-modal" in block
     assert "sb-adj-modal" in block
     assert "wb-fbs-sd-table" in block
-    assert ">Заказ<" in block
-    assert ">Товар<" in block
+    assert ">Заказ<" in block or ">Заказ<span" in block
+    assert ">Товар<" in block or ">Товар<span" in block
 
 
 def test_restore_js_wiring_no_sync() -> None:
@@ -58,10 +62,19 @@ def test_restore_js_wiring_no_sync() -> None:
     assert "function _stockReturnRestoreRenderTable" in APP_JS
     assert "function _stockReturnRestoreDetailHtml" in APP_JS
     assert "function _stockReturnRestoreDetailRows" in APP_JS
+    assert "function toggleStockReturnRestoreDetails" in APP_JS
+    assert "function initStockReturnRestoreColumnResizer" in APP_JS
     assert "sb-return-restore-lookup-detail" in APP_JS
     assert "sb-return-restore-product-block" in APP_JS
+    assert "sb-return-restore-details-toggle" in APP_JS
+    assert "Характеристики" in APP_JS[
+        APP_JS.find("function _stockReturnRestoreDetailHtml") : APP_JS.find(
+            "function _stockReturnRestoreRenderTable"
+        )
+    ]
+    assert 'k !== "Короба TRBX"' in APP_JS
     assert "_wbFbsLookupDetailRows" in APP_JS
-    assert "is-scan-hit" in APP_JS
+    assert "supply_stock_return_restore_col_widths_v1" in APP_JS
     assert "Сканируйте заказ, стикер, КИЗ или ШК из каталога" not in APP_JS
     assert "function onSupplyStockReceiptKindChange" in APP_JS
     assert "function _sbSyncReceiptRestoreBtn" in APP_JS
@@ -82,6 +95,7 @@ def test_restore_js_wiring_no_sync() -> None:
         )
     ]
     assert "/returns/sync" not in restore_fn
+    assert "initStockReturnRestoreColumnResizer()" in restore_fn
     scan_fn = APP_JS[
         APP_JS.find("async function processSupplyStockReturnRestoreScan") : APP_JS.find(
             "async function printStockReturnRestoreKiz"
@@ -90,6 +104,13 @@ def test_restore_js_wiring_no_sync() -> None:
     assert "/returns/sync" not in scan_fn
     # Failed scan must not wipe previously scanned rows.
     assert "_stockReturnRestoreClearResult()" not in scan_fn
+    # No green found-row wash in restore table markup.
+    render = APP_JS[
+        APP_JS.find("function _stockReturnRestoreRenderTable") : APP_JS.find(
+            "function _stockReturnRestoreRenderResult"
+        )
+    ]
+    assert "is-scan-hit" not in render
 
 
 def test_close_restore_keeps_receipt_open() -> None:
@@ -113,12 +134,12 @@ def test_restore_styles_layering() -> None:
     assert "#supplyStockReturnRestoreModal" in STYLE.split("Остатки modals: full-bleed sheets")[1][:2500]
     assert ".sb-return-restore-lookup-detail" in STYLE
     assert ".sb-return-restore-product-block" in STYLE
-    assert "#supplyStockReturnRestoreTable tbody tr.is-scan-hit td" in STYLE
-    assert "inset 3px 0 0 #10b981" in STYLE
-    assert "#ecfdf5" in STYLE
+    assert ".sb-return-restore-details-toggle" in STYLE
+    assert "#supplyStockReturnRestoreTable tbody tr.is-scan-hit td" not in STYLE
+    assert "inset 3px 0 0 #10b981" not in STYLE.split("#supplyStockReturnRestoreTable")[1][:2500]
     assert ".sb-return-restore-sub" not in STYLE
 
 
 def test_asset_versions_bumped() -> None:
-    assert "app.js?v=575" in APP_HTML
-    assert "style.css?v=325" in APP_HTML
+    assert "app.js?v=577" in APP_HTML
+    assert "style.css?v=326" in APP_HTML

@@ -15561,7 +15561,106 @@ const stockReturnRestoreState = {
   items: [],
   seq: 0,
   hitKey: "",
+  /** rowKey → expanded characteristics (default collapsed). */
+  expandedDetails: new Set(),
 };
+
+const STOCK_RETURN_RESTORE_COL_WIDTHS_KEY = "supply_stock_return_restore_col_widths_v1";
+const STOCK_RETURN_RESTORE_DEFAULT_COL_WIDTHS = {
+  order: 240,
+  product: 560,
+  acts: 48,
+};
+
+function _stockReturnRestoreLoadColWidths() {
+  const defaults = { ...STOCK_RETURN_RESTORE_DEFAULT_COL_WIDTHS };
+  try {
+    const raw = JSON.parse(localStorage.getItem(STOCK_RETURN_RESTORE_COL_WIDTHS_KEY) || "null");
+    if (!raw || typeof raw !== "object") return defaults;
+    for (const [k, v] of Object.entries(raw)) {
+      const n = Number(v);
+      if (Number.isFinite(n) && n >= 40) defaults[k] = Math.round(n);
+    }
+  } catch (_e) { /* ignore */ }
+  return defaults;
+}
+
+function _stockReturnRestoreSaveColWidths(widths) {
+  try {
+    localStorage.setItem(STOCK_RETURN_RESTORE_COL_WIDTHS_KEY, JSON.stringify(widths));
+  } catch (_e) { /* ignore */ }
+}
+
+function _stockReturnRestoreApplyColWidths() {
+  const table = document.getElementById("supplyStockReturnRestoreTable");
+  const colgroup = document.getElementById("supplyStockReturnRestoreColgroup");
+  if (!table || !colgroup) return;
+  const widths = _stockReturnRestoreLoadColWidths();
+  let total = 0;
+  Array.from(colgroup.querySelectorAll("col")).forEach((col) => {
+    const key = col.getAttribute("data-col") || "";
+    const w = Number(widths[key] || STOCK_RETURN_RESTORE_DEFAULT_COL_WIDTHS[key] || 100);
+    col.style.width = `${w}px`;
+    total += w;
+  });
+  table.style.tableLayout = "fixed";
+  table.style.width = `${total}px`;
+  table.style.minWidth = `${total}px`;
+}
+
+let _stockReturnRestoreColResizeInited = false;
+function initStockReturnRestoreColumnResizer() {
+  const table = document.getElementById("supplyStockReturnRestoreTable");
+  if (!table) return;
+  _stockReturnRestoreApplyColWidths();
+  if (_stockReturnRestoreColResizeInited) return;
+  _stockReturnRestoreColResizeInited = true;
+
+  let dragging = null;
+  table.addEventListener("mousedown", (e) => {
+    const handle = e.target?.closest?.(".col-resize-handle");
+    if (!handle) return;
+    const th = handle.closest("th");
+    if (!th) return;
+    const key = th.getAttribute("data-col") || "";
+    if (!key || key === "acts") return;
+    e.preventDefault();
+    const col = document.querySelector(
+      `#supplyStockReturnRestoreColgroup col[data-col="${CSS.escape(key)}"]`
+    );
+    const startX = e.clientX;
+    const startW = col
+      ? (parseInt(col.style.width, 10) || th.offsetWidth || 100)
+      : th.offsetWidth || 100;
+    dragging = { key, startX, startW, col };
+    document.body.style.cursor = "col-resize";
+    document.body.classList.add("is-col-resizing");
+  });
+  window.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - dragging.startX;
+    const next = Math.max(40, Math.round(dragging.startW + dx));
+    if (dragging.col) dragging.col.style.width = `${next}px`;
+    const widths = _stockReturnRestoreLoadColWidths();
+    widths[dragging.key] = next;
+    let total = 0;
+    document.querySelectorAll("#supplyStockReturnRestoreColgroup col").forEach((col) => {
+      total += parseInt(col.style.width, 10) || 100;
+    });
+    table.style.width = `${total}px`;
+    table.style.minWidth = `${total}px`;
+  });
+  window.addEventListener("mouseup", () => {
+    if (!dragging) return;
+    const widths = _stockReturnRestoreLoadColWidths();
+    const col = dragging.col;
+    if (col) widths[dragging.key] = parseInt(col.style.width, 10) || widths[dragging.key];
+    _stockReturnRestoreSaveColWidths(widths);
+    dragging = null;
+    document.body.style.cursor = "";
+    document.body.classList.remove("is-col-resizing");
+  });
+}
 
 function _stockReturnRestoreSetInfo(text, kind) {
   const el = document.getElementById("supplyStockReturnRestoreInfo");
@@ -15589,6 +15688,7 @@ function _stockReturnRestoreClearResult() {
   if (typeof _wbFbsCloseRowMenus === "function") _wbFbsCloseRowMenus();
   stockReturnRestoreState.items = [];
   stockReturnRestoreState.hitKey = "";
+  stockReturnRestoreState.expandedDetails = new Set();
   _stockReturnRestoreRenderTable();
 }
 
@@ -15705,12 +15805,29 @@ function _stockReturnRestoreDetailRows(details) {
     if (details.delivering_date) rows.push(["Передано в доставку", details.delivering_date]);
     return rows;
   }
-  // WB order card — same builder as ВБ ФБС search.
+  // WB order card — same builder as ВБ ФБС search, without Короба TRBX
+  // (supply-wide box list is noise in restore).
   if (typeof _wbFbsLookupDetailRows === "function") {
-    return _wbFbsLookupDetailRows(details);
+    return _wbFbsLookupDetailRows(details).filter(([k]) => k !== "Короба TRBX");
   }
   return [];
 }
+
+function toggleStockReturnRestoreDetails(rowKey) {
+  const key = String(rowKey || "");
+  if (!key) return;
+  const set = stockReturnRestoreState.expandedDetails;
+  if (!(set instanceof Set)) {
+    stockReturnRestoreState.expandedDetails = new Set();
+  }
+  if (stockReturnRestoreState.expandedDetails.has(key)) {
+    stockReturnRestoreState.expandedDetails.delete(key);
+  } else {
+    stockReturnRestoreState.expandedDetails.add(key);
+  }
+  _stockReturnRestoreRenderTable();
+}
+window.toggleStockReturnRestoreDetails = toggleStockReturnRestoreDetails;
 
 function _stockReturnRestoreDetailHtml(item) {
   const scanType = String(item?.scan_type || "").trim();
@@ -15726,10 +15843,27 @@ function _stockReturnRestoreDetailHtml(item) {
         + `<div class="ozon-fbs-lookup-v">${_wbFbsEsc(v)}</div>`
     )
     .join("");
+  const rowKey = String(item._rowKey || "");
+  const expanded = !!(
+    stockReturnRestoreState.expandedDetails instanceof Set
+    && stockReturnRestoreState.expandedDetails.has(rowKey)
+  );
+  const chevron = expanded ? "▾" : "▸";
   // Same card language as WB/Ozon FBS lookup (no duplicate product head —
   // name/photo already render above in the supply-detail row).
-  return `<div class="ozon-fbs-lookup-detail sb-return-restore-lookup-detail" aria-label="Детали заказа">
-    <div class="ozon-fbs-lookup-detail-grid">${grid}</div>
+  // Characteristics start collapsed; triangle toggles the grid.
+  return `<div class="sb-return-restore-details">
+    <button type="button" class="sb-return-restore-details-toggle"
+            aria-expanded="${expanded ? "true" : "false"}"
+            onclick="event.stopPropagation(); toggleStockReturnRestoreDetails('${_wbFbsEsc(rowKey)}')">
+      <span class="sb-return-restore-details-chevron" aria-hidden="true">${chevron}</span>
+      Характеристики
+    </button>
+    <div class="ozon-fbs-lookup-detail sb-return-restore-lookup-detail"
+         ${expanded ? "" : "hidden"}
+         aria-label="Детали заказа">
+      <div class="ozon-fbs-lookup-detail-grid">${grid}</div>
+    </div>
   </div>`;
 }
 
@@ -15770,11 +15904,10 @@ function _stockReturnRestoreRenderTable() {
     const isCatalogRow = String(item.scan_type || "").trim() === "catalog_barcode";
     const canPrintKiz = !!kizCode && !isCatalogRow;
     const canPrintBarcode = barcodes.length > 0;
-    const hitCls = rowKey && rowKey === hitKey ? " is-scan-hit" : "";
     const safeKey = `rr_${rowKey.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
     // Row chrome matches Ozon FBS supply-detail modal (wb-fbs-sd-* / wb-fbs-product).
     // Lookup card sits under ШК/КИЗ, full cell width — not squeezed beside the photo.
-    return `<tr class="wb-fbs-sd-click-row${hitCls}" data-row-key="${_wbFbsEsc(rowKey)}">
+    return `<tr class="wb-fbs-sd-click-row" data-row-key="${_wbFbsEsc(rowKey)}">
       <td>
         <div class="wb-fbs-sd-order-id">${_wbFbsEsc(orderId || "—")}</div>
         <div class="wb-fbs-sd-sticker">${stickerHtml}</div>
@@ -15817,6 +15950,7 @@ function _stockReturnRestoreRenderTable() {
       </td>
     </tr>`;
   }).join("");
+  _stockReturnRestoreApplyColWidths();
   if (hitKey) {
     const hitRow = tbody.querySelector(`tr[data-row-key="${CSS.escape(hitKey)}"]`);
     if (hitRow && typeof hitRow.scrollIntoView === "function") {
@@ -15865,6 +15999,7 @@ function openSupplyStockReturnRestoreModal() {
   _stockReturnRestoreClearResult();
   _stockReturnRestoreSetCacheInfo("Данные из ВБ ФБС → Возвраты");
   modal.classList.remove("hidden");
+  initStockReturnRestoreColumnResizer();
   void _stockReturnRestoreRefreshCacheInfo();
   setTimeout(() => scanEl?.focus(), 40);
 }

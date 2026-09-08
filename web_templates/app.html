@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=325" />
+  <link rel="stylesheet" href="/static/style.css?v=326" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -6660,16 +6660,16 @@
       </div>
       <div id="supplyStockReturnRestoreResult" class="wb-fbs-sd-table-wrap sb-return-restore-table-wrap">
         <table class="wb-fbs-sd-table" id="supplyStockReturnRestoreTable">
-          <colgroup>
-            <col data-col="0" style="width:32%" />
-            <col data-col="1" style="width:60%" />
-            <col data-fixed="1" class="wb-fbs-sd-col-act" style="width:48px" />
+          <colgroup id="supplyStockReturnRestoreColgroup">
+            <col data-col="order" />
+            <col data-col="product" />
+            <col data-col="acts" class="wb-fbs-sd-col-act" />
           </colgroup>
           <thead>
             <tr>
-              <th data-col="0">Заказ</th>
-              <th data-col="1">Товар</th>
-              <th class="wb-fbs-sd-col-act"></th>
+              <th data-col="order">Заказ<span class="col-resize-handle"></span></th>
+              <th data-col="product">Товар<span class="col-resize-handle"></span></th>
+              <th data-col="acts" class="wb-fbs-sd-col-act"></th>
             </tr>
           </thead>
           <tbody id="supplyStockReturnRestoreTbody">
@@ -6903,6 +6903,6 @@
 
   <script src="/static/ozon_fbs.js?v=140"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=22"></script>
-  <script src="/static/app.js?v=576"></script>
+  <script src="/static/app.js?v=577"></script>
 </body>
 </html>
