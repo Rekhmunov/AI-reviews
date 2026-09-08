@@ -5439,6 +5439,11 @@
 
   function closeOzonFbsContainersModal() {
     if (containersState.busy) return;
+    if (_ozonFbsContainerApproveResolver) {
+      closeOzonFbsContainerApproveModal(false);
+    } else {
+      _ozonFbsContainerApproveSetVisible(false);
+    }
     _ozonFbsContainersSetVisible(false);
     containersState.supplyId = null;
     containersState.items = [];
