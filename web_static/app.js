@@ -18648,8 +18648,8 @@ const _SST_TABLES = [
   { thead: "supplyLegalEntitiesThead",    key: "sst_legal_v2" },
   { thead: "supplyProductionsThead",      key: "sst_productions_v2" },
   { thead: "supplyContractorsThead",      key: "sst_contractors_v2" },
-  // v2: acts column widened for «Работа с ЧЗ» + icon actions
-  { thead: "supplyGtdThead",              key: "sst_gtd_v2" },
+  // v3: acts column resizable + wrap (no fixed 268px)
+  { thead: "supplyGtdThead",              key: "sst_gtd_v3" },
 ];
 const _sstInited = new Set();
 
@@ -18663,19 +18663,28 @@ function _sstParseWidthPx(el) {
   return el.offsetWidth || 120;
 }
 
+function _sstIsActsCol(th) {
+  return !!(th && (th.classList.contains("sst-actions-col") || th.dataset.col === "acts"));
+}
+
+/** GTD acts column behaves like other columns (resize + wrap). */
+function _sstActsLocked(th) {
+  if (!_sstIsActsCol(th)) return false;
+  const thead = th.closest("thead");
+  return thead?.id !== "supplyGtdThead";
+}
+
 /** Actions column width: per-th data-acts-w → style width → default 180. */
 function _sstActsColWidth(th) {
   const fromData = parseInt(String(th?.dataset?.actsW || ""), 10);
-  if (Number.isFinite(fromData) && fromData >= _SST_ACTIONS_COL_W) return fromData;
+  if (Number.isFinite(fromData) && fromData >= _SST_MIN_COL_W) return fromData;
   const fromStyle = parseInt(String(th?.style?.width || ""), 10);
-  if (Number.isFinite(fromStyle) && fromStyle >= _SST_ACTIONS_COL_W) return fromStyle;
+  if (Number.isFinite(fromStyle) && fromStyle >= _SST_MIN_COL_W) return fromStyle;
   return _SST_ACTIONS_COL_W;
 }
 
 function _sstDefaultWidth(th) {
-  if (th.classList.contains("sst-actions-col") || th.dataset.col === "acts") {
-    return _sstActsColWidth(th);
-  }
+  if (_sstIsActsCol(th)) return _sstActsColWidth(th);
   const fromStyle = parseInt(String(th.style.width || ""), 10);
   if (Number.isFinite(fromStyle) && fromStyle > 0) return fromStyle;
   if (th.dataset.col === "num") return 44;
@@ -18704,14 +18713,15 @@ function _sstApplyWidths(table, ths, widthsByCol) {
   const colgroup = _sstEnsureColgroup(table, ths);
   let total = 0;
   ths.forEach((th, i) => {
-    const isActs = th.classList.contains("sst-actions-col") || th.dataset.col === "acts";
+    const isActs = _sstIsActsCol(th);
     if (isActs) th.classList.add("sst-actions-col");
+    const lockedActs = isActs && _sstActsLocked(th);
     const colKey = th.dataset.col || `c${i}`;
     const actsW = isActs ? _sstActsColWidth(th) : 0;
-    let w = isActs
+    let w = lockedActs
       ? actsW
       : (Number(widthsByCol[colKey]) || _sstDefaultWidth(th));
-    w = Math.max(isActs ? actsW : _SST_MIN_COL_W, Math.round(w));
+    w = Math.max(lockedActs ? actsW : _SST_MIN_COL_W, Math.round(w));
     const col = colgroup.children[i];
     if (col) {
       col.style.width = `${w}px`;
@@ -18719,7 +18729,7 @@ function _sstApplyWidths(table, ths, widthsByCol) {
     }
     th.style.width = `${w}px`;
     th.style.minWidth = `${w}px`;
-    if (isActs) th.style.maxWidth = `${w}px`;
+    if (lockedActs) th.style.maxWidth = `${w}px`;
     else th.style.maxWidth = "";
     total += w;
   });
@@ -18732,7 +18742,7 @@ function _sstCollectWidths(ths) {
   const out = {};
   ths.forEach((th, i) => {
     const colKey = th.dataset.col || `c${i}`;
-    if (colKey === "acts" || th.classList.contains("sst-actions-col")) return;
+    if (_sstActsLocked(th)) return;
     out[colKey] = _sstParseWidthPx(th);
   });
   return out;
@@ -18747,15 +18757,18 @@ function initAllSettingResizers() {
     const ths = [...theadEl.querySelectorAll("th")];
     if (!ths.length) return;
 
-    // Migrate old storage keys once (sst_* → sst_*_v2).
+    // Migrate old storage keys once (sst_* → sst_*_v2/v3).
     let saved = _sstLoad(key);
     if (!Object.keys(saved).length) {
-      const legacyKey = key.replace(/_v2$/, "");
-      if (legacyKey !== key) {
+      const legacyKeys = [];
+      if (key.endsWith("_v3")) legacyKeys.push(key.replace(/_v3$/, "_v2"), key.replace(/_v3$/, ""));
+      else if (key.endsWith("_v2")) legacyKeys.push(key.replace(/_v2$/, ""));
+      for (const legacyKey of legacyKeys) {
         const legacy = _sstLoad(legacyKey);
         if (Object.keys(legacy).length) {
           saved = legacy;
           _sstSave(key, saved);
+          break;
         }
       }
     }
@@ -18765,7 +18778,7 @@ function initAllSettingResizers() {
     _sstInited.add(thead);
 
     ths.forEach((th, idx) => {
-      if (th.classList.contains("sst-actions-col") || th.dataset.col === "acts") return;
+      if (_sstActsLocked(th)) return;
       if (th.querySelector(".sst-resize-handle")) return;
       const handle = document.createElement("span");
       handle.className = "sst-resize-handle";

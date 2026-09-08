@@ -6211,15 +6211,25 @@ body.sst-col-resizing * {
   z-index: 4;
   background: #f8fafc;
 }
-/* ГТД: «Работа с ЧЗ» + ✎ + 🗑 не влезают в стандартные 180px sticky-столбца. */
-#supplies-settings-pane-gtd .supply-sources-table th.sst-actions-col,
-#supplies-settings-pane-gtd .supply-sources-table td:last-child {
-  width: 268px;
-  min-width: 268px;
-  max-width: 268px;
+/* ГТД: столбец действий как остальные — можно сужать, кнопки переносятся.
+   Специфичность выше sticky-правила с min/max 180px. */
+#section-supplies-settings #supplies-settings-pane-gtd .supply-sources-table th.sst-actions-col,
+#section-supplies-settings #supplies-settings-pane-gtd .supply-sources-table td:last-child {
+  width: auto;
+  min-width: 56px;
+  max-width: none;
+  white-space: normal !important;
   overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  vertical-align: middle;
 }
-#supplies-settings-pane-gtd .supply-sources-table .sst-edit-actions .small-btn.icon-btn {
+#section-supplies-settings #supplies-settings-pane-gtd .supply-sources-table .sst-edit-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 4px;
+}
+#section-supplies-settings #supplies-settings-pane-gtd .supply-sources-table .sst-edit-actions .small-btn.icon-btn {
   min-width: 32px;
   min-height: 32px;
   width: 32px;
@@ -15305,20 +15315,18 @@ button.wb-fbs-kiz-add:disabled {
 .wb-fbs-kiz-circ-cis-st.is-error { background: #fef2f2; color: #b91c1c; }
 .supply-gtd-chz-modal .small-btn { height: 32px; padding: 0 12px; font-size: 13px; }
 
-/* ГТД → Работа с ЧЗ: вертикальный скролл таблицы + вписывание в низкий viewport */
+/* ГТД → Работа с ЧЗ: шапка всегда видна, скролл только у таблицы, «Ещё» в футере */
 #supplyGtdChzModal.modal-overlay {
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
-  overflow-x: hidden;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
+  overflow: hidden;
   padding: 12px 8px;
-  overscroll-behavior: contain;
 }
 .supply-gtd-chz-modal.wb-fbs-kiz-circ-modal {
   width: min(1120px, calc(100vw - 16px));
   max-width: min(1120px, calc(100vw - 16px));
-  height: auto;
+  height: calc(100vh - 24px);
+  height: calc(100dvh - 24px);
   max-height: calc(100vh - 24px);
   max-height: calc(100dvh - 24px);
   margin: 0 auto;
@@ -15328,9 +15336,10 @@ button.wb-fbs-kiz-add:disabled {
   overflow: hidden;
 }
 .supply-gtd-chz-modal .wb-fbs-kiz-circ-header {
-  flex: 0 1 auto;
-  min-height: 0;
+  flex: 0 0 auto; /* не сжимать — иначе верхний блок «пропадает» */
+  min-height: auto;
   max-height: none;
+  overflow: visible;
 }
 .supply-gtd-chz-modal .wb-fbs-kiz-circ-body {
   flex: 1 1 auto;
@@ -15341,30 +15350,24 @@ button.wb-fbs-kiz-add:disabled {
 }
 .supply-gtd-chz-modal .wb-fbs-kiz-circ-table-wrap {
   flex: 1 1 auto;
-  min-height: 0; /* иначе 240px ломает скролл на низких экранах */
+  min-height: 0;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
 }
+.supply-gtd-chz-modal .wb-fbs-kiz-circ-load-more-wrap {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+}
 .supply-gtd-chz-modal .wb-fbs-kiz-circ-table thead th {
   z-index: 2;
-}
-@media (max-height: 720px) {
-  .supply-gtd-chz-modal .wb-fbs-kiz-circ-header {
-    flex: 0 1 auto;
-    max-height: min(42vh, 320px);
-    overflow-x: hidden;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-  .supply-gtd-chz-modal .wb-fbs-kiz-circ-table-wrap {
-    min-height: 120px;
-  }
 }
 @media (max-width: 900px) {
   .supply-gtd-chz-modal.wb-fbs-kiz-circ-modal {
     width: 100%;
     max-width: 100%;
+    height: calc(100vh - 16px);
+    height: calc(100dvh - 16px);
     max-height: calc(100vh - 16px);
     max-height: calc(100dvh - 16px);
   }
@@ -16625,18 +16628,22 @@ button.wb-fbs-kiz-add:disabled {
     margin: 0 !important;
   }
 
-  /* Full-height sheet: таблица забирает оставшуюся высоту */
+  /* Full-height sheet: шапка фиксирована, скролл только у таблицы */
   #supplyGtdChzModal.modal-overlay {
     padding: 0 !important;
     overflow: hidden !important;
   }
   #supplyGtdChzModal .supply-gtd-chz-modal .wb-fbs-kiz-circ-header {
-    max-height: min(40dvh, 280px);
-    overflow-y: auto;
+    flex: 0 0 auto;
+    max-height: none;
+    overflow: visible;
   }
   #supplyGtdChzModal .supply-gtd-chz-modal .wb-fbs-kiz-circ-table-wrap {
     min-height: 0;
     flex: 1 1 auto;
+  }
+  #supplyGtdChzModal .supply-gtd-chz-modal .wb-fbs-kiz-circ-load-more-wrap {
+    flex: 0 0 auto;
   }
 
   /* Sticky footers + safe area for sheet footers */
