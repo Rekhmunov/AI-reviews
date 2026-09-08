@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=322" />
+  <link rel="stylesheet" href="/static/style.css?v=323" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -6620,32 +6620,52 @@
   <!-- Stock return restore (overlay on receipt; local WB returns cache only) -->
   <div id="supplyStockReturnRestoreModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
        aria-labelledby="supplyStockReturnRestoreTitle">
-    <div class="modal-card sb-return-restore-modal">
-      <div class="sb-return-restore-header">
-        <div class="sb-return-restore-header-main">
-          <h3 id="supplyStockReturnRestoreTitle" class="sb-sheet-title">Восстановить данные</h3>
-          <p class="sb-return-restore-sub">Сканируйте стикер возврата WB или КИЗ для печати</p>
+    <div class="modal-card sb-sheet-modal sb-doc-modal sb-adj-modal sb-return-restore-modal">
+      <div class="sb-sheet-header">
+        <div class="sb-sheet-title-row">
+          <div class="sb-return-restore-header-main">
+            <h3 id="supplyStockReturnRestoreTitle" class="sb-sheet-title">Восстановить данные</h3>
+            <p class="sb-return-restore-sub">Сканируйте стикер возврата WB или КИЗ для печати</p>
+          </div>
+          <button type="button" class="icon-btn secondary" onclick="closeSupplyStockReturnRestoreModal()"
+                  aria-label="Закрыть">✕</button>
         </div>
-        <button type="button" class="icon-btn secondary" onclick="closeSupplyStockReturnRestoreModal()"
-                aria-label="Закрыть">✕</button>
-      </div>
-      <div id="supplyStockReturnRestoreCacheInfo" class="sb-return-restore-cache" aria-live="polite">
-        Данные из ВБ ФБС → Возвраты
-      </div>
-      <div class="sb-receipt-scan-bar sb-return-restore-scan-bar">
-        <label class="sb-receipt-scan-label" for="supplyStockReturnRestoreScan">Сканирование</label>
-        <div class="sb-receipt-scan-field">
-          <input id="supplyStockReturnRestoreScan" class="sb-receipt-scan-input" type="text" autocomplete="off"
-                 placeholder="Стикер возврата или КИЗ"
-                 oninput="onWbFbsKizScanInputCheck(event)"
-                 onkeydown="onSupplyStockReturnRestoreScanKey(event)" />
-          <button type="button" class="sb-receipt-scan-clear" title="Очистить"
-                  aria-label="Очистить поле сканирования"
-                  onclick="clearWbFbsKizScanField('supplyStockReturnRestoreScan')">✕</button>
+        <div id="supplyStockReturnRestoreCacheInfo" class="sb-return-restore-cache" aria-live="polite">
+          Данные из ВБ ФБС → Возвраты
         </div>
+        <div class="sb-receipt-scan-bar sb-return-restore-scan-bar">
+          <label class="sb-receipt-scan-label" for="supplyStockReturnRestoreScan">Сканирование</label>
+          <div class="sb-receipt-scan-field">
+            <input id="supplyStockReturnRestoreScan" class="sb-receipt-scan-input" type="text" autocomplete="off"
+                   placeholder="Стикер возврата или КИЗ"
+                   oninput="onWbFbsKizScanInputCheck(event)"
+                   onkeydown="onSupplyStockReturnRestoreScanKey(event)" />
+            <button type="button" class="sb-receipt-scan-clear" title="Очистить"
+                    aria-label="Очистить поле сканирования"
+                    onclick="clearWbFbsKizScanField('supplyStockReturnRestoreScan')">✕</button>
+          </div>
+        </div>
+        <div id="supplyStockReturnRestoreInfo" class="sb-receipt-scan-info wb-fbs-kiz-info" hidden></div>
       </div>
-      <div id="supplyStockReturnRestoreInfo" class="sb-receipt-scan-info wb-fbs-kiz-info" hidden></div>
-      <div id="supplyStockReturnRestoreResult" class="sb-return-restore-result" hidden></div>
+      <div id="supplyStockReturnRestoreResult" class="wb-fbs-sd-table-wrap sb-return-restore-table-wrap">
+        <table class="wb-fbs-sd-table" id="supplyStockReturnRestoreTable">
+          <colgroup>
+            <col data-col="0" style="width:32%" />
+            <col data-col="1" style="width:60%" />
+            <col data-fixed="1" class="wb-fbs-sd-col-act" style="width:48px" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th data-col="0">Заказ</th>
+              <th data-col="1">Товар</th>
+              <th class="wb-fbs-sd-col-act"></th>
+            </tr>
+          </thead>
+          <tbody id="supplyStockReturnRestoreTbody">
+            <tr><td colspan="3" class="wb-fbs-empty">Отсканируйте стикер возврата или КИЗ</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 
@@ -6872,6 +6892,6 @@
 
   <script src="/static/ozon_fbs.js?v=140"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=22"></script>
-  <script src="/static/app.js?v=569"></script>
+  <script src="/static/app.js?v=570"></script>
 </body>
 </html>

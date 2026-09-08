@@ -15558,9 +15558,9 @@ window.closeSupplyStockReceiptModal = closeSupplyStockReceiptModal;
 
 const stockReturnRestoreState = {
   scanning: false,
-  item: null,
-  sourceId: 0,
-  sourceName: "",
+  items: [],
+  seq: 0,
+  hitKey: "",
 };
 
 function _stockReturnRestoreSetInfo(text, kind) {
@@ -15586,14 +15586,10 @@ function _stockReturnRestoreSetCacheInfo(text) {
 }
 
 function _stockReturnRestoreClearResult() {
-  stockReturnRestoreState.item = null;
-  stockReturnRestoreState.sourceId = 0;
-  stockReturnRestoreState.sourceName = "";
-  const box = document.getElementById("supplyStockReturnRestoreResult");
-  if (box) {
-    box.hidden = true;
-    box.innerHTML = "";
-  }
+  if (typeof _wbFbsCloseRowMenus === "function") _wbFbsCloseRowMenus();
+  stockReturnRestoreState.items = [];
+  stockReturnRestoreState.hitKey = "";
+  _stockReturnRestoreRenderTable();
 }
 
 function _stockReturnRestoreScanTypeLabel(scanType) {
@@ -15604,60 +15600,146 @@ function _stockReturnRestoreScanTypeLabel(scanType) {
   return t || "—";
 }
 
-function _stockReturnRestoreRenderResult(payload) {
-  const box = document.getElementById("supplyStockReturnRestoreResult");
-  if (!box) return;
-  const item = payload?.item && typeof payload.item === "object" ? payload.item : null;
-  stockReturnRestoreState.item = item;
-  stockReturnRestoreState.sourceId = Number(payload?.source_id || item?.source_id || 0);
-  stockReturnRestoreState.sourceName = String(payload?.source_name || "").trim();
-  if (!item) {
-    box.hidden = true;
-    box.innerHTML = "";
+function _stockReturnRestoreRowKey(item) {
+  const id = Number(item?.id || 0);
+  if (id > 0) return `sid_${id}`;
+  const src = Number(item?.source_id || 0);
+  const oid = Number(item?.order_id || 0);
+  const st = String(item?.scan_type || "").trim();
+  const ret = String(item?.return_sticker_id || "").trim();
+  if (oid > 0) return `oid_${src}_${oid}_${st}`;
+  if (ret) return `ret_${src}_${ret}`;
+  const kiz = String(item?.kiz_code || "").trim();
+  if (kiz) return `kiz_${src}_${kiz.slice(-16)}`;
+  return "";
+}
+
+function _stockReturnRestoreFindItem(rowKey) {
+  const key = String(rowKey || "").trim();
+  if (!key) return null;
+  return (stockReturnRestoreState.items || []).find((row) => row._rowKey === key) || null;
+}
+
+function _stockReturnRestoreBarcodeIconHtml() {
+  return `<span class="wb-fbs-menu-ico" aria-hidden="true">
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M2 3h1.5v12H2V3zm2.5 0h1v12h-1V3zm2 0h.75v12H6.5V3zm1.75 0h1.5v12H8.25V3zm2.5 0h.75v12h-.75V3zm1.75 0h1v12h-1V3zm2 0h1.5v12H14.5V3z" fill="currentColor"/>
+    </svg>
+  </span>`;
+}
+
+function _stockReturnRestoreBarcodes(item) {
+  const catalog = _wbFbsReturnsPrintableBarcodes(_wbFbsReturnsCatalogBarcodes(item));
+  if (catalog.length) return catalog;
+  const product = Array.isArray(item?.product_barcodes) ? item.product_barcodes : [];
+  return _wbFbsReturnsPrintableBarcodes(product);
+}
+
+function _stockReturnRestoreUpsertItem(payload) {
+  const raw = payload?.item && typeof payload.item === "object" ? payload.item : null;
+  if (!raw) return null;
+  const item = { ...raw };
+  item.source_id = Number(payload?.source_id || item.source_id || 0);
+  item.source_name = String(payload?.source_name || item.source_name || "").trim();
+  let key = _stockReturnRestoreRowKey(item);
+  if (!key) {
+    stockReturnRestoreState.seq += 1;
+    key = `tmp_${stockReturnRestoreState.seq}`;
+  }
+  item._rowKey = key;
+  const items = Array.isArray(stockReturnRestoreState.items) ? stockReturnRestoreState.items : [];
+  const existing = items.findIndex((row) => row._rowKey === key);
+  if (existing >= 0) items.splice(existing, 1);
+  items.unshift(item);
+  stockReturnRestoreState.items = items;
+  stockReturnRestoreState.hitKey = key;
+  return item;
+}
+
+function _stockReturnRestoreRenderTable() {
+  const tbody = document.getElementById("supplyStockReturnRestoreTbody");
+  if (!tbody) return;
+  if (typeof _wbFbsCloseRowMenus === "function") _wbFbsCloseRowMenus();
+  const items = Array.isArray(stockReturnRestoreState.items) ? stockReturnRestoreState.items : [];
+  if (!items.length) {
+    tbody.innerHTML = `<tr><td colspan="3" class="wb-fbs-empty">Отсканируйте стикер возврата или КИЗ</td></tr>`;
     return;
   }
-  const status = _stockReturnRestoreScanTypeLabel(item.scan_type);
-  const orderId = item.order_id != null && item.order_id !== "" ? String(item.order_id) : "";
-  const returnId = String(item.return_sticker_id || "").trim();
-  const sourceName = stockReturnRestoreState.sourceName;
-  const metaParts = [status];
-  if (orderId) metaParts.push(`Заказ ${orderId}`);
-  if (returnId) metaParts.push(`Стикер ${returnId}`);
-  if (sourceName) metaParts.push(sourceName);
-  const photo = item.product_photo
-    ? `<img class="sb-return-restore-photo" src="${_wbFbsEsc(item.product_photo)}" alt="" width="64" height="64" loading="lazy">`
-    : `<span class="sb-return-restore-photo-ph" aria-hidden="true"></span>`;
-  const name = String(item.product_name || "").trim() || "—";
-  const article = String(item.product_article || "").trim();
-  const kizCode = String(item.kiz_code || "").trim();
-  const catalogBarcodes = _wbFbsReturnsPrintableBarcodes(_wbFbsReturnsCatalogBarcodes(item));
-  const canPrintKiz = !!kizCode;
-  const canPrintBarcode = catalogBarcodes.length > 0;
-  const kizHint = canPrintKiz ? "" : "title=\"КИЗ не найден\"";
-  const bcHint = canPrintBarcode ? "" : "title=\"Нет ШК в каталоге товаров\"";
-  box.hidden = false;
-  box.innerHTML = `
-    <div class="sb-return-restore-card">
-      <div class="sb-return-restore-meta">${_wbFbsEsc(metaParts.join(" · "))}</div>
-      <div class="sb-return-restore-product">
-        ${photo}
-        <div class="sb-return-restore-product-text">
-          <div class="sb-return-restore-name">${_wbFbsEsc(name)}</div>
-          <div class="sb-return-restore-article">${_wbFbsEsc(article ? `Арт. ${article}` : "—")}</div>
+  const hitKey = String(stockReturnRestoreState.hitKey || "");
+  tbody.innerHTML = items.map((item) => {
+    const rowKey = String(item._rowKey || "");
+    const orderId = item.order_id != null && item.order_id !== "" ? String(item.order_id) : "";
+    const returnId = String(item.return_sticker_id || "").trim();
+    const assembly = String(item.assembly_sticker_number || "").trim();
+    const stickerHtml = _wbFbsKizStickerHtml({ sticker_number: assembly || returnId });
+    const status = _stockReturnRestoreScanTypeLabel(item.scan_type);
+    const sourceName = String(item.source_name || "").trim();
+    const photo = item.product_photo
+      ? `<img class="wb-fbs-product-photo" src="${_wbFbsEsc(item.product_photo)}" alt="" width="72" height="72" loading="lazy">`
+      : `<span class="wb-fbs-product-ph" aria-hidden="true"></span>`;
+    const name = String(item.product_name || "").trim() || "—";
+    const article = String(item.product_article || "").trim();
+    const barcodes = _stockReturnRestoreBarcodes(item);
+    const barcodeHtml = barcodes.length
+      ? `<div class="wb-fbs-barcodes" title="Штрихкод товара">${barcodes.map((b) =>
+          `<div class="wb-fbs-barcode">${_wbFbsEsc(b)}</div>`
+        ).join("")}</div>`
+      : "";
+    const kizCode = String(item.kiz_code || "").trim();
+    const kizHtml = kizCode
+      ? `<div class="wb-fbs-kiz is-ok" title="${_wbFbsEsc(kizCode)}">КИЗ</div>`
+      : "";
+    const catalogBarcodes = _wbFbsReturnsPrintableBarcodes(_wbFbsReturnsCatalogBarcodes(item));
+    const canPrintKiz = !!kizCode;
+    const canPrintBarcode = catalogBarcodes.length > 0;
+    const hitCls = rowKey && rowKey === hitKey ? " is-scan-hit" : "";
+    const safeKey = `rr_${rowKey.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+    return `<tr class="wb-fbs-sd-click-row${hitCls}" data-row-key="${_wbFbsEsc(rowKey)}">
+      <td>
+        <div class="wb-fbs-sd-order-id">${_wbFbsEsc(orderId || "—")}</div>
+        <div class="wb-fbs-sd-sticker">${stickerHtml}</div>
+        ${returnId && assembly ? `<div class="wb-fbs-order-meta">Возврат ${_wbFbsEsc(returnId)}</div>` : ""}
+        <div class="wb-fbs-order-meta">${_wbFbsEsc(status)}${sourceName ? " · " + _wbFbsEsc(sourceName) : ""}</div>
+      </td>
+      <td>
+        <div class="wb-fbs-product">
+          ${photo}
+          <div class="wb-fbs-product-text">
+            <div class="wb-fbs-product-name" title="${_wbFbsEsc(name)}">${_wbFbsEsc(name)}</div>
+            <div class="wb-fbs-product-sub">${_wbFbsEsc(article ? `Арт. ${article}` : "—")}</div>
+            ${barcodeHtml}
+            ${kizHtml}
+          </div>
         </div>
-      </div>
-      <div class="sb-return-restore-kiz">
-        <span class="sb-return-restore-kiz-label">КИЗ</span>
-        <span class="sb-return-restore-kiz-value">${_wbFbsEsc(kizCode || "не найден")}</span>
-      </div>
-      <div class="sb-return-restore-actions">
-        <button type="button" class="secondary" ${canPrintKiz ? "" : "disabled"} ${kizHint}
-                onclick="printStockReturnRestoreKiz()">Печать маркировки</button>
-        <button type="button" class="secondary" ${canPrintBarcode ? "" : "disabled"} ${bcHint}
-                onclick="printStockReturnRestoreBarcode()">Печать ШК</button>
-      </div>
-      <p class="sb-return-restore-hint">Распечатайте этикетку, затем отсканируйте её в «Добавить на склад».</p>
-    </div>`;
+      </td>
+      <td>
+        <div class="wb-fbs-row-menu-wrap">
+          <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
+                  onclick="toggleWbFbsRowMenu(event, '${safeKey}')" aria-haspopup="menu">⋮</button>
+          <div id="wbFbsRowMenu_${safeKey}" class="wb-fbs-row-menu" data-order-id="${safeKey}" role="menu">
+            <button type="button" class="wb-fbs-row-menu-item${canPrintBarcode ? "" : " is-disabled"}" role="menuitem"
+                    ${canPrintBarcode ? `onclick="printStockReturnRestoreBarcode('${_wbFbsEsc(rowKey)}')"` : "disabled"}
+                    ${canPrintBarcode ? "" : 'title="Нет ШК в каталоге товаров"'}>
+              ${_stockReturnRestoreBarcodeIconHtml()}
+              Распечатать ШК
+            </button>
+            <button type="button" class="wb-fbs-row-menu-item${canPrintKiz ? "" : " is-disabled"}" role="menuitem"
+                    ${canPrintKiz ? `onclick="printStockReturnRestoreKiz('${_wbFbsEsc(rowKey)}')"` : "disabled"}
+                    ${canPrintKiz ? "" : 'title="Нет КИЗ для печати"'}>
+              ${_wbFbsQrMenuIconHtml()}
+              Распечатать КИЗ
+            </button>
+          </div>
+        </div>
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+function _stockReturnRestoreRenderResult(payload) {
+  const item = _stockReturnRestoreUpsertItem(payload);
+  _stockReturnRestoreRenderTable();
+  return item;
 }
 
 async function _stockReturnRestoreRefreshCacheInfo() {
@@ -15762,13 +15844,12 @@ async function processSupplyStockReturnRestoreScan() {
     } else {
       const warn = String(payload?.item?.warning || "").trim();
       _stockReturnRestoreSetInfo(
-        warn || "Готово к печати",
+        warn || "Готово к печати · этикетка 58×40 мм",
         warn ? "warn" : "ok",
       );
     }
     if (scanEl) scanEl.value = "";
   } catch (err) {
-    _stockReturnRestoreClearResult();
     _stockReturnRestoreSetInfo(err?.message || String(err), "warn");
   } finally {
     stockReturnRestoreState.scanning = false;
@@ -15777,9 +15858,10 @@ async function processSupplyStockReturnRestoreScan() {
 }
 window.processSupplyStockReturnRestoreScan = processSupplyStockReturnRestoreScan;
 
-async function printStockReturnRestoreKiz() {
-  const item = stockReturnRestoreState.item;
-  const sid = Number(stockReturnRestoreState.sourceId || 0);
+async function printStockReturnRestoreKiz(rowKey) {
+  if (typeof _wbFbsCloseRowMenus === "function") _wbFbsCloseRowMenus();
+  const item = _stockReturnRestoreFindItem(rowKey) || stockReturnRestoreState.items[0] || null;
+  const sid = Number(item?.source_id || 0);
   const scanId = Number(item?.id || 0);
   const orderId = Number(item?.order_id || 0);
   const kizCode = String(item?.kiz_code || "").trim();
@@ -15813,7 +15895,7 @@ async function printStockReturnRestoreKiz() {
     }, dmUrl));
     win.document.close();
     _stockReturnRestoreSetInfo(
-      "Распечатайте этикетку, затем отсканируйте её в «Добавить на склад»",
+      "Распечатайте этикетку 58×40, затем отсканируйте её в «Добавить на склад»",
       "ok",
     );
   } catch (err) {
@@ -15822,8 +15904,9 @@ async function printStockReturnRestoreKiz() {
 }
 window.printStockReturnRestoreKiz = printStockReturnRestoreKiz;
 
-function printStockReturnRestoreBarcode() {
-  const item = stockReturnRestoreState.item;
+function printStockReturnRestoreBarcode(rowKey) {
+  if (typeof _wbFbsCloseRowMenus === "function") _wbFbsCloseRowMenus();
+  const item = _stockReturnRestoreFindItem(rowKey) || stockReturnRestoreState.items[0] || null;
   const barcodes = _wbFbsReturnsPrintableBarcodes(_wbFbsReturnsCatalogBarcodes(item));
   if (!barcodes.length) {
     _stockReturnRestoreSetInfo("У товара нет ШК в каталоге (Настройки → Товары)", "warn");
@@ -15833,7 +15916,7 @@ function printStockReturnRestoreBarcode() {
   if (barcodes.length === 1) {
     _wbFbsReturnsDoBarcodePrint(barcodes[0], labelText);
     _stockReturnRestoreSetInfo(
-      "Распечатайте этикетку, затем отсканируйте её в «Добавить на склад»",
+      "Распечатайте этикетку 58×40, затем отсканируйте её в «Добавить на склад»",
       "ok",
     );
     return;

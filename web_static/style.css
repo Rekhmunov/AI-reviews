@@ -13236,21 +13236,12 @@ button.wb-fbs-kiz-add:disabled {
 #wbFbsReturnsBarcodeModal {
   z-index: 1350;
 }
-.sb-return-restore-modal {
-  width: min(520px, 100%);
-  max-width: min(520px, 100%);
-  max-height: min(92vh, 720px);
-  display: flex;
-  flex-direction: column;
-  overflow: auto;
-  padding: 0;
-}
-.sb-return-restore-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 20px 20px 0;
+#supplyStockReturnRestoreModal > .sb-return-restore-modal {
+  width: min(1100px, 100%);
+  max-width: min(1100px, 100%);
+  height: calc(100vh - 40px);
+  max-height: calc(100vh - 40px);
+  overflow: hidden;
 }
 .sb-return-restore-header-main {
   min-width: 0;
@@ -13262,7 +13253,6 @@ button.wb-fbs-kiz-add:disabled {
   color: #64748b;
 }
 .sb-return-restore-cache {
-  margin: 12px 20px 0;
   padding: 8px 12px;
   border-radius: 8px;
   background: #f8fafc;
@@ -13271,99 +13261,42 @@ button.wb-fbs-kiz-add:disabled {
   line-height: 1.35;
   color: #475569;
 }
-.sb-return-restore-scan-bar {
-  padding: 16px 20px 0;
-}
-.sb-return-restore-result {
-  padding: 12px 20px 20px;
-}
-.sb-return-restore-card {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 16px;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  background: #fff;
-}
-.sb-return-restore-meta {
-  font-size: 13px;
-  line-height: 1.35;
-  color: #64748b;
-}
-.sb-return-restore-product {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
-.sb-return-restore-photo,
-.sb-return-restore-photo-ph {
-  width: 64px;
-  height: 64px;
-  border-radius: 8px;
-  flex: 0 0 auto;
-  object-fit: cover;
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
-}
-.sb-return-restore-product-text {
-  min-width: 0;
-}
-.sb-return-restore-name {
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 1.3;
-  color: #0f172a;
-  word-break: break-word;
-}
-.sb-return-restore-article {
-  margin-top: 4px;
-  font-size: 14px;
-  color: #64748b;
-}
-.sb-return-restore-kiz {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-.sb-return-restore-kiz-label {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  color: #94a3b8;
-}
-.sb-return-restore-kiz-value {
-  font-size: 13px;
-  line-height: 1.35;
-  word-break: break-all;
-  color: #0f172a;
-}
-.sb-return-restore-actions {
+#supplyStockReturnRestoreModal .sb-return-restore-scan-bar {
+  padding-top: 4px;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  align-items: flex-end;
+  gap: 8px 12px;
 }
-.sb-return-restore-actions button {
-  min-height: 40px;
-  padding: 8px 16px;
-  font-size: 14px;
+#supplyStockReturnRestoreModal .sb-return-restore-scan-bar .sb-receipt-scan-field {
+  flex: 1 1 220px;
+  min-width: 0;
 }
-.sb-return-restore-hint {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.4;
-  color: #64748b;
+.sb-return-restore-table-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 24px 16px;
+}
+#supplyStockReturnRestoreTable tbody tr.is-scan-hit td {
+  background: #ecfdf5;
+  box-shadow: inset 0 0 0 2px #34d399;
+}
+#supplyStockReturnRestoreTable .wb-fbs-product-photo,
+#supplyStockReturnRestoreTable .wb-fbs-product img,
+#supplyStockReturnRestoreTable .wb-fbs-product-ph {
+  width: 72px !important;
+  height: 72px !important;
+  max-width: 72px !important;
+  max-height: 72px !important;
+  min-width: 72px;
+  min-height: 72px;
+  flex: 0 0 72px;
+}
+#supplyStockReturnRestoreTable .wb-fbs-barcode {
+  font-size: 16px;
 }
 @media (max-width: 480px) {
-  .sb-return-restore-actions {
-    flex-direction: column;
-  }
-  .sb-return-restore-actions button {
-    width: 100%;
-  }
   #supplyStockReceiptRestoreBtn.sb-receipt-restore-btn {
     width: 100%;
   }
@@ -14816,6 +14749,7 @@ button.wb-fbs-kiz-add:disabled {
   /* —— Остатки modals: full-bleed sheets —— */
   #supplyBalancesVisibilityModal,
   #supplyStockReceiptModal,
+  #supplyStockReturnRestoreModal,
   #supplyStockAdjustmentModal,
   #supplyStockAsOfModal,
   #supplyStockMovementsModal,
@@ -14828,6 +14762,8 @@ button.wb-fbs-kiz-add:disabled {
   #supplyBalancesVisibilityModal > .modal-card,
   #supplyStockReceiptModal > .sb-sheet-modal,
   #supplyStockReceiptModal > .modal-card,
+  #supplyStockReturnRestoreModal > .sb-sheet-modal,
+  #supplyStockReturnRestoreModal > .modal-card,
   #supplyStockAdjustmentModal > .sb-sheet-modal,
   #supplyStockAdjustmentModal > .modal-card,
   #supplyStockAsOfModal > .sb-sheet-modal,
@@ -14845,6 +14781,7 @@ button.wb-fbs-kiz-add:disabled {
   }
   #supplyBalancesVisibilityModal .sb-sheet-header,
   #supplyStockReceiptModal .sb-sheet-header,
+  #supplyStockReturnRestoreModal .sb-sheet-header,
   #supplyStockAdjustmentModal .sb-sheet-header,
   #supplyStockAsOfModal .sb-sheet-header,
   #supplyStockMovementsModal .sb-sheet-header,
@@ -14855,6 +14792,7 @@ button.wb-fbs-kiz-add:disabled {
   }
   #supplyBalancesVisibilityModal .sb-sheet-title,
   #supplyStockReceiptModal .sb-sheet-title,
+  #supplyStockReturnRestoreModal .sb-sheet-title,
   #supplyStockAdjustmentModal .sb-sheet-title,
   #supplyStockAsOfModal .sb-sheet-title,
   #supplyStockMovementsModal .sb-sheet-title,
@@ -14863,6 +14801,7 @@ button.wb-fbs-kiz-add:disabled {
   }
   #supplyBalancesVisibilityModal .icon-btn,
   #supplyStockReceiptModal .icon-btn,
+  #supplyStockReturnRestoreModal .icon-btn,
   #supplyStockAdjustmentModal .icon-btn,
   #supplyStockAsOfModal .icon-btn,
   #supplyStockMovementsModal .icon-btn,
@@ -14967,10 +14906,93 @@ button.wb-fbs-kiz-add:disabled {
     min-height: 44px;
     flex: none;
   }
-  #supplyStockReceiptModal .sb-receipt-scan-bar {
+  #supplyStockReceiptModal .sb-receipt-scan-bar,
+  #supplyStockReturnRestoreModal .sb-receipt-scan-bar {
     flex-direction: column;
     align-items: stretch;
     gap: 8px;
+  }
+  #supplyStockReturnRestoreModal .sb-return-restore-table-wrap {
+    padding: 0 12px 16px;
+  }
+  #supplyStockReturnRestoreTable {
+    min-width: 0 !important;
+    width: 100%;
+  }
+  #supplyStockReturnRestoreTable thead {
+    display: none;
+  }
+  #supplyStockReturnRestoreTable tbody {
+    display: block;
+  }
+  #supplyStockReturnRestoreTable tbody tr {
+    display: grid;
+    grid-template-columns: 1fr 44px;
+    grid-template-areas:
+      "order act"
+      "product product";
+    gap: 8px 12px;
+    padding: 12px;
+    margin-bottom: 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+  }
+  #supplyStockReturnRestoreTable tbody tr:hover td {
+    background: transparent !important;
+  }
+  #supplyStockReturnRestoreTable tbody td {
+    display: block;
+    padding: 0 !important;
+    border: none !important;
+    background: transparent !important;
+    text-align: left !important;
+    vertical-align: top !important;
+    width: auto !important;
+  }
+  #supplyStockReturnRestoreTable tbody td:nth-child(1) {
+    grid-area: order;
+    min-width: 0;
+  }
+  #supplyStockReturnRestoreTable tbody td:nth-child(2) {
+    grid-area: product;
+    border-top: 1px solid #f1f5f9;
+    padding-top: 12px !important;
+  }
+  #supplyStockReturnRestoreTable tbody td:nth-child(3) {
+    grid-area: act;
+    align-self: start;
+    text-align: center;
+  }
+  #supplyStockReturnRestoreTable tbody tr td.wb-fbs-empty {
+    display: block !important;
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 24px 12px !important;
+    color: #64748b;
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+  }
+  #supplyStockReturnRestoreTable tbody tr:has(td.wb-fbs-empty) {
+    display: block;
+    padding: 0;
+    margin-bottom: 0;
+    border: none;
+    box-shadow: none;
+  }
+  #supplyStockReturnRestoreTable tbody tr.is-scan-hit {
+    box-shadow: inset 0 0 0 2px #34d399;
+    background: #ecfdf5;
+  }
+  #supplyStockReturnRestoreTable tbody tr.is-scan-hit td {
+    background: transparent;
+    box-shadow: none;
+  }
+  #supplyStockReturnRestoreModal .sb-receipt-scan-input {
+    min-height: 44px;
+    font-size: 16px;
   }
   #supplyBalancesVisibilityModal .sb-vis-row {
     flex-wrap: wrap;
