@@ -23066,6 +23066,18 @@ async function confirmSupplyGtdDelete() {
 }
 
 /* ── Настройки → ГТД → Работа с ЧЗ ─────────────────────────────────────── */
+const SUPPLY_GTD_CHZ_COL_WIDTHS_KEY = "supply_gtd_chz_col_widths_v1";
+const SUPPLY_GTD_CHZ_DEFAULT_COL_WIDTHS = {
+  check: 44,
+  kiz: 160,
+  name: 220,
+  gtin: 140,
+  status: 140,
+  doc: 160,
+  error: 200,
+  updated: 140,
+};
+
 const _supplyGtdChzState = {
   gtdId: 0,
   gtdNumber: "",
@@ -23082,6 +23094,8 @@ const _supplyGtdChzState = {
   busy: false,
   lastLog: "",
   lastRunId: 0,
+  /** @type {Map<string, string>|null} barcode/GTIN → product name */
+  productNameByCode: null,
 };
 
 function _supplyGtdChzEsc(s) {
@@ -23099,12 +23113,156 @@ function _supplyGtdChzApiError(res, data, fallback) {
   return fallback || `Ошибка ${res?.status || ""}`;
 }
 
+/** Load Feedback → Settings → Products into cache without rewriting products UI. */
+async function _supplyGtdChzEnsureProductsCache() {
+  if (Array.isArray(_productsCache) && _productsCache.length) {
+    _supplyGtdChzRebuildProductNameIndex();
+    return;
+  }
+  try {
+    const res = await fetch("/api/products", { headers: jsonHeaders() });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) _productsCache = Array.isArray(data.items) ? data.items : [];
+  } catch (_e) {
+    /* keep existing cache */
+  }
+  _supplyGtdChzRebuildProductNameIndex();
+}
+
+function _supplyGtdChzRebuildProductNameIndex() {
+  const map = new Map();
+  for (const item of _productsCache || []) {
+    const name = String(item?.name || "").trim();
+    if (!name) continue;
+    const barcodes = Array.isArray(item.barcodes) ? item.barcodes : [];
+    for (const raw of barcodes) {
+      const text = String(raw || "").trim();
+      if (!text) continue;
+      if (!map.has(text)) map.set(text, name);
+      const digits = text.replace(/\D/g, "");
+      if (digits && !map.has(digits)) map.set(digits, name);
+      const stripped = digits.replace(/^0+/, "") || digits;
+      if (stripped && !map.has(stripped)) map.set(stripped, name);
+    }
+  }
+  _supplyGtdChzState.productNameByCode = map;
+}
+
+function _supplyGtdChzProductName(gtin) {
+  const map = _supplyGtdChzState.productNameByCode;
+  if (!map || !map.size) return "";
+  const raw = String(gtin || "").trim();
+  if (!raw) return "";
+  if (map.has(raw)) return map.get(raw) || "";
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) return "";
+  const candidates = typeof _wbFbsKizGtinToProductSkus === "function"
+    ? _wbFbsKizGtinToProductSkus(digits.length === 14 ? digits : digits.padStart(14, "0").slice(-14))
+    : [digits, digits.startsWith("0") ? digits.slice(1) : digits];
+  for (const code of candidates) {
+    if (map.has(code)) return map.get(code) || "";
+  }
+  if (map.has(digits)) return map.get(digits) || "";
+  const stripped = digits.replace(/^0+/, "") || digits;
+  if (map.has(stripped)) return map.get(stripped) || "";
+  return "";
+}
+
+function _supplyGtdChzLoadColWidths() {
+  const defaults = { ...SUPPLY_GTD_CHZ_DEFAULT_COL_WIDTHS };
+  try {
+    const raw = JSON.parse(localStorage.getItem(SUPPLY_GTD_CHZ_COL_WIDTHS_KEY) || "null");
+    if (!raw || typeof raw !== "object") return defaults;
+    for (const [k, v] of Object.entries(raw)) {
+      const n = Number(v);
+      if (Number.isFinite(n) && n >= 40) defaults[k] = Math.round(n);
+    }
+  } catch (_e) { /* ignore */ }
+  return defaults;
+}
+
+function _supplyGtdChzSaveColWidths(widths) {
+  try {
+    localStorage.setItem(SUPPLY_GTD_CHZ_COL_WIDTHS_KEY, JSON.stringify(widths));
+  } catch (_e) { /* ignore */ }
+}
+
+function _supplyGtdChzApplyColWidths() {
+  const table = document.getElementById("supplyGtdChzTable");
+  const colgroup = document.getElementById("supplyGtdChzColgroup");
+  if (!table || !colgroup) return;
+  const widths = _supplyGtdChzLoadColWidths();
+  let total = 0;
+  Array.from(colgroup.querySelectorAll("col")).forEach((col) => {
+    const key = col.getAttribute("data-col") || "";
+    const w = Number(widths[key] || SUPPLY_GTD_CHZ_DEFAULT_COL_WIDTHS[key] || 100);
+    col.style.width = `${w}px`;
+    total += w;
+  });
+  table.style.tableLayout = "fixed";
+  table.style.width = `${total}px`;
+  table.style.minWidth = `${total}px`;
+}
+
+let _supplyGtdChzColResizeInited = false;
+function initSupplyGtdChzColumnResizer() {
+  const table = document.getElementById("supplyGtdChzTable");
+  if (!table) return;
+  _supplyGtdChzApplyColWidths();
+  if (_supplyGtdChzColResizeInited) return;
+  _supplyGtdChzColResizeInited = true;
+
+  let dragging = null;
+  table.addEventListener("mousedown", (e) => {
+    const handle = e.target?.closest?.(".col-resize-handle");
+    if (!handle) return;
+    const th = handle.closest("th");
+    if (!th) return;
+    const key = th.getAttribute("data-col") || "";
+    if (!key || key === "check") return;
+    e.preventDefault();
+    const col = document.querySelector(`#supplyGtdChzColgroup col[data-col="${CSS.escape(key)}"]`);
+    const startX = e.clientX;
+    const startW = col ? (parseInt(col.style.width, 10) || th.offsetWidth || 100) : th.offsetWidth || 100;
+    dragging = { key, startX, startW, col };
+    document.body.style.cursor = "col-resize";
+    document.body.classList.add("is-col-resizing");
+  });
+  window.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - dragging.startX;
+    const next = Math.max(40, Math.round(dragging.startW + dx));
+    if (dragging.col) dragging.col.style.width = `${next}px`;
+    const widths = _supplyGtdChzLoadColWidths();
+    widths[dragging.key] = next;
+    let total = 0;
+    document.querySelectorAll("#supplyGtdChzColgroup col").forEach((col) => {
+      total += parseInt(col.style.width, 10) || 100;
+    });
+    table.style.width = `${total}px`;
+    table.style.minWidth = `${total}px`;
+  });
+  window.addEventListener("mouseup", () => {
+    if (!dragging) return;
+    const widths = _supplyGtdChzLoadColWidths();
+    const col = dragging.col;
+    if (col) widths[dragging.key] = parseInt(col.style.width, 10) || widths[dragging.key];
+    _supplyGtdChzSaveColWidths(widths);
+    dragging = null;
+    document.body.style.cursor = "";
+    document.body.classList.remove("is-col-resizing");
+  });
+}
+
 function _supplyGtdChzVisibleItems() {
   const q = String(_supplyGtdChzState.search || "").trim().toLowerCase();
   if (!q) return _supplyGtdChzState.items;
-  return _supplyGtdChzState.items.filter((it) =>
-    String(it.kiz_short || "").toLowerCase().includes(q)
-  );
+  return _supplyGtdChzState.items.filter((it) => {
+    if (String(it.kiz_short || "").toLowerCase().includes(q)) return true;
+    if (String(it.gtin || "").toLowerCase().includes(q)) return true;
+    const name = _supplyGtdChzProductName(it.gtin).toLowerCase();
+    return name.includes(q);
+  });
 }
 
 function _supplyGtdChzRowOpReady(it, op) {
@@ -23181,7 +23339,7 @@ function _supplyGtdChzRenderTable() {
   if (!tbody) return;
   const items = _supplyGtdChzVisibleItems();
   if (!items.length) {
-    tbody.innerHTML = `<tr><td colspan="7" class="wb-fbs-empty">${
+    tbody.innerHTML = `<tr><td colspan="8" class="wb-fbs-empty">${
       _supplyGtdChzState.busy ? "Загрузка…" : "Нет КИЗ"
     }</td></tr>`;
     _supplyGtdChzRenderMeta();
@@ -23195,6 +23353,7 @@ function _supplyGtdChzRenderTable() {
     const kind = String(it.cis_status_kind || "unchecked");
     const label = String(it.cis_status_label || "Не проверен");
     const checked = _supplyGtdChzState.selected.has(ks) ? "checked" : "";
+    const productName = _supplyGtdChzProductName(it.gtin) || "—";
     const doc = it.last_doc_id
       ? `${_supplyGtdChzEsc(it.last_op_status || "—")} · ${_supplyGtdChzEsc(it.last_doc_id)}`
       : "—";
@@ -23205,6 +23364,7 @@ function _supplyGtdChzRenderTable() {
                  aria-label="Выбрать КИЗ"
                  onchange="toggleSupplyGtdChzRow(this.dataset.kiz, this.checked)" /></td>
       <td><code style="font-size:12px">${_supplyGtdChzEsc(ks)}</code></td>
+      <td title="${_supplyGtdChzEsc(productName)}">${_supplyGtdChzEsc(productName)}</td>
       <td>${_supplyGtdChzEsc(it.gtin || "—")}</td>
       <td><span class="wb-fbs-kiz-circ-cis-st is-${_supplyGtdChzEsc(kind)}">${_supplyGtdChzEsc(label)}</span></td>
       <td>${doc}</td>
@@ -23280,7 +23440,9 @@ async function openSupplyGtdChzModal(gtdId) {
   });
   const modal = document.getElementById("supplyGtdChzModal");
   if (modal) modal.classList.remove("hidden");
+  initSupplyGtdChzColumnResizer();
   try {
+    await _supplyGtdChzEnsureProductsCache();
     await _supplyGtdChzFetch(true);
   } catch (err) {
     alert(err?.message || String(err));

@@ -4928,7 +4928,7 @@
                 <div class="wb-fbs-kiz-circ-filter-controls">
                   <label class="wb-fbs-kiz-circ-field wb-fbs-kiz-circ-search-field" for="supplyGtdChzSearch">
                     <span>Поиск</span>
-                    <input type="search" id="supplyGtdChzSearch" placeholder="КИЗ…" autocomplete="off"
+                    <input type="search" id="supplyGtdChzSearch" placeholder="КИЗ, GTIN, название…" autocomplete="off"
                            oninput="onSupplyGtdChzSearchInput()" />
                   </label>
                 </div>
@@ -4936,20 +4936,32 @@
             </div>
             <div class="wb-fbs-kiz-circ-body">
               <div class="table-wrap wb-fbs-kiz-circ-table-wrap">
-                <table class="wb-fbs-kiz-circ-table" id="supplyGtdChzTable">
+                <table class="wb-fbs-kiz-circ-table" id="supplyGtdChzTable" aria-label="КИЗ ГТД">
+                  <colgroup id="supplyGtdChzColgroup">
+                    <col data-col="check" style="width:44px" />
+                    <col data-col="kiz" style="width:160px" />
+                    <col data-col="name" style="width:220px" />
+                    <col data-col="gtin" style="width:140px" />
+                    <col data-col="status" style="width:140px" />
+                    <col data-col="doc" style="width:160px" />
+                    <col data-col="error" style="width:200px" />
+                    <col data-col="updated" style="width:140px" />
+                  </colgroup>
                   <thead>
                     <tr>
-                      <th style="width:44px">
+                      <th class="wb-fbs-kiz-circ-check-col" data-col="check" scope="col">
                         <input type="checkbox" id="supplyGtdChzSelectAll"
                                title="Выделить все видимые"
-                               onchange="toggleSupplyGtdChzSelectAll(this.checked)" />
+                               onchange="toggleSupplyGtdChzSelectAll(this.checked)"
+                               aria-label="Выделить все видимые" />
                       </th>
-                      <th>КИЗ</th>
-                      <th style="width:140px">GTIN</th>
-                      <th style="width:140px">Статус КИЗ</th>
-                      <th style="width:160px">Документ ЧЗ</th>
-                      <th style="width:200px">Ошибка</th>
-                      <th style="width:140px">Обновлён</th>
+                      <th data-col="kiz">КИЗ<span class="col-resize-handle"></span></th>
+                      <th data-col="name">Наименование<span class="col-resize-handle"></span></th>
+                      <th data-col="gtin">GTIN<span class="col-resize-handle"></span></th>
+                      <th data-col="status">Статус КИЗ<span class="col-resize-handle"></span></th>
+                      <th data-col="doc">Документ ЧЗ<span class="col-resize-handle"></span></th>
+                      <th data-col="error">Ошибка<span class="col-resize-handle"></span></th>
+                      <th data-col="updated">Обновлён<span class="col-resize-handle"></span></th>
                     </tr>
                   </thead>
                   <tbody id="supplyGtdChzTbody"></tbody>
@@ -6892,6 +6904,6 @@
 
   <script src="/static/ozon_fbs.js?v=140"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=22"></script>
-  <script src="/static/app.js?v=572"></script>
+  <script src="/static/app.js?v=573"></script>
 </body>
 </html>
