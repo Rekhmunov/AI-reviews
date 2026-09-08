@@ -11874,8 +11874,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not scan:
             raise HTTPException(status_code=400, detail="Пустое сканирование")
         sources = _wb_fbs_restore_sources(owner_id)
-        if not sources:
-            raise HTTPException(status_code=400, detail="Нет источников WB FBS")
+        # WB sources optional: Ozon posting / catalog barcode modes still work.
         result = returns_mod.process_restore_scan(
             repository,
             user_id=owner_id,
@@ -11997,20 +11996,25 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.get("/api/wb-fbs/returns/print")
     def wb_fbs_returns_print(
         request: Request,
-        source_id: int,
+        source_id: int = 0,
         scan_id: int | None = None,
         order_id: int | None = None,
+        kiz_code: str = "",
+        product_name: str = "",
+        assembly_sticker_number: str = "",
     ) -> dict[str, object]:
         from . import wb_fbs_returns as returns_mod
+        from . import wb_fbs_kiz_restore as kiz_restore_mod
 
         user = _require_user(request)
         if not (_can_view_wb_fbs(user) or _can_view_supply_stock(user)):
             raise HTTPException(status_code=403, detail="Нет доступа")
         owner_id = _supply_owner_id(user)
-        if not source_id:
-            raise HTTPException(status_code=400, detail="Укажите source_id")
         item: dict[str, object] | None = None
+        raw_kiz = str(kiz_code or "").strip()
         if scan_id:
+            if not source_id:
+                raise HTTPException(status_code=400, detail="Укажите source_id")
             item = returns_mod.get_return_scan_by_id(
                 repository,
                 user_id=owner_id,
@@ -12020,6 +12024,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if not item:
                 raise HTTPException(status_code=404, detail="Запись не найдена")
         elif order_id:
+            if not source_id:
+                raise HTTPException(status_code=400, detail="Укажите source_id")
             src_full = repository.get_supply_source_with_key(
                 user_id=owner_id, source_id=int(source_id)
             )
@@ -12042,30 +12048,38 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 )
             raw_item = preview.get("item")
             item = dict(raw_item) if isinstance(raw_item, dict) else None
+        elif raw_kiz:
+            item = {
+                "kiz_code": raw_kiz,
+                "product_name": str(product_name or "").strip(),
+                "assembly_sticker_number": str(assembly_sticker_number or "").strip(),
+                "order_id": None,
+            }
         else:
             raise HTTPException(
-                status_code=400, detail="Укажите scan_id или order_id"
+                status_code=400, detail="Укажите scan_id, order_id или kiz_code"
             )
         if not item:
             raise HTTPException(status_code=404, detail="Запись не найдена")
-        kiz_code = str(item.get("kiz_code") or "").strip()
-        if not kiz_code:
+        code = str(item.get("kiz_code") or raw_kiz or "").strip()
+        if not code:
             raise HTTPException(status_code=400, detail="Нет КИЗ для печати")
         try:
-            dm = returns_mod.render_kiz_print_png(kiz_code)
+            dm = returns_mod.render_kiz_print_png(code)
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        from . import wb_fbs_kiz_restore as kiz_restore_mod
 
         return {
             "ok": True,
-            "kiz_code": kiz_code,
+            "kiz_code": code,
             "datamatrix_png": dm,
-            "product_name": str(item.get("product_name") or "").strip(),
+            "product_name": str(item.get("product_name") or product_name or "").strip(),
             "order_id": item.get("order_id"),
-            "gtin14": str(item.get("gtin14") or kiz_restore_mod.extract_gtin14(kiz_code) or "").strip(),
-            "kiz_serial": kiz_restore_mod.extract_kiz_serial(kiz_code),
-            "assembly_sticker_number": str(item.get("assembly_sticker_number") or "").strip(),
+            "gtin14": str(item.get("gtin14") or kiz_restore_mod.extract_gtin14(code) or "").strip(),
+            "kiz_serial": kiz_restore_mod.extract_kiz_serial(code),
+            "assembly_sticker_number": str(
+                item.get("assembly_sticker_number") or assembly_sticker_number or ""
+            ).strip(),
         }
 
     @app.get("/api/wb-fbs/returns/export")

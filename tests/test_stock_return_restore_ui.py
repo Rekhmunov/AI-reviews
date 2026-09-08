@@ -40,7 +40,7 @@ def test_restore_modal_markup() -> None:
     assert 'id="supplyStockReturnRestoreCacheInfo"' in block
     assert 'id="supplyStockReturnRestoreTable"' in block
     assert 'id="supplyStockReturnRestoreTbody"' in block
-    assert "Сканируйте стикер возврата WB или КИЗ для печати" in block
+    assert "Сканируйте заказ, стикер, КИЗ или ШК из каталога" in block
     assert "sb-sheet-modal" in block
     assert "sb-adj-modal" in block
     assert "wb-fbs-sd-table" in block
@@ -60,6 +60,8 @@ def test_restore_js_wiring_no_sync() -> None:
     assert "/api/wb-fbs/returns/restore/scan" in APP_JS
     assert "/api/wb-fbs/returns/restore/cache-info" in APP_JS
     assert "Распечатать ШК" in APP_JS
+    assert "catalog_barcode" in APP_JS
+    assert "ozon_posting" in APP_JS
     assert "const canPrintBarcode = barcodes.length > 0" in APP_JS
     assert "_stockReturnRestoreBarcodes(item)" in APP_JS
     assert "Распечатать КИЗ" in APP_JS
@@ -104,5 +106,5 @@ def test_restore_styles_layering() -> None:
 
 
 def test_asset_versions_bumped() -> None:
-    assert "app.js?v=571" in APP_HTML
+    assert "app.js?v=572" in APP_HTML
     assert "style.css?v=323" in APP_HTML

@@ -29,6 +29,8 @@ SCAN_RETURN = "return_sticker"
 SCAN_ASSEMBLY = "assembly_sticker"
 SCAN_KIZ = "kiz"
 SCAN_LOOKUP = "lookup"
+SCAN_OZON = "ozon_posting"
+SCAN_CATALOG = "catalog_barcode"
 
 
 def ensure_wb_fbs_returns_tables(repo: ReviewRepository) -> None:
@@ -2674,6 +2676,440 @@ def _process_restore_kiz_scan(
     )
 
 
+def _looks_like_wb_order_id_scan(scan: str) -> bool:
+    """Pure numeric assembly order id (≥6 digits), not a KIZ payload."""
+    text = str(scan or "").strip().replace(" ", "")
+    return bool(re.fullmatch(r"\d{6,}", text))
+
+
+def _product_fields_from_catalog_product(product: Mapping[str, Any] | dict[str, Any] | None) -> dict[str, Any]:
+    if not product:
+        return {}
+    article = str(product.get("supplier_article") or "").strip()
+    name = str(product.get("name") or "").strip() or article
+    barcodes = [
+        str(b or "").strip()
+        for b in (product.get("barcodes") or [])
+        if str(b or "").strip()
+    ]
+    photo = ""
+    pid = int(product.get("id") or 0)
+    if pid and product.get("photo_path"):
+        photo = f"/api/products/photo/{pid}"
+    catalog_fields = _catalog_fields_from_product(dict(product))
+    return {
+        "product_name": name,
+        "product_article": article,
+        "product_photo": photo,
+        "product_barcodes": list(barcodes),
+        **catalog_fields,
+    }
+
+
+def _build_restore_order_item(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    order_row: dict[str, Any],
+    scan: str,
+    scan_type: str = SCAN_LOOKUP,
+) -> dict[str, Any]:
+    """Ephemeral restore card from a local WB FBS order (not written to journal)."""
+    try:
+        order_id = int(order_row.get("order_id") or 0)
+    except (TypeError, ValueError):
+        order_id = 0
+    product = _product_from_order(repo, user_id=user_id, order_row=order_row)
+    srid_hint = ""
+    if order_id > 0 and source_id > 0:
+        try:
+            srid_hint = _goods_return_srid_hint(
+                repo, user_id=user_id, source_id=source_id, order_id=order_id
+            )
+        except Exception:
+            srid_hint = ""
+    kiz_codes = (
+        _kiz_codes_for_order(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            order_id=order_id,
+            api_key="",
+            order_row=order_row,
+            srid_hint=srid_hint,
+        )
+        if order_id > 0 and source_id > 0
+        else []
+    )
+    kiz_code = kiz_codes[0] if kiz_codes else ""
+    part_a = str(order_row.get("sticker_part_a") or "").strip()
+    part_b = str(order_row.get("sticker_part_b") or "").strip()
+    item = {
+        "id": None,
+        "preview": True,
+        "scan_type": scan_type,
+        "scanned_at": "",
+        "scan_raw": str(scan or "").strip(),
+        "return_sticker_id": "",
+        "order_id": order_id if order_id > 0 else None,
+        "assembly_sticker_barcode": str(order_row.get("sticker_barcode") or "").strip(),
+        "assembly_sticker_number": kiz_restore.sticker_number(part_a, part_b),
+        "kiz_code": kiz_code,
+        "matched_order_ids": [order_id] if order_id > 0 else [],
+        "gtin14": kiz_restore.extract_gtin14(kiz_code) if kiz_code else "",
+        **product,
+    }
+    return _enrich_return_scan_catalog_fields(repo, user_id=user_id, item=item)
+
+
+def _restore_scan_wb_order_id(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    sources: list[Mapping[str, Any] | dict[str, Any]],
+    scan: str,
+) -> dict[str, Any] | None:
+    if not _looks_like_wb_order_id_scan(scan):
+        return None
+    try:
+        order_id = int(str(scan).strip().replace(" ", ""))
+    except (TypeError, ValueError):
+        return None
+    by_order: dict[int, tuple[Mapping[str, Any] | dict[str, Any], dict[str, Any]]] = {}
+    for source in sources:
+        meta = _restore_source_meta(source)
+        sid = int(meta["source_id"] or 0)
+        if sid <= 0:
+            continue
+        row = wb.get_order_by_id(
+            repo, user_id=user_id, source_id=sid, order_id=order_id
+        )
+        if not row:
+            continue
+        by_order[order_id] = (source, row)
+        break
+    if not by_order:
+        row = _find_local_order_any_source(
+            repo, user_id=user_id, order_id=order_id, prefer_source_id=0
+        )
+        if not row:
+            return None
+        try:
+            sid = int(row.get("source_id") or 0)
+        except (TypeError, ValueError):
+            sid = 0
+        source = next(
+            (
+                s
+                for s in sources
+                if int(_restore_source_meta(s)["source_id"] or 0) == sid
+            ),
+            {"id": sid, "name": f"WB FBS #{sid}" if sid else "WB FBS"},
+        )
+        by_order[order_id] = (source, row)
+    source, order_row = next(iter(by_order.values()))
+    meta = _restore_source_meta(source)
+    item = _build_restore_order_item(
+        repo,
+        user_id=user_id,
+        source_id=int(meta["source_id"] or 0),
+        order_row=order_row,
+        scan=scan,
+        scan_type=SCAN_LOOKUP,
+    )
+    if not item.get("kiz_code") and item.get("order_id"):
+        item["warning"] = (
+            f"Для заказа {item['order_id']} не найден КИЗ "
+            "(маркировка, «Вывод КИЗ» или WB meta)"
+        )
+    return _finalize_restore_scan_result(
+        {"ok": True, "item": item},
+        source=source,
+    )
+
+
+def _ozon_restore_sources(
+    repo: ReviewRepository, *, user_id: int
+) -> list[dict[str, Any]]:
+    from . import ozon_fbs as oz
+
+    out: list[dict[str, Any]] = []
+    for source in repo.list_supply_sources(user_id=user_id) or []:
+        if isinstance(source, dict) and oz.is_ozon_fbs_source(source):
+            out.append(source)
+    return out
+
+
+def _product_fields_from_ozon_posting(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    posting: Mapping[str, Any] | dict[str, Any],
+) -> dict[str, Any]:
+    article = str(posting.get("offer_id") or "").strip()
+    sku = str(posting.get("sku") or "").strip()
+    name = str(posting.get("product_name") or "").strip()
+    name_map = repo.get_product_name_by_article(user_id=user_id)
+    try:
+        ozon_names = repo.get_product_name_by_ozon_sku(user_id=user_id)
+    except Exception:
+        ozon_names = {}
+    photo_map = repo.get_product_photo_map(user_id=user_id)
+    if not name:
+        name = (
+            name_map.get(article)
+            or name_map.get(article.casefold())
+            or ozon_names.get(sku)
+            or ozon_names.get(sku.casefold())
+            or article
+            or sku
+            or ""
+        )
+    photo = photo_map.get(article) or photo_map.get(sku) or ""
+    barcodes: list[str] = []
+    try:
+        parsed = json.loads(posting.get("barcodes_json") or "[]")
+        if isinstance(parsed, list):
+            barcodes = [str(x).strip() for x in parsed if str(x or "").strip()]
+    except Exception:
+        barcodes = []
+    try:
+        barcode_map = repo.get_product_barcodes_map(user_id=user_id)
+    except Exception:
+        barcode_map = {}
+    for key in (article, sku, article.casefold(), sku.casefold()):
+        for b in barcode_map.get(key) or []:
+            text = str(b or "").strip()
+            if text and text not in barcodes:
+                barcodes.append(text)
+    catalog_product = None
+    for p in repo.list_product_photos(user_id=user_id):
+        if article and str(p.get("supplier_article") or "").strip() == article:
+            catalog_product = p
+            break
+        if sku and str(p.get("ozon_sku") or "").strip() == sku:
+            catalog_product = p
+            break
+    if catalog_product:
+        extra = _product_fields_from_catalog_product(catalog_product)
+        if not photo:
+            photo = str(extra.get("product_photo") or "")
+        if not name or name in {article, sku}:
+            cat_name = str(extra.get("product_name") or "").strip()
+            if cat_name:
+                name = cat_name
+        for b in extra.get("product_barcodes") or []:
+            text = str(b or "").strip()
+            if text and text not in barcodes:
+                barcodes.append(text)
+        catalog_fields = {
+            "catalog_barcodes": list(extra.get("catalog_barcodes") or barcodes),
+            "barcode_label_name": str(extra.get("barcode_label_name") or "").strip(),
+        }
+    else:
+        catalog_fields = {
+            "catalog_barcodes": list(barcodes),
+            "barcode_label_name": "",
+        }
+    return {
+        "product_name": name,
+        "product_article": article or sku,
+        "product_photo": photo,
+        "product_barcodes": barcodes,
+        **catalog_fields,
+    }
+
+
+def _ozon_kiz_from_posting(posting: Mapping[str, Any] | dict[str, Any]) -> str:
+    raw = posting.get("marking_codes_json")
+    if raw is None:
+        raw = posting.get("marking_codes")
+    try:
+        if isinstance(raw, str):
+            parsed = json.loads(raw or "[]")
+        else:
+            parsed = raw
+    except Exception:
+        parsed = []
+    if not isinstance(parsed, list):
+        return ""
+    for x in parsed:
+        code = kiz_restore.normalize_kiz_mark(x) if hasattr(kiz_restore, "normalize_kiz_mark") else str(x or "").strip()
+        if not code:
+            code = str(x or "").strip()
+        if code:
+            return code
+    return ""
+
+
+def _restore_scan_ozon(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    scan: str,
+) -> dict[str, Any] | None:
+    from . import ozon_fbs as oz
+    from . import ozon_fbs_stickers as oz_st
+
+    sources = _ozon_restore_sources(repo, user_id=user_id)
+    if not sources:
+        return None
+    posting_query = oz.parse_posting_number_query(scan)
+    hits: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    seen: set[str] = set()
+    for source in sources:
+        try:
+            sid = int(source.get("id") or source.get("source_id") or 0)
+        except (TypeError, ValueError):
+            sid = 0
+        if sid <= 0:
+            continue
+        row = None
+        if posting_query:
+            row = oz.get_posting_by_number(
+                repo, user_id=user_id, source_id=sid, posting_number=posting_query
+            )
+        if row is None:
+            found = oz_st.find_postings_by_sticker_scan(
+                repo, user_id=user_id, source_id=sid, scan=scan
+            )
+            if found.get("ambiguous"):
+                return {
+                    "ok": False,
+                    "error": "ambiguous",
+                    "message": _RESTORE_AMBIGUOUS_MSG,
+                }
+            row = found.get("row")
+        if not row:
+            continue
+        pn = str(row.get("posting_number") or "").strip().casefold()
+        if not pn or pn in seen:
+            continue
+        seen.add(pn)
+        # Prefer full posting row (barcodes_json) when sticker search returned a stub.
+        full = oz.get_posting_by_number(
+            repo,
+            user_id=user_id,
+            source_id=sid,
+            posting_number=str(row.get("posting_number") or ""),
+        )
+        hits.append((source, full or row))
+    if not hits:
+        return None
+    if len(hits) > 1:
+        return {
+            "ok": False,
+            "error": "ambiguous",
+            "message": _RESTORE_AMBIGUOUS_MSG,
+        }
+    source, posting = hits[0]
+    try:
+        sid = int(source.get("id") or source.get("source_id") or 0)
+    except (TypeError, ValueError):
+        sid = 0
+    product = _product_fields_from_ozon_posting(
+        repo, user_id=user_id, posting=posting
+    )
+    kiz_code = _ozon_kiz_from_posting(posting)
+    sticker = (
+        str(posting.get("sticker_barcode") or "").strip()
+        or str(posting.get("sticker_lower_barcode") or "").strip()
+    )
+    part_a = str(posting.get("sticker_part_a") or "").strip()
+    part_b = str(posting.get("sticker_part_b") or "").strip()
+    sticker_number = ""
+    if part_a or part_b:
+        sticker_number = kiz_restore.sticker_number(part_a, part_b)
+    posting_number = str(posting.get("posting_number") or "").strip()
+    item = {
+        "id": None,
+        "preview": True,
+        "scan_type": SCAN_OZON,
+        "scanned_at": "",
+        "scan_raw": str(scan or "").strip(),
+        "return_sticker_id": "",
+        "order_id": posting_number or None,
+        "posting_number": posting_number,
+        "assembly_sticker_barcode": sticker,
+        "assembly_sticker_number": sticker_number or sticker,
+        "kiz_code": kiz_code,
+        "matched_order_ids": [],
+        "gtin14": kiz_restore.extract_gtin14(kiz_code) if kiz_code else "",
+        "marketplace": "ozon",
+        **product,
+    }
+    item = _enrich_return_scan_catalog_fields(repo, user_id=user_id, item=item)
+    if not kiz_code:
+        item["warning"] = (
+            f"Для отправления {posting_number or scan} не найден КИЗ в локальной базе Ozon FBS"
+        )
+    return _finalize_restore_scan_result(
+        {"ok": True, "item": item},
+        source=source,
+    )
+
+
+def _restore_scan_catalog_barcode(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    scan: str,
+) -> dict[str, Any] | None:
+    raw = str(scan or "").strip()
+    if not raw:
+        return None
+    # Avoid treating long KIZ/GS1 payloads as plain barcodes.
+    if kiz_restore.looks_like_kiz_scan(raw):
+        return None
+    if "\u001d" in raw or len(raw) >= 25:
+        return None
+    catalog = _catalog_barcodes_index(repo, user_id=user_id)
+    digits = _digits_only(raw)
+    product = (
+        catalog.get(raw)
+        or catalog.get(raw.casefold())
+        or (catalog.get(digits) if digits else None)
+        or (catalog.get(digits.lstrip("0")) if digits else None)
+    )
+    if not product:
+        return None
+    fields = _product_fields_from_catalog_product(product)
+    barcodes = list(fields.get("product_barcodes") or [])
+    if raw not in barcodes and digits and digits not in barcodes:
+        barcodes.insert(0, raw if not digits else (raw if any(c.isalpha() for c in raw) else digits))
+    # Deduplicate while preferring scanned value first.
+    uniq: list[str] = []
+    for b in barcodes:
+        text = str(b or "").strip()
+        if text and text not in uniq:
+            uniq.append(text)
+    fields["product_barcodes"] = uniq
+    fields["catalog_barcodes"] = list(uniq)
+    item = {
+        "id": None,
+        "preview": True,
+        "scan_type": SCAN_CATALOG,
+        "scanned_at": "",
+        "scan_raw": raw,
+        "return_sticker_id": "",
+        "order_id": None,
+        "assembly_sticker_barcode": "",
+        "assembly_sticker_number": "",
+        "kiz_code": "",
+        "matched_order_ids": [],
+        "gtin14": "",
+        "marketplace": "catalog",
+        **fields,
+    }
+    synthetic = {"id": 0, "name": "Каталог товаров"}
+    return _finalize_restore_scan_result(
+        {"ok": True, "item": item},
+        source=synthetic,
+    )
+
+
+
 def process_restore_scan(
     repo: ReviewRepository,
     *,
@@ -2681,10 +3117,13 @@ def process_restore_scan(
     sources: list[Mapping[str, Any] | dict[str, Any]],
     scan: str,
 ) -> dict[str, Any]:
-    """Stock «Восстановить данные»: scan across all WB FBS sources, local cache only.
+    """Stock «Восстановить данные»: local-only multi-mode scan.
 
-    Never calls WB Analytics. Uses ``api_key=""`` so KIZ/order resolve stay local.
-    Duplicate journal rows still return a printable card (``duplicate: true``).
+    Priority:
+    1) KIZ → order card
+    2) return sticker / assembly sticker / WB order id / Ozon posting|sticker → order card
+    3) catalog barcode → product-only card (ШК print)
+    Never calls marketplace sync APIs (``api_key=""`` / local DB only).
     """
     scan_text = str(scan or "").strip()
     if not scan_text:
@@ -2695,99 +3134,118 @@ def process_restore_scan(
         meta = _restore_source_meta(source)
         if meta["source_id"] > 0:
             cleaned.append(source)
-    if not cleaned:
-        return {
-            "ok": False,
-            "error": "no_sources",
-            "message": "Нет источников WB FBS",
-        }
 
-    if kiz_restore.looks_like_kiz_scan(scan_text):
+    if cleaned and kiz_restore.looks_like_kiz_scan(scan_text):
         return _process_restore_kiz_scan(
             repo, user_id=user_id, sources=cleaned, scan=scan_text
         )
 
-    goods_by_identity: dict[tuple[str, str], tuple[Mapping[str, Any] | dict[str, Any], dict[str, Any]]] = {}
-    for source in cleaned:
-        meta = _restore_source_meta(source)
-        sid = int(meta["source_id"] or 0)
-        hit = find_goods_return_by_scan(
-            repo, user_id=user_id, source_id=sid, scan=scan_text
-        )
-        if not hit:
-            continue
-        identity = _goods_return_identity(hit)
-        prev = goods_by_identity.get(identity)
-        if prev is None:
-            goods_by_identity[identity] = (source, hit)
-            continue
-        # Same identity in another cabinet — keep first source.
+    if cleaned:
+        goods_by_identity: dict[tuple[str, str], tuple[Mapping[str, Any] | dict[str, Any], dict[str, Any]]] = {}
+        for source in cleaned:
+            meta = _restore_source_meta(source)
+            sid = int(meta["source_id"] or 0)
+            hit = find_goods_return_by_scan(
+                repo, user_id=user_id, source_id=sid, scan=scan_text
+            )
+            if not hit:
+                continue
+            identity = _goods_return_identity(hit)
+            prev = goods_by_identity.get(identity)
+            if prev is None:
+                goods_by_identity[identity] = (source, hit)
+                continue
+            # Same identity in another cabinet — keep first source.
 
-    if len(goods_by_identity) > 1:
-        _log.info(
-            "restore_scan ambiguous_goods identities=%s",
-            list(goods_by_identity.keys())[:10],
-        )
-        return {
-            "ok": False,
-            "error": "ambiguous",
-            "message": _RESTORE_AMBIGUOUS_MSG,
-        }
-    if len(goods_by_identity) == 1:
-        source, _goods = next(iter(goods_by_identity.values()))
-        return _run_restore_scan_on_source(
-            repo, user_id=user_id, source=source, scan=scan_text
-        )
-
-    assembly_by_order: dict[int, Mapping[str, Any] | dict[str, Any]] = {}
-    for source in cleaned:
-        meta = _restore_source_meta(source)
-        sid = int(meta["source_id"] or 0)
-        sticker_hit = kiz_restore.find_orders_by_sticker_scan(
-            repo, user_id=user_id, source_id=sid, scan=scan_text
-        )
-        if sticker_hit.get("ambiguous"):
-            ids = [
-                int(r.get("order_id"))
-                for r in (sticker_hit.get("matches") or [])
-                if r.get("order_id") is not None
-            ]
-            _log.info("restore_scan ambiguous_sticker source_id=%s orders=%s", sid, ids[:10])
+        if len(goods_by_identity) > 1:
+            _log.info(
+                "restore_scan ambiguous_goods identities=%s",
+                list(goods_by_identity.keys())[:10],
+            )
             return {
                 "ok": False,
                 "error": "ambiguous",
                 "message": _RESTORE_AMBIGUOUS_MSG,
-                "order_ids": ids[:10],
             }
-        row = sticker_hit.get("row")
-        if not row:
-            continue
-        try:
-            order_id = int(row.get("order_id") or 0)
-        except (TypeError, ValueError):
-            order_id = 0
-        if order_id <= 0:
-            continue
-        if order_id in assembly_by_order:
-            continue
-        assembly_by_order[order_id] = source
+        if len(goods_by_identity) == 1:
+            source, _goods = next(iter(goods_by_identity.values()))
+            return _run_restore_scan_on_source(
+                repo, user_id=user_id, source=source, scan=scan_text
+            )
 
-    if len(assembly_by_order) > 1:
-        _log.info(
-            "restore_scan ambiguous_assembly orders=%s",
-            sorted(assembly_by_order.keys())[:10],
+        assembly_by_order: dict[int, Mapping[str, Any] | dict[str, Any]] = {}
+        for source in cleaned:
+            meta = _restore_source_meta(source)
+            sid = int(meta["source_id"] or 0)
+            sticker_hit = kiz_restore.find_orders_by_sticker_scan(
+                repo, user_id=user_id, source_id=sid, scan=scan_text
+            )
+            if sticker_hit.get("ambiguous"):
+                ids = [
+                    int(r.get("order_id"))
+                    for r in (sticker_hit.get("matches") or [])
+                    if r.get("order_id") is not None
+                ]
+                _log.info("restore_scan ambiguous_sticker source_id=%s orders=%s", sid, ids[:10])
+                return {
+                    "ok": False,
+                    "error": "ambiguous",
+                    "message": _RESTORE_AMBIGUOUS_MSG,
+                    "order_ids": ids[:10],
+                }
+            row = sticker_hit.get("row")
+            if not row:
+                continue
+            try:
+                order_id = int(row.get("order_id") or 0)
+            except (TypeError, ValueError):
+                order_id = 0
+            if order_id <= 0:
+                continue
+            if order_id in assembly_by_order:
+                continue
+            assembly_by_order[order_id] = source
+
+        if len(assembly_by_order) > 1:
+            _log.info(
+                "restore_scan ambiguous_assembly orders=%s",
+                sorted(assembly_by_order.keys())[:10],
+            )
+            return {
+                "ok": False,
+                "error": "ambiguous",
+                "message": _RESTORE_AMBIGUOUS_MSG,
+                "order_ids": sorted(assembly_by_order.keys())[:10],
+            }
+        if len(assembly_by_order) == 1:
+            source = next(iter(assembly_by_order.values()))
+            return _run_restore_scan_on_source(
+                repo, user_id=user_id, source=source, scan=scan_text
+            )
+
+        wb_order = _restore_scan_wb_order_id(
+            repo, user_id=user_id, sources=cleaned, scan=scan_text
         )
+        if wb_order is not None:
+            return wb_order
+
+    ozon_hit = _restore_scan_ozon(repo, user_id=user_id, scan=scan_text)
+    if ozon_hit is not None:
+        return ozon_hit
+
+    catalog_hit = _restore_scan_catalog_barcode(
+        repo, user_id=user_id, scan=scan_text
+    )
+    if catalog_hit is not None:
+        return catalog_hit
+
+    if not cleaned and not _ozon_restore_sources(repo, user_id=user_id):
+        # Still allow catalog-only tenants; otherwise explain missing FBS sources.
         return {
             "ok": False,
-            "error": "ambiguous",
-            "message": _RESTORE_AMBIGUOUS_MSG,
-            "order_ids": sorted(assembly_by_order.keys())[:10],
+            "error": "not_found",
+            "message": _RESTORE_NOT_FOUND_MSG,
         }
-    if len(assembly_by_order) == 1:
-        source = next(iter(assembly_by_order.values()))
-        return _run_restore_scan_on_source(
-            repo, user_id=user_id, source=source, scan=scan_text
-        )
 
     _log.info("restore_scan not_found")
     return {
@@ -2795,6 +3253,7 @@ def process_restore_scan(
         "error": "not_found",
         "message": _RESTORE_NOT_FOUND_MSG,
     }
+
 
 
 def restore_cache_info(

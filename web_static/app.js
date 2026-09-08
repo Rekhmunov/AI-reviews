@@ -15597,6 +15597,9 @@ function _stockReturnRestoreScanTypeLabel(scanType) {
   if (t === "return_sticker") return "Возврат";
   if (t === "assembly_sticker") return "Стикер сборки";
   if (t === "kiz") return "Маркировка";
+  if (t === "lookup") return "Заказ WB";
+  if (t === "ozon_posting") return "Ozon FBS";
+  if (t === "catalog_barcode") return "Каталог";
   return t || "—";
 }
 
@@ -15604,13 +15607,17 @@ function _stockReturnRestoreRowKey(item) {
   const id = Number(item?.id || 0);
   if (id > 0) return `sid_${id}`;
   const src = Number(item?.source_id || 0);
-  const oid = Number(item?.order_id || 0);
+  const oid = item?.order_id != null && item?.order_id !== "" ? String(item.order_id).trim() : "";
   const st = String(item?.scan_type || "").trim();
   const ret = String(item?.return_sticker_id || "").trim();
-  if (oid > 0) return `oid_${src}_${oid}_${st}`;
+  if (oid) return `oid_${src}_${oid}_${st}`;
   if (ret) return `ret_${src}_${ret}`;
   const kiz = String(item?.kiz_code || "").trim();
   if (kiz) return `kiz_${src}_${kiz.slice(-16)}`;
+  const barcodes = _stockReturnRestoreBarcodes(item);
+  if (st === "catalog_barcode" && barcodes[0]) return `cat_${barcodes[0]}`;
+  const raw = String(item?.scan_raw || "").trim();
+  if (raw) return `raw_${src}_${raw.slice(0, 32)}`;
   return "";
 }
 
@@ -15662,7 +15669,7 @@ function _stockReturnRestoreRenderTable() {
   if (typeof _wbFbsCloseRowMenus === "function") _wbFbsCloseRowMenus();
   const items = Array.isArray(stockReturnRestoreState.items) ? stockReturnRestoreState.items : [];
   if (!items.length) {
-    tbody.innerHTML = `<tr><td colspan="3" class="wb-fbs-empty">Отсканируйте стикер возврата или КИЗ</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="3" class="wb-fbs-empty">Отсканируйте стикер возврата, КИЗ, номер заказа/отправления или ШК</td></tr>`;
     return;
   }
   const hitKey = String(stockReturnRestoreState.hitKey || "");
@@ -15689,7 +15696,8 @@ function _stockReturnRestoreRenderTable() {
     const kizHtml = kizCode
       ? `<div class="wb-fbs-kiz is-ok" title="${_wbFbsEsc(kizCode)}">КИЗ</div>`
       : "";
-    const canPrintKiz = !!kizCode;
+    const isCatalogRow = String(item.scan_type || "").trim() === "catalog_barcode";
+    const canPrintKiz = !!kizCode && !isCatalogRow;
     const canPrintBarcode = barcodes.length > 0;
     const hitCls = rowKey && rowKey === hitKey ? " is-scan-hit" : "";
     const safeKey = `rr_${rowKey.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
@@ -15722,12 +15730,12 @@ function _stockReturnRestoreRenderTable() {
               ${_stockReturnRestoreBarcodeIconHtml()}
               Распечатать ШК
             </button>
-            <button type="button" class="wb-fbs-row-menu-item${canPrintKiz ? "" : " is-disabled"}" role="menuitem"
+            ${isCatalogRow ? "" : `<button type="button" class="wb-fbs-row-menu-item${canPrintKiz ? "" : " is-disabled"}" role="menuitem"
                     ${canPrintKiz ? `onclick="printStockReturnRestoreKiz('${_wbFbsEsc(rowKey)}')"` : "disabled"}
                     ${canPrintKiz ? "" : 'title="Нет КИЗ для печати"'}>
               ${_wbFbsQrMenuIconHtml()}
               Распечатать КИЗ
-            </button>
+            </button>`}
           </div>
         </div>
       </td>
@@ -15810,7 +15818,7 @@ async function processSupplyStockReturnRestoreScan() {
   const scanEl = document.getElementById("supplyStockReturnRestoreScan");
   const rawScan = String(scanEl?.value || "").trim();
   if (!rawScan) {
-    _stockReturnRestoreSetInfo("Отсканируйте стикер возврата или КИЗ", "warn");
+    _stockReturnRestoreSetInfo("Отсканируйте стикер возврата, КИЗ, номер заказа/отправления или ШК", "warn");
     return;
   }
   if (_wbFbsKizHasCyrillic(rawScan)) {
@@ -15862,16 +15870,30 @@ async function printStockReturnRestoreKiz(rowKey) {
   const item = _stockReturnRestoreFindItem(rowKey) || stockReturnRestoreState.items[0] || null;
   const sid = Number(item?.source_id || 0);
   const scanId = Number(item?.id || 0);
-  const orderId = Number(item?.order_id || 0);
+  const orderIdNum = Number(item?.order_id || 0);
   const kizCode = String(item?.kiz_code || "").trim();
-  if (!sid || !kizCode || (!scanId && !orderId)) {
+  const scanType = String(item?.scan_type || "").trim();
+  if (!kizCode) {
     _stockReturnRestoreSetInfo("Нет КИЗ для печати", "warn");
     return;
   }
+  if (scanType === "catalog_barcode") {
+    _stockReturnRestoreSetInfo("Для строки каталога доступна только печать ШК", "warn");
+    return;
+  }
   try {
-    const params = new URLSearchParams({ source_id: String(sid) });
-    if (scanId > 0) params.set("scan_id", String(scanId));
-    else params.set("order_id", String(orderId));
+    const params = new URLSearchParams();
+    if (scanId > 0 && sid > 0) {
+      params.set("source_id", String(sid));
+      params.set("scan_id", String(scanId));
+    } else if (orderIdNum > 0 && sid > 0 && scanType !== "ozon_posting") {
+      params.set("source_id", String(sid));
+      params.set("order_id", String(orderIdNum));
+    } else {
+      params.set("kiz_code", kizCode);
+      params.set("product_name", String(item?.product_name || ""));
+      params.set("assembly_sticker_number", String(item?.assembly_sticker_number || ""));
+    }
     const res = await fetch(`/api/wb-fbs/returns/print?${params.toString()}`);
     const payload = await res.json().catch(() => ({}));
     if (!res.ok) {

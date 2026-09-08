@@ -1315,5 +1315,164 @@ class RestoreReturnStickerProductEnrichTests(unittest.TestCase):
 
 
 
+class RestoreScanModeExpansionTests(unittest.TestCase):
+    """WB order id / Ozon posting / catalog barcode restore modes."""
+
+    @patch("review_processor.wb_fbs_returns._kiz_codes_for_order", return_value=[])
+    @patch("review_processor.wb_fbs_returns._goods_return_srid_hint", return_value="")
+    @patch("review_processor.wb_fbs_returns.wb.get_order_by_id")
+    @patch("review_processor.wb_fbs_returns.kiz_restore.find_orders_by_sticker_scan")
+    @patch("review_processor.wb_fbs_returns.find_goods_return_by_scan", return_value=None)
+    @patch("review_processor.wb_fbs_returns.kiz_restore.looks_like_kiz_scan", return_value=False)
+    def test_restore_scan_wb_order_id(self, _looks, _goods, sticker, get_order, _srid, _kiz):
+        sticker.return_value = {"row": None, "ambiguous": False, "matches": []}
+        get_order.return_value = {
+            "order_id": 5463703395,
+            "source_id": 19,
+            "article": "ART-1",
+            "nm_id": 111,
+            "skus_json": '["4601234567890"]',
+            "sticker_part_a": "12",
+            "sticker_part_b": "34",
+            "sticker_barcode": "",
+        }
+        repo = MagicMock()
+        repo.get_product_name_by_article.return_value = {"ART-1": "Товар WB"}
+        repo.get_product_photo_map.return_value = {"ART-1": "/api/products/photo/1"}
+        repo.list_product_photos.return_value = []
+        repo.list_supply_sources.return_value = []
+        result = returns.process_restore_scan(
+            repo,
+            user_id=1,
+            sources=[{"id": 19, "name": "WB A"}],
+            scan="5463703395",
+        )
+        self.assertTrue(result["ok"])
+        item = result["item"]
+        self.assertEqual(item["scan_type"], returns.SCAN_LOOKUP)
+        self.assertEqual(item["order_id"], 5463703395)
+        self.assertEqual(item["product_name"], "Товар WB")
+        self.assertIn("4601234567890", item.get("product_barcodes") or [])
+        self.assertIn("4601234567890", item.get("catalog_barcodes") or [])
+
+    @patch("review_processor.wb_fbs_returns.kiz_restore.find_orders_by_sticker_scan")
+    @patch("review_processor.wb_fbs_returns.find_goods_return_by_scan", return_value=None)
+    @patch("review_processor.wb_fbs_returns.kiz_restore.looks_like_kiz_scan", return_value=False)
+    def test_restore_scan_ozon_posting(self, _looks, _goods, sticker):
+        sticker.return_value = {"row": None, "ambiguous": False, "matches": []}
+        posting = {
+            "posting_number": "0123456789-0001-1",
+            "offer_id": "ART-1",
+            "sku": "999",
+            "product_name": "Товар Ozon",
+            "barcodes_json": '["4601234567890"]',
+            "marking_codes_json": '["010460123456789021ABCD"]',
+            "sticker_barcode": "PKG1",
+            "sticker_part_a": "",
+            "sticker_part_b": "",
+            "sticker_lower_barcode": "",
+        }
+        repo = MagicMock()
+        repo.list_supply_sources.return_value = [
+            {"id": 55, "name": "Ozon", "marketplace": "ozon_fbs"}
+        ]
+        repo.get_product_name_by_article.return_value = {}
+        repo.get_product_name_by_ozon_sku.return_value = {}
+        repo.get_product_photo_map.return_value = {}
+        repo.get_product_barcodes_map.return_value = {}
+        repo.list_product_photos.return_value = []
+        with patch("review_processor.ozon_fbs.is_ozon_fbs_source", return_value=True),              patch("review_processor.ozon_fbs.parse_posting_number_query", return_value="0123456789-0001-1"),              patch("review_processor.ozon_fbs.get_posting_by_number", return_value=posting),              patch("review_processor.wb_fbs_returns.wb.get_order_by_id", return_value=None),              patch("review_processor.wb_fbs_returns._find_local_order_any_source", return_value=None):
+            result = returns.process_restore_scan(
+                repo,
+                user_id=1,
+                sources=[{"id": 19, "name": "WB A"}],
+                scan="0123456789-0001-1",
+            )
+        self.assertTrue(result["ok"])
+        item = result["item"]
+        self.assertEqual(item["scan_type"], returns.SCAN_OZON)
+        self.assertEqual(item["order_id"], "0123456789-0001-1")
+        self.assertEqual(item["product_name"], "Товар Ozon")
+        self.assertTrue(item.get("kiz_code"))
+        self.assertIn("4601234567890", item.get("catalog_barcodes") or [])
+
+    @patch("review_processor.wb_fbs_returns.kiz_restore.find_orders_by_sticker_scan")
+    @patch("review_processor.wb_fbs_returns.find_goods_return_by_scan", return_value=None)
+    @patch("review_processor.wb_fbs_returns.kiz_restore.looks_like_kiz_scan", return_value=False)
+    def test_restore_scan_catalog_barcode(self, _looks, _goods, sticker):
+        sticker.return_value = {"row": None, "ambiguous": False, "matches": []}
+        repo = MagicMock()
+        repo.list_supply_sources.return_value = []
+        repo.list_product_photos.return_value = [
+            {
+                "id": 3,
+                "name": "Товар каталога",
+                "supplier_article": "ART-1",
+                "barcodes": ["4601234567890"],
+                "photo_path": "/x.jpg",
+                "barcode_label_name": "Label",
+            }
+        ]
+        with patch("review_processor.wb_fbs_returns.wb.get_order_by_id", return_value=None),              patch("review_processor.wb_fbs_returns._find_local_order_any_source", return_value=None):
+            result = returns.process_restore_scan(
+                repo,
+                user_id=1,
+                sources=[{"id": 19, "name": "WB A"}],
+                scan="4601234567890",
+            )
+        self.assertTrue(result["ok"])
+        item = result["item"]
+        self.assertEqual(item["scan_type"], returns.SCAN_CATALOG)
+        self.assertIsNone(item.get("order_id"))
+        self.assertEqual(item["product_name"], "Товар каталога")
+        self.assertEqual(item.get("kiz_code") or "", "")
+        self.assertIn("4601234567890", item.get("catalog_barcodes") or [])
+
+    @patch("review_processor.wb_fbs_returns.kiz_restore.find_orders_by_sticker_scan")
+    @patch("review_processor.wb_fbs_returns.find_goods_return_by_scan", return_value=None)
+    @patch("review_processor.wb_fbs_returns.kiz_restore.looks_like_kiz_scan", return_value=False)
+    def test_restore_scan_priority_order_over_catalog(self, _looks, _goods, sticker):
+        """Numeric scan that matches both WB order and catalog prefers order."""
+        sticker.return_value = {"row": None, "ambiguous": False, "matches": []}
+        repo = MagicMock()
+        repo.list_supply_sources.return_value = []
+        repo.list_product_photos.return_value = [
+            {
+                "id": 3,
+                "name": "Каталог",
+                "supplier_article": "ART-1",
+                "barcodes": ["5463703395"],
+                "photo_path": "",
+                "barcode_label_name": "",
+            }
+        ]
+        repo.get_product_name_by_article.return_value = {"ART-1": "Заказной товар"}
+        repo.get_product_photo_map.return_value = {}
+        with patch(
+            "review_processor.wb_fbs_returns.wb.get_order_by_id",
+            return_value={
+                "order_id": 5463703395,
+                "source_id": 19,
+                "article": "ART-1",
+                "nm_id": 1,
+                "skus_json": '["5463703395"]',
+                "sticker_part_a": "",
+                "sticker_part_b": "",
+                "sticker_barcode": "",
+            },
+        ), patch("review_processor.wb_fbs_returns._kiz_codes_for_order", return_value=[]),              patch("review_processor.wb_fbs_returns._goods_return_srid_hint", return_value=""):
+            result = returns.process_restore_scan(
+                repo,
+                user_id=1,
+                sources=[{"id": 19, "name": "WB A"}],
+                scan="5463703395",
+            )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["item"]["scan_type"], returns.SCAN_LOOKUP)
+        self.assertEqual(result["item"]["product_name"], "Заказной товар")
+
+
+
+
 if __name__ == "__main__":
     unittest.main()
