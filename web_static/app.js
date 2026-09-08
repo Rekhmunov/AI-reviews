@@ -23297,6 +23297,46 @@ function _supplyGtdChzEnsureLogOpen() {
   }
 }
 
+function _supplyGtdChzReplaceLog(text) {
+  _supplyGtdChzState.lastLog = String(text || "");
+  const body = document.getElementById("supplyGtdChzLogBody");
+  if (body) {
+    body.textContent = _supplyGtdChzState.lastLog || "";
+    body.scrollTop = body.scrollHeight;
+  }
+}
+
+async function _supplyGtdChzWaitForRun(runId, { label = "Прогон", clientPrefix = "" } = {}) {
+  const gid = _supplyGtdChzState.gtdId;
+  const id = Number(runId) || 0;
+  if (!gid || !id) throw new Error(`${label}: нет run_id`);
+  _supplyGtdChzState.lastRunId = id;
+  const prefix = String(clientPrefix || _supplyGtdChzState.lastLog || "").trim();
+  let lastServerLog = "";
+  // ~45 min @ 2s — large GTDs (10k+ КИЗ) need many True API chunks.
+  for (let i = 0; i < 1350; i++) {
+    await new Promise((r) => setTimeout(r, 2000));
+    const res = await fetch(`/api/supply-gtd/${gid}/chz/runs/${id}`, {
+      headers: jsonHeaders(),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(_supplyGtdChzApiError(res, data, `${label}: ошибка статуса`));
+    }
+    const run = data.run || {};
+    const serverLog = String(run.log_text || "");
+    if (serverLog && serverLog !== lastServerLog) {
+      _supplyGtdChzReplaceLog(prefix ? `${prefix}\n——\n${serverLog}` : serverLog);
+      lastServerLog = serverLog;
+    }
+    const st = String(run.status || "").trim();
+    if (st && st !== "running") {
+      return run;
+    }
+  }
+  throw new Error(`${label}: превышено время ожидания`);
+}
+
 async function runSupplyGtdChzCisStatus() {
   const gid = _supplyGtdChzState.gtdId;
   if (!gid || _supplyGtdChzState.busy) return;
@@ -23319,7 +23359,7 @@ async function runSupplyGtdChzCisStatus() {
     _supplyGtdChzAppendLog(
       selected.length
         ? `Токен получен. Запрос статусов в True API (${selected.length} КИЗ)…`
-        : "Токен получен. Запрос статусов в True API по всем КИЗ ГТД (может занять несколько минут)…",
+        : "Токен получен. Запрос статусов в True API по всем КИЗ ГТД (фоном, с прогрессом)…",
     );
     const res = await fetch(`/api/supply-gtd/${gid}/chz/cis-status`, {
       method: "POST",
@@ -23333,13 +23373,38 @@ async function runSupplyGtdChzCisStatus() {
     if (!res.ok) throw new Error(_supplyGtdChzApiError(res, data, "Ошибка статусов"));
     if (data.log_text) _supplyGtdChzAppendLog(data.log_text);
     _supplyGtdChzState.lastRunId = Number(data.run_id || 0);
-    _supplyGtdChzAppendLog(
-      `Готово: найдено ${data.found || 0}, ошибок ${data.errors || 0}`,
-    );
+    let found = Number(data.found || 0);
+    let errors = Number(data.errors || 0);
+    if (data.async && _supplyGtdChzState.lastRunId) {
+      _supplyGtdChzAppendLog(
+        `Фоновая выгрузка #${_supplyGtdChzState.lastRunId} (кодов ${data.requested || "?"}): ждём прогресс…`,
+      );
+      const clientPrefix = _supplyGtdChzState.lastLog || "";
+      const run = await _supplyGtdChzWaitForRun(_supplyGtdChzState.lastRunId, {
+        label: "Статусы ЧЗ",
+        clientPrefix,
+      });
+      found = Number(run.ok_count || 0);
+      errors = Number(run.err_count || 0);
+      if (String(run.status || "") === "error") {
+        throw new Error(
+          (run.log_text || "").split("\n").filter(Boolean).slice(-1)[0]
+            || "Ошибка выгрузки статусов",
+        );
+      }
+    }
+    _supplyGtdChzAppendLog(`Готово: найдено ${found}, ошибок ${errors}`);
     await _supplyGtdChzFetch(true);
   } catch (err) {
-    _supplyGtdChzAppendLog(`Ошибка: ${err?.message || err}`);
-    alert(err?.message || String(err));
+    const msg = String(err?.message || err || "");
+    const timedOut =
+      /failed to fetch|networkerror|gateway time|504|proxy|timeout|timed out/i.test(msg)
+      || err?.name === "TypeError";
+    const shown = timedOut
+      ? "Таймаут прокси/сети при выгрузке статусов. Обновите страницу и повторите — для больших ГТД нужна фоновая выгрузка (после деплоя)."
+      : msg;
+    _supplyGtdChzAppendLog(`Ошибка: ${shown}`);
+    alert(shown);
   } finally {
     _supplyGtdChzState.busy = false;
     if (btn) btn.disabled = false;
