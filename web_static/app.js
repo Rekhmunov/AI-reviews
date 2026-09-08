@@ -18648,7 +18648,8 @@ const _SST_TABLES = [
   { thead: "supplyLegalEntitiesThead",    key: "sst_legal_v2" },
   { thead: "supplyProductionsThead",      key: "sst_productions_v2" },
   { thead: "supplyContractorsThead",      key: "sst_contractors_v2" },
-  { thead: "supplyGtdThead",              key: "sst_gtd_v1" },
+  // v2: acts column widened for «Работа с ЧЗ» + icon actions
+  { thead: "supplyGtdThead",              key: "sst_gtd_v2" },
 ];
 const _sstInited = new Set();
 
@@ -18662,11 +18663,22 @@ function _sstParseWidthPx(el) {
   return el.offsetWidth || 120;
 }
 
+/** Actions column width: per-th data-acts-w → style width → default 180. */
+function _sstActsColWidth(th) {
+  const fromData = parseInt(String(th?.dataset?.actsW || ""), 10);
+  if (Number.isFinite(fromData) && fromData >= _SST_ACTIONS_COL_W) return fromData;
+  const fromStyle = parseInt(String(th?.style?.width || ""), 10);
+  if (Number.isFinite(fromStyle) && fromStyle >= _SST_ACTIONS_COL_W) return fromStyle;
+  return _SST_ACTIONS_COL_W;
+}
+
 function _sstDefaultWidth(th) {
+  if (th.classList.contains("sst-actions-col") || th.dataset.col === "acts") {
+    return _sstActsColWidth(th);
+  }
   const fromStyle = parseInt(String(th.style.width || ""), 10);
   if (Number.isFinite(fromStyle) && fromStyle > 0) return fromStyle;
   if (th.dataset.col === "num") return 44;
-  if (th.classList.contains("sst-actions-col") || th.dataset.col === "acts") return _SST_ACTIONS_COL_W;
   return Math.max(_SST_MIN_COL_W, th.offsetWidth || 140);
 }
 
@@ -18695,10 +18707,11 @@ function _sstApplyWidths(table, ths, widthsByCol) {
     const isActs = th.classList.contains("sst-actions-col") || th.dataset.col === "acts";
     if (isActs) th.classList.add("sst-actions-col");
     const colKey = th.dataset.col || `c${i}`;
+    const actsW = isActs ? _sstActsColWidth(th) : 0;
     let w = isActs
-      ? _SST_ACTIONS_COL_W
+      ? actsW
       : (Number(widthsByCol[colKey]) || _sstDefaultWidth(th));
-    w = Math.max(isActs ? _SST_ACTIONS_COL_W : _SST_MIN_COL_W, Math.round(w));
+    w = Math.max(isActs ? actsW : _SST_MIN_COL_W, Math.round(w));
     const col = colgroup.children[i];
     if (col) {
       col.style.width = `${w}px`;
@@ -22458,13 +22471,13 @@ function renderSupplyGtdTable(items) {
       <td title="${_supplyGtdEsc(note)}">${_supplyGtdEsc(note)}</td>
       <td title="${_supplyGtdEsc(file)}">${_supplyGtdEsc(file)}</td>
       <td>
-        <div class="row" style="gap:4px;justify-content:flex-end;flex-wrap:nowrap">
+        <div class="sst-edit-actions">
           <button type="button" class="secondary small-btn" title="Работа с ЧЗ"
                   onclick="openSupplyGtdChzModal(${id})">Работа с ЧЗ</button>
-          <button type="button" class="icon-btn secondary" title="Редактировать"
+          <button type="button" class="secondary small-btn icon-btn" title="Редактировать"
                   onclick="openSupplyGtdEditModal(${id})" aria-label="Редактировать">✎</button>
-          <button type="button" class="icon-btn danger" title="Удалить"
-                  onclick="openSupplyGtdDeleteModal(${id})" aria-label="Удалить">🗑</button>
+          <button type="button" class="secondary small-btn icon-btn" style="color:#b91c1c;border-color:#fca5a5"
+                  title="Удалить" onclick="openSupplyGtdDeleteModal(${id})" aria-label="Удалить">🗑</button>
         </div>
       </td>
     </tr>`;
