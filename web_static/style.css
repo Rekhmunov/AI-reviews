@@ -8972,6 +8972,11 @@ button.ozon-fbs-ship-all-btn {
   cursor: pointer;
   box-shadow: none;
 }
+/* display:inline-flex above beats UA [hidden]; keep notice-mode footer correct. */
+button.ozon-fbs-ship-all-btn[hidden],
+.ozon-fbs-move-delivering-footer .secondary[hidden] {
+  display: none !important;
+}
 button.ozon-fbs-ship-all-btn:hover {
   background: #0047cc;
   border-color: #0047cc;
