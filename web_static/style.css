@@ -7786,6 +7786,107 @@ tr.dnd-over td {
 #wbFbsTrbxDeleteAllConfirmModal.modal-overlay {
   z-index: 1400;
 }
+#ozonFbsContainerApproveModal.modal-overlay {
+  z-index: 1400;
+}
+.ozon-fbs-container-approve-modal {
+  /* Same footprint as «Грузоместа» (wb-fbs-create-trbx-modal). */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.ozon-fbs-container-approve-body {
+  padding: 20px 24px 0;
+  overflow: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.ozon-fbs-container-approve-lead {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.45;
+  color: #0f172a;
+  font-weight: 600;
+}
+.ozon-fbs-container-approve-text {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.45;
+  color: #334155;
+}
+.ozon-fbs-container-approve-stats {
+  margin: 0;
+  padding: 12px 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 15px;
+  line-height: 1.4;
+  color: #475569;
+}
+.ozon-fbs-container-approve-stats strong {
+  color: #0f172a;
+  font-weight: 600;
+}
+.ozon-fbs-container-approve-warn {
+  margin: 0;
+  padding: 12px 16px;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  background: #fffbeb;
+  font-size: 15px;
+  line-height: 1.45;
+  color: #92400e;
+}
+.ozon-fbs-container-approve-warn strong {
+  font-weight: 700;
+  color: #78350f;
+}
+.ozon-fbs-container-approve-sync {
+  margin: 0;
+  padding: 12px 16px;
+  border: 1px solid #fdba74;
+  border-radius: 8px;
+  background: #fff7ed;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 15px;
+  line-height: 1.45;
+  color: #9a3412;
+}
+.ozon-fbs-container-approve-sync-list {
+  margin: 0;
+  padding: 0 0 0 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #7c2d12;
+}
+.ozon-fbs-container-approve-hint {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #64748b;
+}
+.ozon-fbs-container-approve-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 20px 24px 24px;
+  flex: 0 0 auto;
+}
+.ozon-fbs-container-approve-footer button {
+  min-width: 88px;
+  min-height: 40px;
+}
 #ozonFbsMoveDeliveringModal.modal-overlay {
   z-index: 1450;
 }
@@ -16597,6 +16698,7 @@ button.wb-fbs-kiz-add:disabled {
   #ozonFbsKizModal,
   #ozonFbsPickVerifyModal,
   #ozonFbsContainersModal,
+  #ozonFbsContainerApproveModal,
   #ozonFbsShipmentsModal,
   #ozonFbsCollectModal,
   #ozonFbsCollectResultModal,
@@ -16653,6 +16755,7 @@ button.wb-fbs-kiz-add:disabled {
   #ozonFbsPickVerifyModal > .modal-card,
   #ozonFbsPickVerifyModal > .wb-fbs-kiz-modal,
   #ozonFbsContainersModal > .modal-card,
+  #ozonFbsContainerApproveModal > .modal-card,
   #ozonFbsShipmentsModal > .modal-card,
   #ozonFbsCollectModal > .modal-card,
   #ozonFbsCollectModal > .ozon-fbs-collect-modal,
