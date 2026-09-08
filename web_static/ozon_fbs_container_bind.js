@@ -346,8 +346,14 @@
     const el = document.getElementById(elId);
     if (!el) return;
     const list = Array.isArray(rows) ? rows : [];
-    const bound = list.filter((r) => String(r?.container_barcode || "").trim()).length;
-    const show = gmUiVisible(mode) && (state.usedInSession || bound > 0);
+    const boundLocal = list.filter((r) => String(r?.container_barcode || "").trim()).length;
+    // Green only for Ozon-confirmed binds (container_synced), like WB kiz_wb_synced.
+    const synced = list.filter((r) => {
+      if (!String(r?.container_barcode || "").trim()) return false;
+      if (String(r?.container_sync_error || "").trim()) return false;
+      return !!r?.container_synced;
+    }).length;
+    const show = gmUiVisible(mode) && (state.usedInSession || boundLocal > 0);
     el.hidden = !show;
     if (!show) {
       el.textContent = "";
@@ -356,8 +362,8 @@
     }
     const total =
       list.filter((r) => !String(r?.cancel_reason_label || "").trim()).length || list.length;
-    el.textContent = `Прикреплено к грузоместам ${bound} из ${total}`;
-    el.classList.toggle("is-complete", total > 0 && bound === total);
+    el.textContent = `Прикреплено к грузоместам ${synced} из ${total}`;
+    el.classList.toggle("is-complete", total > 0 && synced === total);
   }
 
   function containerCellHtml(row, mode) {

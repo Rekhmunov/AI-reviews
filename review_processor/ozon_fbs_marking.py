@@ -1475,7 +1475,7 @@ def check_supply_marking_status(
         if r.get("kiz_required") and not r.get("cancelled")
     ]
 
-    def _has_container(row: dict[str, Any]) -> bool:
+    def _has_container_bind(row: dict[str, Any]) -> bool:
         try:
             cid = int(row.get("container_id") or 0)
         except (TypeError, ValueError):
@@ -1483,6 +1483,14 @@ def check_supply_marking_status(
         if cid > 0:
             return True
         return bool(str(row.get("container_barcode") or "").strip())
+
+    def _container_confirmed(row: dict[str, Any]) -> bool:
+        """Green only when Ozon fill is confirmed (container_synced), like WB KIZ."""
+        if str(row.get("container_sync_error") or "").strip():
+            return False
+        if not bool(row.get("container_synced")):
+            return False
+        return _has_container_bind(row)
 
     container_errors = [
         {
@@ -1493,10 +1501,10 @@ def check_supply_marking_status(
         for r in relevant
         if str(r.get("container_sync_error") or "").strip()
     ]
-    # If cargo places are in use for this group, green requires full GM attachment
-    # (not only filled КИЗ). Sync failures stay «error»; missing binds stay neutral.
-    containers_required = any(_has_container(r) for r in relevant)
-    containers_bound = sum(1 for r in relevant if _has_container(r))
+    # If cargo places are in use for this group, green requires Ozon-confirmed binds
+    # for every row (not only a local ШК in the input).
+    containers_required = any(_has_container_bind(r) for r in relevant)
+    containers_bound = sum(1 for r in relevant if _container_confirmed(r))
     containers_complete = (not containers_required) or (
         bool(relevant) and containers_bound == len(relevant)
     )

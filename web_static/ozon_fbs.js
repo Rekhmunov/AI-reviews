@@ -8181,6 +8181,18 @@
     return !!String(o?.container_barcode || "").trim();
   }
 
+  /** Local ШК entered — does not mean Ozon accepted the fill. */
+  function _ozonFbsOrderHasContainerBind(o) {
+    return _ozonFbsOrderHasContainer(o);
+  }
+
+  /** Confirmed on Ozon (container_synced), analogous to WB kiz_wb_synced. */
+  function _ozonFbsOrderContainerConfirmed(o) {
+    if (!_ozonFbsOrderHasContainerBind(o)) return false;
+    if (String(o?.container_sync_error || "").trim()) return false;
+    return !!o?.container_synced;
+  }
+
   /** Cargo places are in play for this supply (warehouse has GM or any bind exists). */
   function _ozonFbsContainersInPlay(mode) {
     if (window.ozonFbsContainerBindState?.hasContainers) return true;
@@ -8199,8 +8211,8 @@
     if (!required.every((o) => String(o.kiz_status || "") === "ok")) return "";
     const gmInPlay =
       _ozonFbsContainersInPlay("kiz")
-      || required.some((o) => _ozonFbsOrderHasContainer(o));
-    if (gmInPlay && !required.every((o) => _ozonFbsOrderHasContainer(o))) return "";
+      || required.some((o) => _ozonFbsOrderHasContainerBind(o));
+    if (gmInPlay && !required.every((o) => _ozonFbsOrderContainerConfirmed(o))) return "";
     return "ok";
   }
 
@@ -8213,8 +8225,8 @@
     )) return "";
     const gmInPlay =
       _ozonFbsContainersInPlay("pick")
-      || plain.some((o) => _ozonFbsOrderHasContainer(o));
-    if (gmInPlay && !plain.every((o) => _ozonFbsOrderHasContainer(o))) return "";
+      || plain.some((o) => _ozonFbsOrderHasContainerBind(o));
+    if (gmInPlay && !plain.every((o) => _ozonFbsOrderContainerConfirmed(o))) return "";
     return "ok";
   }
 

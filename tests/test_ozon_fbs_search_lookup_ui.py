@@ -32,7 +32,7 @@ def test_search_lookup_ui_drops_redundant_bits() -> None:
 
     assert ".ozon-fbs-lookup-detail-head" in css
     assert ".ozon-fbs-lookup-detail-title" in css
-    assert "ozon_fbs.js?v=138" in html
+    assert "ozon_fbs.js?v=140" in html
     assert 'rows.push(["Крайний срок сдачи", details.shipment_date])' in js
     assert 'rows.push(["Дата отгрузки", details.shipment_date])' not in js
     assert 'rows.push(["Дата заказа товара", details.in_process_at])' in js

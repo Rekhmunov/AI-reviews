@@ -59,7 +59,19 @@ class ContainerBindLocalTests(unittest.TestCase):
     def test_bind_success_marks_synced(self) -> None:
         repo = MagicMock()
         client = MagicMock()
-        client.carriage_container_fill.return_value = {"ok": True}
+        client.carriage_container_get.return_value = {
+            "container": {
+                "container_id": 10,
+                "status": "new",
+                "available_actions": ["fill"],
+                "posting_numbers": ["1-1-1"],
+            }
+        }
+        client.carriage_container_fill.return_value = {"ok": True, "task_id": 7}
+        client.carriage_container_task_info.return_value = {
+            "status": "completed",
+            "error_message": "",
+        }
         with patch.object(ct, "_set_local_container_bind") as set_local:
             set_local.return_value = {
                 "posting_number": "1-1-1",
@@ -79,6 +91,43 @@ class ContainerBindLocalTests(unittest.TestCase):
         self.assertTrue(out["synced"])
         self.assertEqual(out["error"], "")
         self.assertTrue(set_local.call_args.kwargs["synced"])
+        client.carriage_container_task_info.assert_called()
+
+    def test_bind_waits_fill_task_before_synced(self) -> None:
+        repo = MagicMock()
+        client = MagicMock()
+        client.carriage_container_get.return_value = {
+            "container": {
+                "container_id": 10,
+                "status": "new",
+                "available_actions": ["fill"],
+            }
+        }
+        client.carriage_container_fill.return_value = {"task_id": 99}
+        client.carriage_container_task_info.return_value = {
+            "status": "failed",
+            "error_message": "FILL_ASYNC_FAILED",
+        }
+        with patch.object(ct, "_set_local_container_bind") as set_local:
+            set_local.return_value = {
+                "posting_number": "1-1-1",
+                "container_id": 10,
+                "container_barcode": "10",
+                "container_synced": False,
+                "container_sync_error": "FILL_ASYNC_FAILED",
+            }
+            out = ct.bind_posting_to_container(
+                client,
+                repo,
+                user_id=1,
+                source_id=2,
+                posting_number="1-1-1",
+                container_id=10,
+            )
+        self.assertFalse(out["synced"])
+        self.assertIn("FILL_ASYNC_FAILED", out["error"])
+        self.assertFalse(set_local.call_args.kwargs["synced"])
+        self.assertTrue(set_local.call_args.kwargs["sync_error"])
 
     def test_bind_rejects_approved_container(self) -> None:
         repo = MagicMock()
@@ -242,6 +291,50 @@ class MarkingStatusContainerErrorTests(unittest.TestCase):
         self.assertEqual(out["done"], 2)
         self.assertTrue(out.get("containers_required"))
         self.assertEqual(out.get("containers_bound"), 1)
+
+    def test_marking_local_bind_without_ozon_sync_blocks_ok(self) -> None:
+        """ШК in input without container_synced must not green the button."""
+        from review_processor import ozon_fbs_marking as marking
+
+        detail = {
+            "supply_id": "S1",
+            "orders": [
+                {
+                    "posting_number": "A-1",
+                    "kiz_required": True,
+                    "kiz_quantity": 1,
+                    "cancelled": False,
+                }
+            ],
+        }
+        local = {
+            "A-1": {
+                "codes": ["CODE1"],
+                "saved_at": "",
+                "ozon_synced": False,
+                "gtd_number": "",
+                "container_id": 10,
+                "container_barcode": "10",
+                "container_synced": False,
+                "container_sync_error": "",
+            }
+        }
+        with (
+            patch(
+                "review_processor.ozon_fbs_marking.oz_sup.get_supply_detail",
+                return_value=detail,
+            ),
+            patch(
+                "review_processor.ozon_fbs_marking.load_marking_map",
+                return_value=local,
+            ),
+        ):
+            out = marking.check_supply_marking_status(
+                MagicMock(), user_id=1, source_id=2, supply_id="S1"
+            )
+        self.assertEqual(out["status"], "")
+        self.assertTrue(out.get("containers_required"))
+        self.assertEqual(out.get("containers_bound"), 0)
 
     def test_status_ignores_non_kiz_container_errors(self) -> None:
         from review_processor import ozon_fbs_marking as marking

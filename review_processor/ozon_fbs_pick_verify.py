@@ -617,7 +617,7 @@ def check_supply_pick_verify_status(
         )
     total = len(orders)
 
-    def _has_container(row: dict[str, Any]) -> bool:
+    def _has_container_bind(row: dict[str, Any]) -> bool:
         try:
             cid = int(row.get("container_id") or 0)
         except (TypeError, ValueError):
@@ -625,6 +625,13 @@ def check_supply_pick_verify_status(
         if cid > 0:
             return True
         return bool(str(row.get("container_barcode") or "").strip())
+
+    def _container_confirmed(row: dict[str, Any]) -> bool:
+        if str(row.get("container_sync_error") or "").strip():
+            return False
+        if not bool(row.get("container_synced")):
+            return False
+        return _has_container_bind(row)
 
     container_errors = [
         {
@@ -635,8 +642,8 @@ def check_supply_pick_verify_status(
         for r in status_rows
         if str(r.get("container_sync_error") or "").strip()
     ]
-    containers_required = any(_has_container(r) for r in status_rows)
-    containers_bound = sum(1 for r in status_rows if _has_container(r))
+    containers_required = any(_has_container_bind(r) for r in status_rows)
+    containers_bound = sum(1 for r in status_rows if _container_confirmed(r))
     containers_complete = (not containers_required) or (
         total > 0 and containers_bound == total
     )

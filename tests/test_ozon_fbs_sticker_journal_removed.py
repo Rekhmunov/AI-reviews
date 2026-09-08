@@ -20,7 +20,7 @@ def test_shipment_quality_modal_has_no_scan_journal_ui() -> None:
         'id="ozonFbsOrdersTable"', 1
     )[0]
     assert "loadOzonFbsPostingScansJournal" not in js
-    assert "ozon_fbs.js?v=138" in html
+    assert "ozon_fbs.js?v=140" in html
 
 
 def test_record_posting_scan_skips_persistent_journal_keeps_ops_log() -> None:
