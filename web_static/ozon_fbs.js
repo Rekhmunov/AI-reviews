@@ -10068,6 +10068,10 @@
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
     if (!sid || !sourceId || ozonFbsKizState.saving) return;
+    // Commit typed ШК грузоместа before KIZ save (bind is a separate API).
+    if (typeof window._ozonFbsContainerFlushPendingCells === "function") {
+      await window._ozonFbsContainerFlushPendingCells("kiz");
+    }
     _ozonFbsKizCollectFromDom();
     const saveBtn = document.getElementById("ozonFbsKizSaveBtn");
     ozonFbsKizState.saving = true;
@@ -11118,6 +11122,10 @@
     _ozonFbsPickSetInfo("Сохранение…");
     try {
       await ozonFbsPickState.localAutosaveChain;
+      // Commit typed ШК грузоместа before pick save (bind is a separate API).
+      if (typeof window._ozonFbsContainerFlushPendingCells === "function") {
+        await window._ozonFbsContainerFlushPendingCells("pick");
+      }
       _ozonFbsPickCollectFromDom();
       const items = [];
       for (const r of ozonFbsPickState.rows || []) {
