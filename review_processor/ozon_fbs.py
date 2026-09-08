@@ -322,6 +322,10 @@ def _iso_z(dt: datetime) -> str:
 
 
 class OzonFbsClient:
+    # Ozon may return 429 when the Client-Id budget is exhausted; retry a few times
+    # honouring Retry-After (see ozon_fbs_rate_limit).
+    _MAX_429_RETRIES = 4
+
     def __init__(self, client_id: str, api_key: str, timeout: int = 45) -> None:
         self.client_id = str(client_id or "").strip()
         self.api_key = str(api_key or "").strip()
@@ -335,18 +339,51 @@ class OzonFbsClient:
             "User-Agent": "FeedPilot-OzonFBS/1.0",
         }
 
-    def post_json(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
+    def _post_raw(self, path: str, body: dict[str, Any]) -> bytes:
+        """POST with per-Client-Id pacing and Retry-After-aware 429 retries."""
+        from . import ozon_fbs_rate_limit as rl
+
         url = f"{OZON_API}{path}"
         payload = json.dumps(body).encode("utf-8")
-        req = Request(url, data=payload, method="POST", headers=self._headers())
-        try:
-            with urlopen(req, timeout=self.timeout) as resp:
-                raw = resp.read()
-        except HTTPError as exc:
-            err_body = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"Ozon HTTP {exc.code}: {err_body or exc.reason}") from exc
-        except URLError as exc:
-            raise RuntimeError(f"Ozon network error: {exc.reason}") from exc
+        last_err: Exception | None = None
+        for attempt in range(self._MAX_429_RETRIES + 1):
+            rl.acquire_client_slot(self.client_id)
+            req = Request(url, data=payload, method="POST", headers=self._headers())
+            try:
+                with urlopen(req, timeout=self.timeout) as resp:
+                    return resp.read()
+            except HTTPError as exc:
+                err_body = exc.read().decode("utf-8", errors="replace")
+                if int(exc.code) == 429 and attempt < self._MAX_429_RETRIES:
+                    wait = rl.backoff_seconds_for_429(
+                        attempt=attempt,
+                        retry_after=rl.parse_retry_after_seconds(
+                            getattr(exc, "headers", None)
+                        ),
+                    )
+                    _log.warning(
+                        "ozon HTTP 429 path=%s attempt=%s sleep=%.2fs body=%s",
+                        path,
+                        attempt + 1,
+                        wait,
+                        (err_body or "")[:240],
+                    )
+                    time.sleep(wait)
+                    last_err = RuntimeError(
+                        f"Ozon HTTP 429: {err_body or exc.reason}"
+                    )
+                    continue
+                raise RuntimeError(
+                    f"Ozon HTTP {exc.code}: {err_body or exc.reason}"
+                ) from exc
+            except URLError as exc:
+                raise RuntimeError(f"Ozon network error: {exc.reason}") from exc
+        if last_err is not None:
+            raise last_err
+        raise RuntimeError(f"Ozon HTTP 429: rate limit exceeded for {path}")
+
+    def post_json(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
+        raw = self._post_raw(path, body)
         try:
             data = json.loads(raw.decode("utf-8"))
         except json.JSONDecodeError as exc:
@@ -356,17 +393,7 @@ class OzonFbsClient:
         return data
 
     def post_bytes(self, path: str, body: dict[str, Any]) -> bytes:
-        url = f"{OZON_API}{path}"
-        payload = json.dumps(body).encode("utf-8")
-        req = Request(url, data=payload, method="POST", headers=self._headers())
-        try:
-            with urlopen(req, timeout=self.timeout) as resp:
-                return resp.read()
-        except HTTPError as exc:
-            err_body = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"Ozon HTTP {exc.code}: {err_body or exc.reason}") from exc
-        except URLError as exc:
-            raise RuntimeError(f"Ozon network error: {exc.reason}") from exc
+        return self._post_raw(path, body)
 
     def list_postings_page(
         self,
