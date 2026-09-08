@@ -4676,13 +4676,6 @@
             <div class="row row-between" style="margin-bottom:16px">
               <div>
                 <h4 class="no-margin">Честный знак</h4>
-                <p class="small" style="margin:8px 0 0;color:#64748b;max-width:640px">
-                  Для вывода/возврата КИЗ после продаж WB FBS. Отчёт WB — отдельный токен
-                  категории «Аналитика» (можно только чтение). В ЧЗ — через УКЭП в браузере.
-                  КПП и ФИАС должны совпадать с действующим МОД в профиле Честного знака
-                  (иначе документ примут, но обработают с ошибкой). Если поля пустые —
-                  подставляются из юр. лица с тем же ИНН.
-                </p>
               </div>
               <label class="small" style="display:flex;align-items:center;gap:8px;white-space:nowrap">
                 <input type="checkbox" id="chzSettingsEnabled" />
@@ -4733,11 +4726,6 @@
             <div class="row row-between" style="margin-bottom:16px;gap:12px;flex-wrap:wrap">
               <div>
                 <h4 class="no-margin">ГТД (таможенные декларации)</h4>
-                <p class="small" style="margin:8px 0 0;color:#64748b;max-width:720px">
-                  Загрузите PDF декларации / дополнения к ДТ или PDF со стикерами Честного ЗНАКа
-                  (текст КИ под Data Matrix). Сохраняем номер ГТД и короткие КИЗ для ЧЗ.
-                  Можно приложить несколько файлов. Уже известные КИЗ не затираются.
-                </p>
               </div>
               <button type="button" onclick="openSupplyGtdImportModal()">Добавить ГТД</button>
             </div>
@@ -4762,7 +4750,7 @@
                     <th data-col="loaded" style="width:160px">Загружено</th>
                     <th data-col="note" style="width:220px">Примечание</th>
                     <th data-col="file" style="width:180px">Файл</th>
-                    <th class="sst-actions-col" data-col="acts" style="width:88px"></th>
+                    <th class="sst-actions-col" data-col="acts" style="width:200px"></th>
                   </tr>
                 </thead>
                 <tbody id="supplyGtdTbody"></tbody>
@@ -4871,6 +4859,101 @@
             <div id="supplyGtdResultBody" class="wb-fbs-collect-mgt-result-body"></div>
             <div class="row" style="margin-top:16px;gap:8px;justify-content:flex-end">
               <button type="button" onclick="closeSupplyGtdResultModal()">Закрыть</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Настройки → ГТД → Работа с ЧЗ -->
+        <div id="supplyGtdChzModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="supplyGtdChzTitle">
+          <div class="modal-card wb-fbs-kiz-circ-modal supply-gtd-chz-modal">
+            <div class="wb-fbs-kiz-circ-header">
+              <div class="wb-fbs-kiz-circ-title-row">
+                <div class="wb-fbs-kiz-circ-title-block">
+                  <h3 id="supplyGtdChzTitle" class="wb-fbs-kiz-circ-title">Работа с ЧЗ</h3>
+                  <p id="supplyGtdChzSubtitle" class="small" style="margin:4px 0 0;color:#64748b"></p>
+                </div>
+                <button type="button" class="icon-btn secondary" onclick="closeSupplyGtdChzModal()" aria-label="Закрыть">✕</button>
+              </div>
+              <div class="wb-fbs-kiz-circ-actions">
+                <div class="wb-fbs-kiz-circ-action-btns">
+                  <button type="button" class="wb-fbs-kiz-circ-btn-primary" id="supplyGtdChzStatusBtn"
+                          onclick="runSupplyGtdChzCisStatus()">Выгрузить статусы из ЧЗ</button>
+                  <button type="button" class="secondary" id="supplyGtdChzWithdrawBtn"
+                          onclick="runSupplyGtdChzOp('withdraw')" disabled
+                          title="Только для КИЗ со статусом «В обороте»">Вывести из оборота</button>
+                  <button type="button" class="secondary" id="supplyGtdChzReturnBtn"
+                          onclick="runSupplyGtdChzOp('return')" disabled
+                          title="Только для КИЗ со статусом «Выведен»">Ввести в оборот</button>
+                  <button type="button" class="secondary" onclick="refreshSupplyGtdChzTable()">Обновить</button>
+                  <button type="button" class="secondary" id="supplyGtdChzLogBtn"
+                          onclick="openSupplyGtdChzLogModal()">Лог</button>
+                </div>
+                <div class="wb-fbs-kiz-circ-meta">
+                  <span id="supplyGtdChzCounts" class="wb-fbs-kiz-circ-counts"></span>
+                  <span id="supplyGtdChzSelectedInfo" class="wb-fbs-kiz-circ-selected-info"></span>
+                </div>
+              </div>
+              <div class="wb-fbs-kiz-circ-filters" id="supplyGtdChzFilters">
+                <div class="wb-fbs-kiz-circ-filter-block">
+                  <span class="wb-fbs-kiz-circ-filter-label">Статус КИЗ</span>
+                  <div class="wb-fbs-kiz-circ-status-chips" id="supplyGtdChzStatusChips" role="group" aria-label="Статусы КИЗ">
+                    <button type="button" class="wb-fbs-kiz-circ-chip is-active" data-kind="" onclick="setSupplyGtdChzKindFilter('')">Все</button>
+                    <button type="button" class="wb-fbs-kiz-circ-chip" data-kind="in_circulation" onclick="setSupplyGtdChzKindFilter('in_circulation')">В обороте</button>
+                    <button type="button" class="wb-fbs-kiz-circ-chip" data-kind="withdrawn" onclick="setSupplyGtdChzKindFilter('withdrawn')">Выведен</button>
+                    <button type="button" class="wb-fbs-kiz-circ-chip" data-kind="transferred" onclick="setSupplyGtdChzKindFilter('transferred')">Передан</button>
+                    <button type="button" class="wb-fbs-kiz-circ-chip" data-kind="unchecked" onclick="setSupplyGtdChzKindFilter('unchecked')">Не проверен</button>
+                    <button type="button" class="wb-fbs-kiz-circ-chip" data-kind="error" onclick="setSupplyGtdChzKindFilter('error')">Ошибка</button>
+                  </div>
+                </div>
+                <div class="wb-fbs-kiz-circ-filter-controls">
+                  <label class="wb-fbs-kiz-circ-field wb-fbs-kiz-circ-search-field" for="supplyGtdChzSearch">
+                    <span>Поиск</span>
+                    <input type="search" id="supplyGtdChzSearch" placeholder="КИЗ…" autocomplete="off"
+                           oninput="onSupplyGtdChzSearchInput()" />
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div class="wb-fbs-kiz-circ-body">
+              <div class="table-wrap wb-fbs-kiz-circ-table-wrap">
+                <table class="wb-fbs-kiz-circ-table" id="supplyGtdChzTable">
+                  <thead>
+                    <tr>
+                      <th style="width:44px">
+                        <input type="checkbox" id="supplyGtdChzSelectAll"
+                               title="Выделить все видимые"
+                               onchange="toggleSupplyGtdChzSelectAll(this.checked)" />
+                      </th>
+                      <th>КИЗ</th>
+                      <th style="width:140px">GTIN</th>
+                      <th style="width:140px">Статус КИЗ</th>
+                      <th style="width:160px">Документ ЧЗ</th>
+                      <th style="width:200px">Ошибка</th>
+                      <th style="width:140px">Обновлён</th>
+                    </tr>
+                  </thead>
+                  <tbody id="supplyGtdChzTbody"></tbody>
+                </table>
+              </div>
+              <div class="row" style="padding:12px 20px;gap:8px;justify-content:flex-end">
+                <button type="button" class="secondary" id="supplyGtdChzLoadMoreBtn" hidden
+                        onclick="loadMoreSupplyGtdChz()">Ещё</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="supplyGtdChzLogModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="supplyGtdChzLogTitle">
+          <div class="modal-card" style="width:min(720px,100%);max-width:720px">
+            <div class="row row-between" style="margin-bottom:16px;align-items:flex-start;gap:12px">
+              <h4 id="supplyGtdChzLogTitle" class="no-margin">Лог — Работа с ЧЗ</h4>
+              <button type="button" class="icon-btn secondary" onclick="closeSupplyGtdChzLogModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <pre id="supplyGtdChzLogBody" class="wb-fbs-kiz-circ-log-pre" style="max-height:min(60vh,480px);overflow:auto;margin:0;white-space:pre-wrap;font-size:13px;line-height:1.45"></pre>
+            <div class="row" style="margin-top:16px;gap:8px;justify-content:flex-end">
+              <button type="button" onclick="closeSupplyGtdChzLogModal()">Закрыть</button>
             </div>
           </div>
         </div>

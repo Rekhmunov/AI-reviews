@@ -22459,6 +22459,8 @@ function renderSupplyGtdTable(items) {
       <td title="${_supplyGtdEsc(file)}">${_supplyGtdEsc(file)}</td>
       <td>
         <div class="row" style="gap:4px;justify-content:flex-end;flex-wrap:nowrap">
+          <button type="button" class="secondary small-btn" title="Работа с ЧЗ"
+                  onclick="openSupplyGtdChzModal(${id})">Работа с ЧЗ</button>
           <button type="button" class="icon-btn secondary" title="Редактировать"
                   onclick="openSupplyGtdEditModal(${id})" aria-label="Редактировать">✎</button>
           <button type="button" class="icon-btn danger" title="Удалить"
@@ -22928,6 +22930,407 @@ async function confirmSupplyGtdDelete() {
   }
 }
 
+/* ── Настройки → ГТД → Работа с ЧЗ ─────────────────────────────────────── */
+const _supplyGtdChzState = {
+  gtdId: 0,
+  gtdNumber: "",
+  items: [],
+  selected: new Set(),
+  kindFilter: "",
+  search: "",
+  offset: 0,
+  limit: 2000,
+  hasMore: false,
+  total: 0,
+  filteredTotal: 0,
+  busy: false,
+  lastLog: "",
+  lastRunId: 0,
+};
+
+function _supplyGtdChzEsc(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function _supplyGtdChzApiError(res, data, fallback) {
+  const d = data?.detail;
+  if (typeof d === "string" && d.trim()) return d;
+  if (Array.isArray(d) && d[0]?.msg) return String(d[0].msg);
+  return fallback || `Ошибка ${res?.status || ""}`;
+}
+
+function _supplyGtdChzVisibleItems() {
+  const q = String(_supplyGtdChzState.search || "").trim().toLowerCase();
+  if (!q) return _supplyGtdChzState.items;
+  return _supplyGtdChzState.items.filter((it) =>
+    String(it.kiz_short || "").toLowerCase().includes(q)
+  );
+}
+
+function _supplyGtdChzRowOpReady(it, op) {
+  const kind = String(it?.cis_status_kind || "");
+  const lastOp = String(it?.last_op || "");
+  const lastSt = String(it?.last_op_status || "");
+  if (lastSt === "submitted" && lastOp === op) return false;
+  if (op === "withdraw") return kind === "in_circulation";
+  if (op === "return") return kind === "withdrawn";
+  return false;
+}
+
+function _supplyGtdChzUpdateActionButtons() {
+  const selected = [..._supplyGtdChzState.selected];
+  const byKey = new Map(_supplyGtdChzState.items.map((it) => [it.kiz_short, it]));
+  let canWithdraw = false;
+  let canReturn = false;
+  for (const ks of selected) {
+    const it = byKey.get(ks);
+    if (_supplyGtdChzRowOpReady(it, "withdraw")) canWithdraw = true;
+    if (_supplyGtdChzRowOpReady(it, "return")) canReturn = true;
+  }
+  const wBtn = document.getElementById("supplyGtdChzWithdrawBtn");
+  const rBtn = document.getElementById("supplyGtdChzReturnBtn");
+  if (wBtn) wBtn.disabled = _supplyGtdChzState.busy || !canWithdraw;
+  if (rBtn) rBtn.disabled = _supplyGtdChzState.busy || !canReturn;
+}
+
+function _supplyGtdChzRenderMeta() {
+  const counts = document.getElementById("supplyGtdChzCounts");
+  const sel = document.getElementById("supplyGtdChzSelectedInfo");
+  const visible = _supplyGtdChzVisibleItems();
+  if (counts) {
+    counts.textContent = `КИЗ: ${_supplyGtdChzState.total}`
+      + (_supplyGtdChzState.kindFilter || _supplyGtdChzState.search
+        ? ` · показано ${visible.length}`
+        : "");
+  }
+  if (sel) {
+    sel.textContent = _supplyGtdChzState.selected.size
+      ? `Выбрано: ${_supplyGtdChzState.selected.size}`
+      : "";
+  }
+  const more = document.getElementById("supplyGtdChzLoadMoreBtn");
+  if (more) more.hidden = !_supplyGtdChzState.hasMore;
+  const all = document.getElementById("supplyGtdChzSelectAll");
+  if (all) {
+    const visKeys = visible.map((it) => it.kiz_short).filter(Boolean);
+    all.checked = visKeys.length > 0
+      && visKeys.every((k) => _supplyGtdChzState.selected.has(k));
+    all.indeterminate = !all.checked
+      && visKeys.some((k) => _supplyGtdChzState.selected.has(k));
+  }
+  _supplyGtdChzUpdateActionButtons();
+}
+
+function _supplyGtdChzRenderTable() {
+  const tbody = document.getElementById("supplyGtdChzTbody");
+  if (!tbody) return;
+  const items = _supplyGtdChzVisibleItems();
+  if (!items.length) {
+    tbody.innerHTML = `<tr><td colspan="7" class="wb-fbs-empty">Нет КИЗ</td></tr>`;
+    _supplyGtdChzRenderMeta();
+    return;
+  }
+  tbody.innerHTML = items.map((it) => {
+    const ks = String(it.kiz_short || "");
+    const kind = String(it.cis_status_kind || "unchecked");
+    const label = String(it.cis_status_label || "Не проверен");
+    const checked = _supplyGtdChzState.selected.has(ks) ? "checked" : "";
+    const doc = it.last_doc_id
+      ? `${_supplyGtdChzEsc(it.last_op_status || "—")} · ${_supplyGtdChzEsc(it.last_doc_id)}`
+      : "—";
+    const err = String(it.cis_status_error || it.last_op_error || "").trim() || "—";
+    const checkedAt = String(it.cis_checked_at || "").replace("T", " ").slice(0, 19) || "—";
+    return `<tr data-kiz="${_supplyGtdChzEsc(ks)}">
+      <td><input type="checkbox" data-kiz="${_supplyGtdChzEsc(ks)}" ${checked}
+                 aria-label="Выбрать КИЗ"
+                 onchange="toggleSupplyGtdChzRow(this.dataset.kiz, this.checked)" /></td>
+      <td><code style="font-size:12px">${_supplyGtdChzEsc(ks)}</code></td>
+      <td>${_supplyGtdChzEsc(it.gtin || "—")}</td>
+      <td><span class="wb-fbs-kiz-circ-cis-st is-${_supplyGtdChzEsc(kind)}">${_supplyGtdChzEsc(label)}</span></td>
+      <td>${doc}</td>
+      <td title="${_supplyGtdChzEsc(err)}">${_supplyGtdChzEsc(err)}</td>
+      <td>${_supplyGtdChzEsc(checkedAt)}</td>
+    </tr>`;
+  }).join("");
+  _supplyGtdChzRenderMeta();
+}
+
+async function _supplyGtdChzFetch(reset) {
+  const gid = _supplyGtdChzState.gtdId;
+  if (!gid) return;
+  if (reset) {
+    _supplyGtdChzState.offset = 0;
+    _supplyGtdChzState.items = [];
+  }
+  const params = new URLSearchParams({
+    offset: String(_supplyGtdChzState.offset),
+    limit: String(_supplyGtdChzState.limit),
+  });
+  if (_supplyGtdChzState.kindFilter) {
+    params.set("status_kind", _supplyGtdChzState.kindFilter);
+  }
+  const res = await fetch(`/api/supply-gtd/${gid}/chz/kiz?${params}`, {
+    headers: jsonHeaders(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(_supplyGtdChzApiError(res, data, "Не удалось загрузить КИЗ"));
+  const gtd = data.gtd || {};
+  _supplyGtdChzState.gtdNumber = String(gtd.gtd_number || _supplyGtdChzState.gtdNumber || "");
+  const sub = document.getElementById("supplyGtdChzSubtitle");
+  if (sub) sub.textContent = _supplyGtdChzState.gtdNumber
+    ? `ГТД ${_supplyGtdChzState.gtdNumber}`
+    : "";
+  const title = document.getElementById("supplyGtdChzTitle");
+  if (title) title.textContent = "Работа с ЧЗ";
+  const batch = Array.isArray(data.items) ? data.items : [];
+  if (reset) _supplyGtdChzState.items = batch;
+  else _supplyGtdChzState.items = _supplyGtdChzState.items.concat(batch);
+  _supplyGtdChzState.total = Number(data.total || 0);
+  _supplyGtdChzState.filteredTotal = Number(data.filtered_total || 0);
+  _supplyGtdChzState.hasMore = Boolean(data.has_more);
+  _supplyGtdChzState.offset = _supplyGtdChzState.items.length;
+  // drop selections that are no longer present
+  const alive = new Set(_supplyGtdChzState.items.map((it) => it.kiz_short));
+  _supplyGtdChzState.selected = new Set(
+    [..._supplyGtdChzState.selected].filter((k) => alive.has(k))
+  );
+  _supplyGtdChzRenderTable();
+}
+
+async function openSupplyGtdChzModal(gtdId) {
+  const id = Number(gtdId) || 0;
+  if (!id) return;
+  _supplyGtdChzState.gtdId = id;
+  _supplyGtdChzState.selected = new Set();
+  _supplyGtdChzState.kindFilter = "";
+  _supplyGtdChzState.search = "";
+  _supplyGtdChzState.lastLog = "";
+  const search = document.getElementById("supplyGtdChzSearch");
+  if (search) search.value = "";
+  document.querySelectorAll("#supplyGtdChzStatusChips .wb-fbs-kiz-circ-chip").forEach((el) => {
+    el.classList.toggle("is-active", (el.getAttribute("data-kind") || "") === "");
+  });
+  const modal = document.getElementById("supplyGtdChzModal");
+  if (modal) modal.classList.remove("hidden");
+  try {
+    await _supplyGtdChzFetch(true);
+  } catch (err) {
+    alert(err?.message || String(err));
+  }
+}
+
+function closeSupplyGtdChzModal() {
+  document.getElementById("supplyGtdChzModal")?.classList.add("hidden");
+  _supplyGtdChzState.busy = false;
+}
+
+async function refreshSupplyGtdChzTable() {
+  if (_supplyGtdChzState.busy) return;
+  try {
+    await _supplyGtdChzFetch(true);
+  } catch (err) {
+    alert(err?.message || String(err));
+  }
+}
+
+async function loadMoreSupplyGtdChz() {
+  if (_supplyGtdChzState.busy || !_supplyGtdChzState.hasMore) return;
+  try {
+    await _supplyGtdChzFetch(false);
+  } catch (err) {
+    alert(err?.message || String(err));
+  }
+}
+
+function setSupplyGtdChzKindFilter(kind) {
+  _supplyGtdChzState.kindFilter = String(kind || "");
+  document.querySelectorAll("#supplyGtdChzStatusChips .wb-fbs-kiz-circ-chip").forEach((el) => {
+    el.classList.toggle(
+      "is-active",
+      (el.getAttribute("data-kind") || "") === _supplyGtdChzState.kindFilter,
+    );
+  });
+  refreshSupplyGtdChzTable();
+}
+
+function onSupplyGtdChzSearchInput() {
+  _supplyGtdChzState.search = document.getElementById("supplyGtdChzSearch")?.value || "";
+  _supplyGtdChzRenderTable();
+}
+
+function toggleSupplyGtdChzSelectAll(checked) {
+  const visible = _supplyGtdChzVisibleItems();
+  for (const it of visible) {
+    const ks = String(it.kiz_short || "");
+    if (!ks) continue;
+    if (checked) _supplyGtdChzState.selected.add(ks);
+    else _supplyGtdChzState.selected.delete(ks);
+  }
+  _supplyGtdChzRenderTable();
+}
+
+function toggleSupplyGtdChzRow(kiz, checked) {
+  const ks = String(kiz || "");
+  if (!ks) return;
+  if (checked) _supplyGtdChzState.selected.add(ks);
+  else _supplyGtdChzState.selected.delete(ks);
+  _supplyGtdChzRenderMeta();
+}
+
+async function openSupplyGtdChzLogModal() {
+  const body = document.getElementById("supplyGtdChzLogBody");
+  const modal = document.getElementById("supplyGtdChzLogModal");
+  if (modal) modal.classList.remove("hidden");
+  if (body) body.textContent = _supplyGtdChzState.lastLog || "Загрузка…";
+  const gid = _supplyGtdChzState.gtdId;
+  if (!gid) {
+    if (body) body.textContent = _supplyGtdChzState.lastLog || "Лог пуст";
+    return;
+  }
+  try {
+    const runId = _supplyGtdChzState.lastRunId;
+    const url = runId
+      ? `/api/supply-gtd/${gid}/chz/runs/${runId}`
+      : `/api/supply-gtd/${gid}/chz/runs/latest`;
+    const res = await fetch(url, { headers: jsonHeaders() });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.run?.log_text) {
+      const serverLog = String(data.run.log_text);
+      if (!_supplyGtdChzState.lastLog || !_supplyGtdChzState.lastLog.includes(serverLog)) {
+        _supplyGtdChzAppendLog(serverLog);
+      }
+      _supplyGtdChzState.lastRunId = Number(data.run.id || runId || 0);
+    }
+  } catch (_err) {
+    /* keep client log */
+  }
+  if (body) body.textContent = _supplyGtdChzState.lastLog || "Лог пуст";
+}
+
+function closeSupplyGtdChzLogModal() {
+  document.getElementById("supplyGtdChzLogModal")?.classList.add("hidden");
+}
+
+function _supplyGtdChzAppendLog(msg) {
+  const line = String(msg || "");
+  _supplyGtdChzState.lastLog = _supplyGtdChzState.lastLog
+    ? `${_supplyGtdChzState.lastLog}\n${line}`
+    : line;
+}
+
+async function runSupplyGtdChzCisStatus() {
+  const gid = _supplyGtdChzState.gtdId;
+  if (!gid || _supplyGtdChzState.busy) return;
+  const selected = [..._supplyGtdChzState.selected];
+  const btn = document.getElementById("supplyGtdChzStatusBtn");
+  _supplyGtdChzState.busy = true;
+  if (btn) btn.disabled = true;
+  try {
+    _supplyGtdChzAppendLog(
+      selected.length
+        ? `Статусы ЧЗ: выбранных ${selected.length}`
+        : "Статусы ЧЗ: все КИЗ ГТД",
+    );
+    const auth = await _chzObtainToken("");
+    const res = await fetch(`/api/supply-gtd/${gid}/chz/cis-status`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        token: auth.token,
+        kiz_shorts: selected,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(_supplyGtdChzApiError(res, data, "Ошибка статусов"));
+    if (data.log_text) _supplyGtdChzAppendLog(data.log_text);
+    _supplyGtdChzState.lastRunId = Number(data.run_id || 0);
+    _supplyGtdChzAppendLog(
+      `Готово: найдено ${data.found || 0}, ошибок ${data.errors || 0}`,
+    );
+    await _supplyGtdChzFetch(true);
+  } catch (err) {
+    _supplyGtdChzAppendLog(`Ошибка: ${err?.message || err}`);
+    alert(err?.message || String(err));
+  } finally {
+    _supplyGtdChzState.busy = false;
+    if (btn) btn.disabled = false;
+    _supplyGtdChzUpdateActionButtons();
+  }
+}
+
+async function runSupplyGtdChzOp(op) {
+  const gid = _supplyGtdChzState.gtdId;
+  const selected = [..._supplyGtdChzState.selected];
+  if (!gid || _supplyGtdChzState.busy) return;
+  if (!selected.length) {
+    alert("Выберите КИЗ");
+    return;
+  }
+  const opLabel = op === "withdraw" ? "Вывод из оборота" : "Ввод в оборот";
+  _supplyGtdChzState.busy = true;
+  _supplyGtdChzUpdateActionButtons();
+  try {
+    _supplyGtdChzAppendLog(`${opLabel}: подготовка (${selected.length} КИЗ)…`);
+    const prepRes = await fetch(`/api/supply-gtd/${gid}/chz/prepare`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ op, kiz_shorts: selected }),
+    });
+    const prep = await prepRes.json().catch(() => ({}));
+    if (!prepRes.ok) throw new Error(_supplyGtdChzApiError(prepRes, prep, "Ошибка prepare"));
+    for (const s of prep.skipped || []) {
+      _supplyGtdChzAppendLog(`Пропуск ${s.kiz_short}: ${s.reason}`);
+    }
+    const docs = Array.isArray(prep.documents) ? prep.documents : [];
+    if (!docs.length) throw new Error("Нет документов для передачи в ЧЗ");
+    _supplyGtdChzAppendLog(`К передаче: ${docs.length} док., eligible ${prep.eligible || 0}`);
+    _supplyGtdChzAppendLog("ЧЗ: авторизация УКЭП…");
+    const preferred = prep.settings?.cert_thumbprint || "";
+    const auth = await _chzObtainToken(preferred);
+    const signed = [];
+    for (let i = 0; i < docs.length; i++) {
+      const doc = docs[i];
+      const payloadB64 = String(doc.sign_payload_b64 || "");
+      if (!payloadB64) throw new Error(`Нет payload для ${doc.title || doc.doc_type}`);
+      _supplyGtdChzAppendLog(`Подпись ${i + 1}/${docs.length}: ${doc.title || doc.doc_type}`);
+      const sigB64 = await _signDetachedCadesBes(_b64ToBytes(payloadB64), auth.thumbprint);
+      signed.push({
+        doc_type: doc.doc_type,
+        product_group: doc.product_group || "",
+        title: doc.title || "",
+        kiz_shorts: doc.kiz_shorts || [],
+        product_document_b64: payloadB64,
+        sign_payload_b64: payloadB64,
+        signature_base64: sigB64,
+      });
+    }
+    _supplyGtdChzAppendLog("Отправка в True API…");
+    const subRes = await fetch(`/api/supply-gtd/${gid}/chz/submit`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ token: auth.token, op, documents: signed }),
+    });
+    const sub = await subRes.json().catch(() => ({}));
+    if (!subRes.ok) throw new Error(_supplyGtdChzApiError(subRes, sub, "Ошибка submit"));
+    if (sub.log_text) _supplyGtdChzAppendLog(sub.log_text);
+    _supplyGtdChzState.lastRunId = Number(sub.run_id || 0);
+    _supplyGtdChzAppendLog(
+      `Итого: отправлено ${sub.submitted || 0}, ошибок ${sub.failed || 0}`,
+    );
+    await _supplyGtdChzFetch(true);
+  } catch (err) {
+    _supplyGtdChzAppendLog(`Ошибка: ${err?.message || err}`);
+    alert(err?.message || String(err));
+  } finally {
+    _supplyGtdChzState.busy = false;
+    _supplyGtdChzUpdateActionButtons();
+  }
+}
+
 window.loadSupplyGtdList = loadSupplyGtdList;
 window.searchSupplyGtdByKiz = searchSupplyGtdByKiz;
 window.clearSupplyGtdKizSearch = clearSupplyGtdKizSearch;
@@ -22941,6 +23344,18 @@ window.submitSupplyGtdEdit = submitSupplyGtdEdit;
 window.openSupplyGtdDeleteModal = openSupplyGtdDeleteModal;
 window.closeSupplyGtdDeleteModal = closeSupplyGtdDeleteModal;
 window.confirmSupplyGtdDelete = confirmSupplyGtdDelete;
+window.openSupplyGtdChzModal = openSupplyGtdChzModal;
+window.closeSupplyGtdChzModal = closeSupplyGtdChzModal;
+window.refreshSupplyGtdChzTable = refreshSupplyGtdChzTable;
+window.loadMoreSupplyGtdChz = loadMoreSupplyGtdChz;
+window.setSupplyGtdChzKindFilter = setSupplyGtdChzKindFilter;
+window.onSupplyGtdChzSearchInput = onSupplyGtdChzSearchInput;
+window.toggleSupplyGtdChzSelectAll = toggleSupplyGtdChzSelectAll;
+window.toggleSupplyGtdChzRow = toggleSupplyGtdChzRow;
+window.openSupplyGtdChzLogModal = openSupplyGtdChzLogModal;
+window.closeSupplyGtdChzLogModal = closeSupplyGtdChzLogModal;
+window.runSupplyGtdChzCisStatus = runSupplyGtdChzCisStatus;
+window.runSupplyGtdChzOp = runSupplyGtdChzOp;
 
 window.loadSupplyChzSettings = loadSupplyChzSettings;
 window.saveSupplyChzSettings = saveSupplyChzSettings;
