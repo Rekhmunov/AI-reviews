@@ -400,6 +400,9 @@ def _persist_shipped_postings_local(
             meta_by_sku=meta,
             status=tab_status,
         )
+        payload = oz.stamp_catalog_marking_flags(
+            repo, user_id=user_id, posting=payload
+        )
         try:
             oz.upsert_posting(
                 repo,
@@ -824,6 +827,10 @@ def ship_posting(
             oz.TAB_ARBITRATION,
         ):
             refreshed["status"] = oz.TAB_AWAITING_DELIVER
+        # Preserve sync-time catalog KIZ warm (get_posting omits local stamp).
+        refreshed = oz.stamp_catalog_marking_flags(
+            repo, user_id=user_id, posting=refreshed
+        )
         try:
             oz.upsert_posting(
                 repo,

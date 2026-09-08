@@ -1676,6 +1676,35 @@ def apply_catalog_marking_flags(
     return out
 
 
+def stamp_catalog_marking_flags(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    posting: dict[str, Any],
+    requires_kiz_map: dict[str, bool] | None = None,
+) -> dict[str, Any]:
+    """Re-apply catalog «Требует КИЗ» after a live Ozon ``get_posting``.
+
+    Raw Ozon payloads omit our local ``marking_is_required_checked`` stamp.
+    Upserting them without this wipes the sync-time warm-up and forces
+    Marking / Pick-verify modal opens to re-run N×40 catalog resolve chunks.
+    """
+    if not isinstance(posting, dict):
+        return posting
+    mapping = requires_kiz_map
+    if mapping is None:
+        try:
+            mapping = repo.get_product_requires_kiz_map(user_id=user_id)
+        except Exception as exc:
+            _log.warning(
+                "catalog kiz stamp map failed user=%s: %s", user_id, exc
+            )
+            return posting
+    if not isinstance(mapping, dict):
+        mapping = {}
+    return apply_catalog_marking_flags(posting, mapping)
+
+
 def _catalog_keys_match_posting(
     *,
     posting: dict[str, Any],

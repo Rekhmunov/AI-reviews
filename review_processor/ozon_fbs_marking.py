@@ -683,10 +683,12 @@ def build_packaging_exemplar_payload(
     try:
         remote = client.get_posting(pn)
         if isinstance(remote, dict) and remote.get("posting_number"):
-            posting = remote
+            posting = oz.stamp_catalog_marking_flags(
+                repo, user_id=user_id, posting=remote
+            )
             try:
                 oz.upsert_posting(
-                    repo, user_id=user_id, source_id=source_id, posting=remote
+                    repo, user_id=user_id, source_id=source_id, posting=posting
                 )
                 row = _load_posting_row(
                     repo,

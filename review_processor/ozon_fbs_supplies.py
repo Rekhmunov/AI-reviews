@@ -3399,6 +3399,20 @@ def list_supply_cancelled_postings(
     client = oz.OzonFbsClient(client_id, api_key)
     refreshed: dict[str, dict[str, Any]] = {}
     fetch_errors: list[str] = []
+    # Keep sync-time catalog KIZ warm: raw get_posting omits marking_is_required_checked.
+    requires_kiz_map: dict[str, bool] = {}
+    try:
+        requires_kiz_map = repo.get_product_requires_kiz_map(user_id=user_id)
+        if not isinstance(requires_kiz_map, dict):
+            requires_kiz_map = {}
+    except Exception as exc:
+        _log.warning(
+            "ozon cancelled check catalog kiz map user=%s source=%s: %s",
+            user_id,
+            source_id,
+            exc,
+        )
+        requires_kiz_map = {}
 
     def _fetch_one(pn: str) -> tuple[str, dict[str, Any] | None, Exception | None]:
         try:
@@ -3419,13 +3433,14 @@ def list_supply_cancelled_postings(
                     fetch_errors.append(f"{pn}: {err}" if err else f"{pn}: empty")
                     _log.warning("ozon cancelled check get_posting %s: %s", pn, err)
                     continue
-                refreshed[pn] = remote
+                stamped = oz.apply_catalog_marking_flags(remote, requires_kiz_map)
+                refreshed[pn] = stamped
                 try:
                     oz.upsert_posting(
                         repo,
                         user_id=user_id,
                         source_id=source_id,
-                        posting=remote,
+                        posting=stamped,
                     )
                 except Exception as exc:
                     _log.debug("cancelled persist %s: %s", pn, exc)

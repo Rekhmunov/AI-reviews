@@ -532,6 +532,60 @@ def test_sync_skips_catalog_flags_when_map_fails() -> None:
     ).get("marking_is_required_checked")
 
 
+def test_stamp_catalog_marking_flags_after_get_posting() -> None:
+    """Live get_posting must not wipe sync-time marking_is_required_checked."""
+    repo = MagicMock()
+    repo.get_product_requires_kiz_map.return_value = {"ART": True, "111": True}
+    remote = {
+        "posting_number": "A-1",
+        "products": [{"sku": 111, "offer_id": "ART", "quantity": 1}],
+        "requirements": {},
+    }
+    stamped = oz.stamp_catalog_marking_flags(repo, user_id=1, posting=remote)
+    req = stamped.get("requirements") or {}
+    assert req.get("marking_is_required_checked") is True
+    assert req.get("products_requiring_mandatory_mark") == ["111"]
+
+
+def test_refresh_skips_when_checked_stamp_present() -> None:
+    """After catalog stamp, modal resolve must not enqueue N×40 upserts."""
+    repo = MagicMock()
+    repo.get_product_requires_kiz_map.return_value = {"ART": True, "111": True}
+    stamped = oz.apply_catalog_marking_flags(
+        {
+            "posting_number": "A-1",
+            "products": [{"sku": 111, "offer_id": "ART", "quantity": 1}],
+        },
+        {"ART": True, "111": True},
+    )
+    row = {
+        "posting_number": "A-1",
+        "raw_json": __import__("json").dumps(stamped),
+        "products_json": "[]",
+    }
+    repo._connect.return_value.__enter__.return_value.execute.return_value.fetchall.return_value = [
+        row
+    ]
+    repo._row_to_dict.side_effect = lambda r: dict(r)
+    repo._sql.side_effect = lambda s: s
+
+    with patch(
+        "review_processor.ozon_fbs_supplies.oz.upsert_posting"
+    ) as upsert:
+        out = refresh_supply_marking_flags_from_ozon(
+            repo,
+            user_id=1,
+            source_id=2,
+            posting_numbers=["A-1"],
+            client_id="cid",
+            api_key="key",
+        )
+    assert out["remaining"] == 0
+    assert out["checked"] == 0
+    assert out["total_pending"] == 0
+    upsert.assert_not_called()
+
+
 def test_resolve_supply_kiz_flags_delegates_to_refresh() -> None:
     with (
         patch(
