@@ -58,17 +58,19 @@ def test_gtd_chz_js_product_name_from_catalog() -> None:
     assert "function _supplyGtdChzEnsureProductsCache" in APP_JS
     assert "function _supplyGtdChzRebuildProductNameIndex" in APP_JS
     assert "function _supplyGtdChzProductName" in APP_JS
-    assert "_wbFbsKizGtinToProductSkus" in APP_JS[
+    name_fn = APP_JS[
         APP_JS.find("function _supplyGtdChzProductName") : APP_JS.find(
             "function _supplyGtdChzLoadColWidths"
         )
     ]
+    assert "itOrGtin.product_name" in name_fn or "product_name" in name_fn
+    assert "_wbFbsKizGtinToProductSkus" in name_fn
     render = APP_JS[
         APP_JS.find("function _supplyGtdChzRenderTable") : APP_JS.find(
             "async function _supplyGtdChzFetch"
         )
     ]
-    assert "_supplyGtdChzProductName(it.gtin)" in render
+    assert "_supplyGtdChzProductName(it)" in render
     assert 'colspan="8"' in render
     open_fn = APP_JS[
         APP_JS.find("async function openSupplyGtdChzModal") : APP_JS.find(
@@ -85,9 +87,9 @@ def test_gtd_chz_search_covers_name_and_gtin() -> None:
         )
     ]
     assert "it.gtin" in visible
-    assert "_supplyGtdChzProductName(it.gtin)" in visible
+    assert "_supplyGtdChzProductName(it)" in visible
     assert "КИЗ, GTIN, название…" in _gtd_chz_block()
 
 
 def test_asset_version_bumped() -> None:
-    assert "app.js?v=575" in APP_HTML
+    assert "app.js?v=576" in APP_HTML

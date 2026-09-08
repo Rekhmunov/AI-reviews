@@ -14,6 +14,7 @@ def _repo_with_rows(fetch_map: dict[str, list] | None = None) -> MagicMock:
     repo = MagicMock()
     repo._sql = lambda s: s
     repo._row_to_dict = lambda r: dict(r) if isinstance(r, dict) else {}
+    repo.list_product_photos.return_value = []
 
     conn = MagicMock()
     cm = MagicMock()
@@ -376,6 +377,74 @@ class ListGtdKizPaginationTests(unittest.TestCase):
         self.assertIn("LIMIT ?", last_sql)
         self.assertIn("OFFSET ?", last_sql)
         self.assertEqual(conn.execute.call_args_list[-1].args[1][-2:], (1, 0))
+        self.assertEqual(out["items"][0].get("product_name"), "")
+
+    def test_list_enriches_product_name_from_catalog_ean13(self) -> None:
+        repo = _repo_with_rows()
+        repo.list_product_photos.return_value = [
+            {"name": "Подушка 50x70", "barcodes": ["4670172422564"]},
+        ]
+        conn = repo._connect.return_value.__enter__.return_value
+        conn.execute.return_value.fetchone.side_effect = [
+            {"n": 1},
+            {"n": 1},
+        ]
+        conn.execute.return_value.fetchall.side_effect = [
+            [{"kind": gtd_chz.KIND_EMPTY, "n": 1}],
+            [
+                {
+                    "kiz_id": 1,
+                    "kiz_short": "0104670172422564215MpGb)qC19x29",
+                    "gtin": "04670172422564",
+                    "cis_status": "",
+                    "cis_status_kind": gtd_chz.KIND_EMPTY,
+                    "cis_status_label": "",
+                    "cis_owner_inn": "",
+                    "cis_status_error": "",
+                    "cis_checked_at": "",
+                    "last_op": "",
+                    "last_doc_id": "",
+                    "last_doc_type": "",
+                    "last_op_status": "",
+                    "last_op_error": "",
+                }
+            ],
+        ]
+        gtd = {"id": 5, "gtd_number": "10323010/250826/5101277", "kiz_count": 1, "note": ""}
+        with patch.object(gtd_chz, "_require_gtd", return_value=gtd), patch.object(
+            gtd_chz, "ensure_supply_gtd_chz_tables"
+        ):
+            out = gtd_chz.list_gtd_kiz_for_chz(repo, user_id=1, gtd_id=5)
+        self.assertEqual(out["items"][0]["product_name"], "Подушка 50x70")
+        repo.list_product_photos.assert_called_once_with(user_id=1)
+
+
+class ProductNameLookupTests(unittest.TestCase):
+    def test_ean13_matches_gtin14(self) -> None:
+        idx = gtd_chz._build_product_name_by_gtin(
+            [{"name": "Товар А", "barcodes": ["4670172422564"]}]
+        )
+        self.assertEqual(
+            gtd_chz._resolve_product_name(idx, gtin="04670172422564"),
+            "Товар А",
+        )
+        self.assertEqual(
+            gtd_chz._resolve_product_name(idx, gtin="4670172422564"),
+            "Товар А",
+        )
+
+    def test_gtin_from_kiz_short_when_column_empty(self) -> None:
+        idx = gtd_chz._build_product_name_by_gtin(
+            [{"name": "Товар Б", "barcodes": ["04670172422564"]}]
+        )
+        self.assertEqual(
+            gtd_chz._resolve_product_name(
+                idx,
+                gtin="",
+                kiz_short="010467017242256421SERIALXX",
+            ),
+            "Товар Б",
+        )
 
 
 if __name__ == "__main__":

@@ -179,6 +179,79 @@ def _display_kind(
     return (label or status or "—", kind)
 
 
+def _gtin_lookup_keys(code: str) -> list[str]:
+    """Canonical GTIN / EAN keys for catalog matching (13 ↔ 14 with leading 0)."""
+    raw = str(code or "").strip()
+    if not raw:
+        return []
+    keys: list[str] = [raw]
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if digits and digits not in keys:
+        keys.append(digits)
+    if len(digits) == 14 and digits.startswith("0"):
+        ean13 = digits[1:]
+        if ean13 not in keys:
+            keys.append(ean13)
+    elif len(digits) == 13:
+        gtin14 = "0" + digits
+        if gtin14 not in keys:
+            keys.append(gtin14)
+    return keys
+
+
+def _gtin_from_kiz_short(kiz_short: str) -> str:
+    ks = str(kiz_short or "").strip()
+    if len(ks) >= 16 and ks[:2] == "01":
+        return ks[2:16]
+    return ""
+
+
+def _build_product_name_by_gtin(rows: list[Any]) -> dict[str, str]:
+    """Map GTIN/EAN keys → product name from Feedback → Settings → Products."""
+    out: dict[str, str] = {}
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        name = str(r.get("name") or r.get("product_name") or "").strip()
+        if not name:
+            continue
+        barcodes = r.get("barcodes") or []
+        if not isinstance(barcodes, list):
+            continue
+        for raw in barcodes:
+            for key in _gtin_lookup_keys(str(raw or "")):
+                if key and key not in out:
+                    out[key] = name
+    return out
+
+
+def _load_product_name_by_gtin(repo: ReviewRepository, *, user_id: int) -> dict[str, str]:
+    try:
+        rows = repo.list_product_photos(user_id=user_id) or []
+    except Exception:
+        _log.exception("GTD CHZ: failed to load product catalog for names")
+        return {}
+    if not isinstance(rows, list):
+        return {}
+    return _build_product_name_by_gtin(rows)
+
+
+def _resolve_product_name(
+    name_by_gtin: dict[str, str],
+    *,
+    gtin: str,
+    kiz_short: str = "",
+) -> str:
+    g = str(gtin or "").strip() or _gtin_from_kiz_short(kiz_short)
+    if not g or not name_by_gtin:
+        return ""
+    for key in _gtin_lookup_keys(g):
+        name = name_by_gtin.get(key) or ""
+        if name:
+            return name
+    return ""
+
+
 def list_gtd_kiz_for_chz(
     repo: ReviewRepository,
     *,
@@ -195,6 +268,7 @@ def list_gtd_kiz_for_chz(
     """
     ensure_supply_gtd_chz_tables(repo)
     gtd = _require_gtd(repo, user_id=user_id, gtd_id=gtd_id)
+    name_by_gtin = _load_product_name_by_gtin(repo, user_id=user_id)
     off = max(0, int(offset or 0))
     lim = max(1, min(int(limit or 2000), 20000))
     kind_filter = str(status_kind or "").strip()
@@ -283,11 +357,16 @@ def list_gtd_kiz_for_chz(
         label = str(d.get("cis_status_label") or "").strip() or (
             "Не проверен" if kind == KIND_EMPTY else ""
         )
+        kiz_short = str(d.get("kiz_short") or "")
+        gtin = str(d.get("gtin") or "").strip() or _gtin_from_kiz_short(kiz_short)
         items.append(
             {
                 "kiz_id": int(d.get("kiz_id") or 0),
-                "kiz_short": str(d.get("kiz_short") or ""),
-                "gtin": str(d.get("gtin") or ""),
+                "kiz_short": kiz_short,
+                "gtin": gtin,
+                "product_name": _resolve_product_name(
+                    name_by_gtin, gtin=gtin, kiz_short=kiz_short
+                ),
                 "cis_status": str(d.get("cis_status") or ""),
                 "cis_status_kind": kind,
                 "cis_status_label": label,

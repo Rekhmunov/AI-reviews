@@ -23214,7 +23214,7 @@ async function _supplyGtdChzEnsureProductsCache() {
 function _supplyGtdChzRebuildProductNameIndex() {
   const map = new Map();
   for (const item of _productsCache || []) {
-    const name = String(item?.name || "").trim();
+    const name = String(item?.name || item?.product_name || "").trim();
     if (!name) continue;
     const barcodes = Array.isArray(item.barcodes) ? item.barcodes : [];
     for (const raw of barcodes) {
@@ -23222,18 +23222,34 @@ function _supplyGtdChzRebuildProductNameIndex() {
       if (!text) continue;
       if (!map.has(text)) map.set(text, name);
       const digits = text.replace(/\D/g, "");
-      if (digits && !map.has(digits)) map.set(digits, name);
-      const stripped = digits.replace(/^0+/, "") || digits;
-      if (stripped && !map.has(stripped)) map.set(stripped, name);
+      if (!digits) continue;
+      if (!map.has(digits)) map.set(digits, name);
+      // GTIN-14 ↔ EAN-13 (leading zero), same as ЧЗ / catalog barcode checks.
+      if (digits.length === 14 && digits.startsWith("0") && !map.has(digits.slice(1))) {
+        map.set(digits.slice(1), name);
+      } else if (digits.length === 13 && !map.has(`0${digits}`)) {
+        map.set(`0${digits}`, name);
+      }
     }
   }
   _supplyGtdChzState.productNameByCode = map;
 }
 
-function _supplyGtdChzProductName(gtin) {
+/** Prefer server product_name; fall back to Feedback catalog cache by GTIN. */
+function _supplyGtdChzProductName(itOrGtin) {
+  if (itOrGtin && typeof itOrGtin === "object") {
+    const serverName = String(itOrGtin.product_name || "").trim();
+    if (serverName) return serverName;
+    const gtin = String(itOrGtin.gtin || "").trim()
+      || (String(itOrGtin.kiz_short || "").length >= 16
+        && String(itOrGtin.kiz_short).startsWith("01")
+        ? String(itOrGtin.kiz_short).slice(2, 16)
+        : "");
+    return _supplyGtdChzProductName(gtin);
+  }
   const map = _supplyGtdChzState.productNameByCode;
   if (!map || !map.size) return "";
-  const raw = String(gtin || "").trim();
+  const raw = String(itOrGtin || "").trim();
   if (!raw) return "";
   if (map.has(raw)) return map.get(raw) || "";
   const digits = raw.replace(/\D/g, "");
@@ -23245,8 +23261,10 @@ function _supplyGtdChzProductName(gtin) {
     if (map.has(code)) return map.get(code) || "";
   }
   if (map.has(digits)) return map.get(digits) || "";
-  const stripped = digits.replace(/^0+/, "") || digits;
-  if (map.has(stripped)) return map.get(stripped) || "";
+  if (digits.length === 13 && map.has(`0${digits}`)) return map.get(`0${digits}`) || "";
+  if (digits.length === 14 && digits.startsWith("0") && map.has(digits.slice(1))) {
+    return map.get(digits.slice(1)) || "";
+  }
   return "";
 }
 
@@ -23342,7 +23360,7 @@ function _supplyGtdChzVisibleItems() {
   return _supplyGtdChzState.items.filter((it) => {
     if (String(it.kiz_short || "").toLowerCase().includes(q)) return true;
     if (String(it.gtin || "").toLowerCase().includes(q)) return true;
-    const name = _supplyGtdChzProductName(it.gtin).toLowerCase();
+    const name = _supplyGtdChzProductName(it).toLowerCase();
     return name.includes(q);
   });
 }
@@ -23435,7 +23453,7 @@ function _supplyGtdChzRenderTable() {
     const kind = String(it.cis_status_kind || "unchecked");
     const label = String(it.cis_status_label || "Не проверен");
     const checked = _supplyGtdChzState.selected.has(ks) ? "checked" : "";
-    const productName = _supplyGtdChzProductName(it.gtin) || "—";
+    const productName = _supplyGtdChzProductName(it) || "—";
     const doc = it.last_doc_id
       ? `${_supplyGtdChzEsc(it.last_op_status || "—")} · ${_supplyGtdChzEsc(it.last_doc_id)}`
       : "—";
