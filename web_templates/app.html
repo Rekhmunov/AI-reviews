@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=321" />
+  <link rel="stylesheet" href="/static/style.css?v=322" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -4951,6 +4951,12 @@
               <h4 id="supplyGtdChzLogTitle" class="no-margin">Лог — Работа с ЧЗ</h4>
               <button type="button" class="icon-btn secondary" onclick="closeSupplyGtdChzLogModal()" aria-label="Закрыть">✕</button>
             </div>
+            <div id="supplyGtdChzLogProgress" class="supply-gtd-chz-log-progress hidden" aria-live="polite">
+              <div id="supplyGtdChzLogProgressText" class="supply-gtd-chz-log-progress-text">—</div>
+              <div class="supply-gtd-chz-log-progress-track" aria-hidden="true">
+                <div id="supplyGtdChzLogProgressBar" class="supply-gtd-chz-log-progress-bar" style="width:0%"></div>
+              </div>
+            </div>
             <pre id="supplyGtdChzLogBody" class="wb-fbs-kiz-circ-log-pre" style="max-height:min(60vh,480px);overflow:auto;margin:0;white-space:pre-wrap;font-size:13px;line-height:1.45"></pre>
             <div class="row" style="margin-top:16px;gap:8px;justify-content:flex-end">
               <button type="button" onclick="closeSupplyGtdChzLogModal()">Закрыть</button>
@@ -6847,6 +6853,6 @@
 
   <script src="/static/ozon_fbs.js?v=138"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=20"></script>
-  <script src="/static/app.js?v=566"></script>
+  <script src="/static/app.js?v=569"></script>
 </body>
 </html>

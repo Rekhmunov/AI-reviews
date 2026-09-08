@@ -11397,12 +11397,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=403, detail="Нет доступа")
         keys = [str(k).strip() for k in (payload.kiz_shorts or []) if str(k or "").strip()]
         try:
+            # Client sends explicit chunks → sync (fits nginx ~60s).
+            # Empty list = whole GTD → background thread + run polling.
             return gtd_chz.refresh_gtd_cis_statuses(
                 repository,
                 user_id=_supply_owner_id(user),
                 gtd_id=int(gtd_id),
                 token=str(payload.token or ""),
                 kiz_shorts=keys or None,
+                background=not bool(keys),
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

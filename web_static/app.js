@@ -23297,6 +23297,168 @@ function _supplyGtdChzEnsureLogOpen() {
   }
 }
 
+function _supplyGtdChzReplaceLog(text) {
+  _supplyGtdChzState.lastLog = String(text || "");
+  const body = document.getElementById("supplyGtdChzLogBody");
+  if (body) {
+    body.textContent = _supplyGtdChzState.lastLog || "";
+    body.scrollTop = body.scrollHeight;
+  }
+}
+
+/** Let the browser paint log/progress between long awaits (CryptoPro / fetch). */
+function _supplyGtdChzYieldUi() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => {
+      setTimeout(resolve, 0);
+    });
+  });
+}
+
+function _supplyGtdChzSetProgress({
+  visible = true,
+  text = "",
+  done = 0,
+  total = 0,
+  chunk = 0,
+  chunks = 0,
+} = {}) {
+  const wrap = document.getElementById("supplyGtdChzLogProgress");
+  const textEl = document.getElementById("supplyGtdChzLogProgressText");
+  const bar = document.getElementById("supplyGtdChzLogProgressBar");
+  if (!wrap || !textEl || !bar) return;
+  if (!visible) {
+    wrap.classList.add("hidden");
+    textEl.textContent = "—";
+    bar.style.width = "0%";
+    return;
+  }
+  wrap.classList.remove("hidden");
+  const tot = Math.max(0, Number(total) || 0);
+  const dn = Math.max(0, Math.min(tot || Number(done) || 0, Number(done) || 0));
+  const pct = tot > 0 ? Math.min(100, Math.round((dn / tot) * 100)) : 0;
+  const chunkPart =
+    chunks > 0 ? `Чанк ${chunk || 0}/${chunks}` : "";
+  const countPart =
+    tot > 0 ? `обработано ${dn.toLocaleString("ru-RU")} / ${tot.toLocaleString("ru-RU")} (${pct}%)` : "";
+  const parts = [chunkPart, countPart, text].filter(Boolean);
+  textEl.textContent = parts.join(" · ") || "Идёт выгрузка…";
+  bar.style.width = `${pct}%`;
+}
+
+/** Max КИЗ per cis-status request — keeps each call under nginx ~60s. */
+const SUPPLY_GTD_CHZ_STATUS_CHUNK = 200;
+
+async function _supplyGtdChzCollectAllShorts() {
+  const gid = _supplyGtdChzState.gtdId;
+  if (!gid) return [];
+  // Already have the full unfiltered table in memory.
+  if (
+    !_supplyGtdChzState.kindFilter
+    && !_supplyGtdChzState.hasMore
+    && _supplyGtdChzState.items.length
+  ) {
+    return _supplyGtdChzState.items
+      .map((it) => String(it.kiz_short || "").trim())
+      .filter(Boolean);
+  }
+  const out = [];
+  let offset = 0;
+  const limit = 20000;
+  for (let page = 0; page < 50; page++) {
+    const params = new URLSearchParams({
+      offset: String(offset),
+      limit: String(limit),
+    });
+    const res = await fetch(`/api/supply-gtd/${gid}/chz/kiz?${params}`, {
+      headers: jsonHeaders(),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(_supplyGtdChzApiError(res, data, "Не удалось собрать КИЗ ГТД"));
+    }
+    const batch = Array.isArray(data.items) ? data.items : [];
+    for (const it of batch) {
+      const ks = String(it.kiz_short || "").trim();
+      if (ks) out.push(ks);
+    }
+    if (!data.has_more || !batch.length) break;
+    offset += batch.length;
+  }
+  return out;
+}
+
+async function _supplyGtdChzWaitForRun(runId, { label = "Прогон", clientPrefix = "" } = {}) {
+  const gid = _supplyGtdChzState.gtdId;
+  const id = Number(runId) || 0;
+  if (!gid || !id) throw new Error(`${label}: нет run_id`);
+  _supplyGtdChzState.lastRunId = id;
+  const prefix = String(clientPrefix || _supplyGtdChzState.lastLog || "").trim();
+  let lastServerLog = "";
+  for (let i = 0; i < 1350; i++) {
+    await new Promise((r) => setTimeout(r, 2000));
+    const res = await fetch(`/api/supply-gtd/${gid}/chz/runs/${id}`, {
+      headers: jsonHeaders(),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(_supplyGtdChzApiError(res, data, `${label}: ошибка статуса`));
+    }
+    const run = data.run || {};
+    const serverLog = String(run.log_text || "");
+    if (serverLog && serverLog !== lastServerLog) {
+      _supplyGtdChzReplaceLog(prefix ? `${prefix}\n——\n${serverLog}` : serverLog);
+      lastServerLog = serverLog;
+    }
+    const st = String(run.status || "").trim();
+    if (st && st !== "running") {
+      return run;
+    }
+  }
+  throw new Error(`${label}: превышено время ожидания`);
+}
+
+async function _supplyGtdChzPostCisStatusChunk(token, kizShorts) {
+  const gid = _supplyGtdChzState.gtdId;
+  const res = await fetch(`/api/supply-gtd/${gid}/chz/cis-status`, {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify({
+      token: token,
+      kiz_shorts: kizShorts,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(_supplyGtdChzApiError(res, data, "Ошибка статусов"));
+  if (data.async && data.run_id) {
+    _supplyGtdChzState.lastRunId = Number(data.run_id || 0);
+    const run = await _supplyGtdChzWaitForRun(data.run_id, {
+      label: "Статусы ЧЗ",
+      clientPrefix: _supplyGtdChzState.lastLog || "",
+    });
+    if (String(run.status || "") === "error") {
+      throw new Error(
+        (run.log_text || "").split("\n").filter(Boolean).slice(-1)[0]
+          || "Ошибка выгрузки статусов",
+      );
+    }
+    return {
+      found: Number(run.ok_count || 0),
+      errors: Number(run.err_count || 0),
+      run_id: Number(run.id || data.run_id || 0),
+      log_text: String(run.log_text || ""),
+    };
+  }
+  // Skip dumping full server log_text per chunk — UI shows short client lines.
+  _supplyGtdChzState.lastRunId = Number(data.run_id || 0);
+  return {
+    found: Number(data.found || 0),
+    errors: Number(data.errors || 0),
+    run_id: Number(data.run_id || 0),
+    log_text: String(data.log_text || ""),
+  };
+}
+
 async function runSupplyGtdChzCisStatus() {
   const gid = _supplyGtdChzState.gtdId;
   if (!gid || _supplyGtdChzState.busy) return;
@@ -23305,45 +23467,117 @@ async function runSupplyGtdChzCisStatus() {
   _supplyGtdChzState.busy = true;
   if (btn) btn.disabled = true;
   _supplyGtdChzEnsureLogOpen();
+  _supplyGtdChzSetProgress({ visible: true, text: "Подготовка…", done: 0, total: 0 });
+  await _supplyGtdChzYieldUi();
   try {
     _supplyGtdChzAppendLog(
       selected.length
         ? `Статусы ЧЗ: выбранных ${selected.length}`
-        : "Статусы ЧЗ: все КИЗ ГТД",
+        : "Статусы ЧЗ: все КИЗ ГТД (чанками)",
     );
     _supplyGtdChzAppendLog(
       "ЧЗ: авторизация УКЭП… (окно CryptoPro / выбор сертификата — не сворачивайте браузер)",
     );
+    await _supplyGtdChzYieldUi();
     const auth = await _chzObtainToken("");
     if (!auth?.token) throw new Error("Токен ЧЗ не получен после подписи УКЭП");
+
+    let codes = selected;
+    if (!codes.length) {
+      _supplyGtdChzAppendLog("Собираю список КИЗ ГТД…");
+      _supplyGtdChzSetProgress({ visible: true, text: "Сбор списка КИЗ…" });
+      await _supplyGtdChzYieldUi();
+      codes = await _supplyGtdChzCollectAllShorts();
+    }
+    if (!codes.length) throw new Error("Нет КИЗ для проверки");
+
+    const chunkSize = SUPPLY_GTD_CHZ_STATUS_CHUNK;
+    const totalChunks = Math.max(1, Math.ceil(codes.length / chunkSize));
     _supplyGtdChzAppendLog(
-      selected.length
-        ? `Токен получен. Запрос статусов в True API (${selected.length} КИЗ)…`
-        : "Токен получен. Запрос статусов в True API по всем КИЗ ГТД (может занять несколько минут)…",
+      `Токен получен. Выгрузка ${codes.length.toLocaleString("ru-RU")} КИЗ `
+        + `чанками по ${chunkSize} (${totalChunks} запрос.)…`,
     );
-    const res = await fetch(`/api/supply-gtd/${gid}/chz/cis-status`, {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify({
-        token: auth.token,
-        kiz_shorts: selected,
-      }),
+    _supplyGtdChzSetProgress({
+      visible: true,
+      done: 0,
+      total: codes.length,
+      chunk: 0,
+      chunks: totalChunks,
+      text: "старт",
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(_supplyGtdChzApiError(res, data, "Ошибка статусов"));
-    if (data.log_text) _supplyGtdChzAppendLog(data.log_text);
-    _supplyGtdChzState.lastRunId = Number(data.run_id || 0);
+    await _supplyGtdChzYieldUi();
+
+    let found = 0;
+    let errors = 0;
+    let processed = 0;
+    for (let i = 0; i < codes.length; i += chunkSize) {
+      const part = codes.slice(i, i + chunkSize);
+      const n = Math.floor(i / chunkSize) + 1;
+      _supplyGtdChzSetProgress({
+        visible: true,
+        done: processed,
+        total: codes.length,
+        chunk: n,
+        chunks: totalChunks,
+        text: `запрос ${part.length} КИЗ…`,
+      });
+      _supplyGtdChzAppendLog(
+        `Чанк ${n}/${totalChunks}: запрос ${part.length} КИЗ `
+          + `(${processed.toLocaleString("ru-RU")} / ${codes.length.toLocaleString("ru-RU")})…`,
+      );
+      await _supplyGtdChzYieldUi();
+      const partOut = await _supplyGtdChzPostCisStatusChunk(auth.token, part);
+      found += Number(partOut.found || 0);
+      errors += Number(partOut.errors || 0);
+      processed += part.length;
+      _supplyGtdChzSetProgress({
+        visible: true,
+        done: processed,
+        total: codes.length,
+        chunk: n,
+        chunks: totalChunks,
+        text: `найдено ${found}, ошибок ${errors}`,
+      });
+      _supplyGtdChzAppendLog(
+        `Чанк ${n}/${totalChunks}: готово · найдено +${partOut.found || 0}, `
+          + `ошибок +${partOut.errors || 0} · итого найдено ${found}, ошибок ${errors} · `
+          + `обработано ${processed.toLocaleString("ru-RU")} / ${codes.length.toLocaleString("ru-RU")}`,
+      );
+      await _supplyGtdChzYieldUi();
+    }
+    _supplyGtdChzSetProgress({
+      visible: true,
+      done: codes.length,
+      total: codes.length,
+      chunk: totalChunks,
+      chunks: totalChunks,
+      text: "готово",
+    });
     _supplyGtdChzAppendLog(
-      `Готово: найдено ${data.found || 0}, ошибок ${data.errors || 0}`,
+      `Готово: найдено ${found}, ошибок ${errors} `
+        + `(всего ${codes.length.toLocaleString("ru-RU")} КИЗ)`,
     );
-    await _supplyGtdChzFetch(true);
   } catch (err) {
-    _supplyGtdChzAppendLog(`Ошибка: ${err?.message || err}`);
-    alert(err?.message || String(err));
+    const msg = String(err?.message || err || "");
+    const timedOut =
+      /failed to fetch|networkerror|gateway time|504|proxy|timeout|timed out/i.test(msg)
+      || err?.name === "TypeError";
+    const shown = timedOut
+      ? "Сеть/прокси оборвали запрос. Повторите выгрузку — статусы идут чанками по 200 КИЗ."
+      : msg;
+    _supplyGtdChzAppendLog(`Ошибка: ${shown}`);
+    _supplyGtdChzSetProgress({ visible: true, text: `Ошибка: ${shown}` });
+    alert(shown);
   } finally {
     _supplyGtdChzState.busy = false;
     if (btn) btn.disabled = false;
     _supplyGtdChzUpdateActionButtons();
+  }
+  // Refresh after clearing busy — _supplyGtdChzFetch no-ops while busy.
+  try {
+    if (_supplyGtdChzState.gtdId === gid) await _supplyGtdChzFetch(true);
+  } catch (err) {
+    _supplyGtdChzAppendLog(`Обновление таблицы: ${err?.message || err}`);
   }
 }
 

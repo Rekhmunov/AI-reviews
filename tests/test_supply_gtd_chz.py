@@ -232,6 +232,61 @@ class RefreshStatusesTests(unittest.TestCase):
         kwargs = upsert.call_args.kwargs
         self.assertEqual(kwargs["cis_status"], "INTRODUCED")
 
+    def test_refresh_background_returns_immediately(self) -> None:
+        repo = _repo_with_rows()
+        kiz = "0104670172422564215MpGb)qC19x29"
+        client = MagicMock()
+        client.cises_info.return_value = [
+            {
+                "cisInfo": {
+                    "requestedCis": kiz,
+                    "cis": kiz,
+                    "status": "INTRODUCED",
+                    "ownerInn": "7707083893",
+                }
+            }
+        ]
+        settings = {
+            "is_enabled": True,
+            "participant_inn": "7707083893",
+            "product_group": "lp",
+            "api_base_url": "https://example.test",
+        }
+        with patch.object(
+            gtd_chz, "_require_gtd", return_value={"id": 1, "gtd_number": "1/2/3"}
+        ), patch.object(
+            gtd_chz, "_chz_settings_ready", return_value=settings
+        ), patch.object(
+            gtd_chz, "_load_gtd_kiz_codes", return_value=[kiz]
+        ), patch.object(
+            gtd_chz.kiz_circ, "chz_client_from_settings", return_value=client
+        ), patch.object(
+            gtd_chz, "_start_run", return_value=42
+        ), patch.object(
+            gtd_chz, "_update_run_progress"
+        ), patch.object(
+            gtd_chz, "_finish_run"
+        ), patch.object(
+            gtd_chz, "_upsert_cis_state"
+        ), patch.object(
+            gtd_chz.threading, "Thread"
+        ) as thr:
+            thr.return_value = MagicMock()
+            out = gtd_chz.refresh_gtd_cis_statuses(
+                repo,
+                user_id=1,
+                gtd_id=1,
+                token="tok",
+                kiz_shorts=[kiz],
+                background=True,
+            )
+        self.assertTrue(out["ok"])
+        self.assertTrue(out["async"])
+        self.assertEqual(out["run_id"], 42)
+        self.assertEqual(out["requested"], 1)
+        thr.assert_called_once()
+        thr.return_value.start.assert_called_once()
+
 
 
 class ResubmitGuardTests(unittest.TestCase):

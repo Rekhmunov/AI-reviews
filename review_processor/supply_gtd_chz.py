@@ -12,6 +12,7 @@ import base64
 import json
 import logging
 import re
+import threading
 from datetime import datetime, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -372,6 +373,33 @@ def _finish_run(
         )
 
 
+def _update_run_progress(
+    repo: ReviewRepository,
+    *,
+    run_id: int,
+    log_text: str,
+    ok_count: int = 0,
+    err_count: int = 0,
+) -> None:
+    """Persist mid-run log so the UI can poll progress without waiting for finish."""
+    with repo._connect() as conn:
+        conn.execute(
+            repo._sql(
+                """
+                UPDATE supply_gtd_chz_runs
+                SET ok_count = ?, err_count = ?, log_text = ?
+                WHERE id = ? AND status = 'running'
+                """
+            ),
+            (
+                int(ok_count),
+                int(err_count),
+                str(log_text or "")[:50000],
+                int(run_id),
+            ),
+        )
+
+
 def get_run(
     repo: ReviewRepository, *, user_id: int, run_id: int
 ) -> dict[str, Any] | None:
@@ -566,41 +594,30 @@ def _mark_op_state(
             )
 
 
-def refresh_gtd_cis_statuses(
+def _run_cis_status_chunks(
     repo: ReviewRepository,
     *,
     user_id: int,
     gtd_id: int,
-    token: str,
-    kiz_shorts: list[str] | None = None,
+    run_id: int,
+    codes: list[str],
+    client: ChzTrueApiClient,
+    product_group: str,
+    participant_inn: str,
+    log: list[str],
 ) -> dict[str, Any]:
-    ensure_supply_gtd_chz_tables(repo)
-    _require_gtd(repo, user_id=user_id, gtd_id=gtd_id)
-    settings = _chz_settings_ready(repo, user_id=user_id)
-    codes = _load_gtd_kiz_codes(
-        repo, user_id=user_id, gtd_id=gtd_id, kiz_shorts=kiz_shorts
-    )
-    if not codes:
-        raise ValueError("Нет КИЗ для проверки")
-    token_s = str(token or "").strip()
-    if not token_s:
-        raise ValueError("Нужен токен ЧЗ (подпишите УКЭП)")
-
-    client = kiz_circ.chz_client_from_settings(settings)
-    client.set_token(token_s)
-    pg = str(settings.get("product_group") or "").strip()
-    inn = str(settings.get("participant_inn") or "").strip()
-
-    run_id = _start_run(
-        repo, user_id=user_id, gtd_id=gtd_id, op="cis_status", requested=len(codes)
-    )
-    log: list[str] = []
-    _append_log(log, f"Выгрузка статусов ЧЗ: кодов {len(codes)}")
-
+    """Execute True API cises/info chunks; always finishes the run row."""
+    pg = str(product_group or "").strip()
+    inn = str(participant_inn or "").strip()
+    total_chunks = max(1, (len(codes) + CIS_CHUNK - 1) // CIS_CHUNK)
     updated = found = missing = errors = 0
     try:
+        _update_run_progress(
+            repo, run_id=run_id, log_text="\n".join(log), ok_count=0, err_count=0
+        )
         for i in range(0, len(codes), CIS_CHUNK):
             part = codes[i : i + CIS_CHUNK]
+            chunk_no = i // CIS_CHUNK + 1
             try:
                 rows_api = client.cises_info(part, product_group=pg)
                 parsed = [
@@ -635,6 +652,13 @@ def refresh_gtd_cis_statuses(
                         participant_inn=inn,
                     )
                     updated += 1
+                _update_run_progress(
+                    repo,
+                    run_id=run_id,
+                    log_text="\n".join(log),
+                    ok_count=found,
+                    err_count=errors + missing,
+                )
                 continue
 
             by_key: dict[str, dict[str, str]] = {}
@@ -687,7 +711,18 @@ def refresh_gtd_cis_statuses(
                     participant_inn=inn,
                 )
                 updated += 1
-            _append_log(log, f"Чанк {i // CIS_CHUNK + 1}: {len(part)} код.")
+            _append_log(
+                log,
+                f"Чанк {chunk_no}/{total_chunks}: {len(part)} код. "
+                f"(найдено {found}, ошибок {errors + missing})",
+            )
+            _update_run_progress(
+                repo,
+                run_id=run_id,
+                log_text="\n".join(log),
+                ok_count=found,
+                err_count=errors + missing,
+            )
 
         _append_log(
             log,
@@ -722,7 +757,112 @@ def refresh_gtd_cis_statuses(
         "missing": missing,
         "errors": errors,
         "log_text": "\n".join(log),
+        "async": False,
     }
+
+
+def refresh_gtd_cis_statuses(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    gtd_id: int,
+    token: str,
+    kiz_shorts: list[str] | None = None,
+    background: bool = False,
+) -> dict[str, Any]:
+    """Refresh CIS statuses from True API.
+
+    Large GTDs exceed nginx's default ~60s proxy timeout when run inline.
+    Pass ``background=True`` to return immediately with ``async`` + ``run_id``;
+    the UI polls ``/chz/runs/{id}`` while chunks run in a daemon thread.
+    """
+    ensure_supply_gtd_chz_tables(repo)
+    _require_gtd(repo, user_id=user_id, gtd_id=gtd_id)
+    settings = _chz_settings_ready(repo, user_id=user_id)
+    codes = _load_gtd_kiz_codes(
+        repo, user_id=user_id, gtd_id=gtd_id, kiz_shorts=kiz_shorts
+    )
+    if not codes:
+        raise ValueError("Нет КИЗ для проверки")
+    token_s = str(token or "").strip()
+    if not token_s:
+        raise ValueError("Нужен токен ЧЗ (подпишите УКЭП)")
+
+    client = kiz_circ.chz_client_from_settings(settings)
+    client.set_token(token_s)
+    pg = str(settings.get("product_group") or "").strip()
+    inn = str(settings.get("participant_inn") or "").strip()
+
+    run_id = _start_run(
+        repo, user_id=user_id, gtd_id=gtd_id, op="cis_status", requested=len(codes)
+    )
+    log: list[str] = []
+    _append_log(log, f"Выгрузка статусов ЧЗ: кодов {len(codes)}")
+    _log.info(
+        "supply-gtd cis-status start gtd_id=%s run_id=%s codes=%s background=%s",
+        gtd_id,
+        run_id,
+        len(codes),
+        background,
+    )
+
+    if background:
+        _append_log(
+            log,
+            "Запущено в фоне — не закрывайте вкладку; прогресс появится ниже",
+        )
+        _update_run_progress(
+            repo, run_id=run_id, log_text="\n".join(log), ok_count=0, err_count=0
+        )
+
+        def _worker() -> None:
+            try:
+                _run_cis_status_chunks(
+                    repo,
+                    user_id=user_id,
+                    gtd_id=gtd_id,
+                    run_id=run_id,
+                    codes=codes,
+                    client=client,
+                    product_group=pg,
+                    participant_inn=inn,
+                    log=list(log),
+                )
+            except Exception:
+                _log.exception(
+                    "supply-gtd cis-status background failed gtd_id=%s run_id=%s",
+                    gtd_id,
+                    run_id,
+                )
+
+        threading.Thread(
+            target=_worker,
+            name=f"gtd-cis-status-{gtd_id}-{run_id}",
+            daemon=True,
+        ).start()
+        return {
+            "ok": True,
+            "async": True,
+            "run_id": run_id,
+            "requested": len(codes),
+            "updated": 0,
+            "found": 0,
+            "missing": 0,
+            "errors": 0,
+            "log_text": "\n".join(log),
+        }
+
+    return _run_cis_status_chunks(
+        repo,
+        user_id=user_id,
+        gtd_id=gtd_id,
+        run_id=run_id,
+        codes=codes,
+        client=client,
+        product_group=pg,
+        participant_inn=inn,
+        log=log,
+    )
 
 
 def _states_by_kiz(
