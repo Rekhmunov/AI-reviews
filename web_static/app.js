@@ -23306,6 +23306,48 @@ function _supplyGtdChzReplaceLog(text) {
   }
 }
 
+/** Max КИЗ per cis-status request — keeps each call under nginx ~60s. */
+const SUPPLY_GTD_CHZ_STATUS_CHUNK = 200;
+
+async function _supplyGtdChzCollectAllShorts() {
+  const gid = _supplyGtdChzState.gtdId;
+  if (!gid) return [];
+  // Already have the full unfiltered table in memory.
+  if (
+    !_supplyGtdChzState.kindFilter
+    && !_supplyGtdChzState.hasMore
+    && _supplyGtdChzState.items.length
+  ) {
+    return _supplyGtdChzState.items
+      .map((it) => String(it.kiz_short || "").trim())
+      .filter(Boolean);
+  }
+  const out = [];
+  let offset = 0;
+  const limit = 20000;
+  for (let page = 0; page < 50; page++) {
+    const params = new URLSearchParams({
+      offset: String(offset),
+      limit: String(limit),
+    });
+    const res = await fetch(`/api/supply-gtd/${gid}/chz/kiz?${params}`, {
+      headers: jsonHeaders(),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(_supplyGtdChzApiError(res, data, "Не удалось собрать КИЗ ГТД"));
+    }
+    const batch = Array.isArray(data.items) ? data.items : [];
+    for (const it of batch) {
+      const ks = String(it.kiz_short || "").trim();
+      if (ks) out.push(ks);
+    }
+    if (!data.has_more || !batch.length) break;
+    offset += batch.length;
+  }
+  return out;
+}
+
 async function _supplyGtdChzWaitForRun(runId, { label = "Прогон", clientPrefix = "" } = {}) {
   const gid = _supplyGtdChzState.gtdId;
   const id = Number(runId) || 0;
@@ -23313,7 +23355,6 @@ async function _supplyGtdChzWaitForRun(runId, { label = "Прогон", clientPr
   _supplyGtdChzState.lastRunId = id;
   const prefix = String(clientPrefix || _supplyGtdChzState.lastLog || "").trim();
   let lastServerLog = "";
-  // ~45 min @ 2s — large GTDs (10k+ КИЗ) need many True API chunks.
   for (let i = 0; i < 1350; i++) {
     await new Promise((r) => setTimeout(r, 2000));
     const res = await fetch(`/api/supply-gtd/${gid}/chz/runs/${id}`, {
@@ -23337,6 +23378,47 @@ async function _supplyGtdChzWaitForRun(runId, { label = "Прогон", clientPr
   throw new Error(`${label}: превышено время ожидания`);
 }
 
+async function _supplyGtdChzPostCisStatusChunk(token, kizShorts) {
+  const gid = _supplyGtdChzState.gtdId;
+  const res = await fetch(`/api/supply-gtd/${gid}/chz/cis-status`, {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify({
+      token: token,
+      kiz_shorts: kizShorts,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(_supplyGtdChzApiError(res, data, "Ошибка статусов"));
+  if (data.async && data.run_id) {
+    _supplyGtdChzState.lastRunId = Number(data.run_id || 0);
+    const run = await _supplyGtdChzWaitForRun(data.run_id, {
+      label: "Статусы ЧЗ",
+      clientPrefix: _supplyGtdChzState.lastLog || "",
+    });
+    if (String(run.status || "") === "error") {
+      throw new Error(
+        (run.log_text || "").split("\n").filter(Boolean).slice(-1)[0]
+          || "Ошибка выгрузки статусов",
+      );
+    }
+    return {
+      found: Number(run.ok_count || 0),
+      errors: Number(run.err_count || 0),
+      run_id: Number(run.id || data.run_id || 0),
+      log_text: String(run.log_text || ""),
+    };
+  }
+  if (data.log_text) _supplyGtdChzAppendLog(data.log_text);
+  _supplyGtdChzState.lastRunId = Number(data.run_id || 0);
+  return {
+    found: Number(data.found || 0),
+    errors: Number(data.errors || 0),
+    run_id: Number(data.run_id || 0),
+    log_text: String(data.log_text || ""),
+  };
+}
+
 async function runSupplyGtdChzCisStatus() {
   const gid = _supplyGtdChzState.gtdId;
   if (!gid || _supplyGtdChzState.busy) return;
@@ -23349,59 +23431,49 @@ async function runSupplyGtdChzCisStatus() {
     _supplyGtdChzAppendLog(
       selected.length
         ? `Статусы ЧЗ: выбранных ${selected.length}`
-        : "Статусы ЧЗ: все КИЗ ГТД",
+        : "Статусы ЧЗ: все КИЗ ГТД (чанками)",
     );
     _supplyGtdChzAppendLog(
       "ЧЗ: авторизация УКЭП… (окно CryptoPro / выбор сертификата — не сворачивайте браузер)",
     );
     const auth = await _chzObtainToken("");
     if (!auth?.token) throw new Error("Токен ЧЗ не получен после подписи УКЭП");
+
+    let codes = selected;
+    if (!codes.length) {
+      _supplyGtdChzAppendLog("Собираю список КИЗ ГТД…");
+      codes = await _supplyGtdChzCollectAllShorts();
+    }
+    if (!codes.length) throw new Error("Нет КИЗ для проверки");
+
+    const chunkSize = SUPPLY_GTD_CHZ_STATUS_CHUNK;
+    const totalChunks = Math.max(1, Math.ceil(codes.length / chunkSize));
     _supplyGtdChzAppendLog(
-      selected.length
-        ? `Токен получен. Запрос статусов в True API (${selected.length} КИЗ)…`
-        : "Токен получен. Запрос статусов в True API по всем КИЗ ГТД (фоном, с прогрессом)…",
+      `Токен получен. Выгрузка ${codes.length} КИЗ чанками по ${chunkSize} (${totalChunks} запрос.)…`,
     );
-    const res = await fetch(`/api/supply-gtd/${gid}/chz/cis-status`, {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify({
-        token: auth.token,
-        kiz_shorts: selected,
-      }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(_supplyGtdChzApiError(res, data, "Ошибка статусов"));
-    if (data.log_text) _supplyGtdChzAppendLog(data.log_text);
-    _supplyGtdChzState.lastRunId = Number(data.run_id || 0);
-    let found = Number(data.found || 0);
-    let errors = Number(data.errors || 0);
-    if (data.async && _supplyGtdChzState.lastRunId) {
+
+    let found = 0;
+    let errors = 0;
+    for (let i = 0; i < codes.length; i += chunkSize) {
+      const part = codes.slice(i, i + chunkSize);
+      const n = Math.floor(i / chunkSize) + 1;
+      _supplyGtdChzAppendLog(`Чанк ${n}/${totalChunks}: запрос ${part.length} КИЗ…`);
+      const partOut = await _supplyGtdChzPostCisStatusChunk(auth.token, part);
+      found += Number(partOut.found || 0);
+      errors += Number(partOut.errors || 0);
       _supplyGtdChzAppendLog(
-        `Фоновая выгрузка #${_supplyGtdChzState.lastRunId} (кодов ${data.requested || "?"}): ждём прогресс…`,
+        `Чанк ${n}/${totalChunks}: найдено +${partOut.found || 0}, ошибок +${partOut.errors || 0} `
+          + `(итого найдено ${found}, ошибок ${errors})`,
       );
-      const clientPrefix = _supplyGtdChzState.lastLog || "";
-      const run = await _supplyGtdChzWaitForRun(_supplyGtdChzState.lastRunId, {
-        label: "Статусы ЧЗ",
-        clientPrefix,
-      });
-      found = Number(run.ok_count || 0);
-      errors = Number(run.err_count || 0);
-      if (String(run.status || "") === "error") {
-        throw new Error(
-          (run.log_text || "").split("\n").filter(Boolean).slice(-1)[0]
-            || "Ошибка выгрузки статусов",
-        );
-      }
     }
     _supplyGtdChzAppendLog(`Готово: найдено ${found}, ошибок ${errors}`);
-    await _supplyGtdChzFetch(true);
   } catch (err) {
     const msg = String(err?.message || err || "");
     const timedOut =
       /failed to fetch|networkerror|gateway time|504|proxy|timeout|timed out/i.test(msg)
       || err?.name === "TypeError";
     const shown = timedOut
-      ? "Таймаут прокси/сети при выгрузке статусов. Обновите страницу и повторите — для больших ГТД нужна фоновая выгрузка (после деплоя)."
+      ? "Сеть/прокси оборвали запрос. Повторите выгрузку — статусы идут чанками по 200 КИЗ."
       : msg;
     _supplyGtdChzAppendLog(`Ошибка: ${shown}`);
     alert(shown);
@@ -23409,6 +23481,12 @@ async function runSupplyGtdChzCisStatus() {
     _supplyGtdChzState.busy = false;
     if (btn) btn.disabled = false;
     _supplyGtdChzUpdateActionButtons();
+  }
+  // Refresh after clearing busy — _supplyGtdChzFetch no-ops while busy.
+  try {
+    if (_supplyGtdChzState.gtdId === gid) await _supplyGtdChzFetch(true);
+  } catch (err) {
+    _supplyGtdChzAppendLog(`Обновление таблицы: ${err?.message || err}`);
   }
 }
 
