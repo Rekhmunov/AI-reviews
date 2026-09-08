@@ -544,6 +544,32 @@ class UpsertSupplyChzSettingsRequest(BaseModel):
     wb_analytics_api_key: str | None = None
 
 
+class SupplyGtdChzCisStatusRequest(BaseModel):
+    token: str = ""
+    kiz_shorts: list[str] = Field(default_factory=list)
+
+
+class SupplyGtdChzPrepareRequest(BaseModel):
+    op: str = ""  # withdraw | return
+    kiz_shorts: list[str] = Field(default_factory=list)
+
+
+class SupplyGtdChzSubmitDocument(BaseModel):
+    doc_type: str = ""
+    product_group: str = ""
+    title: str = ""
+    kiz_shorts: list[str] = Field(default_factory=list)
+    product_document_b64: str = ""
+    sign_payload_b64: str = ""
+    signature_base64: str = ""
+
+
+class SupplyGtdChzSubmitRequest(BaseModel):
+    token: str = ""
+    op: str = ""
+    documents: list[SupplyGtdChzSubmitDocument] = Field(default_factory=list)
+
+
 class ProductCategoryItemRequest(BaseModel):
     id: int | None = None
     name: str = ""
@@ -11332,6 +11358,143 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # ── Настройки → ГТД → Работа с ЧЗ ──────────────────────────────────────
+
+    @app.get("/api/supply-gtd/{gtd_id}/chz/kiz")
+    def list_supply_gtd_chz_kiz(
+        request: Request,
+        gtd_id: int,
+        offset: int = 0,
+        limit: int = 2000,
+        status_kind: str | None = None,
+    ) -> dict[str, object]:
+        from . import supply_gtd_chz as gtd_chz
+
+        user = _require_user(request)
+        if not _can_view_supply_gtd(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        try:
+            return gtd_chz.list_gtd_kiz_for_chz(
+                repository,
+                user_id=_supply_owner_id(user),
+                gtd_id=int(gtd_id),
+                offset=int(offset or 0),
+                limit=int(limit or 2000),
+                status_kind=str(status_kind or ""),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/supply-gtd/{gtd_id}/chz/cis-status")
+    def supply_gtd_chz_cis_status(
+        request: Request, gtd_id: int, payload: SupplyGtdChzCisStatusRequest
+    ) -> dict[str, object]:
+        from . import supply_gtd_chz as gtd_chz
+
+        user = _require_user(request)
+        if not _can_view_supply_gtd(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        keys = [str(k).strip() for k in (payload.kiz_shorts or []) if str(k or "").strip()]
+        try:
+            return gtd_chz.refresh_gtd_cis_statuses(
+                repository,
+                user_id=_supply_owner_id(user),
+                gtd_id=int(gtd_id),
+                token=str(payload.token or ""),
+                kiz_shorts=keys or None,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/supply-gtd/{gtd_id}/chz/prepare")
+    def supply_gtd_chz_prepare(
+        request: Request, gtd_id: int, payload: SupplyGtdChzPrepareRequest
+    ) -> dict[str, object]:
+        from . import supply_gtd_chz as gtd_chz
+
+        user = _require_user(request)
+        if not _can_view_supply_gtd(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        keys = [str(k).strip() for k in (payload.kiz_shorts or []) if str(k or "").strip()]
+        try:
+            return gtd_chz.prepare_gtd_chz_documents(
+                repository,
+                user_id=_supply_owner_id(user),
+                gtd_id=int(gtd_id),
+                op=str(payload.op or ""),
+                kiz_shorts=keys,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/supply-gtd/{gtd_id}/chz/submit")
+    def supply_gtd_chz_submit(
+        request: Request, gtd_id: int, payload: SupplyGtdChzSubmitRequest
+    ) -> dict[str, object]:
+        from . import supply_gtd_chz as gtd_chz
+
+        user = _require_user(request)
+        if not _can_view_supply_gtd(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        docs = []
+        for d in payload.documents or []:
+            docs.append(
+                {
+                    "doc_type": d.doc_type,
+                    "product_group": d.product_group,
+                    "title": d.title,
+                    "kiz_shorts": list(d.kiz_shorts or []),
+                    "product_document_b64": d.product_document_b64 or d.sign_payload_b64,
+                    "sign_payload_b64": d.sign_payload_b64 or d.product_document_b64,
+                    "signature_base64": d.signature_base64,
+                }
+            )
+        try:
+            return gtd_chz.submit_gtd_chz_documents(
+                repository,
+                user_id=_supply_owner_id(user),
+                gtd_id=int(gtd_id),
+                token=str(payload.token or ""),
+                op=str(payload.op or ""),
+                documents=docs,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/supply-gtd/{gtd_id}/chz/runs/latest")
+    def supply_gtd_chz_latest_run(request: Request, gtd_id: int) -> dict[str, object]:
+        from . import supply_gtd_chz as gtd_chz
+
+        user = _require_user(request)
+        if not _can_view_supply_gtd(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        run = gtd_chz.latest_run_for_gtd(
+            repository,
+            user_id=_supply_owner_id(user),
+            gtd_id=int(gtd_id),
+        )
+        return {"ok": True, "run": run}
+
+    @app.get("/api/supply-gtd/{gtd_id}/chz/runs/{run_id}")
+    def supply_gtd_chz_run(request: Request, gtd_id: int, run_id: int) -> dict[str, object]:
+        from . import supply_gtd_chz as gtd_chz
+
+        user = _require_user(request)
+        if not _can_view_supply_gtd(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        run = gtd_chz.get_run(
+            repository,
+            user_id=_supply_owner_id(user),
+            run_id=int(run_id),
+        )
+        if not run or int(run.get("gtd_id") or 0) != int(gtd_id):
+            raise HTTPException(status_code=404, detail="Прогон не найден")
+        return {"ok": True, "run": run}
 
     # ── WB FBS → Честный знак: вывод / возврат КИЗ (new block) ─────────────
 
