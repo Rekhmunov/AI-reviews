@@ -7794,6 +7794,7 @@ tr.dnd-over td {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-height: min(70vh, 560px);
 }
 .ozon-fbs-container-approve-body {
   padding: 20px 24px 0;
