@@ -1432,6 +1432,7 @@ class RestoreScanModeExpansionTests(unittest.TestCase):
         self.assertEqual(item["product_name"], "Товар каталога")
         self.assertEqual(item.get("kiz_code") or "", "")
         self.assertIn("4601234567890", item.get("catalog_barcodes") or [])
+        self.assertFalse(item.get("details"))
 
     @patch("review_processor.wb_fbs_returns.kiz_restore.find_orders_by_sticker_scan")
     @patch("review_processor.wb_fbs_returns.find_goods_return_by_scan", return_value=None)
