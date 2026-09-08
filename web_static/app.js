@@ -23275,6 +23275,21 @@ function _supplyGtdChzAppendLog(msg) {
   _supplyGtdChzState.lastLog = _supplyGtdChzState.lastLog
     ? `${_supplyGtdChzState.lastLog}\n${line}`
     : line;
+  const body = document.getElementById("supplyGtdChzLogBody");
+  if (body) {
+    body.textContent = _supplyGtdChzState.lastLog || "";
+    body.scrollTop = body.scrollHeight;
+  }
+}
+
+function _supplyGtdChzEnsureLogOpen() {
+  const modal = document.getElementById("supplyGtdChzLogModal");
+  if (modal) modal.classList.remove("hidden");
+  const body = document.getElementById("supplyGtdChzLogBody");
+  if (body) {
+    body.textContent = _supplyGtdChzState.lastLog || "";
+    body.scrollTop = body.scrollHeight;
+  }
 }
 
 async function runSupplyGtdChzCisStatus() {
@@ -23284,13 +23299,23 @@ async function runSupplyGtdChzCisStatus() {
   const btn = document.getElementById("supplyGtdChzStatusBtn");
   _supplyGtdChzState.busy = true;
   if (btn) btn.disabled = true;
+  _supplyGtdChzEnsureLogOpen();
   try {
     _supplyGtdChzAppendLog(
       selected.length
         ? `Статусы ЧЗ: выбранных ${selected.length}`
         : "Статусы ЧЗ: все КИЗ ГТД",
     );
+    _supplyGtdChzAppendLog(
+      "ЧЗ: авторизация УКЭП… (окно CryptoPro / выбор сертификата — не сворачивайте браузер)",
+    );
     const auth = await _chzObtainToken("");
+    if (!auth?.token) throw new Error("Токен ЧЗ не получен после подписи УКЭП");
+    _supplyGtdChzAppendLog(
+      selected.length
+        ? `Токен получен. Запрос статусов в True API (${selected.length} КИЗ)…`
+        : "Токен получен. Запрос статусов в True API по всем КИЗ ГТД (может занять несколько минут)…",
+    );
     const res = await fetch(`/api/supply-gtd/${gid}/chz/cis-status`, {
       method: "POST",
       headers: jsonHeaders(),
