@@ -17978,6 +17978,95 @@ window.loadPoARecords = loadPoARecords;
 
 let _certsData = [];
 
+const CERTS_SORT_KEY = "certs_table_sort_v1";
+const CERTS_SORT_COLS = new Set([
+  "legal_entity_short",
+  "doc_type",
+  "category",
+  "number",
+  "expiry_date",
+]);
+
+function _loadCertsSortState() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(CERTS_SORT_KEY) || "null");
+    if (
+      raw
+      && typeof raw === "object"
+      && CERTS_SORT_COLS.has(String(raw.col || ""))
+      && (raw.dir === "asc" || raw.dir === "desc")
+    ) {
+      return { col: String(raw.col), dir: raw.dir };
+    }
+  } catch (_) { /* ignore */ }
+  return { col: "legal_entity_short", dir: "asc" };
+}
+
+function _saveCertsSortState(state) {
+  try {
+    localStorage.setItem(CERTS_SORT_KEY, JSON.stringify(state));
+  } catch (_) { /* ignore */ }
+}
+
+let _certsSort = _loadCertsSortState();
+
+function _certsSortValue(row, col) {
+  if (col === "expiry_date") {
+    const raw = String(row?.expiry_date || "").slice(0, 10);
+    return raw || "";
+  }
+  if (col === "doc_type") {
+    return String(row?.doc_type || "Сертификат соответствия").trim().toLowerCase();
+  }
+  return String(row?.[col] || "").trim().toLowerCase();
+}
+
+function _sortCertsRows(rows) {
+  const col = _certsSort.col;
+  const dir = _certsSort.dir === "desc" ? -1 : 1;
+  return rows.slice().sort((a, b) => {
+    const va = _certsSortValue(a, col);
+    const vb = _certsSortValue(b, col);
+    if (va < vb) return -1 * dir;
+    if (va > vb) return 1 * dir;
+    // Stable-ish secondary key.
+    return (Number(a?.id || 0) - Number(b?.id || 0)) * dir;
+  });
+}
+
+function _updateCertsSortIcons() {
+  document.querySelectorAll("#certsTable th.certs-sortable").forEach((th) => {
+    const col = th.getAttribute("data-sort") || "";
+    const icon = th.querySelector(".certs-sort-icon");
+    const active = col === _certsSort.col;
+    th.classList.toggle("certs-sort-active", active);
+    if (!icon) return;
+    if (!active) {
+      icon.textContent = "⇅";
+      icon.title = "Сортировать";
+    } else if (_certsSort.dir === "asc") {
+      icon.textContent = "↑";
+      icon.title = "По возрастанию";
+    } else {
+      icon.textContent = "↓";
+      icon.title = "По убыванию";
+    }
+  });
+}
+
+function toggleCertsSort(col) {
+  const key = String(col || "");
+  if (!CERTS_SORT_COLS.has(key)) return;
+  if (_certsSort.col === key) {
+    _certsSort = { col: key, dir: _certsSort.dir === "asc" ? "desc" : "asc" };
+  } else {
+    _certsSort = { col: key, dir: "asc" };
+  }
+  _saveCertsSortState(_certsSort);
+  renderCertsTable();
+}
+window.toggleCertsSort = toggleCertsSort;
+
 async function loadCertificates() {
   try {
     const r = await fetch("/api/certificates", {credentials: "include"});
@@ -18007,6 +18096,8 @@ function renderCertsTable() {
   let rows = _certsData;
   if (legalF) rows = rows.filter(c => c.legal_entity_short === legalF);
   if (docTypeF) rows = rows.filter(c => (c.doc_type || "Сертификат соответствия") === docTypeF);
+  rows = _sortCertsRows(rows);
+  _updateCertsSortIcons();
 
   if (!rows.length) {
     tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">Документы не добавлены</td></tr>';

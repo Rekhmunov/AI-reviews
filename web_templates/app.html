@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=317" />
+  <link rel="stylesheet" href="/static/style.css?v=318" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -3699,11 +3699,31 @@
               </colgroup>
               <thead>
                 <tr>
-                  <th data-col="0">Организация<span class="col-resize-handle"></span></th>
-                  <th data-col="1">Вид документа<span class="col-resize-handle"></span></th>
-                  <th data-col="2">Продукция<span class="col-resize-handle"></span></th>
-                  <th data-col="3">Номер<span class="col-resize-handle"></span></th>
-                  <th data-col="4">Дата завершения<span class="col-resize-handle"></span></th>
+                  <th data-col="0" class="certs-sortable" data-sort="legal_entity_short"
+                      onclick="toggleCertsSort('legal_entity_short')">
+                    <span class="certs-th-label">Организация <span class="certs-sort-icon" aria-hidden="true">⇅</span></span>
+                    <span class="col-resize-handle" onclick="event.stopPropagation()"></span>
+                  </th>
+                  <th data-col="1" class="certs-sortable" data-sort="doc_type"
+                      onclick="toggleCertsSort('doc_type')">
+                    <span class="certs-th-label">Вид документа <span class="certs-sort-icon" aria-hidden="true">⇅</span></span>
+                    <span class="col-resize-handle" onclick="event.stopPropagation()"></span>
+                  </th>
+                  <th data-col="2" class="certs-sortable" data-sort="category"
+                      onclick="toggleCertsSort('category')">
+                    <span class="certs-th-label">Продукция <span class="certs-sort-icon" aria-hidden="true">⇅</span></span>
+                    <span class="col-resize-handle" onclick="event.stopPropagation()"></span>
+                  </th>
+                  <th data-col="3" class="certs-sortable" data-sort="number"
+                      onclick="toggleCertsSort('number')">
+                    <span class="certs-th-label">Номер <span class="certs-sort-icon" aria-hidden="true">⇅</span></span>
+                    <span class="col-resize-handle" onclick="event.stopPropagation()"></span>
+                  </th>
+                  <th data-col="4" class="certs-sortable" data-sort="expiry_date"
+                      onclick="toggleCertsSort('expiry_date')">
+                    <span class="certs-th-label">Дата завершения <span class="certs-sort-icon" aria-hidden="true">⇅</span></span>
+                    <span class="col-resize-handle" onclick="event.stopPropagation()"></span>
+                  </th>
                   <th style="text-align:center;width:160px">Действия</th>
                 </tr>
               </thead>
@@ -6713,6 +6733,6 @@
 
   <script src="/static/ozon_fbs.js?v=138"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=20"></script>
-  <script src="/static/app.js?v=561"></script>
+  <script src="/static/app.js?v=562"></script>
 </body>
 </html>

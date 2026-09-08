@@ -182,7 +182,7 @@ class UiReplaceTests(unittest.TestCase):
         self.assertIn("_ozonFbsSyncOwnerOnlyShipmentQualityBtn", js)
         self.assertIn("/api/ozon-fbs/shipment-quality/support-report", js)
         self.assertIn("ozon_fbs.js?v=138", html)
-        self.assertIn("style.css?v=317", html)
+        self.assertIn("style.css?v=318", html)
 
 
 if __name__ == "__main__":

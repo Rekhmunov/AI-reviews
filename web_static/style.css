@@ -5869,6 +5869,46 @@ body.sst-col-resizing * {
   overflow-x: auto;
 }
 
+/* Certificates: match default supplies cell spacing (not the tight 8×6 main-table) */
+#section-supplies-certificates {
+  gap: 12px;
+}
+#section-supplies-certificates .supplies-toolbar-panel {
+  padding: 12px 16px;
+}
+#certsTable.supplies-main-table th,
+#certsTable.supplies-main-table td {
+  padding: 10px 12px;
+  max-width: none;
+  font-size: 14px;
+}
+#certsTable.supplies-main-table th {
+  font-size: 12px;
+  letter-spacing: 0.03em;
+}
+#certsTable.supplies-main-table th.certs-sortable {
+  cursor: pointer;
+  user-select: none;
+}
+#certsTable.supplies-main-table th.certs-sortable:hover {
+  background: rgba(219, 234, 254, 0.85);
+}
+#certsTable .certs-th-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 8px;
+}
+#certsTable .certs-sort-icon {
+  font-size: 12px;
+  line-height: 1;
+  color: #94a3b8;
+  font-weight: 700;
+}
+#certsTable th.certs-sort-active .certs-sort-icon {
+  color: #2563eb;
+}
+
 /* Override global min-width that would cause overflow on narrow screens */
 .supplies-table-wrap .supplies-main-table {
   min-width: 0 !important;
