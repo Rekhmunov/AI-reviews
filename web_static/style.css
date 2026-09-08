@@ -15304,6 +15304,72 @@ button.wb-fbs-kiz-add:disabled {
 .wb-fbs-kiz-circ-cis-st.is-unchecked { background: #f8fafc; color: #94a3b8; }
 .wb-fbs-kiz-circ-cis-st.is-error { background: #fef2f2; color: #b91c1c; }
 .supply-gtd-chz-modal .small-btn { height: 32px; padding: 0 12px; font-size: 13px; }
+
+/* ГТД → Работа с ЧЗ: вертикальный скролл таблицы + вписывание в низкий viewport */
+#supplyGtdChzModal.modal-overlay {
+  align-items: flex-start;
+  justify-content: center;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px 8px;
+  overscroll-behavior: contain;
+}
+.supply-gtd-chz-modal.wb-fbs-kiz-circ-modal {
+  width: min(1120px, calc(100vw - 16px));
+  max-width: min(1120px, calc(100vw - 16px));
+  height: auto;
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.supply-gtd-chz-modal .wb-fbs-kiz-circ-header {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: none;
+}
+.supply-gtd-chz-modal .wb-fbs-kiz-circ-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.supply-gtd-chz-modal .wb-fbs-kiz-circ-table-wrap {
+  flex: 1 1 auto;
+  min-height: 0; /* иначе 240px ломает скролл на низких экранах */
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+.supply-gtd-chz-modal .wb-fbs-kiz-circ-table thead th {
+  z-index: 2;
+}
+@media (max-height: 720px) {
+  .supply-gtd-chz-modal .wb-fbs-kiz-circ-header {
+    flex: 0 1 auto;
+    max-height: min(42vh, 320px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .supply-gtd-chz-modal .wb-fbs-kiz-circ-table-wrap {
+    min-height: 120px;
+  }
+}
+@media (max-width: 900px) {
+  .supply-gtd-chz-modal.wb-fbs-kiz-circ-modal {
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100vh - 16px);
+    max-height: calc(100dvh - 16px);
+  }
+}
+
 .wb-fbs-kiz-circ-cis-err {
   margin-top: 4px;
   font-size: 12px;
@@ -16489,6 +16555,8 @@ button.wb-fbs-kiz-add:disabled {
   #ozonFbsMovePostingModal,
   #ozonFbsMoveDeliveringModal,
   #ozonFbsMoveAwaitingModal,
+  #supplyGtdChzModal,
+  #supplyGtdChzLogModal,
   #supplyStockAsOfModal,
   #supplyStockMovementsModal,
   #supplyBalancesVisibilityModal,
@@ -16545,13 +16613,30 @@ button.wb-fbs-kiz-add:disabled {
   #ozonFbsSelectionSupplyModal > .wb-fbs-collect-mgt-modal,
   #ozonFbsMovePostingModal > .modal-card,
   #ozonFbsMoveDeliveringModal > .modal-card,
-  #ozonFbsMoveAwaitingModal > .modal-card {
+  #ozonFbsMoveAwaitingModal > .modal-card,
+  #supplyGtdChzModal > .modal-card,
+  #supplyGtdChzModal > .supply-gtd-chz-modal,
+  #supplyGtdChzLogModal > .modal-card {
     width: 100% !important;
     max-width: 100% !important;
     height: 100dvh !important;
     max-height: 100dvh !important;
     border-radius: 0 !important;
     margin: 0 !important;
+  }
+
+  /* Full-height sheet: таблица забирает оставшуюся высоту */
+  #supplyGtdChzModal.modal-overlay {
+    padding: 0 !important;
+    overflow: hidden !important;
+  }
+  #supplyGtdChzModal .supply-gtd-chz-modal .wb-fbs-kiz-circ-header {
+    max-height: min(40dvh, 280px);
+    overflow-y: auto;
+  }
+  #supplyGtdChzModal .supply-gtd-chz-modal .wb-fbs-kiz-circ-table-wrap {
+    min-height: 0;
+    flex: 1 1 auto;
   }
 
   /* Sticky footers + safe area for sheet footers */
