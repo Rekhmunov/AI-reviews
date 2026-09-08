@@ -1261,6 +1261,29 @@ def save_marking(
             "kiz_ozon_synced": ozon_synced,
         }
         results.append(item_out)
+    try:
+        from . import fbs_audit
+
+        ozon_ok = sum(1 for r in results if r.get("ok") and r.get("kiz_ozon_synced"))
+        local_only_n = sum(1 for r in results if r.get("local_only") or (r.get("ok") and not r.get("kiz_ozon_synced") and skip_ozon_push))
+        fbs_audit.audit(
+            marketplace="ozon",
+            action="marking_save",
+            result=("fail" if err_n else ("partial" if err_n == 0 and ok_n and skip_ozon_push else "ok")),
+            user_id=user_id,
+            source_id=source_id,
+            saved=ok_n,
+            errors=err_n,
+            skipped=skipped_n,
+            ozon_synced=ozon_ok,
+            local_only=bool(skip_ozon_push),
+            items=len(results),
+            codes=fbs_audit.codes_summary(
+                [c for r in results for c in (r.get("kiz_codes") or [])]
+            ),
+        )
+    except Exception:
+        pass
     return {
         "ok": err_n == 0,
         "saved": ok_n,

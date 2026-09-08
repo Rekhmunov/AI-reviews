@@ -540,6 +540,22 @@ def save_pick_verify(
                 "pick_verified_at": str(local_res.get("verified_at") or ""),
             }
         )
+    try:
+        from . import fbs_audit
+
+        fbs_audit.audit(
+            marketplace="ozon",
+            action="pick_verify",
+            result=("fail" if err_n else "ok"),
+            user_id=user_id,
+            source_id=source_id,
+            saved=ok_n,
+            errors=err_n,
+            skipped=skipped_n,
+            items=len(results),
+        )
+    except Exception:
+        pass
     return {
         "ok": err_n == 0,
         "saved": ok_n,

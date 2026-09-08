@@ -2564,6 +2564,22 @@ def save_pick_verify(
                 "pick_verified_at": str(local_res.get("verified_at") or ""),
             }
         )
+    try:
+        from . import fbs_audit
+
+        fbs_audit.audit(
+            marketplace="wb",
+            action="pick_verify",
+            result=("fail" if err_n else "ok"),
+            user_id=user_id,
+            source_id=source_id,
+            saved=ok_n,
+            errors=err_n,
+            skipped=skipped_n,
+            items=len(results),
+        )
+    except Exception:
+        pass
     return {
         "ok": err_n == 0,
         "saved": ok_n,
@@ -3089,6 +3105,30 @@ def save_kiz_marking(
             user_id=user_id,
             source_id=source_id,
         )
+    try:
+        from . import fbs_audit
+
+        wb_ok = sum(1 for r in results if r.get("ok") and r.get("wb_ok"))
+        local_only_n = sum(1 for r in results if r.get("local_only"))
+        fbs_audit.audit(
+            marketplace="wb",
+            action="marking_save",
+            result=("fail" if err_n else ("partial" if local_only_n and not wb_ok else "ok")),
+            user_id=user_id,
+            source_id=source_id,
+            saved=ok_n,
+            failed=err_n,
+            skipped=skipped_n,
+            saved_local=local_n,
+            wb_synced=wb_ok,
+            local_only=local_only_n,
+            items=len(results),
+            codes=fbs_audit.codes_summary(
+                [c for r in results for c in (r.get("kiz_codes") or [])]
+            ),
+        )
+    except Exception:
+        pass
     return {
         "ok": err_n == 0,
         "saved": ok_n,
@@ -3238,6 +3278,21 @@ def get_supply_detail_for_print(
     refresh_order_ids: bool = True,
     kind: str = "print",
 ) -> dict[str, Any]:
+
+    try:
+        from . import fbs_audit
+
+        fbs_audit.audit(
+            marketplace="wb",
+            action="picking_list",
+            result="ok",
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=str(supply_id or ""),
+            phase="build",
+        )
+    except Exception:
+        pass
     """Detail for print: verify WB↔assembly composition, then local (+ order-ids).
 
     Does **not** reuse the modal detail cache: a stale incomplete WB ``order-ids``
