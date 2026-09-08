@@ -1354,11 +1354,11 @@ class RestoreScanModeExpansionTests(unittest.TestCase):
         self.assertEqual(item["product_name"], "Товар WB")
         self.assertIn("4601234567890", item.get("product_barcodes") or [])
         self.assertIn("4601234567890", item.get("catalog_barcodes") or [])
-
-    @patch("review_processor.wb_fbs_returns.kiz_restore.find_orders_by_sticker_scan")
-    @patch("review_processor.wb_fbs_returns.find_goods_return_by_scan", return_value=None)
-    @patch("review_processor.wb_fbs_returns.kiz_restore.looks_like_kiz_scan", return_value=False)
-    def test_restore_scan_ozon_posting(self, _looks, _goods, sticker):
+        details = item.get("details") or {}
+        self.assertIsInstance(details, dict)
+        self.assertEqual(details.get("order_id"), 5463703395)
+        self.assertIn("tab_label", details)
+        self.assertIn("status_label", details)
         sticker.return_value = {"row": None, "ambiguous": False, "matches": []}
         posting = {
             "posting_number": "0123456789-0001-1",
@@ -1395,6 +1395,11 @@ class RestoreScanModeExpansionTests(unittest.TestCase):
         self.assertEqual(item["product_name"], "Товар Ozon")
         self.assertTrue(item.get("kiz_code"))
         self.assertIn("4601234567890", item.get("catalog_barcodes") or [])
+        details = item.get("details") or {}
+        self.assertIsInstance(details, dict)
+        self.assertEqual(details.get("posting_number"), "0123456789-0001-1")
+        self.assertIn("tab_label", details)
+        self.assertIn("status_label", details)
 
     @patch("review_processor.wb_fbs_returns.kiz_restore.find_orders_by_sticker_scan")
     @patch("review_processor.wb_fbs_returns.find_goods_return_by_scan", return_value=None)

@@ -40,7 +40,8 @@ def test_restore_modal_markup() -> None:
     assert 'id="supplyStockReturnRestoreCacheInfo"' in block
     assert 'id="supplyStockReturnRestoreTable"' in block
     assert 'id="supplyStockReturnRestoreTbody"' in block
-    assert "Сканируйте заказ, стикер, КИЗ или ШК из каталога" in block
+    assert "Сканируйте заказ, стикер, КИЗ или ШК из каталога" not in block
+    assert "sb-return-restore-sub" not in block
     assert "sb-sheet-modal" in block
     assert "sb-adj-modal" in block
     assert "wb-fbs-sd-table" in block
@@ -55,6 +56,10 @@ def test_restore_js_wiring_no_sync() -> None:
     assert "function printStockReturnRestoreKiz" in APP_JS
     assert "function printStockReturnRestoreBarcode" in APP_JS
     assert "function _stockReturnRestoreRenderTable" in APP_JS
+    assert "function _stockReturnRestoreDetailHtml" in APP_JS
+    assert "function _stockReturnRestoreDetailRows" in APP_JS
+    assert "sb-return-restore-lookup-detail" in APP_JS
+    assert "_wbFbsLookupDetailRows" in APP_JS
     assert "function onSupplyStockReceiptKindChange" in APP_JS
     assert "function _sbSyncReceiptRestoreBtn" in APP_JS
     assert "/api/wb-fbs/returns/restore/scan" in APP_JS
@@ -103,8 +108,11 @@ def test_restore_styles_layering() -> None:
     assert "#supplyStockReturnRestoreModal > .sb-return-restore-modal" in STYLE
     assert "height: calc(100vh - 40px)" in STYLE
     assert "#supplyStockReturnRestoreModal" in STYLE.split("Остатки modals: full-bleed sheets")[1][:2500]
+    assert ".sb-return-restore-lookup-detail" in STYLE
+    assert "#supplyStockReturnRestoreTable tbody tr.is-scan-hit td" in STYLE
+    assert "inset 3px 0 0 #10b981" in STYLE
 
 
 def test_asset_versions_bumped() -> None:
-    assert "app.js?v=573" in APP_HTML
-    assert "style.css?v=323" in APP_HTML
+    assert "app.js?v=574" in APP_HTML
+    assert "style.css?v=324" in APP_HTML

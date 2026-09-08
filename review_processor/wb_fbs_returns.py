@@ -2565,14 +2565,114 @@ def _goods_return_identity(row: dict[str, Any]) -> tuple[str, str]:
     return ("row", str(row.get("id") or ""))
 
 
+def _attach_restore_lookup_details(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    item: dict[str, Any],
+) -> dict[str, Any]:
+    """Attach WB/Ozon lookup detail card fields (local DB only, no remote)."""
+    if not isinstance(item, dict):
+        return item
+    if str(item.get("scan_type") or "").strip() == SCAN_CATALOG:
+        return item
+    if isinstance(item.get("details"), dict) and item.get("details"):
+        return item
+
+    marketplace = str(item.get("marketplace") or "").strip().lower()
+    posting_number = str(item.get("posting_number") or "").strip()
+    if marketplace == "ozon" or posting_number:
+        from . import ozon_fbs as oz
+
+        sid = int(source_id or 0)
+        pn = posting_number or str(item.get("order_id") or "").strip()
+        row = None
+        if pn and sid > 0:
+            try:
+                row = oz.get_posting_by_number(
+                    repo, user_id=user_id, source_id=sid, posting_number=pn
+                )
+            except Exception:
+                row = None
+        if isinstance(row, dict) and row:
+            try:
+                item["details"] = oz.build_posting_lookup_details(
+                    repo,
+                    user_id=user_id,
+                    source_id=sid,
+                    row=row,
+                    remote=None,
+                    client=None,
+                )
+            except Exception as exc:
+                _log.debug("restore ozon lookup details: %s", exc)
+        return item
+
+    try:
+        order_id = int(item.get("order_id") or 0)
+    except (TypeError, ValueError):
+        order_id = 0
+    if order_id <= 0:
+        return item
+    sid = int(source_id or 0)
+    row = None
+    if sid > 0:
+        try:
+            row = wb.get_order_by_id(
+                repo, user_id=user_id, source_id=sid, order_id=order_id
+            )
+        except Exception:
+            row = None
+    if not row:
+        try:
+            row = _find_local_order_any_source(
+                repo,
+                user_id=user_id,
+                order_id=order_id,
+                prefer_source_id=sid,
+            )
+        except Exception:
+            row = None
+    if not isinstance(row, dict) or not row:
+        return item
+    try:
+        row_sid = int(row.get("source_id") or sid or 0)
+    except (TypeError, ValueError):
+        row_sid = sid
+    try:
+        enriched = wb._enrich_order_row(repo, user_id=user_id, row=row)
+    except Exception:
+        enriched = dict(row)
+    try:
+        item["details"] = wb.build_order_lookup_details(
+            repo,
+            user_id=user_id,
+            source_id=row_sid or sid,
+            row=enriched,
+        )
+    except Exception as exc:
+        _log.debug("restore wb lookup details: %s", exc)
+    return item
+
+
 def _finalize_restore_scan_result(
     result: dict[str, Any],
     *,
     source: Mapping[str, Any] | dict[str, Any],
+    repo: ReviewRepository | None = None,
+    user_id: int = 0,
 ) -> dict[str, Any]:
     meta = _restore_source_meta(source)
     if result.get("ok"):
         item = result.get("item") if isinstance(result.get("item"), dict) else {}
+        if repo is not None and user_id and isinstance(item, dict):
+            item = _attach_restore_lookup_details(
+                repo,
+                user_id=int(user_id),
+                source_id=int(meta["source_id"] or 0),
+                item=item,
+            )
         _log.info(
             "restore_scan hit source_id=%s order_id=%s scan_type=%s",
             meta["source_id"],
@@ -2588,6 +2688,13 @@ def _finalize_restore_scan_result(
         }
     if str(result.get("error") or "") == "duplicate":
         item = result.get("item") if isinstance(result.get("item"), dict) else {}
+        if repo is not None and user_id and isinstance(item, dict):
+            item = _attach_restore_lookup_details(
+                repo,
+                user_id=int(user_id),
+                source_id=int(meta["source_id"] or 0),
+                item=item,
+            )
         _log.info(
             "restore_scan duplicate source_id=%s scan_id=%s",
             meta["source_id"],
@@ -2627,7 +2734,9 @@ def _run_restore_scan_on_source(
         api_key="",
         scan=scan,
     )
-    return _finalize_restore_scan_result(result, source=source)
+    return _finalize_restore_scan_result(
+        result, source=source, repo=repo, user_id=user_id
+    )
 
 
 def _process_restore_kiz_scan(
@@ -2826,6 +2935,8 @@ def _restore_scan_wb_order_id(
     return _finalize_restore_scan_result(
         {"ok": True, "item": item},
         source=source,
+        repo=repo,
+        user_id=user_id,
     )
 
 
@@ -3047,6 +3158,8 @@ def _restore_scan_ozon(
     return _finalize_restore_scan_result(
         {"ok": True, "item": item},
         source=source,
+        repo=repo,
+        user_id=user_id,
     )
 
 
@@ -3106,6 +3219,8 @@ def _restore_scan_catalog_barcode(
     return _finalize_restore_scan_result(
         {"ok": True, "item": item},
         source=synthetic,
+        repo=repo,
+        user_id=user_id,
     )
 
 
