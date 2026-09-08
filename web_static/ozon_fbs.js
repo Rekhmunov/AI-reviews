@@ -5692,13 +5692,11 @@
     const syncCount = Number(precheck?.sync_error_count || 0) || 0;
     const unbound = Number(precheck?.unbound || 0) || 0;
     const total = Number(precheck?.total_orders || 0) || 0;
-    const boundHere = Number(precheck?.bound_to_container || 0) || 0;
     const hasSyncErrors = !!precheck?.has_sync_errors || syncCount > 0;
     const hasUnbound = !!precheck?.has_unbound || unbound > 0;
 
     const confirmed = await openOzonFbsContainerApproveModal({
       cid,
-      boundHere,
       total,
       unbound,
       hasUnbound,
