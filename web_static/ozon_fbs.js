@@ -5585,17 +5585,10 @@
     if (hasUnbound) {
       parts.push(
         `<div class="ozon-fbs-container-approve-warn" role="alert">`
-        + `<p>После подтверждения в него больше нельзя будет сканировать заказы.</p>`
         + `<p><strong>Внимание:</strong> `
         + `${esc(String(unbound))} из ${esc(String(total || "?"))} заказов поставки `
         + `ещё не привязаны ни к одному грузоместу.</p>`
         + `<p>Кнопка «Да» станет доступна, когда все заказы поставки будут привязаны к грузоместам.</p>`
-        + `</div>`
-      );
-    } else {
-      parts.push(
-        `<div class="ozon-fbs-container-approve-warn">`
-        + `<p>После подтверждения в него больше нельзя будет сканировать заказы.</p>`
         + `</div>`
       );
     }
