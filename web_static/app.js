@@ -23306,6 +23306,46 @@ function _supplyGtdChzReplaceLog(text) {
   }
 }
 
+/** Let the browser paint log/progress between long awaits (CryptoPro / fetch). */
+function _supplyGtdChzYieldUi() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => {
+      setTimeout(resolve, 0);
+    });
+  });
+}
+
+function _supplyGtdChzSetProgress({
+  visible = true,
+  text = "",
+  done = 0,
+  total = 0,
+  chunk = 0,
+  chunks = 0,
+} = {}) {
+  const wrap = document.getElementById("supplyGtdChzLogProgress");
+  const textEl = document.getElementById("supplyGtdChzLogProgressText");
+  const bar = document.getElementById("supplyGtdChzLogProgressBar");
+  if (!wrap || !textEl || !bar) return;
+  if (!visible) {
+    wrap.classList.add("hidden");
+    textEl.textContent = "—";
+    bar.style.width = "0%";
+    return;
+  }
+  wrap.classList.remove("hidden");
+  const tot = Math.max(0, Number(total) || 0);
+  const dn = Math.max(0, Math.min(tot || Number(done) || 0, Number(done) || 0));
+  const pct = tot > 0 ? Math.min(100, Math.round((dn / tot) * 100)) : 0;
+  const chunkPart =
+    chunks > 0 ? `Чанк ${chunk || 0}/${chunks}` : "";
+  const countPart =
+    tot > 0 ? `обработано ${dn.toLocaleString("ru-RU")} / ${tot.toLocaleString("ru-RU")} (${pct}%)` : "";
+  const parts = [chunkPart, countPart, text].filter(Boolean);
+  textEl.textContent = parts.join(" · ") || "Идёт выгрузка…";
+  bar.style.width = `${pct}%`;
+}
+
 /** Max КИЗ per cis-status request — keeps each call under nginx ~60s. */
 const SUPPLY_GTD_CHZ_STATUS_CHUNK = 200;
 
@@ -23409,7 +23449,7 @@ async function _supplyGtdChzPostCisStatusChunk(token, kizShorts) {
       log_text: String(run.log_text || ""),
     };
   }
-  if (data.log_text) _supplyGtdChzAppendLog(data.log_text);
+  // Skip dumping full server log_text per chunk — UI shows short client lines.
   _supplyGtdChzState.lastRunId = Number(data.run_id || 0);
   return {
     found: Number(data.found || 0),
@@ -23427,6 +23467,8 @@ async function runSupplyGtdChzCisStatus() {
   _supplyGtdChzState.busy = true;
   if (btn) btn.disabled = true;
   _supplyGtdChzEnsureLogOpen();
+  _supplyGtdChzSetProgress({ visible: true, text: "Подготовка…", done: 0, total: 0 });
+  await _supplyGtdChzYieldUi();
   try {
     _supplyGtdChzAppendLog(
       selected.length
@@ -23436,12 +23478,15 @@ async function runSupplyGtdChzCisStatus() {
     _supplyGtdChzAppendLog(
       "ЧЗ: авторизация УКЭП… (окно CryptoPro / выбор сертификата — не сворачивайте браузер)",
     );
+    await _supplyGtdChzYieldUi();
     const auth = await _chzObtainToken("");
     if (!auth?.token) throw new Error("Токен ЧЗ не получен после подписи УКЭП");
 
     let codes = selected;
     if (!codes.length) {
       _supplyGtdChzAppendLog("Собираю список КИЗ ГТД…");
+      _supplyGtdChzSetProgress({ visible: true, text: "Сбор списка КИЗ…" });
+      await _supplyGtdChzYieldUi();
       codes = await _supplyGtdChzCollectAllShorts();
     }
     if (!codes.length) throw new Error("Нет КИЗ для проверки");
@@ -23449,24 +23494,69 @@ async function runSupplyGtdChzCisStatus() {
     const chunkSize = SUPPLY_GTD_CHZ_STATUS_CHUNK;
     const totalChunks = Math.max(1, Math.ceil(codes.length / chunkSize));
     _supplyGtdChzAppendLog(
-      `Токен получен. Выгрузка ${codes.length} КИЗ чанками по ${chunkSize} (${totalChunks} запрос.)…`,
+      `Токен получен. Выгрузка ${codes.length.toLocaleString("ru-RU")} КИЗ `
+        + `чанками по ${chunkSize} (${totalChunks} запрос.)…`,
     );
+    _supplyGtdChzSetProgress({
+      visible: true,
+      done: 0,
+      total: codes.length,
+      chunk: 0,
+      chunks: totalChunks,
+      text: "старт",
+    });
+    await _supplyGtdChzYieldUi();
 
     let found = 0;
     let errors = 0;
+    let processed = 0;
     for (let i = 0; i < codes.length; i += chunkSize) {
       const part = codes.slice(i, i + chunkSize);
       const n = Math.floor(i / chunkSize) + 1;
-      _supplyGtdChzAppendLog(`Чанк ${n}/${totalChunks}: запрос ${part.length} КИЗ…`);
+      _supplyGtdChzSetProgress({
+        visible: true,
+        done: processed,
+        total: codes.length,
+        chunk: n,
+        chunks: totalChunks,
+        text: `запрос ${part.length} КИЗ…`,
+      });
+      _supplyGtdChzAppendLog(
+        `Чанк ${n}/${totalChunks}: запрос ${part.length} КИЗ `
+          + `(${processed.toLocaleString("ru-RU")} / ${codes.length.toLocaleString("ru-RU")})…`,
+      );
+      await _supplyGtdChzYieldUi();
       const partOut = await _supplyGtdChzPostCisStatusChunk(auth.token, part);
       found += Number(partOut.found || 0);
       errors += Number(partOut.errors || 0);
+      processed += part.length;
+      _supplyGtdChzSetProgress({
+        visible: true,
+        done: processed,
+        total: codes.length,
+        chunk: n,
+        chunks: totalChunks,
+        text: `найдено ${found}, ошибок ${errors}`,
+      });
       _supplyGtdChzAppendLog(
-        `Чанк ${n}/${totalChunks}: найдено +${partOut.found || 0}, ошибок +${partOut.errors || 0} `
-          + `(итого найдено ${found}, ошибок ${errors})`,
+        `Чанк ${n}/${totalChunks}: готово · найдено +${partOut.found || 0}, `
+          + `ошибок +${partOut.errors || 0} · итого найдено ${found}, ошибок ${errors} · `
+          + `обработано ${processed.toLocaleString("ru-RU")} / ${codes.length.toLocaleString("ru-RU")}`,
       );
+      await _supplyGtdChzYieldUi();
     }
-    _supplyGtdChzAppendLog(`Готово: найдено ${found}, ошибок ${errors}`);
+    _supplyGtdChzSetProgress({
+      visible: true,
+      done: codes.length,
+      total: codes.length,
+      chunk: totalChunks,
+      chunks: totalChunks,
+      text: "готово",
+    });
+    _supplyGtdChzAppendLog(
+      `Готово: найдено ${found}, ошибок ${errors} `
+        + `(всего ${codes.length.toLocaleString("ru-RU")} КИЗ)`,
+    );
   } catch (err) {
     const msg = String(err?.message || err || "");
     const timedOut =
@@ -23476,6 +23566,7 @@ async function runSupplyGtdChzCisStatus() {
       ? "Сеть/прокси оборвали запрос. Повторите выгрузку — статусы идут чанками по 200 КИЗ."
       : msg;
     _supplyGtdChzAppendLog(`Ошибка: ${shown}`);
+    _supplyGtdChzSetProgress({ visible: true, text: `Ошибка: ${shown}` });
     alert(shown);
   } finally {
     _supplyGtdChzState.busy = false;
