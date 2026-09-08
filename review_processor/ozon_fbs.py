@@ -361,6 +361,9 @@ class OzonFbsClient:
                             getattr(exc, "headers", None)
                         ),
                     )
+                    # Pause the whole Client-Id bucket so parallel workers do not
+                    # keep hammering while we back off.
+                    rl.limiter_for_client(self.client_id).pause_for(wait)
                     _log.warning(
                         "ozon HTTP 429 path=%s attempt=%s sleep=%.2fs body=%s",
                         path,

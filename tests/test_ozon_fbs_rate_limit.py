@@ -41,12 +41,21 @@ class TokenBucketTests(unittest.TestCase):
 
     def test_bucket_paces_burst(self) -> None:
         bucket = rl.TokenBucketLimiter(rate=20.0)
+        # Capacity is capped (~10), so 25 acquires need refill time.
+        self.assertLessEqual(bucket.capacity, 10.0)
         t0 = time.monotonic()
         for _ in range(25):
             bucket.acquire(1.0)
         elapsed = time.monotonic() - t0
-        # 20 capacity free, then ~5 tokens need ~0.25s at 20/s.
-        self.assertGreaterEqual(elapsed, 0.15)
+        # ~15 tokens beyond burst at 20/s ≈ 0.75s; allow slack.
+        self.assertGreaterEqual(elapsed, 0.4)
+
+    def test_pause_blocks_acquire(self) -> None:
+        bucket = rl.TokenBucketLimiter(rate=50.0)
+        bucket.pause_for(0.2)
+        t0 = time.monotonic()
+        bucket.acquire(1.0)
+        self.assertGreaterEqual(time.monotonic() - t0, 0.15)
 
     def test_shared_limiter_per_client(self) -> None:
         with patch.dict("os.environ", {"OZON_API_MAX_RPS": "30"}, clear=False):

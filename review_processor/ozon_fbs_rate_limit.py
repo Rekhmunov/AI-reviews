@@ -46,14 +46,35 @@ def configured_max_rps() -> float:
 
 
 class TokenBucketLimiter:
-    """Thread-safe token bucket: ``rate`` tokens/sec, burst ≈ ``rate``."""
+    """Thread-safe token bucket: ``rate`` tokens/sec, small burst (not full rate).
+
+    Burst is capped (~10) so parallel workers cannot dump dozens of calls in one
+    millisecond and trip Ozon's sliding window even when average rps is fine.
+    """
 
     def __init__(self, *, rate: float) -> None:
         self.rate = max(0.0, float(rate))
-        self.capacity = max(self.rate, 1.0) if self.rate > 0 else 0.0
+        # Smooth bursts: keep headroom under the documented 50 rps ceiling.
+        if self.rate > 0:
+            self.capacity = max(1.0, min(self.rate, 10.0))
+        else:
+            self.capacity = 0.0
         self._tokens = self.capacity
         self._updated = time.monotonic()
+        self._paused_until = 0.0
         self._lock = threading.Lock()
+
+    def pause_for(self, seconds: float) -> None:
+        """Block this Client-Id for ``seconds`` after a 429 (all threads)."""
+        sec = max(0.0, float(seconds or 0.0))
+        if sec <= 0 or self.rate <= 0:
+            return
+        with self._lock:
+            until = time.monotonic() + min(sec, 60.0)
+            if until > self._paused_until:
+                self._paused_until = until
+            # Spent budget — avoid immediate re-burst after pause.
+            self._tokens = 0.0
 
     def acquire(self, tokens: float = 1.0) -> None:
         if self.rate <= 0:
@@ -64,14 +85,19 @@ class TokenBucketLimiter:
         while True:
             with self._lock:
                 now = time.monotonic()
-                elapsed = max(0.0, now - self._updated)
-                self._updated = now
-                self._tokens = min(self.capacity, self._tokens + elapsed * self.rate)
-                if self._tokens >= need:
-                    self._tokens -= need
-                    return
-                deficit = need - self._tokens
-                wait = deficit / self.rate if self.rate > 0 else 0.0
+                if self._paused_until > now:
+                    wait = self._paused_until - now
+                else:
+                    elapsed = max(0.0, now - self._updated)
+                    self._updated = now
+                    self._tokens = min(
+                        self.capacity, self._tokens + elapsed * self.rate
+                    )
+                    if self._tokens >= need:
+                        self._tokens -= need
+                        return
+                    deficit = need - self._tokens
+                    wait = deficit / self.rate if self.rate > 0 else 0.0
             # Sleep outside the lock so other Client-Ids are not blocked.
             time.sleep(min(max(wait, 0.001), 2.0))
 
