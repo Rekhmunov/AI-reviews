@@ -5653,7 +5653,7 @@
       _ozonFbsContainerApproveSetVisible(true);
       const focusBtn = allowYes
         ? yesBtn
-        : document.getElementById("ozonFbsContainerApproveNoBtn");
+        : document.querySelector("#ozonFbsContainerApproveModal .icon-btn");
       try {
         focusBtn?.focus();
       } catch (_e) {
