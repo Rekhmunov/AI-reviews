@@ -1787,11 +1787,24 @@ def _catalog_product_for_order(
         return None
     article = str(order_row.get("article") or "").strip()
     nm_id = str(order_row.get("nm_id") or "").strip()
+    order_barcodes = {
+        str(b or "").strip()
+        for b in _parse_order_skus(order_row)
+        if str(b or "").strip()
+    }
+    order_barcode_digits = {_digits_only(b) for b in order_barcodes if _digits_only(b)}
     for p in repo.list_product_photos(user_id=user_id):
         if article and str(p.get("supplier_article") or "").strip() == article:
             return p
         if nm_id and str(p.get("wb_nmid") or "").strip() == nm_id:
             return p
+        if order_barcodes:
+            for b in p.get("barcodes") or []:
+                text = str(b or "").strip()
+                if not text:
+                    continue
+                if text in order_barcodes or _digits_only(text) in order_barcode_digits:
+                    return p
     return None
 
 
@@ -1812,6 +1825,74 @@ def _catalog_fields_from_product(product: dict[str, Any] | None) -> dict[str, An
     }
 
 
+def _catalog_product_for_scan_item(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    item: Mapping[str, Any] | dict[str, Any],
+    by_article: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """Resolve catalog product by article, nmId, or already known ШК."""
+    article = str(item.get("product_article") or "").strip()
+    if article:
+        if by_article is not None:
+            hit = by_article.get(article)
+            if hit:
+                return hit
+        else:
+            for p in repo.list_product_photos(user_id=user_id):
+                if str(p.get("supplier_article") or "").strip() == article:
+                    return p
+    nm_id = str(item.get("nm_id") or item.get("product_nm_id") or "").strip()
+    barcodes: list[str] = []
+    for src in (item.get("product_barcodes"), item.get("catalog_barcodes")):
+        if not isinstance(src, list):
+            continue
+        for b in src:
+            text = str(b or "").strip()
+            if text and text not in barcodes:
+                barcodes.append(text)
+    if not nm_id and not barcodes:
+        return None
+    barcode_set = set(barcodes)
+    barcode_digits = {_digits_only(b) for b in barcodes if _digits_only(b)}
+    for p in repo.list_product_photos(user_id=user_id):
+        if nm_id and str(p.get("wb_nmid") or "").strip() == nm_id:
+            return p
+        if barcode_set:
+            for b in p.get("barcodes") or []:
+                text = str(b or "").strip()
+                if not text:
+                    continue
+                if text in barcode_set or _digits_only(text) in barcode_digits:
+                    return p
+    return None
+
+
+def _parse_order_skus(order_row: Mapping[str, Any] | dict[str, Any] | None) -> list[str]:
+    """Product barcodes (ШК) from a WB FBS order row."""
+    if not order_row:
+        return []
+    raw = order_row.get("skus_json")
+    if raw is None:
+        raw = order_row.get("skus")
+    if raw is None:
+        raw = order_row.get("barcodes")
+    parsed: Any = raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw or "[]")
+        except Exception:
+            parsed = []
+    barcodes: list[str] = []
+    if isinstance(parsed, list):
+        for x in parsed:
+            text = str(x or "").strip()
+            if text and text not in barcodes:
+                barcodes.append(text)
+    return barcodes
+
+
 def _product_from_order(
     repo: ReviewRepository,
     *,
@@ -1829,33 +1910,27 @@ def _product_from_order(
         or name_map.get(article.casefold())
         or name_map.get(nm_id)
         or name_map.get(nm_id.casefold())
+        or article
         or ""
     )
     photo = photo_map.get(article) or photo_map.get(nm_id) or ""
-    barcodes: list[str] = []
-    try:
-        parsed = json.loads(order_row.get("skus_json") or "[]")
-        if isinstance(parsed, list):
-            barcodes = [str(x).strip() for x in parsed if str(x or "").strip()]
-    except Exception:
-        pass
-    catalog = _catalog_barcodes_index(repo, user_id=user_id)
-    for p in repo.list_product_photos(user_id=user_id):
-        if article and str(p.get("supplier_article") or "").strip() == article:
-            for b in p.get("barcodes") or []:
-                text = str(b or "").strip()
-                if text and text not in barcodes:
-                    barcodes.append(text)
-            break
-        if nm_id and str(p.get("wb_nmid") or "").strip() == nm_id:
-            for b in p.get("barcodes") or []:
-                text = str(b or "").strip()
-                if text and text not in barcodes:
-                    barcodes.append(text)
-            break
+    barcodes = _parse_order_skus(order_row)
     catalog_product = _catalog_product_for_order(
         repo, user_id=user_id, order_row=order_row
     )
+    if catalog_product:
+        for b in catalog_product.get("barcodes") or []:
+            text = str(b or "").strip()
+            if text and text not in barcodes:
+                barcodes.append(text)
+        if not photo:
+            pid = int(catalog_product.get("id") or 0)
+            if pid and catalog_product.get("photo_path"):
+                photo = f"/api/products/photo/{pid}"
+        if not str(name or "").strip() or name == article:
+            cat_name = str(catalog_product.get("name") or "").strip()
+            if cat_name:
+                name = cat_name
     catalog_fields = _catalog_fields_from_product(catalog_product)
     return {
         "product_name": name,
@@ -1864,6 +1939,188 @@ def _product_from_order(
         "product_barcodes": barcodes,
         **catalog_fields,
     }
+
+
+def _merge_product_fields(
+    base: Mapping[str, Any] | dict[str, Any] | None,
+    extra: Mapping[str, Any] | dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Fill empty product fields from ``extra``; union barcodes."""
+    out = dict(base or {})
+    add = dict(extra or {})
+    for key in ("product_name", "product_article", "product_photo", "barcode_label_name"):
+        if not str(out.get(key) or "").strip() and str(add.get(key) or "").strip():
+            out[key] = str(add.get(key) or "").strip()
+    barcodes: list[str] = []
+    for src in (out.get("product_barcodes"), add.get("product_barcodes"),
+                out.get("catalog_barcodes"), add.get("catalog_barcodes")):
+        if not isinstance(src, list):
+            continue
+        for b in src:
+            text = str(b or "").strip()
+            if text and text not in barcodes:
+                barcodes.append(text)
+    if barcodes:
+        out["product_barcodes"] = list(barcodes)
+        # Keep catalog list for print helpers that read catalog_barcodes.
+        catalog = [
+            str(b or "").strip()
+            for b in (add.get("catalog_barcodes") or out.get("catalog_barcodes") or [])
+            if str(b or "").strip()
+        ]
+        if not catalog:
+            catalog = list(barcodes)
+        out["catalog_barcodes"] = catalog
+    return out
+
+
+def _product_from_goods_return(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    goods_row: Mapping[str, Any] | dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Fallback product fields from goods-return report row (barcode / nmId)."""
+    if not goods_row:
+        return {}
+    barcode = str(goods_row.get("barcode") or "").strip()
+    try:
+        nm_id = str(int(goods_row.get("nm_id") or 0) or "").strip()
+    except (TypeError, ValueError):
+        nm_id = ""
+    if nm_id == "0":
+        nm_id = ""
+    fake_order = {
+        "article": "",
+        "nm_id": nm_id,
+        "skus_json": json.dumps([barcode] if barcode else [], ensure_ascii=False),
+    }
+    product = _product_from_order(repo, user_id=user_id, order_row=fake_order)
+    if barcode:
+        barcodes = list(product.get("product_barcodes") or [])
+        if barcode not in barcodes:
+            barcodes.insert(0, barcode)
+        product["product_barcodes"] = barcodes
+        catalog = list(product.get("catalog_barcodes") or [])
+        if barcode not in catalog:
+            catalog.insert(0, barcode)
+        product["catalog_barcodes"] = catalog
+    return product
+
+
+def _scan_product_needs_refresh(item: Mapping[str, Any] | dict[str, Any] | None) -> bool:
+    if not item:
+        return True
+    name = str(item.get("product_name") or "").strip()
+    photo = str(item.get("product_photo") or "").strip()
+    barcodes = item.get("product_barcodes") if isinstance(item.get("product_barcodes"), list) else []
+    catalog = item.get("catalog_barcodes") if isinstance(item.get("catalog_barcodes"), list) else []
+    has_bc = any(str(b or "").strip() for b in list(barcodes) + list(catalog))
+    return (not name) or (not has_bc) or (not photo)
+
+
+def _update_return_scan_product_fields(
+    repo: ReviewRepository,
+    *,
+    scan_id: int,
+    product: Mapping[str, Any] | dict[str, Any],
+) -> None:
+    sid = int(scan_id or 0)
+    if sid <= 0:
+        return
+    ensure_wb_fbs_returns_tables(repo)
+    with repo._connect() as conn:
+        conn.execute(
+            repo._sql(
+                """
+                UPDATE wb_fbs_return_scans
+                SET product_name = ?,
+                    product_article = ?,
+                    product_photo = ?,
+                    product_barcodes_json = ?
+                WHERE id = ?
+                """
+            ),
+            (
+                str(product.get("product_name") or "").strip(),
+                str(product.get("product_article") or "").strip(),
+                str(product.get("product_photo") or "").strip(),
+                json.dumps(list(product.get("product_barcodes") or []), ensure_ascii=False),
+                sid,
+            ),
+        )
+
+
+def _refresh_scan_item_product_from_order(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    item: dict[str, Any],
+) -> dict[str, Any]:
+    """Backfill name/photo/ШК from local WB FBS order when journal row is sparse."""
+    if not _scan_product_needs_refresh(item):
+        return item
+    try:
+        source_id = int(item.get("source_id") or 0)
+        order_id = int(item.get("order_id") or 0)
+    except (TypeError, ValueError):
+        source_id = 0
+        order_id = 0
+    product: dict[str, Any] = {}
+    if order_id > 0:
+        order_row = _resolve_order_row(
+            repo,
+            user_id=user_id,
+            source_id=source_id if source_id > 0 else 0,
+            order_id=order_id,
+            api_key="",
+        )
+        if order_row:
+            product = _product_from_order(repo, user_id=user_id, order_row=order_row)
+    if _scan_product_needs_refresh({**item, **product}):
+        sticker_id = str(item.get("return_sticker_id") or "").strip()
+        scan_raw = str(item.get("scan_raw") or "").strip()
+        goods_row = None
+        if source_id > 0 and (sticker_id or scan_raw):
+            goods_row = find_goods_return_by_scan(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                scan=sticker_id or scan_raw,
+            )
+        if goods_row:
+            product = _merge_product_fields(
+                product,
+                _product_from_goods_return(
+                    repo, user_id=user_id, goods_row=goods_row
+                ),
+            )
+    if not product:
+        return item
+    merged = _merge_product_fields(item, product)
+    before = (
+        str(item.get("product_name") or ""),
+        str(item.get("product_article") or ""),
+        str(item.get("product_photo") or ""),
+        list(item.get("product_barcodes") or []),
+    )
+    after = (
+        str(merged.get("product_name") or ""),
+        str(merged.get("product_article") or ""),
+        str(merged.get("product_photo") or ""),
+        list(merged.get("product_barcodes") or []),
+    )
+    item.update(merged)
+    if before != after:
+        try:
+            _update_return_scan_product_fields(
+                repo,
+                scan_id=int(item.get("id") or 0),
+                product=merged,
+            )
+        except Exception as exc:
+            _log.warning("refresh scan product failed id=%s: %s", item.get("id"), exc)
+    return item
 
 
 def _product_from_gtin(
@@ -1889,6 +2146,40 @@ def _product_from_gtin(
     }
 
 
+def _find_local_order_any_source(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    order_id: int,
+    prefer_source_id: int = 0,
+) -> dict[str, Any] | None:
+    """Local WB FBS order by id across cabinets (restore often has source mismatch)."""
+    oid = int(order_id or 0)
+    if oid <= 0:
+        return None
+    prefer = int(prefer_source_id or 0)
+    if prefer > 0:
+        hit = wb.get_order_by_id(
+            repo, user_id=user_id, source_id=prefer, order_id=oid
+        )
+        if hit:
+            return hit
+    wb.ensure_wb_fbs_tables(repo)
+    with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql(
+                """
+                SELECT * FROM wb_fbs_orders
+                WHERE user_id = ? AND order_id = ?
+                ORDER BY CASE WHEN source_id = ? THEN 0 ELSE 1 END, synced_at DESC
+                LIMIT 1
+                """
+            ),
+            (int(user_id), oid, prefer),
+        ).fetchone()
+    return repo._row_to_dict(row) if row else None
+
+
 def _resolve_order_row(
     repo: ReviewRepository,
     *,
@@ -1905,7 +2196,16 @@ def _resolve_order_row(
         order_id=int(order_id),
         api_key=api_key,
     )
-    return row if row else None
+    if row:
+        return row
+    # Restore uses api_key="" — still hydrate card from any local cabinet that has
+    # this assembly order (goods-return source and orders source can differ).
+    return _find_local_order_any_source(
+        repo,
+        user_id=user_id,
+        order_id=int(order_id),
+        prefer_source_id=int(source_id or 0),
+    )
 
 
 def _kiz_codes_for_order(
@@ -2017,24 +2317,74 @@ def _enrich_return_scan_catalog_fields(
     item: dict[str, Any],
     by_article: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    article = str(item.get("product_article") or "").strip()
-    product: dict[str, Any] | None = None
-    if article:
-        if by_article is not None:
-            product = by_article.get(article)
-        else:
-            for p in repo.list_product_photos(user_id=user_id):
-                if str(p.get("supplier_article") or "").strip() == article:
-                    product = p
-                    break
+    """Attach catalog ШК/label without wiping order/goods-return barcodes."""
+    existing_catalog = [
+        str(b or "").strip()
+        for b in (item.get("catalog_barcodes") or [])
+        if str(b or "").strip()
+    ]
+    existing_product = [
+        str(b or "").strip()
+        for b in (item.get("product_barcodes") or [])
+        if str(b or "").strip()
+    ]
+    existing_label = str(item.get("barcode_label_name") or "").strip()
+
+    product = _catalog_product_for_scan_item(
+        repo, user_id=user_id, item=item, by_article=by_article
+    )
     if product is None:
         gtin14 = str(item.get("gtin14") or "").strip()
         if gtin14:
             fields = _product_from_gtin(repo, user_id=user_id, gtin14=gtin14)
-            item["catalog_barcodes"] = list(fields.get("catalog_barcodes") or [])
-            item["barcode_label_name"] = str(fields.get("barcode_label_name") or "").strip()
+            gtin_barcodes = [
+                str(b or "").strip()
+                for b in (fields.get("catalog_barcodes") or [])
+                if str(b or "").strip()
+            ]
+            label = str(fields.get("barcode_label_name") or "").strip()
+            merged = list(existing_catalog)
+            for b in gtin_barcodes + existing_product:
+                if b and b not in merged:
+                    merged.append(b)
+            if merged:
+                item["catalog_barcodes"] = merged
+            elif existing_product:
+                item["catalog_barcodes"] = list(existing_product)
+            if label and not existing_label:
+                item["barcode_label_name"] = label
             return item
-    item.update(_catalog_fields_from_product(product))
+        # No catalog hit — keep order ШК printable via catalog_barcodes.
+        if not existing_catalog and existing_product:
+            item["catalog_barcodes"] = list(existing_product)
+        return item
+
+    catalog_fields = _catalog_fields_from_product(product)
+    merged = list(existing_catalog)
+    for b in list(catalog_fields.get("catalog_barcodes") or []) + existing_product:
+        text = str(b or "").strip()
+        if text and text not in merged:
+            merged.append(text)
+    item["catalog_barcodes"] = merged
+    label = str(catalog_fields.get("barcode_label_name") or "").strip()
+    if label:
+        item["barcode_label_name"] = label
+    elif not existing_label:
+        item["barcode_label_name"] = ""
+
+    # Fill sparse name/photo from catalog when order maps were empty.
+    if not str(item.get("product_name") or "").strip():
+        cat_name = str(product.get("name") or "").strip()
+        if cat_name:
+            item["product_name"] = cat_name
+    if not str(item.get("product_article") or "").strip():
+        art = str(product.get("supplier_article") or "").strip()
+        if art:
+            item["product_article"] = art
+    if not str(item.get("product_photo") or "").strip():
+        pid = int(product.get("id") or 0)
+        if pid and product.get("photo_path"):
+            item["product_photo"] = f"/api/products/photo/{pid}"
     return item
 
 
@@ -2097,6 +2447,9 @@ def _scan_item_for_api(
 ) -> dict[str, Any]:
     """API scan row with catalog barcodes for «Распечатать ШК»."""
     item = _scan_row_to_api(row)
+    item = _refresh_scan_item_product_from_order(
+        repo, user_id=user_id, item=item
+    )
     return _enrich_return_scan_catalog_fields(
         repo,
         user_id=user_id,
@@ -2524,6 +2877,10 @@ def _process_return_sticker_scan(
         else None
     )
     product = _product_from_order(repo, user_id=user_id, order_row=order_row)
+    product = _merge_product_fields(
+        product,
+        _product_from_goods_return(repo, user_id=user_id, goods_row=goods_row),
+    )
     kiz_codes = (
         _kiz_codes_for_order(
             repo,

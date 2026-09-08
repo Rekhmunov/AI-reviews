@@ -15689,9 +15689,8 @@ function _stockReturnRestoreRenderTable() {
     const kizHtml = kizCode
       ? `<div class="wb-fbs-kiz is-ok" title="${_wbFbsEsc(kizCode)}">КИЗ</div>`
       : "";
-    const catalogBarcodes = _wbFbsReturnsPrintableBarcodes(_wbFbsReturnsCatalogBarcodes(item));
     const canPrintKiz = !!kizCode;
-    const canPrintBarcode = catalogBarcodes.length > 0;
+    const canPrintBarcode = barcodes.length > 0;
     const hitCls = rowKey && rowKey === hitKey ? " is-scan-hit" : "";
     const safeKey = `rr_${rowKey.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
     return `<tr class="wb-fbs-sd-click-row${hitCls}" data-row-key="${_wbFbsEsc(rowKey)}">
@@ -15719,7 +15718,7 @@ function _stockReturnRestoreRenderTable() {
           <div id="wbFbsRowMenu_${safeKey}" class="wb-fbs-row-menu" data-order-id="${safeKey}" role="menu">
             <button type="button" class="wb-fbs-row-menu-item${canPrintBarcode ? "" : " is-disabled"}" role="menuitem"
                     ${canPrintBarcode ? `onclick="printStockReturnRestoreBarcode('${_wbFbsEsc(rowKey)}')"` : "disabled"}
-                    ${canPrintBarcode ? "" : 'title="Нет ШК в каталоге товаров"'}>
+                    ${canPrintBarcode ? "" : 'title="Нет ШК для печати"'}>
               ${_stockReturnRestoreBarcodeIconHtml()}
               Распечатать ШК
             </button>
@@ -15907,9 +15906,9 @@ window.printStockReturnRestoreKiz = printStockReturnRestoreKiz;
 function printStockReturnRestoreBarcode(rowKey) {
   if (typeof _wbFbsCloseRowMenus === "function") _wbFbsCloseRowMenus();
   const item = _stockReturnRestoreFindItem(rowKey) || stockReturnRestoreState.items[0] || null;
-  const barcodes = _wbFbsReturnsPrintableBarcodes(_wbFbsReturnsCatalogBarcodes(item));
+  const barcodes = _stockReturnRestoreBarcodes(item);
   if (!barcodes.length) {
-    _stockReturnRestoreSetInfo("У товара нет ШК в каталоге (Настройки → Товары)", "warn");
+    _stockReturnRestoreSetInfo("У товара нет ШК для печати (заказ или каталог)", "warn");
     return;
   }
   const labelText = _wbFbsReturnsBarcodeLabelText(item);

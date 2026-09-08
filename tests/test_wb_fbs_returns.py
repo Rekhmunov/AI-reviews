@@ -1170,5 +1170,150 @@ class RestoreScanTests(unittest.TestCase):
         self.assertEqual(info["sources"][1]["goods_rows"], 0)
 
 
+class RestoreReturnStickerProductEnrichTests(unittest.TestCase):
+    """Return sticker restore must hydrate name/photo/ШК from local order."""
+
+    def test_enrich_keeps_order_barcodes_without_catalog_match(self):
+        repo = MagicMock()
+        repo.list_product_photos.return_value = []
+        item = {
+            "product_article": "art-x",
+            "product_name": "Наматрасник",
+            "product_barcodes": ["2051501276324"],
+            "catalog_barcodes": ["2051501276324"],
+        }
+        out = returns._enrich_return_scan_catalog_fields(
+            repo, user_id=1, item=dict(item)
+        )
+        self.assertEqual(out["catalog_barcodes"], ["2051501276324"])
+        self.assertEqual(out["product_name"], "Наматрасник")
+
+    def test_resolve_order_falls_back_to_other_source(self):
+        repo = MagicMock()
+        order = {
+            "order_id": 5463703395,
+            "source_id": 7,
+            "article": "nambambbort180200greybort18020030",
+            "nm_id": 1067501678,
+            "skus_json": '["2051501276324"]',
+        }
+        with patch(
+            "review_processor.wb_fbs_returns.kiz_restore.resolve_order_for_restore",
+            return_value=None,
+        ), patch(
+            "review_processor.wb_fbs_returns._find_local_order_any_source",
+            return_value=order,
+        ) as find_any:
+            row = returns._resolve_order_row(
+                repo, user_id=1, source_id=2, order_id=5463703395, api_key=""
+            )
+        self.assertEqual(row["order_id"], 5463703395)
+        find_any.assert_called_once()
+
+    @patch("review_processor.wb_fbs_returns._insert_return_scan")
+    @patch("review_processor.wb_fbs_returns._kiz_codes_for_order", return_value=[])
+    @patch("review_processor.wb_fbs_returns._return_scan_duplicate", return_value=None)
+    @patch("review_processor.wb_fbs_returns._resolve_order_row")
+    def test_return_sticker_fills_product_from_order(
+        self, resolve_order, _dup, _kiz, insert
+    ):
+        resolve_order.return_value = {
+            "order_id": 5463703395,
+            "article": "nambambbort180200greybort18020030",
+            "nm_id": 1067501678,
+            "skus_json": '["2051501276324"]',
+            "sticker_part_a": "5669411",
+            "sticker_part_b": "5771",
+            "sticker_barcode": "",
+        }
+        repo = MagicMock()
+        repo.get_product_name_by_article.return_value = {
+            "nambambbort180200greybort18020030": "Наматрасник стеганый 180х200",
+            "1067501678": "Наматрасник стеганый 180х200",
+        }
+        repo.get_product_photo_map.return_value = {
+            "nambambbort180200greybort18020030": "/api/products/photo/9",
+        }
+        repo.list_product_photos.return_value = [
+            {
+                "id": 9,
+                "name": "Наматрасник стеганый 180х200",
+                "supplier_article": "nambambbort180200greybort18020030",
+                "wb_nmid": "1067501678",
+                "barcodes": ["2051501276324"],
+                "photo_path": "/x.jpg",
+                "barcode_label_name": "",
+            }
+        ]
+
+        captured = {}
+
+        def _insert(*_a, **kwargs):
+            payload = kwargs["payload"]
+            captured["payload"] = payload
+            return {"id": 1, **payload}
+
+        insert.side_effect = _insert
+        result = returns._process_return_sticker_scan(
+            repo,
+            user_id=1,
+            source_id=2,
+            api_key="",
+            scan="54628560521",
+            goods_row={
+                "sticker_id": "54628560521",
+                "wb_order_id": 5463703395,
+                "barcode": "2051501276324",
+                "nm_id": 1067501678,
+                "srid": "",
+            },
+        )
+        self.assertTrue(result["ok"])
+        payload = captured["payload"]
+        self.assertEqual(payload["product_name"], "Наматрасник стеганый 180х200")
+        self.assertEqual(payload["product_article"], "nambambbort180200greybort18020030")
+        self.assertIn("2051501276324", payload.get("product_barcodes") or [])
+        self.assertTrue(payload.get("product_photo"))
+        self.assertIn("2051501276324", payload.get("catalog_barcodes") or [])
+
+    @patch("review_processor.wb_fbs_returns._update_return_scan_product_fields")
+    @patch("review_processor.wb_fbs_returns.find_goods_return_by_scan", return_value=None)
+    @patch("review_processor.wb_fbs_returns._resolve_order_row")
+    def test_refresh_duplicate_row_backfills_product(self, resolve_order, _goods, _update):
+        resolve_order.return_value = {
+            "order_id": 5463703395,
+            "article": "nambambbort180200greybort18020030",
+            "nm_id": 1067501678,
+            "skus_json": '["2051501276324"]',
+        }
+        repo = MagicMock()
+        repo.get_product_name_by_article.return_value = {
+            "nambambbort180200greybort18020030": "Наматрасник стеганый 180х200",
+        }
+        repo.get_product_photo_map.return_value = {
+            "nambambbort180200greybort18020030": "/api/products/photo/9",
+        }
+        repo.list_product_photos.return_value = []
+        item = {
+            "id": 55,
+            "source_id": 2,
+            "order_id": 5463703395,
+            "product_name": "",
+            "product_article": "",
+            "product_photo": "",
+            "product_barcodes": [],
+            "catalog_barcodes": [],
+        }
+        out = returns._refresh_scan_item_product_from_order(
+            repo, user_id=1, item=item
+        )
+        self.assertEqual(out["product_name"], "Наматрасник стеганый 180х200")
+        self.assertEqual(out["product_article"], "nambambbort180200greybort18020030")
+        self.assertIn("2051501276324", out["product_barcodes"])
+        self.assertIn("2051501276324", out["catalog_barcodes"])
+
+
+
+
 if __name__ == "__main__":
     unittest.main()

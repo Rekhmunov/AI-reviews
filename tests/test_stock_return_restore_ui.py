@@ -60,6 +60,8 @@ def test_restore_js_wiring_no_sync() -> None:
     assert "/api/wb-fbs/returns/restore/scan" in APP_JS
     assert "/api/wb-fbs/returns/restore/cache-info" in APP_JS
     assert "Распечатать ШК" in APP_JS
+    assert "const canPrintBarcode = barcodes.length > 0" in APP_JS
+    assert "_stockReturnRestoreBarcodes(item)" in APP_JS
     assert "Распечатать КИЗ" in APP_JS
     assert "_wbFbsReturnsPrintHtml" in APP_JS
     assert "_wbFbsReturnsDoBarcodePrint" in APP_JS
@@ -102,5 +104,5 @@ def test_restore_styles_layering() -> None:
 
 
 def test_asset_versions_bumped() -> None:
-    assert "app.js?v=570" in APP_HTML
+    assert "app.js?v=571" in APP_HTML
     assert "style.css?v=323" in APP_HTML
