@@ -2644,3 +2644,119 @@ def test_load_kiz_codes_for_order_prefers_return_op() -> None:
             prefer_return=True,
         )
     assert codes == ["010467012345678921RETURN"]
+
+
+def test_fiscal_day_parses_iso_and_datetime() -> None:
+    assert circ._fiscal_day("2026-08-10") == "2026-08-10"
+    assert circ._fiscal_day("2026-08-10T15:30:00") == "2026-08-10"
+    assert circ._fiscal_day("") == ""
+    assert circ._fiscal_day(None) == ""
+
+
+def test_attach_buyout_dt_withdraw_uses_fiscal_day() -> None:
+    events = [
+        {
+            "operation_type": circ.OP_WITHDRAW,
+            "excise_short": "CIS1",
+            "srid": "s1",
+            "fiscal_dt": "2026-08-11T12:00:00",
+        },
+        {
+            "operation_type": circ.OP_RETURN,
+            "excise_short": "CIS1",
+            "srid": "s1",
+            "fiscal_dt": "2026-09-01",
+        },
+    ]
+    repo = MagicMock()
+    with patch.object(circ, "ensure_kiz_circulation_tables"):
+        circ._attach_buyout_dt_to_events(
+            repo, user_id=1, source_id=2, events=events
+        )
+    assert events[0]["buyout_dt"] == "2026-08-11"
+    assert events[1]["buyout_dt"] == "2026-08-11"
+
+
+def test_attach_buyout_dt_return_looks_up_prior_withdraw() -> None:
+    events = [
+        {
+            "operation_type": circ.OP_RETURN,
+            "excise_short": "CIS-X",
+            "srid": "srid-x",
+            "fiscal_dt": "2026-09-02",
+        }
+    ]
+    repo = MagicMock()
+    conn = MagicMock()
+    conn.execute.return_value.fetchall.return_value = [
+        {"excise_short": "CIS-X", "srid": "srid-x", "fiscal_dt": "2026-07-15"}
+    ]
+    repo._connect.return_value.__enter__ = MagicMock(return_value=conn)
+    repo._connect.return_value.__exit__ = MagicMock(return_value=False)
+    repo._sql.side_effect = lambda s: s
+    repo._row_to_dict.side_effect = lambda r: dict(r)
+
+    with patch.object(circ, "ensure_kiz_circulation_tables"):
+        circ._attach_buyout_dt_to_events(
+            repo, user_id=1, source_id=2, events=events
+        )
+    assert events[0]["buyout_dt"] == "2026-07-15"
+
+
+def test_list_events_pagination_has_more() -> None:
+    repo = MagicMock()
+    conn = MagicMock()
+
+    def _execute(sql, params=None):
+        cur = MagicMock()
+        sql_s = str(sql)
+        if "COUNT(*)" in sql_s:
+            cur.fetchone.return_value = {"cnt": 5}
+            return cur
+        # page of 2
+        cur.fetchall.return_value = [
+            {
+                "event_key": "a",
+                "status": "pending",
+                "operation_type": 1,
+                "excise_short": "c1",
+                "srid": "s1",
+                "fiscal_dt": "2026-08-01",
+                "cis_status": "",
+                "cis_owner_inn": "",
+                "raw_json": "{}",
+            },
+            {
+                "event_key": "b",
+                "status": "pending",
+                "operation_type": 1,
+                "excise_short": "c2",
+                "srid": "s2",
+                "fiscal_dt": "2026-08-02",
+                "cis_status": "",
+                "cis_owner_inn": "",
+                "raw_json": "{}",
+            },
+        ]
+        return cur
+
+    conn.execute.side_effect = _execute
+    repo._connect.return_value.__enter__ = MagicMock(return_value=conn)
+    repo._connect.return_value.__exit__ = MagicMock(return_value=False)
+    repo._sql.side_effect = lambda s: s
+    repo._row_to_dict.side_effect = lambda r: dict(r)
+
+    with (
+        patch.object(circ, "ensure_kiz_circulation_tables"),
+        patch.object(circ, "get_chz_settings", return_value={"participant_inn": ""}),
+        patch.object(circ, "_attach_order_ids_to_events"),
+        patch.object(circ, "_attach_buyout_dt_to_events"),
+    ):
+        page = circ.list_events(
+            repo, user_id=1, source_id=2, limit=2, offset=0
+        )
+    assert page["total"] == 5
+    assert page["offset"] == 0
+    assert page["limit"] == 2
+    assert page["has_more"] is True
+    assert len(page["items"]) == 2

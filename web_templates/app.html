@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=318" />
+  <link rel="stylesheet" href="/static/style.css?v=319" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1917,6 +1917,16 @@
                   <button type="button" class="secondary" id="wbFbsKizCircCisStatusBtn" onclick="refreshWbFbsKizCircCisStatus()" title="Статус кода в ЧЗ: в обороте / выведен / передан (чужой ИНН)">Статус КИЗ</button>
                   <button type="button" class="secondary" onclick="refreshWbFbsKizCirculation()">Обновить</button>
                   <button type="button" class="secondary" id="wbFbsKizCircLogBtn" onclick="openWbFbsKizCircLogModal()">Лог</button>
+                  <button
+                    type="button"
+                    id="wbFbsKizCircFiltersBtn"
+                    class="secondary reviews-filter-icon-btn wb-fbs-kiz-circ-filter-icon-btn"
+                    title="Фильтры"
+                    aria-label="Фильтры"
+                    aria-expanded="false"
+                    aria-controls="wbFbsKizCircFilters"
+                    onclick="toggleWbFbsKizCircFiltersPanel()"
+                  >⛃</button>
                 </div>
                 <div class="wb-fbs-kiz-circ-meta">
                   <span id="wbFbsKizCircCounts" class="wb-fbs-kiz-circ-counts"></span>
@@ -1924,7 +1934,7 @@
                 </div>
               </div>
 
-              <div class="wb-fbs-kiz-circ-filters" id="wbFbsKizCircFilters">
+              <div class="wb-fbs-kiz-circ-filters hidden" id="wbFbsKizCircFilters" hidden>
                 <div class="wb-fbs-kiz-circ-filter-block">
                   <span class="wb-fbs-kiz-circ-filter-label">Статус ЧЗ</span>
                   <div class="wb-fbs-kiz-circ-status-chips" id="wbFbsKizCircStatusChips" role="group" aria-label="Статусы ЧЗ">
@@ -1967,13 +1977,13 @@
                     <span>Поиск</span>
                     <input type="search" id="wbFbsKizCircSearch" placeholder="Заказ, КИЗ, srid, чек…" autocomplete="off" oninput="onWbFbsKizCircFilterChange()" />
                   </label>
-                  <label class="wb-fbs-kiz-circ-field" for="wbFbsKizCircFiscalFrom">
-                    <span>Дата чека с</span>
-                    <input type="date" id="wbFbsKizCircFiscalFrom" onchange="onWbFbsKizCircFilterChange()" />
+                  <label class="wb-fbs-kiz-circ-field" for="wbFbsKizCircBuyoutFrom">
+                    <span>Дата выкупа с</span>
+                    <input type="date" id="wbFbsKizCircBuyoutFrom" onchange="onWbFbsKizCircFilterChange()" />
                   </label>
-                  <label class="wb-fbs-kiz-circ-field" for="wbFbsKizCircFiscalTo">
+                  <label class="wb-fbs-kiz-circ-field" for="wbFbsKizCircBuyoutTo">
                     <span>по</span>
-                    <input type="date" id="wbFbsKizCircFiscalTo" onchange="onWbFbsKizCircFilterChange()" />
+                    <input type="date" id="wbFbsKizCircBuyoutTo" onchange="onWbFbsKizCircFilterChange()" />
                   </label>
                   <label class="wb-fbs-kiz-circ-check" for="wbFbsKizCircOnlyError">
                     <input type="checkbox" id="wbFbsKizCircOnlyError" onchange="onWbFbsKizCircFilterChange()" />
@@ -1986,32 +1996,53 @@
             </div>
             <div class="wb-fbs-kiz-circ-body">
               <div class="wb-fbs-kiz-circ-table-wrap">
-                <table class="wb-fbs-kiz-circ-table" aria-label="События КИЗ">
+                <table class="wb-fbs-kiz-circ-table" id="wbFbsKizCircTable" aria-label="События КИЗ">
+                  <colgroup id="wbFbsKizCircColgroup">
+                    <col data-col="check" style="width:44px" />
+                    <col data-col="buyout" style="width:110px" />
+                    <col data-col="fiscal" style="width:110px" />
+                    <col data-col="op" style="width:88px" />
+                    <col data-col="order" style="width:110px" />
+                    <col data-col="order_st" style="width:140px" />
+                    <col data-col="srid" style="width:140px" />
+                    <col data-col="kiz" style="width:160px" />
+                    <col data-col="cis" style="width:120px" />
+                    <col data-col="receipt" style="width:100px" />
+                    <col data-col="status" style="width:140px" />
+                    <col data-col="doc" style="width:140px" />
+                  </colgroup>
                   <thead>
                     <tr>
-                      <th class="wb-fbs-kiz-circ-check-col" scope="col">
+                      <th class="wb-fbs-kiz-circ-check-col" data-col="check" scope="col">
                         <label class="wb-fbs-kiz-circ-row-check" title="Выбрать все видимые к передаче">
                           <input type="checkbox" id="wbFbsKizCircSelectAll"
                                  onchange="toggleWbFbsKizCircSelectAll(this.checked)"
                                  aria-label="Выбрать все видимые" />
                         </label>
                       </th>
-                      <th>Дата чека</th>
-                      <th>Тип</th>
-                      <th>Заказ</th>
-                      <th>Статус заказа</th>
-                      <th>srid</th>
-                      <th>КИЗ</th>
-                      <th>Код в ЧЗ</th>
-                      <th>Чек</th>
-                      <th>Статус</th>
-                      <th>Документ ЧЗ</th>
+                      <th data-col="buyout">Дата выкупа<span class="col-resize-handle"></span></th>
+                      <th data-col="fiscal">Дата чека<span class="col-resize-handle"></span></th>
+                      <th data-col="op">Тип<span class="col-resize-handle"></span></th>
+                      <th data-col="order">Заказ<span class="col-resize-handle"></span></th>
+                      <th data-col="order_st">Статус заказа<span class="col-resize-handle"></span></th>
+                      <th data-col="srid">srid<span class="col-resize-handle"></span></th>
+                      <th data-col="kiz">КИЗ<span class="col-resize-handle"></span></th>
+                      <th data-col="cis">Код в ЧЗ<span class="col-resize-handle"></span></th>
+                      <th data-col="receipt">Чек<span class="col-resize-handle"></span></th>
+                      <th data-col="status">Статус<span class="col-resize-handle"></span></th>
+                      <th data-col="doc">Документ ЧЗ<span class="col-resize-handle"></span></th>
                     </tr>
                   </thead>
                   <tbody id="wbFbsKizCircTbody">
-                    <tr><td colspan="11" class="wb-fbs-kiz-circ-empty">Нет данных — выберите даты и нажмите «Ежедневный вывод»</td></tr>
+                    <tr><td colspan="12" class="wb-fbs-kiz-circ-empty">Нет данных — выберите даты и нажмите «Ежедневный вывод»</td></tr>
                   </tbody>
                 </table>
+              </div>
+              <div class="wb-fbs-kiz-circ-load-more-wrap">
+                <p id="wbFbsKizCircPageInfo" class="wb-fbs-kiz-circ-page-info"></p>
+                <button type="button" class="secondary" id="wbFbsKizCircLoadMoreBtn" onclick="loadMoreWbFbsKizCirculation()" hidden>
+                  Загрузить ещё 2000
+                </button>
               </div>
             </div>
           </div>
@@ -6733,6 +6764,6 @@
 
   <script src="/static/ozon_fbs.js?v=138"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=20"></script>
-  <script src="/static/app.js?v=562"></script>
+  <script src="/static/app.js?v=563"></script>
 </body>
 </html>

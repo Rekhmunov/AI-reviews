@@ -12041,6 +12041,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         status: str = "",
         operation_type: int = 0,
         limit: int = 200,
+        offset: int = 0,
     ) -> dict[str, object]:
         from . import wb_kiz_circulation as kiz_circ
 
@@ -12061,13 +12062,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except Exception:
             healed = {"healed": 0}
         try:
-            items = kiz_circ.list_events(
+            page = kiz_circ.list_events(
                 repository,
                 user_id=owner_id,
                 source_id=int(source_id),
                 status=str(status or ""),
                 operation_type=int(operation_type) if operation_type else None,
                 limit=int(limit or 200),
+                offset=int(offset or 0),
                 api_key=api_key,
                 hydrate_orders=False,
                 refresh_statuses=True,
@@ -12076,9 +12078,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(
                 status_code=400, detail=f"Ошибка списка КИЗ: {exc}"
             ) from exc
+        items = list(page.get("items") or []) if isinstance(page, dict) else list(page or [])
+        total = int(page.get("total") or len(items)) if isinstance(page, dict) else len(items)
+        off = int(page.get("offset") or offset or 0) if isinstance(page, dict) else int(offset or 0)
+        lim = int(page.get("limit") or limit or 200) if isinstance(page, dict) else int(limit or 200)
+        has_more = bool(page.get("has_more")) if isinstance(page, dict) else False
         return {
             "items": items,
-            "total": len(items),
+            "total": total,
+            "offset": off,
+            "limit": lim,
+            "has_more": has_more,
             "healed": int((healed or {}).get("healed") or 0),
             "not_fbs_skipped": 0,
             "not_fbs_purged": 0,
