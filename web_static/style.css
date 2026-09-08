@@ -6211,6 +6211,22 @@ body.sst-col-resizing * {
   z-index: 4;
   background: #f8fafc;
 }
+/* ГТД: «Работа с ЧЗ» + ✎ + 🗑 не влезают в стандартные 180px sticky-столбца. */
+#supplies-settings-pane-gtd .supply-sources-table th.sst-actions-col,
+#supplies-settings-pane-gtd .supply-sources-table td:last-child {
+  width: 268px;
+  min-width: 268px;
+  max-width: 268px;
+  overflow: hidden;
+}
+#supplies-settings-pane-gtd .supply-sources-table .sst-edit-actions .small-btn.icon-btn {
+  min-width: 32px;
+  min-height: 32px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 14px;
+}
 #section-supplies-settings .supply-sources-table .sst-edit-actions {
   display: flex;
   align-items: center;
