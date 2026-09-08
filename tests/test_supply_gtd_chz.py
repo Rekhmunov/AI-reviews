@@ -275,5 +275,53 @@ class ResubmitGuardTests(unittest.TestCase):
         self.assertIn("подходящих", str(ctx.exception).lower())
 
 
+class ListGtdKizPaginationTests(unittest.TestCase):
+    def test_list_uses_sql_limit_offset(self) -> None:
+        repo = _repo_with_rows()
+        conn = repo._connect.return_value.__enter__.return_value
+        # total, kind_counts, filtered_total, page rows
+        conn.execute.return_value.fetchone.side_effect = [
+            {"n": 5},
+            {"n": 5},
+        ]
+        conn.execute.return_value.fetchall.side_effect = [
+            [{"kind": gtd_chz.KIND_EMPTY, "n": 5}],
+            [
+                {
+                    "kiz_id": 1,
+                    "kiz_short": "0104670172422564215MpGb)qC19x29",
+                    "gtin": "04670172422564",
+                    "cis_status": "",
+                    "cis_status_kind": gtd_chz.KIND_EMPTY,
+                    "cis_status_label": "",
+                    "cis_owner_inn": "",
+                    "cis_status_error": "",
+                    "cis_checked_at": "",
+                    "last_op": "",
+                    "last_doc_id": "",
+                    "last_doc_type": "",
+                    "last_op_status": "",
+                    "last_op_error": "",
+                }
+            ],
+        ]
+        gtd = {"id": 5, "gtd_number": "10323010/250826/5101277", "kiz_count": 5, "note": ""}
+        with patch.object(gtd_chz, "_require_gtd", return_value=gtd), patch.object(
+            gtd_chz, "ensure_supply_gtd_chz_tables"
+        ):
+            out = gtd_chz.list_gtd_kiz_for_chz(
+                repo, user_id=1, gtd_id=5, offset=0, limit=1
+            )
+        self.assertEqual(out["total"], 5)
+        self.assertEqual(out["filtered_total"], 5)
+        self.assertEqual(len(out["items"]), 1)
+        self.assertTrue(out["has_more"])
+        # Last execute should be the page query with LIMIT/OFFSET
+        last_sql = conn.execute.call_args_list[-1].args[0]
+        self.assertIn("LIMIT ?", last_sql)
+        self.assertIn("OFFSET ?", last_sql)
+        self.assertEqual(conn.execute.call_args_list[-1].args[1][-2:], (1, 0))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -22965,7 +22965,8 @@ const _supplyGtdChzState = {
   kindFilter: "",
   search: "",
   offset: 0,
-  limit: 2000,
+  // One request for typical GTD sizes (up to ~15–20k). Server paginates in SQL.
+  limit: 20000,
   hasMore: false,
   total: 0,
   filteredTotal: 0,
@@ -23028,18 +23029,33 @@ function _supplyGtdChzRenderMeta() {
   const sel = document.getElementById("supplyGtdChzSelectedInfo");
   const visible = _supplyGtdChzVisibleItems();
   if (counts) {
-    counts.textContent = `КИЗ: ${_supplyGtdChzState.total}`
-      + (_supplyGtdChzState.kindFilter || _supplyGtdChzState.search
-        ? ` · показано ${visible.length}`
-        : "");
+    if (_supplyGtdChzState.busy && !_supplyGtdChzState.items.length) {
+      counts.textContent = "Загрузка…";
+    } else {
+      const total = _supplyGtdChzState.total;
+      const shown = visible.length;
+      if (_supplyGtdChzState.kindFilter || _supplyGtdChzState.search) {
+        counts.textContent = `КИЗ: ${total} · показано ${shown}`;
+      } else if (shown && shown < total) {
+        counts.textContent = `КИЗ: ${total} · загружено ${shown}`;
+      } else {
+        counts.textContent = `КИЗ: ${total}`;
+      }
+    }
   }
   if (sel) {
     sel.textContent = _supplyGtdChzState.selected.size
       ? `Выбрано: ${_supplyGtdChzState.selected.size}`
       : "";
   }
+  const moreWrap = document.getElementById("supplyGtdChzLoadMoreWrap");
   const more = document.getElementById("supplyGtdChzLoadMoreBtn");
-  if (more) more.hidden = !_supplyGtdChzState.hasMore;
+  const showMore = Boolean(_supplyGtdChzState.hasMore) && !_supplyGtdChzState.busy;
+  if (moreWrap) moreWrap.hidden = !showMore;
+  if (more) {
+    more.hidden = !showMore;
+    more.disabled = _supplyGtdChzState.busy;
+  }
   const all = document.getElementById("supplyGtdChzSelectAll");
   if (all) {
     const visKeys = visible.map((it) => it.kiz_short).filter(Boolean);
@@ -23056,11 +23072,16 @@ function _supplyGtdChzRenderTable() {
   if (!tbody) return;
   const items = _supplyGtdChzVisibleItems();
   if (!items.length) {
-    tbody.innerHTML = `<tr><td colspan="7" class="wb-fbs-empty">Нет КИЗ</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="wb-fbs-empty">${
+      _supplyGtdChzState.busy ? "Загрузка…" : "Нет КИЗ"
+    }</td></tr>`;
     _supplyGtdChzRenderMeta();
     return;
   }
-  tbody.innerHTML = items.map((it) => {
+  // Chunked HTML build keeps UI responsive on 10k+ rows.
+  const parts = new Array(items.length);
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
     const ks = String(it.kiz_short || "");
     const kind = String(it.cis_status_kind || "unchecked");
     const label = String(it.cis_status_label || "Не проверен");
@@ -23070,7 +23091,7 @@ function _supplyGtdChzRenderTable() {
       : "—";
     const err = String(it.cis_status_error || it.last_op_error || "").trim() || "—";
     const checkedAt = String(it.cis_checked_at || "").replace("T", " ").slice(0, 19) || "—";
-    return `<tr data-kiz="${_supplyGtdChzEsc(ks)}">
+    parts[i] = `<tr data-kiz="${_supplyGtdChzEsc(ks)}">
       <td><input type="checkbox" data-kiz="${_supplyGtdChzEsc(ks)}" ${checked}
                  aria-label="Выбрать КИЗ"
                  onchange="toggleSupplyGtdChzRow(this.dataset.kiz, this.checked)" /></td>
@@ -23081,50 +23102,58 @@ function _supplyGtdChzRenderTable() {
       <td title="${_supplyGtdChzEsc(err)}">${_supplyGtdChzEsc(err)}</td>
       <td>${_supplyGtdChzEsc(checkedAt)}</td>
     </tr>`;
-  }).join("");
+  }
+  tbody.innerHTML = parts.join("");
   _supplyGtdChzRenderMeta();
 }
 
 async function _supplyGtdChzFetch(reset) {
   const gid = _supplyGtdChzState.gtdId;
   if (!gid) return;
+  if (_supplyGtdChzState.busy) return;
   if (reset) {
     _supplyGtdChzState.offset = 0;
     _supplyGtdChzState.items = [];
   }
-  const params = new URLSearchParams({
-    offset: String(_supplyGtdChzState.offset),
-    limit: String(_supplyGtdChzState.limit),
-  });
-  if (_supplyGtdChzState.kindFilter) {
-    params.set("status_kind", _supplyGtdChzState.kindFilter);
+  _supplyGtdChzState.busy = true;
+  _supplyGtdChzRenderMeta();
+  try {
+    const params = new URLSearchParams({
+      offset: String(_supplyGtdChzState.offset),
+      limit: String(_supplyGtdChzState.limit),
+    });
+    if (_supplyGtdChzState.kindFilter) {
+      params.set("status_kind", _supplyGtdChzState.kindFilter);
+    }
+    const res = await fetch(`/api/supply-gtd/${gid}/chz/kiz?${params}`, {
+      headers: jsonHeaders(),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(_supplyGtdChzApiError(res, data, "Не удалось загрузить КИЗ"));
+    const gtd = data.gtd || {};
+    _supplyGtdChzState.gtdNumber = String(gtd.gtd_number || _supplyGtdChzState.gtdNumber || "");
+    const sub = document.getElementById("supplyGtdChzSubtitle");
+    if (sub) sub.textContent = _supplyGtdChzState.gtdNumber
+      ? `ГТД ${_supplyGtdChzState.gtdNumber}`
+      : "";
+    const title = document.getElementById("supplyGtdChzTitle");
+    if (title) title.textContent = "Работа с ЧЗ";
+    const batch = Array.isArray(data.items) ? data.items : [];
+    if (reset) _supplyGtdChzState.items = batch;
+    else _supplyGtdChzState.items = _supplyGtdChzState.items.concat(batch);
+    _supplyGtdChzState.total = Number(data.total || 0);
+    _supplyGtdChzState.filteredTotal = Number(data.filtered_total || 0);
+    _supplyGtdChzState.hasMore = Boolean(data.has_more);
+    _supplyGtdChzState.offset = _supplyGtdChzState.items.length;
+    const alive = new Set(_supplyGtdChzState.items.map((it) => it.kiz_short));
+    _supplyGtdChzState.selected = new Set(
+      [..._supplyGtdChzState.selected].filter((k) => alive.has(k))
+    );
+    _supplyGtdChzRenderTable();
+  } finally {
+    _supplyGtdChzState.busy = false;
+    _supplyGtdChzRenderMeta();
   }
-  const res = await fetch(`/api/supply-gtd/${gid}/chz/kiz?${params}`, {
-    headers: jsonHeaders(),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(_supplyGtdChzApiError(res, data, "Не удалось загрузить КИЗ"));
-  const gtd = data.gtd || {};
-  _supplyGtdChzState.gtdNumber = String(gtd.gtd_number || _supplyGtdChzState.gtdNumber || "");
-  const sub = document.getElementById("supplyGtdChzSubtitle");
-  if (sub) sub.textContent = _supplyGtdChzState.gtdNumber
-    ? `ГТД ${_supplyGtdChzState.gtdNumber}`
-    : "";
-  const title = document.getElementById("supplyGtdChzTitle");
-  if (title) title.textContent = "Работа с ЧЗ";
-  const batch = Array.isArray(data.items) ? data.items : [];
-  if (reset) _supplyGtdChzState.items = batch;
-  else _supplyGtdChzState.items = _supplyGtdChzState.items.concat(batch);
-  _supplyGtdChzState.total = Number(data.total || 0);
-  _supplyGtdChzState.filteredTotal = Number(data.filtered_total || 0);
-  _supplyGtdChzState.hasMore = Boolean(data.has_more);
-  _supplyGtdChzState.offset = _supplyGtdChzState.items.length;
-  // drop selections that are no longer present
-  const alive = new Set(_supplyGtdChzState.items.map((it) => it.kiz_short));
-  _supplyGtdChzState.selected = new Set(
-    [..._supplyGtdChzState.selected].filter((k) => alive.has(k))
-  );
-  _supplyGtdChzRenderTable();
 }
 
 async function openSupplyGtdChzModal(gtdId) {

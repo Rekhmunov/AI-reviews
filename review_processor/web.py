@@ -11366,7 +11366,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         request: Request,
         gtd_id: int,
         offset: int = 0,
-        limit: int = 2000,
+        limit: int = 20000,
         status_kind: str | None = None,
     ) -> dict[str, object]:
         from . import supply_gtd_chz as gtd_chz
@@ -11380,7 +11380,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 user_id=_supply_owner_id(user),
                 gtd_id=int(gtd_id),
                 offset=int(offset or 0),
-                limit=int(limit or 2000),
+                limit=int(limit or 20000),
                 status_kind=str(status_kind or ""),
             )
         except ValueError as exc:

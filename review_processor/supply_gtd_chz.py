@@ -187,11 +187,35 @@ def list_gtd_kiz_for_chz(
     limit: int = 2000,
     status_kind: str = "",
 ) -> dict[str, Any]:
+    """List GTD KIZ for CHZ modal.
+
+    Pagination is done in SQL (LIMIT/OFFSET). Previously every page request
+    loaded the full GTD into Python — that made «Ещё» slow on 10k+ rows.
+    """
     ensure_supply_gtd_chz_tables(repo)
     gtd = _require_gtd(repo, user_id=user_id, gtd_id=gtd_id)
     off = max(0, int(offset or 0))
-    lim = max(1, min(int(limit or 2000), 5000))
+    lim = max(1, min(int(limit or 2000), 20000))
     kind_filter = str(status_kind or "").strip()
+
+    # Normalize empty/NULL status kind to KIND_EMPTY in SQL (safe const).
+    kind_expr = (
+        "CASE WHEN s.cis_status_kind IS NULL OR TRIM(s.cis_status_kind) = '' "
+        f"THEN '{KIND_EMPTY}' ELSE s.cis_status_kind END"
+    )
+    join_sql = """
+        FROM supply_gtd_kiz k
+        LEFT JOIN supply_gtd_chz_kiz_state s
+          ON s.user_id = k.user_id AND s.gtd_id = k.gtd_id
+         AND s.kiz_short = k.kiz_short
+        WHERE k.user_id = ? AND k.gtd_id = ?
+    """
+    base_params: list[Any] = [user_id, int(gtd_id)]
+    filter_sql = ""
+    filter_params: list[Any] = []
+    if kind_filter:
+        filter_sql = f" AND ({kind_expr}) = ?"
+        filter_params = [kind_filter]
 
     with repo._connect() as conn:
         total_row = conn.execute(
@@ -204,36 +228,60 @@ def list_gtd_kiz_for_chz(
             (user_id, int(gtd_id)),
         ).fetchone()
         total = int(repo._row_to_dict(total_row).get("n") or 0)
+
+        kind_rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT {kind_expr} AS kind, COUNT(*) AS n
+                {join_sql}
+                GROUP BY 1
+                """
+            ),
+            tuple(base_params),
+        ).fetchall()
+        kind_counts: dict[str, int] = {}
+        for r in kind_rows:
+            d = repo._row_to_dict(r)
+            k = str(d.get("kind") or "").strip() or KIND_EMPTY
+            kind_counts[k] = int(d.get("n") or 0)
+
+        filtered_row = conn.execute(
+            repo._sql(
+                f"""
+                SELECT COUNT(*) AS n
+                {join_sql}
+                {filter_sql}
+                """
+            ),
+            tuple(base_params + filter_params),
+        ).fetchone()
+        filtered_total = int(repo._row_to_dict(filtered_row).get("n") or 0)
+
         rows = conn.execute(
             repo._sql(
-                """
+                f"""
                 SELECT k.id AS kiz_id, k.kiz_short, k.gtin,
-                       s.cis_status, s.cis_status_kind, s.cis_status_label,
+                       s.cis_status, ({kind_expr}) AS cis_status_kind,
+                       s.cis_status_label,
                        s.cis_owner_inn, s.cis_status_error, s.cis_checked_at,
                        s.last_op, s.last_doc_id, s.last_doc_type,
                        s.last_op_status, s.last_op_error
-                FROM supply_gtd_kiz k
-                LEFT JOIN supply_gtd_chz_kiz_state s
-                  ON s.user_id = k.user_id AND s.gtd_id = k.gtd_id
-                 AND s.kiz_short = k.kiz_short
-                WHERE k.user_id = ? AND k.gtd_id = ?
+                {join_sql}
+                {filter_sql}
                 ORDER BY k.id ASC
+                LIMIT ? OFFSET ?
                 """
             ),
-            (user_id, int(gtd_id)),
+            tuple(base_params + filter_params + [lim, off]),
         ).fetchall()
 
     items: list[dict[str, Any]] = []
-    kind_counts: dict[str, int] = {}
     for r in rows:
         d = repo._row_to_dict(r)
         kind = str(d.get("cis_status_kind") or "").strip() or KIND_EMPTY
         label = str(d.get("cis_status_label") or "").strip() or (
             "Не проверен" if kind == KIND_EMPTY else ""
         )
-        kind_counts[kind] = kind_counts.get(kind, 0) + 1
-        if kind_filter and kind != kind_filter:
-            continue
         items.append(
             {
                 "kiz_id": int(d.get("kiz_id") or 0),
@@ -253,8 +301,6 @@ def list_gtd_kiz_for_chz(
             }
         )
 
-    filtered_total = len(items)
-    page = items[off : off + lim]
     return {
         "ok": True,
         "gtd": {
@@ -269,7 +315,7 @@ def list_gtd_kiz_for_chz(
         "limit": lim,
         "has_more": off + lim < filtered_total,
         "kind_counts": kind_counts,
-        "items": page,
+        "items": items,
     }
 
 
