@@ -3189,6 +3189,16 @@
       renderSupplyDetail(data);
       _ozonFbsSupplyDetailSetActionsReady(true);
       _ozonFbsSupplyDetailUpdateNewWarn();
+      // Load warehouse cargo places early so green tone can require full GM binds.
+      const refreshTonesAfterGm = () => {
+        _ozonFbsKizSplitSetTone(_ozonFbsKizToneFromSupply(supplyDetailState.supply));
+        _ozonFbsPickSplitSetTone(_ozonFbsPickToneFromSupply(supplyDetailState.supply));
+      };
+      if (typeof window._ozonFbsContainerInvalidate === "function") {
+        void Promise.resolve(window._ozonFbsContainerInvalidate())
+          .catch(() => false)
+          .then(() => refreshTonesAfterGm());
+      }
       // Same ok/error rules as «Обновить», without requiring a click.
       _ozonFbsAutoRefreshSplitTones();
     } catch (e) {
@@ -7963,6 +7973,17 @@
         o.cancel_reason_label = String(upd.cancel_reason_label || "").trim();
       }
       if (upd.cancelled) o.cancelled = true;
+      if ("container_id" in upd) {
+        const cid = Number(upd.container_id || 0);
+        o.container_id = Number.isFinite(cid) && cid > 0 ? cid : null;
+      }
+      if ("container_barcode" in upd) {
+        o.container_barcode = String(upd.container_barcode || "").trim();
+      }
+      if ("container_synced" in upd) o.container_synced = !!upd.container_synced;
+      if ("container_sync_error" in upd) {
+        o.container_sync_error = String(upd.container_sync_error || "").trim();
+      }
     });
   }
 
@@ -8154,20 +8175,47 @@
     supplyDetailState[key] = Date.now();
   }
 
+  function _ozonFbsOrderHasContainer(o) {
+    const cid = Number(o?.container_id || 0);
+    if (Number.isFinite(cid) && cid > 0) return true;
+    return !!String(o?.container_barcode || "").trim();
+  }
+
+  /** Cargo places are in play for this supply (warehouse has GM or any bind exists). */
+  function _ozonFbsContainersInPlay(mode) {
+    if (window.ozonFbsContainerBindState?.hasContainers) return true;
+    if (typeof window._ozonFbsContainerGmUiVisible === "function") {
+      try {
+        if (window._ozonFbsContainerGmUiVisible(mode)) return true;
+      } catch (_e) { /* ignore */ }
+    }
+    return false;
+  }
+
   function _ozonFbsKizToneFromSupply(supply) {
     const orders = Array.isArray(supply?.orders) ? supply.orders : [];
     const required = orders.filter((o) => o && o.kiz_required && !_ozonFbsRowIsCancelled(o));
     if (!required.length) return "";
-    return required.every((o) => String(o.kiz_status || "") === "ok") ? "ok" : "";
+    if (!required.every((o) => String(o.kiz_status || "") === "ok")) return "";
+    const gmInPlay =
+      _ozonFbsContainersInPlay("kiz")
+      || required.some((o) => _ozonFbsOrderHasContainer(o));
+    if (gmInPlay && !required.every((o) => _ozonFbsOrderHasContainer(o))) return "";
+    return "ok";
   }
 
   function _ozonFbsPickToneFromSupply(supply) {
     const orders = Array.isArray(supply?.orders) ? supply.orders : [];
     const plain = orders.filter((o) => o && !o.kiz_required && !_ozonFbsRowIsCancelled(o));
     if (!plain.length) return "";
-    return plain.every(
+    if (!plain.every(
       (o) => !!o.pick_verified && !!String(o.pick_barcode || "").trim()
-    ) ? "ok" : "";
+    )) return "";
+    const gmInPlay =
+      _ozonFbsContainersInPlay("pick")
+      || plain.some((o) => _ozonFbsOrderHasContainer(o));
+    if (gmInPlay && !plain.every((o) => _ozonFbsOrderHasContainer(o))) return "";
+    return "ok";
   }
 
   /**
@@ -8241,6 +8289,17 @@
       const verified = !!row.pick_verified && !!String(row.pick_barcode || "").trim();
       o.pick_verified = verified;
       o.pick_barcode = verified ? String(row.pick_barcode || "").trim() : "";
+      if ("container_id" in row) {
+        const cid = Number(row.container_id || 0);
+        o.container_id = Number.isFinite(cid) && cid > 0 ? cid : null;
+      }
+      if ("container_barcode" in row) {
+        o.container_barcode = String(row.container_barcode || "").trim();
+      }
+      if ("container_synced" in row) o.container_synced = !!row.container_synced;
+      if ("container_sync_error" in row) {
+        o.container_sync_error = String(row.container_sync_error || "").trim();
+      }
     }
     const needsPick = supply.orders.some(
       (o) => o && !o.kiz_required && !_ozonFbsRowIsCancelled(o)
@@ -8283,6 +8342,20 @@
       if (prev !== next) {
         o.kiz_codes = codes;
         changed = true;
+      }
+      if ("container_id" in row || "container_barcode" in row) {
+        const cid = Number(row.container_id || 0);
+        const nextCid = Number.isFinite(cid) && cid > 0 ? cid : null;
+        const nextBc = String(row.container_barcode || "").trim();
+        if (o.container_id !== nextCid || String(o.container_barcode || "") !== nextBc) {
+          o.container_id = nextCid;
+          o.container_barcode = nextBc;
+          changed = true;
+        }
+        if ("container_synced" in row) o.container_synced = !!row.container_synced;
+        if ("container_sync_error" in row) {
+          o.container_sync_error = String(row.container_sync_error || "").trim();
+        }
       }
     });
     return changed;
@@ -9994,20 +10067,14 @@
         }
         if (refreshBtn) refreshBtn.title = tip || "Ошибка привязки к грузоместу";
         _ozonFbsKizSplitSetTone("error");
-      } else if (st === "ok") {
-        if (split) {
-          split.removeAttribute("title");
-          delete split.dataset.containerErrorTip;
-        }
-        if (refreshBtn) refreshBtn.title = "Обновить статусы маркировки";
-        _ozonFbsKizSplitSetTone("ok");
       } else {
         if (split) {
           split.removeAttribute("title");
           delete split.dataset.containerErrorTip;
         }
         if (refreshBtn) refreshBtn.title = "Обновить статусы маркировки";
-        _ozonFbsKizSplitSetTone("");
+        // Recompute locally so incomplete GM cannot stay green when API only checked КИЗ.
+        _ozonFbsKizSplitSetTone(_ozonFbsKizToneFromSupply(supplyDetailState.supply));
       }
     } catch (e) {
       if (
@@ -10729,10 +10796,10 @@
         const split = document.getElementById("ozonFbsPickSplit");
         if (split) split.dataset.containerErrorTip = tip || "Ошибка привязки к грузоместу";
         _ozonFbsPickSplitSetTone("error");
-      } else if (st === "ok") {
-        _ozonFbsPickSplitSetTone("ok");
-      } else if (!Array.isArray(data.orders)) {
-        _ozonFbsPickSplitSetTone("");
+      } else if (Array.isArray(data.orders)) {
+        // _ozonFbsPickSyncToneFromRows already applied GM-aware tone.
+      } else {
+        _ozonFbsPickSplitSetTone(_ozonFbsPickToneFromSupply(supplyDetailState.supply));
       }
     } catch (e) {
       if (

@@ -182,6 +182,67 @@ class MarkingStatusContainerErrorTests(unittest.TestCase):
         self.assertEqual(out["container_error_count"], 1)
         self.assertEqual(out["done"], 1)  # KIZ still complete
 
+    def test_marking_incomplete_cargo_blocks_ok_tone(self) -> None:
+        """Filled КИЗ but missing GM binds must not make the button green."""
+        from review_processor import ozon_fbs_marking as marking
+
+        detail = {
+            "supply_id": "S1",
+            "orders": [
+                {
+                    "posting_number": "A-1",
+                    "kiz_required": True,
+                    "kiz_quantity": 1,
+                    "cancelled": False,
+                },
+                {
+                    "posting_number": "A-2",
+                    "kiz_required": True,
+                    "kiz_quantity": 1,
+                    "cancelled": False,
+                },
+            ],
+        }
+        local = {
+            "A-1": {
+                "codes": ["CODE1"],
+                "saved_at": "",
+                "ozon_synced": False,
+                "gtd_number": "",
+                "container_id": 10,
+                "container_barcode": "10",
+                "container_synced": True,
+                "container_sync_error": "",
+            },
+            "A-2": {
+                "codes": ["CODE2"],
+                "saved_at": "",
+                "ozon_synced": False,
+                "gtd_number": "",
+                "container_id": None,
+                "container_barcode": "",
+                "container_synced": False,
+                "container_sync_error": "",
+            },
+        }
+        with (
+            patch(
+                "review_processor.ozon_fbs_marking.oz_sup.get_supply_detail",
+                return_value=detail,
+            ),
+            patch(
+                "review_processor.ozon_fbs_marking.load_marking_map",
+                return_value=local,
+            ),
+        ):
+            out = marking.check_supply_marking_status(
+                MagicMock(), user_id=1, source_id=2, supply_id="S1"
+            )
+        self.assertEqual(out["status"], "")
+        self.assertEqual(out["done"], 2)
+        self.assertTrue(out.get("containers_required"))
+        self.assertEqual(out.get("containers_bound"), 1)
+
     def test_status_ignores_non_kiz_container_errors(self) -> None:
         from review_processor import ozon_fbs_marking as marking
 
@@ -243,8 +304,8 @@ class MarkingStatusContainerErrorTests(unittest.TestCase):
 
 
 class PickVerifyStatusContainerTests(unittest.TestCase):
-    def test_pick_incomplete_cargo_does_not_force_error(self) -> None:
-        """Green/empty tone must follow ШК verify only; unbound cargo is not an error."""
+    def test_pick_incomplete_cargo_blocks_ok_tone(self) -> None:
+        """When cargo places are in use, incomplete binds keep tone neutral (not green)."""
         from review_processor import ozon_fbs_pick_verify as pick
 
         detail = {
@@ -295,7 +356,9 @@ class PickVerifyStatusContainerTests(unittest.TestCase):
             out = pick.check_supply_pick_verify_status(
                 MagicMock(), user_id=1, source_id=2, supply_id="S1"
             )
-        self.assertEqual(out["status"], "ok")
+        # Cargo places are in use (P-1 bound) but P-2 unbound → not green.
+        self.assertEqual(out["status"], "")
+        self.assertTrue(out.get("containers_required"))
         self.assertEqual(out.get("container_error_count", 0), 0)
 
     def test_pick_container_sync_error_makes_error_tone(self) -> None:

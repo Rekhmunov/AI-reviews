@@ -655,6 +655,27 @@
     if (pn && row.container_synced && !row.container_sync_error) {
       clearContainerDirty(pn);
     }
+    // Keep supply-detail green/neutral tone in sync with GM binds.
+    syncSupplyDetailContainerBind(pn, row);
+  }
+
+  function syncSupplyDetailContainerBind(postingNumber, row) {
+    const pn = String(postingNumber || "").trim();
+    const supply = window.supplyDetailState?.supply;
+    if (!pn || !supply || !Array.isArray(supply.orders)) return;
+    const order = supply.orders.find((o) => String(o?.posting_number || "").trim() === pn);
+    if (order) {
+      order.container_id = row?.container_id || null;
+      order.container_barcode = String(row?.container_barcode || "").trim();
+      order.container_synced = !!row?.container_synced;
+      order.container_sync_error = String(row?.container_sync_error || "").trim();
+    }
+    if (typeof window.refreshOzonFbsMarkingStatus === "function") {
+      void window.refreshOzonFbsMarkingStatus(null, { silent: true });
+    }
+    if (typeof window.refreshOzonFbsPickVerifyStatus === "function") {
+      void window.refreshOzonFbsPickVerifyStatus(null, { silent: true });
+    }
   }
 
   function httpError(res, data) {

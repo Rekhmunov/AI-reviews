@@ -616,6 +616,16 @@ def check_supply_pick_verify_status(
             }
         )
     total = len(orders)
+
+    def _has_container(row: dict[str, Any]) -> bool:
+        try:
+            cid = int(row.get("container_id") or 0)
+        except (TypeError, ValueError):
+            cid = 0
+        if cid > 0:
+            return True
+        return bool(str(row.get("container_barcode") or "").strip())
+
     container_errors = [
         {
             "posting_number": r["posting_number"],
@@ -625,9 +635,14 @@ def check_supply_pick_verify_status(
         for r in status_rows
         if str(r.get("container_sync_error") or "").strip()
     ]
+    containers_required = any(_has_container(r) for r in status_rows)
+    containers_bound = sum(1 for r in status_rows if _has_container(r))
+    containers_complete = (not containers_required) or (
+        total > 0 and containers_bound == total
+    )
     if container_errors:
         tone = "error"
-    elif total > 0 and done == total:
+    elif total > 0 and done == total and containers_complete:
         tone = "ok"
     else:
         tone = ""
@@ -637,6 +652,9 @@ def check_supply_pick_verify_status(
         "done": done,
         "empty": empty,
         "status": tone,
+        "containers_required": containers_required,
+        "containers_bound": containers_bound,
+        "containers_total": total,
         "container_errors": container_errors,
         "container_error_count": len(container_errors),
         "orders": status_rows,

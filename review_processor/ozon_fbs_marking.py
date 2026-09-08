@@ -1469,22 +1469,42 @@ def check_supply_marking_status(
         )
     total = len(required)
     # Only KIZ-required postings affect the Маркировка button tone.
+    relevant = [
+        r
+        for r in status_rows
+        if r.get("kiz_required") and not r.get("cancelled")
+    ]
+
+    def _has_container(row: dict[str, Any]) -> bool:
+        try:
+            cid = int(row.get("container_id") or 0)
+        except (TypeError, ValueError):
+            cid = 0
+        if cid > 0:
+            return True
+        return bool(str(row.get("container_barcode") or "").strip())
+
     container_errors = [
         {
             "posting_number": r["posting_number"],
             "container_barcode": r.get("container_barcode") or "",
             "error": r.get("container_sync_error") or "",
         }
-        for r in status_rows
-        if r.get("kiz_required")
-        and not r.get("cancelled")
-        and str(r.get("container_sync_error") or "").strip()
+        for r in relevant
+        if str(r.get("container_sync_error") or "").strip()
     ]
+    # If cargo places are in use for this group, green requires full GM attachment
+    # (not only filled КИЗ). Sync failures stay «error»; missing binds stay neutral.
+    containers_required = any(_has_container(r) for r in relevant)
+    containers_bound = sum(1 for r in relevant if _has_container(r))
+    containers_complete = (not containers_required) or (
+        bool(relevant) and containers_bound == len(relevant)
+    )
     if container_errors:
         tone = "error"
     elif total == 0:
         tone = ""
-    elif done == total:
+    elif done == total and containers_complete:
         tone = "ok"
     else:
         tone = ""
@@ -1495,6 +1515,9 @@ def check_supply_marking_status(
         "pending": pending,
         "empty": empty,
         "status": tone,
+        "containers_required": containers_required,
+        "containers_bound": containers_bound,
+        "containers_total": len(relevant),
         "container_errors": container_errors,
         "container_error_count": len(container_errors),
         "orders": status_rows,
