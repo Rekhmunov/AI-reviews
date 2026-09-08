@@ -878,7 +878,6 @@ def _fetch_container_row(
     return _normalize_container(raw)
 
 
-
 def _schedule_fill_task_audit(
     client: oz.OzonFbsClient,
     *,
@@ -928,6 +927,77 @@ def _schedule_fill_task_audit(
     ).start()
 
 
+def _fill_response_task_id(data: Any) -> int:
+    if not isinstance(data, dict):
+        return 0
+    try:
+        return int(data.get("task_id") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _posting_confirmed_in_container(
+    client: oz.OzonFbsClient, *, container_id: int, posting_number: str
+) -> bool | None:
+    """True/False when Ozon returns a posting list; None if list unavailable."""
+    pn = str(posting_number or "").strip()
+    if not pn or int(container_id or 0) <= 0:
+        return False
+    _meta, nums, exists = _fetch_container_postings(
+        client, container_id=int(container_id)
+    )
+    # Missing/empty get payload: cannot confirm (do not treat as hard reject).
+    if not exists or not nums:
+        return None
+    return pn in nums
+
+
+def _confirm_fill_on_ozon(
+    client: oz.OzonFbsClient,
+    *,
+    container_id: int,
+    posting_number: str,
+    fill_resp: Any,
+) -> tuple[bool, str]:
+    """Mark synced only after Ozon task completes or portal lists the posting.
+
+    Like WB KIZ verification: HTTP 200 alone is not enough for green UI.
+    Timeout / lag without a hard failure leaves synced=False and empty error
+    (pending confirmation) so the operator sees incomplete, not «error».
+    """
+    task_id = _fill_response_task_id(fill_resp)
+    if task_id > 0:
+        task_info = _wait_container_task(
+            client, task_id=task_id, timeout_sec=12.0, poll_sec=0.6
+        )
+        if not task_info.get("ok"):
+            return (
+                False,
+                str(
+                    task_info.get("error_message")
+                    or "Ошибка заполнения грузоместа на Ozon"
+                ).strip(),
+            )
+        if not task_info.get("timed_out"):
+            return True, ""
+        confirmed = _posting_confirmed_in_container(
+            client, container_id=container_id, posting_number=posting_number
+        )
+        if confirmed is True:
+            return True, ""
+        return False, ""
+
+    confirmed = _posting_confirmed_in_container(
+        client, container_id=container_id, posting_number=posting_number
+    )
+    if confirmed is True:
+        return True, ""
+    if confirmed is False:
+        return False, ""
+    # No task_id and posting list unavailable — keep prior HTTP-accept behavior.
+    return True, ""
+
+
 def bind_posting_to_container(
     client: oz.OzonFbsClient,
     repo: ReviewRepository,
@@ -942,6 +1012,8 @@ def bind_posting_to_container(
     """Local bind + Ozon fill (and remove from previous if needed).
 
     Local binding is kept even when Ozon fails; sync_error is stored.
+    ``container_synced`` is set only after fill task / portal confirmation
+    (same idea as WB ``kiz_wb_synced``).
     Confirmed (approved) cargo places reject new fills before calling Ozon.
     """
     pn = str(posting_number or "").strip()
@@ -978,14 +1050,16 @@ def bind_posting_to_container(
         fill_resp = client.carriage_container_fill(
             container_id=cid, posting_numbers=[pn]
         )
-        synced = True
-        if isinstance(fill_resp, dict):
-            try:
-                fill_task_id = int(fill_resp.get("task_id") or 0)
-            except (TypeError, ValueError):
-                fill_task_id = 0
+        fill_task_id = _fill_response_task_id(fill_resp)
+        synced, sync_error = _confirm_fill_on_ozon(
+            client,
+            container_id=cid,
+            posting_number=pn,
+            fill_resp=fill_resp,
+        )
     except Exception as exc:
         sync_error = _friendly_ozon_error(exc)
+        synced = False
         _log.warning("ozon container fill cid=%s pn=%s: %s", cid, pn, sync_error)
     local = _set_local_container_bind(
         repo,

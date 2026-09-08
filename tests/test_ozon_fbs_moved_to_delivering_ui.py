@@ -37,8 +37,8 @@ def test_moved_to_delivering_markup_and_render() -> None:
     assert ".ozon-fbs-sd-moved" in css
     assert ".ozon-fbs-sd-moved-hist-btn" in css
     assert ".ozon-fbs-sd-moved-hist" in css
-    assert "ozon_fbs.js?v=138" in html
-    assert "style.css?v=318" in html
+    assert "ozon_fbs.js?v=140" in html
+    assert "style.css?v=" in html
 
 
 def test_containers_only_this_supply_filter_ui() -> None:

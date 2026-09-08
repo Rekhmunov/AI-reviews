@@ -346,8 +346,14 @@
     const el = document.getElementById(elId);
     if (!el) return;
     const list = Array.isArray(rows) ? rows : [];
-    const bound = list.filter((r) => String(r?.container_barcode || "").trim()).length;
-    const show = gmUiVisible(mode) && (state.usedInSession || bound > 0);
+    const boundLocal = list.filter((r) => String(r?.container_barcode || "").trim()).length;
+    // Green only for Ozon-confirmed binds (container_synced), like WB kiz_wb_synced.
+    const synced = list.filter((r) => {
+      if (!String(r?.container_barcode || "").trim()) return false;
+      if (String(r?.container_sync_error || "").trim()) return false;
+      return !!r?.container_synced;
+    }).length;
+    const show = gmUiVisible(mode) && (state.usedInSession || boundLocal > 0);
     el.hidden = !show;
     if (!show) {
       el.textContent = "";
@@ -356,8 +362,8 @@
     }
     const total =
       list.filter((r) => !String(r?.cancel_reason_label || "").trim()).length || list.length;
-    el.textContent = `Прикреплено к грузоместам ${bound} из ${total}`;
-    el.classList.toggle("is-complete", total > 0 && bound === total);
+    el.textContent = `Прикреплено к грузоместам ${synced} из ${total}`;
+    el.classList.toggle("is-complete", total > 0 && synced === total);
   }
 
   function containerCellHtml(row, mode) {
@@ -654,6 +660,27 @@
     const pn = String(row.posting_number || "").trim();
     if (pn && row.container_synced && !row.container_sync_error) {
       clearContainerDirty(pn);
+    }
+    // Keep supply-detail green/neutral tone in sync with GM binds.
+    syncSupplyDetailContainerBind(pn, row);
+  }
+
+  function syncSupplyDetailContainerBind(postingNumber, row) {
+    const pn = String(postingNumber || "").trim();
+    const supply = window.supplyDetailState?.supply;
+    if (!pn || !supply || !Array.isArray(supply.orders)) return;
+    const order = supply.orders.find((o) => String(o?.posting_number || "").trim() === pn);
+    if (order) {
+      order.container_id = row?.container_id || null;
+      order.container_barcode = String(row?.container_barcode || "").trim();
+      order.container_synced = !!row?.container_synced;
+      order.container_sync_error = String(row?.container_sync_error || "").trim();
+    }
+    if (typeof window.refreshOzonFbsMarkingStatus === "function") {
+      void window.refreshOzonFbsMarkingStatus(null, { silent: true });
+    }
+    if (typeof window.refreshOzonFbsPickVerifyStatus === "function") {
+      void window.refreshOzonFbsPickVerifyStatus(null, { silent: true });
     }
   }
 

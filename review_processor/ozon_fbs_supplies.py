@@ -3664,11 +3664,20 @@ def _bind_package_stickers_after_label_print(
         return 0
 
     def _pull(pn: str) -> tuple[str, dict[str, str] | None]:
-        try:
-            remote = client.get_posting(pn)
-        except Exception as exc:
-            _log.warning("ozon post-print sticker get_posting %s: %s", pn, exc)
-            return pn, None
+        # Parallel mass print used to storm get_posting (8 workers) → Ozon 429.
+        # Keep a few workers and back off on rate-limit instead of failing open.
+        remote = None
+        for attempt in range(3):
+            try:
+                remote = client.get_posting(pn)
+                break
+            except Exception as exc:
+                err = str(exc or "")
+                if "429" in err and attempt < 2:
+                    time.sleep(0.6 * (attempt + 1))
+                    continue
+                _log.warning("ozon post-print sticker get_posting %s: %s", pn, exc)
+                return pn, None
         if not isinstance(remote, dict):
             return pn, None
         hints = oz.sticker_fields_from_posting({**remote, "posting_number": pn})
@@ -3706,7 +3715,7 @@ def _bind_package_stickers_after_label_print(
         out: dict[str, dict[str, str]] = {}
         if not targets:
             return out
-        workers = min(8, max(1, len(targets)))
+        workers = min(3, max(1, len(targets)))
         with ThreadPoolExecutor(max_workers=workers) as pool:
             for pn, hints in pool.map(_pull, targets):
                 if hints:

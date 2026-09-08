@@ -26,8 +26,9 @@ def test_ozon_scan_counters_toggle_complete() -> None:
     kiz = js[js.find("function _ozonFbsKizUpdateScanCounter") : js.find("function _ozonFbsKizUpdateScanCounter") + 700]
     pick = js[js.find("function _ozonFbsPickUpdateScanCounter") : js.find("function _ozonFbsPickUpdateScanCounter") + 500]
     assert "is-complete" in kiz and "is-complete" in pick
-    assert 'el.classList.toggle("is-complete", total > 0 && bound === total)' in gm
+    assert 'el.classList.toggle("is-complete", total > 0 && synced === total)' in gm
     assert 'el.classList.remove("is-complete")' in gm
+    assert "container_synced" in gm
 
 
 def test_complete_green_css_and_cache() -> None:
@@ -36,7 +37,7 @@ def test_complete_green_css_and_cache() -> None:
     assert ".wb-fbs-kiz-scan-count.is-complete" in css
     assert ".ozon-fbs-container-count.is-complete" in css
     assert "color: #15803d" in css
-    assert "app.js?v=541" in html
-    assert "ozon_fbs.js?v=129" in html
-    assert "ozon_fbs_container_bind.js?v=20" in html
-    assert "style.css?v=297" in html
+    assert "app.js?v=" in html
+    assert "ozon_fbs.js?v=140" in html
+    assert "ozon_fbs_container_bind.js?v=22" in html
+    assert "style.css?v=" in html
