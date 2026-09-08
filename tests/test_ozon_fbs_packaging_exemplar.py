@@ -40,6 +40,15 @@ class PreShipGtdDetectTests(unittest.TestCase):
         products = oz.pre_ship_exemplar_products(_gtd_posting(qty=3))
         self.assertEqual(products[0]["quantity"], 3)
 
+    def test_marketplace_buyout_included_for_gtd_legal(self) -> None:
+        """Юрлицо+ГТД: buyout line must still enter exemplar products (no empty list)."""
+        posting = _gtd_posting(sku=3722150600, qty=1)
+        posting["products"][0]["is_marketplace_buyout"] = True
+        products = oz.pre_ship_exemplar_products(posting)
+        self.assertEqual(len(products), 1)
+        self.assertEqual(products[0]["product_id"], 3722150600)
+        self.assertEqual(oz.pre_ship_exemplar_quantity({"raw_json": json.dumps(posting)}), 1)
+
     def test_ready_flag(self) -> None:
         row = {
             "raw_json": json.dumps(_gtd_posting()),

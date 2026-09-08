@@ -1353,7 +1353,9 @@ def pre_ship_exemplar_products(posting: dict[str, Any]) -> list[dict[str, Any]]:
     """Product lines that need exemplar set before ship for GTD/юрлицо orders.
 
     Union of ``products_requiring_gtd`` and ``products_requiring_mandatory_mark``.
-    Falls back to all non-buyout lines when GTD is required but SKU lists empty.
+    Marketplace buyout lines are included: Ozon can require GTD+КИЗ on them for
+    юрлица, and skipping buyout left an empty list → «Не удалось определить товары».
+    Falls back to all product lines when GTD is required but SKU lists empty.
     """
     if not isinstance(posting, dict):
         return []
@@ -1363,8 +1365,6 @@ def pre_ship_exemplar_products(posting: dict[str, Any]) -> list[dict[str, Any]]:
     need_ids = gtd_ids | mark_ids
     out: list[dict[str, Any]] = []
     for p in products:
-        if bool(p.get("is_marketplace_buyout")):
-            continue
         sku = p.get("sku") or p.get("product_id")
         sku_str = str(sku).strip() if sku is not None else ""
         if need_ids and sku_str not in need_ids:
@@ -1390,10 +1390,8 @@ def pre_ship_exemplar_products(posting: dict[str, Any]) -> list[dict[str, Any]]:
         return out
     if not gtd_ids:
         return []
-    # GTD required but SKU list empty / mismatched — send all non-buyout lines.
+    # GTD required but SKU list empty / mismatched — send all lines (incl. buyout).
     for p in products:
-        if bool(p.get("is_marketplace_buyout")):
-            continue
         sku = p.get("sku") or p.get("product_id")
         try:
             pid = int(sku)
