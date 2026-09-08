@@ -13246,12 +13246,6 @@ button.wb-fbs-kiz-add:disabled {
 .sb-return-restore-header-main {
   min-width: 0;
 }
-.sb-return-restore-sub {
-  margin: 4px 0 0;
-  font-size: 14px;
-  line-height: 1.4;
-  color: #64748b;
-}
 .sb-return-restore-cache {
   padding: 8px 12px;
   border-radius: 8px;
@@ -13278,28 +13272,41 @@ button.wb-fbs-kiz-add:disabled {
   overflow: auto;
   padding: 0 24px 16px;
 }
+/* Found row: soft mint wash + left rail — keeps Ozon supply-detail row chrome intact */
 #supplyStockReturnRestoreTable tbody tr.is-scan-hit td {
-  background: #f0fdf4;
+  background: #ecfdf5;
 }
 #supplyStockReturnRestoreTable tbody tr.is-scan-hit td:first-child {
   box-shadow: inset 3px 0 0 #10b981;
 }
+#supplyStockReturnRestoreTable .sb-return-restore-product-block {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  min-width: 0;
+}
+/* Lookup card under ШК — same visual language as WB/Ozon FBS search */
 #supplyStockReturnRestoreTable .sb-return-restore-lookup-detail {
-  margin: 12px 0 0;
-  padding: 12px 16px;
+  margin: 0;
+  padding: 14px 16px;
   border: 1px solid #e2e8f0;
-  border-radius: 10px;
+  border-radius: 12px;
   background: #f8fafc;
   max-width: 100%;
+  box-sizing: border-box;
 }
 #supplyStockReturnRestoreTable .sb-return-restore-lookup-detail .ozon-fbs-lookup-detail-grid {
-  gap: 8px 16px;
-  grid-template-columns: minmax(112px, 148px) minmax(0, 1fr);
+  gap: 10px 20px;
+  grid-template-columns: minmax(120px, 168px) minmax(0, 1fr);
 }
 #supplyStockReturnRestoreTable .sb-return-restore-lookup-detail .ozon-fbs-lookup-k,
 #supplyStockReturnRestoreTable .sb-return-restore-lookup-detail .ozon-fbs-lookup-v {
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.4;
+}
+#supplyStockReturnRestoreTable .sb-return-restore-lookup-detail .ozon-fbs-lookup-v {
+  word-break: break-word;
 }
 #supplyStockReturnRestoreTable .wb-fbs-product-photo,
 #supplyStockReturnRestoreTable .wb-fbs-product img,
@@ -15002,7 +15009,7 @@ button.wb-fbs-kiz-add:disabled {
     box-shadow: none;
   }
   #supplyStockReturnRestoreTable tbody tr.is-scan-hit {
-    background: #f0fdf4;
+    background: #ecfdf5;
     box-shadow: inset 3px 0 0 #10b981;
   }
   #supplyStockReturnRestoreTable tbody tr.is-scan-hit td {
@@ -15010,12 +15017,12 @@ button.wb-fbs-kiz-add:disabled {
     box-shadow: none;
   }
   #supplyStockReturnRestoreTable .sb-return-restore-lookup-detail {
-    margin-top: 10px;
-    padding: 12px;
+    margin-top: 0;
+    padding: 12px 14px;
   }
   #supplyStockReturnRestoreTable .sb-return-restore-lookup-detail .ozon-fbs-lookup-detail-grid {
-    grid-template-columns: minmax(96px, 120px) minmax(0, 1fr);
-    gap: 8px 12px;
+    grid-template-columns: minmax(104px, 132px) minmax(0, 1fr);
+    gap: 8px 14px;
   }
   #supplyStockReturnRestoreModal .sb-receipt-scan-input {
     min-height: 44px;

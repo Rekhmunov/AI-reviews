@@ -59,7 +59,10 @@ def test_restore_js_wiring_no_sync() -> None:
     assert "function _stockReturnRestoreDetailHtml" in APP_JS
     assert "function _stockReturnRestoreDetailRows" in APP_JS
     assert "sb-return-restore-lookup-detail" in APP_JS
+    assert "sb-return-restore-product-block" in APP_JS
     assert "_wbFbsLookupDetailRows" in APP_JS
+    assert "is-scan-hit" in APP_JS
+    assert "Сканируйте заказ, стикер, КИЗ или ШК из каталога" not in APP_JS
     assert "function onSupplyStockReceiptKindChange" in APP_JS
     assert "function _sbSyncReceiptRestoreBtn" in APP_JS
     assert "/api/wb-fbs/returns/restore/scan" in APP_JS
@@ -109,10 +112,13 @@ def test_restore_styles_layering() -> None:
     assert "height: calc(100vh - 40px)" in STYLE
     assert "#supplyStockReturnRestoreModal" in STYLE.split("Остатки modals: full-bleed sheets")[1][:2500]
     assert ".sb-return-restore-lookup-detail" in STYLE
+    assert ".sb-return-restore-product-block" in STYLE
     assert "#supplyStockReturnRestoreTable tbody tr.is-scan-hit td" in STYLE
     assert "inset 3px 0 0 #10b981" in STYLE
+    assert "#ecfdf5" in STYLE
+    assert ".sb-return-restore-sub" not in STYLE
 
 
 def test_asset_versions_bumped() -> None:
-    assert "app.js?v=574" in APP_HTML
-    assert "style.css?v=324" in APP_HTML
+    assert "app.js?v=575" in APP_HTML
+    assert "style.css?v=325" in APP_HTML

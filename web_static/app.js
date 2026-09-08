@@ -15665,7 +15665,7 @@ function _stockReturnRestoreUpsertItem(payload) {
 
 function _stockReturnRestoreDetailRows(details) {
   if (!details || typeof details !== "object") return [];
-  // Ozon posting card (same fields as toolbar search / supply sticker lookup).
+  // Ozon posting card — same field set/labels as toolbar search & supply sticker lookup.
   if (String(details.posting_number || "").trim()) {
     const kiz = Array.isArray(details.kiz_codes)
       ? details.kiz_codes.map((c) => String(c || "").trim()).filter(Boolean)
@@ -15705,6 +15705,7 @@ function _stockReturnRestoreDetailRows(details) {
     if (details.delivering_date) rows.push(["Передано в доставку", details.delivering_date]);
     return rows;
   }
+  // WB order card — same builder as ВБ ФБС search.
   if (typeof _wbFbsLookupDetailRows === "function") {
     return _wbFbsLookupDetailRows(details);
   }
@@ -15725,6 +15726,8 @@ function _stockReturnRestoreDetailHtml(item) {
         + `<div class="ozon-fbs-lookup-v">${_wbFbsEsc(v)}</div>`
     )
     .join("");
+  // Same card language as WB/Ozon FBS lookup (no duplicate product head —
+  // name/photo already render above in the supply-detail row).
   return `<div class="ozon-fbs-lookup-detail sb-return-restore-lookup-detail" aria-label="Детали заказа">
     <div class="ozon-fbs-lookup-detail-grid">${grid}</div>
   </div>`;
@@ -15769,6 +15772,8 @@ function _stockReturnRestoreRenderTable() {
     const canPrintBarcode = barcodes.length > 0;
     const hitCls = rowKey && rowKey === hitKey ? " is-scan-hit" : "";
     const safeKey = `rr_${rowKey.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+    // Row chrome matches Ozon FBS supply-detail modal (wb-fbs-sd-* / wb-fbs-product).
+    // Lookup card sits under ШК/КИЗ, full cell width — not squeezed beside the photo.
     return `<tr class="wb-fbs-sd-click-row${hitCls}" data-row-key="${_wbFbsEsc(rowKey)}">
       <td>
         <div class="wb-fbs-sd-order-id">${_wbFbsEsc(orderId || "—")}</div>
@@ -15777,15 +15782,17 @@ function _stockReturnRestoreRenderTable() {
         <div class="wb-fbs-order-meta">${_wbFbsEsc(status)}${sourceName ? " · " + _wbFbsEsc(sourceName) : ""}</div>
       </td>
       <td>
-        <div class="wb-fbs-product">
-          ${photo}
-          <div class="wb-fbs-product-text">
-            <div class="wb-fbs-product-name" title="${_wbFbsEsc(name)}">${_wbFbsEsc(name)}</div>
-            <div class="wb-fbs-product-sub">${_wbFbsEsc(article ? `Арт. ${article}` : "—")}</div>
-            ${barcodeHtml}
-            ${kizHtml}
-            ${detailHtml}
+        <div class="sb-return-restore-product-block">
+          <div class="wb-fbs-product">
+            ${photo}
+            <div class="wb-fbs-product-text">
+              <div class="wb-fbs-product-name" title="${_wbFbsEsc(name)}">${_wbFbsEsc(name)}</div>
+              <div class="wb-fbs-product-sub">${_wbFbsEsc(article ? `Арт. ${article}` : "—")}</div>
+              ${barcodeHtml}
+              ${kizHtml}
+            </div>
           </div>
+          ${detailHtml}
         </div>
       </td>
       <td>
