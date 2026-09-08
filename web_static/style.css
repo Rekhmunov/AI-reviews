@@ -7844,6 +7844,12 @@ tr.dnd-over td {
   font-size: 15px;
   line-height: 1.45;
   color: #92400e;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ozon-fbs-container-approve-warn p {
+  margin: 0;
 }
 .ozon-fbs-container-approve-warn strong {
   font-weight: 700;

@@ -5562,7 +5562,6 @@
 
   function _ozonFbsContainerApproveBuildBody({
     cid,
-    boundHere,
     total,
     unbound,
     hasUnbound,
@@ -5575,9 +5574,6 @@
     const parts = [];
     if (forceOnly) {
       parts.push(
-        `<p class="ozon-fbs-container-approve-lead">Подтвердить грузоместо ${esc(cid)}?</p>`
-      );
-      parts.push(
         `<div class="ozon-fbs-container-approve-sync">`
         + `<div>${esc(String(forceMessage || "Есть ошибки синхронизации с Ozon."))}</div>`
         + `<div>Подтвердить всё равно?</div>`
@@ -5586,38 +5582,21 @@
       return parts.join("");
     }
 
-    parts.push(
-      `<p class="ozon-fbs-container-approve-lead">Подтвердить грузоместо ${esc(cid)}?</p>`
-    );
-    parts.push(
-      `<p class="ozon-fbs-container-approve-text">`
-      + `После подтверждения в него больше нельзя будет сканировать заказы.`
-      + `</p>`
-    );
-
-    if (boundHere > 0 || total > 0) {
-      parts.push(
-        `<div class="ozon-fbs-container-approve-stats">`
-        + `<div>В этом грузоместе (локально): <strong>${esc(String(boundHere))}</strong></div>`
-        + (total > 0
-          ? `<div>Заказов в поставке: <strong>${esc(String(total))}</strong></div>`
-          : "")
-        + `</div>`
-      );
-    }
-
     if (hasUnbound) {
       parts.push(
         `<div class="ozon-fbs-container-approve-warn" role="alert">`
-        + `<strong>Внимание:</strong> `
+        + `<p>После подтверждения в него больше нельзя будет сканировать заказы.</p>`
+        + `<p><strong>Внимание:</strong> `
         + `${esc(String(unbound))} из ${esc(String(total || "?"))} заказов поставки `
-        + `ещё не привязаны ни к одному грузоместу.`
+        + `ещё не привязаны ни к одному грузоместу.</p>`
+        + `<p>Кнопка «Да» станет доступна, когда все заказы поставки будут привязаны к грузоместам.</p>`
         + `</div>`
       );
+    } else {
       parts.push(
-        `<p class="ozon-fbs-container-approve-hint">`
-        + `Кнопка «Да» станет доступна, когда все заказы поставки будут привязаны к грузоместам.`
-        + `</p>`
+        `<div class="ozon-fbs-container-approve-warn">`
+        + `<p>После подтверждения в него больше нельзя будет сканировать заказы.</p>`
+        + `</div>`
       );
     }
 
