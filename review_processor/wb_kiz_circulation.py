@@ -4465,13 +4465,20 @@ def list_events(
     status: str = "",
     operation_type: int | None = None,
     limit: int = 200,
+    offset: int = 0,
     order: str = "desc",
     api_key: str = "",
     hydrate_orders: bool = False,
     refresh_statuses: bool = False,
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
+    """Paginated event list for the KIZ circulation modal.
+
+    Returns ``{"items", "total", "offset", "limit", "has_more"}``.
+    ``total`` is the full matching DB count (not just this page).
+    """
     ensure_kiz_circulation_tables(repo)
     lim = max(1, min(int(limit or 200), 5000))
+    off = max(0, int(offset or 0))
     clauses = ["user_id = ?", "source_id = ?"]
     params: list[Any] = [user_id, source_id]
     if status:
@@ -4486,19 +4493,29 @@ def list_events(
     if operation_type in {OP_WITHDRAW, OP_RETURN}:
         clauses.append("operation_type = ?")
         params.append(int(operation_type))
-    params.append(lim)
+    where_sql = " AND ".join(clauses)
     order_sql = (
         "ORDER BY fiscal_dt ASC NULLS FIRST, id ASC"
         if str(order or "").lower() == "asc"
         else "ORDER BY fiscal_dt DESC NULLS LAST, id DESC"
     )
     with repo._connect() as conn:
-        rows = conn.execute(
+        total_row = conn.execute(
             repo._sql(
-                f"SELECT * FROM wb_kiz_circulation_events WHERE {' AND '.join(clauses)} "
-                f"{order_sql} LIMIT ?"
+                f"SELECT COUNT(*) AS cnt FROM wb_kiz_circulation_events WHERE {where_sql}"
             ),
             tuple(params),
+        ).fetchone()
+        try:
+            total = int((total_row["cnt"] if total_row else 0) or 0)
+        except (TypeError, ValueError, KeyError):
+            total = int((total_row[0] if total_row else 0) or 0)
+        rows = conn.execute(
+            repo._sql(
+                f"SELECT * FROM wb_kiz_circulation_events WHERE {where_sql} "
+                f"{order_sql} LIMIT ? OFFSET ?"
+            ),
+            tuple([*params, lim, off]),
         ).fetchall()
     out = []
     participant_inn = ""
@@ -4533,7 +4550,163 @@ def list_events(
         hydrate=bool(hydrate_orders and api_key),
         refresh_statuses=bool(refresh_statuses and api_key),
     )
-    return out
+    _attach_buyout_dt_to_events(
+        repo, user_id=user_id, source_id=source_id, events=out
+    )
+    return {
+        "items": out,
+        "total": total,
+        "offset": off,
+        "limit": lim,
+        "has_more": (off + len(out)) < total,
+    }
+
+
+def _fiscal_day(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if len(raw) >= 10 and raw[4:5] == "-" and raw[7:8] == "-":
+        return raw[:10]
+    if "T" in raw:
+        return raw.split("T", 1)[0][:10]
+    return raw[:10] if len(raw) >= 10 else raw
+
+
+def _attach_buyout_dt_to_events(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    events: list[dict[str, Any]],
+) -> None:
+    """Attach ``buyout_dt`` (дата выкупа).
+
+    Withdraw (op=1): fiscal receipt day — PVZ buyout fiscalization.
+    Return (op=2): fiscal day of a prior withdraw for the same CIS / srid
+    (looked up in DB when missing from the current page).
+    """
+    if not events:
+        return
+    withdraw_by_cis: dict[str, str] = {}
+    withdraw_by_srid: dict[str, str] = {}
+    for ev in events:
+        try:
+            op = int(ev.get("operation_type") or 0)
+        except (TypeError, ValueError):
+            op = 0
+        day = _fiscal_day(ev.get("fiscal_dt"))
+        cis = str(ev.get("excise_short") or "").strip()
+        srid = str(ev.get("srid") or "").strip()
+        if op == OP_WITHDRAW and day:
+            if cis and cis not in withdraw_by_cis:
+                withdraw_by_cis[cis] = day
+            if srid and srid not in withdraw_by_srid:
+                withdraw_by_srid[srid] = day
+
+    need_cis: list[str] = []
+    need_srid: list[str] = []
+    for ev in events:
+        try:
+            op = int(ev.get("operation_type") or 0)
+        except (TypeError, ValueError):
+            op = 0
+        day = _fiscal_day(ev.get("fiscal_dt"))
+        cis = str(ev.get("excise_short") or "").strip()
+        srid = str(ev.get("srid") or "").strip()
+        if op == OP_WITHDRAW:
+            ev["buyout_dt"] = day
+            continue
+        buyout = ""
+        if cis and cis in withdraw_by_cis:
+            buyout = withdraw_by_cis[cis]
+        elif srid and srid in withdraw_by_srid:
+            buyout = withdraw_by_srid[srid]
+        ev["buyout_dt"] = buyout
+        if not buyout:
+            if cis:
+                need_cis.append(cis)
+            if srid:
+                need_srid.append(srid)
+
+    need_cis = list(dict.fromkeys(need_cis))
+    need_srid = list(dict.fromkeys(need_srid))
+    if not need_cis and not need_srid:
+        return
+
+    # DB lookup for return rows whose withdraw is outside the current page.
+    try:
+        ensure_kiz_circulation_tables(repo)
+        with repo._connect() as conn:
+            if need_cis:
+                ph = ", ".join("?" for _ in need_cis)
+                rows = conn.execute(
+                    repo._sql(
+                        f"""
+                        SELECT excise_short, srid, fiscal_dt
+                        FROM wb_kiz_circulation_events
+                        WHERE user_id = ? AND source_id = ?
+                          AND operation_type = ?
+                          AND COALESCE(fiscal_dt, '') <> ''
+                          AND excise_short IN ({ph})
+                        ORDER BY fiscal_dt ASC, id ASC
+                        """
+                    ),
+                    tuple([user_id, source_id, OP_WITHDRAW, *need_cis]),
+                ).fetchall()
+                for row in rows:
+                    d = repo._row_to_dict(row)
+                    cis = str(d.get("excise_short") or "").strip()
+                    day = _fiscal_day(d.get("fiscal_dt"))
+                    if cis and day and cis not in withdraw_by_cis:
+                        withdraw_by_cis[cis] = day
+                    srid = str(d.get("srid") or "").strip()
+                    if srid and day and srid not in withdraw_by_srid:
+                        withdraw_by_srid[srid] = day
+            if need_srid:
+                missing_srid = [s for s in need_srid if s not in withdraw_by_srid]
+                if missing_srid:
+                    ph = ", ".join("?" for _ in missing_srid)
+                    rows = conn.execute(
+                        repo._sql(
+                            f"""
+                            SELECT excise_short, srid, fiscal_dt
+                            FROM wb_kiz_circulation_events
+                            WHERE user_id = ? AND source_id = ?
+                              AND operation_type = ?
+                              AND COALESCE(fiscal_dt, '') <> ''
+                              AND srid IN ({ph})
+                            ORDER BY fiscal_dt ASC, id ASC
+                            """
+                        ),
+                        tuple([user_id, source_id, OP_WITHDRAW, *missing_srid]),
+                    ).fetchall()
+                    for row in rows:
+                        d = repo._row_to_dict(row)
+                        day = _fiscal_day(d.get("fiscal_dt"))
+                        srid = str(d.get("srid") or "").strip()
+                        if srid and day and srid not in withdraw_by_srid:
+                            withdraw_by_srid[srid] = day
+                        cis = str(d.get("excise_short") or "").strip()
+                        if cis and day and cis not in withdraw_by_cis:
+                            withdraw_by_cis[cis] = day
+    except Exception as exc:
+        logger.warning("buyout_dt lookup failed: %s", exc)
+
+    for ev in events:
+        if str(ev.get("buyout_dt") or "").strip():
+            continue
+        try:
+            op = int(ev.get("operation_type") or 0)
+        except (TypeError, ValueError):
+            op = 0
+        if op == OP_WITHDRAW:
+            continue
+        cis = str(ev.get("excise_short") or "").strip()
+        srid = str(ev.get("srid") or "").strip()
+        ev["buyout_dt"] = (
+            withdraw_by_cis.get(cis) or withdraw_by_srid.get(srid) or ""
+        )
 
 
 def _attach_order_ids_to_events(

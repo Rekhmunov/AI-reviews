@@ -19510,6 +19510,23 @@ const WB_FBS_KIZ_CIRC_CIS = [
   "__empty__",
 ];
 
+const WB_FBS_KIZ_CIRC_PAGE_SIZE = 2000;
+const WB_FBS_KIZ_CIRC_COL_WIDTHS_KEY = "wb_fbs_kiz_circ_col_widths_v1";
+const WB_FBS_KIZ_CIRC_DEFAULT_COL_WIDTHS = {
+  check: 44,
+  buyout: 110,
+  fiscal: 110,
+  op: 88,
+  order: 110,
+  order_st: 140,
+  srid: 140,
+  kiz: 160,
+  cis: 120,
+  receipt: 100,
+  status: 140,
+  doc: 140,
+};
+
 const wbFbsKizCircState = {
   busy: false,
   syncRunId: 0,
@@ -19518,6 +19535,11 @@ const wbFbsKizCircState = {
   participantInn: "",
   /** @type {Set<string>} */
   selectedKeys: new Set(),
+  /** Loaded page cursor (next offset). */
+  offset: 0,
+  totalDb: 0,
+  hasMore: false,
+  filtersOpen: false,
   filters: {
     statuses: [],
     orderWbStatuses: [],
@@ -19525,8 +19547,8 @@ const wbFbsKizCircState = {
     operationType: "",
     onlyChzError: false,
     search: "",
-    fiscalFrom: "",
-    fiscalTo: "",
+    buyoutFrom: "",
+    buyoutTo: "",
   },
 };
 
@@ -19542,8 +19564,8 @@ function _wbFbsKizCircDefaultFilters() {
     operationType: "",
     onlyChzError: false,
     search: "",
-    fiscalFrom: "",
-    fiscalTo: "",
+    buyoutFrom: "",
+    buyoutTo: "",
   };
 }
 
@@ -19559,8 +19581,8 @@ function _wbFbsKizCircReadFilterControls() {
   f.operationType = document.getElementById("wbFbsKizCircOpFilter")?.value || "";
   f.onlyChzError = Boolean(document.getElementById("wbFbsKizCircOnlyError")?.checked);
   f.search = String(document.getElementById("wbFbsKizCircSearch")?.value || "").trim();
-  f.fiscalFrom = document.getElementById("wbFbsKizCircFiscalFrom")?.value || "";
-  f.fiscalTo = document.getElementById("wbFbsKizCircFiscalTo")?.value || "";
+  f.buyoutFrom = document.getElementById("wbFbsKizCircBuyoutFrom")?.value || "";
+  f.buyoutTo = document.getElementById("wbFbsKizCircBuyoutTo")?.value || "";
 }
 
 function _wbFbsKizCircSyncFilterControls() {
@@ -19568,13 +19590,13 @@ function _wbFbsKizCircSyncFilterControls() {
   const opEl = document.getElementById("wbFbsKizCircOpFilter");
   const errEl = document.getElementById("wbFbsKizCircOnlyError");
   const searchEl = document.getElementById("wbFbsKizCircSearch");
-  const fromEl = document.getElementById("wbFbsKizCircFiscalFrom");
-  const toEl = document.getElementById("wbFbsKizCircFiscalTo");
+  const fromEl = document.getElementById("wbFbsKizCircBuyoutFrom");
+  const toEl = document.getElementById("wbFbsKizCircBuyoutTo");
   if (opEl) opEl.value = f.operationType || "";
   if (errEl) errEl.checked = Boolean(f.onlyChzError);
   if (searchEl && searchEl.value !== f.search) searchEl.value = f.search || "";
-  if (fromEl) fromEl.value = f.fiscalFrom || "";
-  if (toEl) toEl.value = f.fiscalTo || "";
+  if (fromEl) fromEl.value = f.buyoutFrom || "";
+  if (toEl) toEl.value = f.buyoutTo || "";
 
   const statusSet = new Set(f.statuses || []);
   document.querySelectorAll("#wbFbsKizCircStatusChips .wb-fbs-kiz-circ-chip").forEach((btn) => {
@@ -19653,8 +19675,8 @@ function _wbFbsKizCircFilteredItems() {
   const cisSet = new Set(f.cisKinds || []);
   const opWanted = f.operationType ? Number(f.operationType) : null;
   const q = String(f.search || "").trim().toLowerCase();
-  const fiscalFrom = f.fiscalFrom || "";
-  const fiscalTo = f.fiscalTo || "";
+  const buyoutFrom = f.buyoutFrom || "";
+  const buyoutTo = f.buyoutTo || "";
 
   return items.filter((ev) => {
     const st = String(ev.status || "");
@@ -19678,9 +19700,9 @@ function _wbFbsKizCircFilteredItems() {
       if (st !== "error" && !errText) return false;
     }
 
-    const day = _wbFbsKizCircFiscalDay(ev.fiscal_dt);
-    if (fiscalFrom && (!day || day < fiscalFrom)) return false;
-    if (fiscalTo && (!day || day > fiscalTo)) return false;
+    const day = _wbFbsKizCircFiscalDay(ev.buyout_dt || ev.fiscal_dt);
+    if (buyoutFrom && (!day || day < buyoutFrom)) return false;
+    if (buyoutTo && (!day || day > buyoutTo)) return false;
 
     if (q) {
       const hay = [
@@ -19821,23 +19843,29 @@ function _wbFbsKizCircRenderTable() {
   const all = Array.isArray(wbFbsKizCircState.items) ? wbFbsKizCircState.items : [];
   const items = _wbFbsKizCircFilteredItems();
   if (info) {
-    info.textContent = all.length
-      ? `Показано ${items.length} из ${all.length}`
-      : "";
+    const totalDb = Number(wbFbsKizCircState.totalDb || 0);
+    if (!all.length) {
+      info.textContent = "";
+    } else {
+      info.textContent = totalDb > all.length
+        ? `В таблице ${items.length} из ${all.length} загруженных (в БД ${totalDb}; передача в ЧЗ идёт по всей очереди)`
+        : `В таблице ${items.length} из ${all.length}`;
+    }
   }
+  _wbFbsKizCircUpdatePageControls();
   if (!all.length) {
     const notFbs = Number(wbFbsKizCircState.eligibilitySkipped || 0);
     const emptyHint = notFbs > 0
       ? `В очереди пусто (вне очереди: ${notFbs} — FBO / не sold). Данные сохранены; смените фильтр или дождитесь FBS.`
       : "Нет данных в очереди — выберите даты и нажмите «Ежедневный вывод»";
     tbody.innerHTML =
-      `<tr><td colspan="11" class="wb-fbs-kiz-circ-empty">${emptyHint}</td></tr>`;
+      `<tr><td colspan="12" class="wb-fbs-kiz-circ-empty">${emptyHint}</td></tr>`;
     _wbFbsKizCircUpdateSelectionInfo();
     return;
   }
   if (!items.length) {
     tbody.innerHTML =
-      '<tr><td colspan="11" class="wb-fbs-kiz-circ-empty">Нет событий по текущим фильтрам</td></tr>';
+      '<tr><td colspan="12" class="wb-fbs-kiz-circ-empty">Нет событий по текущим фильтрам</td></tr>';
     _wbFbsKizCircUpdateSelectionInfo();
     return;
   }
@@ -19934,6 +19962,7 @@ function _wbFbsKizCircRenderTable() {
           </label>`;
       return `<tr data-event-key="${esc(key)}" class="${selected ? "is-selected" : ""}">
         <td class="wb-fbs-kiz-circ-check-col">${checkCell}</td>
+        <td>${esc(ev.buyout_dt || "—")}</td>
         <td>${esc(ev.fiscal_dt || "—")}</td>
         <td class="wb-fbs-kiz-circ-op-${op}">${esc(_wbFbsKizCircOpLabel(op))}</td>
         <td>${orderId ? `<code class="wb-fbs-kiz-circ-order-id">${esc(orderId)}</code>` : "—"}</td>
@@ -20129,7 +20158,9 @@ async function openWbFbsKizCirculationModal() {
   if (!modal) return;
   modal.classList.remove("hidden");
   _wbFbsKizCircDefaultDates();
+  toggleWbFbsKizCircFiltersPanel(false);
   _wbFbsKizCircSyncFilterControls();
+  initWbFbsKizCircColumnResizer();
   _wbFbsKizCircSetLog("");
   try {
     await loadSupplyChzSettings();
@@ -21596,6 +21627,144 @@ async function _wbFbsKizPersistStickerForOrder(row) {
   }
 }
 
+
+function toggleWbFbsKizCircFiltersPanel(forceOpen) {
+  const panel = document.getElementById("wbFbsKizCircFilters");
+  const btn = document.getElementById("wbFbsKizCircFiltersBtn");
+  if (!panel) return;
+  let open;
+  if (forceOpen === true) open = true;
+  else if (forceOpen === false) open = false;
+  else open = panel.hasAttribute("hidden") || panel.classList.contains("hidden");
+  panel.classList.toggle("hidden", !open);
+  if (open) panel.removeAttribute("hidden");
+  else panel.setAttribute("hidden", "");
+  wbFbsKizCircState.filtersOpen = open;
+  if (btn) {
+    btn.classList.toggle("is-active", open);
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+}
+
+function _wbFbsKizCircUpdatePageControls() {
+  const btn = document.getElementById("wbFbsKizCircLoadMoreBtn");
+  const pageInfo = document.getElementById("wbFbsKizCircPageInfo");
+  const loaded = Array.isArray(wbFbsKizCircState.items) ? wbFbsKizCircState.items.length : 0;
+  const totalDb = Number(wbFbsKizCircState.totalDb || 0);
+  const hasMore = Boolean(wbFbsKizCircState.hasMore);
+  if (pageInfo) {
+    if (!loaded && !totalDb) pageInfo.textContent = "";
+    else if (hasMore) {
+      pageInfo.textContent = `Загружено ${loaded} из ${totalDb}. Передача в ЧЗ без выделения идёт по всей очереди.`;
+    } else if (totalDb) {
+      pageInfo.textContent = `Загружено ${loaded} из ${totalDb}. Передача в ЧЗ без выделения идёт по всей очереди.`;
+    } else {
+      pageInfo.textContent = `Загружено ${loaded}.`;
+    }
+  }
+  if (btn) {
+    btn.hidden = !hasMore;
+    btn.disabled = Boolean(wbFbsKizCircState.busy) || !hasMore;
+    btn.textContent = `Загрузить ещё ${WB_FBS_KIZ_CIRC_PAGE_SIZE}`;
+  }
+}
+
+function _wbFbsKizCircLoadColWidths() {
+  const defaults = { ...WB_FBS_KIZ_CIRC_DEFAULT_COL_WIDTHS };
+  try {
+    const raw = JSON.parse(localStorage.getItem(WB_FBS_KIZ_CIRC_COL_WIDTHS_KEY) || "null");
+    if (!raw || typeof raw !== "object") return defaults;
+    for (const [k, v] of Object.entries(raw)) {
+      const n = Number(v);
+      if (Number.isFinite(n) && n >= 40) defaults[k] = Math.round(n);
+    }
+  } catch (_e) { /* ignore */ }
+  return defaults;
+}
+
+function _wbFbsKizCircSaveColWidths(widths) {
+  try {
+    localStorage.setItem(WB_FBS_KIZ_CIRC_COL_WIDTHS_KEY, JSON.stringify(widths));
+  } catch (_e) { /* ignore */ }
+}
+
+function _wbFbsKizCircApplyColWidths() {
+  const table = document.getElementById("wbFbsKizCircTable");
+  const colgroup = document.getElementById("wbFbsKizCircColgroup");
+  if (!table || !colgroup) return;
+  const widths = _wbFbsKizCircLoadColWidths();
+  let total = 0;
+  Array.from(colgroup.querySelectorAll("col")).forEach((col) => {
+    const key = col.getAttribute("data-col") || "";
+    const w = Number(widths[key] || WB_FBS_KIZ_CIRC_DEFAULT_COL_WIDTHS[key] || 100);
+    col.style.width = `${w}px`;
+    total += w;
+  });
+  table.style.tableLayout = "fixed";
+  table.style.width = `${total}px`;
+  table.style.minWidth = `${total}px`;
+}
+
+let _wbFbsKizCircColResizeInited = false;
+function initWbFbsKizCircColumnResizer() {
+  const table = document.getElementById("wbFbsKizCircTable");
+  if (!table) return;
+  _wbFbsKizCircApplyColWidths();
+  if (_wbFbsKizCircColResizeInited) return;
+  _wbFbsKizCircColResizeInited = true;
+
+  let dragging = null;
+  table.addEventListener("mousedown", (e) => {
+    const handle = e.target?.closest?.(".col-resize-handle");
+    if (!handle) return;
+    const th = handle.closest("th");
+    if (!th) return;
+    const key = th.getAttribute("data-col") || "";
+    if (!key || key === "check") return;
+    e.preventDefault();
+    const col = document.querySelector(`#wbFbsKizCircColgroup col[data-col="${CSS.escape(key)}"]`);
+    const startX = e.clientX;
+    const startW = col ? (parseInt(col.style.width, 10) || th.offsetWidth || 100) : th.offsetWidth || 100;
+    dragging = { key, startX, startW, col };
+    document.body.style.cursor = "col-resize";
+    document.body.classList.add("is-col-resizing");
+  });
+  window.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - dragging.startX;
+    const next = Math.max(40, Math.round(dragging.startW + dx));
+    if (dragging.col) dragging.col.style.width = `${next}px`;
+    const widths = _wbFbsKizCircLoadColWidths();
+    widths[dragging.key] = next;
+    let total = 0;
+    document.querySelectorAll("#wbFbsKizCircColgroup col").forEach((col) => {
+      total += parseInt(col.style.width, 10) || 100;
+    });
+    table.style.width = `${total}px`;
+    table.style.minWidth = `${total}px`;
+  });
+  window.addEventListener("mouseup", () => {
+    if (!dragging) return;
+    const widths = _wbFbsKizCircLoadColWidths();
+    const col = dragging.col;
+    if (col) widths[dragging.key] = parseInt(col.style.width, 10) || widths[dragging.key];
+    _wbFbsKizCircSaveColWidths(widths);
+    dragging = null;
+    document.body.style.cursor = "";
+    document.body.classList.remove("is-col-resizing");
+  });
+}
+
+async function _wbFbsKizCircFetchEventsPage(sid, offset) {
+  const lim = WB_FBS_KIZ_CIRC_PAGE_SIZE;
+  const res = await fetch(
+    `/api/wb-fbs/kiz-circulation/events?source_id=${sid}&limit=${lim}&offset=${offset}`,
+    { headers: jsonHeaders() },
+  );
+  const payload = await res.json().catch(() => ({}));
+  return { res, payload };
+}
+
 async function refreshWbFbsKizCirculation() {
   const sid = _wbFbsKizCircSourceId();
   if (!sid) return;
@@ -21612,12 +21781,13 @@ async function refreshWbFbsKizCirculation() {
     return msg || `${fallback} (HTTP ${res.status})`;
   };
   try {
-    const [ovRes, evRes] = await Promise.all([
+    const [ovRes, evPage] = await Promise.all([
       fetch(`/api/wb-fbs/kiz-circulation?source_id=${sid}`, { headers: jsonHeaders() }),
-      fetch(`/api/wb-fbs/kiz-circulation/events?source_id=${sid}&limit=2000`, { headers: jsonHeaders() }),
+      _wbFbsKizCircFetchEventsPage(sid, 0),
     ]);
     const overview = await ovRes.json().catch(() => ({}));
-    const eventsPayload = await evRes.json().catch(() => ({}));
+    const evRes = evPage.res;
+    const eventsPayload = evPage.payload;
     if (!ovRes.ok) throw new Error(_apiErr(ovRes, overview, "Ошибка overview"));
     if (!evRes.ok) throw new Error(_apiErr(evRes, eventsPayload, "Ошибка events"));
 
@@ -21639,9 +21809,14 @@ async function refreshWbFbsKizCirculation() {
       if (notFbs > 0) parts.push(`вне очереди: ${notFbs}`);
       countsEl.textContent = parts.join(" · ");
     }
-    wbFbsKizCircState.items = Array.isArray(eventsPayload.items) ? eventsPayload.items : [];
+    const pageItems = Array.isArray(eventsPayload.items) ? eventsPayload.items : [];
+    wbFbsKizCircState.items = pageItems;
+    wbFbsKizCircState.totalDb = Number(eventsPayload.total != null ? eventsPayload.total : pageItems.length);
+    wbFbsKizCircState.offset = pageItems.length;
+    wbFbsKizCircState.hasMore = Boolean(eventsPayload.has_more);
     _wbFbsKizCircPruneSelection();
     _wbFbsKizCircReadFilterControls();
+    initWbFbsKizCircColumnResizer();
     _wbFbsKizCircRenderTable();
     const healed = Number(eventsPayload.healed || 0);
     if (healed > 0) {
@@ -21692,6 +21867,46 @@ async function refreshWbFbsKizCirculation() {
     }
   } catch (err) {
     _wbFbsKizCircAppendLog(`Ошибка обновления: ${err?.message || err}`);
+  }
+}
+
+
+async function loadMoreWbFbsKizCirculation() {
+  const sid = _wbFbsKizCircSourceId();
+  if (!sid || wbFbsKizCircState.busy || !wbFbsKizCircState.hasMore) return;
+  const btn = document.getElementById("wbFbsKizCircLoadMoreBtn");
+  wbFbsKizCircState.busy = true;
+  if (btn) btn.disabled = true;
+  try {
+    const { res, payload } = await _wbFbsKizCircFetchEventsPage(sid, wbFbsKizCircState.offset || 0);
+    if (!res.ok) {
+      const d = payload?.detail;
+      throw new Error(typeof d === "string" ? d : `Ошибка events (HTTP ${res.status})`);
+    }
+    const more = Array.isArray(payload.items) ? payload.items : [];
+    if (more.length) {
+      const seen = new Set(
+        (wbFbsKizCircState.items || []).map((ev) => String(ev.event_key || "")),
+      );
+      for (const ev of more) {
+        const key = String(ev.event_key || "");
+        if (key && seen.has(key)) continue;
+        wbFbsKizCircState.items.push(ev);
+        if (key) seen.add(key);
+      }
+    }
+    wbFbsKizCircState.totalDb = Number(
+      payload.total != null ? payload.total : wbFbsKizCircState.totalDb || 0,
+    );
+    wbFbsKizCircState.offset = (wbFbsKizCircState.items || []).length;
+    wbFbsKizCircState.hasMore = Boolean(payload.has_more);
+    _wbFbsKizCircPruneSelection();
+    _wbFbsKizCircRenderTable();
+  } catch (err) {
+    _wbFbsKizCircAppendLog(`Ошибка подгрузки: ${err?.message || err}`);
+  } finally {
+    wbFbsKizCircState.busy = false;
+    _wbFbsKizCircUpdatePageControls();
   }
 }
 
@@ -22734,6 +22949,8 @@ window.testSupplyChzSettings = testSupplyChzSettings;
 window.openWbFbsKizCirculationModal = openWbFbsKizCirculationModal;
 window.closeWbFbsKizCirculationModal = closeWbFbsKizCirculationModal;
 window.refreshWbFbsKizCirculation = refreshWbFbsKizCirculation;
+window.loadMoreWbFbsKizCirculation = loadMoreWbFbsKizCirculation;
+window.toggleWbFbsKizCircFiltersPanel = toggleWbFbsKizCircFiltersPanel;
 window.reconcileWbFbsKizCirculationChz = reconcileWbFbsKizCirculationChz;
 window.refreshWbFbsKizCircCisStatus = refreshWbFbsKizCircCisStatus;
 window.runWbFbsKizCirculationSync = runWbFbsKizCirculationSync;
