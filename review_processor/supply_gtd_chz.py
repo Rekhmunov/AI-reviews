@@ -732,6 +732,17 @@ def prepare_gtd_chz_documents(
     for ks in codes:
         st = states.get(ks) or {}
         kind = str(st.get("cis_status_kind") or "").strip() or KIND_EMPTY
+        last_op = str(st.get("last_op") or "").strip()
+        last_op_status = str(st.get("last_op_status") or "").strip()
+        # Already submitted to ЧЗ for this op — wait for status refresh / do not duplicate.
+        if last_op_status == "submitted" and last_op == op_s:
+            skipped.append(
+                {
+                    "kiz_short": ks,
+                    "reason": "Уже отправлено в ЧЗ — сначала выгрузите статусы",
+                }
+            )
+            continue
         if op_s == OP_WITHDRAW:
             if kind != KIND_IN:
                 skipped.append(

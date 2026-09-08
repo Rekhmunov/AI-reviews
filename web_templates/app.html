@@ -4676,13 +4676,6 @@
             <div class="row row-between" style="margin-bottom:16px">
               <div>
                 <h4 class="no-margin">Честный знак</h4>
-                <p class="small" style="margin:8px 0 0;color:#64748b;max-width:640px">
-                  Для вывода/возврата КИЗ после продаж WB FBS. Отчёт WB — отдельный токен
-                  категории «Аналитика» (можно только чтение). В ЧЗ — через УКЭП в браузере.
-                  КПП и ФИАС должны совпадать с действующим МОД в профиле Честного знака
-                  (иначе документ примут, но обработают с ошибкой). Если поля пустые —
-                  подставляются из юр. лица с тем же ИНН.
-                </p>
               </div>
               <label class="small" style="display:flex;align-items:center;gap:8px;white-space:nowrap">
                 <input type="checkbox" id="chzSettingsEnabled" />
@@ -4733,11 +4726,6 @@
             <div class="row row-between" style="margin-bottom:16px;gap:12px;flex-wrap:wrap">
               <div>
                 <h4 class="no-margin">ГТД (таможенные декларации)</h4>
-                <p class="small" style="margin:8px 0 0;color:#64748b;max-width:720px">
-                  Загрузите PDF декларации / дополнения к ДТ или PDF со стикерами Честного ЗНАКа
-                  (текст КИ под Data Matrix). Сохраняем номер ГТД и короткие КИЗ для ЧЗ.
-                  Можно приложить несколько файлов. Уже известные КИЗ не затираются.
-                </p>
               </div>
               <button type="button" onclick="openSupplyGtdImportModal()">Добавить ГТД</button>
             </div>

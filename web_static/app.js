@@ -22971,15 +22971,25 @@ function _supplyGtdChzVisibleItems() {
   );
 }
 
+function _supplyGtdChzRowOpReady(it, op) {
+  const kind = String(it?.cis_status_kind || "");
+  const lastOp = String(it?.last_op || "");
+  const lastSt = String(it?.last_op_status || "");
+  if (lastSt === "submitted" && lastOp === op) return false;
+  if (op === "withdraw") return kind === "in_circulation";
+  if (op === "return") return kind === "withdrawn";
+  return false;
+}
+
 function _supplyGtdChzUpdateActionButtons() {
   const selected = [..._supplyGtdChzState.selected];
   const byKey = new Map(_supplyGtdChzState.items.map((it) => [it.kiz_short, it]));
   let canWithdraw = false;
   let canReturn = false;
   for (const ks of selected) {
-    const kind = String(byKey.get(ks)?.cis_status_kind || "");
-    if (kind === "in_circulation") canWithdraw = true;
-    if (kind === "withdrawn") canReturn = true;
+    const it = byKey.get(ks);
+    if (_supplyGtdChzRowOpReady(it, "withdraw")) canWithdraw = true;
+    if (_supplyGtdChzRowOpReady(it, "return")) canReturn = true;
   }
   const wBtn = document.getElementById("supplyGtdChzWithdrawBtn");
   const rBtn = document.getElementById("supplyGtdChzReturnBtn");

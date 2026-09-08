@@ -233,5 +233,47 @@ class RefreshStatusesTests(unittest.TestCase):
         self.assertEqual(kwargs["cis_status"], "INTRODUCED")
 
 
+
+class ResubmitGuardTests(unittest.TestCase):
+    def test_skips_already_submitted_same_op(self) -> None:
+        repo = _repo_with_rows()
+        kiz = "0104670172422564215MpGb)qC19x29"
+        gtd = {"id": 5, "gtd_number": "10323010/250826/5101277", "kiz_count": 1}
+        settings = {
+            "is_enabled": True,
+            "participant_inn": "7707083893",
+            "product_group": "lp",
+            "kpp": "770701001",
+            "fias_id": "00000000-0000-0000-0000-000000000001",
+            "return_type": "REMOTE_SALE_RETURN",
+            "cert_thumbprint": "ABC",
+            "api_base_url": "https://example.test",
+        }
+        with patch.object(gtd_chz, "_require_gtd", return_value=gtd), patch.object(
+            gtd_chz, "_chz_settings_ready", return_value=settings
+        ), patch.object(
+            gtd_chz, "_load_gtd_kiz_codes", return_value=[kiz]
+        ), patch.object(
+            gtd_chz,
+            "_states_by_kiz",
+            return_value={
+                kiz: {
+                    "cis_status_kind": gtd_chz.KIND_IN,
+                    "last_op": gtd_chz.OP_WITHDRAW,
+                    "last_op_status": "submitted",
+                }
+            },
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                gtd_chz.prepare_gtd_chz_documents(
+                    repo,
+                    user_id=1,
+                    gtd_id=5,
+                    op="withdraw",
+                    kiz_shorts=[kiz],
+                )
+        self.assertIn("подходящих", str(ctx.exception).lower())
+
+
 if __name__ == "__main__":
     unittest.main()
