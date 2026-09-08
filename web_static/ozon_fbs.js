@@ -5439,6 +5439,11 @@
 
   function closeOzonFbsContainersModal() {
     if (containersState.busy) return;
+    if (_ozonFbsContainerApproveResolver) {
+      closeOzonFbsContainerApproveModal(false);
+    } else {
+      _ozonFbsContainerApproveSetVisible(false);
+    }
     _ozonFbsContainersSetVisible(false);
     containersState.supplyId = null;
     containersState.items = [];
@@ -5537,6 +5542,147 @@
     }
   }
 
+  let _ozonFbsContainerApproveResolver = null;
+
+  function _ozonFbsContainerApproveSetVisible(show) {
+    if (typeof setModalVisibility === "function") {
+      setModalVisibility("ozonFbsContainerApproveModal", !!show);
+      return;
+    }
+    const modal = document.getElementById("ozonFbsContainerApproveModal");
+    if (modal) modal.classList.toggle("hidden", !show);
+  }
+
+  function closeOzonFbsContainerApproveModal(ok) {
+    _ozonFbsContainerApproveSetVisible(false);
+    const resolve = _ozonFbsContainerApproveResolver;
+    _ozonFbsContainerApproveResolver = null;
+    if (typeof resolve === "function") resolve(!!ok);
+  }
+
+  function _ozonFbsContainerApproveBuildBody({
+    cid,
+    boundHere,
+    total,
+    unbound,
+    hasUnbound,
+    hasSyncErrors,
+    syncCount,
+    syncErrors,
+    forceOnly,
+    forceMessage,
+  }) {
+    const parts = [];
+    if (forceOnly) {
+      parts.push(
+        `<p class="ozon-fbs-container-approve-lead">Подтвердить грузоместо ${esc(cid)}?</p>`
+      );
+      parts.push(
+        `<div class="ozon-fbs-container-approve-sync">`
+        + `<div>${esc(String(forceMessage || "Есть ошибки синхронизации с Ozon."))}</div>`
+        + `<div>Подтвердить всё равно?</div>`
+        + `</div>`
+      );
+      return parts.join("");
+    }
+
+    parts.push(
+      `<p class="ozon-fbs-container-approve-lead">Подтвердить грузоместо ${esc(cid)}?</p>`
+    );
+    parts.push(
+      `<p class="ozon-fbs-container-approve-text">`
+      + `После подтверждения в него больше нельзя будет сканировать заказы.`
+      + `</p>`
+    );
+
+    if (boundHere > 0 || total > 0) {
+      parts.push(
+        `<div class="ozon-fbs-container-approve-stats">`
+        + `<div>В этом грузоместе (локально): <strong>${esc(String(boundHere))}</strong></div>`
+        + (total > 0
+          ? `<div>Заказов в поставке: <strong>${esc(String(total))}</strong></div>`
+          : "")
+        + `</div>`
+      );
+    }
+
+    if (hasUnbound) {
+      parts.push(
+        `<div class="ozon-fbs-container-approve-warn" role="alert">`
+        + `<strong>Внимание:</strong> `
+        + `${esc(String(unbound))} из ${esc(String(total || "?"))} заказов поставки `
+        + `ещё не привязаны ни к одному грузоместу.`
+        + `</div>`
+      );
+      parts.push(
+        `<p class="ozon-fbs-container-approve-hint">`
+        + `Кнопка «Да» станет доступна, когда все заказы поставки будут привязаны к грузоместам.`
+        + `</p>`
+      );
+    }
+
+    if (hasSyncErrors) {
+      const samples = Array.isArray(syncErrors) ? syncErrors : [];
+      const sampleItems = samples
+        .slice(0, 3)
+        .map((e) => {
+          const pn = esc(String(e.posting_number || "?"));
+          const err = esc(String(e.error || "ошибка"));
+          return `<li><code>${pn}</code>: ${err}</li>`;
+        })
+        .join("");
+      parts.push(
+        `<div class="ozon-fbs-container-approve-sync">`
+        + `<div>Есть ошибки синхронизации с Ozon `
+        + `(${esc(String(syncCount))}). Состав на портале может отличаться.</div>`
+        + (sampleItems
+          ? `<ul class="ozon-fbs-container-approve-sync-list">${sampleItems}</ul>`
+          : "")
+        + (hasUnbound ? "" : `<div>Подтвердить всё равно?</div>`)
+        + `</div>`
+      );
+    }
+
+    return parts.join("");
+  }
+
+  function openOzonFbsContainerApproveModal(opts) {
+    const options = opts && typeof opts === "object" ? opts : {};
+    const body = document.getElementById("ozonFbsContainerApproveBody");
+    const yesBtn = document.getElementById("ozonFbsContainerApproveYesBtn");
+    const title = document.getElementById("ozonFbsContainerApproveTitle");
+    if (body) body.innerHTML = _ozonFbsContainerApproveBuildBody(options);
+    if (title) {
+      title.textContent = options.forceOnly
+        ? "Подтверждение с ошибками синхронизации"
+        : "Подтверждение грузоместа";
+    }
+    const allowYes = !options.hasUnbound;
+    if (yesBtn) {
+      yesBtn.disabled = !allowYes;
+      yesBtn.title = allowYes
+        ? ""
+        : "Сначала привяжите все заказы поставки к грузоместам";
+    }
+    if (_ozonFbsContainerApproveResolver) {
+      const prev = _ozonFbsContainerApproveResolver;
+      _ozonFbsContainerApproveResolver = null;
+      prev(false);
+    }
+    return new Promise((resolve) => {
+      _ozonFbsContainerApproveResolver = resolve;
+      _ozonFbsContainerApproveSetVisible(true);
+      const focusBtn = allowYes
+        ? yesBtn
+        : document.getElementById("ozonFbsContainerApproveNoBtn");
+      try {
+        focusBtn?.focus();
+      } catch (_e) {
+        /* ignore */
+      }
+    });
+  }
+
   async function approveOzonFbsContainer(containerId) {
     const sid = String(containersState.supplyId || "").trim();
     const sourceId = containersState.sourceId;
@@ -5571,34 +5717,17 @@
     const hasSyncErrors = !!precheck?.has_sync_errors || syncCount > 0;
     const hasUnbound = !!precheck?.has_unbound || unbound > 0;
 
-    let msg =
-      `Подтвердить грузоместо ${cid}?\n\n`
-      + `После подтверждения в него больше нельзя будет сканировать заказы.`;
-    if (boundHere > 0 || total > 0) {
-      msg += `\n\nВ этом грузоместе (локально): ${boundHere}`;
-      if (total > 0) msg += ` · заказов в поставке: ${total}`;
-    }
-    if (hasUnbound) {
-      msg +=
-        `\n\nВнимание: ${unbound} из ${total || "?"} заказов поставки ещё не привязаны `
-        + `ни к одному грузоместу.`;
-    }
-    if (hasSyncErrors) {
-      const samples = Array.isArray(precheck?.sync_errors) ? precheck.sync_errors : [];
-      const sampleLine = samples
-        .slice(0, 3)
-        .map((e) => `${e.posting_number || "?"}: ${e.error || "ошибка"}`)
-        .filter(Boolean)
-        .join("\n");
-      msg +=
-        `\n\nЕсть ошибки синхронизации с Ozon (${syncCount}). `
-        + `Состав на портале может отличаться.`;
-      if (sampleLine) msg += `\n${sampleLine}`;
-      msg += `\n\nПодтвердить всё равно?`;
-      if (!window.confirm(msg)) return;
-    } else {
-      if (!window.confirm(msg)) return;
-    }
+    const confirmed = await openOzonFbsContainerApproveModal({
+      cid,
+      boundHere,
+      total,
+      unbound,
+      hasUnbound,
+      hasSyncErrors,
+      syncCount,
+      syncErrors: Array.isArray(precheck?.sync_errors) ? precheck.sync_errors : [],
+    });
+    if (!confirmed || hasUnbound) return;
 
     containersState.busy = true;
     _ozonFbsContainersSyncBusyUi();
@@ -5627,10 +5756,13 @@
           && typeof detail === "object"
           && (detail.code === "container_sync_errors" || detail.precheck?.requires_force);
         if (needsForce && !hasSyncErrors) {
-          const forceMsg =
-            String(detail.message || "Есть ошибки синхронизации с Ozon.")
-            + "\n\nПодтвердить всё равно?";
-          if (!window.confirm(forceMsg)) {
+          const forceOk = await openOzonFbsContainerApproveModal({
+            cid,
+            forceOnly: true,
+            forceMessage: String(detail.message || "Есть ошибки синхронизации с Ozon."),
+            hasUnbound: false,
+          });
+          if (!forceOk) {
             throw new Error(String(detail.message || "Подтверждение отменено"));
           }
           const res2 = await fetch(
@@ -11439,6 +11571,7 @@
   window.createOzonFbsContainers = createOzonFbsContainers;
   window.deleteOzonFbsContainer = deleteOzonFbsContainer;
   window.approveOzonFbsContainer = approveOzonFbsContainer;
+  window.closeOzonFbsContainerApproveModal = closeOzonFbsContainerApproveModal;
   window.printOzonFbsContainerLabel = printOzonFbsContainerLabel;
   window.ozonFbsContainersStep = ozonFbsContainersStep;
   window.onOzonFbsContainersShowScChange = onOzonFbsContainersShowScChange;

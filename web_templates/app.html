@@ -3574,6 +3574,27 @@
           </div>
         </div>
 
+        <div id="ozonFbsContainerApproveModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsContainerApproveTitle"
+             onclick="if(event.target===this)closeOzonFbsContainerApproveModal(false)">
+          <div class="modal-card wb-fbs-create-trbx-modal ozon-fbs-container-approve-modal">
+            <div class="wb-fbs-create-trbx-header">
+              <div class="wb-fbs-create-trbx-header-main">
+                <h3 id="ozonFbsContainerApproveTitle" class="wb-fbs-create-trbx-title">Подтверждение грузоместа</h3>
+              </div>
+              <button type="button" class="icon-btn secondary"
+                      onclick="closeOzonFbsContainerApproveModal(false)" aria-label="Закрыть">✕</button>
+            </div>
+            <div class="ozon-fbs-container-approve-body" id="ozonFbsContainerApproveBody"></div>
+            <div class="ozon-fbs-container-approve-footer">
+              <button type="button" class="secondary" id="ozonFbsContainerApproveNoBtn"
+                      onclick="closeOzonFbsContainerApproveModal(false)">Нет</button>
+              <button type="button" id="ozonFbsContainerApproveYesBtn"
+                      onclick="closeOzonFbsContainerApproveModal(true)">Да</button>
+            </div>
+          </div>
+        </div>
+
         <div id="ozonFbsContainersModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
              aria-labelledby="ozonFbsContainersTitle"
              onclick="if(event.target===this)closeOzonFbsContainersModal()">
