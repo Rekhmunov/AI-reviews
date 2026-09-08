@@ -233,7 +233,9 @@
     for (const c of state.containers) {
       const cid = String(c.container_id || "").trim();
       const num = String(c.container_number || "").trim();
+      const bc = normalizeScan(c.container_barcode || c.barcode || "");
       if (cid === key) return c;
+      if (bc && bc === key) return c;
       if (num && num === key && key.length >= 6) return c;
     }
     return null;
@@ -384,7 +386,8 @@
                value="${esc(barcode)}"
                placeholder="ШК грузоместа"
                title="${err ? esc(err) : "ШК грузоместа"}"
-               onkeydown="onOzonFbsContainerCellKey(event, '${safePn}', '${modeAttr}')" />
+               onkeydown="onOzonFbsContainerCellKey(event, '${safePn}', '${modeAttr}')"
+               onblur="onOzonFbsContainerCellBlur(event, '${safePn}', '${modeAttr}')" />
         <button type="button" class="wb-fbs-kiz-remove ozon-fbs-container-clear" title="${clearTitle}"
                 aria-label="${clearTitle}"
                 onclick="clearOzonFbsContainerBind('${safePn}', '${modeAttr}')">×</button>
@@ -922,68 +925,131 @@
     rerenderMode(mode);
   }
 
+  let containerCellCommitLock = false;
+
+  function containerCellAlreadyBound(row, raw) {
+    if (!row || !raw) return false;
+    const prevBc = normalizeScan(row.container_barcode || "");
+    const prevId = String(Number(row.container_id || 0) || "");
+    return prevBc === raw || (prevId && prevId === raw);
+  }
+
+  /**
+   * Commit typed/scanned ШК грузоместа from a table cell.
+   * Used by Enter, blur, and Save flush — Save/autosave of KIZ/pick do not
+   * persist GM by themselves (bind is a separate API).
+   */
+  async function commitContainerCell(mode, postingNumber, input, opts) {
+    const options = opts && typeof opts === "object" ? opts : {};
+    if (containerCellCommitLock) return false;
+    const raw = normalizeScan(input?.value);
+    const row = findRow(mode, postingNumber);
+    if (!row) return false;
+    if (!raw) {
+      // Empty blur must not unbind — only × / clearBind does that.
+      return false;
+    }
+    if (containerCellAlreadyBound(row, raw) && !String(row.container_sync_error || "").trim()) {
+      return true;
+    }
+    containerCellCommitLock = true;
+    try {
+      await ensureContainersLoaded(false, mode);
+      const found = matchContainer(raw);
+      if (!found) {
+        const setInfo = mode === "kiz" ? window._ozonFbsKizSetInfo : window._ozonFbsPickSetInfo;
+        if (typeof setInfo === "function") {
+          setInfo(`Грузоместо «${raw}» не найдено в этой поставке`, false);
+        }
+        return false;
+      }
+      if (!containerAcceptsFill(found)) {
+        const setInfo = mode === "kiz" ? window._ozonFbsKizSetInfo : window._ozonFbsPickSetInfo;
+        if (typeof setInfo === "function") {
+          setInfo(
+            `Грузоместо ${found.container_id} уже подтверждено — в него нельзя добавить заказ`,
+            false
+          );
+        }
+        if (input) input.value = String(row.container_barcode || "");
+        return false;
+      }
+      const prevId = Number(row.container_id || 0) || 0;
+      const nextId = Number(found.container_id || 0) || 0;
+      const nextBarcode = String(nextId);
+      if (prevId && prevId !== nextId) {
+        if (options.skipRebindConfirm) {
+          if (input) input.value = String(row.container_barcode || "");
+          return false;
+        }
+        const ok = await openRebindModal({
+          postingNumber,
+          oldBarcode: String(row.container_barcode || prevId),
+          newBarcode: nextBarcode,
+        });
+        if (!ok) {
+          if (input) input.value = String(row.container_barcode || "");
+          return false;
+        }
+      }
+      try {
+        const data = await bindPosting(
+          postingNumber,
+          nextId,
+          nextBarcode,
+          prevId && prevId !== nextId ? prevId : null
+        );
+        applyBindResult(row, data);
+      } catch (e) {
+        if (isSessionExpiredError(e)) {
+          handleBindSessionExpired(mode, postingNumber);
+          return false;
+        }
+        row.container_id = nextId;
+        row.container_barcode = nextBarcode;
+        row.container_synced = false;
+        row.container_sync_error = String(e.message || e);
+        markContainerDirty(postingNumber);
+      }
+      updateContainerCounters();
+      if (!options.skipRerender) rerenderMode(mode);
+      return true;
+    } finally {
+      containerCellCommitLock = false;
+    }
+  }
+
   async function onContainerCellKey(event, postingNumber, mode) {
     if (!event || event.key !== "Enter") return;
     event.preventDefault();
-    const input = event.target;
-    const raw = normalizeScan(input?.value);
-    if (!raw) return;
-    await ensureContainersLoaded(false, mode);
-    const found = matchContainer(raw);
-    if (!found) {
-      const setInfo = mode === "kiz" ? window._ozonFbsKizSetInfo : window._ozonFbsPickSetInfo;
-      if (typeof setInfo === "function") {
-        setInfo(`Грузоместо «${raw}» не найдено в этой поставке`, false);
+    await commitContainerCell(mode, postingNumber, event.target, {});
+  }
+
+  async function onContainerCellBlur(event, postingNumber, mode) {
+    const input = event?.target;
+    if (!input || !input.classList?.contains("ozon-fbs-container-input")) return;
+    // Ignore blur caused by removing the input during rerender.
+    if (!input.isConnected) return;
+    await commitContainerCell(mode, postingNumber, input, {});
+  }
+
+  async function flushPendingContainerCells(mode) {
+    const tbodyId = mode === "pick" ? "ozonFbsPickTbody" : "ozonFbsKizTbody";
+    const tbody = document.getElementById(tbodyId);
+    if (!tbody) return;
+    const inputs = Array.from(tbody.querySelectorAll("input.ozon-fbs-container-input"));
+    for (const input of inputs) {
+      const pn = String(input.getAttribute("data-posting") || "").trim();
+      const m = String(input.getAttribute("data-mode") || mode || "").trim() || mode;
+      if (!pn) continue;
+      const row = findRow(m, pn);
+      const raw = normalizeScan(input.value);
+      if (!raw) continue;
+      if (row && containerCellAlreadyBound(row, raw) && !String(row.container_sync_error || "").trim()) {
+        continue;
       }
-      return;
+      await commitContainerCell(m, pn, input, { skipRerender: true });
     }
-    if (!containerAcceptsFill(found)) {
-      const setInfo = mode === "kiz" ? window._ozonFbsKizSetInfo : window._ozonFbsPickSetInfo;
-      if (typeof setInfo === "function") {
-        setInfo(
-          `Грузоместо ${found.container_id} уже подтверждено — в него нельзя добавить заказ`,
-          false
-        );
-      }
-      input.value = String(findRow(mode, postingNumber)?.container_barcode || "");
-      return;
-    }
-    const row = findRow(mode, postingNumber);
-    if (!row) return;
-    const prevId = Number(row.container_id || 0) || 0;
-    const nextId = Number(found.container_id || 0) || 0;
-    const nextBarcode = String(nextId);
-    if (prevId && prevId !== nextId) {
-      const ok = await openRebindModal({
-        postingNumber,
-        oldBarcode: String(row.container_barcode || prevId),
-        newBarcode: nextBarcode,
-      });
-      if (!ok) {
-        input.value = String(row.container_barcode || "");
-        return;
-      }
-    }
-    try {
-      const data = await bindPosting(
-        postingNumber,
-        nextId,
-        nextBarcode,
-        prevId && prevId !== nextId ? prevId : null
-      );
-      applyBindResult(row, data);
-    } catch (e) {
-      if (isSessionExpiredError(e)) {
-        handleBindSessionExpired(mode, postingNumber);
-        return;
-      }
-      row.container_id = nextId;
-      row.container_barcode = nextBarcode;
-      row.container_synced = false;
-      row.container_sync_error = String(e.message || e);
-      markContainerDirty(postingNumber);
-    }
-    updateContainerCounters();
     rerenderMode(mode);
   }
 
@@ -1226,6 +1292,8 @@
   window._ozonFbsContainerClearOnModalClose = clearActiveContainerOnModalClose;
   window.clearOzonFbsContainerBind = clearBind;
   window.onOzonFbsContainerCellKey = onContainerCellKey;
+  window.onOzonFbsContainerCellBlur = onContainerCellBlur;
+  window._ozonFbsContainerFlushPendingCells = flushPendingContainerCells;
   window.closeOzonFbsContainerRebindModal = closeRebindModal;
   window.closeOzonFbsContainerAuthModal = closeAuthRequiredModal;
   window.goOzonFbsContainerAuthLogin = goToLoginFromAuthModal;
