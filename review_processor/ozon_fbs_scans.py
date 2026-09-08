@@ -236,6 +236,7 @@ def record_posting_scan(
     }
     try:
         from . import ozon_fbs_ops_log as ops_log
+        from . import fbs_audit
 
         ops_log.log_scan_event(
             repo,
@@ -245,6 +246,17 @@ def record_posting_scan(
             scan_raw=raw,
             posting_number=pn,
             supply_id=supply_val,
+        )
+        fbs_audit.audit(
+            marketplace="ozon",
+            action="scan",
+            result="ok",
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=supply_val,
+            posting_number=pn,
+            scan_type=str(scan_type or ""),
+            scan=fbs_audit.mask_code(raw, keep_tail=6),
         )
     except Exception:
         pass

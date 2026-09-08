@@ -2688,6 +2688,21 @@ def get_supply_detail_for_print(
     kind: str = "print",
     posting_tab: str | None = None,
 ) -> dict[str, Any]:
+
+    try:
+        from . import fbs_audit
+
+        fbs_audit.audit(
+            marketplace="ozon",
+            action="picking_list",
+            result="ok",
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=str(supply_id or ""),
+            phase="build",
+        )
+    except Exception:
+        pass
     """Detail for print.
 
     When ``posting_tab`` is set (e.g. awaiting_deliver / delivering), only orders
@@ -4388,6 +4403,33 @@ def start_stickers_print_job(
             "message": "Подготовка…",
         }
 
+    try:
+        from . import fbs_audit
+        from . import ozon_fbs_ops_log as ops_log
+
+        fbs_audit.audit(
+            marketplace="ozon",
+            action="stickers_print",
+            result="ok",
+            user_id=uid,
+            source_id=int(source_id),
+            supply_id=str(supply_id),
+            job_id=job_id,
+            phase="start",
+        )
+        ops_log.append_event(
+            repo,
+            user_id=uid,
+            action=ops_log.ACTION_STICKERS_PRINT,
+            message=f"Печать стикеров: старт ({supply_id})",
+            level=ops_log.LEVEL_INFO,
+            source_id=int(source_id),
+            supply_id=str(supply_id),
+            details={"job_id": job_id, "phase": "start"},
+        )
+    except Exception:
+        pass
+
     def _run() -> None:
         def _progress(done: int, total: int, message: str) -> None:
             with _stickers_jobs_lock:
@@ -4416,6 +4458,44 @@ def start_stickers_print_job(
                 st = _stickers_jobs.get(uid) or {}
                 if st.get("job_id") != job_id:
                     return
+                try:
+                    from . import fbs_audit
+                    from . import ozon_fbs_ops_log as ops_log
+
+                    fbs_audit.audit(
+                        marketplace="ozon",
+                        action="stickers_print",
+                        result="ok",
+                        user_id=uid,
+                        source_id=int(source_id),
+                        supply_id=str(supply_id),
+                        job_id=job_id,
+                        phase="done",
+                        loaded=int(result.loaded_count or 0),
+                        expected=int(result.expected_count or 0),
+                        missing=len(result.missing_posting_numbers or []),
+                    )
+                    ops_log.append_event(
+                        repo,
+                        user_id=uid,
+                        action=ops_log.ACTION_STICKERS_PRINT,
+                        message=(
+                            f"Печать стикеров: готово "
+                            f"{result.loaded_count}/{result.expected_count}"
+                        ),
+                        level=ops_log.LEVEL_INFO,
+                        source_id=int(source_id),
+                        supply_id=str(supply_id),
+                        details={
+                            "job_id": job_id,
+                            "phase": "done",
+                            "loaded": int(result.loaded_count or 0),
+                            "expected": int(result.expected_count or 0),
+                            "missing": list(result.missing_posting_numbers or [])[:20],
+                        },
+                    )
+                except Exception:
+                    pass
                 st.update(
                     {
                         "in_progress": False,
@@ -4437,6 +4517,33 @@ def start_stickers_print_job(
                 )
         except Exception as exc:
             _log.exception("ozon stickers job failed user=%s", uid)
+            try:
+                from . import fbs_audit
+                from . import ozon_fbs_ops_log as ops_log
+
+                fbs_audit.audit(
+                    marketplace="ozon",
+                    action="stickers_print",
+                    result="fail",
+                    user_id=uid,
+                    source_id=int(source_id),
+                    supply_id=str(supply_id),
+                    job_id=job_id,
+                    phase="fail",
+                    error=str(exc)[:200],
+                )
+                ops_log.append_event(
+                    repo,
+                    user_id=uid,
+                    action=ops_log.ACTION_STICKERS_PRINT,
+                    message=f"Печать стикеров: ошибка — {exc}",
+                    level=ops_log.LEVEL_ERROR,
+                    source_id=int(source_id),
+                    supply_id=str(supply_id),
+                    details={"job_id": job_id, "phase": "fail", "error": str(exc)[:300]},
+                )
+            except Exception:
+                pass
             with _stickers_jobs_lock:
                 st = _stickers_jobs.get(uid) or {}
                 if st.get("job_id") != job_id:

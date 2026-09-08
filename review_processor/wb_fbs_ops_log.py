@@ -28,6 +28,10 @@ ACTION_SUPPLY_CREATE = "supply_create"
 ACTION_SUPPLY_ADD = "supply_add"
 ACTION_MARKING_SAVE = "marking_save"
 ACTION_SETTINGS = "settings"
+ACTION_PICK_VERIFY = "pick_verify"
+ACTION_SCAN = "scan"
+ACTION_STICKERS_PRINT = "stickers_print"
+ACTION_PICKING_LIST = "picking_list"
 
 LEVEL_INFO = "info"
 LEVEL_WARN = "warn"
@@ -176,6 +180,28 @@ def append_event(
                     details_json,
                 ),
             )
+        try:
+            from . import fbs_audit
+
+            fbs_audit.audit(
+                marketplace="wb",
+                action=act,
+                result=(
+                    "fail"
+                    if lvl == LEVEL_ERROR
+                    else ("warn" if lvl == LEVEL_WARN else "ok")
+                ),
+                user_id=int(user_id),
+                actor_user_id=actor_user_id,
+                actor_name=str(actor_name or ""),
+                source_id=source_id,
+                supply_id=str(supply_id or ""),
+                order_id=str(order_id or ""),
+                message=msg[:240],
+                via="ops_log",
+            )
+        except Exception:
+            pass
         return {
             "id": int(event_id),
             "created_at": wb._normalize_kiz_saved_at(now) if now else "",

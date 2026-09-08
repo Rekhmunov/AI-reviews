@@ -878,6 +878,56 @@ def _fetch_container_row(
     return _normalize_container(raw)
 
 
+
+def _schedule_fill_task_audit(
+    client: oz.OzonFbsClient,
+    *,
+    task_id: int,
+    user_id: int,
+    source_id: int,
+    posting_number: str,
+    container_id: int,
+) -> None:
+    """Poll fill task in a daemon thread — does not block the operator scan path."""
+    import threading
+
+    tid = int(task_id or 0)
+    if tid <= 0:
+        return
+
+    def _run() -> None:
+        try:
+            info = _wait_container_task(client, task_id=tid, timeout_sec=25.0)
+            from . import fbs_audit
+
+            timed_out = bool(info.get("timed_out"))
+            if timed_out:
+                result = "warn"
+            else:
+                result = "ok" if bool(info.get("ok")) else "fail"
+            fbs_audit.audit(
+                marketplace="ozon",
+                action="container_fill_task",
+                result=result,
+                user_id=user_id,
+                source_id=source_id,
+                posting_number=posting_number,
+                container_id=container_id,
+                task_id=tid,
+                status=str(info.get("status") or ""),
+                timed_out=timed_out,
+                error=str(info.get("error_message") or ""),
+            )
+        except Exception as exc:
+            _log.debug("fill task audit task_id=%s: %s", tid, exc)
+
+    threading.Thread(
+        target=_run,
+        name=f"ozon-fill-audit-{tid}",
+        daemon=True,
+    ).start()
+
+
 def bind_posting_to_container(
     client: oz.OzonFbsClient,
     repo: ReviewRepository,
@@ -911,6 +961,7 @@ def bind_posting_to_container(
     prev = int(previous_container_id or 0)
     sync_error = ""
     synced = False
+    fill_task_id = 0
     try:
         if prev > 0 and prev != cid:
             try:
@@ -924,8 +975,15 @@ def bind_posting_to_container(
                     pn,
                     rem_exc,
                 )
-        client.carriage_container_fill(container_id=cid, posting_numbers=[pn])
+        fill_resp = client.carriage_container_fill(
+            container_id=cid, posting_numbers=[pn]
+        )
         synced = True
+        if isinstance(fill_resp, dict):
+            try:
+                fill_task_id = int(fill_resp.get("task_id") or 0)
+            except (TypeError, ValueError):
+                fill_task_id = 0
     except Exception as exc:
         sync_error = _friendly_ozon_error(exc)
         _log.warning("ozon container fill cid=%s pn=%s: %s", cid, pn, sync_error)
@@ -939,10 +997,62 @@ def bind_posting_to_container(
         synced=synced,
         sync_error=sync_error,
     )
+    try:
+        from . import fbs_audit
+        from . import ozon_fbs_ops_log as ops_log
+
+        fbs_audit.audit(
+            marketplace="ozon",
+            action="container_bind",
+            result=("ok" if synced else "fail"),
+            user_id=user_id,
+            source_id=source_id,
+            posting_number=pn,
+            container_id=cid,
+            container_barcode=barcode,
+            prev_container_id=prev or "",
+            ozon_synced=synced,
+            task_id=fill_task_id or "",
+            error=sync_error,
+        )
+        ops_log.append_event(
+            repo,
+            user_id=user_id,
+            action=ops_log.ACTION_CONTAINER_BIND,
+            message=(
+                f"ГМ bind {pn} → {cid}"
+                + (f" · Ozon OK task={fill_task_id}" if synced and fill_task_id else (
+                    " · Ozon OK" if synced else f" · Ozon FAIL: {sync_error or 'error'}"
+                ))
+            ),
+            level=ops_log.LEVEL_WARN if not synced else ops_log.LEVEL_INFO,
+            source_id=source_id,
+            posting_number=pn,
+            details={
+                "container_id": cid,
+                "container_barcode": barcode,
+                "synced": synced,
+                "task_id": fill_task_id or None,
+                "error": sync_error,
+                "previous_container_id": prev or None,
+            },
+        )
+    except Exception:
+        pass
+    if synced and fill_task_id > 0:
+        _schedule_fill_task_audit(
+            client,
+            task_id=fill_task_id,
+            user_id=user_id,
+            source_id=source_id,
+            posting_number=pn,
+            container_id=cid,
+        )
     return {
         "ok": True,
         "synced": synced,
         "error": sync_error,
+        "task_id": fill_task_id or None,
         **local,
     }
 
@@ -987,6 +1097,31 @@ def unbind_posting_from_container(
         synced=False,
         sync_error="",
     )
+    try:
+        from . import fbs_audit
+        from . import ozon_fbs_ops_log as ops_log
+
+        fbs_audit.audit(
+            marketplace="ozon",
+            action="container_unbind",
+            result="ok",
+            user_id=user_id,
+            source_id=source_id,
+            posting_number=pn,
+            container_id=cid or "",
+        )
+        ops_log.append_event(
+            repo,
+            user_id=user_id,
+            action=ops_log.ACTION_CONTAINER_UNBIND,
+            message=f"ГМ unbind {pn}" + (f" ← {cid}" if cid else ""),
+            level=ops_log.LEVEL_INFO,
+            source_id=source_id,
+            posting_number=pn,
+            details={"container_id": cid or None},
+        )
+    except Exception:
+        pass
     return {"ok": True, "error": "", **local}
 
 
@@ -1278,6 +1413,45 @@ def reconcile_supply_container_binds(
     updated_binds = load_container_bind_map(
         repo, user_id=user_id, source_id=source_id, posting_numbers=posting_numbers
     )
+    try:
+        from . import fbs_audit
+        from . import ozon_fbs_ops_log as ops_log
+
+        cleared = sum(1 for c in changes if c.get("action") == "cleared")
+        fbs_audit.audit(
+            marketplace="ozon",
+            action="container_reconcile",
+            result="warn" if cleared else "ok",
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=sid,
+            changes=len(changes),
+            cleared=cleared,
+            containers_checked=len(fetch_ids),
+            posting_lists_available=posting_lists_available,
+        )
+        if changes:
+            ops_log.append_event(
+                repo,
+                user_id=user_id,
+                action=ops_log.ACTION_CONTAINER_RECONCILE,
+                message=(
+                    f"ГМ reconcile: {len(changes)} измен."
+                    + (f", cleared={cleared}" if cleared else "")
+                ),
+                level=ops_log.LEVEL_WARN if cleared else ops_log.LEVEL_INFO,
+                source_id=source_id,
+                supply_id=sid,
+                details={
+                    "changes": len(changes),
+                    "cleared": cleared,
+                    "containers_checked": len(fetch_ids),
+                    "posting_lists_available": posting_lists_available,
+                    "sample": changes[:8],
+                },
+            )
+    except Exception:
+        pass
     return {
         "ok": True,
         "changes": changes,
