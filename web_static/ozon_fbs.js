@@ -3377,6 +3377,52 @@
     }
   }
 
+  function _ozonFbsCopyTextFallback(text) {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand("copy");
+    } finally {
+      document.body.removeChild(ta);
+    }
+  }
+
+  async function copyOzonFbsModalPostingNumber(postingNumber, btnEl) {
+    const pn = String(postingNumber || "").trim();
+    if (!pn) return;
+    const markCopied = () => {
+      const btn = btnEl && btnEl.classList ? btnEl : null;
+      if (!btn) return;
+      btn.classList.add("is-copied");
+      const prev = btn.getAttribute("title") || "Скопировать стикер";
+      btn.setAttribute("title", "Скопировано");
+      window.setTimeout(() => {
+        btn.classList.remove("is-copied");
+        btn.setAttribute("title", prev === "Скопировано" ? "Скопировать стикер" : prev);
+      }, 1200);
+    };
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(pn);
+      } else {
+        _ozonFbsCopyTextFallback(pn);
+      }
+      markCopied();
+    } catch (_e) {
+      try {
+        _ozonFbsCopyTextFallback(pn);
+        markCopied();
+      } catch (__e) {
+        /* ignore */
+      }
+    }
+  }
+
   async function refreshOzonFbsModalPostingStatus(postingNumber) {
     const pn = String(postingNumber || "").trim();
     if (!pn || ozonFbsPostingStatusState.busy) return;
@@ -8268,21 +8314,31 @@
     const qtyHtml =
       qty > 1 ? `<div class="wb-fbs-order-meta">${esc(qty)} шт.</div>` : "";
     const safePnAttr = esc(pn).replace(/'/g, "&#39;");
-    const refreshBtn = pn
-      ? `<button type="button" class="ozon-fbs-posting-status-refresh"
-              title="Проверить статус на Ozon"
-              aria-label="Проверить статус заказа ${safePnAttr}"
-              onclick="event.stopPropagation(); refreshOzonFbsModalPostingStatus('${safePnAttr}')">
-          <svg class="ozon-fbs-posting-status-refresh-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-            <path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z"/>
-          </svg>
-        </button>`
+    const actionsHtml = pn
+      ? `<span class="ozon-fbs-modal-posting-actions">
+          <button type="button" class="ozon-fbs-posting-icon-btn ozon-fbs-posting-copy"
+                  title="Скопировать стикер"
+                  aria-label="Скопировать стикер ${safePnAttr}"
+                  onclick="event.stopPropagation(); copyOzonFbsModalPostingNumber('${safePnAttr}', this)">
+            <svg class="ozon-fbs-posting-icon-btn-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path fill="currentColor" d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
+            </svg>
+          </button>
+          <button type="button" class="ozon-fbs-posting-icon-btn ozon-fbs-posting-status-refresh"
+                  title="Проверить статус на Ozon"
+                  aria-label="Проверить статус заказа ${safePnAttr}"
+                  onclick="event.stopPropagation(); refreshOzonFbsModalPostingStatus('${safePnAttr}')">
+            <svg class="ozon-fbs-posting-icon-btn-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z"/>
+            </svg>
+          </button>
+        </span>`
       : "";
     return (
       cancelBadgeHtml(row, { lead: true }) +
       `<div class="wb-fbs-sd-order-id ozon-fbs-modal-posting-id">` +
         `<span class="ozon-fbs-modal-posting-num">${formatOzonPostingNumberHtml(pn)}</span>` +
-        `${refreshBtn}` +
+        `${actionsHtml}` +
       `</div>` +
       `<div class="wb-fbs-order-meta">от ${esc(fmtDate(created))}</div>` +
       (badges.length ? `<div class="wb-fbs-badges">${badges.join("")}</div>` : "") +
@@ -11839,6 +11895,7 @@
   window.openOzonFbsCancelledOrdersModal = openOzonFbsCancelledOrdersModal;
   window.closeOzonFbsCancelledOrdersModal = closeOzonFbsCancelledOrdersModal;
   window.refreshOzonFbsModalPostingStatus = refreshOzonFbsModalPostingStatus;
+  window.copyOzonFbsModalPostingNumber = copyOzonFbsModalPostingNumber;
   window.closeOzonFbsPostingStatusModal = closeOzonFbsPostingStatusModal;
   window.refreshOzonFbsCancelledOrders = refreshOzonFbsCancelledOrders;
   window.ozonFbsKizState = ozonFbsKizState;

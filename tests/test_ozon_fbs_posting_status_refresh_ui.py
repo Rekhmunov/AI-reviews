@@ -1,4 +1,4 @@
-"""Per-row Ozon status refresh in KIZ / pick-verify modals."""
+"""Per-row Ozon status refresh / copy in KIZ / pick-verify modals."""
 
 from __future__ import annotations
 
@@ -21,10 +21,13 @@ def test_posting_status_refresh_ui_wired() -> None:
     assert ">Закрыть<" in html[html.find("ozonFbsPostingStatusModal") :]
 
     assert "function refreshOzonFbsModalPostingStatus" in js
+    assert "function copyOzonFbsModalPostingNumber" in js
     assert "function closeOzonFbsPostingStatusModal" in js
     assert "function _ozonFbsRemovePostingFromOpenModals" in js
     assert "ozon-fbs-posting-status-refresh" in js
+    assert "ozon-fbs-posting-copy" in js
     assert "refreshOzonFbsModalPostingStatus(" in js
+    assert "copyOzonFbsModalPostingNumber(" in js
     assert "lookupPostingByNumber(pn, { refresh: true })" in js
     assert "_ozonFbsCancelledMergeIntoDetail" in js[
         js.find("async function refreshOzonFbsModalPostingStatus") : js.find(
@@ -32,27 +35,38 @@ def test_posting_status_refresh_ui_wired() -> None:
         )
     ]
     assert "window.refreshOzonFbsModalPostingStatus = refreshOzonFbsModalPostingStatus" in js
+    assert "window.copyOzonFbsModalPostingNumber = copyOzonFbsModalPostingNumber" in js
     assert "window.closeOzonFbsPostingStatusModal = closeOzonFbsPostingStatusModal" in js
 
     col = js[
         js.find("function _ozonFbsModalPostingColHtml") : js.find("function _ozonFbsKizRowIsEmpty")
     ]
     assert "ozon-fbs-posting-status-refresh" in col
+    assert "ozon-fbs-posting-copy" in col
+    assert "ozon-fbs-modal-posting-actions" in col
     assert "ozon-fbs-modal-posting-id" in col
+    # Copy sits left of refresh in the action cluster.
+    assert col.find("ozon-fbs-posting-copy") < col.find("ozon-fbs-posting-status-refresh")
 
-    assert ".ozon-fbs-posting-status-refresh" in css
+    assert ".ozon-fbs-posting-status-refresh" in css or ".ozon-fbs-posting-icon-btn" in css
     assert ".ozon-fbs-modal-posting-id" in css
+    assert ".ozon-fbs-modal-posting-actions" in css
+    assert ".ozon-fbs-posting-icon-btn" in css
     assert "#ozonFbsPostingStatusModal.modal-overlay" in css
-    # Icon sits next to posting text (not far-right button chrome).
+    # Icon cluster sits next to posting text.
     id_css = css[css.find(".ozon-fbs-modal-posting-id {") : css.find(".ozon-fbs-modal-posting-num {")]
     assert "justify-content: flex-start;" in id_css
     assert "align-items: center;" in id_css
-    assert "gap: 4px;" in id_css
+    assert "gap: 6px;" in id_css
+    actions_css = css[
+        css.find(".ozon-fbs-modal-posting-actions {") : css.find(".ozon-fbs-posting-icon-btn {")
+    ]
+    assert "gap: 2px;" in actions_css
     # Icon-only control: no button chrome.
-    refresh_css = css[css.find(".ozon-fbs-posting-status-refresh {") : css.find(
-        ".ozon-fbs-posting-status-refresh:hover"
+    icon_css = css[css.find(".ozon-fbs-posting-icon-btn {") : css.find(
+        ".ozon-fbs-posting-icon-btn:hover"
     )]
-    assert "border: 0;" in refresh_css
-    assert "background: transparent;" in refresh_css
-    assert "ozon_fbs.js?v=143" in html
-    assert "style.css?v=329" in html
+    assert "border: 0;" in icon_css
+    assert "background: transparent;" in icon_css
+    assert "ozon_fbs.js?v=144" in html
+    assert "style.css?v=330" in html

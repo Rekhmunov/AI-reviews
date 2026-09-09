@@ -7909,7 +7909,7 @@ tr.dnd-over td {
   display: inline-flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 4px;
+  gap: 6px;
   max-width: 100%;
 }
 .ozon-fbs-modal-posting-num {
@@ -7918,7 +7918,16 @@ tr.dnd-over td {
   word-break: break-word;
   line-height: 1.2;
 }
-.ozon-fbs-posting-status-refresh {
+.ozon-fbs-modal-posting-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  /* Optical align with large posting-number tail. */
+  position: relative;
+  top: 1px;
+}
+.ozon-fbs-posting-icon-btn {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
@@ -7930,40 +7939,40 @@ tr.dnd-over td {
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: #0f172a;
+  color: #334155;
   cursor: pointer;
   box-sizing: border-box;
   box-shadow: none;
   appearance: none;
   -webkit-appearance: none;
-  /* Sit on the sticker text baseline/cap-height, not pushed to the far right. */
-  align-self: center;
-  position: relative;
-  top: 1px;
+  line-height: 0;
 }
-.ozon-fbs-posting-status-refresh:hover:not(:disabled) {
+.ozon-fbs-posting-icon-btn:hover:not(:disabled) {
   background: transparent;
   color: #2563eb;
 }
-.ozon-fbs-posting-status-refresh:active:not(:disabled) {
+.ozon-fbs-posting-icon-btn:active:not(:disabled) {
   background: transparent;
   color: #1d4ed8;
   transform: none;
 }
-.ozon-fbs-posting-status-refresh:focus-visible {
+.ozon-fbs-posting-icon-btn:focus-visible {
   outline: 2px solid #2563eb;
   outline-offset: 2px;
 }
-.ozon-fbs-posting-status-refresh:disabled {
+.ozon-fbs-posting-icon-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
-.ozon-fbs-posting-status-refresh-ico {
+.ozon-fbs-posting-icon-btn.is-copied {
+  color: #15803d;
+}
+.ozon-fbs-posting-icon-btn-ico {
   display: block;
   width: 16px;
   height: 16px;
 }
-.ozon-fbs-posting-status-refresh.is-spinning .ozon-fbs-posting-status-refresh-ico {
+.ozon-fbs-posting-status-refresh.is-spinning .ozon-fbs-posting-icon-btn-ico {
   animation: wb-fbs-kiz-spin 0.8s linear infinite;
   transform-origin: center center;
 }
