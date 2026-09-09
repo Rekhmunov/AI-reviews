@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=326" />
+  <link rel="stylesheet" href="/static/style.css?v=327" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -3071,6 +3071,22 @@
                       onclick="confirmOzonFbsMoveAwaiting()">Перенести</button>
               <button type="button" class="ozon-fbs-ship-all-btn" id="ozonFbsMoveAwaitingOkBtn" hidden
                       onclick="closeOzonFbsMoveAwaitingModal()">Закрыть</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="ozonFbsPostingStatusModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsPostingStatusTitle"
+             onclick="if(event.target===this)closeOzonFbsPostingStatusModal()">
+          <div class="modal-card ozon-fbs-move-delivering-modal ozon-fbs-posting-status-modal">
+            <div class="ozon-fbs-move-delivering-header">
+              <h3 id="ozonFbsPostingStatusTitle" class="ozon-fbs-move-delivering-title">Статус заказа</h3>
+              <button type="button" class="icon-btn secondary" onclick="closeOzonFbsPostingStatusModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <div id="ozonFbsPostingStatusBody" class="ozon-fbs-move-delivering-body"></div>
+            <div class="ozon-fbs-move-delivering-footer">
+              <button type="button" class="ozon-fbs-ship-all-btn" id="ozonFbsPostingStatusCloseBtn"
+                      onclick="closeOzonFbsPostingStatusModal()">Закрыть</button>
             </div>
           </div>
         </div>
@@ -6901,7 +6917,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=141"></script>
+  <script src="/static/ozon_fbs.js?v=142"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=22"></script>
   <script src="/static/app.js?v=578"></script>
 </body>

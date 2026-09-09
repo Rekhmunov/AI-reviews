@@ -7897,10 +7897,69 @@ tr.dnd-over td {
 #ozonFbsMoveDeliveringModal.modal-overlay {
   z-index: 1450;
 }
+#ozonFbsPostingStatusModal.modal-overlay {
+  z-index: 1460;
+}
 .ozon-fbs-move-delivering-modal {
   max-width: 480px;
   width: calc(100% - 32px);
   padding: 24px;
+}
+.ozon-fbs-modal-posting-id {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ozon-fbs-modal-posting-num {
+  min-width: 0;
+  flex: 1 1 auto;
+  word-break: break-word;
+}
+.ozon-fbs-posting-status-refresh {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(148, 163, 184, 0.65);
+  border-radius: 8px;
+  background: #fff;
+  color: #475569;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.ozon-fbs-posting-status-refresh:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+.ozon-fbs-posting-status-refresh:active:not(:disabled) {
+  background: #f1f5f9;
+  transform: translateY(1px);
+}
+.ozon-fbs-posting-status-refresh:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+.ozon-fbs-posting-status-refresh:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.ozon-fbs-posting-status-refresh-ico {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+.ozon-fbs-posting-status-refresh.is-spinning .ozon-fbs-posting-status-refresh-ico {
+  animation: wb-fbs-kiz-spin 0.8s linear infinite;
+  transform-origin: center center;
+}
+.ozon-fbs-posting-status-modal.is-cancelled .ozon-fbs-move-delivering-text {
+  color: #b91c1c;
 }
 .ozon-fbs-move-delivering-header {
   display: flex;
@@ -16811,6 +16870,7 @@ button.wb-fbs-kiz-add:disabled {
   #ozonFbsSelectionSupplyModal,
   #ozonFbsMovePostingModal,
   #ozonFbsMoveDeliveringModal,
+  #ozonFbsPostingStatusModal,
   #ozonFbsMoveAwaitingModal,
   #supplyGtdChzModal,
   #supplyGtdChzLogModal,
@@ -16871,6 +16931,7 @@ button.wb-fbs-kiz-add:disabled {
   #ozonFbsSelectionSupplyModal > .wb-fbs-collect-mgt-modal,
   #ozonFbsMovePostingModal > .modal-card,
   #ozonFbsMoveDeliveringModal > .modal-card,
+  #ozonFbsPostingStatusModal > .modal-card,
   #ozonFbsMoveAwaitingModal > .modal-card,
   #supplyGtdChzModal > .modal-card,
   #supplyGtdChzModal > .supply-gtd-chz-modal,

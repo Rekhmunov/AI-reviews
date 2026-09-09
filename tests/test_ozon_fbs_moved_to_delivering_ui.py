@@ -37,7 +37,7 @@ def test_moved_to_delivering_markup_and_render() -> None:
     assert ".ozon-fbs-sd-moved" in css
     assert ".ozon-fbs-sd-moved-hist-btn" in css
     assert ".ozon-fbs-sd-moved-hist" in css
-    assert "ozon_fbs.js?v=141" in html
+    assert "ozon_fbs.js?v=142" in html
     assert "style.css?v=" in html
 
 

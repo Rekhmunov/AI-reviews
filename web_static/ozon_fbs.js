@@ -3273,6 +3273,223 @@
     if (changed) renderSupplyDetail(supply);
   }
 
+  /** Per-row status check from KIZ / pick-verify modals (live Ozon refresh). */
+  const ozonFbsPostingStatusState = {
+    busy: false,
+    postingNumber: "",
+    cancelled: false,
+    statusLabel: "",
+    mode: "", // kiz | pick
+  };
+
+  function _ozonFbsPostingStatusSetVisible(show) {
+    if (typeof setModalVisibility === "function") {
+      setModalVisibility("ozonFbsPostingStatusModal", !!show);
+      return;
+    }
+    const modal = document.getElementById("ozonFbsPostingStatusModal");
+    if (!modal) return;
+    modal.classList.toggle("hidden", !show);
+  }
+
+  function _ozonFbsPostingStatusRender({ title, html, kind } = {}) {
+    const titleEl = document.getElementById("ozonFbsPostingStatusTitle");
+    const body = document.getElementById("ozonFbsPostingStatusBody");
+    const card = document.querySelector(
+      "#ozonFbsPostingStatusModal .ozon-fbs-posting-status-modal"
+    );
+    if (titleEl) titleEl.textContent = title || "Статус заказа";
+    if (body) body.innerHTML = html || "";
+    if (card) {
+      card.classList.toggle("is-error", kind === "error" || kind === "cancelled");
+      card.classList.toggle("is-ok", kind === "ok");
+      card.classList.toggle("is-cancelled", kind === "cancelled");
+    }
+    _ozonFbsPostingStatusSetVisible(true);
+  }
+
+  function _ozonFbsPostingStatusBusy(pn, busy) {
+    const safe = CSS.escape(String(pn || "").trim());
+    if (!safe) return;
+    document
+      .querySelectorAll(
+        `.ozon-fbs-posting-status-refresh[aria-label*="${safe}"], ` +
+        `button.ozon-fbs-posting-status-refresh[onclick*="${safe}"]`
+      )
+      .forEach((btn) => {
+        btn.classList.toggle("is-spinning", !!busy);
+        btn.disabled = !!busy;
+      });
+  }
+
+  function _ozonFbsRemovePostingFromOpenModals(postingNumber) {
+    const pn = String(postingNumber || "").trim();
+    if (!pn) return;
+    let kizChanged = false;
+    let pickChanged = false;
+    if (Array.isArray(ozonFbsKizState.rows) && ozonFbsKizState.rows.length) {
+      const before = ozonFbsKizState.rows.length;
+      ozonFbsKizState.rows = ozonFbsKizState.rows.filter(
+        (r) => String(r?.posting_number || "").trim() !== pn
+      );
+      kizChanged = ozonFbsKizState.rows.length !== before;
+      if (kizChanged) {
+        if (ozonFbsKizState.errors) delete ozonFbsKizState.errors[pn];
+        if (String(ozonFbsKizState.pendingPosting || "").trim() === pn) {
+          ozonFbsKizState.pendingPosting = null;
+        }
+        _ozonFbsKizRebuildIndexes();
+        renderOzonFbsKizTable();
+      }
+    }
+    if (Array.isArray(ozonFbsPickState.rows) && ozonFbsPickState.rows.length) {
+      const before = ozonFbsPickState.rows.length;
+      ozonFbsPickState.rows = ozonFbsPickState.rows.filter(
+        (r) => String(r?.posting_number || "").trim() !== pn
+      );
+      pickChanged = ozonFbsPickState.rows.length !== before;
+      if (pickChanged) {
+        if (ozonFbsPickState.errors) delete ozonFbsPickState.errors[pn];
+        if (String(ozonFbsPickState.pendingPosting || "").trim() === pn) {
+          ozonFbsPickState.pendingPosting = null;
+        }
+        renderOzonFbsPickVerifyTable();
+      }
+    }
+    if (kizChanged || pickChanged) {
+      _ozonFbsKizSplitSetTone(_ozonFbsKizToneFromSupply(supplyDetailState.supply));
+      _ozonFbsPickSplitSetTone(_ozonFbsPickToneFromSupply(supplyDetailState.supply));
+      _ozonFbsSupplyDetailUpdateNewWarn();
+    }
+  }
+
+  function closeOzonFbsPostingStatusModal() {
+    if (ozonFbsPostingStatusState.busy) return;
+    const pn = String(ozonFbsPostingStatusState.postingNumber || "").trim();
+    const wasCancelled = !!ozonFbsPostingStatusState.cancelled;
+    ozonFbsPostingStatusState.postingNumber = "";
+    ozonFbsPostingStatusState.cancelled = false;
+    ozonFbsPostingStatusState.statusLabel = "";
+    ozonFbsPostingStatusState.mode = "";
+    _ozonFbsPostingStatusSetVisible(false);
+    if (wasCancelled && pn) {
+      _ozonFbsRemovePostingFromOpenModals(pn);
+    }
+  }
+
+  async function refreshOzonFbsModalPostingStatus(postingNumber) {
+    const pn = String(postingNumber || "").trim();
+    if (!pn || ozonFbsPostingStatusState.busy) return;
+    const sourceId = supplyDetailState.sourceId || state.sourceId;
+    if (!sourceId) {
+      _ozonFbsPostingStatusRender({
+        title: "Статус заказа",
+        html: `<p class="ozon-fbs-move-delivering-text">Не выбран источник Ozon</p>`,
+        kind: "error",
+      });
+      return;
+    }
+    ozonFbsPostingStatusState.busy = true;
+    ozonFbsPostingStatusState.postingNumber = pn;
+    ozonFbsPostingStatusState.cancelled = false;
+    ozonFbsPostingStatusState.statusLabel = "";
+    _ozonFbsPostingStatusBusy(pn, true);
+    _ozonFbsPostingStatusRender({
+      title: "Проверка статуса",
+      html: `<p class="ozon-fbs-move-delivering-text">Проверяем отправление ${esc(pn)} на Ozon…</p>`,
+      kind: "ok",
+    });
+    try {
+      const data = await lookupPostingByNumber(pn, { refresh: true });
+      if (!data?.found || !data.item) {
+        throw new Error(String(data?.message || "Отправление не найдено"));
+      }
+      const item = data.item || {};
+      const details = data.details && typeof data.details === "object" ? data.details : {};
+      const status = String(
+        details.status || item.status || ""
+      ).trim().toLowerCase();
+      const tab = String(details.tab || item.tab || data.tab || "").trim().toLowerCase();
+      const statusLabel = String(
+        details.status_label
+        || item.status_label
+        || OZON_FBS_TAB_LABELS[tab]
+        || status
+        || "—"
+      ).trim();
+      const cancelLabel = String(
+        details.cancel_reason_label
+        || item.cancel_reason_label
+        || ""
+      ).trim();
+      const cancelled =
+        !!item.cancelled
+        || !!details.cancelled
+        || tab === "cancelled"
+        || status === "cancelled"
+        || !!cancelLabel;
+      ozonFbsPostingStatusState.cancelled = cancelled;
+      ozonFbsPostingStatusState.statusLabel = statusLabel;
+
+      // Mirror toolbar search: keep supply detail / local flags in sync.
+      _ozonFbsCancelledMergeIntoDetail([
+        {
+          posting_number: pn,
+          status: status || item.status || "",
+          tab: tab || item.tab || "",
+          cancel_reason_label: cancelLabel || (cancelled ? "Отменено" : ""),
+          cancelled,
+        },
+      ]);
+      // Mark row cancelled in open modal state (removal happens on close).
+      for (const row of [...(ozonFbsKizState.rows || []), ...(ozonFbsPickState.rows || [])]) {
+        if (String(row?.posting_number || "").trim() !== pn) continue;
+        row.status = status || row.status;
+        row.tab = tab || row.tab;
+        if (cancelled) {
+          row.cancelled = true;
+          row.cancel_reason_label = cancelLabel || "Отменено";
+        }
+      }
+
+      if (cancelled) {
+        _ozonFbsPostingStatusRender({
+          title: "Заказ отменён",
+          html:
+            `<p class="ozon-fbs-move-delivering-text">` +
+            `Отправление <strong>${esc(pn)}</strong> отменено на Ozon` +
+            (cancelLabel ? ` (${esc(cancelLabel)})` : "") +
+            `.</p>` +
+            `<p class="ozon-fbs-move-delivering-text">` +
+            `После закрытия этого окна заказ будет удалён из модалки «Товары с КИЗ» / «Товары без КИЗ».` +
+            `</p>`,
+          kind: "cancelled",
+        });
+      } else {
+        _ozonFbsPostingStatusRender({
+          title: "Статус заказа",
+          html:
+            `<p class="ozon-fbs-move-delivering-text">` +
+            `Отправление <strong>${esc(pn)}</strong></p>` +
+            `<p class="ozon-fbs-move-delivering-text">` +
+            `Текущий статус: <strong>${esc(statusLabel)}</strong>` +
+            `</p>`,
+          kind: "ok",
+        });
+      }
+    } catch (e) {
+      ozonFbsPostingStatusState.cancelled = false;
+      _ozonFbsPostingStatusRender({
+        title: "Не удалось проверить",
+        html: `<p class="ozon-fbs-move-delivering-text">${esc(String(e.message || e))}</p>`,
+        kind: "error",
+      });
+    } finally {
+      ozonFbsPostingStatusState.busy = false;
+      _ozonFbsPostingStatusBusy(pn, false);
+    }
+  }
+
   function renderOzonFbsCancelledOrdersTable() {
     const tbody = document.getElementById("ozonFbsCancelledOrdersTbody");
     if (!tbody) return;
@@ -8050,9 +8267,23 @@
     const qty = Number(quantity != null ? quantity : row?.quantity || 0);
     const qtyHtml =
       qty > 1 ? `<div class="wb-fbs-order-meta">${esc(qty)} шт.</div>` : "";
+    const safePnAttr = esc(pn).replace(/'/g, "&#39;");
+    const refreshBtn = pn
+      ? `<button type="button" class="ozon-fbs-posting-status-refresh"
+              title="Проверить статус на Ozon"
+              aria-label="Проверить статус заказа ${safePnAttr}"
+              onclick="event.stopPropagation(); refreshOzonFbsModalPostingStatus('${safePnAttr}')">
+          <svg class="ozon-fbs-posting-status-refresh-ico" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+            <path fill="currentColor" d="M12 6V3L8 7l4 4V8c2.76 0 5 2.24 5 5a5 5 0 0 1-8.9 3.1l-1.45 1.45A7 7 0 0 0 19 13c0-3.87-3.13-7-7-7zm0 12v3l4-4-4-4v3a5 5 0 0 1-5-5c0-1.07.34-2.06.92-2.87l-1.46-1.45A6.97 6.97 0 0 0 5 13c0 3.87 3.13 7 7 7z"/>
+          </svg>
+        </button>`
+      : "";
     return (
       cancelBadgeHtml(row, { lead: true }) +
-      `<div class="wb-fbs-sd-order-id">${formatOzonPostingNumberHtml(pn)}</div>` +
+      `<div class="wb-fbs-sd-order-id ozon-fbs-modal-posting-id">` +
+        `<span class="ozon-fbs-modal-posting-num">${formatOzonPostingNumberHtml(pn)}</span>` +
+        `${refreshBtn}` +
+      `</div>` +
       `<div class="wb-fbs-order-meta">от ${esc(fmtDate(created))}</div>` +
       (badges.length ? `<div class="wb-fbs-badges">${badges.join("")}</div>` : "") +
       qtyHtml
@@ -11607,6 +11838,8 @@
   window.confirmOzonFbsMovePosting = confirmOzonFbsMovePosting;
   window.openOzonFbsCancelledOrdersModal = openOzonFbsCancelledOrdersModal;
   window.closeOzonFbsCancelledOrdersModal = closeOzonFbsCancelledOrdersModal;
+  window.refreshOzonFbsModalPostingStatus = refreshOzonFbsModalPostingStatus;
+  window.closeOzonFbsPostingStatusModal = closeOzonFbsPostingStatusModal;
   window.refreshOzonFbsCancelledOrders = refreshOzonFbsCancelledOrders;
   window.ozonFbsKizState = ozonFbsKizState;
   window.ozonFbsPickState = ozonFbsPickState;

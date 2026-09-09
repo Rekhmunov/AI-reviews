@@ -172,4 +172,4 @@ def test_ozon_js_applies_cancelled_after_sticker_print() -> None:
     assert "function _ozonFbsApplyStickerCancelledRows" in js
     assert "st.cancelled_postings" in js
     assert "void _ozonFbsRefreshOpenSupplyDetail()" in js
-    assert "ozon_fbs.js?v=141" in html
+    assert "ozon_fbs.js?v=142" in html
