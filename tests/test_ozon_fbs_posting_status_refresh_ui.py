@@ -43,6 +43,11 @@ def test_posting_status_refresh_ui_wired() -> None:
     assert ".ozon-fbs-posting-status-refresh" in css
     assert ".ozon-fbs-modal-posting-id" in css
     assert "#ozonFbsPostingStatusModal.modal-overlay" in css
+    # Icon sits next to posting text (not far-right button chrome).
+    id_css = css[css.find(".ozon-fbs-modal-posting-id {") : css.find(".ozon-fbs-modal-posting-num {")]
+    assert "justify-content: flex-start;" in id_css
+    assert "align-items: center;" in id_css
+    assert "gap: 4px;" in id_css
     # Icon-only control: no button chrome.
     refresh_css = css[css.find(".ozon-fbs-posting-status-refresh {") : css.find(
         ".ozon-fbs-posting-status-refresh:hover"
@@ -50,4 +55,4 @@ def test_posting_status_refresh_ui_wired() -> None:
     assert "border: 0;" in refresh_css
     assert "background: transparent;" in refresh_css
     assert "ozon_fbs.js?v=143" in html
-    assert "style.css?v=328" in html
+    assert "style.css?v=329" in html

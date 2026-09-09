@@ -7906,23 +7906,25 @@ tr.dnd-over td {
   padding: 24px;
 }
 .ozon-fbs-modal-posting-id {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  max-width: 100%;
 }
 .ozon-fbs-modal-posting-num {
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   word-break: break-word;
+  line-height: 1.2;
 }
 .ozon-fbs-posting-status-refresh {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 18px;
+  height: 18px;
   margin: 0;
   padding: 0;
   border: 0;
@@ -7934,6 +7936,10 @@ tr.dnd-over td {
   box-shadow: none;
   appearance: none;
   -webkit-appearance: none;
+  /* Sit on the sticker text baseline/cap-height, not pushed to the far right. */
+  align-self: center;
+  position: relative;
+  top: 1px;
 }
 .ozon-fbs-posting-status-refresh:hover:not(:disabled) {
   background: transparent;
