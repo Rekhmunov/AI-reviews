@@ -32115,6 +32115,70 @@ function _wbFbsKizCodeStatusChip(row, codeValue, saveError) {
   return `<div class="wb-fbs-kiz-code-status ${cls}">${_wbFbsEsc(label)}</div>`;
 }
 
+function _wbFbsSetFilterCount(elId, count) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const n = Math.max(0, Number(count) || 0);
+  el.textContent = `(${n})`;
+  const label = el.closest("label");
+  if (label) {
+    const base = String(label.getAttribute("data-filter-base-title") || label.getAttribute("title") || "").trim();
+    if (!label.hasAttribute("data-filter-base-title")) {
+      label.setAttribute("data-filter-base-title", label.getAttribute("title") || "");
+    }
+    const tip = `По текущему поиску: ${n}`;
+    label.title = base ? `${base} — ${tip}` : tip;
+  }
+}
+
+/**
+ * Facet counts: each filter shows how many rows match THAT criterion
+ * within the current search. Other checkboxes do not narrow these numbers
+ * (same semantics as Ozon FBS KIZ / pick modals).
+ */
+function _wbFbsKizUpdateFilterCounts() {
+  const q = String(document.getElementById("wbFbsKizSearchFilter")?.value || "").trim();
+  let filled = 0;
+  let empty = 0;
+  let errors = 0;
+  let cancelled = 0;
+  for (const r of wbFbsKizState.rows || []) {
+    if (!_wbFbsKizRowMatchesSearch(r, q)) continue;
+    if (_wbFbsKizRowIsEmpty(r)) empty += 1;
+    else filled += 1;
+    const oid = Number(r.order_id);
+    if (wbFbsKizState.errors[oid] || String(r.kiz_status || "") === "error") errors += 1;
+    if (String(r?.cancel_reason_label || "").trim()) cancelled += 1;
+  }
+  _wbFbsSetFilterCount("wbFbsKizFilterFilledCount", filled);
+  _wbFbsSetFilterCount("wbFbsKizFilterEmptyCount", empty);
+  _wbFbsSetFilterCount("wbFbsKizFilterErrorsCount", errors);
+  _wbFbsSetFilterCount("wbFbsKizFilterCancelledCount", cancelled);
+}
+
+function _wbFbsPickRowIsComplete(row) {
+  return !!(row?.pick_verified && String(row?.pick_barcode || "").trim());
+}
+
+function _wbFbsPickUpdateFilterCounts() {
+  const q = String(document.getElementById("wbFbsPickSearchFilter")?.value || "").trim();
+  let filled = 0;
+  let empty = 0;
+  let errors = 0;
+  let cancelled = 0;
+  for (const r of wbFbsPickState.rows || []) {
+    if (!_wbFbsPickRowMatchesSearch(r, q)) continue;
+    if (_wbFbsPickRowIsComplete(r)) filled += 1;
+    else empty += 1;
+    if (wbFbsPickState.errors[Number(r.order_id)]) errors += 1;
+    if (String(r?.cancel_reason_label || "").trim()) cancelled += 1;
+  }
+  _wbFbsSetFilterCount("wbFbsPickFilterFilledCount", filled);
+  _wbFbsSetFilterCount("wbFbsPickFilterEmptyCount", empty);
+  _wbFbsSetFilterCount("wbFbsPickFilterErrorsCount", errors);
+  _wbFbsSetFilterCount("wbFbsPickFilterCancelledCount", cancelled);
+}
+
 function renderWbFbsKizTable(opts) {
   // After programmatic state updates (scan/CSV/save) skip DOM collect —
   // otherwise empty inputs overwrite the just-assigned КИЗ codes.
@@ -32142,6 +32206,7 @@ function renderWbFbsKizTable(opts) {
   if (String(searchQ || "").trim()) {
     rows = rows.filter((r) => _wbFbsKizRowMatchesSearch(r, searchQ));
   }
+  _wbFbsKizUpdateFilterCounts();
   if (!rows.length) {
     tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">${
       wbFbsKizState.rows.length ? "Нет строк по выбранным фильтрам" : "Нет заказов с КИЗ"
@@ -33605,8 +33670,8 @@ function renderWbFbsPickVerifyTable() {
   const searchQ = document.getElementById("wbFbsPickSearchFilter")?.value || "";
   const pending = wbFbsPickState.pendingOrderId;
   let rows = wbFbsPickState.rows.slice();
-  if (filledOn) rows = rows.filter((r) => !!r.pick_verified && String(r.pick_barcode || "").trim());
-  if (emptyOn) rows = rows.filter((r) => !(r.pick_verified && String(r.pick_barcode || "").trim()));
+  if (filledOn) rows = rows.filter((r) => _wbFbsPickRowIsComplete(r));
+  if (emptyOn) rows = rows.filter((r) => !_wbFbsPickRowIsComplete(r));
   if (errorsOn) {
     rows = rows.filter((r) => wbFbsPickState.errors[Number(r.order_id)]);
   }
@@ -33614,6 +33679,7 @@ function renderWbFbsPickVerifyTable() {
     rows = rows.filter((r) => String(r.cancel_reason_label || "").trim());
   }
   rows = rows.filter((r) => _wbFbsPickRowMatchesSearch(r, searchQ));
+  _wbFbsPickUpdateFilterCounts();
   _wbFbsPickUpdateScanCounter();
   if (!rows.length) {
     tbody.innerHTML = `<tr><td colspan="3" class="wb-fbs-empty">${

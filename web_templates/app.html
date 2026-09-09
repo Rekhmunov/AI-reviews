@@ -2429,19 +2429,19 @@
               <div class="wb-fbs-kiz-filters" id="wbFbsKizFilters">
                 <label class="wb-fbs-kiz-check" id="wbFbsKizFilterFilledLabel">
                   <input type="checkbox" id="wbFbsKizFilterFilled" onchange="onWbFbsKizFilterFilledChange()" />
-                  Заполненные
+                  Заполненные <span id="wbFbsKizFilterFilledCount" class="wb-fbs-kiz-filter-count">(0)</span>
                 </label>
                 <label class="wb-fbs-kiz-check" id="wbFbsKizFilterEmptyLabel">
                   <input type="checkbox" id="wbFbsKizFilterEmpty" onchange="onWbFbsKizFilterEmptyChange()" />
-                  Незаполненные
+                  Незаполненные <span id="wbFbsKizFilterEmptyCount" class="wb-fbs-kiz-filter-count">(0)</span>
                 </label>
                 <label class="wb-fbs-kiz-check" id="wbFbsKizFilterErrorsLabel">
                   <input type="checkbox" id="wbFbsKizFilterErrors" onchange="renderWbFbsKizTable()" />
-                  С ошибками
+                  С ошибками <span id="wbFbsKizFilterErrorsCount" class="wb-fbs-kiz-filter-count">(0)</span>
                 </label>
                 <label class="wb-fbs-kiz-check" id="wbFbsKizFilterCancelledLabel">
                   <input type="checkbox" id="wbFbsKizFilterCancelled" onchange="renderWbFbsKizTable()" />
-                  Отмененные
+                  Отмененные <span id="wbFbsKizFilterCancelledCount" class="wb-fbs-kiz-filter-count">(0)</span>
                 </label>
                 <input id="wbFbsKizSearchFilter" class="wb-fbs-kiz-search" type="search"
                        placeholder="🔍 Поиск..." autocomplete="off"
@@ -2628,19 +2628,19 @@
               <div class="wb-fbs-kiz-filters" id="wbFbsPickVerifyFilters">
                 <label class="wb-fbs-kiz-check" id="wbFbsPickFilterFilledLabel">
                   <input type="checkbox" id="wbFbsPickFilterFilled" onchange="onWbFbsPickFilterFilledChange()" />
-                  Заполненные
+                  Заполненные <span id="wbFbsPickFilterFilledCount" class="wb-fbs-kiz-filter-count">(0)</span>
                 </label>
                 <label class="wb-fbs-kiz-check" id="wbFbsPickFilterEmptyLabel">
                   <input type="checkbox" id="wbFbsPickFilterEmpty" onchange="onWbFbsPickFilterEmptyChange()" />
-                  Незаполненные
+                  Незаполненные <span id="wbFbsPickFilterEmptyCount" class="wb-fbs-kiz-filter-count">(0)</span>
                 </label>
                 <label class="wb-fbs-kiz-check" id="wbFbsPickFilterErrorsLabel">
                   <input type="checkbox" id="wbFbsPickFilterErrors" onchange="renderWbFbsPickVerifyTable()" />
-                  С ошибками
+                  С ошибками <span id="wbFbsPickFilterErrorsCount" class="wb-fbs-kiz-filter-count">(0)</span>
                 </label>
                 <label class="wb-fbs-kiz-check" id="wbFbsPickFilterCancelledLabel">
                   <input type="checkbox" id="wbFbsPickFilterCancelled" onchange="renderWbFbsPickVerifyTable()" />
-                  Отмененные
+                  Отмененные <span id="wbFbsPickFilterCancelledCount" class="wb-fbs-kiz-filter-count">(0)</span>
                 </label>
                 <input id="wbFbsPickSearchFilter" class="wb-fbs-kiz-search" type="search"
                        placeholder="🔍 Поиск..." autocomplete="off"
@@ -6903,6 +6903,6 @@
 
   <script src="/static/ozon_fbs.js?v=140"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=22"></script>
-  <script src="/static/app.js?v=577"></script>
+  <script src="/static/app.js?v=578"></script>
 </body>
 </html>
