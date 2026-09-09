@@ -3911,45 +3911,107 @@ def _fetch_label_images(
 
 def _diagnose_missing_label(
     client: oz.OzonFbsClient, posting_number: str
-) -> str:
+) -> tuple[str, dict[str, Any] | None]:
     """Best-effort reason for a posting whose package-label fetch returned empty."""
     pn = str(posting_number or "").strip()
     if not pn:
-        return "пустое отправление"
+        return "пустое отправление", None
     try:
         remote = client.get_posting(pn)
     except Exception as exc:
-        return f"не удалось проверить статус в Ozon ({exc})"
+        return f"не удалось проверить статус в Ozon ({exc})", None
+    if not isinstance(remote, dict):
+        return "Ozon get_posting returned non-object", None
     status = str(remote.get("status") or "").strip().lower()
     if status and status != oz.TAB_AWAITING_DELIVER:
-        return oz.explain_package_label_status_block(
-            posting_number=pn, status=status
+        return (
+            oz.explain_package_label_status_block(
+                posting_number=pn, status=status
+            ),
+            remote,
         )
     # Status looks printable — often label not ready yet after ship.
     return (
-        f"Отправление {pn}: статус «ожидает отгрузки», но этикетка ещё не отдалась. "
-        "Повторите через 1–2 мин."
+        (
+            f"Отправление {pn}: статус «ожидает отгрузки», но этикетка ещё не отдалась. "
+            "Повторите через 1–2 мин."
+        ),
+        remote,
     )
+
+
+def _persist_sticker_cancelled_from_remote(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_number: str,
+    remote: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """When sticker print sees Ozon cancelled status, persist like toolbar search."""
+    if not remote or not isinstance(remote, dict):
+        return None
+    pn = str(posting_number or "").strip()
+    if not pn:
+        return None
+    status = str(remote.get("status") or "").strip().lower()
+    tab = oz.compute_tab(status)
+    if not oz.is_cancelled_posting(status=status, tab=tab):
+        return None
+    updated = oz.refresh_posting_status_only(
+        repo,
+        user_id=int(user_id),
+        source_id=int(source_id),
+        posting_number=pn,
+        remote_status=status,
+    )
+    if not updated:
+        return None
+    label = oz.cancel_reason_label_from_posting(remote) or "Отменено"
+    out_status = str(updated.get("status") or status).strip().lower()
+    out_tab = str(updated.get("tab") or tab).strip().lower()
+    return {
+        "posting_number": pn,
+        "status": out_status,
+        "tab": out_tab,
+        "cancel_reason_label": label,
+        "cancelled": True,
+    }
 
 
 def _retry_and_diagnose_missing_labels(
     client: oz.OzonFbsClient,
     *,
+    repo: ReviewRepository | None = None,
+    user_id: int = 0,
+    source_id: int = 0,
     images: dict[str, list[str]],
     missing: list[str],
-) -> tuple[dict[str, list[str]], list[str], list[str]]:
+) -> tuple[dict[str, list[str]], list[str], list[str], list[dict[str, Any]]]:
     """One individual retry for missing labels, then status diagnosis."""
     out = dict(images)
     still: list[str] = []
     reasons: list[str] = []
+    cancelled_postings: list[dict[str, Any]] = []
     for pn in missing:
         pages = _fetch_label_pages_for_posting(client, pn)
         if pages:
             out[pn] = pages
             continue
         still.append(pn)
-        reasons.append(_diagnose_missing_label(client, pn))
-    return out, still, reasons
+        reason, remote = _diagnose_missing_label(client, pn)
+        reasons.append(reason)
+        if repo is not None and user_id and source_id:
+            row = _persist_sticker_cancelled_from_remote(
+                repo,
+                user_id=int(user_id),
+                source_id=int(source_id),
+                posting_number=pn,
+                remote=remote,
+            )
+            if row:
+                cancelled_postings.append(row)
+    return out, still, reasons, cancelled_postings
 
 
 def render_stickers_print_html(
@@ -4174,6 +4236,7 @@ class StickersPrintResult:
     loaded_count: int
     missing_posting_numbers: list[str]
     missing_reasons: list[str] | None = None
+    cancelled_postings: list[dict[str, Any]] | None = None
 
 
 def list_sticker_groups(detail: dict[str, Any]) -> dict[str, Any]:
@@ -4271,6 +4334,7 @@ def build_stickers_print(
     images = _fetch_label_images(client, nums, progress=progress)
     missing = [pn for pn in nums if not (images.get(pn) or [])]
     missing_reasons: list[str] = []
+    cancelled_postings: list[dict[str, Any]] = []
     if missing:
         if progress:
             try:
@@ -4281,8 +4345,15 @@ def build_stickers_print(
                 )
             except Exception:
                 pass
-        images, missing, missing_reasons = _retry_and_diagnose_missing_labels(
-            client, images=images, missing=missing
+        images, missing, missing_reasons, cancelled_postings = (
+            _retry_and_diagnose_missing_labels(
+                client,
+                repo=repo,
+                user_id=int(user_id),
+                source_id=int(source_id),
+                images=images,
+                missing=missing,
+            )
         )
     loaded = sum(1 for pn in nums if (images.get(pn) or []))
     labeled = [pn for pn in nums if (images.get(pn) or [])]
@@ -4347,6 +4418,7 @@ def build_stickers_print(
         loaded_count=loaded,
         missing_posting_numbers=missing,
         missing_reasons=missing_reasons,
+        cancelled_postings=cancelled_postings,
     )
 
 
@@ -4370,6 +4442,7 @@ def _empty_stickers_job() -> dict[str, Any]:
         "loaded_count": 0,
         "missing_posting_numbers": [],
         "missing_reasons": [],
+        "cancelled_postings": [],
     }
 
 
@@ -4395,6 +4468,7 @@ def get_stickers_print_job_result(*, user_id: int) -> StickersPrintResult | None
             loaded_count=int(st.get("loaded_count") or 0),
             missing_posting_numbers=list(st.get("missing_posting_numbers") or []),
             missing_reasons=list(st.get("missing_reasons") or []),
+            cancelled_postings=list(st.get("cancelled_postings") or []),
         )
 
 
@@ -4537,6 +4611,7 @@ def start_stickers_print_job(
                             result.missing_posting_numbers or []
                         ),
                         "missing_reasons": list(result.missing_reasons or []),
+                        "cancelled_postings": list(result.cancelled_postings or []),
                     }
                 )
         except Exception as exc:

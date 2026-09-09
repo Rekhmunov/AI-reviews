@@ -113,6 +113,7 @@ class OzonFbsPrintOrderCheckTests(unittest.TestCase):
                 {"A-1": [], "B-2": []},
                 ["A-1", "B-2"],
                 ["A-1: уже доставляется", "B-2: этикетка не готова"],
+                [],
             ),
         ), patch("review_processor.ozon_fbs_supplies._log"):
             result = build_stickers_print(

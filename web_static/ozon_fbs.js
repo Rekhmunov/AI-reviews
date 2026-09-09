@@ -3220,6 +3220,33 @@
     el.classList.toggle("is-ok", !!msg && kind === "ok");
   }
 
+  async function _ozonFbsRefreshOpenSupplyDetail() {
+    const sid = String(supplyDetailState.supplyId || "").trim();
+    const sourceId = supplyDetailState.sourceId || state.sourceId;
+    if (!sid || !sourceId) return;
+    try {
+      const tabParam = _ozonFbsSupplyPostingTabParam();
+      const res = await fetch(
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/detail?source_id=${sourceId}${tabParam}`
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+      renderSupplyDetail(data);
+      _ozonFbsKizSplitSetTone(_ozonFbsKizToneFromSupply(supplyDetailState.supply));
+      _ozonFbsPickSplitSetTone(_ozonFbsPickToneFromSupply(supplyDetailState.supply));
+      _ozonFbsSupplyDetailUpdateNewWarn();
+    } catch (_e) { /* ignore */ }
+  }
+
+  function _ozonFbsApplyStickerCancelledRows(rows) {
+    const list = Array.isArray(rows) ? rows.filter((r) => r && r.cancelled) : [];
+    if (!list.length) return;
+    _ozonFbsCancelledMergeIntoDetail(list);
+    _ozonFbsKizSplitSetTone(_ozonFbsKizToneFromSupply(supplyDetailState.supply));
+    _ozonFbsPickSplitSetTone(_ozonFbsPickToneFromSupply(supplyDetailState.supply));
+    _ozonFbsSupplyDetailUpdateNewWarn();
+  }
+
   function _ozonFbsCancelledMergeIntoDetail(rows) {
     const supply = supplyDetailState.supply;
     if (!supply || !Array.isArray(supply.orders) || !Array.isArray(rows)) return;
@@ -3478,6 +3505,8 @@
         info.classList.toggle("is-ok", false);
         info.classList.toggle("is-warn", true);
       }
+      // Server may have persisted Ozon-cancelled postings during diagnosis.
+      void _ozonFbsRefreshOpenSupplyDetail();
     }
   }
 
@@ -3709,6 +3738,7 @@
         );
         if (st.in_progress) continue;
         if (st.ok) {
+          _ozonFbsApplyStickerCancelledRows(st.cancelled_postings);
           await openResultHtml({
             expected: st.expected_count,
             loaded: st.loaded_count,
