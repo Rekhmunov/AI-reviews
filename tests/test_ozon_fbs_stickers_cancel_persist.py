@@ -84,6 +84,30 @@ def test_retry_and_diagnose_persists_cancelled() -> None:
     assert cancelled[0]["posting_number"] == "PN-3"
 
 
+def test_retry_and_diagnose_persist_error_does_not_abort() -> None:
+    repo = MagicMock()
+    client = MagicMock()
+    client.get_posting.return_value = {"status": "cancelled"}
+    with patch(
+        "review_processor.ozon_fbs_supplies._fetch_label_pages_for_posting",
+        return_value=[],
+    ), patch(
+        "review_processor.ozon_fbs_supplies._persist_sticker_cancelled_from_remote",
+        side_effect=RuntimeError("db down"),
+    ):
+        images, missing, reasons, cancelled = _retry_and_diagnose_missing_labels(
+            client,
+            repo=repo,
+            user_id=1,
+            source_id=7,
+            images={},
+            missing=["PN-5"],
+        )
+    assert missing == ["PN-5"]
+    assert reasons
+    assert cancelled == []
+
+
 def test_build_stickers_print_returns_cancelled_postings() -> None:
     repo = MagicMock()
     detail = {

@@ -4002,13 +4002,19 @@ def _retry_and_diagnose_missing_labels(
         reason, remote = _diagnose_missing_label(client, pn)
         reasons.append(reason)
         if repo is not None and user_id and source_id:
-            row = _persist_sticker_cancelled_from_remote(
-                repo,
-                user_id=int(user_id),
-                source_id=int(source_id),
-                posting_number=pn,
-                remote=remote,
-            )
+            try:
+                row = _persist_sticker_cancelled_from_remote(
+                    repo,
+                    user_id=int(user_id),
+                    source_id=int(source_id),
+                    posting_number=pn,
+                    remote=remote,
+                )
+            except Exception as exc:
+                _log.warning(
+                    "ozon stickers persist cancelled %s: %s", pn, exc
+                )
+                row = None
             if row:
                 cancelled_postings.append(row)
     return out, still, reasons, cancelled_postings
