@@ -7921,38 +7921,41 @@ tr.dnd-over td {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   margin: 0;
   padding: 0;
-  border: 1px solid rgba(148, 163, 184, 0.65);
-  border-radius: 8px;
-  background: #fff;
-  color: #475569;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #0f172a;
   cursor: pointer;
   box-sizing: border-box;
+  box-shadow: none;
+  appearance: none;
+  -webkit-appearance: none;
 }
 .ozon-fbs-posting-status-refresh:hover:not(:disabled) {
-  background: #f8fafc;
-  border-color: #94a3b8;
-  color: #0f172a;
+  background: transparent;
+  color: #2563eb;
 }
 .ozon-fbs-posting-status-refresh:active:not(:disabled) {
-  background: #f1f5f9;
-  transform: translateY(1px);
+  background: transparent;
+  color: #1d4ed8;
+  transform: none;
 }
 .ozon-fbs-posting-status-refresh:focus-visible {
   outline: 2px solid #2563eb;
   outline-offset: 2px;
 }
 .ozon-fbs-posting-status-refresh:disabled {
-  opacity: 0.55;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 .ozon-fbs-posting-status-refresh-ico {
   display: block;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
 }
 .ozon-fbs-posting-status-refresh.is-spinning .ozon-fbs-posting-status-refresh-ico {
   animation: wb-fbs-kiz-spin 0.8s linear infinite;

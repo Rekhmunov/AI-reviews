@@ -43,5 +43,11 @@ def test_posting_status_refresh_ui_wired() -> None:
     assert ".ozon-fbs-posting-status-refresh" in css
     assert ".ozon-fbs-modal-posting-id" in css
     assert "#ozonFbsPostingStatusModal.modal-overlay" in css
-    assert "ozon_fbs.js?v=142" in html
-    assert "style.css?v=327" in html
+    # Icon-only control: no button chrome.
+    refresh_css = css[css.find(".ozon-fbs-posting-status-refresh {") : css.find(
+        ".ozon-fbs-posting-status-refresh:hover"
+    )]
+    assert "border: 0;" in refresh_css
+    assert "background: transparent;" in refresh_css
+    assert "ozon_fbs.js?v=143" in html
+    assert "style.css?v=328" in html

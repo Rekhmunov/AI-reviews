@@ -8273,8 +8273,8 @@
               title="Проверить статус на Ozon"
               aria-label="Проверить статус заказа ${safePnAttr}"
               onclick="event.stopPropagation(); refreshOzonFbsModalPostingStatus('${safePnAttr}')">
-          <svg class="ozon-fbs-posting-status-refresh-ico" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-            <path fill="currentColor" d="M12 6V3L8 7l4 4V8c2.76 0 5 2.24 5 5a5 5 0 0 1-8.9 3.1l-1.45 1.45A7 7 0 0 0 19 13c0-3.87-3.13-7-7-7zm0 12v3l4-4-4-4v3a5 5 0 0 1-5-5c0-1.07.34-2.06.92-2.87l-1.46-1.45A6.97 6.97 0 0 0 5 13c0 3.87 3.13 7 7 7z"/>
+          <svg class="ozon-fbs-posting-status-refresh-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+            <path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z"/>
           </svg>
         </button>`
       : "";

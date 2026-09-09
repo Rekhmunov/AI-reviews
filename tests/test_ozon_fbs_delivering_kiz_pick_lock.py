@@ -69,7 +69,7 @@ def test_ozon_delivering_kiz_pick_tone_only_no_modal() -> None:
     assert 'id="ozonFbsSupplyDetailPickVerifyBtn"' in html
     assert 'id="ozonFbsSupplyDetailKizRefreshBtn"' in html
     assert 'id="ozonFbsSupplyDetailPickRefreshBtn"' in html
-    assert "ozon_fbs.js?v=142" in html
+    assert "ozon_fbs.js?v=143" in html
 
 
 def test_ozon_delivering_auto_tones_still_run() -> None:
