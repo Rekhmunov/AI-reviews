@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=333" />
+  <link rel="stylesheet" href="/static/style.css?v=334" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -4101,28 +4101,49 @@
 
       <!-- Create TTN Modal -->
       <div id="createTtnModal" class="modal-overlay hidden" onclick="if(event.target===this)closeCreateTtnModal()">
-        <div class="modal-card" style="max-width:560px;width:92%;max-height:90vh;overflow:auto">
+        <div class="modal-card ttn-modal-card" style="max-width:560px;width:92%">
           <div class="row row-between">
             <h4 class="no-margin" id="createTtnModalTitle">Создать ТТН</h4>
             <button class="icon-btn" onclick="closeCreateTtnModal()">✕</button>
           </div>
-          <div style="margin-top:14px;display:flex;flex-direction:column;gap:12px">
+          <div class="ttn-modal-body" style="margin-top:14px;display:flex;flex-direction:column;gap:12px">
             <div>
               <label class="small" style="display:block;margin-bottom:4px" for="ttnCreateDate">Дата ТТН</label>
               <input id="ttnCreateDate" type="date" style="width:100%;height:36px;box-sizing:border-box" />
             </div>
             <div>
-              <label class="small" style="display:block;margin-bottom:4px" for="ttnCreateLegal">Грузоотправитель (юр. лицо)</label>
-              <select id="ttnCreateLegal" style="width:100%;height:36px"></select>
+              <label class="small" style="display:block;margin-bottom:4px">Грузоотправитель</label>
+              <div class="ss-wrap ttn-ss-field" id="ttnCreateShipperWrap">
+                <input class="ss-input" id="ttnCreateShipperInput" type="text"
+                       placeholder="Выберите грузоотправителя" autocomplete="off" readonly
+                       onfocus="ssOpen('ttnCreateShipperWrap')"
+                       oninput="ssFilter('ttnCreateShipperWrap')" />
+                <div class="ss-dropdown hidden" id="ttnCreateShipperDropdown"></div>
+                <input type="hidden" id="ttnCreateShipper" />
+              </div>
             </div>
             <div>
-              <label class="small" style="display:block;margin-bottom:4px" for="ttnCreateConsignee">Грузополучатель</label>
-              <select id="ttnCreateConsignee" style="width:100%;height:36px"></select>
+              <label class="small" style="display:block;margin-bottom:4px">Грузополучатель</label>
+              <div class="ss-wrap ttn-ss-field" id="ttnCreateConsigneeWrap">
+                <input class="ss-input" id="ttnCreateConsigneeInput" type="text"
+                       placeholder="Выберите грузополучателя" autocomplete="off" readonly
+                       onfocus="ssOpen('ttnCreateConsigneeWrap')"
+                       oninput="ssFilter('ttnCreateConsigneeWrap')" />
+                <div class="ss-dropdown hidden" id="ttnCreateConsigneeDropdown"></div>
+                <input type="hidden" id="ttnCreateConsignee" />
+              </div>
             </div>
             <div>
-              <label class="small" style="display:block;margin-bottom:4px" for="ttnCreateDriver">Водитель / перевозчик</label>
+              <label class="small" style="display:block;margin-bottom:4px">Водитель / перевозчик</label>
               <div style="display:flex;gap:6px;align-items:center">
-                <select id="ttnCreateDriver" style="flex:1;height:36px" onchange="onTtnDriverChange()"></select>
+                <div class="ss-wrap ttn-ss-field" id="ttnCreateDriverWrap" style="flex:1">
+                  <input class="ss-input" id="ttnCreateDriverInput" type="text"
+                         placeholder="Выберите водителя" autocomplete="off" readonly
+                         onfocus="ssOpen('ttnCreateDriverWrap')"
+                         oninput="ssFilter('ttnCreateDriverWrap')" />
+                  <div class="ss-dropdown hidden" id="ttnCreateDriverDropdown"></div>
+                  <input type="hidden" id="ttnCreateDriver" />
+                </div>
                 <button type="button" class="secondary small-btn" id="ttnManualDriverBtn"
                   onclick="toggleTtnManualDriver()"
                   title="Ввести вручную"
@@ -4140,22 +4161,59 @@
               <p id="ttnCarrierHint" class="small" style="color:#64748b;margin-top:6px;min-height:1.2em"></p>
             </div>
             <div>
-              <label class="small" style="display:block;margin-bottom:4px" for="ttnCreateVehicle">Транспортное средство</label>
-              <select id="ttnCreateVehicle" style="width:100%;height:36px"></select>
+              <label class="small" style="display:block;margin-bottom:4px">Транспортное средство</label>
+              <div class="ss-wrap ttn-ss-field" id="ttnCreateVehicleWrap">
+                <input class="ss-input" id="ttnCreateVehicleInput" type="text"
+                       placeholder="Выберите ТС" autocomplete="off" readonly
+                       onfocus="ssOpen('ttnCreateVehicleWrap')"
+                       oninput="ssFilter('ttnCreateVehicleWrap')" />
+                <div class="ss-dropdown hidden" id="ttnCreateVehicleDropdown"></div>
+                <input type="hidden" id="ttnCreateVehicle" />
+              </div>
               <input id="ttnCreateVehicleManual" type="text" placeholder="Марка и госномер"
                      autocomplete="off" style="width:100%;height:36px;margin-top:6px;box-sizing:border-box;display:none" />
             </div>
             <div>
-              <label class="small" style="display:block;margin-bottom:4px" for="ttnCreateLoadPreset">Место погрузки</label>
-              <select id="ttnCreateLoadPreset" style="width:100%;height:36px" onchange="onTtnLoadPresetChange()"></select>
-              <input id="ttnCreateLoadAddress" type="text" placeholder="Адрес погрузки"
-                     autocomplete="off" style="width:100%;height:36px;margin-top:6px;box-sizing:border-box" />
+              <label class="small" style="display:block;margin-bottom:4px">Место погрузки</label>
+              <div style="display:flex;gap:6px;align-items:center">
+                <div class="ss-wrap ttn-ss-field" id="ttnCreateLoadWrap" style="flex:1">
+                  <input class="ss-input" id="ttnCreateLoadInput" type="text"
+                         placeholder="Выберите место погрузки" autocomplete="off" readonly
+                         onfocus="ssOpen('ttnCreateLoadWrap')"
+                         oninput="ssFilter('ttnCreateLoadWrap')" />
+                  <div class="ss-dropdown hidden" id="ttnCreateLoadDropdown"></div>
+                  <input type="hidden" id="ttnCreateLoad" />
+                </div>
+                <button type="button" class="secondary small-btn" id="ttnManualLoadBtn"
+                  onclick="toggleTtnManualLoad()"
+                  title="Ввести вручную"
+                  style="color:#2563eb;border-color:#93c5fd;height:36px;padding:0 10px">✏</button>
+              </div>
+              <div id="ttnManualLoadFields" style="display:none;margin-top:8px">
+                <input id="ttnCreateLoadAddress" type="text" placeholder="Адрес погрузки"
+                       autocomplete="off" style="width:100%;height:36px;box-sizing:border-box" />
+              </div>
             </div>
             <div>
-              <label class="small" style="display:block;margin-bottom:4px" for="ttnCreateUnloadPreset">Место разгрузки</label>
-              <select id="ttnCreateUnloadPreset" style="width:100%;height:36px" onchange="onTtnUnloadPresetChange()"></select>
-              <input id="ttnCreateUnloadAddress" type="text" placeholder="Адрес разгрузки"
-                     autocomplete="off" style="width:100%;height:36px;margin-top:6px;box-sizing:border-box" />
+              <label class="small" style="display:block;margin-bottom:4px">Место разгрузки</label>
+              <div style="display:flex;gap:6px;align-items:center">
+                <div class="ss-wrap ttn-ss-field" id="ttnCreateUnloadWrap" style="flex:1">
+                  <input class="ss-input" id="ttnCreateUnloadInput" type="text"
+                         placeholder="Выберите место разгрузки" autocomplete="off" readonly
+                         onfocus="ssOpen('ttnCreateUnloadWrap')"
+                         oninput="ssFilter('ttnCreateUnloadWrap')" />
+                  <div class="ss-dropdown hidden" id="ttnCreateUnloadDropdown"></div>
+                  <input type="hidden" id="ttnCreateUnload" />
+                </div>
+                <button type="button" class="secondary small-btn" id="ttnManualUnloadBtn"
+                  onclick="toggleTtnManualUnload()"
+                  title="Ввести вручную"
+                  style="color:#2563eb;border-color:#93c5fd;height:36px;padding:0 10px">✏</button>
+              </div>
+              <div id="ttnManualUnloadFields" style="display:none;margin-top:8px">
+                <input id="ttnCreateUnloadAddress" type="text" placeholder="Адрес разгрузки"
+                       autocomplete="off" style="width:100%;height:36px;box-sizing:border-box" />
+              </div>
             </div>
             <div>
               <label class="small" style="display:block;margin-bottom:4px" for="ttnCreateCargo">Наименование груза</label>
@@ -7115,6 +7173,6 @@
 
   <script src="/static/ozon_fbs.js?v=144"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=22"></script>
-  <script src="/static/app.js?v=583"></script>
+  <script src="/static/app.js?v=584"></script>
 </body>
 </html>

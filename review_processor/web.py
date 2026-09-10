@@ -481,6 +481,8 @@ class UpdatePoARecordRequest(BaseModel):
 class CreateTtnRecordRequest(BaseModel):
     legal_entity_id: int
     contractor_id: int
+    shipper_type: str = "le"
+    consignee_type: str = "contractor"
     driver_id: int = 0
     driver_manual_name: str = ""
     driver_manual_docs: str = ""
@@ -499,6 +501,8 @@ class CreateTtnRecordRequest(BaseModel):
 class UpdateTtnRecordRequest(BaseModel):
     legal_entity_id: int
     contractor_id: int
+    shipper_type: str = "le"
+    consignee_type: str = "contractor"
     driver_id: int = 0
     driver_manual_name: str = ""
     driver_manual_docs: str = ""
@@ -20723,6 +20727,8 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             ttn_date=ttn_date,
             legal_entity_id=payload.legal_entity_id,
             contractor_id=payload.contractor_id,
+            shipper_type=payload.shipper_type,
+            consignee_type=payload.consignee_type,
             driver_id=payload.driver_id,
             driver_manual_name=payload.driver_manual_name,
             driver_manual_docs=payload.driver_manual_docs,
@@ -20757,6 +20763,8 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             ttn_date=ttn_date,
             legal_entity_id=payload.legal_entity_id,
             contractor_id=payload.contractor_id,
+            shipper_type=payload.shipper_type,
+            consignee_type=payload.consignee_type,
             driver_id=payload.driver_id,
             driver_manual_name=payload.driver_manual_name,
             driver_manual_docs=payload.driver_manual_docs,
