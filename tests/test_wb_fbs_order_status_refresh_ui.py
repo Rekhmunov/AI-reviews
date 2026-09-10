@@ -61,5 +61,5 @@ def test_wb_fbs_order_copy_refresh_ui_wired() -> None:
     assert "refresh: bool = False" in web[web.find('"/api/wb-fbs/orders/lookup"') :]
     assert "refresh=bool(refresh)" in web[web.find('"/api/wb-fbs/orders/lookup"') :]
 
-    assert "app.js?v=581" in html
-    assert "style.css?v=332" in html
+    assert "app.js?v=582" in html
+    assert "style.css?v=333" in html

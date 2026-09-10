@@ -478,6 +478,42 @@ class UpdatePoARecordRequest(BaseModel):
     driver_manual_docs: str = ""
 
 
+class CreateTtnRecordRequest(BaseModel):
+    legal_entity_id: int
+    contractor_id: int
+    driver_id: int = 0
+    driver_manual_name: str = ""
+    driver_manual_docs: str = ""
+    ttn_date: str = ""
+    vehicle_line: str = ""
+    carrier_snapshot: str = ""
+    load_address: str = ""
+    unload_address: str = ""
+    cargo_description: str = ""
+    cargo_places: str = ""
+    cargo_weight: str = ""
+    accompanying_docs: str = ""
+    notes: str = ""
+
+
+class UpdateTtnRecordRequest(BaseModel):
+    legal_entity_id: int
+    contractor_id: int
+    driver_id: int = 0
+    driver_manual_name: str = ""
+    driver_manual_docs: str = ""
+    ttn_date: str = ""
+    vehicle_line: str = ""
+    carrier_snapshot: str = ""
+    load_address: str = ""
+    unload_address: str = ""
+    cargo_description: str = ""
+    cargo_places: str = ""
+    cargo_weight: str = ""
+    accompanying_docs: str = ""
+    notes: str = ""
+
+
 class CreateSupplyContractorRequest(BaseModel):
     name: str
     requisites: str = ""
@@ -20655,6 +20691,272 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         from urllib.parse import quote as _qp2
         return Response(content=html_content.encode("utf-8"),media_type="application/msword",headers={"Content-Disposition":f"attachment; filename*=UTF-8''{_qp2(fname_doc)}"})
 
+    @app.get("/api/supply-ttn-records")
+    def list_ttn_records(request: Request) -> list[dict[str, object]]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        repository._ensure_supply_tables()
+        return repository.list_supply_ttn_records(user_id=_supply_owner_id(user))
+
+    @app.post("/api/supply-ttn-records")
+    def create_ttn_record(request: Request, payload: CreateTtnRecordRequest) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        from datetime import datetime as _dtt
+        repository._ensure_supply_tables()
+        raw_date = str(payload.ttn_date or "").strip()
+        if raw_date and len(raw_date) == 10 and raw_date[4] == "-":
+            try:
+                ttn_date = _dtt.strptime(raw_date, "%Y-%m-%d").strftime("%d.%m.%Y")
+            except ValueError:
+                ttn_date = _dtt.now().strftime("%d.%m.%Y")
+        elif raw_date:
+            ttn_date = raw_date
+        else:
+            ttn_date = _dtt.now().strftime("%d.%m.%Y")
+        doc_number = str(repository.next_ttn_number())
+        return repository.create_supply_ttn_record(
+            user_id=_supply_owner_id(user),
+            doc_number=doc_number,
+            ttn_date=ttn_date,
+            legal_entity_id=payload.legal_entity_id,
+            contractor_id=payload.contractor_id,
+            driver_id=payload.driver_id,
+            driver_manual_name=payload.driver_manual_name,
+            driver_manual_docs=payload.driver_manual_docs,
+            vehicle_line=payload.vehicle_line,
+            carrier_snapshot=payload.carrier_snapshot,
+            load_address=payload.load_address,
+            unload_address=payload.unload_address,
+            cargo_description=payload.cargo_description,
+            cargo_places=payload.cargo_places,
+            cargo_weight=payload.cargo_weight,
+            accompanying_docs=payload.accompanying_docs,
+            notes=payload.notes,
+        )
+
+    @app.patch("/api/supply-ttn-records/{record_id}")
+    def update_ttn_record(request: Request, record_id: int, payload: UpdateTtnRecordRequest) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        from datetime import datetime as _dtt
+        raw_date = str(payload.ttn_date or "").strip()
+        if raw_date and len(raw_date) == 10 and raw_date[4] == "-":
+            try:
+                ttn_date = _dtt.strptime(raw_date, "%Y-%m-%d").strftime("%d.%m.%Y")
+            except ValueError:
+                ttn_date = raw_date
+        else:
+            ttn_date = raw_date
+        ok = repository.update_supply_ttn_record(
+            user_id=_supply_owner_id(user),
+            record_id=record_id,
+            ttn_date=ttn_date,
+            legal_entity_id=payload.legal_entity_id,
+            contractor_id=payload.contractor_id,
+            driver_id=payload.driver_id,
+            driver_manual_name=payload.driver_manual_name,
+            driver_manual_docs=payload.driver_manual_docs,
+            vehicle_line=payload.vehicle_line,
+            carrier_snapshot=payload.carrier_snapshot,
+            load_address=payload.load_address,
+            unload_address=payload.unload_address,
+            cargo_description=payload.cargo_description,
+            cargo_places=payload.cargo_places,
+            cargo_weight=payload.cargo_weight,
+            accompanying_docs=payload.accompanying_docs,
+            notes=payload.notes,
+        )
+        if not ok:
+            raise HTTPException(status_code=404, detail="ТТН не найдена")
+        return {"ok": True}
+
+    @app.delete("/api/supply-ttn-records/{record_id}")
+    def delete_ttn_record(request: Request, record_id: int) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        ok = repository.delete_supply_ttn_record(user_id=_supply_owner_id(user), record_id=record_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="ТТН не найдена")
+        return {"ok": True}
+
+    def _build_ttn_catalog_html(record: dict) -> str:
+        """Build a simple transport waybill HTML for logistics catalog TTN."""
+        import html as _hm
+        e = _hm.escape
+        doc_number = e(str(record.get("doc_number") or record.get("id") or ""))
+        ttn_date = e(str(record.get("ttn_date") or ""))
+        le_full = e(str(record.get("le_full") or record.get("le_short") or ""))
+        le_req = e(str(record.get("le_req") or ""))
+        le_addr = e(str(record.get("le_address") or ""))
+        le_phone = e(str(record.get("le_phone") or ""))
+        shipper = ", ".join(x for x in [le_full, le_addr, le_phone, le_req] if x)
+        c_name = e(str(record.get("c_name") or ""))
+        c_req = e(str(record.get("c_req") or ""))
+        consignee = f"{c_name} {c_req}".strip() if c_req else c_name
+        driver_id = int(record.get("driver_id") or 0)
+        if driver_id > 0:
+            d_full = str(record.get("d_full") or "")
+            d_docs = str(record.get("d_docs") or "")
+            d_phone = str(record.get("d_phone") or "")
+            driver_str = ", ".join(x for x in [d_full, d_docs, d_phone] if x)
+        else:
+            d_full = str(record.get("driver_manual_name") or "")
+            d_docs = str(record.get("driver_manual_docs") or "")
+            driver_str = ", ".join(x for x in [d_full, d_docs] if x)
+        driver_str = e(driver_str)
+        carrier = e(str(record.get("carrier_snapshot") or record.get("d_carrier_name") or ""))
+        vehicle = e(str(record.get("vehicle_line") or ""))
+        load_addr = e(str(record.get("load_address") or ""))
+        unload_addr = e(str(record.get("unload_address") or ""))
+        cargo = e(str(record.get("cargo_description") or ""))
+        places = e(str(record.get("cargo_places") or ""))
+        weight = e(str(record.get("cargo_weight") or ""))
+        docs = e(str(record.get("accompanying_docs") or ""))
+        notes = e(str(record.get("notes") or ""))
+        return f"""<!DOCTYPE html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8">
+<style>
+  @page {{ size: 210mm 297mm; margin: 15mm 15mm 15mm 20mm; }}
+  body {{ font-family: "Times New Roman", serif; font-size: 11pt; line-height: 1.35; color: #000; }}
+  h1 {{ text-align: center; font-size: 14pt; margin: 0 0 12pt; }}
+  table.meta {{ width: 100%; border-collapse: collapse; margin-bottom: 10pt; }}
+  table.meta td {{ border: 1px solid #000; padding: 4pt 6pt; vertical-align: top; }}
+  .label {{ font-size: 8pt; color: #444; }}
+  .sig {{ margin-top: 18pt; }}
+  .sig td {{ padding-top: 16pt; }}
+</style></head>
+<body>
+<h1>Транспортная накладная № {doc_number}</h1>
+<p style="text-align:right;margin:0 0 12pt">Дата составления: <b>{ttn_date}</b></p>
+<table class="meta">
+  <tr>
+    <td width="50%"><div class="label">1. Грузоотправитель</div>{shipper or "—"}</td>
+    <td width="50%"><div class="label">2. Грузополучатель</div>{consignee or "—"}</td>
+  </tr>
+  <tr>
+    <td><div class="label">3. Перевозчик</div>{carrier or "—"}</td>
+    <td><div class="label">4. Водитель</div>{driver_str or "—"}
+        <div class="label" style="margin-top:6pt">Транспортное средство</div>{vehicle or "—"}</td>
+  </tr>
+  <tr>
+    <td><div class="label">5. Место погрузки</div>{load_addr or "—"}</td>
+    <td><div class="label">6. Место разгрузки</div>{unload_addr or "—"}</td>
+  </tr>
+  <tr>
+    <td colspan="2">
+      <div class="label">7. Груз</div>
+      <div>{cargo or "—"}</div>
+      <div style="margin-top:6pt">Мест: <b>{places or "—"}</b> &nbsp;&nbsp; Масса, кг: <b>{weight or "—"}</b></div>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2"><div class="label">8. Сопроводительные документы</div>{docs or "—"}</td>
+  </tr>
+  <tr>
+    <td colspan="2"><div class="label">9. Особые условия / указания</div>{notes or "—"}</td>
+  </tr>
+</table>
+<table class="meta sig" style="border:none">
+  <tr>
+    <td style="border:none;width:50%">Грузоотправитель ________________ / ____________</td>
+    <td style="border:none;width:50%">Водитель / перевозчик ________________ / ____________</td>
+  </tr>
+  <tr>
+    <td style="border:none">Груз сдал ________________ / ____________</td>
+    <td style="border:none">Груз принял ________________ / ____________</td>
+  </tr>
+</table>
+</body></html>"""
+
+    def _ttn_catalog_filename(record: dict, ext: str) -> str:
+        import re as _re
+        num = _re.sub(r'[/\\?%*:|"<>]', "", str(record.get("doc_number") or record.get("id") or ""))
+        le = _re.sub(r'[/\\?%*:|"<>]', "", str(record.get("le_short") or ""))
+        cn = _re.sub(r'[/\\?%*:|"<>]', "", str(record.get("c_name") or ""))
+        name = f"ТТН_{num}_{le}_{cn}.{ext}".strip("_")
+        return name or f"TTN_{record.get('id')}.{ext}"
+
+    def _get_ttn_catalog_record(user: dict, record_id: int) -> dict:
+        records = repository.list_supply_ttn_records(user_id=_supply_owner_id(user))
+        record = next((r for r in records if int(r.get("id") or 0) == int(record_id)), None)
+        if not record:
+            raise HTTPException(status_code=404, detail="Не найдено")
+        return record
+
+    @app.get("/api/supply-ttn-records/{record_id}/html")
+    def get_ttn_catalog_html(request: Request, record_id: int):
+        from fastapi.responses import HTMLResponse
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        record = _get_ttn_catalog_record(user, record_id)
+        return HTMLResponse(content=_build_ttn_catalog_html(record))
+
+    @app.get("/api/supply-ttn-records/{record_id}/pdf")
+    def get_ttn_catalog_pdf(request: Request, record_id: int):
+        import subprocess as _sp, tempfile as _tf, pathlib as _pl, os as _os
+        from fastapi.responses import Response
+        from urllib.parse import quote as _qp
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        record = _get_ttn_catalog_record(user, record_id)
+        html_content = _build_ttn_catalog_html(record)
+        tmp_dir = _tf.mkdtemp()
+        html_path = _pl.Path(tmp_dir) / "ttn.html"
+        pdf_path = _pl.Path(tmp_dir) / "ttn.pdf"
+        html_path.write_text(html_content, encoding="utf-8")
+        lo_env = dict(_os.environ)
+        for k, v in [("HOME", tmp_dir), ("XDG_CACHE_HOME", tmp_dir), ("XDG_CONFIG_HOME", tmp_dir),
+                     ("XDG_RUNTIME_DIR", tmp_dir), ("DCONF_PROFILE", "/dev/null")]:
+            lo_env[k] = v
+        lo_ok = False
+        for binary in ("/usr/bin/soffice", "/usr/lib/libreoffice/program/soffice", "soffice", "libreoffice"):
+            try:
+                r = _sp.run(
+                    [binary, "--headless", "--norestore",
+                     f"-env:UserInstallation=file://{tmp_dir}/lo_profile",
+                     "--convert-to", "pdf", "--outdir", tmp_dir, str(html_path)],
+                    capture_output=True, timeout=60, env=lo_env,
+                )
+                if r.returncode == 0 and pdf_path.exists():
+                    lo_ok = True
+                    break
+            except FileNotFoundError:
+                continue
+            except _sp.TimeoutExpired:
+                raise HTTPException(status_code=504, detail="Таймаут")
+        if not lo_ok:
+            raise HTTPException(status_code=500, detail="Ошибка генерации PDF")
+        fname = _ttn_catalog_filename(record, "pdf")
+        return Response(
+            content=pdf_path.read_bytes(),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{_qp(fname)}"},
+        )
+
+    @app.get("/api/supply-ttn-records/{record_id}/doc")
+    def get_ttn_catalog_doc(request: Request, record_id: int):
+        from fastapi.responses import Response
+        from urllib.parse import quote as _qp2
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        record = _get_ttn_catalog_record(user, record_id)
+        html_content = "\uFEFF" + _build_ttn_catalog_html(record)
+        fname_doc = _ttn_catalog_filename(record, "doc")
+        return Response(
+            content=html_content.encode("utf-8"),
+            media_type="application/msword",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{_qp2(fname_doc)}"},
+        )
+
     @app.patch("/api/supplies/{supply_id}/manual-fields")
     def update_supply_manual_fields(
         request: Request,
@@ -21163,7 +21465,7 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
                   if can_view_ozon_supplies else "")
     _ozon_fbs_link = ('<a id="nav-supplies-ozon-fbs" class="nav-item" href="#" onclick="showSection(\'supplies-ozon-fbs\')"><span class="nav-item-icon">◉</span> ОЗОН ФБС</a>'
                       if can_view_ozon_fbs_supplies else "")
-    _poa_link = ('<a id="nav-supplies-poa" class="nav-item" href="#" onclick="showSection(\'supplies-poa\')"><span class="nav-item-icon">☐</span> Доверенности</a>'
+    _poa_link = ('<a id="nav-supplies-poa" class="nav-item" href="#" onclick="showSection(\'supplies-poa\')"><span class="nav-item-icon">☐</span> Логистика</a>'
                  if can_view_supply_poa else "")
     _certs_link = ('<a id="nav-supplies-certificates" class="nav-item" href="#" onclick="showSection(\'supplies-certificates\')"><span class="nav-item-icon">✦</span> Сертификаты</a>'
                    if can_view_supply_certs else "")

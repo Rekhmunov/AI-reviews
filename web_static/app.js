@@ -757,6 +757,9 @@ function showSection(section, options = {}) {
   if (section === "supplies-ozon-fbs") {
     if (typeof initOzonFbsSection === "function") initOzonFbsSection();
   }
+  if (section === "supplies-poa") {
+    if (typeof initLogisticsSection === "function") initLogisticsSection();
+  }
   if (section === "salary-settings") {
     showSalarySettingsTab("workers");
     toggleSalaryWorkerForm(false);
@@ -829,6 +832,8 @@ function sectionLabel(section) {
     "supplies-ozon": "Поставки — ОЗОН",
     "supplies-ozon-fbs": "Поставки — ОЗОН ФБС",
     "supplies-balances": "Поставки — Остатки",
+    "supplies-poa": "Поставки — Логистика",
+    "supplies-certificates": "Поставки — Сертификаты",
     "supply-planning": "Планирование поставок",
     "supplies-settings": "Поставки — Настройки",
     profile: "Мой профиль",
@@ -11899,7 +11904,7 @@ function formatManagerPermissionsText(permissions, canSupplies, supplyPermission
     if (sv.ozon_fbs) supplyParts.push("ОЗОН ФБС");
   }
   if (sp.can_supply_settings) supplyParts.push("Настройки");
-  if (sp.can_supply_poa) supplyParts.push("Доверенности");
+  if (sp.can_supply_poa) supplyParts.push("Логистика");
   if (sp.can_supply_certs) supplyParts.push("Сертификаты");
   if (sp.can_supply_planning) supplyParts.push("Планирование");
   if (sp.can_supply_stock) {
@@ -18292,6 +18297,539 @@ window.renderPoATable = renderPoATable;
 window.printPoARecord = printPoARecord;
 window.deletePoARecord = deletePoARecord;
 window.loadPoARecords = loadPoARecords;
+
+// ── Logistics (Доверенности / ТТН) ─────────────────────────────────────────
+const LOGISTICS_TAB_STORAGE_KEY = "logistics_tab_v1";
+let _logisticsTab = "poa";
+let _ttnRecords = [];
+let _ttnManualDriverMode = false;
+let _ttnModalMode = "create";
+let _ttnEditingId = null;
+
+function _logisticsTabFromStorage() {
+  try {
+    const v = String(localStorage.getItem(LOGISTICS_TAB_STORAGE_KEY) || "").trim();
+    return v === "ttn" ? "ttn" : "poa";
+  } catch (_e) {
+    return "poa";
+  }
+}
+
+function setLogisticsTab(tab, options = {}) {
+  const next = tab === "ttn" ? "ttn" : "poa";
+  _logisticsTab = next;
+  const persist = options.persist !== false;
+  if (persist) {
+    try { localStorage.setItem(LOGISTICS_TAB_STORAGE_KEY, next); } catch (_e) { /* ignore */ }
+  }
+  const poaPane = document.getElementById("logisticsPoaPane");
+  const ttnPane = document.getElementById("logisticsTtnPane");
+  if (poaPane) poaPane.classList.toggle("hidden", next !== "poa");
+  if (ttnPane) ttnPane.classList.toggle("hidden", next !== "ttn");
+  const sel = document.getElementById("logisticsTabSelect");
+  if (sel && sel.value !== next) sel.value = next;
+  syncFbsSourcePicker("logisticsTab");
+  if (next === "ttn") {
+    loadTtnRecords();
+  } else {
+    loadPoARecords();
+  }
+}
+window.setLogisticsTab = setLogisticsTab;
+
+function onLogisticsTabChange() {
+  const sel = document.getElementById("logisticsTabSelect");
+  setLogisticsTab(sel?.value === "ttn" ? "ttn" : "poa");
+}
+window.onLogisticsTabChange = onLogisticsTabChange;
+
+function initLogisticsSection() {
+  const initial = _logisticsTabFromStorage();
+  setLogisticsTab(initial, { persist: false });
+  syncFbsSourcePicker("logisticsTab");
+}
+window.initLogisticsSection = initLogisticsSection;
+
+function _ttnCarrierLineFromDriver(d) {
+  if (!d) return "";
+  const parts = [
+    d.carrier_name || d.carrier || "",
+    d.carrier_inn ? `ИНН ${d.carrier_inn}` : "",
+    d.carrier_kpp ? `КПП ${d.carrier_kpp}` : "",
+    d.carrier_phone || "",
+  ].map((x) => String(x || "").trim()).filter(Boolean);
+  return parts.join(", ");
+}
+
+function _ttnDriverVehicles(d) {
+  if (!d) return [];
+  try {
+    const arr = JSON.parse(d.vehicles_json || "[]");
+    return Array.isArray(arr) ? arr : [];
+  } catch (_e) {
+    return [];
+  }
+}
+
+function onTtnDriverChange() {
+  const dSel = document.getElementById("ttnCreateDriver");
+  const vSel = document.getElementById("ttnCreateVehicle");
+  const hint = document.getElementById("ttnCarrierHint");
+  const dId = parseInt(dSel?.value || "0", 10);
+  const driver = _supplyDriversCache.find((x) => Number(x.id) === dId);
+  const carrier = _ttnCarrierLineFromDriver(driver);
+  if (hint) hint.textContent = carrier ? `Перевозчик: ${carrier}` : (dId ? "Перевозчик не указан у водителя" : "");
+  if (!vSel) return;
+  const vehicles = _ttnDriverVehicles(driver);
+  if (!vehicles.length) {
+    vSel.innerHTML = '<option value="">— Укажите ТС вручную ниже —</option>';
+    const manual = document.getElementById("ttnCreateVehicleManual");
+    if (manual) manual.style.display = "";
+    return;
+  }
+  vSel.innerHTML = vehicles.map((v, i) => {
+    const line = driverVehicleLine(v) || `ТС ${i + 1}`;
+    return `<option value="${esc(line)}">${esc(line)}</option>`;
+  }).join("");
+  const manual = document.getElementById("ttnCreateVehicleManual");
+  if (manual) {
+    manual.style.display = "none";
+    manual.value = "";
+  }
+}
+window.onTtnDriverChange = onTtnDriverChange;
+
+function onTtnLoadPresetChange() {
+  const preset = document.getElementById("ttnCreateLoadPreset")?.value || "";
+  const input = document.getElementById("ttnCreateLoadAddress");
+  if (!input) return;
+  if (preset.startsWith("p:")) {
+    const id = Number(preset.slice(2));
+    const p = (_supplyProductionsCache || []).find((x) => Number(x.id) === id);
+    input.value = productionAddressLine(p) || (p?.address || "") || (p?.name || "");
+  } else if (preset.startsWith("le:")) {
+    const id = Number(preset.slice(3));
+    const le = (_supplyLegalEntitiesCache || []).find((x) => Number(x.id) === id);
+    input.value = (le && (productionAddressLine(le) || le.address || le.short_name)) || "";
+  }
+}
+window.onTtnLoadPresetChange = onTtnLoadPresetChange;
+
+function onTtnUnloadPresetChange() {
+  const preset = document.getElementById("ttnCreateUnloadPreset")?.value || "";
+  const input = document.getElementById("ttnCreateUnloadAddress");
+  if (!input) return;
+  if (preset.startsWith("w:")) {
+    const id = Number(preset.slice(2));
+    const w = (_supplyWarehousesCache || []).find((x) => Number(x.id) === id);
+    input.value = warehouseAddressLine(w) || (w?.warehouse_name || "");
+  } else if (preset.startsWith("c:")) {
+    const id = Number(preset.slice(2));
+    const c = (_supplyContractorsCache || []).find((x) => Number(x.id) === id);
+    input.value = (c?.requisites || c?.name || "");
+  }
+}
+window.onTtnUnloadPresetChange = onTtnUnloadPresetChange;
+
+function toggleTtnManualDriver() {
+  _ttnManualDriverMode = !_ttnManualDriverMode;
+  const mf = document.getElementById("ttnManualDriverFields");
+  const dSel = document.getElementById("ttnCreateDriver");
+  const btn = document.getElementById("ttnManualDriverBtn");
+  const vSel = document.getElementById("ttnCreateVehicle");
+  const vManual = document.getElementById("ttnCreateVehicleManual");
+  const hint = document.getElementById("ttnCarrierHint");
+  if (_ttnManualDriverMode) {
+    if (mf) mf.style.display = "block";
+    if (dSel) { dSel.disabled = true; dSel.value = ""; }
+    if (btn) { btn.style.background = "#dbeafe"; btn.style.borderColor = "#3b82f6"; }
+    if (vSel) { vSel.innerHTML = '<option value="">— Вручную —</option>'; }
+    if (vManual) vManual.style.display = "";
+    if (hint) hint.textContent = "";
+  } else {
+    if (mf) mf.style.display = "none";
+    if (dSel) dSel.disabled = false;
+    if (btn) { btn.style.background = ""; btn.style.borderColor = ""; }
+    onTtnDriverChange();
+  }
+}
+window.toggleTtnManualDriver = toggleTtnManualDriver;
+
+function _ttnDateToInputValue(displayDate) {
+  const s = String(displayDate || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const m = s.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  const d = new Date();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
+async function loadTtnRecords() {
+  const res = await fetch("/api/supply-ttn-records").catch(() => null);
+  if (!res || !res.ok) return;
+  _ttnRecords = await res.json().catch(() => []);
+  _populateTtnFilters();
+  renderTtnTable();
+}
+window.loadTtnRecords = loadTtnRecords;
+
+function _populateTtnFilters() {
+  const legalOpts = [{ value: "", label: "Все юр. лица" }];
+  const legalMap = new Map();
+  const consigneeOpts = [{ value: "", label: "Все грузополучатели" }];
+  const consigneeMap = new Map();
+  const driverOpts = [{ value: "", label: "Все водители" }];
+  const catalogMap = new Map();
+  const manualNames = new Set();
+  for (const r of _ttnRecords) {
+    if (r.legal_entity_id && r.le_short && !legalMap.has(r.legal_entity_id)) {
+      legalMap.set(r.legal_entity_id, r.le_short);
+    }
+    if (r.contractor_id && r.c_name && !consigneeMap.has(r.contractor_id)) {
+      consigneeMap.set(r.contractor_id, r.c_name);
+    }
+    if (r.driver_id && r.driver_id > 0 && r.d_full) {
+      catalogMap.set(r.driver_id, r.d_full);
+    } else if (r.driver_manual_name && String(r.driver_manual_name).trim()) {
+      manualNames.add(String(r.driver_manual_name).trim());
+    }
+  }
+  [...legalMap.entries()].sort((a, b) => (a[1] || "").localeCompare(b[1] || "", "ru"))
+    .forEach(([id, name]) => legalOpts.push({ value: String(id), label: name }));
+  [...consigneeMap.entries()].sort((a, b) => (a[1] || "").localeCompare(b[1] || "", "ru"))
+    .forEach(([id, name]) => consigneeOpts.push({ value: String(id), label: name }));
+  [...catalogMap.entries()].sort((a, b) => (a[1] || "").localeCompare(b[1] || "", "ru"))
+    .forEach(([id, name]) => driverOpts.push({ value: `d:${id}`, label: name }));
+  [...manualNames].sort((a, b) => a.localeCompare(b, "ru"))
+    .forEach((name) => driverOpts.push({ value: `m:${name}`, label: name }));
+  ssPopulate("ttnLegalFilterWrap", legalOpts, () => renderTtnTable());
+  ssPopulate("ttnConsigneeFilterWrap", consigneeOpts, () => renderTtnTable());
+  ssPopulate("ttnDriverFilterWrap", driverOpts, () => renderTtnTable());
+}
+
+function _ttnDriverCarrierCell(r) {
+  const driver = (Number(r.driver_id) > 0 ? r.d_full : r.driver_manual_name) || "";
+  const carrier = r.carrier_snapshot || r.d_carrier_name || "";
+  if (driver && carrier) return `${driver} / ${carrier}`;
+  return driver || carrier || "—";
+}
+
+function renderTtnTable() {
+  const tbody = document.getElementById("ttnTbody");
+  if (!tbody) return;
+  const lf = (document.getElementById("ttnLegalFilter")?.value || "").trim();
+  const cf = (document.getElementById("ttnConsigneeFilter")?.value || "").trim();
+  const df = (document.getElementById("ttnDriverFilter")?.value || "").trim();
+  const sq = (document.getElementById("ttnSearch")?.value || "").toLowerCase();
+  let rows = _ttnRecords;
+  if (lf) rows = rows.filter((r) => String(r.legal_entity_id) === lf);
+  if (cf) rows = rows.filter((r) => String(r.contractor_id) === cf);
+  if (df) {
+    if (df.startsWith("d:")) {
+      const driverId = df.slice(2);
+      rows = rows.filter((r) => String(r.driver_id) === driverId);
+    } else if (df.startsWith("m:")) {
+      const manualName = df.slice(2);
+      rows = rows.filter((r) => (r.driver_manual_name || "").trim() === manualName);
+    }
+  }
+  if (sq) {
+    rows = rows.filter((r) =>
+      String(r.doc_number || "").toLowerCase().includes(sq) ||
+      (r.le_short || "").toLowerCase().includes(sq) ||
+      (r.c_name || "").toLowerCase().includes(sq) ||
+      (r.d_full || "").toLowerCase().includes(sq) ||
+      (r.driver_manual_name || "").toLowerCase().includes(sq) ||
+      (r.carrier_snapshot || "").toLowerCase().includes(sq) ||
+      (r.vehicle_line || "").toLowerCase().includes(sq)
+    );
+  }
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">ТТН не найдены</td></tr>';
+    return;
+  }
+  tbody.innerHTML = "";
+  rows.forEach((r) => {
+    const tr = document.createElement("tr");
+    const num = r.doc_number || r.id;
+    tr.innerHTML = `
+      <td>${esc(String(num))}</td>
+      <td>${esc(r.ttn_date || "")}</td>
+      <td>${esc(r.le_short || "")}</td>
+      <td>${esc(r.c_name || "")}</td>
+      <td>${esc(_ttnDriverCarrierCell(r))}</td>
+      <td>
+        <div class="row" style="gap:4px;flex-wrap:nowrap">
+          <button class="secondary small-btn icon-btn" onclick="downloadTtnPdf(${r.id})" title="Скачать PDF" style="font-size:10px;min-width:36px">PDF</button>
+          <button class="secondary small-btn icon-btn" onclick="downloadTtnDoc(${r.id})" title="Скачать DOC" style="font-size:10px;min-width:36px">DOC</button>
+          <button class="secondary small-btn icon-btn" onclick="printTtnRecord(${r.id})" title="Печать">⎙</button>
+          <button class="secondary small-btn icon-btn" onclick="openEditTtnModal(${r.id})" title="Редактировать">✏</button>
+          <button class="secondary small-btn icon-btn" style="color:#2563eb;border-color:#93c5fd" onclick="openCopyTtnModal(${r.id})" title="Копировать">⎘</button>
+          <button class="secondary small-btn icon-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deleteTtnRecord(${r.id})" title="Удалить">🗑</button>
+        </div>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+}
+window.renderTtnTable = renderTtnTable;
+
+function _ttnFileName(id, ext) {
+  const r = _ttnRecords.find((x) => x.id === id);
+  if (!r) return `ТТН_${id}.${ext}`;
+  const num = String(r.doc_number || id).replace(/[/\\?%*:|"<>]/g, "");
+  const le = (r.le_short || "").replace(/[/\\?%*:|"<>]/g, "");
+  const cn = (r.c_name || "").replace(/[/\\?%*:|"<>]/g, "");
+  return `ТТН_${num}_${le}_${cn}.${ext}`;
+}
+
+function downloadTtnDoc(id) {
+  const a = document.createElement("a");
+  a.href = `/api/supply-ttn-records/${id}/doc`;
+  a.download = _ttnFileName(id, "doc");
+  a.click();
+}
+function downloadTtnPdf(id) {
+  const a = document.createElement("a");
+  a.href = `/api/supply-ttn-records/${id}/pdf`;
+  a.download = _ttnFileName(id, "pdf");
+  a.click();
+}
+window.downloadTtnDoc = downloadTtnDoc;
+window.downloadTtnPdf = downloadTtnPdf;
+
+function printTtnRecord(id) {
+  const win = window.open(`/api/supply-ttn-records/${id}/html`, "_blank");
+  if (!win) alert("Разрешите всплывающие окна для печати");
+  if (win) {
+    win.addEventListener("load", () => {
+      try { win.print(); } catch (_e) { /* ignore */ }
+    });
+  }
+}
+window.printTtnRecord = printTtnRecord;
+
+async function deleteTtnRecord(id) {
+  if (!confirm("Удалить ТТН?")) return;
+  await fetch(`/api/supply-ttn-records/${id}`, { method: "DELETE", headers: jsonHeaders() }).catch(() => null);
+  await loadTtnRecords();
+}
+window.deleteTtnRecord = deleteTtnRecord;
+
+async function _openTtnModal(mode, record) {
+  _ttnModalMode = mode;
+  _ttnEditingId = mode === "edit" ? record?.id : null;
+  if (!_supplyLegalEntitiesCache.length) await loadSupplyLegalEntities();
+  if (!_supplyContractorsCache.length) await loadSupplyContractors();
+  if (!_supplyDriversCache.length) await loadSupplyDrivers();
+  if (!_supplyProductionsCache.length) await loadSupplyProductions();
+  if (!_supplyWarehousesCache.length) await loadSupplyWarehouses();
+
+  const lSel = document.getElementById("ttnCreateLegal");
+  const cSel = document.getElementById("ttnCreateConsignee");
+  const dSel = document.getElementById("ttnCreateDriver");
+  const dateEl = document.getElementById("ttnCreateDate");
+  const loadPreset = document.getElementById("ttnCreateLoadPreset");
+  const unloadPreset = document.getElementById("ttnCreateUnloadPreset");
+  if (lSel) {
+    lSel.innerHTML = '<option value="">— Выберите грузоотправителя —</option>' +
+      _supplyLegalEntitiesCache.map((e) => `<option value="${e.id}">${esc(e.short_name || "")}</option>`).join("");
+  }
+  if (cSel) {
+    cSel.innerHTML = '<option value="">— Выберите грузополучателя —</option>' +
+      _supplyContractorsCache.map((c) => `<option value="${c.id}">${esc(c.name || "")}</option>`).join("");
+  }
+  if (dSel) {
+    dSel.innerHTML = '<option value="">— Выберите водителя —</option>' +
+      _supplyDriversCache.map((d) => `<option value="${d.id}">${esc(driverFullNameLine(d))}</option>`).join("");
+  }
+  if (loadPreset) {
+    loadPreset.innerHTML = '<option value="">— вручную / из справочника —</option>' +
+      (_supplyProductionsCache || []).map((p) =>
+        `<option value="p:${p.id}">Производство: ${esc(p.name || "")}</option>`
+      ).join("") +
+      (_supplyLegalEntitiesCache || []).map((e) =>
+        `<option value="le:${e.id}">Юр. лицо: ${esc(e.short_name || "")}</option>`
+      ).join("");
+  }
+  if (unloadPreset) {
+    unloadPreset.innerHTML = '<option value="">— вручную / из справочника —</option>' +
+      (_supplyWarehousesCache || []).map((w) =>
+        `<option value="w:${w.id}">Склад: ${esc(w.warehouse_name || "")}</option>`
+      ).join("") +
+      (_supplyContractorsCache || []).map((c) =>
+        `<option value="c:${c.id}">Контрагент: ${esc(c.name || "")}</option>`
+      ).join("");
+  }
+
+  const info = document.getElementById("ttnCreateInfo");
+  if (info) { info.textContent = ""; info.style.color = ""; }
+  _ttnManualDriverMode = false;
+  const mf = document.getElementById("ttnManualDriverFields");
+  if (mf) mf.style.display = "none";
+  if (dSel) dSel.disabled = false;
+  const btn = document.getElementById("ttnManualDriverBtn");
+  if (btn) { btn.style.background = ""; btn.style.borderColor = ""; }
+  const vManual = document.getElementById("ttnCreateVehicleManual");
+  if (vManual) { vManual.value = ""; vManual.style.display = "none"; }
+
+  const setVal = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.value = val == null ? "" : String(val);
+  };
+  setVal("ttnCreateCargo", "");
+  setVal("ttnCreatePlaces", "");
+  setVal("ttnCreateWeight", "");
+  setVal("ttnCreateDocs", "");
+  setVal("ttnCreateNotes", "");
+  setVal("ttnCreateLoadAddress", "");
+  setVal("ttnCreateUnloadAddress", "");
+  setVal("ttnManualDriverName", "");
+  setVal("ttnManualDriverDocs", "");
+  setVal("ttnManualCarrier", "");
+  if (dateEl) dateEl.value = _ttnDateToInputValue("");
+
+  if (record) {
+    if (lSel) lSel.value = String(record.legal_entity_id || "");
+    if (cSel) cSel.value = String(record.contractor_id || "");
+    if (dateEl) dateEl.value = _ttnDateToInputValue(record.ttn_date);
+    setVal("ttnCreateCargo", record.cargo_description || "");
+    setVal("ttnCreatePlaces", record.cargo_places || "");
+    setVal("ttnCreateWeight", record.cargo_weight || "");
+    setVal("ttnCreateDocs", record.accompanying_docs || "");
+    setVal("ttnCreateNotes", record.notes || "");
+    setVal("ttnCreateLoadAddress", record.load_address || "");
+    setVal("ttnCreateUnloadAddress", record.unload_address || "");
+    const dId = record.driver_id || 0;
+    if (dId > 0) {
+      if (dSel) dSel.value = String(dId);
+      onTtnDriverChange();
+      const vSel = document.getElementById("ttnCreateVehicle");
+      const line = record.vehicle_line || "";
+      if (vSel && line) {
+        const has = Array.from(vSel.options).some((o) => o.value === line);
+        if (has) vSel.value = line;
+        else if (vManual) {
+          vManual.style.display = "";
+          vManual.value = line;
+        }
+      }
+    } else if (record.driver_manual_name) {
+      _ttnManualDriverMode = true;
+      if (mf) mf.style.display = "block";
+      if (dSel) { dSel.disabled = true; dSel.value = ""; }
+      if (btn) { btn.style.background = "#dbeafe"; btn.style.borderColor = "#3b82f6"; }
+      setVal("ttnManualDriverName", record.driver_manual_name || "");
+      setVal("ttnManualDriverDocs", record.driver_manual_docs || "");
+      setVal("ttnManualCarrier", record.carrier_snapshot || "");
+      if (vManual) {
+        vManual.style.display = "";
+        vManual.value = record.vehicle_line || "";
+      }
+      const vSel = document.getElementById("ttnCreateVehicle");
+      if (vSel) vSel.innerHTML = '<option value="">— Вручную —</option>';
+    } else {
+      onTtnDriverChange();
+    }
+  } else {
+    onTtnDriverChange();
+  }
+
+  const title = document.getElementById("createTtnModalTitle");
+  if (title) {
+    title.textContent = mode === "edit" ? "Редактировать ТТН" :
+                        mode === "copy" ? "Копировать ТТН" : "Создать ТТН";
+  }
+  const saveBtn = document.getElementById("ttnCreateSaveBtn");
+  if (saveBtn) saveBtn.textContent = mode === "edit" ? "Сохранить изменения" : "Сохранить";
+  const modal = document.getElementById("createTtnModal");
+  if (modal) { modal.classList.remove("hidden"); modal.style.display = ""; }
+}
+
+async function openCreateTtnModal() { await _openTtnModal("create", null); }
+async function openEditTtnModal(id) { await _openTtnModal("edit", _ttnRecords.find((r) => r.id === id)); }
+async function openCopyTtnModal(id) { await _openTtnModal("copy", _ttnRecords.find((r) => r.id === id)); }
+window.openCreateTtnModal = openCreateTtnModal;
+window.openEditTtnModal = openEditTtnModal;
+window.openCopyTtnModal = openCopyTtnModal;
+
+function closeCreateTtnModal() {
+  _ttnManualDriverMode = false;
+  const modal = document.getElementById("createTtnModal");
+  if (modal) { modal.classList.add("hidden"); modal.style.display = "none"; }
+}
+window.closeCreateTtnModal = closeCreateTtnModal;
+
+async function saveTtnRecord() {
+  const leId = parseInt(document.getElementById("ttnCreateLegal")?.value || "0", 10);
+  const cId = parseInt(document.getElementById("ttnCreateConsignee")?.value || "0", 10);
+  const dId = _ttnManualDriverMode ? 0 : parseInt(document.getElementById("ttnCreateDriver")?.value || "0", 10);
+  const manualName = _ttnManualDriverMode ? (document.getElementById("ttnManualDriverName")?.value.trim() || "") : "";
+  const manualDocs = _ttnManualDriverMode ? (document.getElementById("ttnManualDriverDocs")?.value.trim() || "") : "";
+  const info = document.getElementById("ttnCreateInfo");
+  if (!leId || !cId) {
+    if (info) { info.textContent = "Выберите грузоотправителя и грузополучателя"; info.style.color = "#b91c1c"; }
+    return;
+  }
+  if (!_ttnManualDriverMode && !dId) {
+    if (info) { info.textContent = "Выберите водителя или введите вручную"; info.style.color = "#b91c1c"; }
+    return;
+  }
+  if (_ttnManualDriverMode && !manualName) {
+    if (info) { info.textContent = "Введите ФИО водителя"; info.style.color = "#b91c1c"; }
+    return;
+  }
+  const vSel = document.getElementById("ttnCreateVehicle");
+  const vManual = document.getElementById("ttnCreateVehicleManual");
+  let vehicleLine = (vSel?.value || "").trim();
+  if (!vehicleLine || (vManual && vManual.style.display !== "none" && vManual.value.trim())) {
+    vehicleLine = (vManual?.value || "").trim() || vehicleLine;
+  }
+  let carrierSnapshot = "";
+  if (_ttnManualDriverMode) {
+    carrierSnapshot = document.getElementById("ttnManualCarrier")?.value.trim() || "";
+  } else {
+    const driver = _supplyDriversCache.find((x) => Number(x.id) === dId);
+    carrierSnapshot = _ttnCarrierLineFromDriver(driver);
+  }
+  if (info) { info.textContent = "Сохранение..."; info.style.color = ""; }
+  const payload = JSON.stringify({
+    legal_entity_id: leId,
+    contractor_id: cId,
+    driver_id: dId,
+    driver_manual_name: manualName,
+    driver_manual_docs: manualDocs,
+    ttn_date: document.getElementById("ttnCreateDate")?.value || "",
+    vehicle_line: vehicleLine,
+    carrier_snapshot: carrierSnapshot,
+    load_address: document.getElementById("ttnCreateLoadAddress")?.value.trim() || "",
+    unload_address: document.getElementById("ttnCreateUnloadAddress")?.value.trim() || "",
+    cargo_description: document.getElementById("ttnCreateCargo")?.value.trim() || "",
+    cargo_places: document.getElementById("ttnCreatePlaces")?.value.trim() || "",
+    cargo_weight: document.getElementById("ttnCreateWeight")?.value.trim() || "",
+    accompanying_docs: document.getElementById("ttnCreateDocs")?.value.trim() || "",
+    notes: document.getElementById("ttnCreateNotes")?.value.trim() || "",
+  });
+  let res;
+  if (_ttnModalMode === "edit" && _ttnEditingId) {
+    res = await fetch(`/api/supply-ttn-records/${_ttnEditingId}`, {
+      method: "PATCH", headers: jsonHeaders(), body: payload,
+    }).catch(() => null);
+  } else {
+    res = await fetch("/api/supply-ttn-records", {
+      method: "POST", headers: jsonHeaders(), body: payload,
+    }).catch(() => null);
+  }
+  if (!res || !res.ok) {
+    const e = await res?.json().catch(() => ({})) || {};
+    if (info) { info.textContent = e.detail || "Ошибка"; info.style.color = "#b91c1c"; }
+    return;
+  }
+  closeCreateTtnModal();
+  await loadTtnRecords();
+}
+window.saveTtnRecord = saveTtnRecord;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CERTIFICATES MODULE
@@ -28554,7 +29092,7 @@ function closeFbsSourcePicker(prefix) {
 }
 
 function closeAllFbsSourcePickers(exceptPrefix) {
-  ["wbFbsSource", "ozonFbsSource"].forEach((prefix) => {
+  ["wbFbsSource", "ozonFbsSource", "logisticsTab"].forEach((prefix) => {
     if (exceptPrefix && prefix === exceptPrefix) return;
     closeFbsSourcePicker(prefix);
   });
