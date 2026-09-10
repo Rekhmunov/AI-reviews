@@ -39,8 +39,8 @@ def test_logistics_title_picker_and_panes() -> None:
     assert "function initLogisticsSection" in js
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
-    assert "app.js?v=588" in html
-    assert "style.css?v=335" in html
+    assert "app.js?v=589" in html
+    assert "style.css?v=336" in html
 
 
 def test_ttn_table_and_modal_fields_present() -> None:

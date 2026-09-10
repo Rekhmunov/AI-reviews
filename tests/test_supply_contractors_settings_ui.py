@@ -62,7 +62,10 @@ def test_contractors_js_edit_and_addr_helpers() -> None:
     assert "function _readNewContractorAddrFields" in js
     assert "function _clearNewContractorFormFields" in js
     assert "function _contractorAddrEditInputsHtml" in js
-    assert "function startEditContractor" in js
+    assert "function startEditContractor" in js or "async function startEditContractor" in js
+    assert "_sstPartyEditPanelHtml" in js
+    assert "sst-inline-edit" in js
+    assert "sst-edit-section" in js
     assert "function saveEditContractor" in js
     assert 'data-ctr-addr="' in js
     assert '[data-ctr-addr="' in js

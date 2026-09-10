@@ -3858,14 +3858,75 @@ function _clearNewLegalFormFields() {
   ].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ""; });
 }
 
-function _legalAddrEditInputsHtml(item) {
-  return `<div class="worker-form-grid" style="margin:0">
-    ${_LE_ADDR_FIELDS.map(([key, label]) => `
-      <div class="wfg-field">
-        <label class="wfg-label">${label}</label>
-        <input class="edit-inline-input" data-le-addr="${key}" value="${esc(item[key] || "")}" autocomplete="off" />
-      </div>`).join("")}
+
+function _sstEditFieldHtml({ attr, label, value, span = 1, extra = "" }) {
+  const spanCls = span > 1 ? ` wfg-span-${span}` : "";
+  return `<div class="wfg-field${spanCls}">
+    <label class="wfg-label">${label}</label>
+    <input class="edit-inline-input" ${attr} value="${esc(value || "")}" autocomplete="off" ${extra} />
   </div>`;
+}
+
+function _sstAddrEditFieldsHtml(item, dataAttr) {
+  const specs = [
+    ["addr_index", "Индекс", 1, 'inputmode="numeric" maxlength="6" placeholder="101000"'],
+    ["addr_region_code", "Код региона", 1, 'inputmode="numeric" maxlength="2" placeholder="77"'],
+    ["addr_district", "Район", 1, ""],
+    ["addr_city", "Город", 1, 'placeholder="Москва"'],
+    ["addr_settlement", "Нас. пункт", 1, ""],
+    ["addr_street", "Улица", 3, 'placeholder="ул. Ленина"'],
+    ["addr_house", "Дом", 1, 'placeholder="1"'],
+    ["addr_corpus", "Корпус", 1, ""],
+    ["addr_flat", "Кв. / офис", 1, ""],
+    ["addr_fias", "ФИАС", 2, 'maxlength="36" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"'],
+  ];
+  return specs.map(([key, label, span, extra]) =>
+    _sstEditFieldHtml({ attr: `${dataAttr}="${key}"`, label, value: item[key], span, extra })
+  ).join("");
+}
+
+function _sstPartyEditPanelHtml(item, kind) {
+  const isLe = kind === "le";
+  const nameAttr = isLe ? 'data-field="short"' : 'data-field="name"';
+  const nameVal = isLe ? (item.short_name || "") : (item.name || "");
+  const nameLabel = isLe ? "Короткое наименование" : "Короткое наименование";
+  const addrAttr = isLe ? "data-le-addr" : "data-ctr-addr";
+  const addrTitle = isLe ? "Юридический адрес" : "Адрес";
+  return `<div class="sst-inline-edit">
+    <div class="sst-inline-edit-panel">
+      <section class="sst-edit-section">
+        <h5 class="sst-edit-section-title">Основные данные</h5>
+        <div class="sst-edit-grid">
+          ${_sstEditFieldHtml({ attr: nameAttr, label: nameLabel, value: nameVal, span: 1 })}
+          ${_sstEditFieldHtml({ attr: 'data-field="phone"', label: "Телефон", value: item.phone, span: 1, extra: 'placeholder="+7…"' })}
+          ${_sstEditFieldHtml({ attr: 'data-field="full"', label: "Полное наименование", value: item.full_name, span: 2 })}
+          ${_sstEditFieldHtml({ attr: 'data-field="req"', label: "Реквизиты", value: item.requisites, span: 4, extra: 'placeholder="ИНН, КПП и т.д."' })}
+        </div>
+      </section>
+      <section class="sst-edit-section">
+        <h5 class="sst-edit-section-title">Подписание</h5>
+        <div class="sst-edit-grid">
+          ${_sstEditFieldHtml({ attr: 'data-field="sign"', label: "Подписанты", value: item.signatories, span: 2 })}
+          ${_sstEditFieldHtml({ attr: 'data-field="inp"', label: "В лице", value: item.in_person, span: 2 })}
+          ${_sstEditFieldHtml({ attr: 'data-field="basis"', label: "Основание", value: item.basis, span: 4, extra: 'placeholder="Устава, Доверенности № …"' })}
+        </div>
+      </section>
+      <section class="sst-edit-section">
+        <h5 class="sst-edit-section-title">${addrTitle} <span class="sst-edit-section-hint">поля эТрН</span></h5>
+        <div class="sst-edit-grid">
+          ${_sstAddrEditFieldsHtml(item, addrAttr)}
+        </div>
+      </section>
+      ${isLe ? `<section class="sst-edit-section">
+        <h5 class="sst-edit-section-title">Подпись</h5>
+        <div class="sst-edit-sig" id="le-sig-container-${item.id}"><span class="small" style="color:#94a3b8">Загрузка…</span></div>
+      </section>` : ""}
+    </div>
+  </div>`;
+}
+
+function _legalAddrEditInputsHtml(item) {
+  return `<div class="sst-edit-grid">${_sstAddrEditFieldsHtml(item, "data-le-addr")}</div>`;
 }
 
 async function loadSupplyLegalEntities() {
@@ -3900,73 +3961,66 @@ function renderSupplyLegalEntitiesTbody() {
 }
 
 async function startEditLegalEntity(id) {
+  if (document.querySelector("#supplyLegalEntitiesTbody tr.sst-editing, #supplyLegalEntitiesTbody tr.le-addr-edit-row")) {
+    await loadSupplyLegalEntities();
+  }
   const item = _supplyLegalEntitiesCache.find((x) => x.id === id);
   if (!item) return;
   const tr = document.querySelector(`#supplyLegalEntitiesTbody tr[data-id="${id}"]`);
   if (!tr) return;
   document.querySelectorAll("#supplyLegalEntitiesTbody tr.le-addr-edit-row, #supplyLegalEntitiesTbody tr[id^='le-sig-row-']").forEach((r) => r.remove());
+  tr.classList.add("sst-editing");
   const cells = tr.querySelectorAll(".editable-cell");
-  cells[0].innerHTML = `<input class="edit-inline-input" data-field="short" value="${esc(item.short_name||"")}" />`;
-  cells[1].innerHTML = `<input class="edit-inline-input" data-field="full" value="${esc(item.full_name||"")}" />`;
-  cells[2].innerHTML = `<input class="edit-inline-input" data-field="req" value="${esc(item.requisites||"")}" />`;
-  cells[3].innerHTML = `<input class="edit-inline-input" data-field="sign" value="${esc(item.signatories||"")}" />`;
-  cells[4].innerHTML = `<input class="edit-inline-input" data-field="inp" value="${esc(item.in_person||"")}" />`;
-  cells[5].innerHTML = `<input class="edit-inline-input" data-field="basis" value="${esc(item.basis||"")}" />`;
-  cells[6].innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
-  cells[7].innerHTML = `<input class="edit-inline-input" data-field="phone" value="${esc(item.phone||"")}" />`;
+  const title = item.short_name || "Без названия";
+  cells[0].innerHTML = `<span class="sst-editing-label">${esc(title)}</span>`;
+  for (let i = 1; i < cells.length; i++) {
+    cells[i].innerHTML = `<span class="sst-editing-dash">—</span>`;
+  }
 
-  const addrRow = document.createElement("tr");
-  addrRow.className = "le-addr-edit-row";
-  addrRow.dataset.forId = String(id);
-  addrRow.style.background = "#f8fafc";
-  addrRow.innerHTML = `<td colspan="10" style="padding:12px 8px;border-top:none;white-space:normal">
-    <div class="small" style="margin-bottom:8px;color:#64748b">Юридический адрес (поля эТрН)</div>
-    ${_legalAddrEditInputsHtml(item)}
-  </td>`;
-  tr.after(addrRow);
-
-  const sigRow = document.createElement("tr");
-  sigRow.id = `le-sig-row-${id}`;
-  sigRow.style.background = "#f8fafc";
-  sigRow.innerHTML = `<td colspan="10" style="padding:4px 8px;border-top:none;white-space:normal">
-    <div style="display:flex;align-items:center;gap:8px">
-      <span class="small" style="color:#64748b">Подпись:</span>
-      <span id="le-sig-container-${id}"><span class="small" style="color:#94a3b8">Загрузка…</span></span>
-    </div>
-  </td>`;
-  addrRow.after(sigRow);
+  const panelRow = document.createElement("tr");
+  panelRow.className = "sst-edit-panel-row le-addr-edit-row";
+  panelRow.dataset.forId = String(id);
+  panelRow.innerHTML = `<td colspan="10">${_sstPartyEditPanelHtml(item, "le")}</td>`;
+  tr.after(panelRow);
   loadEditLegalSig(id);
 
-  const actionCell = tr.cells[tr.cells.length - 1];
-  actionCell.innerHTML = `<div class="sst-edit-actions">
-    <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditLegalEntity(${id})">Сохранить</button>
+  tr.cells[tr.cells.length - 1].innerHTML = `<div class="sst-edit-actions">
+    <button class="secondary small-btn sst-btn-save" onclick="saveEditLegalEntity(${id})">Сохранить</button>
     <button class="secondary small-btn" onclick="loadSupplyLegalEntities()">Отмена</button>
   </div>`;
+  panelRow.querySelector("[data-field='short']")?.focus();
 }
 
 async function saveEditLegalEntity(id) {
   const tr = document.querySelector(`#supplyLegalEntitiesTbody tr[data-id="${id}"]`);
   if (!tr) return;
   const item = _supplyLegalEntitiesCache.find((x) => x.id === id);
-  const addrRow = document.querySelector(`#supplyLegalEntitiesTbody tr.le-addr-edit-row[data-for-id="${id}"]`);
-  const short = tr.querySelector("[data-field='short']")?.value.trim() || "";
-  const full = tr.querySelector("[data-field='full']")?.value.trim() || "";
-  const req = tr.querySelector("[data-field='req']")?.value.trim() || "";
-  const sig = tr.querySelector("[data-field='sign']")?.value.trim() || "";
-  const inp = tr.querySelector("[data-field='inp']")?.value.trim() || "";
-  const bas = tr.querySelector("[data-field='basis']")?.value.trim() || "";
-  const phone = tr.querySelector("[data-field='phone']")?.value.trim() || "";
-  if (!short) return;
+  const panel = document.querySelector(`#supplyLegalEntitiesTbody tr.le-addr-edit-row[data-for-id="${id}"]`);
+  if (!panel) return;
+  const short = panel.querySelector("[data-field='short']")?.value.trim() || "";
+  const full = panel.querySelector("[data-field='full']")?.value.trim() || "";
+  const req = panel.querySelector("[data-field='req']")?.value.trim() || "";
+  const sig = panel.querySelector("[data-field='sign']")?.value.trim() || "";
+  const inp = panel.querySelector("[data-field='inp']")?.value.trim() || "";
+  const bas = panel.querySelector("[data-field='basis']")?.value.trim() || "";
+  const phone = panel.querySelector("[data-field='phone']")?.value.trim() || "";
+  if (!short) {
+    alert("Укажите короткое наименование");
+    panel.querySelector("[data-field='short']")?.focus();
+    return;
+  }
   const sigPayload = {
     short_name: short, full_name: full, requisites: req, signatories: sig,
     in_person: inp, basis: bas, phone, address: item?.address || "",
   };
   _LE_ADDR_FIELDS.forEach(([key]) => {
-    sigPayload[key] = addrRow?.querySelector(`[data-le-addr="${key}"]`)?.value.trim() || "";
+    sigPayload[key] = panel.querySelector(`[data-le-addr="${key}"]`)?.value.trim() || "";
   });
   if (_editLegalSigClear) { sigPayload.clear_signature = true; }
   else if (_editLegalSigBase64) { sigPayload.signature_image = _editLegalSigBase64; }
-  const saveRes = await fetch(`/api/supply-legal-entities/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify(sigPayload) }).catch(() => null);
+  const saveRes = await fetch(`/api/supply-legal-entities/${id}`, {
+    method: "PATCH", headers: jsonHeaders(), body: JSON.stringify(sigPayload),
+  }).catch(() => null);
   if (!saveRes || !saveRes.ok) {
     const errData = await saveRes?.json().catch(() => ({})) || {};
     alert("Ошибка сохранения: " + (errData.detail || (saveRes ? saveRes.status : "сеть")));
@@ -17969,13 +18023,7 @@ function _clearNewContractorFormFields() {
 }
 
 function _contractorAddrEditInputsHtml(item) {
-  return `<div class="worker-form-grid" style="margin:0">
-    ${_CTR_ADDR_FIELDS.map(([key, label]) => `
-      <div class="wfg-field">
-        <label class="wfg-label">${label}</label>
-        <input class="edit-inline-input" data-ctr-addr="${key}" value="${esc(item[key] || "")}" autocomplete="off" />
-      </div>`).join("")}
-  </div>`;
+  return `<div class="sst-edit-grid">${_sstAddrEditFieldsHtml(item, "data-ctr-addr")}</div>`;
 }
 
 async function loadSupplyContractors() {
@@ -18018,56 +18066,59 @@ function renderSupplyContractorsTbody() {
 }
 
 async function startEditContractor(id) {
+  if (document.querySelector("#supplyContractorsTbody tr.sst-editing, #supplyContractorsTbody tr.ctr-addr-edit-row")) {
+    await loadSupplyContractors();
+  }
   const item = _supplyContractorsCache.find((x) => x.id === id);
   if (!item) return;
   const tr = document.querySelector(`#supplyContractorsTbody tr[data-id="${id}"]`);
   if (!tr) return;
   document.querySelectorAll("#supplyContractorsTbody tr.ctr-addr-edit-row").forEach((r) => r.remove());
+  tr.classList.add("sst-editing");
   const cells = tr.querySelectorAll(".editable-cell");
-  cells[0].innerHTML = `<input class="edit-inline-input" data-field="name" value="${esc(item.name || "")}" />`;
-  cells[1].innerHTML = `<input class="edit-inline-input" data-field="full" value="${esc(item.full_name || "")}" />`;
-  cells[2].innerHTML = `<input class="edit-inline-input" data-field="req" value="${esc(item.requisites || "")}" />`;
-  cells[3].innerHTML = `<input class="edit-inline-input" data-field="sign" value="${esc(item.signatories || "")}" />`;
-  cells[4].innerHTML = `<input class="edit-inline-input" data-field="inp" value="${esc(item.in_person || "")}" />`;
-  cells[5].innerHTML = `<input class="edit-inline-input" data-field="basis" value="${esc(item.basis || "")}" />`;
-  cells[6].innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
-  cells[7].innerHTML = `<input class="edit-inline-input" data-field="phone" value="${esc(item.phone || "")}" />`;
+  const title = item.name || "Без названия";
+  cells[0].innerHTML = `<span class="sst-editing-label">${esc(title)}</span>`;
+  for (let i = 1; i < cells.length; i++) {
+    cells[i].innerHTML = `<span class="sst-editing-dash">—</span>`;
+  }
 
-  const addrRow = document.createElement("tr");
-  addrRow.className = "ctr-addr-edit-row";
-  addrRow.dataset.forId = String(id);
-  addrRow.style.background = "#f8fafc";
-  addrRow.innerHTML = `<td colspan="10" style="padding:12px 8px;border-top:none;white-space:normal">
-    <div class="small" style="margin-bottom:8px;color:#64748b">Адрес контрагента (поля эТрН)</div>
-    ${_contractorAddrEditInputsHtml(item)}
-  </td>`;
-  tr.after(addrRow);
+  const panelRow = document.createElement("tr");
+  panelRow.className = "sst-edit-panel-row ctr-addr-edit-row";
+  panelRow.dataset.forId = String(id);
+  panelRow.innerHTML = `<td colspan="10">${_sstPartyEditPanelHtml(item, "ctr")}</td>`;
+  tr.after(panelRow);
 
   tr.cells[tr.cells.length - 1].innerHTML = `<div class="sst-edit-actions">
-    <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditContractor(${id})">Сохранить</button>
+    <button class="secondary small-btn sst-btn-save" onclick="saveEditContractor(${id})">Сохранить</button>
     <button class="secondary small-btn" onclick="loadSupplyContractors()">Отмена</button>
   </div>`;
+  panelRow.querySelector("[data-field='name']")?.focus();
 }
 
 async function saveEditContractor(id) {
   const tr = document.querySelector(`#supplyContractorsTbody tr[data-id="${id}"]`);
   if (!tr) return;
   const item = _supplyContractorsCache.find((x) => x.id === id);
-  const addrRow = document.querySelector(`#supplyContractorsTbody tr.ctr-addr-edit-row[data-for-id="${id}"]`);
-  const name = tr.querySelector("[data-field='name']")?.value.trim() || "";
-  const full = tr.querySelector("[data-field='full']")?.value.trim() || "";
-  const req = tr.querySelector("[data-field='req']")?.value.trim() || "";
-  const sign = tr.querySelector("[data-field='sign']")?.value.trim() || "";
-  const inp = tr.querySelector("[data-field='inp']")?.value.trim() || "";
-  const basis = tr.querySelector("[data-field='basis']")?.value.trim() || "";
-  const phone = tr.querySelector("[data-field='phone']")?.value.trim() || "";
-  if (!name) return;
+  const panel = document.querySelector(`#supplyContractorsTbody tr.ctr-addr-edit-row[data-for-id="${id}"]`);
+  if (!panel) return;
+  const name = panel.querySelector("[data-field='name']")?.value.trim() || "";
+  const full = panel.querySelector("[data-field='full']")?.value.trim() || "";
+  const req = panel.querySelector("[data-field='req']")?.value.trim() || "";
+  const sign = panel.querySelector("[data-field='sign']")?.value.trim() || "";
+  const inp = panel.querySelector("[data-field='inp']")?.value.trim() || "";
+  const basis = panel.querySelector("[data-field='basis']")?.value.trim() || "";
+  const phone = panel.querySelector("[data-field='phone']")?.value.trim() || "";
+  if (!name) {
+    alert("Укажите короткое наименование");
+    panel.querySelector("[data-field='name']")?.focus();
+    return;
+  }
   const payload = {
     name, full_name: full, requisites: req, signatories: sign,
     in_person: inp, basis, phone, address: item?.address || "",
   };
   _CTR_ADDR_FIELDS.forEach(([key]) => {
-    payload[key] = addrRow?.querySelector(`[data-ctr-addr="${key}"]`)?.value.trim() || "";
+    payload[key] = panel.querySelector(`[data-ctr-addr="${key}"]`)?.value.trim() || "";
   });
   const saveRes = await fetch(`/api/supply-contractors/${id}`, {
     method: "PATCH", headers: jsonHeaders(), body: JSON.stringify(payload),
