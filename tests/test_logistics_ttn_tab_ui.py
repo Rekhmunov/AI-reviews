@@ -40,7 +40,10 @@ def test_logistics_title_picker_and_panes() -> None:
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
     assert "app.js?v=590" in html
-    assert "style.css?v=336" in html
+    assert "style.css?v=337" in html
+    assert "ttn-modal-card" in html
+    assert "ttn-form-grid" in html
+    assert 'max-width:560px' not in html.split('id="createTtnModal"')[1].split("<!-- ── Планирование")[0]
 
 
 def test_ttn_table_and_modal_fields_present() -> None:
@@ -161,6 +164,14 @@ def test_poa_api_unchanged() -> None:
     assert "async function loadPoARecords" in js
     assert "async function savePoARecord" in js
     assert "downloadPoAPdf" in js
+
+def test_ttn_create_modal_matches_supply_size() -> None:
+    css = CSS.read_text(encoding="utf-8")
+    block = css.split("#createTtnModal .ttn-modal-card")[1].split("@media")[0]
+    assert "min(1440px, 100%)" in block
+    assert "calc(100vh - 40px)" in block
+    assert "flex-direction: column" in block
+
 
 def test_ttn_load_unload_places_le_contractor_warehouse() -> None:
     js = Path(__file__).resolve().parents[1].joinpath("web_static", "app.js").read_text(encoding="utf-8")

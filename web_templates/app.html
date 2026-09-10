@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=336" />
+  <link rel="stylesheet" href="/static/style.css?v=337" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -4099,162 +4099,161 @@
         </div>
       </div>
 
-      <!-- Create TTN Modal -->
-      <div id="createTtnModal" class="modal-overlay hidden" onclick="if(event.target===this)closeCreateTtnModal()">
-        <div class="modal-card ttn-modal-card" style="max-width:560px;width:92%">
-          <div class="row row-between">
-            <h4 class="no-margin" id="createTtnModalTitle">Создать ТТН</h4>
-            <button class="icon-btn" onclick="closeCreateTtnModal()">✕</button>
+      <!-- Create TTN Modal — size matched to WB FBS «Поставка» -->
+      <div id="createTtnModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+           aria-labelledby="createTtnModalTitle"
+           onclick="if(event.target===this)closeCreateTtnModal()">
+        <div class="modal-card ttn-modal-card">
+          <div class="ttn-modal-header">
+            <div class="ttn-modal-title-row">
+              <h3 class="ttn-modal-title" id="createTtnModalTitle">Создать ТТН</h3>
+              <button type="button" class="icon-btn secondary ttn-modal-close"
+                      onclick="closeCreateTtnModal()" aria-label="Закрыть">✕</button>
+            </div>
           </div>
-          <div class="ttn-modal-body" style="margin-top:14px;display:flex;flex-direction:column;gap:12px">
-            <div>
-              <label class="small" style="display:block;margin-bottom:4px" for="ttnCreateDate">Дата ТТН</label>
-              <input id="ttnCreateDate" type="date" style="width:100%;height:36px;box-sizing:border-box" />
-            </div>
-            <div>
-              <label class="small" style="display:block;margin-bottom:4px">Грузоотправитель</label>
-              <div class="ss-wrap ttn-ss-field" id="ttnCreateShipperWrap">
-                <input class="ss-input" id="ttnCreateShipperInput" type="text"
-                       placeholder="Выберите грузоотправителя" autocomplete="off" readonly
-                       onfocus="ssOpen('ttnCreateShipperWrap')"
-                       oninput="ssFilter('ttnCreateShipperWrap')" />
-                <div class="ss-dropdown hidden" id="ttnCreateShipperDropdown"></div>
-                <input type="hidden" id="ttnCreateShipper" />
+          <div class="ttn-modal-body">
+            <div class="ttn-form-grid">
+              <div class="ttn-field ttn-field-span-2">
+                <label class="small" for="ttnCreateDate">Дата ТТН</label>
+                <input id="ttnCreateDate" class="ttn-input" type="date" />
               </div>
-            </div>
-            <div>
-              <label class="small" style="display:block;margin-bottom:4px">Грузополучатель</label>
-              <div class="ss-wrap ttn-ss-field" id="ttnCreateConsigneeWrap">
-                <input class="ss-input" id="ttnCreateConsigneeInput" type="text"
-                       placeholder="Выберите грузополучателя" autocomplete="off" readonly
-                       onfocus="ssOpen('ttnCreateConsigneeWrap')"
-                       oninput="ssFilter('ttnCreateConsigneeWrap')" />
-                <div class="ss-dropdown hidden" id="ttnCreateConsigneeDropdown"></div>
-                <input type="hidden" id="ttnCreateConsignee" />
-              </div>
-            </div>
-            <div>
-              <label class="small" style="display:block;margin-bottom:4px">Водитель / перевозчик</label>
-              <div style="display:flex;gap:6px;align-items:center">
-                <div class="ss-wrap ttn-ss-field" id="ttnCreateDriverWrap" style="flex:1">
-                  <input class="ss-input" id="ttnCreateDriverInput" type="text"
-                         placeholder="Выберите водителя" autocomplete="off" readonly
-                         onfocus="ssOpen('ttnCreateDriverWrap')"
-                         oninput="ssFilter('ttnCreateDriverWrap')" />
-                  <div class="ss-dropdown hidden" id="ttnCreateDriverDropdown"></div>
-                  <input type="hidden" id="ttnCreateDriver" />
+              <div class="ttn-field">
+                <label class="small">Грузоотправитель</label>
+                <div class="ss-wrap ttn-ss-field" id="ttnCreateShipperWrap">
+                  <input class="ss-input" id="ttnCreateShipperInput" type="text"
+                         placeholder="Выберите грузоотправителя" autocomplete="off" readonly
+                         onfocus="ssOpen('ttnCreateShipperWrap')"
+                         oninput="ssFilter('ttnCreateShipperWrap')" />
+                  <div class="ss-dropdown hidden" id="ttnCreateShipperDropdown"></div>
+                  <input type="hidden" id="ttnCreateShipper" />
                 </div>
-                <button type="button" class="secondary small-btn" id="ttnManualDriverBtn"
-                  onclick="toggleTtnManualDriver()"
-                  title="Ввести вручную"
-                  style="color:#2563eb;border-color:#93c5fd;height:36px;padding:0 10px">✏</button>
               </div>
-              <div id="ttnManualDriverFields" style="display:none;margin-top:8px">
-                <input id="ttnManualDriverName" type="text" placeholder="ФИО водителя"
-                  autocomplete="off" style="width:100%;margin-bottom:6px;box-sizing:border-box" />
-                <input id="ttnManualDriverDocs" type="text" placeholder="Документы водителя"
-                  autocomplete="off" style="width:100%;margin-bottom:6px;box-sizing:border-box" />
-                <input id="ttnManualCarrier" type="text" placeholder="Перевозчик (наименование)"
-                  autocomplete="off" style="width:100%;box-sizing:border-box" />
-                <p class="small" style="color:#64748b;margin-top:4px">Данные сохранятся только в этой ТТН</p>
-              </div>
-              <p id="ttnCarrierHint" class="small" style="color:#64748b;margin-top:6px;min-height:1.2em"></p>
-            </div>
-            <div>
-              <label class="small" style="display:block;margin-bottom:4px">Транспортное средство</label>
-              <div style="display:flex;gap:6px;align-items:center">
-                <div class="ss-wrap ttn-ss-field" id="ttnCreateVehicleWrap" style="flex:1">
-                  <input class="ss-input" id="ttnCreateVehicleInput" type="text"
-                         placeholder="Выберите ТС" autocomplete="off" readonly
-                         onfocus="ssOpen('ttnCreateVehicleWrap')"
-                         oninput="ssFilter('ttnCreateVehicleWrap')" />
-                  <div class="ss-dropdown hidden" id="ttnCreateVehicleDropdown"></div>
-                  <input type="hidden" id="ttnCreateVehicle" />
+              <div class="ttn-field">
+                <label class="small">Грузополучатель</label>
+                <div class="ss-wrap ttn-ss-field" id="ttnCreateConsigneeWrap">
+                  <input class="ss-input" id="ttnCreateConsigneeInput" type="text"
+                         placeholder="Выберите грузополучателя" autocomplete="off" readonly
+                         onfocus="ssOpen('ttnCreateConsigneeWrap')"
+                         oninput="ssFilter('ttnCreateConsigneeWrap')" />
+                  <div class="ss-dropdown hidden" id="ttnCreateConsigneeDropdown"></div>
+                  <input type="hidden" id="ttnCreateConsignee" />
                 </div>
-                <button type="button" class="secondary small-btn" id="ttnManualVehicleBtn"
-                  onclick="toggleTtnManualVehicle()"
-                  title="Ввести вручную"
-                  style="color:#2563eb;border-color:#93c5fd;height:36px;padding:0 10px">✏</button>
               </div>
-              <div id="ttnManualVehicleFields" style="display:none;margin-top:8px">
-                <input id="ttnCreateVehicleManual" type="text" placeholder="Марка и госномер"
-                       autocomplete="off" style="width:100%;height:36px;box-sizing:border-box" />
-              </div>
-            </div>
-            <div>
-              <label class="small" style="display:block;margin-bottom:4px">Место погрузки</label>
-              <div style="display:flex;gap:6px;align-items:center">
-                <div class="ss-wrap ttn-ss-field" id="ttnCreateLoadWrap" style="flex:1">
-                  <input class="ss-input" id="ttnCreateLoadInput" type="text"
-                         placeholder="Выберите место погрузки" autocomplete="off" readonly
-                         onfocus="ssOpen('ttnCreateLoadWrap')"
-                         oninput="ssFilter('ttnCreateLoadWrap')" />
-                  <div class="ss-dropdown hidden" id="ttnCreateLoadDropdown"></div>
-                  <input type="hidden" id="ttnCreateLoad" />
+              <div class="ttn-field">
+                <label class="small">Водитель / перевозчик</label>
+                <div class="ttn-field-with-action">
+                  <div class="ss-wrap ttn-ss-field" id="ttnCreateDriverWrap">
+                    <input class="ss-input" id="ttnCreateDriverInput" type="text"
+                           placeholder="Выберите водителя" autocomplete="off" readonly
+                           onfocus="ssOpen('ttnCreateDriverWrap')"
+                           oninput="ssFilter('ttnCreateDriverWrap')" />
+                    <div class="ss-dropdown hidden" id="ttnCreateDriverDropdown"></div>
+                    <input type="hidden" id="ttnCreateDriver" />
+                  </div>
+                  <button type="button" class="secondary small-btn ttn-manual-btn" id="ttnManualDriverBtn"
+                    onclick="toggleTtnManualDriver()"
+                    title="Ввести вручную">✏</button>
                 </div>
-                <button type="button" class="secondary small-btn" id="ttnManualLoadBtn"
-                  onclick="toggleTtnManualLoad()"
-                  title="Ввести вручную"
-                  style="color:#2563eb;border-color:#93c5fd;height:36px;padding:0 10px">✏</button>
-              </div>
-              <div id="ttnManualLoadFields" style="display:none;margin-top:8px">
-                <input id="ttnCreateLoadAddress" type="text" placeholder="Адрес погрузки"
-                       autocomplete="off" style="width:100%;height:36px;box-sizing:border-box" />
-              </div>
-            </div>
-            <div>
-              <label class="small" style="display:block;margin-bottom:4px">Место разгрузки</label>
-              <div style="display:flex;gap:6px;align-items:center">
-                <div class="ss-wrap ttn-ss-field" id="ttnCreateUnloadWrap" style="flex:1">
-                  <input class="ss-input" id="ttnCreateUnloadInput" type="text"
-                         placeholder="Выберите место разгрузки" autocomplete="off" readonly
-                         onfocus="ssOpen('ttnCreateUnloadWrap')"
-                         oninput="ssFilter('ttnCreateUnloadWrap')" />
-                  <div class="ss-dropdown hidden" id="ttnCreateUnloadDropdown"></div>
-                  <input type="hidden" id="ttnCreateUnload" />
+                <div id="ttnManualDriverFields" class="ttn-manual-fields" style="display:none">
+                  <input id="ttnManualDriverName" class="ttn-input" type="text" placeholder="ФИО водителя"
+                    autocomplete="off" />
+                  <input id="ttnManualDriverDocs" class="ttn-input" type="text" placeholder="Документы водителя"
+                    autocomplete="off" />
+                  <input id="ttnManualCarrier" class="ttn-input" type="text" placeholder="Перевозчик (наименование)"
+                    autocomplete="off" />
+                  <p class="small ttn-hint">Данные сохранятся только в этой ТТН</p>
                 </div>
-                <button type="button" class="secondary small-btn" id="ttnManualUnloadBtn"
-                  onclick="toggleTtnManualUnload()"
-                  title="Ввести вручную"
-                  style="color:#2563eb;border-color:#93c5fd;height:36px;padding:0 10px">✏</button>
+                <p id="ttnCarrierHint" class="small ttn-hint ttn-carrier-hint"></p>
               </div>
-              <div id="ttnManualUnloadFields" style="display:none;margin-top:8px">
-                <input id="ttnCreateUnloadAddress" type="text" placeholder="Адрес разгрузки"
-                       autocomplete="off" style="width:100%;height:36px;box-sizing:border-box" />
+              <div class="ttn-field">
+                <label class="small">Транспортное средство</label>
+                <div class="ttn-field-with-action">
+                  <div class="ss-wrap ttn-ss-field" id="ttnCreateVehicleWrap">
+                    <input class="ss-input" id="ttnCreateVehicleInput" type="text"
+                           placeholder="Выберите ТС" autocomplete="off" readonly
+                           onfocus="ssOpen('ttnCreateVehicleWrap')"
+                           oninput="ssFilter('ttnCreateVehicleWrap')" />
+                    <div class="ss-dropdown hidden" id="ttnCreateVehicleDropdown"></div>
+                    <input type="hidden" id="ttnCreateVehicle" />
+                  </div>
+                  <button type="button" class="secondary small-btn ttn-manual-btn" id="ttnManualVehicleBtn"
+                    onclick="toggleTtnManualVehicle()"
+                    title="Ввести вручную">✏</button>
+                </div>
+                <div id="ttnManualVehicleFields" class="ttn-manual-fields" style="display:none">
+                  <input id="ttnCreateVehicleManual" class="ttn-input" type="text" placeholder="Марка и госномер"
+                         autocomplete="off" />
+                </div>
               </div>
-            </div>
-            <div>
-              <label class="small" style="display:block;margin-bottom:4px" for="ttnCreateCargo">Наименование груза</label>
-              <input id="ttnCreateCargo" type="text" placeholder="Описание груза"
-                     autocomplete="off" style="width:100%;height:36px;box-sizing:border-box" />
-            </div>
-            <div class="row" style="gap:12px;flex-wrap:wrap">
-              <div style="flex:1;min-width:140px">
-                <label class="small" style="display:block;margin-bottom:4px" for="ttnCreatePlaces">Кол-во мест</label>
-                <input id="ttnCreatePlaces" type="text" placeholder="напр. 10" autocomplete="off"
-                       style="width:100%;height:36px;box-sizing:border-box" />
+              <div class="ttn-field">
+                <label class="small">Место погрузки</label>
+                <div class="ttn-field-with-action">
+                  <div class="ss-wrap ttn-ss-field" id="ttnCreateLoadWrap">
+                    <input class="ss-input" id="ttnCreateLoadInput" type="text"
+                           placeholder="Выберите место погрузки" autocomplete="off" readonly
+                           onfocus="ssOpen('ttnCreateLoadWrap')"
+                           oninput="ssFilter('ttnCreateLoadWrap')" />
+                    <div class="ss-dropdown hidden" id="ttnCreateLoadDropdown"></div>
+                    <input type="hidden" id="ttnCreateLoad" />
+                  </div>
+                  <button type="button" class="secondary small-btn ttn-manual-btn" id="ttnManualLoadBtn"
+                    onclick="toggleTtnManualLoad()"
+                    title="Ввести вручную">✏</button>
+                </div>
+                <div id="ttnManualLoadFields" class="ttn-manual-fields" style="display:none">
+                  <input id="ttnCreateLoadAddress" class="ttn-input" type="text" placeholder="Адрес погрузки"
+                         autocomplete="off" />
+                </div>
               </div>
-              <div style="flex:1;min-width:140px">
-                <label class="small" style="display:block;margin-bottom:4px" for="ttnCreateWeight">Масса, кг</label>
-                <input id="ttnCreateWeight" type="text" placeholder="напр. 500" autocomplete="off"
-                       style="width:100%;height:36px;box-sizing:border-box" />
+              <div class="ttn-field">
+                <label class="small">Место разгрузки</label>
+                <div class="ttn-field-with-action">
+                  <div class="ss-wrap ttn-ss-field" id="ttnCreateUnloadWrap">
+                    <input class="ss-input" id="ttnCreateUnloadInput" type="text"
+                           placeholder="Выберите место разгрузки" autocomplete="off" readonly
+                           onfocus="ssOpen('ttnCreateUnloadWrap')"
+                           oninput="ssFilter('ttnCreateUnloadWrap')" />
+                    <div class="ss-dropdown hidden" id="ttnCreateUnloadDropdown"></div>
+                    <input type="hidden" id="ttnCreateUnload" />
+                  </div>
+                  <button type="button" class="secondary small-btn ttn-manual-btn" id="ttnManualUnloadBtn"
+                    onclick="toggleTtnManualUnload()"
+                    title="Ввести вручную">✏</button>
+                </div>
+                <div id="ttnManualUnloadFields" class="ttn-manual-fields" style="display:none">
+                  <input id="ttnCreateUnloadAddress" class="ttn-input" type="text" placeholder="Адрес разгрузки"
+                         autocomplete="off" />
+                </div>
               </div>
+              <div class="ttn-field ttn-field-span-2">
+                <label class="small" for="ttnCreateCargo">Наименование груза</label>
+                <input id="ttnCreateCargo" class="ttn-input" type="text" placeholder="Описание груза"
+                       autocomplete="off" />
+              </div>
+              <div class="ttn-field">
+                <label class="small" for="ttnCreatePlaces">Кол-во мест</label>
+                <input id="ttnCreatePlaces" class="ttn-input" type="text" placeholder="напр. 10" autocomplete="off" />
+              </div>
+              <div class="ttn-field">
+                <label class="small" for="ttnCreateWeight">Масса, кг</label>
+                <input id="ttnCreateWeight" class="ttn-input" type="text" placeholder="напр. 500" autocomplete="off" />
+              </div>
+              <div class="ttn-field ttn-field-span-2">
+                <label class="small" for="ttnCreateDocs">Сопроводительные документы</label>
+                <input id="ttnCreateDocs" class="ttn-input" type="text" placeholder="УПД, счёт, доверенность…"
+                       autocomplete="off" />
+              </div>
+              <div class="ttn-field ttn-field-span-2">
+                <label class="small" for="ttnCreateNotes">Особые условия</label>
+                <input id="ttnCreateNotes" class="ttn-input" type="text" placeholder="Необязательно"
+                       autocomplete="off" />
+              </div>
+              <div id="ttnCreateInfo" class="small ttn-field-span-2"></div>
             </div>
-            <div>
-              <label class="small" style="display:block;margin-bottom:4px" for="ttnCreateDocs">Сопроводительные документы</label>
-              <input id="ttnCreateDocs" type="text" placeholder="УПД, счёт, доверенность…"
-                     autocomplete="off" style="width:100%;height:36px;box-sizing:border-box" />
-            </div>
-            <div>
-              <label class="small" style="display:block;margin-bottom:4px" for="ttnCreateNotes">Особые условия</label>
-              <input id="ttnCreateNotes" type="text" placeholder="Необязательно"
-                     autocomplete="off" style="width:100%;height:36px;box-sizing:border-box" />
-            </div>
-            <div id="ttnCreateInfo" class="small"></div>
-            <div class="row" style="justify-content:flex-end;gap:8px;margin-top:4px">
-              <button class="secondary" onclick="closeCreateTtnModal()">Отмена</button>
-              <button id="ttnCreateSaveBtn" onclick="saveTtnRecord()">Сохранить</button>
-            </div>
+          </div>
+          <div class="ttn-modal-footer">
+            <button type="button" class="secondary" onclick="closeCreateTtnModal()">Отмена</button>
+            <button type="button" id="ttnCreateSaveBtn" onclick="saveTtnRecord()">Сохранить</button>
           </div>
         </div>
       </div>
