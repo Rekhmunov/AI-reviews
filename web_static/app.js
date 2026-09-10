@@ -18425,9 +18425,13 @@ function _ttnSetSsValue(wrapId, value) {
   const state = _ssState[wrapId];
   const hidden = document.getElementById(wrapId.replace(/Wrap$/, ""));
   const input = document.querySelector(`#${wrapId} .ss-input`);
-  const match = (state?.options || []).find((o) => String(o.value) === String(value || ""));
+  const raw = value == null ? "" : String(value);
+  const match = raw
+    ? (state?.options || []).find((o) => String(o.value) === raw)
+    : null;
   if (hidden) hidden.value = match ? String(match.value) : "";
   if (input) {
+    // Empty → blank input (placeholder), never "— Выберите … —" as value
     input.value = match ? match.label : "";
     input.setAttribute("readonly", "");
   }
@@ -27441,10 +27445,10 @@ function ssPopulate(wrapId, options, onChange) {
   const hidden = document.getElementById(wrapId.replace("Wrap", ""));
   const curVal = hidden ? hidden.value : "";
   _ssRebuildDropdown(wrapId, options);
-  // Restore displayed text if selected value still exists
+  // Empty value → blank input (HTML placeholder), not "— Выберите … —" as real text
   const match = options.find(o => String(o.value) === String(curVal));
   const input = document.querySelector(`#${wrapId} .ss-input`);
-  if (input) input.value = match ? match.label : "";
+  if (input) input.value = (curVal && match) ? match.label : "";
 }
 
 function _ssRebuildDropdown(wrapId, items) {
@@ -27464,19 +27468,24 @@ function _ssRebuildDropdown(wrapId, items) {
 }
 
 function ssOpen(wrapId) {
+  // Close & restore other open dropdowns first
+  document.querySelectorAll(".ss-dropdown:not(.hidden)").forEach((el) => {
+    if (el.id === _ssDdId(wrapId)) return;
+    el.classList.add("hidden");
+    const otherWrap = el.closest(".ss-wrap");
+    if (otherWrap?.id) _ssRestoreDisplay(otherWrap.id);
+  });
   const input = document.querySelector(`#${wrapId} .ss-input`);
   if (input) {
     input.removeAttribute("readonly");
-    input.select();
+    // Clear so placeholder shows and user types search from scratch
+    // (do not leave "— Выберите … —" as editable value text)
+    input.value = "";
   }
   // Show all options on open
   ssFilter(wrapId, true);
   const dropdown = _ssDd(wrapId);
   if (dropdown) dropdown.classList.remove("hidden");
-  // Close other open dropdowns
-  document.querySelectorAll(".ss-dropdown:not(.hidden)").forEach(el => {
-    if (el.id !== _ssDdId(wrapId)) el.classList.add("hidden");
-  });
 }
 
 function ssFilter(wrapId, showAll) {
@@ -27499,11 +27508,16 @@ function ssFilter(wrapId, showAll) {
 function ssPick(wrapId, value, label) {
   const input = document.querySelector(`#${wrapId} .ss-input`);
   const hidden = _ssHidden(wrapId);
-  if (input) { input.value = label === (input.placeholder || "") ? "" : label; input.setAttribute("readonly", ""); }
-  if (hidden) hidden.value = value;
+  const hasValue = value !== "" && value != null;
+  if (input) {
+    // Empty choice → blank field; placeholder stays in HTML attribute
+    input.value = hasValue ? (label || "") : "";
+    input.setAttribute("readonly", "");
+  }
+  if (hidden) hidden.value = hasValue ? String(value) : "";
   _ssDd(wrapId)?.classList.add("hidden");
   const state = _ssState[wrapId];
-  if (state?.onChange) state.onChange(value, label);
+  if (state?.onChange) state.onChange(hasValue ? value : "", label);
 }
 
 function _ssDdId(wrapId) {
@@ -27514,26 +27528,27 @@ function _ssHidden(wrapId) {
   return document.getElementById(wrapId.replace("FilterWrap", "Filter").replace("Wrap", ""));
 }
 
+function _ssRestoreDisplay(wrapId) {
+  const wrap = document.getElementById(wrapId);
+  const inp = wrap?.querySelector(".ss-input");
+  if (!inp) return;
+  inp.setAttribute("readonly", "");
+  const hidden = _ssHidden(wrapId);
+  const state = _ssState[wrapId];
+  const curVal = hidden?.value || "";
+  const match = curVal
+    ? state?.options?.find((o) => String(o.value) === String(curVal))
+    : null;
+  inp.value = match ? match.label : "";
+}
+
 // Close ss dropdowns when clicking outside
 document.addEventListener("click", e => {
   if (!e.target.closest(".ss-wrap")) {
     document.querySelectorAll(".ss-dropdown:not(.hidden)").forEach(dd => {
       dd.classList.add("hidden");
       const wrap = dd.closest(".ss-wrap");
-      const inp = wrap?.querySelector(".ss-input");
-      if (inp) {
-        inp.setAttribute("readonly", "");
-        // Restore display text from hidden value
-        const wrapId = wrap?.id;
-        if (wrapId) {
-          const hidden = _ssHidden(wrapId);
-          const state = _ssState[wrapId];
-          const curVal = hidden?.value || "";
-          const match = state?.options?.find(o => String(o.value) === curVal);
-          const placeholder = inp.placeholder || "";
-          inp.value = curVal && match ? match.label : "";
-        }
-      }
+      if (wrap?.id) _ssRestoreDisplay(wrap.id);
     });
   }
 });

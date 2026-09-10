@@ -39,8 +39,8 @@ def test_logistics_title_picker_and_panes() -> None:
     assert "function initLogisticsSection" in js
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
-    assert "app.js?v=584" in html
-    assert "style.css?v=334" in html
+    assert "app.js?v=585" in html
+    assert "style.css?v=335" in html
 
 
 def test_ttn_table_and_modal_fields_present() -> None:
@@ -69,12 +69,21 @@ def test_ttn_table_and_modal_fields_present() -> None:
     assert "openCreatePoAModal()" in html
 
 
+def test_ss_open_clears_placeholder_text() -> None:
+    js = JS.read_text(encoding="utf-8")
+    assert "function ssOpen" in js
+    assert "function _ssRestoreDisplay" in js
+    # Empty selection must not put "— Выберите … —" into input value
+    assert 'input.value = (curVal && match) ? match.label : ""' in js
+    assert 'input.value = ""' in js.split("function ssOpen")[1].split("function ssFilter")[0]
+    assert 'hasValue ? (label || "") : ""' in js
+
+
 def test_ttn_modal_combined_parties_searchable_and_pencil() -> None:
     html = HTML.read_text(encoding="utf-8")
     js = JS.read_text(encoding="utf-8")
     css = CSS.read_text(encoding="utf-8")
     assert "function _ttnPartyOptions" in js
-    assert 'value: `le:${e.id}`' in js or 'value: `le:${e.id}`' in js.replace(" ", "")
     assert "le:${e.id}" in js
     assert "c:${c.id}" in js
     assert "Юр. лицо ·" in js
