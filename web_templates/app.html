@@ -4162,16 +4162,24 @@
             </div>
             <div>
               <label class="small" style="display:block;margin-bottom:4px">Транспортное средство</label>
-              <div class="ss-wrap ttn-ss-field" id="ttnCreateVehicleWrap">
-                <input class="ss-input" id="ttnCreateVehicleInput" type="text"
-                       placeholder="Выберите ТС" autocomplete="off" readonly
-                       onfocus="ssOpen('ttnCreateVehicleWrap')"
-                       oninput="ssFilter('ttnCreateVehicleWrap')" />
-                <div class="ss-dropdown hidden" id="ttnCreateVehicleDropdown"></div>
-                <input type="hidden" id="ttnCreateVehicle" />
+              <div style="display:flex;gap:6px;align-items:center">
+                <div class="ss-wrap ttn-ss-field" id="ttnCreateVehicleWrap" style="flex:1">
+                  <input class="ss-input" id="ttnCreateVehicleInput" type="text"
+                         placeholder="Выберите ТС" autocomplete="off" readonly
+                         onfocus="ssOpen('ttnCreateVehicleWrap')"
+                         oninput="ssFilter('ttnCreateVehicleWrap')" />
+                  <div class="ss-dropdown hidden" id="ttnCreateVehicleDropdown"></div>
+                  <input type="hidden" id="ttnCreateVehicle" />
+                </div>
+                <button type="button" class="secondary small-btn" id="ttnManualVehicleBtn"
+                  onclick="toggleTtnManualVehicle()"
+                  title="Ввести вручную"
+                  style="color:#2563eb;border-color:#93c5fd;height:36px;padding:0 10px">✏</button>
               </div>
-              <input id="ttnCreateVehicleManual" type="text" placeholder="Марка и госномер"
-                     autocomplete="off" style="width:100%;height:36px;margin-top:6px;box-sizing:border-box;display:none" />
+              <div id="ttnManualVehicleFields" style="display:none;margin-top:8px">
+                <input id="ttnCreateVehicleManual" type="text" placeholder="Марка и госномер"
+                       autocomplete="off" style="width:100%;height:36px;box-sizing:border-box" />
+              </div>
             </div>
             <div>
               <label class="small" style="display:block;margin-bottom:4px">Место погрузки</label>
@@ -7173,6 +7181,6 @@
 
   <script src="/static/ozon_fbs.js?v=144"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=22"></script>
-  <script src="/static/app.js?v=586"></script>
+  <script src="/static/app.js?v=587"></script>
 </body>
 </html>

@@ -18306,6 +18306,7 @@ const LOGISTICS_TAB_STORAGE_KEY = "logistics_tab_v1";
 let _logisticsTab = "poa";
 let _ttnRecords = [];
 let _ttnManualDriverMode = false;
+let _ttnManualVehicleMode = false;
 let _ttnManualLoadMode = false;
 let _ttnManualUnloadMode = false;
 let _ttnModalMode = "create";
@@ -18450,39 +18451,60 @@ function _ttnSetManualBtn(btnId, active) {
   }
 }
 
+function _ttnSetVehicleManualUi(active, prefill) {
+  _ttnManualVehicleMode = !!active;
+  const fields = document.getElementById("ttnManualVehicleFields");
+  const wrap = document.getElementById("ttnCreateVehicleWrap");
+  const manual = document.getElementById("ttnCreateVehicleManual");
+  _ttnSetManualBtn("ttnManualVehicleBtn", _ttnManualVehicleMode);
+  if (_ttnManualVehicleMode) {
+    if (fields) fields.style.display = "block";
+    if (wrap) wrap.style.opacity = "0.55";
+    _ttnSetSsValue("ttnCreateVehicleWrap", "");
+    if (manual && prefill != null) manual.value = String(prefill || "");
+  } else {
+    if (fields) fields.style.display = "none";
+    if (wrap) wrap.style.opacity = "";
+    if (manual && prefill == null) manual.value = "";
+  }
+}
+
 function _ttnPopulateVehicleOptions(driverId, selectedLine) {
+  if (_ttnManualVehicleMode && !selectedLine) {
+    // Keep manual mode; still refresh catalog options in case user turns pencil off
+  }
   const driver = _supplyDriversCache.find((x) => Number(x.id) === Number(driverId));
   const vehicles = _ttnDriverVehicles(driver);
-  const opts = [{ value: "", label: vehicles.length ? "— Выберите ТС —" : "— Укажите ТС вручную —" }];
+  const opts = [{ value: "", label: vehicles.length ? "— Выберите ТС —" : "— Нет ТС у водителя —" }];
   for (let i = 0; i < vehicles.length; i++) {
     const line = driverVehicleLine(vehicles[i]) || `ТС ${i + 1}`;
     opts.push({ value: line, label: line });
   }
   ssPopulate("ttnCreateVehicleWrap", opts, null);
-  const manual = document.getElementById("ttnCreateVehicleManual");
-  if (!vehicles.length) {
-    if (manual) manual.style.display = "";
+
+  const selected = String(selectedLine || "").trim();
+  if (selected) {
+    const has = opts.some((o) => o.value === selected);
+    if (has) {
+      _ttnSetVehicleManualUi(false);
+      _ttnSetSsValue("ttnCreateVehicleWrap", selected);
+      return;
+    }
+    // Custom line not in driver vehicles → open pencil field
+    _ttnSetVehicleManualUi(true, selected);
+    return;
+  }
+
+  if (_ttnManualVehicleMode) {
     _ttnSetSsValue("ttnCreateVehicleWrap", "");
+    return;
+  }
+
+  _ttnSetVehicleManualUi(false);
+  if (vehicles.length === 1) {
+    _ttnSetSsValue("ttnCreateVehicleWrap", opts[1].value);
   } else {
-    if (manual && !selectedLine) {
-      manual.style.display = "none";
-      manual.value = "";
-    }
-    if (selectedLine) {
-      const has = opts.some((o) => o.value === selectedLine);
-      if (has) {
-        _ttnSetSsValue("ttnCreateVehicleWrap", selectedLine);
-        if (manual) { manual.style.display = "none"; manual.value = ""; }
-      } else if (manual) {
-        _ttnSetSsValue("ttnCreateVehicleWrap", "");
-        manual.style.display = "";
-        manual.value = selectedLine;
-      }
-    } else if (vehicles.length === 1) {
-      _ttnSetSsValue("ttnCreateVehicleWrap", opts[1].value);
-    } else {
-      _ttnSetSsValue("ttnCreateVehicleWrap", "");
-    }
+    _ttnSetSsValue("ttnCreateVehicleWrap", "");
   }
 }
 
@@ -18493,6 +18515,9 @@ function onTtnDriverChange() {
   const carrier = _ttnCarrierLineFromDriver(driver);
   const hint = document.getElementById("ttnCarrierHint");
   if (hint) hint.textContent = carrier ? `Перевозчик: ${carrier}` : (dId ? "Перевозчик не указан у водителя" : "");
+  // Changing driver resets vehicle pencil unless already typing a custom line intentionally —
+  // clear manual and pick from the new driver's list.
+  _ttnManualVehicleMode = false;
   _ttnPopulateVehicleOptions(dId, "");
 }
 window.onTtnDriverChange = onTtnDriverChange;
@@ -18526,8 +18551,7 @@ function toggleTtnManualDriver() {
     if (wrap) wrap.style.opacity = "0.55";
     _ttnSetSsValue("ttnCreateDriverWrap", "");
     ssPopulate("ttnCreateVehicleWrap", [{ value: "", label: "— Вручную —" }], null);
-    const vManual = document.getElementById("ttnCreateVehicleManual");
-    if (vManual) vManual.style.display = "";
+    _ttnSetVehicleManualUi(true);
     if (hint) hint.textContent = "";
   } else {
     if (mf) mf.style.display = "none";
@@ -18536,6 +18560,27 @@ function toggleTtnManualDriver() {
   }
 }
 window.toggleTtnManualDriver = toggleTtnManualDriver;
+
+function toggleTtnManualVehicle() {
+  const next = !_ttnManualVehicleMode;
+  if (next) {
+    _ttnSetVehicleManualUi(true);
+    const manual = document.getElementById("ttnCreateVehicleManual");
+    if (manual) {
+      try { manual.focus(); } catch (_e) { /* ignore */ }
+    }
+  } else {
+    _ttnSetVehicleManualUi(false);
+    if (_ttnManualDriverMode) {
+      ssPopulate("ttnCreateVehicleWrap", [{ value: "", label: "— Вручную —" }], null);
+      _ttnSetSsValue("ttnCreateVehicleWrap", "");
+    } else {
+      const dId = parseInt(document.getElementById("ttnCreateDriver")?.value || "0", 10);
+      _ttnPopulateVehicleOptions(dId, "");
+    }
+  }
+}
+window.toggleTtnManualVehicle = toggleTtnManualVehicle;
 
 function toggleTtnManualLoad() {
   _ttnManualLoadMode = !_ttnManualLoadMode;
@@ -18779,21 +18824,27 @@ async function _openTtnModal(mode, record) {
   if (info) { info.textContent = ""; info.style.color = ""; }
 
   _ttnManualDriverMode = false;
+  _ttnManualVehicleMode = false;
   _ttnManualLoadMode = false;
   _ttnManualUnloadMode = false;
   const mf = document.getElementById("ttnManualDriverFields");
   if (mf) mf.style.display = "none";
+  const vehicleFields = document.getElementById("ttnManualVehicleFields");
+  if (vehicleFields) vehicleFields.style.display = "none";
   const loadFields = document.getElementById("ttnManualLoadFields");
   if (loadFields) loadFields.style.display = "none";
   const unloadFields = document.getElementById("ttnManualUnloadFields");
   if (unloadFields) unloadFields.style.display = "none";
   const driverWrap = document.getElementById("ttnCreateDriverWrap");
   if (driverWrap) driverWrap.style.opacity = "";
+  const vehicleWrap = document.getElementById("ttnCreateVehicleWrap");
+  if (vehicleWrap) vehicleWrap.style.opacity = "";
   const loadWrap = document.getElementById("ttnCreateLoadWrap");
   if (loadWrap) loadWrap.style.opacity = "";
   const unloadWrap = document.getElementById("ttnCreateUnloadWrap");
   if (unloadWrap) unloadWrap.style.opacity = "";
   _ttnSetManualBtn("ttnManualDriverBtn", false);
+  _ttnSetManualBtn("ttnManualVehicleBtn", false);
   _ttnSetManualBtn("ttnManualLoadBtn", false);
   _ttnSetManualBtn("ttnManualUnloadBtn", false);
 
@@ -18811,10 +18862,9 @@ async function _openTtnModal(mode, record) {
   setVal("ttnManualDriverName", "");
   setVal("ttnManualDriverDocs", "");
   setVal("ttnManualCarrier", "");
+  setVal("ttnCreateVehicleManual", "");
   const dateEl = document.getElementById("ttnCreateDate");
   if (dateEl) dateEl.value = _ttnDateToInputValue("");
-  const vManual = document.getElementById("ttnCreateVehicleManual");
-  if (vManual) { vManual.value = ""; vManual.style.display = "none"; }
   _ttnSetSsValue("ttnCreateShipperWrap", "");
   _ttnSetSsValue("ttnCreateConsigneeWrap", "");
   _ttnSetSsValue("ttnCreateDriverWrap", "");
@@ -18889,10 +18939,7 @@ async function _openTtnModal(mode, record) {
       setVal("ttnManualDriverDocs", record.driver_manual_docs || "");
       setVal("ttnManualCarrier", record.carrier_snapshot || "");
       ssPopulate("ttnCreateVehicleWrap", [{ value: "", label: "— Вручную —" }], null);
-      if (vManual) {
-        vManual.style.display = "";
-        vManual.value = record.vehicle_line || "";
-      }
+      _ttnSetVehicleManualUi(true, record.vehicle_line || "");
     } else {
       onTtnDriverChange();
     }
@@ -18920,6 +18967,7 @@ window.openCopyTtnModal = openCopyTtnModal;
 
 function closeCreateTtnModal() {
   _ttnManualDriverMode = false;
+  _ttnManualVehicleMode = false;
   _ttnManualLoadMode = false;
   _ttnManualUnloadMode = false;
   const modal = document.getElementById("createTtnModal");
@@ -18947,10 +18995,11 @@ async function saveTtnRecord() {
     return;
   }
 
-  let vehicleLine = String(document.getElementById("ttnCreateVehicle")?.value || "").trim();
-  const vManual = document.getElementById("ttnCreateVehicleManual");
-  if (vManual && vManual.style.display !== "none" && vManual.value.trim()) {
-    vehicleLine = vManual.value.trim();
+  let vehicleLine = "";
+  if (_ttnManualVehicleMode) {
+    vehicleLine = document.getElementById("ttnCreateVehicleManual")?.value.trim() || "";
+  } else {
+    vehicleLine = String(document.getElementById("ttnCreateVehicle")?.value || "").trim();
   }
 
   let carrierSnapshot = "";

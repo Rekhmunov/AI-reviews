@@ -39,7 +39,7 @@ def test_logistics_title_picker_and_panes() -> None:
     assert "function initLogisticsSection" in js
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
-    assert "app.js?v=586" in html
+    assert "app.js?v=587" in html
     assert "style.css?v=335" in html
 
 
@@ -56,6 +56,8 @@ def test_ttn_table_and_modal_fields_present() -> None:
     assert 'id="ttnCreateDriverWrap"' in html
     assert 'id="ttnCreateVehicle"' in html
     assert 'id="ttnCreateVehicleWrap"' in html
+    assert 'id="ttnManualVehicleBtn"' in html
+    assert 'id="ttnManualVehicleFields"' in html
     assert 'id="ttnCreateLoadWrap"' in html
     assert 'id="ttnCreateUnloadWrap"' in html
     assert 'id="ttnManualLoadBtn"' in html
@@ -73,6 +75,17 @@ def test_ttn_default_cargo_description() -> None:
     js = JS.read_text(encoding="utf-8")
     assert 'TTN_DEFAULT_CARGO = "Текстиль (постельное белье/наматрасники)"' in js
     assert 'setVal("ttnCreateCargo", TTN_DEFAULT_CARGO)' in js
+
+
+def test_ttn_vehicle_manual_via_pencil() -> None:
+    html = HTML.read_text(encoding="utf-8")
+    js = JS.read_text(encoding="utf-8")
+    assert "onclick=\"toggleTtnManualVehicle()\"" in html
+    assert 'id="ttnManualVehicleFields"' in html
+    assert 'display:none' in html.split('id="ttnManualVehicleFields"')[1][:80]
+    assert "function toggleTtnManualVehicle" in js
+    assert "function _ttnSetVehicleManualUi" in js
+    assert "_ttnManualVehicleMode" in js
 
 
 def test_ss_open_clears_placeholder_text() -> None:
