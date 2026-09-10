@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=330" />
+  <link rel="stylesheet" href="/static/style.css?v=331" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -3090,6 +3090,23 @@
             </div>
           </div>
         </div>
+
+        <div id="wbFbsOrderStatusModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="wbFbsOrderStatusTitle"
+             onclick="if(event.target===this)closeWbFbsOrderStatusModal()">
+          <div class="modal-card ozon-fbs-move-delivering-modal wb-fbs-order-status-modal">
+            <div class="ozon-fbs-move-delivering-header">
+              <h3 id="wbFbsOrderStatusTitle" class="ozon-fbs-move-delivering-title">Статус заказа</h3>
+              <button type="button" class="icon-btn secondary" onclick="closeWbFbsOrderStatusModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <div id="wbFbsOrderStatusBody" class="ozon-fbs-move-delivering-body"></div>
+            <div class="ozon-fbs-move-delivering-footer">
+              <button type="button" class="ozon-fbs-ship-all-btn" id="wbFbsOrderStatusCloseBtn"
+                      onclick="closeWbFbsOrderStatusModal()">Закрыть</button>
+            </div>
+          </div>
+        </div>
+
 
         <div id="ozonFbsSupplyDetailModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
              aria-labelledby="ozonFbsSupplyDetailTitle">
@@ -6919,6 +6936,6 @@
 
   <script src="/static/ozon_fbs.js?v=144"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=22"></script>
-  <script src="/static/app.js?v=578"></script>
+  <script src="/static/app.js?v=579"></script>
 </body>
 </html>

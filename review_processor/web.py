@@ -10255,12 +10255,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         source_id: int,
         order_id: int | None = None,
         search: str | None = None,
+        refresh: bool = False,
     ) -> dict[str, object]:
         """Find one order by number across all tabs; if missing locally, query WB API.
 
         Used by the toolbar search when the order is not in Новые / На сборке /
         В доставке (e.g. finished or cancelled — sync intentionally skips those).
         Local DB lookup must work even when the marketplace API key is missing.
+
+        Pass ``refresh=1`` to re-pull Marketplace statuses for a local hit
+        (KIZ/pick per-row status check).
         """
         from . import wb_fbs_detail as wb_detail
 
@@ -10293,6 +10297,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             order_id=int(oid),
             api_key=api_key or None,
             allow_remote=bool(api_key),
+            refresh=bool(refresh),
         )
         payload = _sanitize_wb_fbs_owner_counts(user, payload)
         item = payload.get("item") if isinstance(payload, dict) else None

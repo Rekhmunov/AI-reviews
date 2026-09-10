@@ -7979,6 +7979,84 @@ tr.dnd-over td {
 .ozon-fbs-posting-status-modal.is-cancelled .ozon-fbs-move-delivering-text {
   color: #b91c1c;
 }
+
+#wbFbsOrderStatusModal.modal-overlay {
+  z-index: 1460;
+}
+.wb-fbs-modal-order-id {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  max-width: 100%;
+}
+.wb-fbs-modal-order-num {
+  min-width: 0;
+  flex: 0 1 auto;
+  word-break: break-word;
+  line-height: 1.2;
+}
+.wb-fbs-modal-order-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  position: relative;
+  top: 1px;
+}
+.wb-fbs-order-icon-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #334155;
+  cursor: pointer;
+  box-sizing: border-box;
+  box-shadow: none;
+  appearance: none;
+  -webkit-appearance: none;
+  line-height: 0;
+}
+.wb-fbs-order-icon-btn:hover:not(:disabled) {
+  background: transparent;
+  color: #2563eb;
+}
+.wb-fbs-order-icon-btn:active:not(:disabled) {
+  background: transparent;
+  color: #1d4ed8;
+  transform: none;
+}
+.wb-fbs-order-icon-btn:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+.wb-fbs-order-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.wb-fbs-order-icon-btn.is-copied {
+  color: #15803d;
+}
+.wb-fbs-order-icon-btn-ico {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+.wb-fbs-order-status-refresh.is-spinning .wb-fbs-order-icon-btn-ico {
+  animation: wb-fbs-kiz-spin 0.8s linear infinite;
+  transform-origin: center center;
+}
+.wb-fbs-order-status-modal.is-cancelled .ozon-fbs-move-delivering-text {
+  color: #b91c1c;
+}
+
 .ozon-fbs-move-delivering-header {
   display: flex;
   align-items: flex-start;
@@ -16889,6 +16967,7 @@ button.wb-fbs-kiz-add:disabled {
   #ozonFbsMovePostingModal,
   #ozonFbsMoveDeliveringModal,
   #ozonFbsPostingStatusModal,
+  #wbFbsOrderStatusModal,
   #ozonFbsMoveAwaitingModal,
   #supplyGtdChzModal,
   #supplyGtdChzLogModal,

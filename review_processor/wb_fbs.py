@@ -3209,23 +3209,48 @@ def lookup_order_by_id(
     order_id: int,
     api_key: str | None = None,
     allow_remote: bool = True,
+    refresh: bool = False,
 ) -> dict[str, Any]:
     """Find one assembly order locally (any tab), else optionally via WB API.
 
     Sync intentionally skips finished/cancelled/archive; this path is the
     explicit escape hatch for search-by-order-number.
+
+    When ``refresh`` is true and the order exists locally, refresh Marketplace
+    statuses first (same light path as KIZ circulation) so modal status checks
+    see live cancel/sold state.
     """
     ensure_wb_fbs_tables(repo)
     oid = int(order_id)
     sid = int(source_id)
     counts = _tab_counts(repo, user_id=user_id, source_id=sid)
+    key = str(api_key or "").strip()
 
     local = get_order_by_id(repo, user_id=user_id, source_id=sid, order_id=oid)
     if local:
+        status_refreshed = False
+        if refresh and key:
+            try:
+                refresh_order_statuses_light(
+                    repo,
+                    user_id=user_id,
+                    source_id=sid,
+                    order_ids=[oid],
+                    api_key=key,
+                )
+                status_refreshed = True
+                local = (
+                    get_order_by_id(repo, user_id=user_id, source_id=sid, order_id=oid)
+                    or local
+                )
+            except Exception as exc:
+                _log.warning(
+                    "wb-fbs lookup refresh statuses order=%s: %s", oid, exc
+                )
         item = _enrich_order_row(repo, user_id=user_id, row=local)
         return {
             "found": True,
-            "source": "local",
+            "source": "local+api" if status_refreshed else "local",
             "order_id": oid,
             "tab": str(item.get("tab") or ""),
             "item": item,
@@ -3233,6 +3258,7 @@ def lookup_order_by_id(
                 repo, user_id=user_id, source_id=sid, row=item
             ),
             "counts": counts,
+            "status_refreshed": status_refreshed,
         }
 
     if not allow_remote:

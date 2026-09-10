@@ -91,4 +91,4 @@ def test_filter_count_css_shared_with_ozon() -> None:
 
 
 def test_asset_version_bumped() -> None:
-    assert "app.js?v=578" in APP_HTML
+    assert "app.js?v=579" in APP_HTML

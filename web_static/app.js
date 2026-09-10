@@ -28882,11 +28882,12 @@ function _wbFbsRenderLookupDetail(details, { viaText = "" } = {}) {
   `;
 }
 
-async function _wbFbsLookupOrderById(orderId, { signal, seq } = {}) {
+async function _wbFbsLookupOrderById(orderId, { signal, seq, refresh = false } = {}) {
   const params = new URLSearchParams({
     source_id: String(wbFbsState.sourceId),
     order_id: String(orderId),
   });
+  if (refresh) params.set("refresh", "1");
   const res = await fetch(
     `/api/wb-fbs/orders/lookup?${params}`,
     signal ? { signal } : undefined
@@ -30821,7 +30822,7 @@ function renderWbFbsCancelledOrdersTable() {
     const stickerHtml = _wbFbsKizStickerHtml(r);
     return `<tr class="wb-fbs-kiz-row" data-order-id="${oid}">
       <td>
-        <div class="wb-fbs-kiz-order-id">${_wbFbsEsc(oid)}</div>
+        ${_wbFbsModalOrderIdHtml(oid)}
         <div class="wb-fbs-kiz-order-sticker">${stickerHtml}</div>
         <div class="wb-fbs-kiz-order-date">от ${_wbFbsEsc(r.created_date || "—")}</div>
       </td>
@@ -32179,6 +32180,294 @@ function _wbFbsPickUpdateFilterCounts() {
   _wbFbsSetFilterCount("wbFbsPickFilterCancelledCount", cancelled);
 }
 
+/** Order-number actions in KIZ / pick modals (copy + live WB status). */
+const wbFbsOrderStatusState = {
+  busy: false,
+  orderId: "",
+  cancelled: false,
+  statusLabel: "",
+};
+
+function _wbFbsOrderStatusSetVisible(show) {
+  if (typeof setModalVisibility === "function") {
+    setModalVisibility("wbFbsOrderStatusModal", !!show);
+    return;
+  }
+  const modal = document.getElementById("wbFbsOrderStatusModal");
+  if (!modal) return;
+  modal.classList.toggle("hidden", !show);
+}
+
+function _wbFbsOrderStatusRender({ title, html, kind } = {}) {
+  const titleEl = document.getElementById("wbFbsOrderStatusTitle");
+  const body = document.getElementById("wbFbsOrderStatusBody");
+  const card = document.querySelector(
+    "#wbFbsOrderStatusModal .wb-fbs-order-status-modal"
+  );
+  if (titleEl) titleEl.textContent = title || "Статус заказа";
+  if (body) body.innerHTML = html || "";
+  if (card) {
+    card.classList.toggle("is-error", kind === "error" || kind === "cancelled");
+    card.classList.toggle("is-ok", kind === "ok");
+    card.classList.toggle("is-cancelled", kind === "cancelled");
+  }
+  _wbFbsOrderStatusSetVisible(true);
+}
+
+function _wbFbsOrderStatusBusy(orderId, busy) {
+  const safe = CSS.escape(String(orderId || "").trim());
+  if (!safe) return;
+  document
+    .querySelectorAll(
+      `.wb-fbs-order-status-refresh[aria-label*="${safe}"], ` +
+      `button.wb-fbs-order-status-refresh[onclick*="${safe}"]`
+    )
+    .forEach((btn) => {
+      btn.classList.toggle("is-spinning", !!busy);
+      btn.disabled = !!busy;
+    });
+}
+
+function _wbFbsRemoveOrderFromOpenModals(orderId) {
+  const oid = Number(orderId);
+  if (!Number.isFinite(oid) || oid <= 0) return;
+  let kizChanged = false;
+  let pickChanged = false;
+  if (Array.isArray(wbFbsKizState.rows) && wbFbsKizState.rows.length) {
+    const before = wbFbsKizState.rows.length;
+    wbFbsKizState.rows = wbFbsKizState.rows.filter(
+      (r) => Number(r?.order_id) !== oid
+    );
+    kizChanged = wbFbsKizState.rows.length !== before;
+    if (kizChanged) {
+      if (wbFbsKizState.errors) delete wbFbsKizState.errors[oid];
+      if (Number(wbFbsKizState.pendingOrderId) === oid) {
+        wbFbsKizState.pendingOrderId = null;
+      }
+      renderWbFbsKizTable({ skipCollect: true });
+    }
+  }
+  if (Array.isArray(wbFbsPickState.rows) && wbFbsPickState.rows.length) {
+    const before = wbFbsPickState.rows.length;
+    wbFbsPickState.rows = wbFbsPickState.rows.filter(
+      (r) => Number(r?.order_id) !== oid
+    );
+    pickChanged = wbFbsPickState.rows.length !== before;
+    if (pickChanged) {
+      if (wbFbsPickState.errors) delete wbFbsPickState.errors[oid];
+      if (Number(wbFbsPickState.pendingOrderId) === oid) {
+        wbFbsPickState.pendingOrderId = null;
+      }
+      renderWbFbsPickVerifyTable();
+    }
+  }
+  if (kizChanged || pickChanged) {
+    try {
+      if (wbFbsDetailState.supply) renderWbFbsSupplyDetail(wbFbsDetailState.supply);
+    } catch (_e) { /* ignore */ }
+  }
+}
+
+function closeWbFbsOrderStatusModal() {
+  if (wbFbsOrderStatusState.busy) return;
+  const oid = String(wbFbsOrderStatusState.orderId || "").trim();
+  const wasCancelled = !!wbFbsOrderStatusState.cancelled;
+  wbFbsOrderStatusState.orderId = "";
+  wbFbsOrderStatusState.cancelled = false;
+  wbFbsOrderStatusState.statusLabel = "";
+  _wbFbsOrderStatusSetVisible(false);
+  if (wasCancelled && oid) {
+    _wbFbsRemoveOrderFromOpenModals(oid);
+  }
+}
+
+function _wbFbsCopyTextFallback(text) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.setAttribute("readonly", "");
+  ta.style.position = "fixed";
+  ta.style.left = "-9999px";
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand("copy");
+  } finally {
+    document.body.removeChild(ta);
+  }
+}
+
+async function copyWbFbsModalOrderNumber(orderId, btnEl) {
+  const oid = String(orderId || "").trim();
+  if (!oid) return;
+  const markCopied = () => {
+    const btn = btnEl && btnEl.classList ? btnEl : null;
+    if (!btn) return;
+    btn.classList.add("is-copied");
+    const prev = btn.getAttribute("title") || "Скопировать номер заказа";
+    btn.setAttribute("title", "Скопировано");
+    window.setTimeout(() => {
+      btn.classList.remove("is-copied");
+      btn.setAttribute(
+        "title",
+        prev === "Скопировано" ? "Скопировать номер заказа" : prev
+      );
+    }, 1200);
+  };
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(oid);
+    } else {
+      _wbFbsCopyTextFallback(oid);
+    }
+    markCopied();
+  } catch (_e) {
+    try {
+      _wbFbsCopyTextFallback(oid);
+      markCopied();
+    } catch (__e) {
+      /* ignore */
+    }
+  }
+}
+
+async function refreshWbFbsModalOrderStatus(orderId) {
+  const oid = String(orderId || "").trim();
+  if (!oid || wbFbsOrderStatusState.busy) return;
+  if (!wbFbsState.sourceId) {
+    _wbFbsOrderStatusRender({
+      title: "Статус заказа",
+      html: `<p class="ozon-fbs-move-delivering-text">Не выбран источник Wildberries</p>`,
+      kind: "error",
+    });
+    return;
+  }
+  wbFbsOrderStatusState.busy = true;
+  wbFbsOrderStatusState.orderId = oid;
+  wbFbsOrderStatusState.cancelled = false;
+  wbFbsOrderStatusState.statusLabel = "";
+  _wbFbsOrderStatusBusy(oid, true);
+  _wbFbsOrderStatusRender({
+    title: "Проверка статуса",
+    html: `<p class="ozon-fbs-move-delivering-text">Проверяем заказ ${_wbFbsEsc(oid)} на Wildberries…</p>`,
+    kind: "ok",
+  });
+  try {
+    const data = await _wbFbsLookupOrderById(oid, { refresh: true });
+    if (!data?.found || !data.item) {
+      throw new Error(String(data?.message || "Заказ не найден"));
+    }
+    const item = data.item || {};
+    const details = data.details && typeof data.details === "object" ? data.details : {};
+    const tab = String(details.tab || item.tab || data.tab || "").trim().toLowerCase();
+    const statusLabel = String(
+      details.status_label
+      || item.cancel_reason_label
+      || item.finished_status_label
+      || item.status_label
+      || (WB_FBS_TAB_LABELS && WB_FBS_TAB_LABELS[tab])
+      || tab
+      || "—"
+    ).trim();
+    const cancelLabel = String(
+      item.cancel_reason_label
+      || details.cancel_reason_label
+      || ""
+    ).trim();
+    const cancelled =
+      !!cancelLabel
+      || tab === "cancelled"
+      || String(item.wb_status || "").toLowerCase().includes("cancel")
+      || String(item.supplier_status || "").toLowerCase().includes("cancel");
+    wbFbsOrderStatusState.cancelled = cancelled;
+    wbFbsOrderStatusState.statusLabel = statusLabel;
+
+    _wbFbsCancelledMergeIntoDetail([
+      {
+        order_id: Number(oid),
+        cancel_reason_label: cancelLabel || (cancelled ? "Отменен" : ""),
+        supplier_status: item.supplier_status || "",
+        wb_status: item.wb_status || "",
+        cancelled,
+      },
+    ]);
+    for (const row of [...(wbFbsKizState.rows || []), ...(wbFbsPickState.rows || [])]) {
+      if (Number(row?.order_id) !== Number(oid)) continue;
+      if (item.supplier_status) row.supplier_status = item.supplier_status;
+      if (item.wb_status) row.wb_status = item.wb_status;
+      if (cancelled) {
+        row.cancel_reason_label = cancelLabel || "Отменен";
+        row.cancelled = true;
+      }
+    }
+
+    if (cancelled) {
+      _wbFbsOrderStatusRender({
+        title: "Заказ отменён",
+        html:
+          `<p class="ozon-fbs-move-delivering-text">` +
+          `Заказ <strong>${_wbFbsEsc(oid)}</strong> отменён на Wildberries` +
+          (cancelLabel ? ` (${_wbFbsEsc(cancelLabel)})` : "") +
+          `.</p>` +
+          `<p class="ozon-fbs-move-delivering-text">` +
+          `После закрытия этого окна заказ будет удалён из модалки «Товары с КИЗ» / «Товары без КИЗ».` +
+          `</p>`,
+        kind: "cancelled",
+      });
+    } else {
+      _wbFbsOrderStatusRender({
+        title: "Статус заказа",
+        html:
+          `<p class="ozon-fbs-move-delivering-text">` +
+          `Заказ <strong>${_wbFbsEsc(oid)}</strong></p>` +
+          `<p class="ozon-fbs-move-delivering-text">` +
+          `Текущий статус: <strong>${_wbFbsEsc(statusLabel)}</strong>` +
+          `</p>`,
+        kind: "ok",
+      });
+    }
+  } catch (e) {
+    wbFbsOrderStatusState.cancelled = false;
+    _wbFbsOrderStatusRender({
+      title: "Не удалось проверить",
+      html: `<p class="ozon-fbs-move-delivering-text">${_wbFbsEsc(String(e.message || e))}</p>`,
+      kind: "error",
+    });
+  } finally {
+    wbFbsOrderStatusState.busy = false;
+    _wbFbsOrderStatusBusy(oid, false);
+  }
+}
+
+/** Order number + copy/refresh icons (sticker stays on the next line). */
+function _wbFbsModalOrderIdHtml(orderId) {
+  const oid = String(orderId || "").trim();
+  if (!oid) return `<div class="wb-fbs-kiz-order-id">—</div>`;
+  const safe = _wbFbsEsc(oid).replace(/'/g, "&#39;");
+  return (
+    `<div class="wb-fbs-kiz-order-id wb-fbs-modal-order-id">` +
+      `<span class="wb-fbs-modal-order-num">${_wbFbsEsc(oid)}</span>` +
+      `<span class="wb-fbs-modal-order-actions">` +
+        `<button type="button" class="wb-fbs-order-icon-btn wb-fbs-order-copy"` +
+        ` title="Скопировать номер заказа"` +
+        ` aria-label="Скопировать номер заказа ${safe}"` +
+        ` onclick="event.stopPropagation(); copyWbFbsModalOrderNumber('${safe}', this)">` +
+          `<svg class="wb-fbs-order-icon-btn-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">` +
+            `<path fill="currentColor" d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>` +
+          `</svg>` +
+        `</button>` +
+        `<button type="button" class="wb-fbs-order-icon-btn wb-fbs-order-status-refresh"` +
+        ` title="Проверить статус на Wildberries"` +
+        ` aria-label="Проверить статус заказа ${safe}"` +
+        ` onclick="event.stopPropagation(); refreshWbFbsModalOrderStatus('${safe}')">` +
+          `<svg class="wb-fbs-order-icon-btn-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">` +
+            `<path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z"/>` +
+          `</svg>` +
+        `</button>` +
+      `</span>` +
+    `</div>`
+  );
+}
+
 function renderWbFbsKizTable(opts) {
   // After programmatic state updates (scan/CSV/save) skip DOM collect —
   // otherwise empty inputs overwrite the just-assigned КИЗ codes.
@@ -32258,7 +32547,7 @@ function renderWbFbsKizTable(opts) {
     const safeKey = `kiz_${oid}`;
     return `<tr class="wb-fbs-kiz-row${pending === oid ? " is-active" : ""}" data-order-id="${oid}">
       <td>
-        <div class="wb-fbs-kiz-order-id">${_wbFbsEsc(oid)}</div>
+        ${_wbFbsModalOrderIdHtml(oid)}
         <div class="wb-fbs-kiz-order-sticker">${stickerHtml}</div>
         <div class="wb-fbs-kiz-order-date">от ${_wbFbsEsc(r.created_date || "—")}</div>
       </td>
@@ -32304,6 +32593,9 @@ function renderWbFbsKizTable(opts) {
   _wbFbsKizUpdateScanCounter();
 }
 window.renderWbFbsKizTable = renderWbFbsKizTable;
+window.copyWbFbsModalOrderNumber = copyWbFbsModalOrderNumber;
+window.refreshWbFbsModalOrderStatus = refreshWbFbsModalOrderStatus;
+window.closeWbFbsOrderStatusModal = closeWbFbsOrderStatusModal;
 
 function onWbFbsKizCodeInput(orderId, event) {
   const oid = Number(orderId);
@@ -33704,7 +33996,7 @@ function renderWbFbsPickVerifyTable() {
     const stickerHtml = _wbFbsPickStickerHtml(r);
     return `<tr class="wb-fbs-kiz-row${pendingCls}" data-order-id="${oid}">
       <td>
-        <div class="wb-fbs-kiz-order-id">${_wbFbsEsc(oid)}</div>
+        ${_wbFbsModalOrderIdHtml(oid)}
         <div class="wb-fbs-kiz-order-sticker">${stickerHtml}</div>
         <div class="wb-fbs-kiz-order-date">от ${_wbFbsEsc(r.created_date || "—")}</div>
       </td>
