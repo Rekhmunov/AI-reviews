@@ -10271,7 +10271,14 @@ class ReviewRepository:
                            le_s.short_name AS le_ship_short, le_s.full_name AS le_ship_full,
                            le_s.requisites AS le_ship_req, le_s.address AS le_ship_address,
                            le_s.phone AS le_ship_phone,
-                           c_s.name AS c_ship_name, c_s.requisites AS c_ship_req,
+                           c_s.name AS c_ship_name, c_s.full_name AS c_ship_full,
+                           c_s.requisites AS c_ship_req, c_s.address AS c_ship_address,
+                           c_s.phone AS c_ship_phone,
+                           c_s.addr_index AS c_ship_addr_index, c_s.addr_region_code AS c_ship_addr_region_code,
+                           c_s.addr_district AS c_ship_addr_district, c_s.addr_city AS c_ship_addr_city,
+                           c_s.addr_settlement AS c_ship_addr_settlement, c_s.addr_street AS c_ship_addr_street,
+                           c_s.addr_house AS c_ship_addr_house, c_s.addr_corpus AS c_ship_addr_corpus,
+                           c_s.addr_flat AS c_ship_addr_flat,
                            le_c.short_name AS le_cons_short, le_c.full_name AS le_cons_full,
                            le_c.requisites AS le_cons_req, le_c.address AS le_cons_address,
                            le_c.phone AS le_cons_phone,
@@ -10310,14 +10317,29 @@ class ReviewRepository:
             consignee_type = str(d.get("consignee_type") or "contractor").strip() or "contractor"
             if shipper_type == "contractor":
                 d["le_short"] = d.get("c_ship_name") or ""
-                d["le_full"] = d.get("c_ship_name") or ""
+                d["le_full"] = d.get("c_ship_full") or d.get("c_ship_name") or ""
                 d["le_req"] = d.get("c_ship_req") or ""
-                d["le_address"] = ""
-                d["le_phone"] = ""
+                # One-line address from structured fields or legacy address column.
+                d["le_address"] = self.contractor_address_line(
+                    {
+                        "address": d.get("c_ship_address"),
+                        "addr_index": d.get("c_ship_addr_index"),
+                        "addr_region_code": d.get("c_ship_addr_region_code"),
+                        "addr_district": d.get("c_ship_addr_district"),
+                        "addr_city": d.get("c_ship_addr_city"),
+                        "addr_settlement": d.get("c_ship_addr_settlement"),
+                        "addr_street": d.get("c_ship_addr_street"),
+                        "addr_house": d.get("c_ship_addr_house"),
+                        "addr_corpus": d.get("c_ship_addr_corpus"),
+                        "addr_flat": d.get("c_ship_addr_flat"),
+                    }
+                )
+                d["le_phone"] = d.get("c_ship_phone") or ""
             else:
                 d["le_short"] = d.get("le_ship_short") or ""
                 d["le_full"] = d.get("le_ship_full") or ""
                 d["le_req"] = d.get("le_ship_req") or ""
+                # LE address column is kept as a composed one-liner on save.
                 d["le_address"] = d.get("le_ship_address") or ""
                 d["le_phone"] = d.get("le_ship_phone") or ""
             if consignee_type == "le":

@@ -171,3 +171,19 @@ def test_ttn_load_unload_places_le_contractor_warehouse() -> None:
     assert "c.requisites" not in helper
     assert "contractorAddressLine" in helper
 
+
+def test_ttn_contractor_shipper_gets_one_line_address() -> None:
+    """When shipper is a contractor, PDF/list must get composed address — not an empty string."""
+    repo = REPO.read_text(encoding="utf-8")
+    web = WEB.read_text(encoding="utf-8")
+    assert "def list_supply_ttn_records" in repo
+    block = repo.split("def list_supply_ttn_records", 1)[1].split("\n    def ", 1)[0]
+    assert "c_s.address AS c_ship_address" in block
+    assert "c_s.phone AS c_ship_phone" in block
+    assert "c_s.full_name AS c_ship_full" in block
+    assert "contractor_address_line" in block
+    # Must not hard-wipe shipper address for contractor party type.
+    assert 'd["le_address"] = ""' not in block
+    assert "le_address" in web
+    assert "Грузоотправитель" in web
+
