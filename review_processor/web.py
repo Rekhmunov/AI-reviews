@@ -498,6 +498,8 @@ class CreateTtnRecordRequest(BaseModel):
     notes: str = ""
     # ПП РФ № 2200 — дополнительные поля ТН (все опциональны, старый клиент не ломаем)
     customer_services: str = ""
+    customer_party_type: str = ""
+    customer_party_id: int = 0
     packing_type: str = ""
     declared_value: str = ""
     vehicle_type: str = ""
@@ -529,6 +531,8 @@ class UpdateTtnRecordRequest(BaseModel):
     accompanying_docs: str = ""
     notes: str = ""
     customer_services: str = ""
+    customer_party_type: str = ""
+    customer_party_id: int = 0
     packing_type: str = ""
     declared_value: str = ""
     vehicle_type: str = ""
@@ -20841,6 +20845,8 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             accompanying_docs=payload.accompanying_docs,
             notes=payload.notes,
             customer_services=payload.customer_services,
+            customer_party_type=payload.customer_party_type,
+            customer_party_id=payload.customer_party_id,
             packing_type=payload.packing_type,
             declared_value=payload.declared_value,
             vehicle_type=payload.vehicle_type,
@@ -20888,6 +20894,8 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             accompanying_docs=payload.accompanying_docs,
             notes=payload.notes,
             customer_services=payload.customer_services,
+            customer_party_type=payload.customer_party_type,
+            customer_party_id=payload.customer_party_id,
             packing_type=payload.packing_type,
             declared_value=payload.declared_value,
             vehicle_type=payload.vehicle_type,

@@ -40,8 +40,8 @@ def test_logistics_title_picker_and_panes() -> None:
     assert "function initLogisticsSection" in js
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
-    assert "app.js?v=595" in html
-    assert "style.css?v=345" in html
+    assert "app.js?v=599" in html
+    assert "style.css?v=348" in html
     assert "ttn-modal-card" in html
     assert "ttn-form-grid" in html
     assert 'max-width:560px' not in html.split('id="createTtnModal"')[1].split("<!-- ── Планирование")[0]
@@ -273,6 +273,7 @@ def test_tn_rename_and_pp2200_fields_additive() -> None:
     assert "ТН не найдены" in js
     for field_id in (
         "ttnCreateCustomer",
+        "ttnCreateCustomerWrap",
         "ttnCreatePacking",
         "ttnCreateDeclaredValue",
         "ttnCreateVehicleType",
@@ -286,8 +287,15 @@ def test_tn_rename_and_pp2200_fields_additive() -> None:
     ):
         assert f'id="{field_id}"' in html
         assert field_id in js
+    assert 'id="ttnOptionalSection"' in html
+    assert "Необязательные поля" in html
+    assert "function toggleTtnOptionalFields" in js
+    assert "function _ttnCustomerPartyOptions" in js
+    assert "customer_party_type" in js and "customer_party_id" in js
     for col in (
         "customer_services",
+        "customer_party_type",
+        "customer_party_id",
         "packing_type",
         "declared_value",
         "vehicle_type",
@@ -317,4 +325,19 @@ def test_tn_rename_and_pp2200_fields_additive() -> None:
         "ttnCreateNotes",
     ):
         assert f'id="{field_id}"' in html
+    # Optional fields live inside collapsible block.
+    optional_block = html.split('id="ttnOptionalSection"', 1)[1].split("ttn-modal-footer", 1)[0]
+    for field_id in (
+        "ttnCreateVehicleType",
+        "ttnCreateDeclaredValue",
+        "ttnCreateLoadingDatetime",
+        "ttnCreateLoaderName",
+        "ttnCreateUnloadingDatetime",
+        "ttnCreateReceiverName",
+        "ttnCreateNotes",
+        "ttnCreateRedirect",
+        "ttnCreateMarks",
+        "ttnCreateFreightCost",
+    ):
+        assert f'id="{field_id}"' in optional_block
 

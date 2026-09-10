@@ -18624,6 +18624,91 @@ function _ttnPartyOptions() {
   return opts;
 }
 
+function _ttnCustomerPartyOptions() {
+  const opts = _ttnPartyOptions().slice();
+  if (opts.length) {
+    opts[0] = { value: "", label: "— Не указан (как грузоотправитель) —" };
+  }
+  return opts;
+}
+
+/** Print/list snapshot for selected customer party (section 1а). */
+function _ttnPartySnapshot(ref) {
+  const parsed = _ttnParsePartyRef(ref);
+  if (!parsed) return "";
+  if (parsed.type === "le") {
+    const e = (_supplyLegalEntitiesCache || []).find((x) => Number(x.id) === Number(parsed.id));
+    if (!e) return "";
+    const name = String(e.full_name || e.short_name || "").trim();
+    const addr = String(legalEntityAddressLine(e) || e.address || "").trim();
+    const phone = String(e.phone || "").trim();
+    const req = String(e.requisites || "").trim();
+    return [name, addr, phone, req].filter(Boolean).join(", ");
+  }
+  const c = (_supplyContractorsCache || []).find((x) => Number(x.id) === Number(parsed.id));
+  if (!c) return "";
+  const name = String(c.full_name || c.name || "").trim();
+  const addr = String(contractorAddressLine(c) || c.address || "").trim();
+  const phone = String(c.phone || "").trim();
+  const req = String(c.requisites || "").trim();
+  return [name, addr, phone, req].filter(Boolean).join(", ");
+}
+
+function _ttnCustomerRefFromRecord(record) {
+  if (!record) return "";
+  const partyType = String(record.customer_party_type || "").trim();
+  const partyId = Number(record.customer_party_id || 0);
+  if (partyId > 0 && (partyType === "le" || partyType === "contractor")) {
+    return partyType === "contractor" ? `c:${partyId}` : `le:${partyId}`;
+  }
+  // Legacy free-text customer_services: try match by party name.
+  const saved = String(record.customer_services || "").trim().toLowerCase();
+  if (!saved) return "";
+  for (const e of _supplyLegalEntitiesCache || []) {
+    const short = String(e.short_name || "").trim().toLowerCase();
+    const full = String(e.full_name || "").trim().toLowerCase();
+    if ((short && saved.includes(short)) || (full && saved.includes(full))) {
+      return `le:${e.id}`;
+    }
+  }
+  for (const c of _supplyContractorsCache || []) {
+    const name = String(c.name || "").trim().toLowerCase();
+    const full = String(c.full_name || "").trim().toLowerCase();
+    if ((name && saved.includes(name)) || (full && saved.includes(full))) {
+      return `c:${c.id}`;
+    }
+  }
+  return "";
+}
+
+function toggleTtnOptionalFields(forceOpen) {
+  const section = document.getElementById("ttnOptionalSection");
+  const body = document.getElementById("ttnOptionalBody");
+  const btn = document.getElementById("ttnOptionalToggle");
+  if (!section || !body || !btn) return;
+  const open = forceOpen == null ? !section.classList.contains("is-open") : !!forceOpen;
+  section.classList.toggle("is-open", open);
+  body.hidden = !open;
+  btn.setAttribute("aria-expanded", open ? "true" : "false");
+}
+window.toggleTtnOptionalFields = toggleTtnOptionalFields;
+
+function _ttnOptionalFieldsFilled() {
+  const ids = [
+    "ttnCreateVehicleType",
+    "ttnCreateDeclaredValue",
+    "ttnCreateLoadingDatetime",
+    "ttnCreateLoaderName",
+    "ttnCreateUnloadingDatetime",
+    "ttnCreateReceiverName",
+    "ttnCreateNotes",
+    "ttnCreateRedirect",
+    "ttnCreateMarks",
+    "ttnCreateFreightCost",
+  ];
+  return ids.some((id) => String(document.getElementById(id)?.value || "").trim());
+}
+
 /** Addresses belonging to the selected shipper/consignee for load/unload places. */
 function _ttnAddressOptionsForParty(partyRef) {
   const opts = [];
@@ -19162,6 +19247,7 @@ async function _openTtnModal(mode, record) {
   const partyOpts = _ttnPartyOptions();
   ssPopulate("ttnCreateShipperWrap", partyOpts, () => onTtnShipperChange());
   ssPopulate("ttnCreateConsigneeWrap", partyOpts, () => onTtnConsigneeChange());
+  ssPopulate("ttnCreateCustomerWrap", _ttnCustomerPartyOptions(), null);
 
   const driverOpts = [{ value: "", label: "— Выберите водителя —" }].concat(
     (_supplyDriversCache || []).map((d) => ({
@@ -19212,7 +19298,6 @@ async function _openTtnModal(mode, record) {
   setVal("ttnCreateWeight", "");
   setVal("ttnCreateDocs", "");
   setVal("ttnCreateNotes", "");
-  setVal("ttnCreateCustomer", "");
   setVal("ttnCreatePacking", "");
   setVal("ttnCreateDeclaredValue", "");
   setVal("ttnCreateVehicleType", "");
@@ -19233,10 +19318,12 @@ async function _openTtnModal(mode, record) {
   if (dateEl) dateEl.value = _ttnDateToInputValue("");
   _ttnSetSsValue("ttnCreateShipperWrap", "");
   _ttnSetSsValue("ttnCreateConsigneeWrap", "");
+  _ttnSetSsValue("ttnCreateCustomerWrap", "");
   _ttnSetSsValue("ttnCreateDriverWrap", "");
   _ttnSetSsValue("ttnCreateLoadWrap", "");
   _ttnSetSsValue("ttnCreateUnloadWrap", "");
   ssPopulate("ttnCreateVehicleWrap", [{ value: "", label: "— Выберите ТС —" }], null);
+  toggleTtnOptionalFields(false);
 
   if (record) {
     const shipType = String(record.shipper_type || "le");
@@ -19255,7 +19342,6 @@ async function _openTtnModal(mode, record) {
     setVal("ttnCreateWeight", record.cargo_weight || "");
     setVal("ttnCreateDocs", record.accompanying_docs || "");
     setVal("ttnCreateNotes", record.notes || "");
-    setVal("ttnCreateCustomer", record.customer_services || "");
     setVal("ttnCreatePacking", record.packing_type || "");
     setVal("ttnCreateDeclaredValue", record.declared_value || "");
     setVal("ttnCreateVehicleType", record.vehicle_type || "");
@@ -19266,6 +19352,8 @@ async function _openTtnModal(mode, record) {
     setVal("ttnCreateRedirect", record.redirect_info || "");
     setVal("ttnCreateMarks", record.carrier_marks || "");
     setVal("ttnCreateFreightCost", record.freight_cost || "");
+    _ttnSetSsValue("ttnCreateCustomerWrap", _ttnCustomerRefFromRecord(record));
+    toggleTtnOptionalFields(_ttnOptionalFieldsFilled());
 
     const loadAddr = String(record.load_address || "").trim();
     const unloadAddr = String(record.unload_address || "").trim();
@@ -19408,7 +19496,18 @@ async function saveTtnRecord() {
     cargo_weight: document.getElementById("ttnCreateWeight")?.value.trim() || "",
     accompanying_docs: document.getElementById("ttnCreateDocs")?.value.trim() || "",
     notes: document.getElementById("ttnCreateNotes")?.value.trim() || "",
-    customer_services: document.getElementById("ttnCreateCustomer")?.value.trim() || "",
+    customer_services: (() => {
+      const ref = document.getElementById("ttnCreateCustomer")?.value || "";
+      return _ttnPartySnapshot(ref);
+    })(),
+    customer_party_type: (() => {
+      const parsed = _ttnParsePartyRef(document.getElementById("ttnCreateCustomer")?.value || "");
+      return parsed ? parsed.type : "";
+    })(),
+    customer_party_id: (() => {
+      const parsed = _ttnParsePartyRef(document.getElementById("ttnCreateCustomer")?.value || "");
+      return parsed ? parsed.id : 0;
+    })(),
     packing_type: document.getElementById("ttnCreatePacking")?.value.trim() || "",
     declared_value: document.getElementById("ttnCreateDeclaredValue")?.value.trim() || "",
     vehicle_type: document.getElementById("ttnCreateVehicleType")?.value.trim() || "",
