@@ -18433,8 +18433,14 @@ function _ttnPlacePresetOptions() {
     if (!name) continue;
     const key = `c:${c.id}`;
     opts.push({ value: key, label: `Контрагент · ${name}` });
-    addressByValue[key] =
-      productionAddressLine(c) || String(c.address || "").trim() || String(c.requisites || "").trim() || name;
+    // One-line address only — never fall back to requisites (ИНН/КПП).
+    // contractorAddressLine exists after contractors-LE fields; productionAddressLine
+    // already falls back to legacy `address`.
+    const composed =
+      (typeof contractorAddressLine === "function" ? contractorAddressLine(c) : "") ||
+      productionAddressLine(c) ||
+      String(c.address || "").trim();
+    addressByValue[key] = composed || name;
   }
 
   const whs = Array.isArray(_supplyWarehousesCache) ? _supplyWarehousesCache.slice() : [];

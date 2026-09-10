@@ -39,7 +39,7 @@ def test_logistics_title_picker_and_panes() -> None:
     assert "function initLogisticsSection" in js
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
-    assert "app.js?v=588" in html
+    assert "app.js?v=589" in html
     assert "style.css?v=335" in html
 
 
@@ -138,15 +138,23 @@ def test_ttn_load_unload_places_le_contractor_warehouse() -> None:
     assert "Контрагент ·" in helper
     assert "Склад ·" in helper
     assert "Производство ·" not in helper
+    # Address line must not fall back to requisites (ИНН/КПП blob)
+    assert "c.requisites" not in helper
+    assert "contractorAddressLine" in helper or "productionAddressLine(c)" in helper
     # Order in source: LE loop before contractors before warehouses
     assert helper.find("_supplyLegalEntitiesCache") < helper.find("_supplyContractorsCache")
     assert helper.find("_supplyContractorsCache") < helper.find("_supplyWarehousesCache")
     open_modal = js.split("async function _openTtnModal", 1)[1].split("\nasync function ", 1)[0]
     assert "_ttnPlacePresetOptions()" in open_modal
-    assert 'ttnCreateLoadWrap' in open_modal and 'ttnCreateUnloadWrap' in open_modal
+    assert "ttnCreateLoadWrap" in open_modal and "ttnCreateUnloadWrap" in open_modal
     assert "Производство ·" not in open_modal
     # Both dropdowns reuse the same preset list
     assert open_modal.count("placePresets.opts") >= 2
+
+
+def test_asset_cache_bumped_for_places() -> None:
+    html = HTML.read_text(encoding="utf-8")
+    assert "app.js?v=589" in html
 
 
 def test_ttn_backend_crud_and_downloads_wired() -> None:
