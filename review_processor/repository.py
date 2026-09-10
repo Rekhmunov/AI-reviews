@@ -8475,6 +8475,28 @@ class ReviewRepository:
         conn.execute(
             self._sql("CREATE INDEX IF NOT EXISTS idx_supply_contractors_user ON supply_contractors(user_id)")
         )
+        # Mirror legal-entity card: full name, signatories, address parts, phone.
+        for _c_col, _c_ddl in (
+            ("full_name", "TEXT NOT NULL DEFAULT ''"),
+            ("signatories", "TEXT"),
+            ("in_person", "TEXT"),
+            ("basis", "TEXT"),
+            ("address", "TEXT"),
+            ("phone", "TEXT"),
+            ("addr_index", "TEXT NOT NULL DEFAULT ''"),
+            ("addr_region_code", "TEXT NOT NULL DEFAULT ''"),
+            ("addr_district", "TEXT NOT NULL DEFAULT ''"),
+            ("addr_city", "TEXT NOT NULL DEFAULT ''"),
+            ("addr_settlement", "TEXT NOT NULL DEFAULT ''"),
+            ("addr_street", "TEXT NOT NULL DEFAULT ''"),
+            ("addr_house", "TEXT NOT NULL DEFAULT ''"),
+            ("addr_corpus", "TEXT NOT NULL DEFAULT ''"),
+            ("addr_flat", "TEXT NOT NULL DEFAULT ''"),
+            ("addr_fias", "TEXT NOT NULL DEFAULT ''"),
+        ):
+            conn.execute(
+                f"ALTER TABLE supply_contractors ADD COLUMN IF NOT EXISTS {_c_col} {_c_ddl}"
+            )
         conn.execute(
             self._sql("CREATE INDEX IF NOT EXISTS idx_supply_productions_user ON supply_productions(user_id)")
         )
@@ -9745,30 +9767,185 @@ class ReviewRepository:
 
     # ── Supply Contractors CRUD ──
 
+    @classmethod
+    def contractor_address_line(cls, c: dict[str, Any] | None) -> str:
+        """One-line contractor address: structured fields or legacy address."""
+        return cls.production_address_line(c)
+
     def list_supply_contractors(self, *, user_id: int) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
-                self._sql("SELECT * FROM supply_contractors WHERE user_id = ? ORDER BY name ASC"),
+                self._sql(
+                    "SELECT id, user_id, name, full_name, requisites, signatories, in_person, basis, "
+                    "address, phone, "
+                    "addr_index, addr_region_code, addr_district, addr_city, addr_settlement, "
+                    "addr_street, addr_house, addr_corpus, addr_flat, addr_fias, created_at "
+                    "FROM supply_contractors WHERE user_id = ? ORDER BY name ASC"
+                ),
                 (user_id,),
             ).fetchall()
-        return [self._row_to_dict(r) for r in rows]
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            d = self._row_to_dict(row)
+            composed = self.contractor_address_line(d)
+            if composed:
+                d["address"] = composed
+            result.append(d)
+        return result
 
-    def create_supply_contractor(self, *, user_id: int, name: str, requisites: str = "") -> dict[str, Any]:
+    def create_supply_contractor(
+        self,
+        *,
+        user_id: int,
+        name: str,
+        full_name: str = "",
+        requisites: str = "",
+        signatories: str = "",
+        in_person: str = "",
+        basis: str = "",
+        address: str = "",
+        phone: str = "",
+        addr_index: str = "",
+        addr_region_code: str = "",
+        addr_district: str = "",
+        addr_city: str = "",
+        addr_settlement: str = "",
+        addr_street: str = "",
+        addr_house: str = "",
+        addr_corpus: str = "",
+        addr_flat: str = "",
+        addr_fias: str = "",
+    ) -> dict[str, Any]:
         now = _utc_now()
+        addr = self._normalize_production_addr_fields(
+            addr_index=addr_index,
+            addr_region_code=addr_region_code,
+            addr_district=addr_district,
+            addr_city=addr_city,
+            addr_settlement=addr_settlement,
+            addr_street=addr_street,
+            addr_house=addr_house,
+            addr_corpus=addr_corpus,
+            addr_flat=addr_flat,
+            addr_fias=addr_fias,
+        )
+        composed = self.compose_production_address_line(addr)
+        address_val = composed or str(address or "").strip() or None
         with self._connect() as conn:
             cid = self._insert_and_get_id(
                 conn,
-                "INSERT INTO supply_contractors (user_id, name, requisites, created_at) VALUES (?, ?, ?, ?)",
-                (user_id, name.strip(), requisites.strip(), now),
+                "INSERT INTO supply_contractors "
+                "(user_id, name, full_name, requisites, signatories, in_person, basis, address, phone, "
+                "addr_index, addr_region_code, addr_district, addr_city, addr_settlement, "
+                "addr_street, addr_house, addr_corpus, addr_flat, addr_fias, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    user_id,
+                    name.strip(),
+                    (full_name or "").strip(),
+                    (requisites or "").strip() or "",
+                    (signatories or "").strip() or None,
+                    (in_person or "").strip() or None,
+                    (basis or "").strip() or None,
+                    address_val,
+                    (phone or "").strip() or None,
+                    addr["addr_index"],
+                    addr["addr_region_code"],
+                    addr["addr_district"],
+                    addr["addr_city"],
+                    addr["addr_settlement"],
+                    addr["addr_street"],
+                    addr["addr_house"],
+                    addr["addr_corpus"],
+                    addr["addr_flat"],
+                    addr["addr_fias"],
+                    now,
+                ),
             )
             row = conn.execute(self._sql("SELECT * FROM supply_contractors WHERE id = ?"), (cid,)).fetchone()
-        return self._row_to_dict(row) if row else {"id": cid}
+        if not row:
+            return {"id": cid, "name": name.strip(), "address": address_val or "", **addr}
+        d = self._row_to_dict(row)
+        d["address"] = self.contractor_address_line(d) or (d.get("address") or "")
+        return d
 
-    def update_supply_contractor(self, *, user_id: int, contractor_id: int, name: str, requisites: str = "") -> bool:
+    def update_supply_contractor(
+        self,
+        *,
+        user_id: int,
+        contractor_id: int,
+        name: str,
+        full_name: str = "",
+        requisites: str = "",
+        signatories: str = "",
+        in_person: str = "",
+        basis: str = "",
+        address: str = "",
+        phone: str = "",
+        addr_index: str = "",
+        addr_region_code: str = "",
+        addr_district: str = "",
+        addr_city: str = "",
+        addr_settlement: str = "",
+        addr_street: str = "",
+        addr_house: str = "",
+        addr_corpus: str = "",
+        addr_flat: str = "",
+        addr_fias: str = "",
+    ) -> bool:
+        addr = self._normalize_production_addr_fields(
+            addr_index=addr_index,
+            addr_region_code=addr_region_code,
+            addr_district=addr_district,
+            addr_city=addr_city,
+            addr_settlement=addr_settlement,
+            addr_street=addr_street,
+            addr_house=addr_house,
+            addr_corpus=addr_corpus,
+            addr_flat=addr_flat,
+            addr_fias=addr_fias,
+        )
+        composed = self.compose_production_address_line(addr)
+        address_val = composed or str(address or "").strip() or None
         with self._connect() as conn:
+            if not address_val:
+                existing_addr = conn.execute(
+                    self._sql("SELECT address FROM supply_contractors WHERE user_id = ? AND id = ?"),
+                    (user_id, contractor_id),
+                ).fetchone()
+                if existing_addr:
+                    address_val = str(self._row_to_dict(existing_addr).get("address") or "").strip() or None
             result = conn.execute(
-                self._sql("UPDATE supply_contractors SET name = ?, requisites = ? WHERE user_id = ? AND id = ?"),
-                (name.strip(), requisites.strip(), user_id, contractor_id),
+                self._sql(
+                    "UPDATE supply_contractors SET name = ?, full_name = ?, requisites = ?, "
+                    "signatories = ?, in_person = ?, basis = ?, address = ?, phone = ?, "
+                    "addr_index = ?, addr_region_code = ?, addr_district = ?, addr_city = ?, "
+                    "addr_settlement = ?, addr_street = ?, addr_house = ?, addr_corpus = ?, addr_flat = ?, "
+                    "addr_fias = ? "
+                    "WHERE user_id = ? AND id = ?"
+                ),
+                (
+                    name.strip(),
+                    (full_name or "").strip(),
+                    (requisites or "").strip() or "",
+                    (signatories or "").strip() or None,
+                    (in_person or "").strip() or None,
+                    (basis or "").strip() or None,
+                    address_val,
+                    (phone or "").strip() or None,
+                    addr["addr_index"],
+                    addr["addr_region_code"],
+                    addr["addr_district"],
+                    addr["addr_city"],
+                    addr["addr_settlement"],
+                    addr["addr_street"],
+                    addr["addr_house"],
+                    addr["addr_corpus"],
+                    addr["addr_flat"],
+                    addr["addr_fias"],
+                    user_id,
+                    contractor_id,
+                ),
             )
         return bool(result.rowcount)
 

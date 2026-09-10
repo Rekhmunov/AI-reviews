@@ -17925,6 +17925,59 @@ window.loadSupplyProductions = loadSupplyProductions;
 // ── Supply Contractors ──────────────────────────────────────────────────────
 let _supplyContractorsCache = [];
 
+const _CTR_ADDR_FIELDS = [
+  ["addr_index", "Индекс"],
+  ["addr_region_code", "Код региона"],
+  ["addr_district", "Район"],
+  ["addr_city", "Город"],
+  ["addr_settlement", "Нас. пункт"],
+  ["addr_street", "Улица"],
+  ["addr_house", "Дом"],
+  ["addr_corpus", "Корпус"],
+  ["addr_flat", "Кв./офис"],
+  ["addr_fias", "ФИАС"],
+];
+
+function contractorAddressLine(c) {
+  if (!c) return "";
+  return productionAddressLine(c) || String(c.address || "").trim();
+}
+
+function _readNewContractorAddrFields() {
+  return {
+    addr_index: document.getElementById("newContractorAddrIndex")?.value.trim() || "",
+    addr_region_code: document.getElementById("newContractorAddrRegion")?.value.trim() || "",
+    addr_district: document.getElementById("newContractorAddrDistrict")?.value.trim() || "",
+    addr_city: document.getElementById("newContractorAddrCity")?.value.trim() || "",
+    addr_settlement: document.getElementById("newContractorAddrSettlement")?.value.trim() || "",
+    addr_street: document.getElementById("newContractorAddrStreet")?.value.trim() || "",
+    addr_house: document.getElementById("newContractorAddrHouse")?.value.trim() || "",
+    addr_corpus: document.getElementById("newContractorAddrCorpus")?.value.trim() || "",
+    addr_flat: document.getElementById("newContractorAddrFlat")?.value.trim() || "",
+    addr_fias: document.getElementById("newContractorAddrFias")?.value.trim() || "",
+  };
+}
+
+function _clearNewContractorFormFields() {
+  [
+    "newContractorName", "newContractorFullName", "newContractorRequisites",
+    "newContractorSignatories", "newContractorInPerson", "newContractorBasis", "newContractorPhone",
+    "newContractorAddrIndex", "newContractorAddrRegion", "newContractorAddrDistrict",
+    "newContractorAddrCity", "newContractorAddrSettlement", "newContractorAddrStreet",
+    "newContractorAddrHouse", "newContractorAddrCorpus", "newContractorAddrFlat", "newContractorAddrFias",
+  ].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ""; });
+}
+
+function _contractorAddrEditInputsHtml(item) {
+  return `<div class="worker-form-grid" style="margin:0">
+    ${_CTR_ADDR_FIELDS.map(([key, label]) => `
+      <div class="wfg-field">
+        <label class="wfg-label">${label}</label>
+        <input class="edit-inline-input" data-ctr-addr="${key}" value="${esc(item[key] || "")}" autocomplete="off" />
+      </div>`).join("")}
+  </div>`;
+}
+
 async function loadSupplyContractors() {
   const res = await fetch("/api/supply-contractors").catch(() => null);
   if (!res || !res.ok) return;
@@ -17937,16 +17990,22 @@ function renderSupplyContractorsTbody() {
   if (!tbody) return;
   tbody.innerHTML = "";
   if (!_supplyContractorsCache.length) {
-    tbody.innerHTML = '<tr><td colspan="4" class="empty-cell">Контрагенты не добавлены</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="empty-cell">Контрагенты не добавлены</td></tr>';
     requestAnimationFrame(initAllSettingResizers);
     return;
   }
   _supplyContractorsCache.forEach((c, i) => {
     const tr = document.createElement("tr");
     tr.dataset.id = c.id;
-    tr.innerHTML = `<td>${i+1}</td>
-      <td class="editable-cell">${esc(c.name||"")}</td>
-      <td class="editable-cell">${esc(c.requisites||"")}</td>
+    tr.innerHTML = `<td>${i + 1}</td>
+      <td class="editable-cell">${esc(c.name || "")}</td>
+      <td class="editable-cell">${esc(c.full_name || "")}</td>
+      <td class="editable-cell">${esc(c.requisites || "")}</td>
+      <td class="editable-cell">${esc(c.signatories || "")}</td>
+      <td class="editable-cell">${esc(c.in_person || "")}</td>
+      <td class="editable-cell">${esc(c.basis || "")}</td>
+      <td class="editable-cell">${esc(contractorAddressLine(c))}</td>
+      <td class="editable-cell">${esc(c.phone || "")}</td>
       <td>
         <div class="sst-edit-actions">
           <button class="secondary small-btn" onclick="startEditContractor(${c.id})">✏</button>
@@ -17959,14 +18018,32 @@ function renderSupplyContractorsTbody() {
 }
 
 async function startEditContractor(id) {
-  const item = _supplyContractorsCache.find(x => x.id === id);
+  const item = _supplyContractorsCache.find((x) => x.id === id);
   if (!item) return;
   const tr = document.querySelector(`#supplyContractorsTbody tr[data-id="${id}"]`);
   if (!tr) return;
+  document.querySelectorAll("#supplyContractorsTbody tr.ctr-addr-edit-row").forEach((r) => r.remove());
   const cells = tr.querySelectorAll(".editable-cell");
-  cells[0].innerHTML = `<input class="edit-inline-input" value="${esc(item.name||"")}" />`;
-  cells[1].innerHTML = `<input class="edit-inline-input" value="${esc(item.requisites||"")}" />`;
-  tr.cells[tr.cells.length-1].innerHTML = `<div class="sst-edit-actions">
+  cells[0].innerHTML = `<input class="edit-inline-input" data-field="name" value="${esc(item.name || "")}" />`;
+  cells[1].innerHTML = `<input class="edit-inline-input" data-field="full" value="${esc(item.full_name || "")}" />`;
+  cells[2].innerHTML = `<input class="edit-inline-input" data-field="req" value="${esc(item.requisites || "")}" />`;
+  cells[3].innerHTML = `<input class="edit-inline-input" data-field="sign" value="${esc(item.signatories || "")}" />`;
+  cells[4].innerHTML = `<input class="edit-inline-input" data-field="inp" value="${esc(item.in_person || "")}" />`;
+  cells[5].innerHTML = `<input class="edit-inline-input" data-field="basis" value="${esc(item.basis || "")}" />`;
+  cells[6].innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
+  cells[7].innerHTML = `<input class="edit-inline-input" data-field="phone" value="${esc(item.phone || "")}" />`;
+
+  const addrRow = document.createElement("tr");
+  addrRow.className = "ctr-addr-edit-row";
+  addrRow.dataset.forId = String(id);
+  addrRow.style.background = "#f8fafc";
+  addrRow.innerHTML = `<td colspan="10" style="padding:12px 8px;border-top:none;white-space:normal">
+    <div class="small" style="margin-bottom:8px;color:#64748b">Адрес контрагента (поля эТрН)</div>
+    ${_contractorAddrEditInputsHtml(item)}
+  </td>`;
+  tr.after(addrRow);
+
+  tr.cells[tr.cells.length - 1].innerHTML = `<div class="sst-edit-actions">
     <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditContractor(${id})">Сохранить</button>
     <button class="secondary small-btn" onclick="loadSupplyContractors()">Отмена</button>
   </div>`;
@@ -17975,31 +18052,66 @@ async function startEditContractor(id) {
 async function saveEditContractor(id) {
   const tr = document.querySelector(`#supplyContractorsTbody tr[data-id="${id}"]`);
   if (!tr) return;
-  const inputs = tr.querySelectorAll(".edit-inline-input");
-  const name = inputs[0]?.value.trim() || "";
-  const requisites = inputs[1]?.value.trim() || "";
+  const item = _supplyContractorsCache.find((x) => x.id === id);
+  const addrRow = document.querySelector(`#supplyContractorsTbody tr.ctr-addr-edit-row[data-for-id="${id}"]`);
+  const name = tr.querySelector("[data-field='name']")?.value.trim() || "";
+  const full = tr.querySelector("[data-field='full']")?.value.trim() || "";
+  const req = tr.querySelector("[data-field='req']")?.value.trim() || "";
+  const sign = tr.querySelector("[data-field='sign']")?.value.trim() || "";
+  const inp = tr.querySelector("[data-field='inp']")?.value.trim() || "";
+  const basis = tr.querySelector("[data-field='basis']")?.value.trim() || "";
+  const phone = tr.querySelector("[data-field='phone']")?.value.trim() || "";
   if (!name) return;
-  await fetch(`/api/supply-contractors/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify({ name, requisites }) }).catch(() => null);
+  const payload = {
+    name, full_name: full, requisites: req, signatories: sign,
+    in_person: inp, basis, phone, address: item?.address || "",
+  };
+  _CTR_ADDR_FIELDS.forEach(([key]) => {
+    payload[key] = addrRow?.querySelector(`[data-ctr-addr="${key}"]`)?.value.trim() || "";
+  });
+  const saveRes = await fetch(`/api/supply-contractors/${id}`, {
+    method: "PATCH", headers: jsonHeaders(), body: JSON.stringify(payload),
+  }).catch(() => null);
+  if (!saveRes || !saveRes.ok) {
+    const errData = await saveRes?.json().catch(() => ({})) || {};
+    alert("Ошибка сохранения: " + (errData.detail || (saveRes ? saveRes.status : "сеть")));
+    return;
+  }
   await loadSupplyContractors();
 }
 
 function toggleAddContractorForm(show) {
   const form = document.getElementById("addContractorForm");
   if (!form) return;
-  form.classList.toggle("hidden", !show); form.style.display = show ? "" : "none";
-  if (!show) {
-    ["newContractorName","newContractorRequisites"].forEach(id => { const el = document.getElementById(id); if(el) el.value=""; });
-  }
+  form.classList.toggle("hidden", !show);
+  form.style.display = show ? "" : "none";
+  if (!show) _clearNewContractorFormFields();
 }
 
 async function saveSupplyContractor() {
   const name = document.getElementById("newContractorName")?.value.trim();
+  const full = document.getElementById("newContractorFullName")?.value.trim() || "";
   const requisites = document.getElementById("newContractorRequisites")?.value.trim() || "";
+  const signatories = document.getElementById("newContractorSignatories")?.value.trim() || "";
+  const inPerson = document.getElementById("newContractorInPerson")?.value.trim() || "";
+  const basis = document.getElementById("newContractorBasis")?.value.trim() || "";
+  const phone = document.getElementById("newContractorPhone")?.value.trim() || "";
   const info = document.getElementById("addContractorInfo");
-  if (!name) { if (info) { info.textContent = "Введите название"; info.style.color = "#b91c1c"; } return; }
+  if (!name) { if (info) { info.textContent = "Введите короткое наименование"; info.style.color = "#b91c1c"; } return; }
   if (info) { info.textContent = "Сохранение..."; info.style.color = ""; }
-  const res = await fetch("/api/supply-contractors", { method: "POST", headers: jsonHeaders(), body: JSON.stringify({ name, requisites }) }).catch(() => null);
-  if (!res || !res.ok) { const e = await res?.json().catch(()=>({})) || {}; if (info) { info.textContent = e.detail||"Ошибка"; info.style.color = "#b91c1c"; } return; }
+  const payload = {
+    name, full_name: full, requisites, signatories,
+    in_person: inPerson, basis, phone, address: "",
+    ..._readNewContractorAddrFields(),
+  };
+  const res = await fetch("/api/supply-contractors", {
+    method: "POST", headers: jsonHeaders(), body: JSON.stringify(payload),
+  }).catch(() => null);
+  if (!res || !res.ok) {
+    const e = await res?.json().catch(() => ({})) || {};
+    if (info) { info.textContent = e.detail || "Ошибка"; info.style.color = "#b91c1c"; }
+    return;
+  }
   if (info) { info.textContent = "Сохранено"; info.style.color = "#16a34a"; }
   toggleAddContractorForm(false);
   await loadSupplyContractors();
@@ -18815,7 +18927,7 @@ async function _openTtnModal(mode, record) {
   for (const c of (_supplyContractorsCache || [])) {
     const key = `c:${c.id}`;
     const label = `Контрагент · ${c.name || c.id}`;
-    _ttnUnloadAddressByValue[key] = (c.requisites || c.name || "");
+    _ttnUnloadAddressByValue[key] = contractorAddressLine(c) || (c.address || "") || (c.requisites || c.name || "");
     unloadOpts.push({ value: key, label });
   }
   ssPopulate("ttnCreateUnloadWrap", unloadOpts, () => onTtnUnloadPresetChange());

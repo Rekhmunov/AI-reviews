@@ -520,12 +520,44 @@ class UpdateTtnRecordRequest(BaseModel):
 
 class CreateSupplyContractorRequest(BaseModel):
     name: str
+    full_name: str = ""
     requisites: str = ""
+    signatories: str = ""
+    in_person: str = ""
+    basis: str = ""
+    address: str = ""
+    phone: str = ""
+    addr_index: str = ""
+    addr_region_code: str = ""
+    addr_district: str = ""
+    addr_city: str = ""
+    addr_settlement: str = ""
+    addr_street: str = ""
+    addr_house: str = ""
+    addr_corpus: str = ""
+    addr_flat: str = ""
+    addr_fias: str = ""
 
 
 class UpdateSupplyContractorRequest(BaseModel):
     name: str
+    full_name: str = ""
     requisites: str = ""
+    signatories: str = ""
+    in_person: str = ""
+    basis: str = ""
+    address: str = ""
+    phone: str = ""
+    addr_index: str = ""
+    addr_region_code: str = ""
+    addr_district: str = ""
+    addr_city: str = ""
+    addr_settlement: str = ""
+    addr_street: str = ""
+    addr_house: str = ""
+    addr_corpus: str = ""
+    addr_flat: str = ""
+    addr_fias: str = ""
 
 
 class CreateSupplySourceRequest(BaseModel):
@@ -20389,7 +20421,25 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         if not payload.name.strip():
             raise HTTPException(status_code=400, detail="Название не может быть пустым")
         return repository.create_supply_contractor(
-            user_id=_supply_owner_id(user), name=payload.name, requisites=payload.requisites
+            user_id=_supply_owner_id(user),
+            name=payload.name,
+            full_name=payload.full_name,
+            requisites=payload.requisites,
+            signatories=payload.signatories,
+            in_person=payload.in_person,
+            basis=payload.basis,
+            address=payload.address,
+            phone=payload.phone,
+            addr_index=payload.addr_index,
+            addr_region_code=payload.addr_region_code,
+            addr_district=payload.addr_district,
+            addr_city=payload.addr_city,
+            addr_settlement=payload.addr_settlement,
+            addr_street=payload.addr_street,
+            addr_house=payload.addr_house,
+            addr_corpus=payload.addr_corpus,
+            addr_flat=payload.addr_flat,
+            addr_fias=payload.addr_fias,
         )
 
     @app.patch("/api/supply-contractors/{contractor_id}")
@@ -20400,8 +20450,26 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         if not payload.name.strip():
             raise HTTPException(status_code=400, detail="Название не может быть пустым")
         ok = repository.update_supply_contractor(
-            user_id=_supply_owner_id(user), contractor_id=contractor_id,
-            name=payload.name, requisites=payload.requisites
+            user_id=_supply_owner_id(user),
+            contractor_id=contractor_id,
+            name=payload.name,
+            full_name=payload.full_name,
+            requisites=payload.requisites,
+            signatories=payload.signatories,
+            in_person=payload.in_person,
+            basis=payload.basis,
+            address=payload.address,
+            phone=payload.phone,
+            addr_index=payload.addr_index,
+            addr_region_code=payload.addr_region_code,
+            addr_district=payload.addr_district,
+            addr_city=payload.addr_city,
+            addr_settlement=payload.addr_settlement,
+            addr_street=payload.addr_street,
+            addr_house=payload.addr_house,
+            addr_corpus=payload.addr_corpus,
+            addr_flat=payload.addr_flat,
+            addr_fias=payload.addr_fias,
         )
         if not ok:
             raise HTTPException(status_code=404, detail="Контрагент не найден")
