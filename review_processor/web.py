@@ -527,6 +527,7 @@ class CreateSupplyContractorRequest(BaseModel):
     basis: str = ""
     address: str = ""
     phone: str = ""
+    ttn_unload_from_warehouses: bool = False
     addr_index: str = ""
     addr_region_code: str = ""
     addr_district: str = ""
@@ -548,6 +549,7 @@ class UpdateSupplyContractorRequest(BaseModel):
     basis: str = ""
     address: str = ""
     phone: str = ""
+    ttn_unload_from_warehouses: bool = False
     addr_index: str = ""
     addr_region_code: str = ""
     addr_district: str = ""
@@ -760,6 +762,7 @@ class CreateSupplyDriverRequest(BaseModel):
 class CreateSupplyWarehouseRequest(BaseModel):
     warehouse_name: str
     address: str = ""
+    contractor_id: int | None = None
     addr_index: str = ""
     addr_region_code: str = ""
     addr_district: str = ""
@@ -774,6 +777,7 @@ class CreateSupplyWarehouseRequest(BaseModel):
 class UpdateSupplyWarehouseRequest(BaseModel):
     warehouse_name: str
     address: str = ""
+    contractor_id: int | None = None
     addr_index: str = ""
     addr_region_code: str = ""
     addr_district: str = ""
@@ -19001,6 +19005,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                 user_id=owner_id,
                 warehouse_name=name,
                 address=payload.address.strip(),
+                contractor_id=payload.contractor_id,
                 addr_index=payload.addr_index,
                 addr_region_code=payload.addr_region_code,
                 addr_district=payload.addr_district,
@@ -19030,6 +19035,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             warehouse_id=warehouse_id,
             warehouse_name=name,
             address=payload.address.strip(),
+            contractor_id=payload.contractor_id,
             addr_index=payload.addr_index,
             addr_region_code=payload.addr_region_code,
             addr_district=payload.addr_district,
@@ -20430,6 +20436,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             basis=payload.basis,
             address=payload.address,
             phone=payload.phone,
+            ttn_unload_from_warehouses=payload.ttn_unload_from_warehouses,
             addr_index=payload.addr_index,
             addr_region_code=payload.addr_region_code,
             addr_district=payload.addr_district,
@@ -20460,6 +20467,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             basis=payload.basis,
             address=payload.address,
             phone=payload.phone,
+            ttn_unload_from_warehouses=payload.ttn_unload_from_warehouses,
             addr_index=payload.addr_index,
             addr_region_code=payload.addr_region_code,
             addr_district=payload.addr_district,

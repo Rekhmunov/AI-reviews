@@ -3702,6 +3702,27 @@ function _clearNewWarehouseFormFields() {
     "newWhAddrIndex", "newWhAddrRegion", "newWhAddrDistrict", "newWhAddrCity",
     "newWhAddrSettlement", "newWhAddrStreet", "newWhAddrHouse", "newWhAddrCorpus", "newWhAddrFlat",
   ].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ""; });
+  const sel = document.getElementById("newWarehouseContractor");
+  if (sel) sel.value = "";
+}
+
+function _contractorOptionsHtml(selectedId) {
+  const selected = selectedId == null || selectedId === "" ? "" : String(selectedId);
+  const opts = ['<option value="">— не указан —</option>'];
+  const list = Array.isArray(_supplyContractorsCache) ? _supplyContractorsCache.slice() : [];
+  list.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ru"));
+  for (const c of list) {
+    if (!c || c.id == null) continue;
+    const id = String(c.id);
+    const sel = id === selected ? " selected" : "";
+    opts.push(`<option value="${esc(id)}"${sel}>${esc(c.name || ("Контрагент #" + id))}</option>`);
+  }
+  return opts.join("");
+}
+
+async function _ensureSupplyContractorsLoaded() {
+  if (Array.isArray(_supplyContractorsCache) && _supplyContractorsCache.length) return;
+  if (typeof loadSupplyContractors === "function") await loadSupplyContractors();
 }
 
 function _warehouseAddrEditInputsHtml(item) {
@@ -3718,6 +3739,7 @@ async function loadSupplyWarehouses() {
   const res = await fetch("/api/supply-warehouses").catch(() => null);
   if (!res || !res.ok) return;
   _supplyWarehousesCache = await res.json().catch(() => []);
+  await _ensureSupplyContractorsLoaded();
   renderSupplyWarehousesTbody();
 }
 
@@ -3726,14 +3748,22 @@ function renderSupplyWarehousesTbody() {
   if (!tbody) return;
   tbody.innerHTML = "";
   if (!_supplyWarehousesCache.length) {
-    tbody.innerHTML = '<tr><td colspan="4" class="empty-cell">Склады не добавлены</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-cell">Склады не добавлены</td></tr>';
     requestAnimationFrame(initAllSettingResizers);
     return;
   }
   _supplyWarehousesCache.forEach((w, i) => {
     const tr = document.createElement("tr");
     tr.dataset.id = w.id;
-    tr.innerHTML = `<td>${i+1}</td><td class="editable-cell">${esc(w.warehouse_name||"")}</td><td class="editable-cell">${esc(warehouseAddressLine(w))}</td>
+    let contractorLabel = String(w.contractor_name || "").trim();
+    if (!contractorLabel && w.contractor_id) {
+      const c = (_supplyContractorsCache || []).find((x) => Number(x.id) === Number(w.contractor_id));
+      contractorLabel = c?.name || "";
+    }
+    tr.innerHTML = `<td>${i+1}</td>
+      <td class="editable-cell">${esc(contractorLabel)}</td>
+      <td class="editable-cell">${esc(w.warehouse_name||"")}</td>
+      <td class="editable-cell">${esc(warehouseAddressLine(w))}</td>
       <td>
         <div class="sst-edit-actions">
           <button class="secondary small-btn icon-btn" onclick="startEditWarehouse(${w.id})" title="Редактировать">✏</button>
@@ -3746,19 +3776,21 @@ function renderSupplyWarehousesTbody() {
 }
 
 async function startEditWarehouse(id) {
+  await _ensureSupplyContractorsLoaded();
   const item = _supplyWarehousesCache.find((x) => x.id === id);
   if (!item) return;
   const tr = document.querySelector(`#supplyWarehousesTbody tr[data-id="${id}"]`);
   if (!tr) return;
   document.querySelectorAll("#supplyWarehousesTbody tr.wh-addr-edit-row").forEach((r) => r.remove());
   const cells = tr.querySelectorAll(".editable-cell");
-  cells[0].innerHTML = `<input class="edit-inline-input" data-field="name" value="${esc(item.warehouse_name||"")}" />`;
-  cells[1].innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
+  cells[0].innerHTML = `<select class="edit-inline-input" data-field="contractor_id">${_contractorOptionsHtml(item.contractor_id)}</select>`;
+  cells[1].innerHTML = `<input class="edit-inline-input" data-field="name" value="${esc(item.warehouse_name||"")}" />`;
+  cells[2].innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
   const addrRow = document.createElement("tr");
   addrRow.className = "wh-addr-edit-row";
   addrRow.dataset.forId = String(id);
   addrRow.style.background = "#f8fafc";
-  addrRow.innerHTML = `<td colspan="4" style="padding:12px 8px;border-top:none;white-space:normal">
+  addrRow.innerHTML = `<td colspan="5" style="padding:12px 8px;border-top:none;white-space:normal">
     <div class="small" style="margin-bottom:8px;color:#64748b">Адрес доставки (поля эТрН)</div>
     ${_warehouseAddrEditInputsHtml(item)}
   </td>`;
@@ -3777,7 +3809,13 @@ async function saveEditWarehouse(id) {
   const addrRow = document.querySelector(`#supplyWarehousesTbody tr.wh-addr-edit-row[data-for-id="${id}"]`);
   const name = tr.querySelector("[data-field='name']")?.value.trim() || "";
   if (!name) return;
-  const payload = { warehouse_name: name, address: item?.address || "" };
+  const rawCid = tr.querySelector("[data-field='contractor_id']")?.value || "";
+  const contractorId = rawCid ? parseInt(rawCid, 10) : null;
+  const payload = {
+    warehouse_name: name,
+    address: item?.address || "",
+    contractor_id: Number.isFinite(contractorId) && contractorId > 0 ? contractorId : null,
+  };
   _WH_ADDR_FIELDS.forEach(([key]) => {
     payload[key] = addrRow?.querySelector(`[data-wh-addr="${key}"]`)?.value.trim() || "";
   });
@@ -3785,18 +3823,31 @@ async function saveEditWarehouse(id) {
   await loadSupplyWarehouses();
 }
 
-function toggleAddWarehouseForm(show) {
+async function toggleAddWarehouseForm(show) {
   const form = document.getElementById("addWarehouseForm");
   if (!form) return;
   form.classList.toggle("hidden", !show); form.style.display = show ? "" : "none";
-  if (!show) _clearNewWarehouseFormFields();
+  if (show) {
+    await _ensureSupplyContractorsLoaded();
+    const sel = document.getElementById("newWarehouseContractor");
+    if (sel) sel.innerHTML = _contractorOptionsHtml("");
+  } else {
+    _clearNewWarehouseFormFields();
+  }
 }
 
 async function saveSupplyWarehouse() {
   const name = document.getElementById("newWarehouseName")?.value.trim();
   const info = document.getElementById("addWarehouseInfo");
   if (!name) { if (info) { info.textContent = "Введите название"; info.style.color = "#b91c1c"; } return; }
-  const payload = { warehouse_name: name, address: "", ..._readNewWarehouseAddrFields() };
+  const rawCid = document.getElementById("newWarehouseContractor")?.value || "";
+  const contractorId = rawCid ? parseInt(rawCid, 10) : null;
+  const payload = {
+    warehouse_name: name,
+    address: "",
+    contractor_id: Number.isFinite(contractorId) && contractorId > 0 ? contractorId : null,
+    ..._readNewWarehouseAddrFields(),
+  };
   const res = await fetch("/api/supply-warehouses", { method: "POST", headers: jsonHeaders(), body: JSON.stringify(payload) }).catch(() => null);
   if (!res || !res.ok) { const e = await res?.json().catch(()=>({})) || {}; if (info) { info.textContent = e.detail||"Ошибка"; info.style.color = "#b91c1c"; } return; }
   if (info) { info.textContent = "Сохранено"; info.style.color = "#16a34a"; }
@@ -3917,6 +3968,15 @@ function _sstPartyEditPanelHtml(item, kind) {
           ${_sstAddrEditFieldsHtml(item, addrAttr)}
         </div>
       </section>
+      ${!isLe ? `<section class="sst-edit-section">
+        <h5 class="sst-edit-section-title">ТТН — место разгрузки</h5>
+        <label class="sst-check-label" style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;max-width:640px">
+          <input type="checkbox" data-field="ttn_unload_from_warehouses" ${item.ttn_unload_from_warehouses ? "checked" : ""} style="margin-top:3px" />
+          <span>Адреса разгрузки брать со складов этого контрагента
+            <span class="small" style="display:block;color:#64748b;margin-top:2px">В модалке ТТН после выбора контрагента появится список связанных складов</span>
+          </span>
+        </label>
+      </section>` : ""}
       ${isLe ? `<section class="sst-edit-section">
         <h5 class="sst-edit-section-title">Подпись</h5>
         <div class="sst-edit-sig" id="le-sig-container-${item.id}"><span class="small" style="color:#94a3b8">Загрузка…</span></div>
@@ -18020,6 +18080,8 @@ function _clearNewContractorFormFields() {
     "newContractorAddrCity", "newContractorAddrSettlement", "newContractorAddrStreet",
     "newContractorAddrHouse", "newContractorAddrCorpus", "newContractorAddrFlat", "newContractorAddrFias",
   ].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ""; });
+  const cb = document.getElementById("newContractorTtnUnloadFromWarehouses");
+  if (cb) cb.checked = false;
 }
 
 function _contractorAddrEditInputsHtml(item) {
@@ -18116,6 +18178,7 @@ async function saveEditContractor(id) {
   const payload = {
     name, full_name: full, requisites: req, signatories: sign,
     in_person: inp, basis, phone, address: item?.address || "",
+    ttn_unload_from_warehouses: !!panel.querySelector("[data-field='ttn_unload_from_warehouses']")?.checked,
   };
   _CTR_ADDR_FIELDS.forEach(([key]) => {
     payload[key] = panel.querySelector(`[data-ctr-addr="${key}"]`)?.value.trim() || "";
@@ -18153,6 +18216,7 @@ async function saveSupplyContractor() {
   const payload = {
     name, full_name: full, requisites, signatories,
     in_person: inPerson, basis, phone, address: "",
+    ttn_unload_from_warehouses: !!document.getElementById("newContractorTtnUnloadFromWarehouses")?.checked,
     ..._readNewContractorAddrFields(),
   };
   const res = await fetch("/api/supply-contractors", {
@@ -18597,6 +18661,7 @@ function _ttnPlacePresetOptions() {
     const key = `c:${c.id}`;
     opts.push({ value: key, label: `Контрагент · ${name}` });
     // One-line address only — never fall back to requisites (ИНН/КПП).
+    // Unload may still override via warehouse picker when contractor.ttn_unload_from_warehouses.
     const composed =
       contractorAddressLine(c) ||
       productionAddressLine(c) ||
@@ -18738,9 +18803,73 @@ function onTtnLoadPresetChange() {
 }
 window.onTtnLoadPresetChange = onTtnLoadPresetChange;
 
-function onTtnUnloadPresetChange() {
+let _ttnUnloadWhAddressByValue = {};
+
+function _ttnContractorUsesWarehouseUnload(contractorId) {
+  const c = (_supplyContractorsCache || []).find((x) => Number(x.id) === Number(contractorId));
+  return !!(c && c.ttn_unload_from_warehouses);
+}
+
+function _ttnWarehousesForContractor(contractorId) {
+  return (_supplyWarehousesCache || []).filter((w) => Number(w.contractor_id) === Number(contractorId));
+}
+
+function _ttnHideUnloadWarehousePicker() {
+  const block = document.getElementById("ttnUnloadWarehouseBlock");
+  if (block) block.style.display = "none";
+  _ttnUnloadWhAddressByValue = {};
+  _ttnSetSsValue("ttnUnloadWarehouseWrap", "");
+}
+
+function _ttnSyncUnloadWarehousePicker(unloadKey, preferredWhKey) {
+  const block = document.getElementById("ttnUnloadWarehouseBlock");
+  const key = String(unloadKey || "");
+  const parsed = key.startsWith("c:") ? parseInt(key.slice(2), 10) : 0;
+  const useWh = Number.isFinite(parsed) && parsed > 0 && _ttnContractorUsesWarehouseUnload(parsed);
+  if (!useWh || _ttnManualUnloadMode) {
+    _ttnHideUnloadWarehousePicker();
+    return false;
+  }
+  if (block) block.style.display = "";
+  const whs = _ttnWarehousesForContractor(parsed);
+  const opts = [{
+    value: "",
+    label: whs.length ? "— Выберите склад / адрес —" : "— Нет складов у контрагента —",
+  }];
+  const addrMap = { "": "" };
+  whs.sort((a, b) => String(a.warehouse_name || "").localeCompare(String(b.warehouse_name || ""), "ru"));
+  for (const w of whs) {
+    const wkey = `w:${w.id}`;
+    const wname = String(w.warehouse_name || "").trim() || `Склад #${w.id}`;
+    const addr = warehouseAddressLine(w) || wname;
+    opts.push({ value: wkey, label: `${wname} · ${addr}` });
+    addrMap[wkey] = addr;
+  }
+  _ttnUnloadWhAddressByValue = addrMap;
+  ssPopulate("ttnUnloadWarehouseWrap", opts, () => onTtnUnloadWarehouseChange());
+  const prefer = preferredWhKey && addrMap[preferredWhKey] ? preferredWhKey : "";
+  _ttnSetSsValue("ttnUnloadWarehouseWrap", prefer);
+  const input = document.getElementById("ttnCreateUnloadAddress");
+  if (input) input.value = prefer ? (addrMap[prefer] || "") : "";
+  return true;
+}
+
+function onTtnUnloadWarehouseChange() {
   if (_ttnManualUnloadMode) return;
+  const wkey = String(document.getElementById("ttnUnloadWarehouse")?.value || "");
+  const addr = _ttnUnloadWhAddressByValue[wkey] || "";
+  const input = document.getElementById("ttnCreateUnloadAddress");
+  if (input) input.value = addr;
+}
+window.onTtnUnloadWarehouseChange = onTtnUnloadWarehouseChange;
+
+function onTtnUnloadPresetChange() {
+  if (_ttnManualUnloadMode) {
+    _ttnHideUnloadWarehousePicker();
+    return;
+  }
   const key = String(document.getElementById("ttnCreateUnload")?.value || "");
+  if (_ttnSyncUnloadWarehousePicker(key)) return;
   const addr = _ttnUnloadAddressByValue[key] || "";
   const input = document.getElementById("ttnCreateUnloadAddress");
   if (input) input.value = addr;
@@ -18815,6 +18944,7 @@ function toggleTtnManualUnload() {
     if (fields) fields.style.display = "block";
     if (wrap) wrap.style.opacity = "0.55";
     _ttnSetSsValue("ttnCreateUnloadWrap", "");
+    _ttnHideUnloadWarehousePicker();
   } else {
     if (fields) fields.style.display = "none";
     if (wrap) wrap.style.opacity = "";
@@ -19048,6 +19178,7 @@ async function _openTtnModal(mode, record) {
   setVal("ttnCreateDocs", "");
   setVal("ttnCreateNotes", "");
   setVal("ttnCreateLoadAddress", "");
+  _ttnHideUnloadWarehousePicker();
   setVal("ttnCreateUnloadAddress", "");
   setVal("ttnManualDriverName", "");
   setVal("ttnManualDriverDocs", "");
@@ -19098,11 +19229,43 @@ async function _openTtnModal(mode, record) {
     }
 
     let unloadKey = "";
-    for (const [k, v] of Object.entries(_ttnUnloadAddressByValue)) {
-      if (k && String(v).trim() === unloadAddr) { unloadKey = k; break; }
+    let preferredWh = "";
+    // Prefer contractor + linked warehouse when flag is on (saved address is warehouse line).
+    if (consType !== "le" && record.contractor_id && _ttnContractorUsesWarehouseUnload(record.contractor_id)) {
+      unloadKey = `c:${record.contractor_id}`;
+      for (const w of _ttnWarehousesForContractor(record.contractor_id)) {
+        const addr = String(warehouseAddressLine(w) || "").trim();
+        if (addr && addr === unloadAddr) { preferredWh = `w:${w.id}`; break; }
+      }
+    }
+    if (!unloadKey) {
+      for (const [k, v] of Object.entries(_ttnUnloadAddressByValue)) {
+        if (k && String(v).trim() === unloadAddr) { unloadKey = k; break; }
+      }
+    }
+    // If matched a warehouse preset that belongs to a flagged contractor — use picker UX.
+    if (unloadKey.startsWith("w:")) {
+      const wid = parseInt(unloadKey.slice(2), 10);
+      const wh = (_supplyWarehousesCache || []).find((x) => Number(x.id) === wid);
+      if (wh?.contractor_id && _ttnContractorUsesWarehouseUnload(wh.contractor_id)) {
+        preferredWh = unloadKey;
+        unloadKey = `c:${wh.contractor_id}`;
+      }
     }
     if (unloadKey) {
       _ttnSetSsValue("ttnCreateUnloadWrap", unloadKey);
+      if (unloadKey.startsWith("c:")) {
+        const cid = parseInt(unloadKey.slice(2), 10);
+        if (_ttnContractorUsesWarehouseUnload(cid)) {
+          if (!preferredWh) {
+            for (const w of _ttnWarehousesForContractor(cid)) {
+              const addr = String(warehouseAddressLine(w) || "").trim();
+              if (addr && addr === unloadAddr) { preferredWh = `w:${w.id}`; break; }
+            }
+          }
+          _ttnSyncUnloadWarehousePicker(unloadKey, preferredWh);
+        }
+      }
       setVal("ttnCreateUnloadAddress", unloadAddr);
     } else if (unloadAddr) {
       _ttnManualUnloadMode = true;
@@ -19110,6 +19273,7 @@ async function _openTtnModal(mode, record) {
       if (unloadWrap) unloadWrap.style.opacity = "0.55";
       _ttnSetManualBtn("ttnManualUnloadBtn", true);
       setVal("ttnCreateUnloadAddress", unloadAddr);
+      _ttnHideUnloadWarehousePicker();
     }
 
     const dId = record.driver_id || 0;
@@ -19212,7 +19376,17 @@ async function saveTtnRecord() {
     unloadAddress = document.getElementById("ttnCreateUnloadAddress")?.value.trim() || "";
   } else {
     const key = String(document.getElementById("ttnCreateUnload")?.value || "");
-    unloadAddress = (_ttnUnloadAddressByValue[key] || document.getElementById("ttnCreateUnloadAddress")?.value || "").trim();
+    const whBlock = document.getElementById("ttnUnloadWarehouseBlock");
+    if (whBlock && whBlock.style.display !== "none") {
+      const wkey = String(document.getElementById("ttnUnloadWarehouse")?.value || "");
+      unloadAddress = (_ttnUnloadWhAddressByValue[wkey] || document.getElementById("ttnCreateUnloadAddress")?.value || "").trim();
+      if (!unloadAddress) {
+        if (info) { info.textContent = "Выберите склад / адрес разгрузки контрагента"; info.style.color = "#b91c1c"; }
+        return;
+      }
+    } else {
+      unloadAddress = (_ttnUnloadAddressByValue[key] || document.getElementById("ttnCreateUnloadAddress")?.value || "").trim();
+    }
   }
 
   if (info) { info.textContent = "Сохранение..."; info.style.color = ""; }
@@ -19927,7 +20101,7 @@ const _SST_ACTIONS_COL_W = 180;
 const _SST_MIN_COL_W = 56;
 const _SST_TABLES = [
   { thead: "supplyDriversThead",         key: "sst_drivers_v2" },
-  { thead: "supplyWarehousesThead",       key: "sst_warehouses_v2" },
+  { thead: "supplyWarehousesThead",       key: "sst_warehouses_v3" },
   { thead: "supplyLegalEntitiesThead",    key: "sst_legal_v2" },
   { thead: "supplyProductionsThead",      key: "sst_productions_v2" },
   { thead: "supplyContractorsThead",      key: "sst_contractors_v2" },

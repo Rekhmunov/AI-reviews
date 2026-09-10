@@ -39,8 +39,8 @@ def test_logistics_title_picker_and_panes() -> None:
     assert "function initLogisticsSection" in js
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
-    assert "app.js?v=590" in html
-    assert "style.css?v=337" in html
+    assert "app.js?v=592" in html
+    assert "style.css?v=339" in html
     assert "ttn-modal-card" in html
     assert "ttn-form-grid" in html
     assert 'max-width:560px' not in html.split('id="createTtnModal"')[1].split("<!-- ── Планирование")[0]
@@ -197,4 +197,25 @@ def test_ttn_contractor_shipper_gets_one_line_address() -> None:
     assert 'd["le_address"] = ""' not in block
     assert "le_address" in web
     assert "Грузоотправитель" in web
+
+
+def test_ttn_unload_warehouse_picker_for_flagged_contractor() -> None:
+    """Unload-only: flagged contractor shows linked warehouse address picker."""
+    html = HTML.read_text(encoding="utf-8")
+    js = JS.read_text(encoding="utf-8")
+    assert 'id="ttnUnloadWarehouseBlock"' in html
+    assert 'id="ttnUnloadWarehouseWrap"' in html
+    assert 'id="ttnUnloadWarehouse"' in html
+    assert "function _ttnSyncUnloadWarehousePicker" in js
+    assert "function _ttnContractorUsesWarehouseUnload" in js
+    assert "function onTtnUnloadWarehouseChange" in js
+    assert "ttn_unload_from_warehouses" in js
+    sync = js.split("function _ttnSyncUnloadWarehousePicker", 1)[1].split("\nfunction ", 1)[0]
+    assert "_ttnManualUnloadMode" in sync
+    assert "_ttnWarehousesForContractor" in sync
+    # Load presets must not blank contractor address for the flag.
+    load_fn = js.split("function onTtnLoadPresetChange", 1)[1].split("\nfunction ", 1)[0]
+    assert "UnloadWarehouse" not in load_fn
+    save = js.split("async function saveTtnRecord", 1)[1].split("\nwindow.saveTtnRecord", 1)[0]
+    assert "Выберите склад / адрес разгрузки контрагента" in save
 

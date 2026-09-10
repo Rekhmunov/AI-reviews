@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=337" />
+  <link rel="stylesheet" href="/static/style.css?v=339" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -4220,6 +4220,17 @@
                     onclick="toggleTtnManualUnload()"
                     title="Ввести вручную">✏</button>
                 </div>
+                <div id="ttnUnloadWarehouseBlock" class="ttn-unload-wh-block" style="display:none;margin-top:8px">
+                  <label class="small" for="ttnUnloadWarehouseInput">Адрес склада контрагента</label>
+                  <div class="ss-wrap ttn-ss-field" id="ttnUnloadWarehouseWrap" style="margin-top:4px">
+                    <input class="ss-input" id="ttnUnloadWarehouseInput" type="text"
+                           placeholder="Выберите склад / адрес" autocomplete="off" readonly
+                           onfocus="ssOpen('ttnUnloadWarehouseWrap')"
+                           oninput="ssFilter('ttnUnloadWarehouseWrap')" />
+                    <div class="ss-dropdown hidden" id="ttnUnloadWarehouseDropdown"></div>
+                    <input type="hidden" id="ttnUnloadWarehouse" />
+                  </div>
+                </div>
                 <div id="ttnManualUnloadFields" class="ttn-manual-fields" style="display:none">
                   <input id="ttnCreateUnloadAddress" class="ttn-input" type="text" placeholder="Адрес разгрузки"
                          autocomplete="off" />
@@ -4587,6 +4598,12 @@
                   <label class="wfg-label" for="newWarehouseName">Название склада</label>
                   <input id="newWarehouseName" type="text" placeholder="Напр. Электросталь / ХОРУГВИНО_РФЦ" autocomplete="off" />
                 </div>
+                <div class="wfg-field" style="grid-column:span 2">
+                  <label class="wfg-label" for="newWarehouseContractor">Контрагент</label>
+                  <select id="newWarehouseContractor">
+                    <option value="">— не указан —</option>
+                  </select>
+                </div>
               </div>
               <p class="small" style="margin:16px 0 8px;color:#64748b">Адрес доставки (поля эТрН)</p>
               <div class="worker-form-grid">
@@ -4639,8 +4656,9 @@
               <table class="supply-sources-table">
                 <thead id="supplyWarehousesThead"><tr>
                   <th data-col="num" style="width:40px">№</th>
+                  <th data-col="contractor" style="width:180px">Контрагент</th>
                   <th data-col="name" style="width:200px">Склад</th>
-                  <th data-col="addr" style="width:360px">Адрес</th>
+                  <th data-col="addr" style="width:320px">Адрес</th>
                   <th class="sst-actions-col" data-col="acts" style="width:180px"></th>
                 </tr></thead>
                 <tbody id="supplyWarehousesTbody"></tbody>
@@ -4891,6 +4909,17 @@
                 <div class="wfg-field">
                   <label class="wfg-label" for="newContractorPhone">Номер телефона</label>
                   <input id="newContractorPhone" type="text" placeholder="+7..." autocomplete="off" />
+                </div>
+                <div class="wfg-field" style="grid-column:span 2">
+                  <label class="wfg-label" style="display:flex;align-items:flex-start;gap:8px;cursor:pointer">
+                    <input id="newContractorTtnUnloadFromWarehouses" type="checkbox" style="margin-top:3px" />
+                    <span>
+                      В ТТН адреса разгрузки брать со складов
+                      <span class="small" style="display:block;color:#64748b;font-weight:400;margin-top:2px">
+                        Если включено, при выборе этого контрагента в месте разгрузки появится список его складов
+                      </span>
+                    </span>
+                  </label>
                 </div>
               </div>
               <p class="small" style="margin:16px 0 8px;color:#64748b">Адрес (поля эТрН)</p>
@@ -7253,6 +7282,6 @@
 
   <script src="/static/ozon_fbs.js?v=144"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=22"></script>
-  <script src="/static/app.js?v=590"></script>
+  <script src="/static/app.js?v=592"></script>
 </body>
 </html>

@@ -8214,6 +8214,16 @@ class ReviewRepository:
             conn.execute(
                 f"ALTER TABLE supply_warehouses ADD COLUMN IF NOT EXISTS {_wh_addr_col} TEXT NOT NULL DEFAULT ''"
             )
+        # Optional link to supply_contractors (settings); nullable so Ozon/WB/eTrN keep working.
+        conn.execute(
+            "ALTER TABLE supply_warehouses ADD COLUMN IF NOT EXISTS contractor_id BIGINT"
+        )
+        conn.execute(
+            self._sql(
+                "CREATE INDEX IF NOT EXISTS idx_supply_warehouses_contractor "
+                "ON supply_warehouses(user_id, contractor_id)"
+            )
+        )
         # Legal entities catalog (short name → full name lookup)
         conn.execute(
             """
@@ -8493,6 +8503,9 @@ class ReviewRepository:
             ("addr_corpus", "TEXT NOT NULL DEFAULT ''"),
             ("addr_flat", "TEXT NOT NULL DEFAULT ''"),
             ("addr_fias", "TEXT NOT NULL DEFAULT ''"),
+            # When true, TTN unload place for this contractor offers linked warehouses
+            # instead of the contractor card address.
+            ("ttn_unload_from_warehouses", "BOOLEAN NOT NULL DEFAULT FALSE"),
         ):
             conn.execute(
                 f"ALTER TABLE supply_contractors ADD COLUMN IF NOT EXISTS {_c_col} {_c_ddl}"
@@ -9149,16 +9162,55 @@ class ReviewRepository:
         """One-line warehouse address for TTN / заявка / packing list."""
         return cls.production_address_line(wh)
 
+    def _normalize_warehouse_contractor_id(
+        self, *, user_id: int, contractor_id: int | None, conn=None
+    ) -> int | None:
+        """Return contractor_id if it belongs to the user, else None."""
+        if contractor_id is None:
+            return None
+        try:
+            cid = int(contractor_id)
+        except (TypeError, ValueError):
+            return None
+        if cid <= 0:
+            return None
+        own_conn = conn is None
+        if own_conn:
+            conn = self._connect()
+        try:
+            row = conn.execute(
+                self._sql(
+                    "SELECT id FROM supply_contractors WHERE user_id = ? AND id = ?"
+                ),
+                (user_id, cid),
+            ).fetchone()
+        finally:
+            if own_conn:
+                conn.close()
+        return cid if row else None
+
     def list_supply_warehouses(self, *, user_id: int) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
-                self._sql("SELECT * FROM supply_warehouses WHERE user_id = ? ORDER BY warehouse_name ASC"),
+                self._sql(
+                    "SELECT w.*, c.name AS contractor_name "
+                    "FROM supply_warehouses w "
+                    "LEFT JOIN supply_contractors c "
+                    "  ON c.id = w.contractor_id AND c.user_id = w.user_id "
+                    "WHERE w.user_id = ? ORDER BY w.warehouse_name ASC"
+                ),
                 (user_id,),
             ).fetchall()
         result: list[dict[str, Any]] = []
         for row in rows:
             d = self._row_to_dict(row)
             d["address"] = self.warehouse_address_line(d)
+            raw_cid = d.get("contractor_id")
+            try:
+                d["contractor_id"] = int(raw_cid) if raw_cid not in (None, "") else None
+            except (TypeError, ValueError):
+                d["contractor_id"] = None
+            d["contractor_name"] = str(d.get("contractor_name") or "").strip()
             result.append(d)
         return result
 
@@ -9177,6 +9229,7 @@ class ReviewRepository:
         addr_house: str = "",
         addr_corpus: str = "",
         addr_flat: str = "",
+        contractor_id: int | None = None,
     ) -> dict[str, Any]:
         now = _utc_now()
         addr = self._normalize_production_addr_fields(
@@ -9193,17 +9246,21 @@ class ReviewRepository:
         composed = self.compose_production_address_line(addr)
         address_val = composed or str(address or "").strip()
         with self._connect() as conn:
+            cid = self._normalize_warehouse_contractor_id(
+                user_id=user_id, contractor_id=contractor_id, conn=conn
+            )
             wid = self._insert_and_get_id(
                 conn,
                 "INSERT INTO supply_warehouses ("
-                "user_id, warehouse_name, address, "
+                "user_id, warehouse_name, address, contractor_id, "
                 "addr_index, addr_region_code, addr_district, addr_city, addr_settlement, "
                 "addr_street, addr_house, addr_corpus, addr_flat, created_at"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     user_id,
                     warehouse_name.strip(),
                     address_val,
+                    cid,
                     addr["addr_index"],
                     addr["addr_region_code"],
                     addr["addr_district"],
@@ -9218,9 +9275,10 @@ class ReviewRepository:
             )
             row = conn.execute(self._sql("SELECT * FROM supply_warehouses WHERE id = ?"), (wid,)).fetchone()
         if not row:
-            return {"id": wid, "address": address_val, **addr}
+            return {"id": wid, "address": address_val, "contractor_id": cid, **addr}
         d = self._row_to_dict(row)
         d["address"] = self.warehouse_address_line(d)
+        d["contractor_id"] = cid
         return d
 
     def update_supply_warehouse(
@@ -9239,6 +9297,7 @@ class ReviewRepository:
         addr_house: str = "",
         addr_corpus: str = "",
         addr_flat: str = "",
+        contractor_id: int | None = None,
     ) -> bool:
         addr = self._normalize_production_addr_fields(
             addr_index=addr_index,
@@ -9254,6 +9313,9 @@ class ReviewRepository:
         composed = self.compose_production_address_line(addr)
         address_val = composed or str(address or "").strip()
         with self._connect() as conn:
+            cid = self._normalize_warehouse_contractor_id(
+                user_id=user_id, contractor_id=contractor_id, conn=conn
+            )
             if not address_val:
                 existing_addr = conn.execute(
                     self._sql("SELECT address FROM supply_warehouses WHERE user_id = ? AND id = ?"),
@@ -9263,7 +9325,7 @@ class ReviewRepository:
                     address_val = str(self._row_to_dict(existing_addr).get("address") or "").strip()
             result = conn.execute(
                 self._sql(
-                    "UPDATE supply_warehouses SET warehouse_name = ?, address = ?, "
+                    "UPDATE supply_warehouses SET warehouse_name = ?, address = ?, contractor_id = ?, "
                     "addr_index = ?, addr_region_code = ?, addr_district = ?, addr_city = ?, "
                     "addr_settlement = ?, addr_street = ?, addr_house = ?, addr_corpus = ?, addr_flat = ? "
                     "WHERE user_id = ? AND id = ?"
@@ -9271,6 +9333,7 @@ class ReviewRepository:
                 (
                     warehouse_name.strip(),
                     address_val,
+                    cid,
                     addr["addr_index"],
                     addr["addr_region_code"],
                     addr["addr_district"],
@@ -9777,7 +9840,7 @@ class ReviewRepository:
             rows = conn.execute(
                 self._sql(
                     "SELECT id, user_id, name, full_name, requisites, signatories, in_person, basis, "
-                    "address, phone, "
+                    "address, phone, ttn_unload_from_warehouses, "
                     "addr_index, addr_region_code, addr_district, addr_city, addr_settlement, "
                     "addr_street, addr_house, addr_corpus, addr_flat, addr_fias, created_at "
                     "FROM supply_contractors WHERE user_id = ? ORDER BY name ASC"
@@ -9790,6 +9853,7 @@ class ReviewRepository:
             composed = self.contractor_address_line(d)
             if composed:
                 d["address"] = composed
+            d["ttn_unload_from_warehouses"] = bool(d.get("ttn_unload_from_warehouses"))
             result.append(d)
         return result
 
@@ -9805,6 +9869,7 @@ class ReviewRepository:
         basis: str = "",
         address: str = "",
         phone: str = "",
+        ttn_unload_from_warehouses: bool = False,
         addr_index: str = "",
         addr_region_code: str = "",
         addr_district: str = "",
@@ -9831,14 +9896,16 @@ class ReviewRepository:
         )
         composed = self.compose_production_address_line(addr)
         address_val = composed or str(address or "").strip() or None
+        use_wh = bool(ttn_unload_from_warehouses)
         with self._connect() as conn:
             cid = self._insert_and_get_id(
                 conn,
                 "INSERT INTO supply_contractors "
                 "(user_id, name, full_name, requisites, signatories, in_person, basis, address, phone, "
+                "ttn_unload_from_warehouses, "
                 "addr_index, addr_region_code, addr_district, addr_city, addr_settlement, "
                 "addr_street, addr_house, addr_corpus, addr_flat, addr_fias, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     user_id,
                     name.strip(),
@@ -9849,6 +9916,7 @@ class ReviewRepository:
                     (basis or "").strip() or None,
                     address_val,
                     (phone or "").strip() or None,
+                    use_wh,
                     addr["addr_index"],
                     addr["addr_region_code"],
                     addr["addr_district"],
@@ -9864,9 +9932,16 @@ class ReviewRepository:
             )
             row = conn.execute(self._sql("SELECT * FROM supply_contractors WHERE id = ?"), (cid,)).fetchone()
         if not row:
-            return {"id": cid, "name": name.strip(), "address": address_val or "", **addr}
+            return {
+                "id": cid,
+                "name": name.strip(),
+                "address": address_val or "",
+                "ttn_unload_from_warehouses": use_wh,
+                **addr,
+            }
         d = self._row_to_dict(row)
         d["address"] = self.contractor_address_line(d) or (d.get("address") or "")
+        d["ttn_unload_from_warehouses"] = bool(d.get("ttn_unload_from_warehouses"))
         return d
 
     def update_supply_contractor(
@@ -9882,6 +9957,7 @@ class ReviewRepository:
         basis: str = "",
         address: str = "",
         phone: str = "",
+        ttn_unload_from_warehouses: bool = False,
         addr_index: str = "",
         addr_region_code: str = "",
         addr_district: str = "",
@@ -9907,6 +9983,7 @@ class ReviewRepository:
         )
         composed = self.compose_production_address_line(addr)
         address_val = composed or str(address or "").strip() or None
+        use_wh = bool(ttn_unload_from_warehouses)
         with self._connect() as conn:
             if not address_val:
                 existing_addr = conn.execute(
@@ -9919,6 +9996,7 @@ class ReviewRepository:
                 self._sql(
                     "UPDATE supply_contractors SET name = ?, full_name = ?, requisites = ?, "
                     "signatories = ?, in_person = ?, basis = ?, address = ?, phone = ?, "
+                    "ttn_unload_from_warehouses = ?, "
                     "addr_index = ?, addr_region_code = ?, addr_district = ?, addr_city = ?, "
                     "addr_settlement = ?, addr_street = ?, addr_house = ?, addr_corpus = ?, addr_flat = ?, "
                     "addr_fias = ? "
@@ -9933,6 +10011,7 @@ class ReviewRepository:
                     (basis or "").strip() or None,
                     address_val,
                     (phone or "").strip() or None,
+                    use_wh,
                     addr["addr_index"],
                     addr["addr_region_code"],
                     addr["addr_district"],
@@ -9951,6 +10030,14 @@ class ReviewRepository:
 
     def delete_supply_contractor(self, *, user_id: int, contractor_id: int) -> bool:
         with self._connect() as conn:
+            # Keep warehouses; only detach the optional contractor link.
+            conn.execute(
+                self._sql(
+                    "UPDATE supply_warehouses SET contractor_id = NULL "
+                    "WHERE user_id = ? AND contractor_id = ?"
+                ),
+                (user_id, contractor_id),
+            )
             result = conn.execute(
                 self._sql("DELETE FROM supply_contractors WHERE user_id = ? AND id = ?"),
                 (user_id, contractor_id),

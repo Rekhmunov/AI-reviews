@@ -7381,6 +7381,16 @@ body.sst-col-resizing * {
   flex: 0 0 auto;
 }
 
+#createTtnModal .ttn-unload-wh-block {
+  padding: 8px 0 0;
+}
+
+#createTtnModal .ttn-unload-wh-block > label.small {
+  display: block;
+  margin: 0 0 4px;
+  color: #64748b;
+}
+
 #createTtnModal .ttn-manual-fields {
   display: flex;
   flex-direction: column;
