@@ -7387,6 +7387,7 @@ body.sst-col-resizing * {
 #createTtnModal .ttn-input,
 #createTtnModal .ss-input,
 #createTtnModal input.ttn-input,
+#createTtnModal select.ttn-input,
 #createTtnModal input.ss-input {
   display: block;
   width: 100% !important;

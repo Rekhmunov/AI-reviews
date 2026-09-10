@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=348" />
+  <link rel="stylesheet" href="/static/style.css?v=349" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -4261,8 +4261,11 @@
               </div>
               <div class="ttn-field">
                 <label class="small" for="ttnCreatePacking">Вид тары / упаковки</label>
-                <input id="ttnCreatePacking" class="ttn-input" type="text" placeholder="напр. короба, паллеты"
-                       autocomplete="off" />
+                <select id="ttnCreatePacking" class="ttn-input">
+                  <option value="">— Выберите —</option>
+                  <option value="Короба">Короба</option>
+                  <option value="Паллеты">Паллеты</option>
+                </select>
               </div>
               <div class="ttn-field">
                 <label class="small" for="ttnCreatePlaces">Кол-во мест</label>
@@ -7356,6 +7359,6 @@
 
   <script src="/static/ozon_fbs.js?v=144"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=22"></script>
-  <script src="/static/app.js?v=600"></script>
+  <script src="/static/app.js?v=601"></script>
 </body>
 </html>

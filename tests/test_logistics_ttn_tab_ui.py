@@ -40,8 +40,8 @@ def test_logistics_title_picker_and_panes() -> None:
     assert "function initLogisticsSection" in js
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
-    assert "app.js?v=600" in html
-    assert "style.css?v=348" in html
+    assert "app.js?v=601" in html
+    assert "style.css?v=349" in html
     assert "ttn-modal-card" in html
     assert "ttn-form-grid" in html
     assert 'max-width:560px' not in html.split('id="createTtnModal"')[1].split("<!-- ── Планирование")[0]
@@ -81,6 +81,20 @@ def test_ttn_default_cargo_description() -> None:
     assert 'setVal("ttnCreateCargo", TTN_DEFAULT_CARGO)' in js
     assert 'TTN_DEFAULT_DOCS = "Закрывающие документы"' in js
     assert 'setVal("ttnCreateDocs", TTN_DEFAULT_DOCS)' in js
+
+
+def test_ttn_packing_type_select() -> None:
+    html = HTML.read_text(encoding="utf-8")
+    js = JS.read_text(encoding="utf-8")
+    packing = html.split('id="ttnCreatePacking"', 1)[1].split("</select>", 1)[0]
+    assert "<select" in html.split('for="ttnCreatePacking"', 1)[1][:80]
+    assert 'value="Короба">Короба<' in packing
+    assert 'value="Паллеты">Паллеты<' in packing
+    assert 'TTN_PACKING_OPTIONS = ["Короба", "Паллеты"]' in js
+    assert "function _ttnSetPackingValue" in js
+    assert '_ttnSetPackingValue("")' in js
+    assert "_ttnSetPackingValue(record.packing_type" in js
+    assert "select.ttn-input" in CSS.read_text(encoding="utf-8")
 
 
 def test_ttn_vehicle_manual_via_pencil() -> None:

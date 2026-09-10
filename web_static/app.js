@@ -18529,6 +18529,43 @@ let _ttnLoadAddressByValue = {};
 let _ttnUnloadAddressByValue = {};
 const TTN_DEFAULT_CARGO = "Текстиль (постельное белье/наматрасники)";
 const TTN_DEFAULT_DOCS = "Закрывающие документы";
+const TTN_PACKING_OPTIONS = ["Короба", "Паллеты"];
+
+function _ttnSetPackingValue(val) {
+  const el = document.getElementById("ttnCreatePacking");
+  if (!el) return;
+  const allowed = new Set(TTN_PACKING_OPTIONS);
+  // Keep fixed options; drop any leftover legacy custom option.
+  el.innerHTML = "";
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = "— Выберите —";
+  el.appendChild(empty);
+  for (const label of TTN_PACKING_OPTIONS) {
+    const opt = document.createElement("option");
+    opt.value = label;
+    opt.textContent = label;
+    el.appendChild(opt);
+  }
+  const raw = String(val || "").trim();
+  if (!raw) {
+    el.value = "";
+    return;
+  }
+  const match = TTN_PACKING_OPTIONS.find((x) => x.toLowerCase() === raw.toLowerCase());
+  if (match) {
+    el.value = match;
+    return;
+  }
+  // Preserve older free-text values so edit/save does not silently drop them.
+  if (!allowed.has(raw)) {
+    const custom = document.createElement("option");
+    custom.value = raw;
+    custom.textContent = raw;
+    el.appendChild(custom);
+  }
+  el.value = raw;
+}
 
 function _ttnDateToInputValue(displayDate) {
   const s = String(displayDate || "").trim();
@@ -19299,7 +19336,7 @@ async function _openTtnModal(mode, record) {
   setVal("ttnCreateWeight", "");
   setVal("ttnCreateDocs", TTN_DEFAULT_DOCS);
   setVal("ttnCreateNotes", "");
-  setVal("ttnCreatePacking", "");
+  _ttnSetPackingValue("");
   setVal("ttnCreateDeclaredValue", "");
   setVal("ttnCreateVehicleType", "");
   setVal("ttnCreateLoadingDatetime", "");
@@ -19343,7 +19380,7 @@ async function _openTtnModal(mode, record) {
     setVal("ttnCreateWeight", record.cargo_weight || "");
     setVal("ttnCreateDocs", String(record.accompanying_docs || "").trim() || TTN_DEFAULT_DOCS);
     setVal("ttnCreateNotes", record.notes || "");
-    setVal("ttnCreatePacking", record.packing_type || "");
+    _ttnSetPackingValue(record.packing_type || "");
     setVal("ttnCreateDeclaredValue", record.declared_value || "");
     setVal("ttnCreateVehicleType", record.vehicle_type || "");
     setVal("ttnCreateLoadingDatetime", record.loading_datetime || "");
