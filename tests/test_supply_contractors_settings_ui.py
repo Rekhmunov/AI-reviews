@@ -22,7 +22,6 @@ def test_contractors_form_mirrors_legal_entity_fields() -> None:
         "newContractorInPerson",
         "newContractorBasis",
         "newContractorPhone",
-        "newContractorTtnUnloadFromWarehouses",
         "newContractorAddrIndex",
         "newContractorAddrRegion",
         "newContractorAddrDistrict",
@@ -38,7 +37,8 @@ def test_contractors_form_mirrors_legal_entity_fields() -> None:
     assert "Короткое наименование" in pane
     assert "Полное наименование" in pane
     assert "Адрес (поля эТрН)" in pane
-    assert "В ТТН адреса разгрузки брать со складов" in pane
+    assert "newContractorTtnUnloadFromWarehouses" not in pane
+    assert "В ТТН адреса разгрузки брать со складов" not in pane
 
 
 def test_contractors_table_has_le_like_columns() -> None:
@@ -117,23 +117,20 @@ def test_contractors_schema_migration_adds_le_columns() -> None:
         "addr_city",
         "addr_street",
         "addr_fias",
-        "ttn_unload_from_warehouses",
     ):
         assert f'("{col}"' in repo
     assert "def contractor_address_line" in repo
     assert "addr_index, addr_region_code, addr_district" in repo
 
 
-def test_contractors_ttn_unload_from_warehouses_flag_wired() -> None:
+def test_contractors_no_ttn_unload_flag_in_ui() -> None:
+    """Warehouses linked to a contractor always appear in TTN place lists — no UI flag."""
     js = JS.read_text(encoding="utf-8")
-    web = WEB.read_text(encoding="utf-8")
-    assert "ttn_unload_from_warehouses" in js
-    assert 'data-field="ttn_unload_from_warehouses"' in js
-    assert "newContractorTtnUnloadFromWarehouses" in js
-    create = web.split("class CreateSupplyContractorRequest", 1)[1].split("class ", 1)[0]
-    update = web.split("class UpdateSupplyContractorRequest", 1)[1].split("class ", 1)[0]
-    assert "ttn_unload_from_warehouses: bool = False" in create
-    assert "ttn_unload_from_warehouses: bool = False" in update
+    html = HTML.read_text(encoding="utf-8")
+    assert "ttn_unload_from_warehouses" not in js
+    assert 'data-field="ttn_unload_from_warehouses"' not in js
+    assert "newContractorTtnUnloadFromWarehouses" not in html
+    assert "ТТН — место разгрузки" not in js
 
 
 def test_contractor_address_line_assembles_like_legal() -> None:

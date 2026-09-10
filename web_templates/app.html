@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=341" />
+  <link rel="stylesheet" href="/static/style.css?v=343" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -4190,7 +4190,7 @@
                 <div class="ttn-field-with-action">
                   <div class="ss-wrap ttn-ss-field" id="ttnCreateLoadWrap">
                     <input class="ss-input" id="ttnCreateLoadInput" type="text"
-                           placeholder="Выберите место погрузки" autocomplete="off" readonly
+                           placeholder="Адрес грузоотправителя" autocomplete="off" readonly
                            onfocus="ssOpen('ttnCreateLoadWrap')"
                            oninput="ssFilter('ttnCreateLoadWrap')" />
                     <div class="ss-dropdown hidden" id="ttnCreateLoadDropdown"></div>
@@ -4210,7 +4210,7 @@
                 <div class="ttn-field-with-action">
                   <div class="ss-wrap ttn-ss-field" id="ttnCreateUnloadWrap">
                     <input class="ss-input" id="ttnCreateUnloadInput" type="text"
-                           placeholder="Выберите место разгрузки" autocomplete="off" readonly
+                           placeholder="Адрес грузополучателя" autocomplete="off" readonly
                            onfocus="ssOpen('ttnCreateUnloadWrap')"
                            oninput="ssFilter('ttnCreateUnloadWrap')" />
                     <div class="ss-dropdown hidden" id="ttnCreateUnloadDropdown"></div>
@@ -4219,17 +4219,6 @@
                   <button type="button" class="secondary small-btn ttn-manual-btn" id="ttnManualUnloadBtn"
                     onclick="toggleTtnManualUnload()"
                     title="Ввести вручную">✏</button>
-                </div>
-                <div id="ttnUnloadWarehouseBlock" class="ttn-unload-wh-block" style="display:none;margin-top:8px">
-                  <label class="small" for="ttnUnloadWarehouseInput">Адрес склада контрагента</label>
-                  <div class="ss-wrap ttn-ss-field" id="ttnUnloadWarehouseWrap" style="margin-top:4px">
-                    <input class="ss-input" id="ttnUnloadWarehouseInput" type="text"
-                           placeholder="Выберите склад / адрес" autocomplete="off" readonly
-                           onfocus="ssOpen('ttnUnloadWarehouseWrap')"
-                           oninput="ssFilter('ttnUnloadWarehouseWrap')" />
-                    <div class="ss-dropdown hidden" id="ttnUnloadWarehouseDropdown"></div>
-                    <input type="hidden" id="ttnUnloadWarehouse" />
-                  </div>
                 </div>
                 <div id="ttnManualUnloadFields" class="ttn-manual-fields" style="display:none">
                   <input id="ttnCreateUnloadAddress" class="ttn-input" type="text" placeholder="Адрес разгрузки"
@@ -4909,17 +4898,6 @@
                 <div class="wfg-field">
                   <label class="wfg-label" for="newContractorPhone">Номер телефона</label>
                   <input id="newContractorPhone" type="text" placeholder="+7..." autocomplete="off" />
-                </div>
-                <div class="wfg-field" style="grid-column:span 2">
-                  <label class="wfg-label" style="display:flex;align-items:flex-start;gap:8px;cursor:pointer">
-                    <input id="newContractorTtnUnloadFromWarehouses" type="checkbox" style="margin-top:3px" />
-                    <span>
-                      В ТТН адреса разгрузки брать со складов
-                      <span class="small" style="display:block;color:#64748b;font-weight:400;margin-top:2px">
-                        Если включено, при выборе этого контрагента в месте разгрузки появится список его складов
-                      </span>
-                    </span>
-                  </label>
                 </div>
               </div>
               <p class="small" style="margin:16px 0 8px;color:#64748b">Адрес (поля эТрН)</p>
@@ -7282,6 +7260,6 @@
 
   <script src="/static/ozon_fbs.js?v=144"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=22"></script>
-  <script src="/static/app.js?v=592"></script>
+  <script src="/static/app.js?v=593"></script>
 </body>
 </html>

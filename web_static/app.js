@@ -3968,15 +3968,6 @@ function _sstPartyEditPanelHtml(item, kind) {
           ${_sstAddrEditFieldsHtml(item, addrAttr)}
         </div>
       </section>
-      ${!isLe ? `<section class="sst-edit-section">
-        <h5 class="sst-edit-section-title">ТТН — место разгрузки</h5>
-        <label class="sst-check-label" style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;max-width:640px">
-          <input type="checkbox" data-field="ttn_unload_from_warehouses" ${item.ttn_unload_from_warehouses ? "checked" : ""} style="margin-top:3px" />
-          <span>Адреса разгрузки брать со складов этого контрагента
-            <span class="small" style="display:block;color:#64748b;margin-top:2px">В модалке ТТН после выбора контрагента появится список связанных складов</span>
-          </span>
-        </label>
-      </section>` : ""}
       ${isLe ? `<section class="sst-edit-section">
         <h5 class="sst-edit-section-title">Подпись</h5>
         <div class="sst-edit-sig" id="le-sig-container-${item.id}"><span class="small" style="color:#94a3b8">Загрузка…</span></div>
@@ -18080,8 +18071,6 @@ function _clearNewContractorFormFields() {
     "newContractorAddrCity", "newContractorAddrSettlement", "newContractorAddrStreet",
     "newContractorAddrHouse", "newContractorAddrCorpus", "newContractorAddrFlat", "newContractorAddrFias",
   ].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ""; });
-  const cb = document.getElementById("newContractorTtnUnloadFromWarehouses");
-  if (cb) cb.checked = false;
 }
 
 function _contractorAddrEditInputsHtml(item) {
@@ -18178,7 +18167,6 @@ async function saveEditContractor(id) {
   const payload = {
     name, full_name: full, requisites: req, signatories: sign,
     in_person: inp, basis, phone, address: item?.address || "",
-    ttn_unload_from_warehouses: !!panel.querySelector("[data-field='ttn_unload_from_warehouses']")?.checked,
   };
   _CTR_ADDR_FIELDS.forEach(([key]) => {
     payload[key] = panel.querySelector(`[data-ctr-addr="${key}"]`)?.value.trim() || "";
@@ -18216,7 +18204,6 @@ async function saveSupplyContractor() {
   const payload = {
     name, full_name: full, requisites, signatories,
     in_person: inPerson, basis, phone, address: "",
-    ttn_unload_from_warehouses: !!document.getElementById("newContractorTtnUnloadFromWarehouses")?.checked,
     ..._readNewContractorAddrFields(),
   };
   const res = await fetch("/api/supply-contractors", {
@@ -18637,50 +18624,122 @@ function _ttnPartyOptions() {
   return opts;
 }
 
-/** Place presets for TTN load/unload: legal entities → contractors → warehouses. */
-function _ttnPlacePresetOptions() {
+/** Addresses belonging to the selected shipper/consignee for load/unload places. */
+function _ttnAddressOptionsForParty(partyRef) {
   const opts = [];
   const addressByValue = { "": "" };
+  const parsed = _ttnParsePartyRef(partyRef);
+  if (!parsed) return { opts, addressByValue };
 
-  const les = Array.isArray(_supplyLegalEntitiesCache) ? _supplyLegalEntitiesCache.slice() : [];
-  les.sort((a, b) => String(a.short_name || "").localeCompare(String(b.short_name || ""), "ru"));
-  for (const e of les) {
-    const name = String(e.short_name || e.full_name || "").trim();
-    if (!name) continue;
-    const key = `le:${e.id}`;
-    opts.push({ value: key, label: `Юр. лицо · ${name}` });
-    addressByValue[key] =
-      legalEntityAddressLine(e) || productionAddressLine(e) || String(e.address || "").trim() || name;
+  const seen = new Set();
+  const addAddr = (key, label, addr) => {
+    const a = String(addr || "").trim();
+    if (!a || seen.has(a.toLowerCase())) return;
+    seen.add(a.toLowerCase());
+    opts.push({ value: key, label: label || a });
+    addressByValue[key] = a;
+  };
+
+  if (parsed.type === "le") {
+    const e = (_supplyLegalEntitiesCache || []).find((x) => Number(x.id) === Number(parsed.id));
+    if (!e) return { opts, addressByValue };
+    const addr =
+      legalEntityAddressLine(e) ||
+      productionAddressLine(e) ||
+      String(e.address || "").trim();
+    if (addr) addAddr(`addr:le:${e.id}`, addr, addr);
+    return { opts, addressByValue };
   }
 
-  const cs = Array.isArray(_supplyContractorsCache) ? _supplyContractorsCache.slice() : [];
-  cs.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ru"));
-  for (const c of cs) {
-    const name = String(c.name || "").trim();
-    if (!name) continue;
-    const key = `c:${c.id}`;
-    opts.push({ value: key, label: `Контрагент · ${name}` });
-    // One-line address only — never fall back to requisites (ИНН/КПП).
-    // Unload may still override via warehouse picker when contractor.ttn_unload_from_warehouses.
-    const composed =
-      contractorAddressLine(c) ||
-      productionAddressLine(c) ||
-      String(c.address || "").trim();
-    addressByValue[key] = composed || name;
-  }
+  const c = (_supplyContractorsCache || []).find((x) => Number(x.id) === Number(parsed.id));
+  if (!c) return { opts, addressByValue };
+  const cardAddr =
+    contractorAddressLine(c) ||
+    productionAddressLine(c) ||
+    String(c.address || "").trim();
+  if (cardAddr) addAddr(`addr:c:${c.id}`, cardAddr, cardAddr);
 
-  const whs = Array.isArray(_supplyWarehousesCache) ? _supplyWarehousesCache.slice() : [];
+  const whs = _ttnWarehousesForContractor(parsed.id).slice();
   whs.sort((a, b) => String(a.warehouse_name || "").localeCompare(String(b.warehouse_name || ""), "ru"));
   for (const w of whs) {
-    const name = String(w.warehouse_name || "").trim();
-    if (!name) continue;
-    const key = `w:${w.id}`;
-    opts.push({ value: key, label: `Склад · ${name}` });
-    addressByValue[key] = warehouseAddressLine(w) || name;
+    const wname = String(w.warehouse_name || "").trim() || `Склад #${w.id}`;
+    const waddr = String(warehouseAddressLine(w) || "").trim();
+    const line = waddr || wname;
+    const label = waddr ? `${waddr} · ${wname}` : wname;
+    addAddr(`w:${w.id}`, label, line);
   }
-
   return { opts, addressByValue };
 }
+
+function _ttnRefreshLoadPlaceOptions(preferAddrOrKey) {
+  const ref = String(document.getElementById("ttnCreateShipper")?.value || "");
+  const { opts, addressByValue } = _ttnAddressOptionsForParty(ref);
+  _ttnLoadAddressByValue = addressByValue;
+  let placeholder;
+  if (!ref) placeholder = "— Сначала выберите грузоотправителя —";
+  else if (!opts.length) placeholder = "— Нет адресов у грузоотправителя —";
+  else placeholder = "— Выберите адрес погрузки —";
+  ssPopulate(
+    "ttnCreateLoadWrap",
+    [{ value: "", label: placeholder }].concat(opts),
+    () => onTtnLoadPresetChange(),
+  );
+  if (_ttnManualLoadMode) return "";
+  let key = "";
+  const prefer = String(preferAddrOrKey || "").trim();
+  if (prefer) {
+    if (addressByValue[prefer]) key = prefer;
+    else {
+      for (const [k, v] of Object.entries(addressByValue)) {
+        if (k && String(v).trim() === prefer) { key = k; break; }
+      }
+    }
+  }
+  if (!key && opts.length === 1) key = opts[0].value;
+  _ttnSetSsValue("ttnCreateLoadWrap", key);
+  onTtnLoadPresetChange();
+  return key;
+}
+
+function _ttnRefreshUnloadPlaceOptions(preferAddrOrKey) {
+  const ref = String(document.getElementById("ttnCreateConsignee")?.value || "");
+  const { opts, addressByValue } = _ttnAddressOptionsForParty(ref);
+  _ttnUnloadAddressByValue = addressByValue;
+  let placeholder;
+  if (!ref) placeholder = "— Сначала выберите грузополучателя —";
+  else if (!opts.length) placeholder = "— Нет адресов у грузополучателя —";
+  else placeholder = "— Выберите адрес разгрузки —";
+  ssPopulate(
+    "ttnCreateUnloadWrap",
+    [{ value: "", label: placeholder }].concat(opts),
+    () => onTtnUnloadPresetChange(),
+  );
+  if (_ttnManualUnloadMode) return "";
+  let key = "";
+  const prefer = String(preferAddrOrKey || "").trim();
+  if (prefer) {
+    if (addressByValue[prefer]) key = prefer;
+    else {
+      for (const [k, v] of Object.entries(addressByValue)) {
+        if (k && String(v).trim() === prefer) { key = k; break; }
+      }
+    }
+  }
+  if (!key && opts.length === 1) key = opts[0].value;
+  _ttnSetSsValue("ttnCreateUnloadWrap", key);
+  onTtnUnloadPresetChange();
+  return key;
+}
+
+function onTtnShipperChange() {
+  _ttnRefreshLoadPlaceOptions();
+}
+window.onTtnShipperChange = onTtnShipperChange;
+
+function onTtnConsigneeChange() {
+  _ttnRefreshUnloadPlaceOptions();
+}
+window.onTtnConsigneeChange = onTtnConsigneeChange;
 
 function _ttnParsePartyRef(ref) {
   const s = String(ref || "").trim();
@@ -18803,73 +18862,13 @@ function onTtnLoadPresetChange() {
 }
 window.onTtnLoadPresetChange = onTtnLoadPresetChange;
 
-let _ttnUnloadWhAddressByValue = {};
-
-function _ttnContractorUsesWarehouseUnload(contractorId) {
-  const c = (_supplyContractorsCache || []).find((x) => Number(x.id) === Number(contractorId));
-  return !!(c && c.ttn_unload_from_warehouses);
-}
-
 function _ttnWarehousesForContractor(contractorId) {
   return (_supplyWarehousesCache || []).filter((w) => Number(w.contractor_id) === Number(contractorId));
 }
 
-function _ttnHideUnloadWarehousePicker() {
-  const block = document.getElementById("ttnUnloadWarehouseBlock");
-  if (block) block.style.display = "none";
-  _ttnUnloadWhAddressByValue = {};
-  _ttnSetSsValue("ttnUnloadWarehouseWrap", "");
-}
-
-function _ttnSyncUnloadWarehousePicker(unloadKey, preferredWhKey) {
-  const block = document.getElementById("ttnUnloadWarehouseBlock");
-  const key = String(unloadKey || "");
-  const parsed = key.startsWith("c:") ? parseInt(key.slice(2), 10) : 0;
-  const useWh = Number.isFinite(parsed) && parsed > 0 && _ttnContractorUsesWarehouseUnload(parsed);
-  if (!useWh || _ttnManualUnloadMode) {
-    _ttnHideUnloadWarehousePicker();
-    return false;
-  }
-  if (block) block.style.display = "";
-  const whs = _ttnWarehousesForContractor(parsed);
-  const opts = [{
-    value: "",
-    label: whs.length ? "— Выберите склад / адрес —" : "— Нет складов у контрагента —",
-  }];
-  const addrMap = { "": "" };
-  whs.sort((a, b) => String(a.warehouse_name || "").localeCompare(String(b.warehouse_name || ""), "ru"));
-  for (const w of whs) {
-    const wkey = `w:${w.id}`;
-    const wname = String(w.warehouse_name || "").trim() || `Склад #${w.id}`;
-    const addr = warehouseAddressLine(w) || wname;
-    opts.push({ value: wkey, label: `${wname} · ${addr}` });
-    addrMap[wkey] = addr;
-  }
-  _ttnUnloadWhAddressByValue = addrMap;
-  ssPopulate("ttnUnloadWarehouseWrap", opts, () => onTtnUnloadWarehouseChange());
-  const prefer = preferredWhKey && addrMap[preferredWhKey] ? preferredWhKey : "";
-  _ttnSetSsValue("ttnUnloadWarehouseWrap", prefer);
-  const input = document.getElementById("ttnCreateUnloadAddress");
-  if (input) input.value = prefer ? (addrMap[prefer] || "") : "";
-  return true;
-}
-
-function onTtnUnloadWarehouseChange() {
-  if (_ttnManualUnloadMode) return;
-  const wkey = String(document.getElementById("ttnUnloadWarehouse")?.value || "");
-  const addr = _ttnUnloadWhAddressByValue[wkey] || "";
-  const input = document.getElementById("ttnCreateUnloadAddress");
-  if (input) input.value = addr;
-}
-window.onTtnUnloadWarehouseChange = onTtnUnloadWarehouseChange;
-
 function onTtnUnloadPresetChange() {
-  if (_ttnManualUnloadMode) {
-    _ttnHideUnloadWarehousePicker();
-    return;
-  }
+  if (_ttnManualUnloadMode) return;
   const key = String(document.getElementById("ttnCreateUnload")?.value || "");
-  if (_ttnSyncUnloadWarehousePicker(key)) return;
   const addr = _ttnUnloadAddressByValue[key] || "";
   const input = document.getElementById("ttnCreateUnloadAddress");
   if (input) input.value = addr;
@@ -18944,7 +18943,7 @@ function toggleTtnManualUnload() {
     if (fields) fields.style.display = "block";
     if (wrap) wrap.style.opacity = "0.55";
     _ttnSetSsValue("ttnCreateUnloadWrap", "");
-    _ttnHideUnloadWarehousePicker();
+    
   } else {
     if (fields) fields.style.display = "none";
     if (wrap) wrap.style.opacity = "";
@@ -19114,8 +19113,8 @@ async function _openTtnModal(mode, record) {
   if (!_supplyWarehousesCache.length) await loadSupplyWarehouses();
 
   const partyOpts = _ttnPartyOptions();
-  ssPopulate("ttnCreateShipperWrap", partyOpts, null);
-  ssPopulate("ttnCreateConsigneeWrap", partyOpts, null);
+  ssPopulate("ttnCreateShipperWrap", partyOpts, () => onTtnShipperChange());
+  ssPopulate("ttnCreateConsigneeWrap", partyOpts, () => onTtnConsigneeChange());
 
   const driverOpts = [{ value: "", label: "— Выберите водителя —" }].concat(
     (_supplyDriversCache || []).map((d) => ({
@@ -19125,20 +19124,9 @@ async function _openTtnModal(mode, record) {
   );
   ssPopulate("ttnCreateDriverWrap", driverOpts, () => onTtnDriverChange());
 
-  // Место погрузки / разгрузки: юр. лица → контрагенты → склады
-  const placePresets = _ttnPlacePresetOptions();
-  _ttnLoadAddressByValue = { ...placePresets.addressByValue };
-  ssPopulate(
-    "ttnCreateLoadWrap",
-    [{ value: "", label: "— Выберите место погрузки —" }].concat(placePresets.opts),
-    () => onTtnLoadPresetChange(),
-  );
-  _ttnUnloadAddressByValue = { ...placePresets.addressByValue };
-  ssPopulate(
-    "ttnCreateUnloadWrap",
-    [{ value: "", label: "— Выберите место разгрузки —" }].concat(placePresets.opts),
-    () => onTtnUnloadPresetChange(),
-  );
+  // Место погрузки / разгрузки: адреса выбранного отправителя / получателя
+  _ttnRefreshLoadPlaceOptions();
+  _ttnRefreshUnloadPlaceOptions();
 
   const info = document.getElementById("ttnCreateInfo");
   if (info) { info.textContent = ""; info.style.color = ""; }
@@ -19178,7 +19166,6 @@ async function _openTtnModal(mode, record) {
   setVal("ttnCreateDocs", "");
   setVal("ttnCreateNotes", "");
   setVal("ttnCreateLoadAddress", "");
-  _ttnHideUnloadWarehousePicker();
   setVal("ttnCreateUnloadAddress", "");
   setVal("ttnManualDriverName", "");
   setVal("ttnManualDriverDocs", "");
@@ -19213,67 +19200,21 @@ async function _openTtnModal(mode, record) {
 
     const loadAddr = String(record.load_address || "").trim();
     const unloadAddr = String(record.unload_address || "").trim();
-    let loadKey = "";
-    for (const [k, v] of Object.entries(_ttnLoadAddressByValue)) {
-      if (k && String(v).trim() === loadAddr) { loadKey = k; break; }
-    }
-    if (loadKey) {
-      _ttnSetSsValue("ttnCreateLoadWrap", loadKey);
-      setVal("ttnCreateLoadAddress", loadAddr);
-    } else if (loadAddr) {
+    const loadKey = _ttnRefreshLoadPlaceOptions(loadAddr);
+    if (!loadKey && loadAddr) {
       _ttnManualLoadMode = true;
       if (loadFields) loadFields.style.display = "block";
       if (loadWrap) loadWrap.style.opacity = "0.55";
       _ttnSetManualBtn("ttnManualLoadBtn", true);
       setVal("ttnCreateLoadAddress", loadAddr);
     }
-
-    let unloadKey = "";
-    let preferredWh = "";
-    // Prefer contractor + linked warehouse when flag is on (saved address is warehouse line).
-    if (consType !== "le" && record.contractor_id && _ttnContractorUsesWarehouseUnload(record.contractor_id)) {
-      unloadKey = `c:${record.contractor_id}`;
-      for (const w of _ttnWarehousesForContractor(record.contractor_id)) {
-        const addr = String(warehouseAddressLine(w) || "").trim();
-        if (addr && addr === unloadAddr) { preferredWh = `w:${w.id}`; break; }
-      }
-    }
-    if (!unloadKey) {
-      for (const [k, v] of Object.entries(_ttnUnloadAddressByValue)) {
-        if (k && String(v).trim() === unloadAddr) { unloadKey = k; break; }
-      }
-    }
-    // If matched a warehouse preset that belongs to a flagged contractor — use picker UX.
-    if (unloadKey.startsWith("w:")) {
-      const wid = parseInt(unloadKey.slice(2), 10);
-      const wh = (_supplyWarehousesCache || []).find((x) => Number(x.id) === wid);
-      if (wh?.contractor_id && _ttnContractorUsesWarehouseUnload(wh.contractor_id)) {
-        preferredWh = unloadKey;
-        unloadKey = `c:${wh.contractor_id}`;
-      }
-    }
-    if (unloadKey) {
-      _ttnSetSsValue("ttnCreateUnloadWrap", unloadKey);
-      if (unloadKey.startsWith("c:")) {
-        const cid = parseInt(unloadKey.slice(2), 10);
-        if (_ttnContractorUsesWarehouseUnload(cid)) {
-          if (!preferredWh) {
-            for (const w of _ttnWarehousesForContractor(cid)) {
-              const addr = String(warehouseAddressLine(w) || "").trim();
-              if (addr && addr === unloadAddr) { preferredWh = `w:${w.id}`; break; }
-            }
-          }
-          _ttnSyncUnloadWarehousePicker(unloadKey, preferredWh);
-        }
-      }
-      setVal("ttnCreateUnloadAddress", unloadAddr);
-    } else if (unloadAddr) {
+    const unloadKey = _ttnRefreshUnloadPlaceOptions(unloadAddr);
+    if (!unloadKey && unloadAddr) {
       _ttnManualUnloadMode = true;
       if (unloadFields) unloadFields.style.display = "block";
       if (unloadWrap) unloadWrap.style.opacity = "0.55";
       _ttnSetManualBtn("ttnManualUnloadBtn", true);
       setVal("ttnCreateUnloadAddress", unloadAddr);
-      _ttnHideUnloadWarehousePicker();
     }
 
     const dId = record.driver_id || 0;
@@ -19376,17 +19317,7 @@ async function saveTtnRecord() {
     unloadAddress = document.getElementById("ttnCreateUnloadAddress")?.value.trim() || "";
   } else {
     const key = String(document.getElementById("ttnCreateUnload")?.value || "");
-    const whBlock = document.getElementById("ttnUnloadWarehouseBlock");
-    if (whBlock && whBlock.style.display !== "none") {
-      const wkey = String(document.getElementById("ttnUnloadWarehouse")?.value || "");
-      unloadAddress = (_ttnUnloadWhAddressByValue[wkey] || document.getElementById("ttnCreateUnloadAddress")?.value || "").trim();
-      if (!unloadAddress) {
-        if (info) { info.textContent = "Выберите склад / адрес разгрузки контрагента"; info.style.color = "#b91c1c"; }
-        return;
-      }
-    } else {
-      unloadAddress = (_ttnUnloadAddressByValue[key] || document.getElementById("ttnCreateUnloadAddress")?.value || "").trim();
-    }
+    unloadAddress = (_ttnUnloadAddressByValue[key] || document.getElementById("ttnCreateUnloadAddress")?.value || "").trim();
   }
 
   if (info) { info.textContent = "Сохранение..."; info.style.color = ""; }
