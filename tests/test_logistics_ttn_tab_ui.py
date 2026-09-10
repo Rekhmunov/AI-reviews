@@ -39,7 +39,7 @@ def test_logistics_title_picker_and_panes() -> None:
     assert "function initLogisticsSection" in js
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
-    assert "app.js?v=589" in html
+    assert "app.js?v=590" in html
     assert "style.css?v=336" in html
 
 
@@ -161,3 +161,13 @@ def test_poa_api_unchanged() -> None:
     assert "async function loadPoARecords" in js
     assert "async function savePoARecord" in js
     assert "downloadPoAPdf" in js
+
+def test_ttn_load_unload_places_le_contractor_warehouse() -> None:
+    js = Path(__file__).resolve().parents[1].joinpath("web_static", "app.js").read_text(encoding="utf-8")
+    assert "function _ttnPlacePresetOptions" in js
+    helper = js.split("function _ttnPlacePresetOptions", 1)[1].split("\nfunction ", 1)[0]
+    assert "Юр. лицо ·" in helper and "Контрагент ·" in helper and "Склад ·" in helper
+    assert "Производство ·" not in helper
+    assert "c.requisites" not in helper
+    assert "contractorAddressLine" in helper
+

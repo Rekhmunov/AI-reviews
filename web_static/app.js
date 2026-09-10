@@ -18573,6 +18573,50 @@ function _ttnPartyOptions() {
   return opts;
 }
 
+/** Place presets for TTN load/unload: legal entities → contractors → warehouses. */
+function _ttnPlacePresetOptions() {
+  const opts = [];
+  const addressByValue = { "": "" };
+
+  const les = Array.isArray(_supplyLegalEntitiesCache) ? _supplyLegalEntitiesCache.slice() : [];
+  les.sort((a, b) => String(a.short_name || "").localeCompare(String(b.short_name || ""), "ru"));
+  for (const e of les) {
+    const name = String(e.short_name || e.full_name || "").trim();
+    if (!name) continue;
+    const key = `le:${e.id}`;
+    opts.push({ value: key, label: `Юр. лицо · ${name}` });
+    addressByValue[key] =
+      legalEntityAddressLine(e) || productionAddressLine(e) || String(e.address || "").trim() || name;
+  }
+
+  const cs = Array.isArray(_supplyContractorsCache) ? _supplyContractorsCache.slice() : [];
+  cs.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ru"));
+  for (const c of cs) {
+    const name = String(c.name || "").trim();
+    if (!name) continue;
+    const key = `c:${c.id}`;
+    opts.push({ value: key, label: `Контрагент · ${name}` });
+    // One-line address only — never fall back to requisites (ИНН/КПП).
+    const composed =
+      contractorAddressLine(c) ||
+      productionAddressLine(c) ||
+      String(c.address || "").trim();
+    addressByValue[key] = composed || name;
+  }
+
+  const whs = Array.isArray(_supplyWarehousesCache) ? _supplyWarehousesCache.slice() : [];
+  whs.sort((a, b) => String(a.warehouse_name || "").localeCompare(String(b.warehouse_name || ""), "ru"));
+  for (const w of whs) {
+    const name = String(w.warehouse_name || "").trim();
+    if (!name) continue;
+    const key = `w:${w.id}`;
+    opts.push({ value: key, label: `Склад · ${name}` });
+    addressByValue[key] = warehouseAddressLine(w) || name;
+  }
+
+  return { opts, addressByValue };
+}
+
 function _ttnParsePartyRef(ref) {
   const s = String(ref || "").trim();
   if (s.startsWith("le:")) {
@@ -18951,37 +18995,20 @@ async function _openTtnModal(mode, record) {
   );
   ssPopulate("ttnCreateDriverWrap", driverOpts, () => onTtnDriverChange());
 
-  _ttnLoadAddressByValue = { "": "" };
-  const loadOpts = [{ value: "", label: "— Выберите место погрузки —" }];
-  for (const p of (_supplyProductionsCache || [])) {
-    const key = `p:${p.id}`;
-    const label = `Производство · ${p.name || p.id}`;
-    _ttnLoadAddressByValue[key] = productionAddressLine(p) || (p.address || "") || (p.name || "");
-    loadOpts.push({ value: key, label });
-  }
-  for (const e of (_supplyLegalEntitiesCache || [])) {
-    const key = `le:${e.id}`;
-    const label = `Юр. лицо · ${e.short_name || e.id}`;
-    _ttnLoadAddressByValue[key] = productionAddressLine(e) || (e.address || "") || (e.short_name || "");
-    loadOpts.push({ value: key, label });
-  }
-  ssPopulate("ttnCreateLoadWrap", loadOpts, () => onTtnLoadPresetChange());
-
-  _ttnUnloadAddressByValue = { "": "" };
-  const unloadOpts = [{ value: "", label: "— Выберите место разгрузки —" }];
-  for (const w of (_supplyWarehousesCache || [])) {
-    const key = `w:${w.id}`;
-    const label = `Склад · ${w.warehouse_name || w.id}`;
-    _ttnUnloadAddressByValue[key] = warehouseAddressLine(w) || (w.warehouse_name || "");
-    unloadOpts.push({ value: key, label });
-  }
-  for (const c of (_supplyContractorsCache || [])) {
-    const key = `c:${c.id}`;
-    const label = `Контрагент · ${c.name || c.id}`;
-    _ttnUnloadAddressByValue[key] = contractorAddressLine(c) || (c.address || "") || (c.requisites || c.name || "");
-    unloadOpts.push({ value: key, label });
-  }
-  ssPopulate("ttnCreateUnloadWrap", unloadOpts, () => onTtnUnloadPresetChange());
+  // Место погрузки / разгрузки: юр. лица → контрагенты → склады
+  const placePresets = _ttnPlacePresetOptions();
+  _ttnLoadAddressByValue = { ...placePresets.addressByValue };
+  ssPopulate(
+    "ttnCreateLoadWrap",
+    [{ value: "", label: "— Выберите место погрузки —" }].concat(placePresets.opts),
+    () => onTtnLoadPresetChange(),
+  );
+  _ttnUnloadAddressByValue = { ...placePresets.addressByValue };
+  ssPopulate(
+    "ttnCreateUnloadWrap",
+    [{ value: "", label: "— Выберите место разгрузки —" }].concat(placePresets.opts),
+    () => onTtnUnloadPresetChange(),
+  );
 
   const info = document.getElementById("ttnCreateInfo");
   if (info) { info.textContent = ""; info.style.color = ""; }
