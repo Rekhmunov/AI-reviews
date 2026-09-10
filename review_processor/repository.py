@@ -8375,6 +8375,21 @@ class ReviewRepository:
         conn.execute(
             "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS consignee_type TEXT NOT NULL DEFAULT 'contractor'"
         )
+        # ПП РФ № 2200 — доп. поля транспортной накладной (аддитивно).
+        for _ttn_col_sql in (
+            "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS customer_services TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS packing_type TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS declared_value TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS vehicle_type TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS loading_datetime TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS loader_name TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS unloading_datetime TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS receiver_name TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS redirect_info TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS carrier_marks TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS freight_cost TEXT NOT NULL DEFAULT ''",
+        ):
+            conn.execute(_ttn_col_sql)
         # Contour.Logistics / Diadoc EDO settings + sent document tracking (Ozon).
         conn.execute(
             """
@@ -10381,7 +10396,18 @@ class ReviewRepository:
                            t.vehicle_line, t.carrier_snapshot,
                            t.load_address, t.unload_address,
                            t.cargo_description, t.cargo_places, t.cargo_weight,
-                           t.accompanying_docs, t.notes
+                           t.accompanying_docs, t.notes,
+                           COALESCE(t.customer_services, '') AS customer_services,
+                           COALESCE(t.packing_type, '') AS packing_type,
+                           COALESCE(t.declared_value, '') AS declared_value,
+                           COALESCE(t.vehicle_type, '') AS vehicle_type,
+                           COALESCE(t.loading_datetime, '') AS loading_datetime,
+                           COALESCE(t.loader_name, '') AS loader_name,
+                           COALESCE(t.unloading_datetime, '') AS unloading_datetime,
+                           COALESCE(t.receiver_name, '') AS receiver_name,
+                           COALESCE(t.redirect_info, '') AS redirect_info,
+                           COALESCE(t.carrier_marks, '') AS carrier_marks,
+                           COALESCE(t.freight_cost, '') AS freight_cost
                     FROM supply_ttn_records t
                     LEFT JOIN supply_legal_entities le_s
                       ON COALESCE(t.shipper_type, 'le') = 'le' AND le_s.id = t.legal_entity_id
@@ -10472,6 +10498,17 @@ class ReviewRepository:
         cargo_weight: str = "",
         accompanying_docs: str = "",
         notes: str = "",
+        customer_services: str = "",
+        packing_type: str = "",
+        declared_value: str = "",
+        vehicle_type: str = "",
+        loading_datetime: str = "",
+        loader_name: str = "",
+        unloading_datetime: str = "",
+        receiver_name: str = "",
+        redirect_info: str = "",
+        carrier_marks: str = "",
+        freight_cost: str = "",
     ) -> dict[str, Any]:
         now = _utc_now()
         shipper_type = "contractor" if str(shipper_type or "").strip() == "contractor" else "le"
@@ -10484,8 +10521,11 @@ class ReviewRepository:
                 "shipper_type, consignee_type, driver_id, "
                 "driver_manual_name, driver_manual_docs, vehicle_line, carrier_snapshot, "
                 "load_address, unload_address, cargo_description, cargo_places, cargo_weight, "
-                "accompanying_docs, notes, created_at"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "accompanying_docs, notes, "
+                "customer_services, packing_type, declared_value, vehicle_type, "
+                "loading_datetime, loader_name, unloading_datetime, receiver_name, "
+                "redirect_info, carrier_marks, freight_cost, created_at"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     user_id,
                     (doc_number or "").strip(),
@@ -10506,6 +10546,17 @@ class ReviewRepository:
                     (cargo_weight or "").strip(),
                     (accompanying_docs or "").strip(),
                     (notes or "").strip(),
+                    (customer_services or "").strip(),
+                    (packing_type or "").strip(),
+                    (declared_value or "").strip(),
+                    (vehicle_type or "").strip(),
+                    (loading_datetime or "").strip(),
+                    (loader_name or "").strip(),
+                    (unloading_datetime or "").strip(),
+                    (receiver_name or "").strip(),
+                    (redirect_info or "").strip(),
+                    (carrier_marks or "").strip(),
+                    (freight_cost or "").strip(),
                     now,
                 ),
             )
@@ -10534,6 +10585,17 @@ class ReviewRepository:
         cargo_weight: str = "",
         accompanying_docs: str = "",
         notes: str = "",
+        customer_services: str = "",
+        packing_type: str = "",
+        declared_value: str = "",
+        vehicle_type: str = "",
+        loading_datetime: str = "",
+        loader_name: str = "",
+        unloading_datetime: str = "",
+        receiver_name: str = "",
+        redirect_info: str = "",
+        carrier_marks: str = "",
+        freight_cost: str = "",
     ) -> bool:
         shipper_type = "contractor" if str(shipper_type or "").strip() == "contractor" else "le"
         consignee_type = "le" if str(consignee_type or "").strip() == "le" else "contractor"
@@ -10546,7 +10608,10 @@ class ReviewRepository:
                     "driver_manual_name = ?, driver_manual_docs = ?, vehicle_line = ?, "
                     "carrier_snapshot = ?, load_address = ?, unload_address = ?, "
                     "cargo_description = ?, cargo_places = ?, cargo_weight = ?, "
-                    "accompanying_docs = ?, notes = ? "
+                    "accompanying_docs = ?, notes = ?, "
+                    "customer_services = ?, packing_type = ?, declared_value = ?, vehicle_type = ?, "
+                    "loading_datetime = ?, loader_name = ?, unloading_datetime = ?, receiver_name = ?, "
+                    "redirect_info = ?, carrier_marks = ?, freight_cost = ? "
                     "WHERE user_id = ? AND id = ?"
                 ),
                 (
@@ -10567,6 +10632,17 @@ class ReviewRepository:
                     (cargo_weight or "").strip(),
                     (accompanying_docs or "").strip(),
                     (notes or "").strip(),
+                    (customer_services or "").strip(),
+                    (packing_type or "").strip(),
+                    (declared_value or "").strip(),
+                    (vehicle_type or "").strip(),
+                    (loading_datetime or "").strip(),
+                    (loader_name or "").strip(),
+                    (unloading_datetime or "").strip(),
+                    (receiver_name or "").strip(),
+                    (redirect_info or "").strip(),
+                    (carrier_marks or "").strip(),
+                    (freight_cost or "").strip(),
                     user_id,
                     record_id,
                 ),

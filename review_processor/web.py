@@ -496,6 +496,18 @@ class CreateTtnRecordRequest(BaseModel):
     cargo_weight: str = ""
     accompanying_docs: str = ""
     notes: str = ""
+    # ПП РФ № 2200 — дополнительные поля ТН (все опциональны, старый клиент не ломаем)
+    customer_services: str = ""
+    packing_type: str = ""
+    declared_value: str = ""
+    vehicle_type: str = ""
+    loading_datetime: str = ""
+    loader_name: str = ""
+    unloading_datetime: str = ""
+    receiver_name: str = ""
+    redirect_info: str = ""
+    carrier_marks: str = ""
+    freight_cost: str = ""
 
 
 class UpdateTtnRecordRequest(BaseModel):
@@ -516,6 +528,17 @@ class UpdateTtnRecordRequest(BaseModel):
     cargo_weight: str = ""
     accompanying_docs: str = ""
     notes: str = ""
+    customer_services: str = ""
+    packing_type: str = ""
+    declared_value: str = ""
+    vehicle_type: str = ""
+    loading_datetime: str = ""
+    loader_name: str = ""
+    unloading_datetime: str = ""
+    receiver_name: str = ""
+    redirect_info: str = ""
+    carrier_marks: str = ""
+    freight_cost: str = ""
 
 
 class CreateSupplyContractorRequest(BaseModel):
@@ -20817,6 +20840,17 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             cargo_weight=payload.cargo_weight,
             accompanying_docs=payload.accompanying_docs,
             notes=payload.notes,
+            customer_services=payload.customer_services,
+            packing_type=payload.packing_type,
+            declared_value=payload.declared_value,
+            vehicle_type=payload.vehicle_type,
+            loading_datetime=payload.loading_datetime,
+            loader_name=payload.loader_name,
+            unloading_datetime=payload.unloading_datetime,
+            receiver_name=payload.receiver_name,
+            redirect_info=payload.redirect_info,
+            carrier_marks=payload.carrier_marks,
+            freight_cost=payload.freight_cost,
         )
 
     @app.patch("/api/supply-ttn-records/{record_id}")
@@ -20853,9 +20887,20 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             cargo_weight=payload.cargo_weight,
             accompanying_docs=payload.accompanying_docs,
             notes=payload.notes,
+            customer_services=payload.customer_services,
+            packing_type=payload.packing_type,
+            declared_value=payload.declared_value,
+            vehicle_type=payload.vehicle_type,
+            loading_datetime=payload.loading_datetime,
+            loader_name=payload.loader_name,
+            unloading_datetime=payload.unloading_datetime,
+            receiver_name=payload.receiver_name,
+            redirect_info=payload.redirect_info,
+            carrier_marks=payload.carrier_marks,
+            freight_cost=payload.freight_cost,
         )
         if not ok:
-            raise HTTPException(status_code=404, detail="ТТН не найдена")
+            raise HTTPException(status_code=404, detail="ТН не найдена")
         return {"ok": True}
 
     @app.delete("/api/supply-ttn-records/{record_id}")
@@ -20865,11 +20910,11 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             raise HTTPException(status_code=403, detail="Нет доступа")
         ok = repository.delete_supply_ttn_record(user_id=_supply_owner_id(user), record_id=record_id)
         if not ok:
-            raise HTTPException(status_code=404, detail="ТТН не найдена")
+            raise HTTPException(status_code=404, detail="ТН не найдена")
         return {"ok": True}
 
     def _build_ttn_catalog_html(record: dict) -> str:
-        """Build a simple transport waybill HTML for logistics catalog TTN."""
+        """Build transport waybill HTML per ПП РФ № 2200 (приложение 4) for logistics catalog."""
         import html as _hm
         e = _hm.escape
         doc_number = e(str(record.get("doc_number") or record.get("id") or ""))
@@ -20882,6 +20927,8 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         c_name = e(str(record.get("c_name") or ""))
         c_req = e(str(record.get("c_req") or ""))
         consignee = f"{c_name} {c_req}".strip() if c_req else c_name
+        customer_raw = str(record.get("customer_services") or "").strip()
+        customer = e(customer_raw) if customer_raw else shipper
         driver_id = int(record.get("driver_id") or 0)
         if driver_id > 0:
             d_full = str(record.get("d_full") or "")
@@ -20895,61 +20942,101 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         driver_str = e(driver_str)
         carrier = e(str(record.get("carrier_snapshot") or record.get("d_carrier_name") or ""))
         vehicle = e(str(record.get("vehicle_line") or ""))
+        vehicle_type = e(str(record.get("vehicle_type") or ""))
         load_addr = e(str(record.get("load_address") or ""))
         unload_addr = e(str(record.get("unload_address") or ""))
         cargo = e(str(record.get("cargo_description") or ""))
+        packing = e(str(record.get("packing_type") or ""))
         places = e(str(record.get("cargo_places") or ""))
         weight = e(str(record.get("cargo_weight") or ""))
+        declared = e(str(record.get("declared_value") or ""))
         docs = e(str(record.get("accompanying_docs") or ""))
         notes = e(str(record.get("notes") or ""))
+        loading_dt = e(str(record.get("loading_datetime") or ""))
+        loader = e(str(record.get("loader_name") or ""))
+        unloading_dt = e(str(record.get("unloading_datetime") or ""))
+        receiver = e(str(record.get("receiver_name") or ""))
+        redirect = e(str(record.get("redirect_info") or ""))
+        marks = e(str(record.get("carrier_marks") or ""))
+        freight = e(str(record.get("freight_cost") or ""))
         return f"""<!DOCTYPE html>
 <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
 <head><meta charset="utf-8">
 <style>
-  @page {{ size: 210mm 297mm; margin: 15mm 15mm 15mm 20mm; }}
-  body {{ font-family: "Times New Roman", serif; font-size: 11pt; line-height: 1.35; color: #000; }}
-  h1 {{ text-align: center; font-size: 14pt; margin: 0 0 12pt; }}
-  table.meta {{ width: 100%; border-collapse: collapse; margin-bottom: 10pt; }}
+  @page {{ size: 210mm 297mm; margin: 12mm 12mm 12mm 16mm; }}
+  body {{ font-family: "Times New Roman", serif; font-size: 10pt; line-height: 1.3; color: #000; }}
+  h1 {{ text-align: center; font-size: 13pt; margin: 0 0 4pt; }}
+  .sub {{ text-align: center; font-size: 8pt; margin: 0 0 10pt; color: #333; }}
+  table.meta {{ width: 100%; border-collapse: collapse; margin-bottom: 8pt; }}
   table.meta td {{ border: 1px solid #000; padding: 4pt 6pt; vertical-align: top; }}
-  .label {{ font-size: 8pt; color: #444; }}
-  .sig {{ margin-top: 18pt; }}
-  .sig td {{ padding-top: 16pt; }}
+  .label {{ font-size: 8pt; color: #444; margin-bottom: 2pt; }}
+  .sig {{ margin-top: 14pt; }}
+  .sig td {{ padding-top: 14pt; }}
 </style></head>
 <body>
 <h1>Транспортная накладная № {doc_number}</h1>
-<p style="text-align:right;margin:0 0 12pt">Дата составления: <b>{ttn_date}</b></p>
+<p class="sub">Форма по постановлению Правительства РФ от 21.12.2020 № 2200 (приложение № 4)</p>
+<p style="text-align:right;margin:0 0 10pt">Дата составления: <b>{ttn_date}</b></p>
 <table class="meta">
   <tr>
     <td width="50%"><div class="label">1. Грузоотправитель</div>{shipper or "—"}</td>
-    <td width="50%"><div class="label">2. Грузополучатель</div>{consignee or "—"}</td>
+    <td width="50%"><div class="label">1а. Заказчик услуг по организации перевозки груза (при наличии)</div>{customer or "—"}</td>
   </tr>
   <tr>
-    <td><div class="label">3. Перевозчик</div>{carrier or "—"}</td>
-    <td><div class="label">4. Водитель</div>{driver_str or "—"}
-        <div class="label" style="margin-top:6pt">Транспортное средство</div>{vehicle or "—"}</td>
-  </tr>
-  <tr>
-    <td><div class="label">5. Место погрузки</div>{load_addr or "—"}</td>
-    <td><div class="label">6. Место разгрузки</div>{unload_addr or "—"}</td>
+    <td colspan="2"><div class="label">2. Грузополучатель</div>{consignee or "—"}</td>
   </tr>
   <tr>
     <td colspan="2">
-      <div class="label">7. Груз</div>
+      <div class="label">3. Наименование груза</div>
       <div>{cargo or "—"}</div>
-      <div style="margin-top:6pt">Мест: <b>{places or "—"}</b> &nbsp;&nbsp; Масса, кг: <b>{weight or "—"}</b></div>
+      <div style="margin-top:4pt">Тара / упаковка: <b>{packing or "—"}</b>
+        &nbsp;&nbsp; Мест: <b>{places or "—"}</b>
+        &nbsp;&nbsp; Масса, кг: <b>{weight or "—"}</b>
+        &nbsp;&nbsp; Объявленная стоимость: <b>{declared or "—"}</b></div>
     </td>
   </tr>
   <tr>
-    <td colspan="2"><div class="label">8. Сопроводительные документы</div>{docs or "—"}</td>
+    <td colspan="2"><div class="label">4. Сопроводительные документы на груз</div>{docs or "—"}</td>
   </tr>
   <tr>
-    <td colspan="2"><div class="label">9. Особые условия / указания</div>{notes or "—"}</td>
+    <td colspan="2"><div class="label">5. Указания грузоотправителя</div>{notes or "—"}</td>
+  </tr>
+  <tr>
+    <td><div class="label">6. Перевозчик</div>{carrier or "—"}
+        <div class="label" style="margin-top:6pt">Водитель</div>{driver_str or "—"}</td>
+    <td><div class="label">7. Транспортное средство</div>{vehicle or "—"}
+        <div class="label" style="margin-top:6pt">Тип / вместимость</div>{vehicle_type or "—"}</td>
+  </tr>
+  <tr>
+    <td colspan="2">
+      <div class="label">8. Приём груза к перевозке</div>
+      <div>Адрес погрузки: {load_addr or "—"}</div>
+      <div style="margin-top:4pt">Дата и время подачи ТС / погрузки: <b>{loading_dt or "—"}</b></div>
+      <div style="margin-top:4pt">Лицо, осуществившее погрузку: <b>{loader or "—"}</b></div>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2"><div class="label">9. Переадресовка</div>{redirect or "—"}</td>
+  </tr>
+  <tr>
+    <td colspan="2">
+      <div class="label">10. Выдача груза</div>
+      <div>Адрес выдачи / разгрузки: {unload_addr or "—"}</div>
+      <div style="margin-top:4pt">Дата и время прибытия / выдачи: <b>{unloading_dt or "—"}</b></div>
+      <div style="margin-top:4pt">Лицо, принявшее груз: <b>{receiver or "—"}</b></div>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2"><div class="label">11. Отметки грузоотправителей, грузополучателей и перевозчиков</div>{marks or "—"}</td>
+  </tr>
+  <tr>
+    <td colspan="2"><div class="label">12. Стоимость перевозки груза и расчёт платы</div>{freight or "—"}</td>
   </tr>
 </table>
 <table class="meta sig" style="border:none">
   <tr>
     <td style="border:none;width:50%">Грузоотправитель ________________ / ____________</td>
-    <td style="border:none;width:50%">Водитель / перевозчик ________________ / ____________</td>
+    <td style="border:none;width:50%">Перевозчик / водитель ________________ / ____________</td>
   </tr>
   <tr>
     <td style="border:none">Груз сдал ________________ / ____________</td>
@@ -20963,8 +21050,8 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         num = _re.sub(r'[/\\?%*:|"<>]', "", str(record.get("doc_number") or record.get("id") or ""))
         le = _re.sub(r'[/\\?%*:|"<>]', "", str(record.get("le_short") or ""))
         cn = _re.sub(r'[/\\?%*:|"<>]', "", str(record.get("c_name") or ""))
-        name = f"ТТН_{num}_{le}_{cn}.{ext}".strip("_")
-        return name or f"TTN_{record.get('id')}.{ext}"
+        name = f"ТН_{num}_{le}_{cn}.{ext}".strip("_")
+        return name or f"TN_{record.get('id')}.{ext}"
 
     def _get_ttn_catalog_record(user: dict, record_id: int) -> dict:
         records = repository.list_supply_ttn_records(user_id=_supply_owner_id(user))

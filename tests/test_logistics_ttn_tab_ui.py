@@ -30,17 +30,18 @@ def test_logistics_title_picker_and_panes() -> None:
     js = JS.read_text(encoding="utf-8")
     assert 'id="logisticsTabSelect"' in html
     assert 'option value="poa" selected>Доверенности</option>' in html
-    assert 'option value="ttn">ТТН</option>' in html
+    assert 'option value="ttn">ТН</option>' in html
     assert 'id="logisticsPoaPane"' in html
     assert 'id="logisticsTtnPane"' in html
     assert 'id="createTtnModal"' in html
     assert "openCreateTtnModal()" in html
+    assert "+ Создать ТН" in html
     assert "function setLogisticsTab" in js
     assert "function initLogisticsSection" in js
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
-    assert "app.js?v=594" in html
-    assert "style.css?v=344" in html
+    assert "app.js?v=595" in html
+    assert "style.css?v=345" in html
     assert "ttn-modal-card" in html
     assert "ttn-form-grid" in html
     assert 'max-width:560px' not in html.split('id="createTtnModal"')[1].split("<!-- ── Планирование")[0]
@@ -257,4 +258,63 @@ def test_ttn_manual_row_has_clear_button() -> None:
     assert "_ttnRefreshLoadPlaceOptions" in clear_load
     clear_unload = js.split("function clearTtnManualUnload", 1)[1].split("\nfunction ", 1)[0]
     assert "_ttnRefreshUnloadPlaceOptions" in clear_unload
+
+
+def test_tn_rename_and_pp2200_fields_additive() -> None:
+    """UI renamed to ТН; create modal/print cover ПП РФ № 2200 sections without dropping old fields."""
+    html = HTML.read_text(encoding="utf-8")
+    js = JS.read_text(encoding="utf-8")
+    web = WEB.read_text(encoding="utf-8")
+    repo = REPO.read_text(encoding="utf-8")
+    assert "+ Создать ТН" in html
+    assert 'id="createTtnModalTitle">Создать ТН<' in html
+    assert 'option value="ttn">ТН</option>' in html
+    assert "Создать ТН" in js and "Редактировать ТН" in js and "Удалить ТН?" in js
+    assert "ТН не найдены" in js
+    for field_id in (
+        "ttnCreateCustomer",
+        "ttnCreatePacking",
+        "ttnCreateDeclaredValue",
+        "ttnCreateVehicleType",
+        "ttnCreateLoadingDatetime",
+        "ttnCreateLoaderName",
+        "ttnCreateUnloadingDatetime",
+        "ttnCreateReceiverName",
+        "ttnCreateRedirect",
+        "ttnCreateMarks",
+        "ttnCreateFreightCost",
+    ):
+        assert f'id="{field_id}"' in html
+        assert field_id in js
+    for col in (
+        "customer_services",
+        "packing_type",
+        "declared_value",
+        "vehicle_type",
+        "loading_datetime",
+        "loader_name",
+        "unloading_datetime",
+        "receiver_name",
+        "redirect_info",
+        "carrier_marks",
+        "freight_cost",
+    ):
+        assert col in repo and col in web and col in js
+    print_html = web.split("def _build_ttn_catalog_html", 1)[1].split("\n    def ", 1)[0]
+    assert "Транспортная накладная" in print_html
+    for label in ("1.", "1а.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "9.", "10.", "11.", "12."):
+        assert label in print_html
+    # Existing core fields still present (no regression).
+    for field_id in (
+        "ttnCreateShipper",
+        "ttnCreateConsignee",
+        "ttnCreateDriver",
+        "ttnCreateVehicle",
+        "ttnCreateCargo",
+        "ttnCreatePlaces",
+        "ttnCreateWeight",
+        "ttnCreateDocs",
+        "ttnCreateNotes",
+    ):
+        assert f'id="{field_id}"' in html
 

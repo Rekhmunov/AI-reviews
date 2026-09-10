@@ -7456,6 +7456,17 @@ body.sst-col-resizing * {
   min-height: 1.2em;
 }
 
+#createTtnModal .ttn-subfields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+#createTtnModal #ttnCreateVehicleType {
+  margin-top: 8px;
+}
+
 #createTtnModal .ttn-modal-footer {
   flex: 0 0 auto;
   display: flex;

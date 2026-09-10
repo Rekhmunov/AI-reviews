@@ -19080,7 +19080,7 @@ function renderTtnTable() {
     );
   }
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">ТТН не найдены</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">ТН не найдены</td></tr>';
     return;
   }
   tbody.innerHTML = "";
@@ -19110,11 +19110,11 @@ window.renderTtnTable = renderTtnTable;
 
 function _ttnFileName(id, ext) {
   const r = _ttnRecords.find((x) => x.id === id);
-  if (!r) return `ТТН_${id}.${ext}`;
+  if (!r) return `ТН_${id}.${ext}`;
   const num = String(r.doc_number || id).replace(/[/\\?%*:|"<>]/g, "");
   const le = (r.le_short || "").replace(/[/\\?%*:|"<>]/g, "");
   const cn = (r.c_name || "").replace(/[/\\?%*:|"<>]/g, "");
-  return `ТТН_${num}_${le}_${cn}.${ext}`;
+  return `ТН_${num}_${le}_${cn}.${ext}`;
 }
 
 function downloadTtnDoc(id) {
@@ -19144,7 +19144,7 @@ function printTtnRecord(id) {
 window.printTtnRecord = printTtnRecord;
 
 async function deleteTtnRecord(id) {
-  if (!confirm("Удалить ТТН?")) return;
+  if (!confirm("Удалить ТН?")) return;
   await fetch(`/api/supply-ttn-records/${id}`, { method: "DELETE", headers: jsonHeaders() }).catch(() => null);
   await loadTtnRecords();
 }
@@ -19212,6 +19212,17 @@ async function _openTtnModal(mode, record) {
   setVal("ttnCreateWeight", "");
   setVal("ttnCreateDocs", "");
   setVal("ttnCreateNotes", "");
+  setVal("ttnCreateCustomer", "");
+  setVal("ttnCreatePacking", "");
+  setVal("ttnCreateDeclaredValue", "");
+  setVal("ttnCreateVehicleType", "");
+  setVal("ttnCreateLoadingDatetime", "");
+  setVal("ttnCreateLoaderName", "");
+  setVal("ttnCreateUnloadingDatetime", "");
+  setVal("ttnCreateReceiverName", "");
+  setVal("ttnCreateRedirect", "");
+  setVal("ttnCreateMarks", "");
+  setVal("ttnCreateFreightCost", "");
   setVal("ttnCreateLoadAddress", "");
   setVal("ttnCreateUnloadAddress", "");
   setVal("ttnManualDriverName", "");
@@ -19244,6 +19255,17 @@ async function _openTtnModal(mode, record) {
     setVal("ttnCreateWeight", record.cargo_weight || "");
     setVal("ttnCreateDocs", record.accompanying_docs || "");
     setVal("ttnCreateNotes", record.notes || "");
+    setVal("ttnCreateCustomer", record.customer_services || "");
+    setVal("ttnCreatePacking", record.packing_type || "");
+    setVal("ttnCreateDeclaredValue", record.declared_value || "");
+    setVal("ttnCreateVehicleType", record.vehicle_type || "");
+    setVal("ttnCreateLoadingDatetime", record.loading_datetime || "");
+    setVal("ttnCreateLoaderName", record.loader_name || "");
+    setVal("ttnCreateUnloadingDatetime", record.unloading_datetime || "");
+    setVal("ttnCreateReceiverName", record.receiver_name || "");
+    setVal("ttnCreateRedirect", record.redirect_info || "");
+    setVal("ttnCreateMarks", record.carrier_marks || "");
+    setVal("ttnCreateFreightCost", record.freight_cost || "");
 
     const loadAddr = String(record.load_address || "").trim();
     const unloadAddr = String(record.unload_address || "").trim();
@@ -19291,8 +19313,8 @@ async function _openTtnModal(mode, record) {
 
   const title = document.getElementById("createTtnModalTitle");
   if (title) {
-    title.textContent = mode === "edit" ? "Редактировать ТТН" :
-                        mode === "copy" ? "Копировать ТТН" : "Создать ТТН";
+    title.textContent = mode === "edit" ? "Редактировать ТН" :
+                        mode === "copy" ? "Копировать ТН" : "Создать ТН";
   }
   const saveBtn = document.getElementById("ttnCreateSaveBtn");
   if (saveBtn) saveBtn.textContent = mode === "edit" ? "Сохранить изменения" : "Сохранить";
@@ -19386,6 +19408,17 @@ async function saveTtnRecord() {
     cargo_weight: document.getElementById("ttnCreateWeight")?.value.trim() || "",
     accompanying_docs: document.getElementById("ttnCreateDocs")?.value.trim() || "",
     notes: document.getElementById("ttnCreateNotes")?.value.trim() || "",
+    customer_services: document.getElementById("ttnCreateCustomer")?.value.trim() || "",
+    packing_type: document.getElementById("ttnCreatePacking")?.value.trim() || "",
+    declared_value: document.getElementById("ttnCreateDeclaredValue")?.value.trim() || "",
+    vehicle_type: document.getElementById("ttnCreateVehicleType")?.value.trim() || "",
+    loading_datetime: document.getElementById("ttnCreateLoadingDatetime")?.value.trim() || "",
+    loader_name: document.getElementById("ttnCreateLoaderName")?.value.trim() || "",
+    unloading_datetime: document.getElementById("ttnCreateUnloadingDatetime")?.value.trim() || "",
+    receiver_name: document.getElementById("ttnCreateReceiverName")?.value.trim() || "",
+    redirect_info: document.getElementById("ttnCreateRedirect")?.value.trim() || "",
+    carrier_marks: document.getElementById("ttnCreateMarks")?.value.trim() || "",
+    freight_cost: document.getElementById("ttnCreateFreightCost")?.value.trim() || "",
   });
   let res;
   if (_ttnModalMode === "edit" && _ttnEditingId) {

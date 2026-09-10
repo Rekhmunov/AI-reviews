@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=344" />
+  <link rel="stylesheet" href="/static/style.css?v=345" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -3949,7 +3949,7 @@
             <select id="logisticsTabSelect" class="fbs-source-picker-native" hidden
                     onchange="onLogisticsTabChange()" title="Раздел" tabindex="-1" aria-hidden="true">
               <option value="poa" selected>Доверенности</option>
-              <option value="ttn">ТТН</option>
+              <option value="ttn">ТН</option>
             </select>
           </div>
         </div>
@@ -4005,7 +4005,7 @@
           <div class="panel supplies-toolbar-panel">
             <div class="supplies-top-controls">
               <div class="supplies-actions">
-                <button onclick="openCreateTtnModal()">+ Создать ТТН</button>
+                <button onclick="openCreateTtnModal()">+ Создать ТН</button>
               </div>
               <div class="supplies-actions">
                 <div class="ss-wrap" id="ttnLegalFilterWrap">
@@ -4099,14 +4099,14 @@
         </div>
       </div>
 
-      <!-- Create TTN Modal — size matched to WB FBS «Поставка» -->
+      <!-- Create TN Modal — size matched to WB FBS «Поставка»; fields per ПП РФ № 2200 -->
       <div id="createTtnModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
            aria-labelledby="createTtnModalTitle"
            onclick="if(event.target===this)closeCreateTtnModal()">
         <div class="modal-card ttn-modal-card">
           <div class="ttn-modal-header">
             <div class="ttn-modal-title-row">
-              <h3 class="ttn-modal-title" id="createTtnModalTitle">Создать ТТН</h3>
+              <h3 class="ttn-modal-title" id="createTtnModalTitle">Создать ТН</h3>
               <button type="button" class="icon-btn secondary ttn-modal-close"
                       onclick="closeCreateTtnModal()" aria-label="Закрыть">✕</button>
             </div>
@@ -4114,11 +4114,11 @@
           <div class="ttn-modal-body">
             <div class="ttn-form-grid">
               <div class="ttn-field ttn-field-span-2">
-                <label class="small" for="ttnCreateDate">Дата ТТН</label>
+                <label class="small" for="ttnCreateDate">Дата ТН</label>
                 <input id="ttnCreateDate" class="ttn-input" type="date" />
               </div>
               <div class="ttn-field">
-                <label class="small">Грузоотправитель</label>
+                <label class="small">1. Грузоотправитель</label>
                 <div class="ss-wrap ttn-ss-field" id="ttnCreateShipperWrap">
                   <input class="ss-input" id="ttnCreateShipperInput" type="text"
                          placeholder="Выберите грузоотправителя" autocomplete="off" readonly
@@ -4129,7 +4129,7 @@
                 </div>
               </div>
               <div class="ttn-field">
-                <label class="small">Грузополучатель</label>
+                <label class="small">2. Грузополучатель</label>
                 <div class="ss-wrap ttn-ss-field" id="ttnCreateConsigneeWrap">
                   <input class="ss-input" id="ttnCreateConsigneeInput" type="text"
                          placeholder="Выберите грузополучателя" autocomplete="off" readonly
@@ -4139,8 +4139,13 @@
                   <input type="hidden" id="ttnCreateConsignee" />
                 </div>
               </div>
+              <div class="ttn-field ttn-field-span-2">
+                <label class="small" for="ttnCreateCustomer">1а. Заказчик услуг по организации перевозки</label>
+                <input id="ttnCreateCustomer" class="ttn-input" type="text"
+                       placeholder="Если не указан — в печати как грузоотправитель" autocomplete="off" />
+              </div>
               <div class="ttn-field">
-                <label class="small">Водитель / перевозчик</label>
+                <label class="small">6–7. Водитель / перевозчик</label>
                 <div class="ttn-field-with-action">
                   <div class="ss-wrap ttn-ss-field" id="ttnCreateDriverWrap">
                     <input class="ss-input" id="ttnCreateDriverInput" type="text"
@@ -4163,7 +4168,7 @@
                         autocomplete="off" />
                       <input id="ttnManualCarrier" class="ttn-input" type="text" placeholder="Перевозчик (наименование)"
                         autocomplete="off" />
-                      <p class="small ttn-hint">Данные сохранятся только в этой ТТН</p>
+                      <p class="small ttn-hint">Данные сохранятся только в этой ТН</p>
                     </div>
                     <button type="button" class="secondary small-btn ttn-manual-clear-btn"
                       onclick="clearTtnManualDriver()" title="Убрать ручной ввод">✕</button>
@@ -4172,7 +4177,7 @@
                 <p id="ttnCarrierHint" class="small ttn-hint ttn-carrier-hint"></p>
               </div>
               <div class="ttn-field">
-                <label class="small">Транспортное средство</label>
+                <label class="small">7. Транспортное средство</label>
                 <div class="ttn-field-with-action">
                   <div class="ss-wrap ttn-ss-field" id="ttnCreateVehicleWrap">
                     <input class="ss-input" id="ttnCreateVehicleInput" type="text"
@@ -4194,9 +4199,11 @@
                       onclick="clearTtnManualVehicle()" title="Убрать ручной ввод">✕</button>
                   </div>
                 </div>
+                <input id="ttnCreateVehicleType" class="ttn-input" type="text"
+                       placeholder="Тип / вместимость ТС (необязательно)" autocomplete="off" />
               </div>
               <div class="ttn-field">
-                <label class="small">Место погрузки</label>
+                <label class="small">8. Место погрузки</label>
                 <div class="ttn-field-with-action">
                   <div class="ss-wrap ttn-ss-field" id="ttnCreateLoadWrap">
                     <input class="ss-input" id="ttnCreateLoadInput" type="text"
@@ -4218,9 +4225,15 @@
                       onclick="clearTtnManualLoad()" title="Убрать ручной ввод">✕</button>
                   </div>
                 </div>
+                <div class="ttn-subfields">
+                  <input id="ttnCreateLoadingDatetime" class="ttn-input" type="text"
+                         placeholder="Дата и время погрузки" autocomplete="off" />
+                  <input id="ttnCreateLoaderName" class="ttn-input" type="text"
+                         placeholder="Лицо, осуществившее погрузку" autocomplete="off" />
+                </div>
               </div>
               <div class="ttn-field">
-                <label class="small">Место разгрузки</label>
+                <label class="small">10. Место выдачи / разгрузки</label>
                 <div class="ttn-field-with-action">
                   <div class="ss-wrap ttn-ss-field" id="ttnCreateUnloadWrap">
                     <input class="ss-input" id="ttnCreateUnloadInput" type="text"
@@ -4242,10 +4255,26 @@
                       onclick="clearTtnManualUnload()" title="Убрать ручной ввод">✕</button>
                   </div>
                 </div>
+                <div class="ttn-subfields">
+                  <input id="ttnCreateUnloadingDatetime" class="ttn-input" type="text"
+                         placeholder="Дата и время выдачи" autocomplete="off" />
+                  <input id="ttnCreateReceiverName" class="ttn-input" type="text"
+                         placeholder="Лицо, принявшее груз" autocomplete="off" />
+                </div>
               </div>
               <div class="ttn-field ttn-field-span-2">
-                <label class="small" for="ttnCreateCargo">Наименование груза</label>
+                <label class="small" for="ttnCreateCargo">3. Наименование груза</label>
                 <input id="ttnCreateCargo" class="ttn-input" type="text" placeholder="Описание груза"
+                       autocomplete="off" />
+              </div>
+              <div class="ttn-field">
+                <label class="small" for="ttnCreatePacking">Вид тары / упаковки</label>
+                <input id="ttnCreatePacking" class="ttn-input" type="text" placeholder="напр. короба, паллеты"
+                       autocomplete="off" />
+              </div>
+              <div class="ttn-field">
+                <label class="small" for="ttnCreateDeclaredValue">Объявленная стоимость</label>
+                <input id="ttnCreateDeclaredValue" class="ttn-input" type="text" placeholder="Необязательно"
                        autocomplete="off" />
               </div>
               <div class="ttn-field">
@@ -4257,13 +4286,28 @@
                 <input id="ttnCreateWeight" class="ttn-input" type="text" placeholder="напр. 500" autocomplete="off" />
               </div>
               <div class="ttn-field ttn-field-span-2">
-                <label class="small" for="ttnCreateDocs">Сопроводительные документы</label>
+                <label class="small" for="ttnCreateDocs">4. Сопроводительные документы</label>
                 <input id="ttnCreateDocs" class="ttn-input" type="text" placeholder="УПД, счёт, доверенность…"
                        autocomplete="off" />
               </div>
               <div class="ttn-field ttn-field-span-2">
-                <label class="small" for="ttnCreateNotes">Особые условия</label>
+                <label class="small" for="ttnCreateNotes">5. Указания грузоотправителя / особые условия</label>
                 <input id="ttnCreateNotes" class="ttn-input" type="text" placeholder="Необязательно"
+                       autocomplete="off" />
+              </div>
+              <div class="ttn-field ttn-field-span-2">
+                <label class="small" for="ttnCreateRedirect">9. Переадресовка</label>
+                <input id="ttnCreateRedirect" class="ttn-input" type="text"
+                       placeholder="Если не было — оставьте пустым" autocomplete="off" />
+              </div>
+              <div class="ttn-field ttn-field-span-2">
+                <label class="small" for="ttnCreateMarks">11. Отметки грузоотправителя, грузополучателя, перевозчика</label>
+                <input id="ttnCreateMarks" class="ttn-input" type="text" placeholder="Необязательно"
+                       autocomplete="off" />
+              </div>
+              <div class="ttn-field ttn-field-span-2">
+                <label class="small" for="ttnCreateFreightCost">12. Стоимость перевозки и расчёт платы</label>
+                <input id="ttnCreateFreightCost" class="ttn-input" type="text" placeholder="Необязательно"
                        autocomplete="off" />
               </div>
               <div id="ttnCreateInfo" class="small ttn-field-span-2"></div>
@@ -7278,6 +7322,6 @@
 
   <script src="/static/ozon_fbs.js?v=144"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=22"></script>
-  <script src="/static/app.js?v=594"></script>
+  <script src="/static/app.js?v=595"></script>
 </body>
 </html>
