@@ -18528,6 +18528,7 @@ let _ttnEditingId = null;
 let _ttnLoadAddressByValue = {};
 let _ttnUnloadAddressByValue = {};
 const TTN_DEFAULT_CARGO = "Текстиль (постельное белье/наматрасники)";
+const TTN_DEFAULT_DOCS = "Закрывающие документы";
 
 function _ttnDateToInputValue(displayDate) {
   const s = String(displayDate || "").trim();
@@ -19296,7 +19297,7 @@ async function _openTtnModal(mode, record) {
   setVal("ttnCreateCargo", TTN_DEFAULT_CARGO);
   setVal("ttnCreatePlaces", "");
   setVal("ttnCreateWeight", "");
-  setVal("ttnCreateDocs", "");
+  setVal("ttnCreateDocs", TTN_DEFAULT_DOCS);
   setVal("ttnCreateNotes", "");
   setVal("ttnCreatePacking", "");
   setVal("ttnCreateDeclaredValue", "");
@@ -19340,7 +19341,7 @@ async function _openTtnModal(mode, record) {
     setVal("ttnCreateCargo", String(record.cargo_description || "").trim() || TTN_DEFAULT_CARGO);
     setVal("ttnCreatePlaces", record.cargo_places || "");
     setVal("ttnCreateWeight", record.cargo_weight || "");
-    setVal("ttnCreateDocs", record.accompanying_docs || "");
+    setVal("ttnCreateDocs", String(record.accompanying_docs || "").trim() || TTN_DEFAULT_DOCS);
     setVal("ttnCreateNotes", record.notes || "");
     setVal("ttnCreatePacking", record.packing_type || "");
     setVal("ttnCreateDeclaredValue", record.declared_value || "");
