@@ -32,6 +32,8 @@ def test_build_order_lookup_details_includes_status_sticker_kiz_pick() -> None:
             "supply_id": "WB-GI-9",
             "sticker_part_a": "1234",
             "sticker_part_b": "567890",
+            "sticker_barcode": "*UabcXYZ12",
+            "sticker_scanned_at": "2026-09-10T10:15:00+00:00",
             "kiz_codes_json": '["010460000000000021"]',
             "pick_verified": True,
             "pick_barcode": "4600000000000",
@@ -47,6 +49,8 @@ def test_build_order_lookup_details_includes_status_sticker_kiz_pick() -> None:
     assert details["status_label"] == "На сборке"
     assert details["supply_id"] == "WB-GI-9"
     assert details["sticker_label"] == "1234 567890"
+    assert details["sticker_barcode"] == "*UabcXYZ12"
+    assert details["sticker_scanned_at"]  # formatted MSK datetime
     assert details["kiz_codes"] == ["010460000000000021"]
     assert details["pick_verified"] is True
     assert details["pick_barcode"] == "4600000000000"
@@ -68,6 +72,9 @@ def test_wb_fbs_lookup_detail_ui_markup() -> None:
     assert "Детали заказа" in js
     assert "Короба TRBX" in js
     assert "Проверка ШК" in js
+    assert "Стикер этикетки" in js
+    assert "_wbFbsLookupStickerEtiquetteValue" in js
+    assert "sticker_scanned_at" in js
     assert "data.details" in js
     assert ".wb-fbs-lookup-detail" in css
     assert "style.css?v=" in html

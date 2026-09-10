@@ -11679,6 +11679,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     "sticker_part_b": body.get("sticker_part_b"),
                 }
             },
+            # Operator scan from KIZ / pick modals — stamp scan time.
+            set_scanned_at=True,
         )
         return {"ok": True, "updated": updated}
 

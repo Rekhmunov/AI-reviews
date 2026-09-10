@@ -1280,6 +1280,12 @@ def ensure_wb_fbs_tables(repo: ReviewRepository) -> None:
             """
         )
         conn.execute(
+            """
+            ALTER TABLE wb_fbs_orders
+            ADD COLUMN IF NOT EXISTS sticker_scanned_at TIMESTAMPTZ
+            """
+        )
+        conn.execute(
             repo._sql(
                 "CREATE INDEX IF NOT EXISTS idx_wb_fbs_orders_sticker_barcode "
                 "ON wb_fbs_orders(user_id, source_id, sticker_barcode) "
@@ -1301,10 +1307,13 @@ def persist_order_stickers_batch(
     user_id: int,
     source_id: int,
     stickers: dict[int, dict[str, Any]],
+    set_scanned_at: bool = False,
 ) -> int:
     """Persist sticker fields on ``wb_fbs_orders`` (bind sticker → order_id).
 
     Only updates rows that already exist locally. Empty sticker payloads are skipped.
+    When ``set_scanned_at`` is true (operator QR scan in KIZ/pick), also stamps
+    ``sticker_scanned_at = NOW()``. Marketplace sticker sync leaves it untouched.
     Returns count of updated rows.
     """
     if not stickers:
@@ -1324,9 +1333,10 @@ def persist_order_stickers_batch(
             part_b = str(st.get("sticker_part_b") or st.get("partB") or "").strip()
             if not (barcode or part_a or part_b):
                 continue
+            scanned_at_sql = "NOW()" if set_scanned_at else "sticker_scanned_at"
             cur = conn.execute(
                 repo._sql(
-                    """
+                    f"""
                     UPDATE wb_fbs_orders
                     SET sticker_barcode = CASE
                             WHEN ? <> '' THEN ?
@@ -1339,7 +1349,8 @@ def persist_order_stickers_batch(
                         sticker_part_b = CASE
                             WHEN ? <> '' THEN ?
                             ELSE sticker_part_b
-                        END
+                        END,
+                        sticker_scanned_at = {scanned_at_sql}
                     WHERE user_id = ? AND source_id = ? AND order_id = ?
                     """
                 ),
@@ -3187,6 +3198,7 @@ def build_order_lookup_details(
         "sticker_part_a": str(d.get("sticker_part_a") or "").strip(),
         "sticker_part_b": str(d.get("sticker_part_b") or "").strip(),
         "sticker_label": _sticker_label_from_row(d),
+        "sticker_scanned_at": _format_lookup_datetime(d.get("sticker_scanned_at")),
         "kiz_codes": _kiz_codes_from_row(d),
         "pick_verified": pick_verified,
         "pick_barcode": pick_barcode,

@@ -21956,18 +21956,29 @@ function exportWbFbsReturnsGoodsCsv() {
 }
 window.exportWbFbsReturnsGoodsCsv = exportWbFbsReturnsGoodsCsv;
 
-async function _wbFbsKizPersistStickerForOrder(row) {
+async function _wbFbsKizPersistStickerForOrder(row, scanRaw) {
   const sid = Number(wbFbsState?.sourceId || 0);
   const oid = Number(row?.order_id || 0);
   if (!sid || !oid) return;
+  const scan = _wbFbsKizNormalizeScan(scanRaw || "");
+  let barcode = String(row?.sticker_barcode || "").trim();
+  // If operator scanned the QR (*U… / !u…), keep the exact scanned value.
+  if (scan) {
+    const scanKey = _wbFbsKizScanKey(scan);
+    const knownKey = _wbFbsKizScanKey(barcode);
+    const looksQr = /[*!]/.test(scan) || (!/^\d+$/.test(scan) && scan.length >= 6);
+    if (knownKey && scanKey === knownKey) barcode = scan;
+    else if (looksQr) barcode = scan;
+  }
   const body = {
     source_id: sid,
     order_id: oid,
-    sticker_barcode: row?.sticker_barcode || "",
+    sticker_barcode: barcode,
     sticker_part_a: row?.sticker_part_a || "",
     sticker_part_b: row?.sticker_part_b || "",
   };
   if (!body.sticker_barcode && !body.sticker_part_a && !body.sticker_part_b) return;
+  if (barcode) row.sticker_barcode = barcode;
   try {
     await fetch("/api/wb-fbs/kiz-restore/persist-sticker", {
       method: "POST",
@@ -28815,6 +28826,16 @@ function _wbFbsLookupDash(value) {
   return s || "—";
 }
 
+
+function _wbFbsLookupStickerEtiquetteValue(details) {
+  const barcode = String(details?.sticker_barcode || "").trim();
+  const scannedAt = String(details?.sticker_scanned_at || "").trim();
+  if (!barcode && !scannedAt) return "—";
+  if (barcode && scannedAt) return `${barcode} (${scannedAt})`;
+  if (barcode) return barcode;
+  return `— (${scannedAt})`;
+}
+
 function _wbFbsLookupDetailRows(details) {
   if (!details || typeof details !== "object") return [];
   const kiz = Array.isArray(details.kiz_codes)
@@ -28832,6 +28853,7 @@ function _wbFbsLookupDetailRows(details) {
     ["Статус WB", _wbFbsLookupDash(details.status_label || details.status)],
     ["Поставка", _wbFbsLookupDash(details.supply_id)],
     ["Стикер", _wbFbsLookupDash(details.sticker_label || details.sticker_barcode)],
+    ["Стикер этикетки", _wbFbsLookupStickerEtiquetteValue(details)],
     ["КИЗ", kiz.length ? kiz.join(", ") : "не сохранён"],
     ["Проверка ШК", pickOk ? String(details.pick_barcode) : "не проверен"],
     ["Короба TRBX", trbxValue],
@@ -32790,7 +32812,7 @@ function onWbFbsKizStickerScanKey(event) {
     if (input) input.select();
     return;
   }
-  _wbFbsKizPersistStickerForOrder(found.row);
+  _wbFbsKizPersistStickerForOrder(found.row, scan);
   _wbFbsKizSetInfo("");
   if (input) input.value = "";
   beginWbFbsKizMarkScan(Number(found.row.order_id));
@@ -34190,6 +34212,7 @@ function onWbFbsPickStickerScanKey(event) {
     if (input) input.select();
     return;
   }
+  _wbFbsKizPersistStickerForOrder(found.row, scan);
   _wbFbsPickSetInfo("");
   if (input) input.value = "";
   beginWbFbsPickSkuScan(Number(found.row.order_id));
