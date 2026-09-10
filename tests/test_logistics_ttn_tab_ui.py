@@ -40,7 +40,7 @@ def test_logistics_title_picker_and_panes() -> None:
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
     assert "app.js?v=592" in html
-    assert "style.css?v=339" in html
+    assert "style.css?v=340" in html
     assert "ttn-modal-card" in html
     assert "ttn-form-grid" in html
     assert 'max-width:560px' not in html.split('id="createTtnModal"')[1].split("<!-- ── Планирование")[0]
@@ -171,6 +171,15 @@ def test_ttn_create_modal_matches_supply_size() -> None:
     assert "min(1440px, 100%)" in block
     assert "calc(100vh - 40px)" in block
     assert "flex-direction: column" in block
+
+
+def test_ttn_create_modal_form_fills_width() -> None:
+    """Form grid must span the full modal — no left-biased max-width cap."""
+    css = CSS.read_text(encoding="utf-8")
+    grid = css.split("#createTtnModal .ttn-form-grid")[1].split("}", 1)[0]
+    assert "width: 100%" in grid
+    assert "max-width: none" in grid
+    assert "max-width: 1100px" not in grid
 
 
 def test_ttn_load_unload_places_le_contractor_warehouse() -> None:
