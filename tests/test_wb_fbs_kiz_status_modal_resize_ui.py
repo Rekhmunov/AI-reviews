@@ -56,5 +56,5 @@ def test_wb_fbs_kiz_pick_column_resize_wired() -> None:
     assert 'storagePrefix: "wb_fbs_pick_col_widths_v1"' in js
     assert "wbFbsKizColResizer.init()" in js
     assert "wbFbsPickColResizer.init()" in js
-    assert "app.js?v=582" in html
+    assert "app.js?v=583" in html
     assert "style.css?v=333" in html
