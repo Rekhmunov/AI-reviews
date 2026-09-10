@@ -7408,7 +7408,43 @@ body.sst-col-resizing * {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-top: 0;
+  margin-top: 8px;
+}
+
+#createTtnModal .ttn-manual-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+#createTtnModal .ttn-manual-row > .ttn-input,
+#createTtnModal .ttn-manual-row-fields {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+}
+
+#createTtnModal .ttn-manual-row-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#createTtnModal .ttn-manual-clear-btn {
+  flex: 0 0 auto;
+  height: 40px;
+  min-width: 40px;
+  padding: 0 12px;
+  color: #b91c1c;
+  border-color: #fca5a5;
+  line-height: 1;
+}
+
+#createTtnModal .ttn-manual-clear-btn:hover {
+  background: #fef2f2;
+  border-color: #f87171;
 }
 
 #createTtnModal .ttn-hint {

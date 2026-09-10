@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=343" />
+  <link rel="stylesheet" href="/static/style.css?v=344" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -4155,13 +4155,19 @@
                     title="Ввести вручную">✏</button>
                 </div>
                 <div id="ttnManualDriverFields" class="ttn-manual-fields" style="display:none">
-                  <input id="ttnManualDriverName" class="ttn-input" type="text" placeholder="ФИО водителя"
-                    autocomplete="off" />
-                  <input id="ttnManualDriverDocs" class="ttn-input" type="text" placeholder="Документы водителя"
-                    autocomplete="off" />
-                  <input id="ttnManualCarrier" class="ttn-input" type="text" placeholder="Перевозчик (наименование)"
-                    autocomplete="off" />
-                  <p class="small ttn-hint">Данные сохранятся только в этой ТТН</p>
+                  <div class="ttn-manual-row">
+                    <div class="ttn-manual-row-fields">
+                      <input id="ttnManualDriverName" class="ttn-input" type="text" placeholder="ФИО водителя"
+                        autocomplete="off" />
+                      <input id="ttnManualDriverDocs" class="ttn-input" type="text" placeholder="Документы водителя"
+                        autocomplete="off" />
+                      <input id="ttnManualCarrier" class="ttn-input" type="text" placeholder="Перевозчик (наименование)"
+                        autocomplete="off" />
+                      <p class="small ttn-hint">Данные сохранятся только в этой ТТН</p>
+                    </div>
+                    <button type="button" class="secondary small-btn ttn-manual-clear-btn"
+                      onclick="clearTtnManualDriver()" title="Убрать ручной ввод">✕</button>
+                  </div>
                 </div>
                 <p id="ttnCarrierHint" class="small ttn-hint ttn-carrier-hint"></p>
               </div>
@@ -4181,8 +4187,12 @@
                     title="Ввести вручную">✏</button>
                 </div>
                 <div id="ttnManualVehicleFields" class="ttn-manual-fields" style="display:none">
-                  <input id="ttnCreateVehicleManual" class="ttn-input" type="text" placeholder="Марка и госномер"
-                         autocomplete="off" />
+                  <div class="ttn-manual-row">
+                    <input id="ttnCreateVehicleManual" class="ttn-input" type="text" placeholder="Марка и госномер"
+                           autocomplete="off" />
+                    <button type="button" class="secondary small-btn ttn-manual-clear-btn"
+                      onclick="clearTtnManualVehicle()" title="Убрать ручной ввод">✕</button>
+                  </div>
                 </div>
               </div>
               <div class="ttn-field">
@@ -4201,8 +4211,12 @@
                     title="Ввести вручную">✏</button>
                 </div>
                 <div id="ttnManualLoadFields" class="ttn-manual-fields" style="display:none">
-                  <input id="ttnCreateLoadAddress" class="ttn-input" type="text" placeholder="Адрес погрузки"
-                         autocomplete="off" />
+                  <div class="ttn-manual-row">
+                    <input id="ttnCreateLoadAddress" class="ttn-input" type="text" placeholder="Адрес погрузки"
+                           autocomplete="off" />
+                    <button type="button" class="secondary small-btn ttn-manual-clear-btn"
+                      onclick="clearTtnManualLoad()" title="Убрать ручной ввод">✕</button>
+                  </div>
                 </div>
               </div>
               <div class="ttn-field">
@@ -4221,8 +4235,12 @@
                     title="Ввести вручную">✏</button>
                 </div>
                 <div id="ttnManualUnloadFields" class="ttn-manual-fields" style="display:none">
-                  <input id="ttnCreateUnloadAddress" class="ttn-input" type="text" placeholder="Адрес разгрузки"
-                         autocomplete="off" />
+                  <div class="ttn-manual-row">
+                    <input id="ttnCreateUnloadAddress" class="ttn-input" type="text" placeholder="Адрес разгрузки"
+                           autocomplete="off" />
+                    <button type="button" class="secondary small-btn ttn-manual-clear-btn"
+                      onclick="clearTtnManualUnload()" title="Убрать ручной ввод">✕</button>
+                  </div>
                 </div>
               </div>
               <div class="ttn-field ttn-field-span-2">
@@ -7260,6 +7278,6 @@
 
   <script src="/static/ozon_fbs.js?v=144"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=22"></script>
-  <script src="/static/app.js?v=593"></script>
+  <script src="/static/app.js?v=594"></script>
 </body>
 </html>

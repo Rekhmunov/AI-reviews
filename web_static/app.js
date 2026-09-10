@@ -18929,7 +18929,7 @@ function toggleTtnManualLoad() {
   } else {
     if (fields) fields.style.display = "none";
     if (wrap) wrap.style.opacity = "";
-    onTtnLoadPresetChange();
+    _ttnRefreshLoadPlaceOptions();
   }
 }
 window.toggleTtnManualLoad = toggleTtnManualLoad;
@@ -18943,14 +18943,61 @@ function toggleTtnManualUnload() {
     if (fields) fields.style.display = "block";
     if (wrap) wrap.style.opacity = "0.55";
     _ttnSetSsValue("ttnCreateUnloadWrap", "");
-    
   } else {
     if (fields) fields.style.display = "none";
     if (wrap) wrap.style.opacity = "";
-    onTtnUnloadPresetChange();
+    _ttnRefreshUnloadPlaceOptions();
   }
 }
 window.toggleTtnManualUnload = toggleTtnManualUnload;
+
+function clearTtnManualDriver() {
+  if (!_ttnManualDriverMode) return;
+  const name = document.getElementById("ttnManualDriverName");
+  const docs = document.getElementById("ttnManualDriverDocs");
+  const carrier = document.getElementById("ttnManualCarrier");
+  if (name) name.value = "";
+  if (docs) docs.value = "";
+  if (carrier) carrier.value = "";
+  toggleTtnManualDriver();
+}
+window.clearTtnManualDriver = clearTtnManualDriver;
+
+function clearTtnManualVehicle() {
+  if (!_ttnManualVehicleMode) return;
+  const manual = document.getElementById("ttnCreateVehicleManual");
+  if (manual) manual.value = "";
+  toggleTtnManualVehicle();
+}
+window.clearTtnManualVehicle = clearTtnManualVehicle;
+
+function clearTtnManualLoad() {
+  if (!_ttnManualLoadMode) return;
+  const addr = document.getElementById("ttnCreateLoadAddress");
+  if (addr) addr.value = "";
+  _ttnManualLoadMode = false;
+  const fields = document.getElementById("ttnManualLoadFields");
+  const wrap = document.getElementById("ttnCreateLoadWrap");
+  if (fields) fields.style.display = "none";
+  if (wrap) wrap.style.opacity = "";
+  _ttnSetManualBtn("ttnManualLoadBtn", false);
+  _ttnRefreshLoadPlaceOptions();
+}
+window.clearTtnManualLoad = clearTtnManualLoad;
+
+function clearTtnManualUnload() {
+  if (!_ttnManualUnloadMode) return;
+  const addr = document.getElementById("ttnCreateUnloadAddress");
+  if (addr) addr.value = "";
+  _ttnManualUnloadMode = false;
+  const fields = document.getElementById("ttnManualUnloadFields");
+  const wrap = document.getElementById("ttnCreateUnloadWrap");
+  if (fields) fields.style.display = "none";
+  if (wrap) wrap.style.opacity = "";
+  _ttnSetManualBtn("ttnManualUnloadBtn", false);
+  _ttnRefreshUnloadPlaceOptions();
+}
+window.clearTtnManualUnload = clearTtnManualUnload;
 
 async function loadTtnRecords() {
   const res = await fetch("/api/supply-ttn-records").catch(() => null);

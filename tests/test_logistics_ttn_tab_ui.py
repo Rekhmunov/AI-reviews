@@ -39,8 +39,8 @@ def test_logistics_title_picker_and_panes() -> None:
     assert "function initLogisticsSection" in js
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
-    assert "app.js?v=593" in html
-    assert "style.css?v=343" in html
+    assert "app.js?v=594" in html
+    assert "style.css?v=344" in html
     assert "ttn-modal-card" in html
     assert "ttn-form-grid" in html
     assert 'max-width:560px' not in html.split('id="createTtnModal"')[1].split("<!-- ── Планирование")[0]
@@ -237,4 +237,24 @@ def test_ttn_no_secondary_unload_warehouse_picker() -> None:
     assert "newContractorTtnUnloadFromWarehouses" not in html
     assert "Адрес грузоотправителя" in html
     assert "Адрес грузополучателя" in html
+
+
+def test_ttn_manual_row_has_clear_button() -> None:
+    """Manual input rows expose ✕ that clears the row and restores the dropdown."""
+    html = HTML.read_text(encoding="utf-8")
+    js = JS.read_text(encoding="utf-8")
+    for fn in (
+        "clearTtnManualDriver",
+        "clearTtnManualVehicle",
+        "clearTtnManualLoad",
+        "clearTtnManualUnload",
+    ):
+        assert f"function {fn}" in js
+        assert f"onclick=\"{fn}()\"" in html
+    assert "ttn-manual-clear-btn" in html
+    assert "ttn-manual-row" in html
+    clear_load = js.split("function clearTtnManualLoad", 1)[1].split("\nfunction ", 1)[0]
+    assert "_ttnRefreshLoadPlaceOptions" in clear_load
+    clear_unload = js.split("function clearTtnManualUnload", 1)[1].split("\nfunction ", 1)[0]
+    assert "_ttnRefreshUnloadPlaceOptions" in clear_unload
 
