@@ -29507,6 +29507,20 @@ const wbFbsSupplyDetailColResizer = createWbFbsModalColResizer({
   defaultWidths: [32, 60],
 });
 
+const wbFbsKizColResizer = createWbFbsModalColResizer({
+  tableId: "wbFbsKizTable",
+  colgroupId: "wbFbsKizColgroup",
+  storagePrefix: "wb_fbs_kiz_col_widths_v1",
+  defaultWidths: [22, 38, 32],
+});
+
+const wbFbsPickColResizer = createWbFbsModalColResizer({
+  tableId: "wbFbsPickTable",
+  colgroupId: "wbFbsPickColgroup",
+  storagePrefix: "wb_fbs_pick_col_widths_v1",
+  defaultWidths: [24, 40, 36],
+});
+
 const _WB_FBS_DETAIL_ACTION_IDS = [
   "wbFbsSupplyDetailPickingBtn",
   "wbFbsSupplyDetailPickingMenuBtn",
@@ -31774,6 +31788,7 @@ async function openWbFbsKizModal() {
     })) : [];
     _wbFbsKizCaptureBaseline();
     renderWbFbsKizTable();
+    try { wbFbsKizColResizer.init(); } catch (_e) { /* ignore */ }
     if (!wbFbsKizState.rows.length) {
       _wbFbsKizSetInfo("В поставке нет заказов, требующих маркировки КИЗ");
     }
@@ -32363,16 +32378,17 @@ async function refreshWbFbsModalOrderStatus(orderId) {
     });
     return;
   }
-  wbFbsOrderStatusState.busy = true;
   wbFbsOrderStatusState.orderId = oid;
   wbFbsOrderStatusState.cancelled = false;
   wbFbsOrderStatusState.statusLabel = "";
-  _wbFbsOrderStatusBusy(oid, true);
+  // Show the dialog first (must live in the visible WB FBS section).
   _wbFbsOrderStatusRender({
     title: "Проверка статуса",
     html: `<p class="ozon-fbs-move-delivering-text">Проверяем заказ ${_wbFbsEsc(oid)} на Wildberries…</p>`,
     kind: "ok",
   });
+  wbFbsOrderStatusState.busy = true;
+  _wbFbsOrderStatusBusy(oid, true);
   try {
     const data = await _wbFbsLookupOrderById(oid, { refresh: true });
     if (!data?.found || !data.item) {
@@ -32472,6 +32488,8 @@ function _wbFbsModalOrderIdHtml(orderId) {
         `<button type="button" class="wb-fbs-order-icon-btn wb-fbs-order-copy"` +
         ` title="Скопировать номер заказа"` +
         ` aria-label="Скопировать номер заказа ${safe}"` +
+        ` data-wb-fbs-order-copy="${safe}"` +
+        ` onmousedown="event.preventDefault(); event.stopPropagation();"` +
         ` onclick="event.stopPropagation(); copyWbFbsModalOrderNumber('${safe}', this)">` +
           `<svg class="wb-fbs-order-icon-btn-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">` +
             `<path fill="currentColor" d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>` +
@@ -32480,6 +32498,8 @@ function _wbFbsModalOrderIdHtml(orderId) {
         `<button type="button" class="wb-fbs-order-icon-btn wb-fbs-order-status-refresh"` +
         ` title="Проверить статус на Wildberries"` +
         ` aria-label="Проверить статус заказа ${safe}"` +
+        ` data-wb-fbs-order-refresh="${safe}"` +
+        ` onmousedown="event.preventDefault(); event.stopPropagation();"` +
         ` onclick="event.stopPropagation(); refreshWbFbsModalOrderStatus('${safe}')">` +
           `<svg class="wb-fbs-order-icon-btn-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">` +
             `<path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z"/>` +
@@ -32489,6 +32509,7 @@ function _wbFbsModalOrderIdHtml(orderId) {
     `</div>`
   );
 }
+
 
 function renderWbFbsKizTable(opts) {
   // After programmatic state updates (scan/CSV/save) skip DOM collect —
@@ -33646,6 +33667,7 @@ async function openWbFbsPickVerifyModal() {
     wbFbsPickState.rows = Array.isArray(data.rows) ? data.rows.map((r) => ({ ...r })) : [];
     _wbFbsPickCaptureBaseline();
     renderWbFbsPickVerifyTable();
+    try { wbFbsPickColResizer.init(); } catch (_e) { /* ignore */ }
     if (!wbFbsPickState.rows.length) {
       _wbFbsPickSetInfo("В поставке нет заказов без маркировки КИЗ", true);
     }

@@ -7981,7 +7981,7 @@ tr.dnd-over td {
 }
 
 #wbFbsOrderStatusModal.modal-overlay {
-  z-index: 1460;
+  z-index: 1600;
 }
 .wb-fbs-modal-order-id {
   display: inline-flex;
@@ -12323,9 +12323,13 @@ button.wb-fbs-sd-portal-btn:focus-visible {
 .wb-fbs-kiz-table th[data-col] {
   position: relative;
 }
-.wb-fbs-kiz-col-order { width: 160px; }
-.wb-fbs-kiz-col-kiz { width: 320px; }
-.wb-fbs-kiz-col-act { width: 48px; }
+#wbFbsKizTable .wb-fbs-kiz-col-act,
+#wbFbsPickTable .wb-fbs-kiz-col-act { width: 48px; }
+/* Prefer colgroup % widths (resizable) over legacy fixed px. */
+#wbFbsKizTable .wb-fbs-kiz-col-order,
+#wbFbsKizTable .wb-fbs-kiz-col-kiz,
+#wbFbsPickTable .wb-fbs-kiz-col-order,
+#wbFbsPickTable .wb-fbs-kiz-col-kiz { width: auto; }
 .wb-fbs-kiz-order-id {
   font-weight: 700;
   color: #0f172a;

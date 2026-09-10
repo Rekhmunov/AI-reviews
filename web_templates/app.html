@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=331" />
+  <link rel="stylesheet" href="/static/style.css?v=332" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2469,12 +2469,18 @@
             </div>
             <div id="wbFbsKizInfo" class="wb-fbs-kiz-info" hidden></div>
             <div class="wb-fbs-kiz-table-wrap">
-              <table class="wb-fbs-kiz-table">
+              <table class="wb-fbs-kiz-table" id="wbFbsKizTable">
+                <colgroup id="wbFbsKizColgroup">
+                  <col data-col="0" class="wb-fbs-kiz-col-order" style="width:22%" />
+                  <col data-col="1" class="wb-fbs-kiz-col-product" style="width:38%" />
+                  <col data-col="2" class="wb-fbs-kiz-col-kiz" style="width:32%" />
+                  <col data-fixed="1" class="wb-fbs-kiz-col-act" style="width:48px" />
+                </colgroup>
                 <thead>
                   <tr>
-                    <th class="wb-fbs-kiz-col-order">Заказ/стикер</th>
-                    <th class="wb-fbs-kiz-col-product">Товар</th>
-                    <th class="wb-fbs-kiz-col-kiz">КИЗ</th>
+                    <th class="wb-fbs-kiz-col-order" data-col="0">Заказ/стикер<span class="col-resize-handle"></span></th>
+                    <th class="wb-fbs-kiz-col-product" data-col="1">Товар<span class="col-resize-handle"></span></th>
+                    <th class="wb-fbs-kiz-col-kiz" data-col="2">КИЗ<span class="col-resize-handle"></span></th>
                     <th class="wb-fbs-kiz-col-act"></th>
                   </tr>
                 </thead>
@@ -2665,12 +2671,17 @@
             </div>
             <div id="wbFbsPickInfo" class="wb-fbs-kiz-info" hidden></div>
             <div class="wb-fbs-kiz-table-wrap">
-              <table class="wb-fbs-kiz-table">
+              <table class="wb-fbs-kiz-table" id="wbFbsPickTable">
+                <colgroup id="wbFbsPickColgroup">
+                  <col data-col="0" class="wb-fbs-kiz-col-order" style="width:24%" />
+                  <col data-col="1" class="wb-fbs-kiz-col-product" style="width:40%" />
+                  <col data-col="2" class="wb-fbs-kiz-col-kiz" style="width:36%" />
+                </colgroup>
                 <thead>
                   <tr>
-                    <th class="wb-fbs-kiz-col-order">Заказ/стикер</th>
-                    <th class="wb-fbs-kiz-col-product">Товар</th>
-                    <th class="wb-fbs-kiz-col-kiz">Проверка ШК</th>
+                    <th class="wb-fbs-kiz-col-order" data-col="0">Заказ/стикер<span class="col-resize-handle"></span></th>
+                    <th class="wb-fbs-kiz-col-product" data-col="1">Товар<span class="col-resize-handle"></span></th>
+                    <th class="wb-fbs-kiz-col-kiz" data-col="2">Проверка ШК<span class="col-resize-handle"></span></th>
                   </tr>
                 </thead>
                 <tbody id="wbFbsPickTbody">
@@ -2700,6 +2711,23 @@
             </div>
           </div>
         </div>
+
+        <div id="wbFbsOrderStatusModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="wbFbsOrderStatusTitle"
+             onclick="if(event.target===this)closeWbFbsOrderStatusModal()">
+          <div class="modal-card ozon-fbs-move-delivering-modal wb-fbs-order-status-modal">
+            <div class="ozon-fbs-move-delivering-header">
+              <h3 id="wbFbsOrderStatusTitle" class="ozon-fbs-move-delivering-title">Статус заказа</h3>
+              <button type="button" class="icon-btn secondary" onclick="closeWbFbsOrderStatusModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <div id="wbFbsOrderStatusBody" class="ozon-fbs-move-delivering-body"></div>
+            <div class="ozon-fbs-move-delivering-footer">
+              <button type="button" class="ozon-fbs-ship-all-btn" id="wbFbsOrderStatusCloseBtn"
+                      onclick="closeWbFbsOrderStatusModal()">Закрыть</button>
+            </div>
+          </div>
+        </div>
+
       </section>
 
       <!-- ── Поставки: OZON FBS (seller postings; isolated from FBO) ── -->
@@ -3091,24 +3119,7 @@
           </div>
         </div>
 
-        <div id="wbFbsOrderStatusModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
-             aria-labelledby="wbFbsOrderStatusTitle"
-             onclick="if(event.target===this)closeWbFbsOrderStatusModal()">
-          <div class="modal-card ozon-fbs-move-delivering-modal wb-fbs-order-status-modal">
-            <div class="ozon-fbs-move-delivering-header">
-              <h3 id="wbFbsOrderStatusTitle" class="ozon-fbs-move-delivering-title">Статус заказа</h3>
-              <button type="button" class="icon-btn secondary" onclick="closeWbFbsOrderStatusModal()" aria-label="Закрыть">✕</button>
-            </div>
-            <div id="wbFbsOrderStatusBody" class="ozon-fbs-move-delivering-body"></div>
-            <div class="ozon-fbs-move-delivering-footer">
-              <button type="button" class="ozon-fbs-ship-all-btn" id="wbFbsOrderStatusCloseBtn"
-                      onclick="closeWbFbsOrderStatusModal()">Закрыть</button>
-            </div>
-          </div>
-        </div>
-
-
-        <div id="ozonFbsSupplyDetailModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+                <div id="ozonFbsSupplyDetailModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
              aria-labelledby="ozonFbsSupplyDetailTitle">
           <div class="modal-card wb-fbs-supply-detail-modal">
             <div class="wb-fbs-sd-header">
@@ -6936,6 +6947,6 @@
 
   <script src="/static/ozon_fbs.js?v=144"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=22"></script>
-  <script src="/static/app.js?v=580"></script>
+  <script src="/static/app.js?v=581"></script>
 </body>
 </html>
