@@ -18312,6 +18312,7 @@ let _ttnModalMode = "create";
 let _ttnEditingId = null;
 let _ttnLoadAddressByValue = {};
 let _ttnUnloadAddressByValue = {};
+const TTN_DEFAULT_CARGO = "Текстиль (постельное белье/наматрасники)";
 
 function _ttnDateToInputValue(displayDate) {
   const s = String(displayDate || "").trim();
@@ -18800,7 +18801,7 @@ async function _openTtnModal(mode, record) {
     const el = document.getElementById(id);
     if (el) el.value = val == null ? "" : String(val);
   };
-  setVal("ttnCreateCargo", "");
+  setVal("ttnCreateCargo", TTN_DEFAULT_CARGO);
   setVal("ttnCreatePlaces", "");
   setVal("ttnCreateWeight", "");
   setVal("ttnCreateDocs", "");
@@ -18833,7 +18834,7 @@ async function _openTtnModal(mode, record) {
     _ttnSetSsValue("ttnCreateShipperWrap", shipRef);
     _ttnSetSsValue("ttnCreateConsigneeWrap", consRef);
     if (dateEl) dateEl.value = _ttnDateToInputValue(record.ttn_date);
-    setVal("ttnCreateCargo", record.cargo_description || "");
+    setVal("ttnCreateCargo", String(record.cargo_description || "").trim() || TTN_DEFAULT_CARGO);
     setVal("ttnCreatePlaces", record.cargo_places || "");
     setVal("ttnCreateWeight", record.cargo_weight || "");
     setVal("ttnCreateDocs", record.accompanying_docs || "");

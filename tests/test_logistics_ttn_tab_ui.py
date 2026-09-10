@@ -39,7 +39,7 @@ def test_logistics_title_picker_and_panes() -> None:
     assert "function initLogisticsSection" in js
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
-    assert "app.js?v=585" in html
+    assert "app.js?v=586" in html
     assert "style.css?v=335" in html
 
 
@@ -67,6 +67,12 @@ def test_ttn_table_and_modal_fields_present() -> None:
     assert 'id="ttnCreateCargo"' in html
     assert "poaTbody" in html
     assert "openCreatePoAModal()" in html
+
+
+def test_ttn_default_cargo_description() -> None:
+    js = JS.read_text(encoding="utf-8")
+    assert 'TTN_DEFAULT_CARGO = "Текстиль (постельное белье/наматрасники)"' in js
+    assert 'setVal("ttnCreateCargo", TTN_DEFAULT_CARGO)' in js
 
 
 def test_ss_open_clears_placeholder_text() -> None:
