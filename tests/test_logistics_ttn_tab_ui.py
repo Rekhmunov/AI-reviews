@@ -40,7 +40,7 @@ def test_logistics_title_picker_and_panes() -> None:
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
     assert "app.js?v=592" in html
-    assert "style.css?v=340" in html
+    assert "style.css?v=341" in html
     assert "ttn-modal-card" in html
     assert "ttn-form-grid" in html
     assert 'max-width:560px' not in html.split('id="createTtnModal"')[1].split("<!-- ── Планирование")[0]
@@ -167,19 +167,25 @@ def test_poa_api_unchanged() -> None:
 
 def test_ttn_create_modal_matches_supply_size() -> None:
     css = CSS.read_text(encoding="utf-8")
-    block = css.split("#createTtnModal .ttn-modal-card")[1].split("@media")[0]
-    assert "min(1440px, 100%)" in block
+    block = css.split("#createTtnModal .ttn-modal-card")[1].split("#createTtnModal .ttn-modal-header")[0]
+    assert "min(1440px, calc(100vw - 40px))" in block
     assert "calc(100vh - 40px)" in block
     assert "flex-direction: column" in block
+    assert "!important" in block
 
 
 def test_ttn_create_modal_form_fills_width() -> None:
-    """Form grid must span the full modal — no left-biased max-width cap."""
+    """Form grid and inputs must span the full modal — no left-biased width caps."""
     css = CSS.read_text(encoding="utf-8")
     grid = css.split("#createTtnModal .ttn-form-grid")[1].split("}", 1)[0]
     assert "width: 100%" in grid
     assert "max-width: none" in grid
     assert "max-width: 1100px" not in grid
+    assert "max-width: 940px" not in css.split("#createTtnModal.modal-overlay")[1].split("@media (max-width: 900px)")[0]
+    inputs = css.split("#createTtnModal .ttn-input,")[1].split("}", 1)[0]
+    assert "width: 100% !important" in inputs
+    wraps = css.split("#createTtnModal .ss-wrap,")[1].split("}", 1)[0]
+    assert "width: 100% !important" in wraps
 
 
 def test_ttn_load_unload_places_le_contractor_warehouse() -> None:

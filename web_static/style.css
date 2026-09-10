@@ -7278,21 +7278,21 @@ body.sst-col-resizing * {
   margin: 0;
 }
 
-.ttn-ss-field.ss-wrap,
-#createTtnModal .ss-wrap {
-  display: block;
-  width: 100%;
-  min-width: 0;
-  flex: 1 1 auto;
+/* Match WB FBS «Поставка» modal footprint — must beat global .modal-card (940px). */
+#createTtnModal.modal-overlay {
+  padding: 20px;
+  align-items: stretch;
+  justify-content: center;
 }
 
-/* Match WB FBS «Поставка» modal footprint */
+#createTtnModal .modal-card.ttn-modal-card,
 #createTtnModal .ttn-modal-card {
-  width: min(1440px, 100%);
-  max-width: min(1440px, 100%);
-  height: calc(100vh - 40px);
-  max-height: calc(100vh - 40px);
-  padding: 0;
+  width: min(1440px, calc(100vw - 40px)) !important;
+  max-width: min(1440px, calc(100vw - 40px)) !important;
+  height: calc(100vh - 40px) !important;
+  max-height: calc(100vh - 40px) !important;
+  margin: 0 auto;
+  padding: 0 !important;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -7331,6 +7331,8 @@ body.sst-col-resizing * {
   min-height: 0;
   overflow: auto;
   padding: 20px 24px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 #createTtnModal .ttn-form-grid {
@@ -7340,6 +7342,7 @@ body.sst-col-resizing * {
   align-content: start;
   width: 100%;
   max-width: none;
+  margin: 0;
   box-sizing: border-box;
 }
 
@@ -7348,6 +7351,7 @@ body.sst-col-resizing * {
   flex-direction: column;
   gap: 8px;
   min-width: 0;
+  width: 100%;
 }
 
 #createTtnModal .ttn-field > label.small {
@@ -7363,13 +7367,30 @@ body.sst-col-resizing * {
 #createTtnModal .ttn-field-with-action {
   display: flex;
   gap: 8px;
-  align-items: center;
+  align-items: stretch;
   min-width: 0;
+  width: 100%;
+}
+
+.ttn-ss-field.ss-wrap,
+#createTtnModal .ss-wrap,
+#createTtnModal .ttn-ss-field {
+  position: relative;
+  display: block !important;
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  flex: 1 1 auto;
+  box-sizing: border-box;
 }
 
 #createTtnModal .ttn-input,
-#createTtnModal .ss-input {
-  width: 100%;
+#createTtnModal .ss-input,
+#createTtnModal input.ttn-input,
+#createTtnModal input.ss-input {
+  display: block;
+  width: 100% !important;
+  max-width: none !important;
   height: 40px;
   box-sizing: border-box;
 }
@@ -7426,11 +7447,12 @@ body.sst-col-resizing * {
 }
 
 @media (max-width: 900px) {
+  #createTtnModal .modal-card.ttn-modal-card,
   #createTtnModal .ttn-modal-card {
-    width: 100%;
-    max-width: 100%;
-    height: calc(100vh - 32px);
-    max-height: calc(100vh - 32px);
+    width: 100% !important;
+    max-width: 100% !important;
+    height: calc(100vh - 32px) !important;
+    max-height: calc(100vh - 32px) !important;
   }
 
   #createTtnModal .ttn-modal-header,
@@ -7448,6 +7470,7 @@ body.sst-col-resizing * {
     grid-template-columns: minmax(0, 1fr);
     gap: 16px;
     max-width: none;
+    width: 100%;
   }
 
   #createTtnModal .ttn-field-span-2 {
