@@ -19222,6 +19222,8 @@ window.onTtnDriverChange = onTtnDriverChange;
 let _ttnFbsSupplyOptions = [];
 let _ttnFbsAutofillToken = 0;
 let _ttnSelectedFbsMeta = null; // {platform, source_id, supply_id}
+/** While opening the TN modal, suppress cargo overwrite from place refreshes. */
+let _ttnFbsSuppressCargoAutofill = false;
 
 function _ttnWarehouseIdFromPlaceKey(key) {
   const s = String(key || "");
@@ -19258,7 +19260,11 @@ function _ttnHideFbsSupplyField() {
   _ttnSetSsValue("ttnCreateFbsSupplyWrap", "");
 }
 
-async function _ttnRefreshFbsSupplyField(preferValue) {
+async function _ttnRefreshFbsSupplyField(preferValue, opts) {
+  // Explicit applyCargo wins; otherwise suppress during modal open.
+  const applyCargo = opts && Object.prototype.hasOwnProperty.call(opts, "applyCargo")
+    ? !!opts.applyCargo
+    : !_ttnFbsSuppressCargoAutofill;
   const field = document.getElementById("ttnFbsSupplyField");
   if (!field) return;
   if (!_supplyWarehousesCache.length) {
@@ -19311,10 +19317,10 @@ async function _ttnRefreshFbsSupplyField(preferValue) {
   }
   if (token !== _ttnFbsAutofillToken) return;
   _ttnFbsSupplyOptions = items;
-  const opts = [{ value: "", label: items.length ? "— Выберите поставку FBS —" : "— Нет поставок FBS —" }].concat(
+  const optsList = [{ value: "", label: items.length ? "— Выберите поставку FBS —" : "— Нет поставок FBS —" }].concat(
     items.map((x) => ({ value: x.value, label: x.label }))
   );
-  ssPopulate("ttnCreateFbsSupplyWrap", opts, () => onTtnFbsSupplyChange());
+  ssPopulate("ttnCreateFbsSupplyWrap", optsList, () => onTtnFbsSupplyChange());
   let key = String(preferValue || "").trim();
   if (key && !items.some((x) => x.value === key)) key = "";
   if (!key && _ttnSelectedFbsMeta) {
@@ -19322,7 +19328,19 @@ async function _ttnRefreshFbsSupplyField(preferValue) {
     if (!items.some((x) => x.value === key)) key = "";
   }
   _ttnSetSsValue("ttnCreateFbsSupplyWrap", key);
-  if (key) await onTtnFbsSupplyChange();
+  if (key && applyCargo) await onTtnFbsSupplyChange();
+  else if (key && !applyCargo) {
+    const parts = key.split(":");
+    if (parts.length >= 3) {
+      _ttnSelectedFbsMeta = {
+        platform: parts[0],
+        source_id: Number(parts[1]),
+        supply_id: parts.slice(2).join(":"),
+      };
+    }
+  } else if (!key) {
+    _ttnSelectedFbsMeta = null;
+  }
 }
 
 async function onTtnFbsSupplyChange() {
@@ -19352,8 +19370,9 @@ async function onTtnFbsSupplyChange() {
     }
     const placesEl = document.getElementById("ttnCreatePlaces");
     const weightEl = document.getElementById("ttnCreateWeight");
-    if (placesEl && data.places_text) placesEl.value = String(data.places_text);
-    if (weightEl && data.weight) weightEl.value = String(data.weight);
+    // Always apply (including empty) so a failed lookup does not leave stale autofill.
+    if (placesEl) placesEl.value = data.places_text != null ? String(data.places_text) : "";
+    if (weightEl) weightEl.value = data.weight != null ? String(data.weight) : "";
     const warnings = Array.isArray(data.warnings) ? data.warnings.filter(Boolean) : [];
     if (hint) {
       hint.textContent = warnings.length
@@ -19448,6 +19467,7 @@ function toggleTtnManualLoad() {
     if (fields) fields.style.display = "block";
     if (wrap) wrap.style.opacity = "0.55";
     _ttnSetSsValue("ttnCreateLoadWrap", "");
+    _ttnRefreshFbsSupplyField();
   } else {
     if (fields) fields.style.display = "none";
     if (wrap) wrap.style.opacity = "";
@@ -19465,6 +19485,7 @@ function toggleTtnManualUnload() {
     if (fields) fields.style.display = "block";
     if (wrap) wrap.style.opacity = "0.55";
     _ttnSetSsValue("ttnCreateUnloadWrap", "");
+    _ttnRefreshFbsSupplyField();
   } else {
     if (fields) fields.style.display = "none";
     if (wrap) wrap.style.opacity = "";
@@ -19675,6 +19696,9 @@ window.deleteTtnRecord = deleteTtnRecord;
 async function _openTtnModal(mode, record) {
   _ttnModalMode = mode;
   _ttnEditingId = mode === "edit" ? record?.id : null;
+  // Prevent place-option refreshes from overwriting saved places/weight while hydrating.
+  _ttnFbsSuppressCargoAutofill = true;
+  try {
   if (!_supplyLegalEntitiesCache.length) await loadSupplyLegalEntities();
   if (!_supplyContractorsCache.length) await loadSupplyContractors();
   if (!_supplyDriversCache.length) await loadSupplyDrivers();
@@ -19877,10 +19901,15 @@ async function _openTtnModal(mode, record) {
     await _ttnRefreshFbsSupplyField(
       _ttnSelectedFbsMeta
         ? `${_ttnSelectedFbsMeta.platform}:${_ttnSelectedFbsMeta.source_id}:${_ttnSelectedFbsMeta.supply_id}`
-        : ""
+        : "",
+      // Edit: keep saved places/weight. Create/copy: allow live autofill when supply is selected.
+      { applyCargo: mode !== "edit" },
     );
     modal.classList.remove("hidden");
     modal.style.display = "";
+  }
+  } finally {
+    _ttnFbsSuppressCargoAutofill = false;
   }
 }
 

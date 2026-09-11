@@ -39,5 +39,5 @@ def test_ttn_fbs_supply_picker_and_endpoints() -> None:
     assert "fbs_platform" in REPO
     assert "fbs_source_id" in REPO
     assert "fbs_supply_id" in REPO
-    assert "app.js?v=607" in HTML
+    assert "app.js?v=608" in HTML
     assert "style.css?v=353" in HTML

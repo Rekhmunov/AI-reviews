@@ -129,7 +129,7 @@ def weight_lines_from_ozon_orders(orders: list[dict[str, Any]] | None) -> list[t
 def places_from_wb_trbx(payload: dict[str, Any] | None) -> int | None:
     if not isinstance(payload, dict):
         return None
-    for key in ("boxes_count", "boxes_count"):
+    for key in ("boxes_count", "box_count"):
         if key in payload:
             try:
                 return max(0, int(payload.get(key) or 0))
