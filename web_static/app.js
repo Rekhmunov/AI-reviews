@@ -15074,7 +15074,7 @@ function _sbSyncCategoryFilterOptions() {
   if (!salesMode) opts.push({ value: "__materials__", label: "Материалы" });
   cats.forEach((name) => opts.push({ value: name, label: name }));
   sel.innerHTML = opts.map((o) =>
-    `<option value="${esc(o.value)}">${esc(o.label)}</option>`
+    `<option value="${esc(o.value)}" title="${esc(o.label)}">${esc(o.label)}</option>`
   ).join("");
   const valid = current.filter((v) => opts.some((o) => o.value === v));
   supplyBalancesState.categoryFilter = valid;

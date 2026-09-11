@@ -13415,12 +13415,15 @@ button.wb-fbs-kiz-add:disabled {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-width: 220px;
+  width: min(460px, calc(100vw - 32px));
+  min-width: min(320px, calc(100vw - 32px));
+  max-width: min(520px, calc(100vw - 24px));
   padding: 12px;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
   background: #fff;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  box-sizing: border-box;
 }
 .sb-balances-filter-panel[hidden] {
   display: none !important;
@@ -13437,7 +13440,17 @@ button.wb-fbs-kiz-add:disabled {
   min-height: 40px;
 }
 .sb-balances-filter-panel .sb-toolbar-category select[multiple] {
-  min-height: 132px;
+  min-height: 160px;
+  max-height: 280px;
+  overflow-x: auto;
+  overflow-y: auto;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+.sb-balances-filter-panel .sb-toolbar-category select[multiple] option {
+  white-space: normal;
+  padding: 4px 6px;
+  line-height: 1.35;
 }
 .sb-balances-filter-panel > button.secondary {
   justify-content: flex-start;
@@ -15289,7 +15302,9 @@ button.wb-fbs-kiz-add:disabled {
     min-height: 44px;
   }
   #section-supplies-balances .sb-balances-filter-panel {
-    min-width: min(280px, calc(100vw - 48px));
+    width: min(460px, calc(100vw - 24px));
+    min-width: min(280px, calc(100vw - 24px));
+    max-width: calc(100vw - 24px);
   }
   #section-supplies-balances #supplyBalancesSearchFilter,
   #section-supplies-balances .sb-toolbar-category select,
