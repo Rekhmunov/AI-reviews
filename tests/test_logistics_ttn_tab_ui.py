@@ -40,8 +40,8 @@ def test_logistics_title_picker_and_panes() -> None:
     assert "function initLogisticsSection" in js
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
-    assert "app.js?v=598" in html
-    assert "style.css?v=347" in html
+    assert "app.js?v=604" in html
+    assert "style.css?v=350" in html
     assert "ttn-modal-card" in html
     assert "ttn-form-grid" in html
     assert 'max-width:560px' not in html.split('id="createTtnModal"')[1].split("<!-- ── Планирование")[0]
@@ -79,6 +79,40 @@ def test_ttn_default_cargo_description() -> None:
     js = JS.read_text(encoding="utf-8")
     assert 'TTN_DEFAULT_CARGO = "Текстиль (постельное белье/наматрасники)"' in js
     assert 'setVal("ttnCreateCargo", TTN_DEFAULT_CARGO)' in js
+    assert 'TTN_DEFAULT_DOCS = "УПД/ТОРГ-12/Электронная накладная"' in js
+    assert 'setVal("ttnCreateDocs", TTN_DEFAULT_DOCS)' in js
+
+
+def test_ttn_loader_receiver_autofill_from_parties() -> None:
+    html = HTML.read_text(encoding="utf-8")
+    js = JS.read_text(encoding="utf-8")
+    assert "function _ttnPartyShortName" in js
+    assert "function _ttnSyncLoaderFromShipper" in js
+    assert "function _ttnSyncReceiverFromConsignee" in js
+    shipper_fn = js.split("function onTtnShipperChange", 1)[1].split("\nfunction ", 1)[0]
+    consignee_fn = js.split("function onTtnConsigneeChange", 1)[1].split("\nfunction ", 1)[0]
+    assert "_ttnSyncLoaderFromShipper()" in shipper_fn
+    assert "_ttnSyncReceiverFromConsignee()" in consignee_fn
+    assert "По умолчанию — грузоотправитель" in html
+    assert "По умолчанию — грузополучатель" in html
+    # Autofill alone must not force-open optional block.
+    optional_fn = js.split("function _ttnOptionalFieldsFilled", 1)[1].split("\nfunction ", 1)[0]
+    assert "ttnCreateLoaderName" not in optional_fn
+    assert "ttnCreateReceiverName" not in optional_fn
+
+
+def test_ttn_packing_type_select() -> None:
+    html = HTML.read_text(encoding="utf-8")
+    js = JS.read_text(encoding="utf-8")
+    packing = html.split('id="ttnCreatePacking"', 1)[1].split("</select>", 1)[0]
+    assert "<select" in html.split('for="ttnCreatePacking"', 1)[1][:80]
+    assert 'value="Короба">Короба<' in packing
+    assert 'value="Паллеты">Паллеты<' in packing
+    assert 'TTN_PACKING_OPTIONS = ["Короба", "Паллеты"]' in js
+    assert "function _ttnSetPackingValue" in js
+    assert '_ttnSetPackingValue("")' in js
+    assert "_ttnSetPackingValue(record.packing_type" in js
+    assert "select.ttn-input" in CSS.read_text(encoding="utf-8")
 
 
 def test_ttn_vehicle_manual_via_pencil() -> None:
@@ -273,6 +307,7 @@ def test_tn_rename_and_pp2200_fields_additive() -> None:
     assert "ТН не найдены" in js
     for field_id in (
         "ttnCreateCustomer",
+        "ttnCreateCustomerWrap",
         "ttnCreatePacking",
         "ttnCreateDeclaredValue",
         "ttnCreateVehicleType",
@@ -286,9 +321,15 @@ def test_tn_rename_and_pp2200_fields_additive() -> None:
     ):
         assert f'id="{field_id}"' in html
         assert field_id in js
+    assert 'id="ttnOptionalSection"' in html
+    assert "Необязательные поля" in html
+    assert "function toggleTtnOptionalFields" in js
+    assert "function _ttnCustomerPartyOptions" in js
+    assert "customer_party_type" in js and "customer_party_id" in js
     # Vehicle type/capacity comes from driver vehicle card — readonly in TN modal.
     vt = html.split('id="ttnCreateVehicleType"', 1)[1].split(">", 1)[0]
     assert "readonly" in vt
+    assert html.count('id="ttnCreateVehicleType"') == 1
     assert "function _ttnFormatVehicleType" in js
     assert "function _ttnSyncVehicleTypeFromSelection" in js
     assert "function onTtnVehicleChange" in js
@@ -296,6 +337,8 @@ def test_tn_rename_and_pp2200_fields_additive() -> None:
     assert "(для ТН)" in js
     for col in (
         "customer_services",
+        "customer_party_type",
+        "customer_party_id",
         "packing_type",
         "declared_value",
         "vehicle_type",
@@ -325,4 +368,21 @@ def test_tn_rename_and_pp2200_fields_additive() -> None:
         "ttnCreateNotes",
     ):
         assert f'id="{field_id}"' in html
+    # Optional fields live inside collapsible block (vehicle type is NOT optional — autofilled).
+    optional_block = html.split('id="ttnOptionalSection"', 1)[1].split("ttn-modal-footer", 1)[0]
+    assert 'id="ttnCreateVehicleType"' not in optional_block
+    for field_id in (
+        "ttnCreateDeclaredValue",
+        "ttnCreateLoadingDatetime",
+        "ttnCreateLoaderName",
+        "ttnCreateUnloadingDatetime",
+        "ttnCreateReceiverName",
+        "ttnCreateNotes",
+        "ttnCreateRedirect",
+        "ttnCreateMarks",
+        "ttnCreateFreightCost",
+    ):
+        assert f'id="{field_id}"' in optional_block
+    vehicle_block = html.split('id="ttnCreateVehicleWrap"', 1)[1].split('id="ttnCreateLoadWrap"', 1)[0]
+    assert 'id="ttnCreateVehicleType"' in vehicle_block
 

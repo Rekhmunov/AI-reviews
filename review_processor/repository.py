@@ -8388,6 +8388,8 @@ class ReviewRepository:
             "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS redirect_info TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS carrier_marks TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS freight_cost TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS customer_party_type TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS customer_party_id INTEGER NOT NULL DEFAULT 0",
         ):
             conn.execute(_ttn_col_sql)
         # Contour.Logistics / Diadoc EDO settings + sent document tracking (Ozon).
@@ -10398,6 +10400,8 @@ class ReviewRepository:
                            t.cargo_description, t.cargo_places, t.cargo_weight,
                            t.accompanying_docs, t.notes,
                            COALESCE(t.customer_services, '') AS customer_services,
+                           COALESCE(t.customer_party_type, '') AS customer_party_type,
+                           COALESCE(t.customer_party_id, 0) AS customer_party_id,
                            COALESCE(t.packing_type, '') AS packing_type,
                            COALESCE(t.declared_value, '') AS declared_value,
                            COALESCE(t.vehicle_type, '') AS vehicle_type,
@@ -10499,6 +10503,8 @@ class ReviewRepository:
         accompanying_docs: str = "",
         notes: str = "",
         customer_services: str = "",
+        customer_party_type: str = "",
+        customer_party_id: int = 0,
         packing_type: str = "",
         declared_value: str = "",
         vehicle_type: str = "",
@@ -10513,6 +10519,10 @@ class ReviewRepository:
         now = _utc_now()
         shipper_type = "contractor" if str(shipper_type or "").strip() == "contractor" else "le"
         consignee_type = "le" if str(consignee_type or "").strip() == "le" else "contractor"
+        _cust_type = str(customer_party_type or "").strip()
+        if _cust_type not in ("le", "contractor"):
+            _cust_type = ""
+        _cust_id = int(customer_party_id or 0) if _cust_type else 0
         with self._connect() as conn:
             rid = self._insert_and_get_id(
                 conn,
@@ -10522,10 +10532,11 @@ class ReviewRepository:
                 "driver_manual_name, driver_manual_docs, vehicle_line, carrier_snapshot, "
                 "load_address, unload_address, cargo_description, cargo_places, cargo_weight, "
                 "accompanying_docs, notes, "
-                "customer_services, packing_type, declared_value, vehicle_type, "
+                "customer_services, customer_party_type, customer_party_id, "
+                "packing_type, declared_value, vehicle_type, "
                 "loading_datetime, loader_name, unloading_datetime, receiver_name, "
                 "redirect_info, carrier_marks, freight_cost, created_at"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     user_id,
                     (doc_number or "").strip(),
@@ -10547,6 +10558,8 @@ class ReviewRepository:
                     (accompanying_docs or "").strip(),
                     (notes or "").strip(),
                     (customer_services or "").strip(),
+                    _cust_type,
+                    _cust_id,
                     (packing_type or "").strip(),
                     (declared_value or "").strip(),
                     (vehicle_type or "").strip(),
@@ -10586,6 +10599,8 @@ class ReviewRepository:
         accompanying_docs: str = "",
         notes: str = "",
         customer_services: str = "",
+        customer_party_type: str = "",
+        customer_party_id: int = 0,
         packing_type: str = "",
         declared_value: str = "",
         vehicle_type: str = "",
@@ -10599,6 +10614,10 @@ class ReviewRepository:
     ) -> bool:
         shipper_type = "contractor" if str(shipper_type or "").strip() == "contractor" else "le"
         consignee_type = "le" if str(consignee_type or "").strip() == "le" else "contractor"
+        _cust_type = str(customer_party_type or "").strip()
+        if _cust_type not in ("le", "contractor"):
+            _cust_type = ""
+        _cust_id = int(customer_party_id or 0) if _cust_type else 0
         with self._connect() as conn:
             result = conn.execute(
                 self._sql(
@@ -10609,7 +10628,8 @@ class ReviewRepository:
                     "carrier_snapshot = ?, load_address = ?, unload_address = ?, "
                     "cargo_description = ?, cargo_places = ?, cargo_weight = ?, "
                     "accompanying_docs = ?, notes = ?, "
-                    "customer_services = ?, packing_type = ?, declared_value = ?, vehicle_type = ?, "
+                    "customer_services = ?, customer_party_type = ?, customer_party_id = ?, "
+                    "packing_type = ?, declared_value = ?, vehicle_type = ?, "
                     "loading_datetime = ?, loader_name = ?, unloading_datetime = ?, receiver_name = ?, "
                     "redirect_info = ?, carrier_marks = ?, freight_cost = ? "
                     "WHERE user_id = ? AND id = ?"
@@ -10633,6 +10653,8 @@ class ReviewRepository:
                     (accompanying_docs or "").strip(),
                     (notes or "").strip(),
                     (customer_services or "").strip(),
+                    _cust_type,
+                    _cust_id,
                     (packing_type or "").strip(),
                     (declared_value or "").strip(),
                     (vehicle_type or "").strip(),
