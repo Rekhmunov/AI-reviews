@@ -18578,6 +18578,44 @@ function _ttnDateToInputValue(displayDate) {
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
+/** Convert stored TN datetime → datetime-local value (YYYY-MM-DDTHH:MM). */
+function _ttnDatetimeToInputValue(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}`;
+  m = s.match(/^(\d{2})\.(\d{2})\.(\d{4})(?:[,\s]+(\d{2}):(\d{2}))?/);
+  if (m) {
+    const hh = m[4] || "00";
+    const mm = m[5] || "00";
+    return `${m[3]}-${m[2]}-${m[1]}T${hh}:${mm}`;
+  }
+  return "";
+}
+
+/** Convert datetime-local value → printable TN string (ДД.ММ.ГГГГ ЧЧ:ММ). */
+function _ttnDatetimeFromInputValue(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (!m) return s;
+  return `${m[3]}.${m[2]}.${m[1]} ${m[4]}:${m[5]}`;
+}
+
+function openTtnDatetimePicker(inputId) {
+  const el = document.getElementById(inputId);
+  if (!el) return;
+  try {
+    if (typeof el.showPicker === "function") {
+      el.showPicker();
+      return;
+    }
+  } catch (_e) { /* fall through */ }
+  el.focus();
+  try { el.click(); } catch (_e2) { /* ignore */ }
+}
+window.openTtnDatetimePicker = openTtnDatetimePicker;
+
 function _logisticsTabFromStorage() {
   try {
     const v = String(localStorage.getItem(LOGISTICS_TAB_STORAGE_KEY) || "").trim();
@@ -19475,9 +19513,9 @@ async function _openTtnModal(mode, record) {
     setVal("ttnCreateNotes", record.notes || "");
     _ttnSetPackingValue(record.packing_type || "");
     setVal("ttnCreateDeclaredValue", record.declared_value || "");
-    setVal("ttnCreateLoadingDatetime", record.loading_datetime || "");
+    setVal("ttnCreateLoadingDatetime", _ttnDatetimeToInputValue(record.loading_datetime || ""));
     setVal("ttnCreateLoaderName", record.loader_name || "");
-    setVal("ttnCreateUnloadingDatetime", record.unloading_datetime || "");
+    setVal("ttnCreateUnloadingDatetime", _ttnDatetimeToInputValue(record.unloading_datetime || ""));
     setVal("ttnCreateReceiverName", record.receiver_name || "");
     // Empty legacy → default to ГО/ГП; remember autofill baseline for later party changes.
     _ttnLoaderAutofill = _ttnPartyShortName(shipRef);
@@ -19660,9 +19698,9 @@ async function saveTtnRecord() {
     packing_type: document.getElementById("ttnCreatePacking")?.value.trim() || "",
     declared_value: document.getElementById("ttnCreateDeclaredValue")?.value.trim() || "",
     vehicle_type: document.getElementById("ttnCreateVehicleType")?.value.trim() || "",
-    loading_datetime: document.getElementById("ttnCreateLoadingDatetime")?.value.trim() || "",
+    loading_datetime: _ttnDatetimeFromInputValue(document.getElementById("ttnCreateLoadingDatetime")?.value || ""),
     loader_name: document.getElementById("ttnCreateLoaderName")?.value.trim() || "",
-    unloading_datetime: document.getElementById("ttnCreateUnloadingDatetime")?.value.trim() || "",
+    unloading_datetime: _ttnDatetimeFromInputValue(document.getElementById("ttnCreateUnloadingDatetime")?.value || ""),
     receiver_name: document.getElementById("ttnCreateReceiverName")?.value.trim() || "",
     redirect_info: document.getElementById("ttnCreateRedirect")?.value.trim() || "",
     carrier_marks: document.getElementById("ttnCreateMarks")?.value.trim() || "",

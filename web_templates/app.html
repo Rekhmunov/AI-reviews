@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=351" />
+  <link rel="stylesheet" href="/static/style.css?v=352" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -4236,8 +4236,18 @@
                 </div>
                 <div class="ttn-subfields">
                   <label class="small" for="ttnCreateLoadingDatetime">Дата и время погрузки</label>
-                  <input id="ttnCreateLoadingDatetime" class="ttn-input" type="text"
-                         placeholder="ДД.ММ.ГГГГ ЧЧ:ММ" autocomplete="off" />
+                  <div class="ttn-datetime-wrap">
+                    <input id="ttnCreateLoadingDatetime" class="ttn-input ttn-datetime-input" type="datetime-local"
+                           step="60" autocomplete="off" />
+                    <button type="button" class="ttn-datetime-cal-btn"
+                            onclick="openTtnDatetimePicker('ttnCreateLoadingDatetime')"
+                            title="Выбрать дату и время" aria-label="Выбрать дату и время погрузки">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" stroke-width="2"/>
+                        <path d="M3 10h18M8 3v4M16 3v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                      </svg>
+                    </button>
+                  </div>
                 </div>
               </div>
               <div class="ttn-field">
@@ -4265,8 +4275,18 @@
                 </div>
                 <div class="ttn-subfields">
                   <label class="small" for="ttnCreateUnloadingDatetime">Дата и время выдачи</label>
-                  <input id="ttnCreateUnloadingDatetime" class="ttn-input" type="text"
-                         placeholder="ДД.ММ.ГГГГ ЧЧ:ММ" autocomplete="off" />
+                  <div class="ttn-datetime-wrap">
+                    <input id="ttnCreateUnloadingDatetime" class="ttn-input ttn-datetime-input" type="datetime-local"
+                           step="60" autocomplete="off" />
+                    <button type="button" class="ttn-datetime-cal-btn"
+                            onclick="openTtnDatetimePicker('ttnCreateUnloadingDatetime')"
+                            title="Выбрать дату и время" aria-label="Выбрать дату и время выдачи">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" stroke-width="2"/>
+                        <path d="M3 10h18M8 3v4M16 3v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                      </svg>
+                    </button>
+                  </div>
                 </div>
               </div>
               <div class="ttn-field ttn-field-span-2">
@@ -7359,6 +7379,6 @@
 
   <script src="/static/ozon_fbs.js?v=144"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=22"></script>
-  <script src="/static/app.js?v=605"></script>
+  <script src="/static/app.js?v=606"></script>
 </body>
 </html>

@@ -40,8 +40,8 @@ def test_logistics_title_picker_and_panes() -> None:
     assert "function initLogisticsSection" in js
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
-    assert "app.js?v=605" in html
-    assert "style.css?v=351" in html
+    assert "app.js?v=606" in html
+    assert "style.css?v=352" in html
     assert "ttn-modal-card" in html
     assert "ttn-form-grid" in html
     assert 'max-width:560px' not in html.split('id="createTtnModal"')[1].split("<!-- ── Планирование")[0]
@@ -389,4 +389,9 @@ def test_tn_rename_and_pp2200_fields_additive() -> None:
     unload_block = html.split('id="ttnCreateUnloadWrap"', 1)[1].split('id="ttnCreateCargo"', 1)[0]
     assert 'id="ttnCreateLoadingDatetime"' in load_block
     assert 'id="ttnCreateUnloadingDatetime"' in unload_block
+    assert 'type="datetime-local"' in load_block and 'type="datetime-local"' in unload_block
+    assert "ttn-datetime-cal-btn" in load_block and "ttn-datetime-cal-btn" in unload_block
+    assert "function _ttnDatetimeToInputValue" in js
+    assert "function _ttnDatetimeFromInputValue" in js
+    assert "function openTtnDatetimePicker" in js
 
