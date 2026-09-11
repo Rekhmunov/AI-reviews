@@ -40,8 +40,8 @@ def test_logistics_title_picker_and_panes() -> None:
     assert "function initLogisticsSection" in js
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
-    assert "app.js?v=604" in html
-    assert "style.css?v=350" in html
+    assert "app.js?v=605" in html
+    assert "style.css?v=351" in html
     assert "ttn-modal-card" in html
     assert "ttn-form-grid" in html
     assert 'max-width:560px' not in html.split('id="createTtnModal"')[1].split("<!-- ── Планирование")[0]
@@ -368,14 +368,14 @@ def test_tn_rename_and_pp2200_fields_additive() -> None:
         "ttnCreateNotes",
     ):
         assert f'id="{field_id}"' in html
-    # Optional fields live inside collapsible block (vehicle type is NOT optional — autofilled).
+    # Optional fields live inside collapsible block (vehicle type + load/unload datetimes are main).
     optional_block = html.split('id="ttnOptionalSection"', 1)[1].split("ttn-modal-footer", 1)[0]
     assert 'id="ttnCreateVehicleType"' not in optional_block
+    assert 'id="ttnCreateLoadingDatetime"' not in optional_block
+    assert 'id="ttnCreateUnloadingDatetime"' not in optional_block
     for field_id in (
         "ttnCreateDeclaredValue",
-        "ttnCreateLoadingDatetime",
         "ttnCreateLoaderName",
-        "ttnCreateUnloadingDatetime",
         "ttnCreateReceiverName",
         "ttnCreateNotes",
         "ttnCreateRedirect",
@@ -385,4 +385,8 @@ def test_tn_rename_and_pp2200_fields_additive() -> None:
         assert f'id="{field_id}"' in optional_block
     vehicle_block = html.split('id="ttnCreateVehicleWrap"', 1)[1].split('id="ttnCreateLoadWrap"', 1)[0]
     assert 'id="ttnCreateVehicleType"' in vehicle_block
+    load_block = html.split('id="ttnCreateLoadWrap"', 1)[1].split('id="ttnCreateUnloadWrap"', 1)[0]
+    unload_block = html.split('id="ttnCreateUnloadWrap"', 1)[1].split('id="ttnCreateCargo"', 1)[0]
+    assert 'id="ttnCreateLoadingDatetime"' in load_block
+    assert 'id="ttnCreateUnloadingDatetime"' in unload_block
 

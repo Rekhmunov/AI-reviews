@@ -7464,6 +7464,10 @@ body.sst-col-resizing * {
   margin-top: 8px;
 }
 
+#createTtnModal .ttn-subfields > label.small {
+  color: #475569;
+}
+
 #createTtnModal .ttn-vehicle-type-row {
   display: flex;
   flex-direction: column;

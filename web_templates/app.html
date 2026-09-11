@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=350" />
+  <link rel="stylesheet" href="/static/style.css?v=351" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -4234,6 +4234,11 @@
                       onclick="clearTtnManualLoad()" title="Убрать ручной ввод">✕</button>
                   </div>
                 </div>
+                <div class="ttn-subfields">
+                  <label class="small" for="ttnCreateLoadingDatetime">Дата и время погрузки</label>
+                  <input id="ttnCreateLoadingDatetime" class="ttn-input" type="text"
+                         placeholder="ДД.ММ.ГГГГ ЧЧ:ММ" autocomplete="off" />
+                </div>
               </div>
               <div class="ttn-field">
                 <label class="small">10. Место выдачи / разгрузки</label>
@@ -4257,6 +4262,11 @@
                     <button type="button" class="secondary small-btn ttn-manual-clear-btn"
                       onclick="clearTtnManualUnload()" title="Убрать ручной ввод">✕</button>
                   </div>
+                </div>
+                <div class="ttn-subfields">
+                  <label class="small" for="ttnCreateUnloadingDatetime">Дата и время выдачи</label>
+                  <input id="ttnCreateUnloadingDatetime" class="ttn-input" type="text"
+                         placeholder="ДД.ММ.ГГГГ ЧЧ:ММ" autocomplete="off" />
                 </div>
               </div>
               <div class="ttn-field ttn-field-span-2">
@@ -4293,7 +4303,7 @@
                     <span class="ttn-optional-chevron" aria-hidden="true">▸</span>
                     <span class="ttn-optional-toggle-copy">
                       <span class="ttn-optional-title">Необязательные поля</span>
-                      <span class="ttn-optional-hint">погрузка/выдача, стоимость, отметки</span>
+                      <span class="ttn-optional-hint">лица, стоимость, отметки</span>
                     </span>
                   </button>
                   <div class="ttn-optional-body" id="ttnOptionalBody" hidden>
@@ -4304,19 +4314,9 @@
                                placeholder="Если объявлялась" autocomplete="off" />
                       </div>
                       <div class="ttn-field">
-                        <label class="small" for="ttnCreateLoadingDatetime">8. Дата и время погрузки</label>
-                        <input id="ttnCreateLoadingDatetime" class="ttn-input" type="text"
-                               placeholder="ДД.ММ.ГГГГ ЧЧ:ММ" autocomplete="off" />
-                      </div>
-                      <div class="ttn-field">
                         <label class="small" for="ttnCreateLoaderName">Лицо, осуществившее погрузку</label>
                         <input id="ttnCreateLoaderName" class="ttn-input" type="text"
                                placeholder="По умолчанию — грузоотправитель" autocomplete="off" />
-                      </div>
-                      <div class="ttn-field">
-                        <label class="small" for="ttnCreateUnloadingDatetime">10. Дата и время выдачи</label>
-                        <input id="ttnCreateUnloadingDatetime" class="ttn-input" type="text"
-                               placeholder="ДД.ММ.ГГГГ ЧЧ:ММ" autocomplete="off" />
                       </div>
                       <div class="ttn-field">
                         <label class="small" for="ttnCreateReceiverName">Лицо, принявшее груз</label>
@@ -7359,6 +7359,6 @@
 
   <script src="/static/ozon_fbs.js?v=144"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=22"></script>
-  <script src="/static/app.js?v=604"></script>
+  <script src="/static/app.js?v=605"></script>
 </body>
 </html>

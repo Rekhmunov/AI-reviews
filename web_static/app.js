@@ -18817,11 +18817,9 @@ function toggleTtnOptionalFields(forceOpen) {
 window.toggleTtnOptionalFields = toggleTtnOptionalFields;
 
 function _ttnOptionalFieldsFilled() {
-  // Loader/receiver/vehicle type are auto-filled — do not force-open optional block for them alone.
+  // Loader/receiver are auto-filled; load/unload datetimes are required main fields.
   const ids = [
     "ttnCreateDeclaredValue",
-    "ttnCreateLoadingDatetime",
-    "ttnCreateUnloadingDatetime",
     "ttnCreateNotes",
     "ttnCreateRedirect",
     "ttnCreateMarks",
