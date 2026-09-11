@@ -40,7 +40,7 @@ def test_logistics_title_picker_and_panes() -> None:
     assert "function initLogisticsSection" in js
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
-    assert "app.js?v=602" in html
+    assert "app.js?v=603" in html
     assert "style.css?v=349" in html
     assert "ttn-modal-card" in html
     assert "ttn-form-grid" in html
@@ -81,6 +81,24 @@ def test_ttn_default_cargo_description() -> None:
     assert 'setVal("ttnCreateCargo", TTN_DEFAULT_CARGO)' in js
     assert 'TTN_DEFAULT_DOCS = "УПД/ТОРГ-12/Электронная накладная"' in js
     assert 'setVal("ttnCreateDocs", TTN_DEFAULT_DOCS)' in js
+
+
+def test_ttn_loader_receiver_autofill_from_parties() -> None:
+    html = HTML.read_text(encoding="utf-8")
+    js = JS.read_text(encoding="utf-8")
+    assert "function _ttnPartyShortName" in js
+    assert "function _ttnSyncLoaderFromShipper" in js
+    assert "function _ttnSyncReceiverFromConsignee" in js
+    shipper_fn = js.split("function onTtnShipperChange", 1)[1].split("\nfunction ", 1)[0]
+    consignee_fn = js.split("function onTtnConsigneeChange", 1)[1].split("\nfunction ", 1)[0]
+    assert "_ttnSyncLoaderFromShipper()" in shipper_fn
+    assert "_ttnSyncReceiverFromConsignee()" in consignee_fn
+    assert "По умолчанию — грузоотправитель" in html
+    assert "По умолчанию — грузополучатель" in html
+    # Autofill alone must not force-open optional block.
+    optional_fn = js.split("function _ttnOptionalFieldsFilled", 1)[1].split("\nfunction ", 1)[0]
+    assert "ttnCreateLoaderName" not in optional_fn
+    assert "ttnCreateReceiverName" not in optional_fn
 
 
 def test_ttn_packing_type_select() -> None:

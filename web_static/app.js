@@ -18692,6 +18692,46 @@ function _ttnPartySnapshot(ref) {
   return [name, addr, phone, req].filter(Boolean).join(", ");
 }
 
+/** Short party label for loader/receiver defaults (ГО / ГП). */
+function _ttnPartyShortName(ref) {
+  const parsed = _ttnParsePartyRef(ref);
+  if (!parsed) return "";
+  if (parsed.type === "le") {
+    const e = (_supplyLegalEntitiesCache || []).find((x) => Number(x.id) === Number(parsed.id));
+    if (!e) return "";
+    return String(e.short_name || e.full_name || "").trim();
+  }
+  const c = (_supplyContractorsCache || []).find((x) => Number(x.id) === Number(parsed.id));
+  if (!c) return "";
+  return String(c.name || c.full_name || "").trim();
+}
+
+// Last auto-filled values — do not overwrite manual edits when ГО/ГП change.
+let _ttnLoaderAutofill = "";
+let _ttnReceiverAutofill = "";
+
+function _ttnSyncLoaderFromShipper() {
+  const el = document.getElementById("ttnCreateLoaderName");
+  if (!el) return;
+  const name = _ttnPartyShortName(document.getElementById("ttnCreateShipper")?.value || "");
+  const cur = String(el.value || "").trim();
+  if (!cur || cur === _ttnLoaderAutofill) {
+    el.value = name;
+    _ttnLoaderAutofill = name;
+  }
+}
+
+function _ttnSyncReceiverFromConsignee() {
+  const el = document.getElementById("ttnCreateReceiverName");
+  if (!el) return;
+  const name = _ttnPartyShortName(document.getElementById("ttnCreateConsignee")?.value || "");
+  const cur = String(el.value || "").trim();
+  if (!cur || cur === _ttnReceiverAutofill) {
+    el.value = name;
+    _ttnReceiverAutofill = name;
+  }
+}
+
 function _ttnCustomerRefFromRecord(record) {
   if (!record) return "";
   const partyType = String(record.customer_party_type || "").trim();
@@ -18732,13 +18772,12 @@ function toggleTtnOptionalFields(forceOpen) {
 window.toggleTtnOptionalFields = toggleTtnOptionalFields;
 
 function _ttnOptionalFieldsFilled() {
+  // Loader/receiver are auto-filled from ГО/ГП — do not force-open the optional block for them alone.
   const ids = [
     "ttnCreateVehicleType",
     "ttnCreateDeclaredValue",
     "ttnCreateLoadingDatetime",
-    "ttnCreateLoaderName",
     "ttnCreateUnloadingDatetime",
-    "ttnCreateReceiverName",
     "ttnCreateNotes",
     "ttnCreateRedirect",
     "ttnCreateMarks",
@@ -18856,11 +18895,13 @@ function _ttnRefreshUnloadPlaceOptions(preferAddrOrKey) {
 
 function onTtnShipperChange() {
   _ttnRefreshLoadPlaceOptions();
+  _ttnSyncLoaderFromShipper();
 }
 window.onTtnShipperChange = onTtnShipperChange;
 
 function onTtnConsigneeChange() {
   _ttnRefreshUnloadPlaceOptions();
+  _ttnSyncReceiverFromConsignee();
 }
 window.onTtnConsigneeChange = onTtnConsigneeChange;
 
@@ -19343,6 +19384,8 @@ async function _openTtnModal(mode, record) {
   setVal("ttnCreateLoaderName", "");
   setVal("ttnCreateUnloadingDatetime", "");
   setVal("ttnCreateReceiverName", "");
+  _ttnLoaderAutofill = "";
+  _ttnReceiverAutofill = "";
   setVal("ttnCreateRedirect", "");
   setVal("ttnCreateMarks", "");
   setVal("ttnCreateFreightCost", "");
@@ -19387,6 +19430,15 @@ async function _openTtnModal(mode, record) {
     setVal("ttnCreateLoaderName", record.loader_name || "");
     setVal("ttnCreateUnloadingDatetime", record.unloading_datetime || "");
     setVal("ttnCreateReceiverName", record.receiver_name || "");
+    // Empty legacy → default to ГО/ГП; remember autofill baseline for later party changes.
+    _ttnLoaderAutofill = _ttnPartyShortName(shipRef);
+    _ttnReceiverAutofill = _ttnPartyShortName(consRef);
+    if (!String(document.getElementById("ttnCreateLoaderName")?.value || "").trim()) {
+      setVal("ttnCreateLoaderName", _ttnLoaderAutofill);
+    }
+    if (!String(document.getElementById("ttnCreateReceiverName")?.value || "").trim()) {
+      setVal("ttnCreateReceiverName", _ttnReceiverAutofill);
+    }
     setVal("ttnCreateRedirect", record.redirect_info || "");
     setVal("ttnCreateMarks", record.carrier_marks || "");
     setVal("ttnCreateFreightCost", record.freight_cost || "");
