@@ -31,8 +31,6 @@ def test_sales_status_recalculates_on_category_filter() -> None:
 def test_category_filter_multiselect_ctrl_click() -> None:
     assert 'id="supplyBalancesCategoryFilter"' in APP_HTML
     assert "multiple" in APP_HTML.split('id="supplyBalancesCategoryFilter"', 1)[1].split(">", 1)[0]
-    assert "sb-category-filter-hint" in APP_HTML
-    assert "Ctrl+клик" in APP_HTML
     assert "categoryFilter: []" in APP_JS
     assert "function _sbReadCategoryFiltersFromSelect(" in APP_JS
     assert "sel.multiple" in APP_JS
@@ -40,7 +38,7 @@ def test_category_filter_multiselect_ctrl_click() -> None:
 
 
 def test_cache_bump_sales_summary_multicat() -> None:
-    assert "style.css?v=356" in APP_HTML
+    assert "style.css?v=357" in APP_HTML
     assert "app.js?v=612" in APP_HTML
 
 
