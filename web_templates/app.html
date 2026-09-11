@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=354" />
+  <link rel="stylesheet" href="/static/style.css?v=355" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -4453,11 +4453,12 @@
                 <div id="supplyBalancesFilterPanel" class="sb-balances-filter-panel" hidden role="menu">
                   <div class="sb-toolbar-category">
                     <label class="sr-only" for="supplyBalancesCategoryFilter">Категория</label>
-                    <select id="supplyBalancesCategoryFilter" onchange="onSupplyBalancesCategoryChange()"
-                            title="Фильтр по категории товаров или материалам">
-                      <option value="">Все</option>
+                    <select id="supplyBalancesCategoryFilter" multiple size="6"
+                            onchange="onSupplyBalancesCategoryChange()"
+                            title="Ctrl+клик — несколько категорий. Пустой выбор = все.">
                       <option value="__materials__">Материалы</option>
                     </select>
+                    <div class="sb-category-filter-hint">Ctrl+клик — несколько; пусто = все</div>
                   </div>
                   <button type="button" class="secondary" role="menuitem"
                           onclick="openSupplyBalancesVisibilityModal()"
@@ -7435,6 +7436,6 @@
 
   <script src="/static/ozon_fbs.js?v=144"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=22"></script>
-  <script src="/static/app.js?v=610"></script>
+  <script src="/static/app.js?v=611"></script>
 </body>
 </html>

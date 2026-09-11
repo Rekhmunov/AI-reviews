@@ -14022,8 +14022,8 @@ const supplyBalancesState = {
   catalogItems: [],
   visibilityItems: [],
   search: "",
-  // "" = all, "__materials__" = materials only, else product category name
-  categoryFilter: "",
+  // [] = all; values: "__materials__" and/or product category names (multi-select)
+  categoryFilter: [],
   // "balance" = ledger snapshot; "sales" = FBS sold qty; "movements" = journal
   viewMode: "balance",
   // all | wb | ozon — sales mode only
@@ -14189,8 +14189,94 @@ function _sbSetStatus(text, kind) {
   const info = document.getElementById("supplyBalancesInfo");
   if (!info) return;
   info.textContent = String(text || "");
+  info.classList.toggle("is-summary", kind === "summary");
   info.classList.toggle("is-ok", kind === "ok");
   info.classList.toggle("is-error", kind === "error");
+}
+
+function _sbNormalizeCategoryFilters(value) {
+  if (Array.isArray(value)) {
+    return value.map((v) => String(v || "").trim()).filter(Boolean);
+  }
+  const s = String(value || "").trim();
+  return s ? [s] : [];
+}
+
+function _sbSelectedCategoryFilters() {
+  return _sbNormalizeCategoryFilters(supplyBalancesState.categoryFilter);
+}
+
+function _sbReadCategoryFiltersFromSelect(sel) {
+  if (!sel) return [];
+  if (sel.multiple) {
+    return Array.from(sel.selectedOptions || [])
+      .map((o) => String(o.value || "").trim())
+      .filter(Boolean);
+  }
+  const v = String(sel.value || "").trim();
+  return v ? [v] : [];
+}
+
+function _sbApplyCategoryFiltersToSelect(sel, filters) {
+  if (!sel) return;
+  const selected = new Set(_sbNormalizeCategoryFilters(filters));
+  Array.from(sel.options || []).forEach((opt) => {
+    opt.selected = selected.has(String(opt.value || ""));
+  });
+}
+
+function _sbDataRowMatchesCategoryFilters(row, filters) {
+  const selected = _sbNormalizeCategoryFilters(filters);
+  if (!selected.length) return true;
+  const type = String(row?.item_type || "");
+  const rowCat = type === "material"
+    ? "__materials__"
+    : String(row?.product_category || "").trim();
+  return selected.includes(rowCat);
+}
+
+function _sbDataRowMatchesSearch(row, q) {
+  const needle = _sbNormalizeSearch(q);
+  if (!needle) return true;
+  const hay = _sbNormalizeSearch([
+    row?.name,
+    row?.unit,
+    row?.supplier_article,
+    row?.wb_nmid,
+    row?.ozon_sku,
+    row?.product_category,
+    ...(Array.isArray(row?.barcodes) ? row.barcodes : []),
+  ].map((x) => String(x || "")).filter(Boolean).join(" "));
+  return hay.includes(needle);
+}
+
+function _sbSalesQtyOfRow(row) {
+  const n = Number(row?.sold ?? row?.balance ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function _sbRefreshSalesPeriodStatus() {
+  if (supplyBalancesState.viewMode !== "sales") return;
+  const periodLabel = _sbFormatPeriodLabel(supplyBalancesState.dateFrom, supplyBalancesState.asOf);
+  const mpLabel = supplyBalancesState.marketplace === "wb"
+    ? "WB"
+    : supplyBalancesState.marketplace === "ozon"
+      ? "Ozon"
+      : "WB+Ozon";
+  const filters = _sbSelectedCategoryFilters();
+  const q = supplyBalancesState.search;
+  const rows = (Array.isArray(supplyBalancesState.rows) ? supplyBalancesState.rows : []).filter((r) =>
+    _sbDataRowMatchesCategoryFilters(r, filters) && _sbDataRowMatchesSearch(r, q)
+  );
+  if (rows.length) {
+    const total = rows.reduce((acc, r) => acc + _sbSalesQtyOfRow(r), 0);
+    _sbSetStatus(
+      `Продажи ${mpLabel} за ${periodLabel}: позиций ${rows.length}, всего ${_sbQtyText(total)} шт.`,
+      "summary"
+    );
+  } else {
+    _sbSetStatus(`За ${periodLabel} продаж ${mpLabel} по выбранным фильтрам нет.`, "summary");
+  }
 }
 
 function _sbLoadColWidths() {
@@ -14323,8 +14409,7 @@ window.setSupplyBalancesFilterPanelOpen = setSupplyBalancesFilterPanelOpen;
 function _sbSyncBalancesFilterBtnActive() {
   const btn = document.getElementById("supplyBalancesFilterBtn");
   if (!btn) return;
-  const cat = document.getElementById("supplyBalancesCategoryFilter");
-  const catOn = !!(cat && String(cat.value || "").trim());
+  const catOn = _sbSelectedCategoryFilters().length > 0;
   const histOn = !!supplyBalancesState.showHistory
     && supplyBalancesState.viewMode !== "sales"
     && supplyBalancesState.viewMode !== "movements";
@@ -14543,7 +14628,7 @@ function openSupplyBalancesOrderModal() {
   const catEl = document.getElementById("supplyBalancesOrderCategoryFilter");
   // Default shortlist: below minimum (main ordering use-case).
   supplyBalancesOrderState.belowMode = "below";
-  supplyBalancesOrderState.category = String(supplyBalancesState.categoryFilter || "");
+  supplyBalancesOrderState.category = _sbSelectedCategoryFilters()[0] || "";
   if (belowEl) belowEl.value = supplyBalancesOrderState.belowMode;
   _sbSyncOrderCategoryOptions();
   if (catEl) catEl.value = supplyBalancesOrderState.category;
@@ -14805,32 +14890,15 @@ async function loadSupplyBalancesSalesData() {
     supplyBalancesState.rows = Array.isArray(data.rows) ? data.rows : [];
     supplyBalancesState.categories = Array.isArray(data.categories) ? data.categories : [];
     supplyBalancesState.productionId = Number(data.production_id || pid);
-    // Sales are products only — «Материалы» filter would always be empty.
-    if (supplyBalancesState.categoryFilter === "__materials__") {
-      supplyBalancesState.categoryFilter = "";
-    }
+    // Sales are products only — drop «Материалы» from multi-filter.
+    supplyBalancesState.categoryFilter = _sbSelectedCategoryFilters()
+      .filter((v) => v !== "__materials__");
     _sbUpdateTodayBadge();
     _sbUpdateHistoryBtn();
     _sbUpdateBelowMinBtn();
     _sbSyncCategoryFilterOptions();
     renderSupplyBalancesTable();
-    const periodLabel = _sbFormatPeriodLabel(supplyBalancesState.dateFrom, supplyBalancesState.asOf);
-    const mpLabel = supplyBalancesState.marketplace === "wb"
-      ? "WB"
-      : supplyBalancesState.marketplace === "ozon"
-        ? "Ozon"
-        : "WB+Ozon";
-    if (supplyBalancesState.rows.length) {
-      const total = supplyBalancesState.rows.reduce((acc, r) => {
-        const n = Number(r.sold ?? r.balance ?? 0);
-        return acc + (Number.isFinite(n) ? n : 0);
-      }, 0);
-      _sbSetStatus(
-        `Продажи ${mpLabel} за ${periodLabel}: позиций ${supplyBalancesState.rows.length}, всего ${_sbQtyText(total)} шт.`
-      );
-    } else {
-      _sbSetStatus(`За ${periodLabel} продаж ${mpLabel} по видимым товарам нет.`);
-    }
+    _sbRefreshSalesPeriodStatus();
   } catch (e) {
     _sbSetStatus(String(e.message || e), "error");
   }
@@ -14997,37 +15065,35 @@ window.onSupplyBalancesSearchInput = onSupplyBalancesSearchInput;
 function _sbSyncCategoryFilterOptions() {
   const sel = document.getElementById("supplyBalancesCategoryFilter");
   if (!sel) return;
-  const current = String(supplyBalancesState.categoryFilter || "");
+  const current = _sbSelectedCategoryFilters();
   const cats = Array.isArray(supplyBalancesState.categories)
     ? supplyBalancesState.categories.map((c) => String(c || "").trim()).filter(Boolean)
     : [];
   const salesMode = supplyBalancesState.viewMode === "sales";
-  const opts = [{ value: "", label: "Все" }];
+  const opts = [];
   if (!salesMode) opts.push({ value: "__materials__", label: "Материалы" });
   cats.forEach((name) => opts.push({ value: name, label: name }));
   sel.innerHTML = opts.map((o) =>
     `<option value="${esc(o.value)}">${esc(o.label)}</option>`
   ).join("");
-  const stillValid = opts.some((o) => o.value === current);
-  supplyBalancesState.categoryFilter = stillValid ? current : "";
-  sel.value = supplyBalancesState.categoryFilter;
+  const valid = current.filter((v) => opts.some((o) => o.value === v));
+  supplyBalancesState.categoryFilter = valid;
+  _sbApplyCategoryFiltersToSelect(sel, valid);
 }
 
 function onSupplyBalancesCategoryChange() {
   const sel = document.getElementById("supplyBalancesCategoryFilter");
-  supplyBalancesState.categoryFilter = String(sel?.value || "");
+  supplyBalancesState.categoryFilter = _sbReadCategoryFiltersFromSelect(sel);
   applySupplyBalancesSearchFilter();
   _sbSyncBalancesFilterBtnActive();
 }
 window.onSupplyBalancesCategoryChange = onSupplyBalancesCategoryChange;
 
-function _sbRowMatchesCategoryFilter(tr, categoryFilter) {
-  const cat = String(categoryFilter || "");
-  if (!cat) return true;
+function _sbRowMatchesCategoryFilter(tr, categoryFilters) {
+  const selected = _sbNormalizeCategoryFilters(categoryFilters);
+  if (!selected.length) return true;
   const rowCat = String(tr.getAttribute("data-sb-category") || "");
-  const rowType = String(tr.getAttribute("data-sb-type") || "");
-  if (cat === "__materials__") return rowType === "material";
-  return rowType === "product" && rowCat === cat;
+  return selected.includes(rowCat);
 }
 
 function applySupplyBalancesSearchFilter() {
@@ -15036,7 +15102,7 @@ function applySupplyBalancesSearchFilter() {
   if (!tbody) return;
   const q = _sbNormalizeSearch(supplyBalancesState.search);
   const belowOnly = !!supplyBalancesState.filterBelowMin;
-  const categoryFilter = String(supplyBalancesState.categoryFilter || "");
+  const categoryFilter = _sbSelectedCategoryFilters();
   const itemRows = Array.from(tbody.querySelectorAll("tr.sb-item-row"));
   let visible = 0;
   itemRows.forEach((tr) => {
@@ -15065,7 +15131,7 @@ function applySupplyBalancesSearchFilter() {
   });
   // Empty-filter placeholder
   let emptyTr = tbody.querySelector("tr.sb-search-empty");
-  const filterActive = !!(q || belowOnly || categoryFilter);
+  const filterActive = !!(q || belowOnly || categoryFilter.length);
   if (filterActive && itemRows.length && visible === 0) {
     if (!emptyTr) {
       const colCount = supplyBalancesState.viewMode === "movements"
@@ -15078,7 +15144,7 @@ function applySupplyBalancesSearchFilter() {
     } else {
       const cell = emptyTr.querySelector("td");
       if (cell) {
-        cell.textContent = belowOnly && !q && !categoryFilter
+        cell.textContent = belowOnly && !q && !categoryFilter.length
           ? "Нет позиций ниже минимума"
           : "Ничего не найдено";
       }
@@ -15097,6 +15163,7 @@ function applySupplyBalancesSearchFilter() {
     }
   }
   _sbUpdateBelowMinBtn();
+  _sbRefreshSalesPeriodStatus();
 }
 
 function renderSupplyBalancesMovementsTable() {
@@ -16859,7 +16926,7 @@ function _sbFillAsOfCategorySelect() {
   const sel = document.getElementById("supplyStockAsOfCategory");
   if (!sel) return;
   const mode = String(document.getElementById("supplyStockAsOfMode")?.value || "balance");
-  const current = String(sel.value || supplyBalancesState.categoryFilter || "");
+  const current = String(sel.value || _sbSelectedCategoryFilters()[0] || "");
   const cats = Array.isArray(supplyBalancesState.categories)
     ? supplyBalancesState.categories.map((c) => String(c || "").trim()).filter(Boolean)
     : [];
@@ -17002,15 +17069,14 @@ async function applySupplyStockAsOf() {
   supplyBalancesState.dateFrom = (form.mode === "sales" || form.mode === "movements")
     ? form.dateFrom
     : form.dateTo;
-  supplyBalancesState.categoryFilter = form.category;
+  supplyBalancesState.categoryFilter = form.category ? [form.category] : [];
   supplyBalancesState.marketplace = form.marketplace;
   supplyBalancesState.hideSalesZeros = form.hideZeros;
   if (form.mode === "sales") {
     supplyBalancesState.showHistory = false;
     supplyBalancesState.filterBelowMin = false;
-    if (supplyBalancesState.categoryFilter === "__materials__") {
-      supplyBalancesState.categoryFilter = "";
-    }
+    supplyBalancesState.categoryFilter = _sbSelectedCategoryFilters()
+      .filter((v) => v !== "__materials__");
   }
   if (form.mode === "movements") {
     supplyBalancesState.showHistory = false;
@@ -17029,7 +17095,7 @@ async function resetSupplyStockAsOf() {
   supplyBalancesState.asOf = supplyBalancesState.today || "";
   supplyBalancesState.dateFrom = supplyBalancesState.today || "";
   supplyBalancesState.viewMode = "balance";
-  supplyBalancesState.categoryFilter = "";
+  supplyBalancesState.categoryFilter = [];
   supplyBalancesState.marketplace = "all";
   supplyBalancesState.hideSalesZeros = true;
   supplyBalancesState.movementRows = [];
