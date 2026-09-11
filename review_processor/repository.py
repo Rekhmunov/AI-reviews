@@ -13928,6 +13928,31 @@ class ReviewRepository:
             )
         return bool(result.rowcount)
 
+    def set_product_weight_kg(
+        self, *, user_id: int, product_id: int, weight_kg: float | None
+    ) -> bool:
+        """Update only ``weight_kg`` for a catalog product."""
+        now = _utc_now()
+        value: float | None
+        if weight_kg is None:
+            value = None
+        else:
+            try:
+                value = round(float(weight_kg), 3)
+            except (TypeError, ValueError):
+                return False
+            if value < 0:
+                return False
+        with self._connect() as conn:
+            result = conn.execute(
+                self._sql(
+                    "UPDATE product_photos SET weight_kg=?, updated_at=? "
+                    "WHERE user_id=? AND id=?"
+                ),
+                (value, now, user_id, int(product_id)),
+            )
+        return bool(result.rowcount)
+
     def get_product_fbs_barcode_fill_preview(
         self, *, user_id: int
     ) -> list[dict[str, Any]]:

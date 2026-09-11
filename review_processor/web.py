@@ -923,6 +923,10 @@ class ProductFillBarcodesRequest(BaseModel):
     product_ids: list[int] = Field(default_factory=list)
 
 
+class ProductFillWeightsRequest(BaseModel):
+    product_ids: list[int] = Field(default_factory=list)
+
+
 class SupplyBalanceSaveRequest(BaseModel):
     """Legacy editable-matrix save (kept for compat; UI uses ledger endpoints)."""
     production_id: int
@@ -3933,6 +3937,35 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         _ensure_product_photos_table()
         user = _require_settings_access(request)
         result = repository.fill_product_barcodes_from_fbs(
+            user_id=_tenant_owner_id(user),
+            product_ids=[int(x) for x in (payload.product_ids or []) if int(x) > 0],
+        )
+        return {"ok": True, **result}
+
+    @app.get("/api/products/marketplace-weights-preview")
+    def product_marketplace_weights_preview(request: Request) -> dict[str, object]:
+        """Preview weight fill from WB Content / Ozon product cards."""
+        from . import product_weight_fill as weight_fill
+
+        _ensure_product_photos_table()
+        user = _require_settings_access(request)
+        items = weight_fill.build_weight_fill_preview(
+            repository=repository,
+            user_id=_tenant_owner_id(user),
+        )
+        return {"items": items}
+
+    @app.post("/api/products/fill-weights-from-marketplace")
+    def product_fill_weights_from_marketplace(
+        request: Request, payload: ProductFillWeightsRequest
+    ) -> dict[str, object]:
+        """Fill empty catalog weights from WB/Ozon product cards."""
+        from . import product_weight_fill as weight_fill
+
+        _ensure_product_photos_table()
+        user = _require_settings_access(request)
+        result = weight_fill.fill_product_weights_from_marketplace(
+            repository=repository,
             user_id=_tenant_owner_id(user),
             product_ids=[int(x) for x in (payload.product_ids or []) if int(x) > 0],
         )

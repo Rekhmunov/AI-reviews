@@ -13446,6 +13446,195 @@ async function saveProductFillBarcodesModal() {
 }
 window.saveProductFillBarcodesModal = saveProductFillBarcodesModal;
 
+// ── Fill product weights from WB/Ozon marketplace cards ───────────────────
+let _productFillWeightsPreview = [];
+const _productFillWeightsSelected = new Set();
+
+async function openProductFillWeightsModal() {
+  const modal = document.getElementById("productFillWeightsModal");
+  const list = document.getElementById("productFillWeightsList");
+  const info = document.getElementById("productFillWeightsModalInfo");
+  const search = document.getElementById("productFillWeightsSearch");
+  const selectAll = document.getElementById("productFillWeightsSelectAll");
+  if (!modal) return;
+  _productFillWeightsSelected.clear();
+  if (search) search.value = "";
+  if (selectAll) selectAll.checked = false;
+  if (info) info.textContent = "Загрузка из WB/Ozon… это может занять минуту";
+  modal.classList.remove("hidden");
+  if (list) list.innerHTML = `<div class="product-fill-barcodes-empty">Загрузка веса из карточек маркетплейсов…</div>`;
+  try {
+    const res = await fetch("/api/products/marketplace-weights-preview");
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Ошибка загрузки");
+    _productFillWeightsPreview = Array.isArray(data.items) ? data.items : [];
+    for (const item of _productFillWeightsPreview) {
+      if (item?.has_new) _productFillWeightsSelected.add(Number(item.id));
+    }
+    renderProductFillWeightsList();
+    _syncProductFillWeightsSelectAll();
+    const fillable = _productFillWeightsPreview.filter((x) => x?.has_new).length;
+    if (info) {
+      info.textContent = fillable
+        ? `Можно заполнить: ${fillable}`
+        : "Нет товаров с пустым весом и найденными данными WB/Ozon";
+    }
+  } catch (e) {
+    if (list) {
+      list.innerHTML = `<div class="product-fill-barcodes-empty" style="color:#b91c1c;padding:16px 24px">${esc(String(e.message || e))}</div>`;
+    }
+    if (info) info.textContent = "";
+  }
+}
+window.openProductFillWeightsModal = openProductFillWeightsModal;
+
+function closeProductFillWeightsModal() {
+  document.getElementById("productFillWeightsModal")?.classList.add("hidden");
+}
+window.closeProductFillWeightsModal = closeProductFillWeightsModal;
+
+function _productFillWeightsSearchNorm(raw) {
+  return String(raw || "").trim().toLowerCase();
+}
+
+function _fmtWeightKg(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  const num = Number(value);
+  if (!Number.isFinite(num)) return String(value);
+  return String(Math.round(num * 1000) / 1000);
+}
+
+function renderProductFillWeightsList() {
+  const list = document.getElementById("productFillWeightsList");
+  if (!list) return;
+  const q = _productFillWeightsSearchNorm(
+    document.getElementById("productFillWeightsSearch")?.value || ""
+  );
+  const rows = _productFillWeightsPreview.filter((item) => {
+    if (!q) return true;
+    const blob = [
+      item?.name,
+      item?.supplier_article,
+      item?.wb_nmid,
+      item?.ozon_sku,
+      item?.platform,
+      item?.source_name,
+    ].map((x) => String(x || "")).join(" ").toLowerCase();
+    return blob.includes(q);
+  });
+  if (!rows.length) {
+    list.innerHTML = `<div class="product-fill-barcodes-empty" style="padding:16px 24px;color:#94a3b8">Нет товаров${q ? " по запросу" : ""}</div>`;
+    return;
+  }
+  list.innerHTML = rows.map((item) => {
+    const id = Number(item.id);
+    const canFill = !!item.has_new;
+    const checked = _productFillWeightsSelected.has(id);
+    const article = String(item.supplier_article || "").trim();
+    const wb = String(item.wb_nmid || "").trim();
+    const oz = String(item.ozon_sku || "").trim();
+    const metaParts = [];
+    if (article) metaParts.push(`Арт. ${article}`);
+    if (wb) metaParts.push(`WB ${wb}`);
+    if (oz) metaParts.push(`Ozon ${oz}`);
+    let statusText = "Нет веса в карточках WB/Ozon";
+    if (item.current_weight_kg != null) {
+      statusText = `Уже задан: ${_fmtWeightKg(item.current_weight_kg)} кг`;
+      if (item.market_weight_kg != null) {
+        statusText += ` · на МП: ${_fmtWeightKg(item.market_weight_kg)} кг`;
+      }
+    } else if (canFill) {
+      const plat = String(item.platform || "").toUpperCase() || "МП";
+      statusText = `Будет: ${_fmtWeightKg(item.proposed_weight_kg)} кг (${plat})`;
+      if (item.conflict) statusText += " · есть расхождение WB/Ozon";
+    }
+    return `<label class="product-fill-barcodes-row${canFill ? "" : " is-disabled"}">
+      <input type="checkbox" ${canFill ? "" : "disabled"} ${checked ? "checked" : ""}
+             onchange="onProductFillWeightsToggle(${id}, this.checked)" />
+      <div class="product-fill-barcodes-meta">
+        <div class="product-fill-barcodes-name">${esc(item.name || "—")}</div>
+        <div class="product-fill-barcodes-sub">${esc(metaParts.join(" · ") || "—")} · ${esc(statusText)}</div>
+      </div>
+    </label>`;
+  }).join("");
+}
+window.renderProductFillWeightsList = renderProductFillWeightsList;
+
+function onProductFillWeightsToggle(id, checked) {
+  const pid = Number(id);
+  if (!Number.isFinite(pid) || pid <= 0) return;
+  if (checked) _productFillWeightsSelected.add(pid);
+  else _productFillWeightsSelected.delete(pid);
+  _syncProductFillWeightsSelectAll();
+}
+window.onProductFillWeightsToggle = onProductFillWeightsToggle;
+
+function _syncProductFillWeightsSelectAll() {
+  const selectAll = document.getElementById("productFillWeightsSelectAll");
+  if (!selectAll) return;
+  const fillable = _productFillWeightsPreview.filter((x) => x?.has_new);
+  if (!fillable.length) {
+    selectAll.checked = false;
+    selectAll.indeterminate = false;
+    return;
+  }
+  const selectedFillable = fillable.filter((x) => _productFillWeightsSelected.has(Number(x.id))).length;
+  selectAll.checked = selectedFillable === fillable.length;
+  selectAll.indeterminate = selectedFillable > 0 && selectedFillable < fillable.length;
+}
+
+function toggleProductFillWeightsSelectAll(checked) {
+  _productFillWeightsSelected.clear();
+  if (checked) {
+    for (const item of _productFillWeightsPreview) {
+      if (item?.has_new) _productFillWeightsSelected.add(Number(item.id));
+    }
+  }
+  renderProductFillWeightsList();
+  _syncProductFillWeightsSelectAll();
+}
+window.toggleProductFillWeightsSelectAll = toggleProductFillWeightsSelectAll;
+
+async function saveProductFillWeightsModal() {
+  const info = document.getElementById("productFillWeightsModalInfo");
+  const btn = document.getElementById("productFillWeightsSaveBtn");
+  const ids = Array.from(_productFillWeightsSelected).filter((id) => {
+    const item = _productFillWeightsPreview.find((x) => Number(x.id) === Number(id));
+    return item?.has_new;
+  });
+  if (!ids.length) {
+    if (info) info.textContent = "Выберите товары с найденным весом";
+    return;
+  }
+  if (btn) btn.disabled = true;
+  if (info) info.textContent = "Сохранение…";
+  try {
+    const res = await fetch("/api/products/fill-weights-from-marketplace", {
+      method: "POST",
+      headers: withCsrfHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ product_ids: ids }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Ошибка сохранения");
+    const updated = Number(data.updated || 0);
+    closeProductFillWeightsModal();
+    await loadProducts();
+    const productsInfo = document.getElementById("productsInfo");
+    if (productsInfo) {
+      productsInfo.textContent = updated
+        ? `Вес заполнен для ${updated} товар(ов)`
+        : "Нет товаров для заполнения веса";
+    }
+  } catch (e) {
+    if (info) info.textContent = e.message || "Ошибка сохранения";
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+window.saveProductFillWeightsModal = saveProductFillWeightsModal;
+
+
+
 // ── Products table column resizer ────────────────────────────────────────
 const PRODUCTS_COL_WIDTHS_KEY = "products_col_widths_v4";
 // photo, name, seller, wb, ozon, ym, box qty, category, barcodes, actions
