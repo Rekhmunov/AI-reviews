@@ -18528,7 +18528,7 @@ let _ttnEditingId = null;
 let _ttnLoadAddressByValue = {};
 let _ttnUnloadAddressByValue = {};
 const TTN_DEFAULT_CARGO = "Текстиль (постельное белье/наматрасники)";
-const TTN_DEFAULT_DOCS = "Закрывающие документы";
+const TTN_DEFAULT_DOCS = "УПД/ТОРГ-12/Электронная накладная";
 const TTN_PACKING_OPTIONS = ["Короба", "Паллеты"];
 
 function _ttnSetPackingValue(val) {

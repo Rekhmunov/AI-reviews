@@ -40,7 +40,7 @@ def test_logistics_title_picker_and_panes() -> None:
     assert "function initLogisticsSection" in js
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
-    assert "app.js?v=601" in html
+    assert "app.js?v=602" in html
     assert "style.css?v=349" in html
     assert "ttn-modal-card" in html
     assert "ttn-form-grid" in html
@@ -79,7 +79,7 @@ def test_ttn_default_cargo_description() -> None:
     js = JS.read_text(encoding="utf-8")
     assert 'TTN_DEFAULT_CARGO = "Текстиль (постельное белье/наматрасники)"' in js
     assert 'setVal("ttnCreateCargo", TTN_DEFAULT_CARGO)' in js
-    assert 'TTN_DEFAULT_DOCS = "Закрывающие документы"' in js
+    assert 'TTN_DEFAULT_DOCS = "УПД/ТОРГ-12/Электронная накладная"' in js
     assert 'setVal("ttnCreateDocs", TTN_DEFAULT_DOCS)' in js
 
 
