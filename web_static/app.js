@@ -15089,6 +15089,15 @@ function onSupplyBalancesCategoryChange() {
 }
 window.onSupplyBalancesCategoryChange = onSupplyBalancesCategoryChange;
 
+function resetSupplyBalancesCategoryFilter() {
+  const sel = document.getElementById("supplyBalancesCategoryFilter");
+  supplyBalancesState.categoryFilter = [];
+  _sbApplyCategoryFiltersToSelect(sel, []);
+  applySupplyBalancesSearchFilter();
+  _sbSyncBalancesFilterBtnActive();
+}
+window.resetSupplyBalancesCategoryFilter = resetSupplyBalancesCategoryFilter;
+
 function _sbRowMatchesCategoryFilter(tr, categoryFilters) {
   const selected = _sbNormalizeCategoryFilters(categoryFilters);
   if (!selected.length) return true;

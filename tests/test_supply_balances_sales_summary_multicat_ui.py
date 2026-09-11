@@ -38,11 +38,18 @@ def test_category_filter_multiselect_ctrl_click() -> None:
 
 
 def test_cache_bump_sales_summary_multicat() -> None:
-    assert "style.css?v=357" in APP_HTML
-    assert "app.js?v=612" in APP_HTML
+    assert "style.css?v=358" in APP_HTML
+    assert "app.js?v=613" in APP_HTML
 
 
 def test_category_filter_panel_shows_full_names() -> None:
     """Category filter panel is wide enough for long category labels."""
     assert "min(460px, calc(100vw - 32px))" in STYLE
     assert 'title="${esc(o.label)}"' in APP_JS
+
+
+def test_category_filter_has_reset_button() -> None:
+    assert 'id="supplyBalancesCategoryResetBtn"' in APP_HTML
+    assert "Сбросить" in APP_HTML.split('id="supplyBalancesCategoryResetBtn"', 1)[1][:200]
+    assert "function resetSupplyBalancesCategoryFilter()" in APP_JS
+    assert "resetSupplyBalancesCategoryFilter()" in APP_HTML

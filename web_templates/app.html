@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=357" />
+  <link rel="stylesheet" href="/static/style.css?v=358" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -4460,6 +4460,10 @@
                     </select>
                   </div>
                   <button type="button" class="secondary" role="menuitem"
+                          id="supplyBalancesCategoryResetBtn"
+                          onclick="resetSupplyBalancesCategoryFilter()"
+                          title="Сбросить выбранные категории">Сбросить</button>
+                  <button type="button" class="secondary" role="menuitem"
                           onclick="openSupplyBalancesVisibilityModal()"
                           title="Вывод в таблице" aria-label="Вывод в таблице">Вывод</button>
                   <button type="button" class="secondary" id="supplyBalancesHistoryBtn" role="menuitem"
@@ -7435,6 +7439,6 @@
 
   <script src="/static/ozon_fbs.js?v=144"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=22"></script>
-  <script src="/static/app.js?v=612"></script>
+  <script src="/static/app.js?v=613"></script>
 </body>
 </html>
