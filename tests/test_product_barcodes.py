@@ -73,7 +73,8 @@ class ProductBarcodesRepositoryTests(unittest.TestCase):
         insert_sql = repo._insert_and_get_id.call_args[0][1]
         self.assertIn("barcodes_json", insert_sql)
         params = repo._insert_and_get_id.call_args[0][2]
-        self.assertEqual(json.loads(params[9]), ["4601234567890", "4601234567891"])
+        # barcodes_json follows requires_kiz (index shifts after weight_kg)
+        self.assertEqual(json.loads(params[11]), ["4601234567890", "4601234567891"])
 
     @patch("review_processor.repository.ReviewRepository._connect")
     def test_list_product_photos_exposes_barcodes(self, connect_mock):

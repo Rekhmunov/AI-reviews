@@ -7477,6 +7477,9 @@ class ReviewRepository:
         conn.execute(
             "ALTER TABLE product_photos ADD COLUMN IF NOT EXISTS barcode_label_name TEXT NOT NULL DEFAULT ''"
         )
+        conn.execute(
+            "ALTER TABLE product_photos ADD COLUMN IF NOT EXISTS weight_kg DOUBLE PRECISION"
+        )
 
     def _product_photo_to_dict(self, row: Any) -> dict[str, Any]:
         d = self._row_to_dict(row)
@@ -7486,6 +7489,14 @@ class ReviewRepository:
         d["requires_kiz"] = bool(int(d.get("requires_kiz") or 0))
         d["barcodes"] = _normalize_product_barcodes(d.get("barcodes_json"))
         d.pop("barcodes_json", None)
+        raw_weight = d.get("weight_kg")
+        if raw_weight in (None, ""):
+            d["weight_kg"] = None
+        else:
+            try:
+                d["weight_kg"] = float(raw_weight)
+            except (TypeError, ValueError):
+                d["weight_kg"] = None
         return d
 
     def list_product_photos(self, *, user_id: int) -> list[dict[str, Any]]:
@@ -7501,6 +7512,7 @@ class ReviewRepository:
         wb_nmid: str, ozon_sku: str, photo_path: str | None,
         yandex_offer_id: str = "",
         box_qty: int | None = None,
+        weight_kg: float | None = None,
         product_category: str = "",
         skip_kiz_gtin_check: bool = False,
         requires_kiz: bool = False,
@@ -7515,10 +7527,10 @@ class ReviewRepository:
                 self._sql("""
                 INSERT INTO product_photos (
                     user_id, name, supplier_article, wb_nmid, ozon_sku, yandex_offer_id,
-                    box_qty, product_category, skip_kiz_gtin_check, requires_kiz, barcodes_json,
+                    box_qty, weight_kg, product_category, skip_kiz_gtin_check, requires_kiz, barcodes_json,
                     barcode_label_name, photo_path, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """),
                 (
                     user_id,
@@ -7528,6 +7540,7 @@ class ReviewRepository:
                     ozon_sku.strip(),
                     yandex_offer_id.strip(),
                     box_qty,
+                    weight_kg,
                     str(product_category or "").strip(),
                     1 if skip_kiz_gtin_check else 0,
                     1 if requires_kiz else 0,
@@ -7546,6 +7559,7 @@ class ReviewRepository:
         wb_nmid: str, ozon_sku: str, photo_path: str | None = None,
         yandex_offer_id: str = "",
         box_qty: int | None = None,
+        weight_kg: float | None = None,
         product_category: str = "",
         skip_kiz_gtin_check: bool = False,
         requires_kiz: bool = False,
@@ -7560,6 +7574,7 @@ class ReviewRepository:
             "ozon_sku=?",
             "yandex_offer_id=?",
             "box_qty=?",
+            "weight_kg=?",
             "product_category=?",
             "skip_kiz_gtin_check=?",
             "requires_kiz=?",
@@ -7572,6 +7587,7 @@ class ReviewRepository:
             ozon_sku.strip(),
             yandex_offer_id.strip(),
             box_qty,
+            weight_kg,
             str(product_category or "").strip(),
             1 if skip_kiz_gtin_check else 0,
             1 if requires_kiz else 0,
@@ -8224,6 +8240,10 @@ class ReviewRepository:
                 "ON supply_warehouses(user_id, contractor_id)"
             )
         )
+        conn.execute(
+            "ALTER TABLE supply_warehouses "
+            "ADD COLUMN IF NOT EXISTS fbs_sources_json TEXT NOT NULL DEFAULT '[]'"
+        )
         # Legal entities catalog (short name → full name lookup)
         conn.execute(
             """
@@ -8390,6 +8410,9 @@ class ReviewRepository:
             "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS freight_cost TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS customer_party_type TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS customer_party_id INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS fbs_platform TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS fbs_source_id INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS fbs_supply_id TEXT NOT NULL DEFAULT ''",
         ):
             conn.execute(_ttn_col_sql)
         # Contour.Logistics / Diadoc EDO settings + sent document tracking (Ozon).
@@ -9206,6 +9229,47 @@ class ReviewRepository:
                 conn.close()
         return cid if row else None
 
+
+    @staticmethod
+    def _normalize_warehouse_fbs_sources(raw: Any) -> list[dict[str, Any]]:
+        """Normalize warehouse FBS bindings: [{platform, source_id}, ...]."""
+        data = raw
+        if isinstance(raw, str):
+            text = raw.strip()
+            if not text:
+                return []
+            try:
+                data = json.loads(text)
+            except Exception:
+                return []
+        if not isinstance(data, list):
+            return []
+        out: list[dict[str, Any]] = []
+        seen: set[tuple[str, int]] = set()
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            platform = str(item.get("platform") or "").strip().lower()
+            if platform in ("wildberries", "wb_fbs", "wb-fbs"):
+                platform = "wb"
+            elif platform in ("ozon_fbs", "ozon-fbs"):
+                platform = "ozon"
+            if platform not in ("wb", "ozon"):
+                continue
+            try:
+                source_id = int(item.get("source_id") or item.get("id") or 0)
+            except (TypeError, ValueError):
+                continue
+            if source_id <= 0:
+                continue
+            key = (platform, source_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({"platform": platform, "source_id": source_id})
+        out.sort(key=lambda x: (x["platform"], x["source_id"]))
+        return out
+
     def list_supply_warehouses(self, *, user_id: int) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
@@ -9228,6 +9292,8 @@ class ReviewRepository:
             except (TypeError, ValueError):
                 d["contractor_id"] = None
             d["contractor_name"] = str(d.get("contractor_name") or "").strip()
+            d["fbs_sources"] = self._normalize_warehouse_fbs_sources(d.get("fbs_sources_json"))
+            d.pop("fbs_sources_json", None)
             result.append(d)
         return result
 
@@ -9247,8 +9313,13 @@ class ReviewRepository:
         addr_corpus: str = "",
         addr_flat: str = "",
         contractor_id: int | None = None,
+        fbs_sources: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         now = _utc_now()
+        fbs_json = json.dumps(
+            self._normalize_warehouse_fbs_sources(fbs_sources or []),
+            ensure_ascii=False,
+        )
         addr = self._normalize_production_addr_fields(
             addr_index=addr_index,
             addr_region_code=addr_region_code,
@@ -9269,15 +9340,16 @@ class ReviewRepository:
             wid = self._insert_and_get_id(
                 conn,
                 "INSERT INTO supply_warehouses ("
-                "user_id, warehouse_name, address, contractor_id, "
+                "user_id, warehouse_name, address, contractor_id, fbs_sources_json, "
                 "addr_index, addr_region_code, addr_district, addr_city, addr_settlement, "
                 "addr_street, addr_house, addr_corpus, addr_flat, created_at"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     user_id,
                     warehouse_name.strip(),
                     address_val,
                     cid,
+                    fbs_json,
                     addr["addr_index"],
                     addr["addr_region_code"],
                     addr["addr_district"],
@@ -9296,6 +9368,8 @@ class ReviewRepository:
         d = self._row_to_dict(row)
         d["address"] = self.warehouse_address_line(d)
         d["contractor_id"] = cid
+        d["fbs_sources"] = self._normalize_warehouse_fbs_sources(d.get("fbs_sources_json"))
+        d.pop("fbs_sources_json", None)
         return d
 
     def update_supply_warehouse(
@@ -9315,6 +9389,7 @@ class ReviewRepository:
         addr_corpus: str = "",
         addr_flat: str = "",
         contractor_id: int | None = None,
+        fbs_sources: list[dict[str, Any]] | None = None,
     ) -> bool:
         addr = self._normalize_production_addr_fields(
             addr_index=addr_index,
@@ -9340,9 +9415,14 @@ class ReviewRepository:
                 ).fetchone()
                 if existing_addr:
                     address_val = str(self._row_to_dict(existing_addr).get("address") or "").strip()
+            fbs_json = json.dumps(
+                self._normalize_warehouse_fbs_sources(fbs_sources or []),
+                ensure_ascii=False,
+            )
             result = conn.execute(
                 self._sql(
                     "UPDATE supply_warehouses SET warehouse_name = ?, address = ?, contractor_id = ?, "
+                    "fbs_sources_json = ?, "
                     "addr_index = ?, addr_region_code = ?, addr_district = ?, addr_city = ?, "
                     "addr_settlement = ?, addr_street = ?, addr_house = ?, addr_corpus = ?, addr_flat = ? "
                     "WHERE user_id = ? AND id = ?"
@@ -9351,6 +9431,7 @@ class ReviewRepository:
                     warehouse_name.strip(),
                     address_val,
                     cid,
+                    fbs_json,
                     addr["addr_index"],
                     addr["addr_region_code"],
                     addr["addr_district"],
@@ -10411,7 +10492,10 @@ class ReviewRepository:
                            COALESCE(t.receiver_name, '') AS receiver_name,
                            COALESCE(t.redirect_info, '') AS redirect_info,
                            COALESCE(t.carrier_marks, '') AS carrier_marks,
-                           COALESCE(t.freight_cost, '') AS freight_cost
+                           COALESCE(t.freight_cost, '') AS freight_cost,
+                           COALESCE(t.fbs_platform, '') AS fbs_platform,
+                           COALESCE(t.fbs_source_id, 0) AS fbs_source_id,
+                           COALESCE(t.fbs_supply_id, '') AS fbs_supply_id
                     FROM supply_ttn_records t
                     LEFT JOIN supply_legal_entities le_s
                       ON COALESCE(t.shipper_type, 'le') = 'le' AND le_s.id = t.legal_entity_id
@@ -10515,6 +10599,9 @@ class ReviewRepository:
         redirect_info: str = "",
         carrier_marks: str = "",
         freight_cost: str = "",
+        fbs_platform: str = "",
+        fbs_source_id: int = 0,
+        fbs_supply_id: str = "",
     ) -> dict[str, Any]:
         now = _utc_now()
         shipper_type = "contractor" if str(shipper_type or "").strip() == "contractor" else "le"
@@ -10535,8 +10622,9 @@ class ReviewRepository:
                 "customer_services, customer_party_type, customer_party_id, "
                 "packing_type, declared_value, vehicle_type, "
                 "loading_datetime, loader_name, unloading_datetime, receiver_name, "
-                "redirect_info, carrier_marks, freight_cost, created_at"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "redirect_info, carrier_marks, freight_cost, "
+                "fbs_platform, fbs_source_id, fbs_supply_id, created_at"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     user_id,
                     (doc_number or "").strip(),
@@ -10570,6 +10658,9 @@ class ReviewRepository:
                     (redirect_info or "").strip(),
                     (carrier_marks or "").strip(),
                     (freight_cost or "").strip(),
+                    str(fbs_platform or "").strip().lower(),
+                    int(fbs_source_id or 0),
+                    str(fbs_supply_id or "").strip(),
                     now,
                 ),
             )
@@ -10611,6 +10702,9 @@ class ReviewRepository:
         redirect_info: str = "",
         carrier_marks: str = "",
         freight_cost: str = "",
+        fbs_platform: str = "",
+        fbs_source_id: int = 0,
+        fbs_supply_id: str = "",
     ) -> bool:
         shipper_type = "contractor" if str(shipper_type or "").strip() == "contractor" else "le"
         consignee_type = "le" if str(consignee_type or "").strip() == "le" else "contractor"
@@ -10631,7 +10725,7 @@ class ReviewRepository:
                     "customer_services = ?, customer_party_type = ?, customer_party_id = ?, "
                     "packing_type = ?, declared_value = ?, vehicle_type = ?, "
                     "loading_datetime = ?, loader_name = ?, unloading_datetime = ?, receiver_name = ?, "
-                    "redirect_info = ?, carrier_marks = ?, freight_cost = ? "
+                    "redirect_info = ?, carrier_marks = ?, freight_cost = ?, fbs_platform = ?, fbs_source_id = ?, fbs_supply_id = ? "
                     "WHERE user_id = ? AND id = ?"
                 ),
                 (
@@ -10665,6 +10759,9 @@ class ReviewRepository:
                     (redirect_info or "").strip(),
                     (carrier_marks or "").strip(),
                     (freight_cost or "").strip(),
+                    str(fbs_platform or "").strip().lower(),
+                    int(fbs_source_id or 0),
+                    str(fbs_supply_id or "").strip(),
                     user_id,
                     record_id,
                 ),

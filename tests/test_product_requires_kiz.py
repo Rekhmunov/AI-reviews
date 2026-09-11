@@ -70,7 +70,8 @@ class RequiresKizMapTests(unittest.TestCase):
         insert_sql = repo._insert_and_get_id.call_args[0][1]
         self.assertIn("requires_kiz", insert_sql)
         params = repo._insert_and_get_id.call_args[0][2]
-        self.assertEqual(params[9], 1)
+        # user_id..box_qty, weight_kg, product_category, skip_kiz_gtin_check, requires_kiz
+        self.assertEqual(params[10], 1)
 
 
 if __name__ == "__main__":

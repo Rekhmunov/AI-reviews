@@ -3735,6 +3735,96 @@ function _warehouseAddrEditInputsHtml(item) {
   </div>`;
 }
 
+
+// ── Warehouse ↔ FBS sources binding ──────────────────────────────────────────
+
+let _warehouseFbsSourcesCatalog = null; // [{platform, source_id, name, label}]
+
+async function _loadWarehouseFbsSourcesCatalog(force = false) {
+  if (_warehouseFbsSourcesCatalog && !force) return _warehouseFbsSourcesCatalog;
+  const out = [];
+  try {
+    const wbRes = await fetch("/api/wb-fbs/sources").catch(() => null);
+    if (wbRes && wbRes.ok) {
+      const rows = await wbRes.json().catch(() => []);
+      for (const s of Array.isArray(rows) ? rows : []) {
+        const id = Number(s.id || s.source_id || 0);
+        if (!id) continue;
+        const name = String(s.name || `WB #${id}`).trim();
+        out.push({ platform: "wb", source_id: id, name, label: `WB · ${name}` });
+      }
+    }
+  } catch (_) {}
+  try {
+    const ozRes = await fetch("/api/ozon-fbs/sources").catch(() => null);
+    if (ozRes && ozRes.ok) {
+      const rows = await ozRes.json().catch(() => []);
+      for (const s of Array.isArray(rows) ? rows : []) {
+        const id = Number(s.id || s.source_id || 0);
+        if (!id) continue;
+        const name = String(s.name || `Ozon #${id}`).trim();
+        out.push({ platform: "ozon", source_id: id, name, label: `Ozon · ${name}` });
+      }
+    }
+  } catch (_) {}
+  out.sort((a, b) => String(a.label).localeCompare(String(b.label), "ru"));
+  _warehouseFbsSourcesCatalog = out;
+  return out;
+}
+
+function _warehouseFbsSourcesKey(platform, sourceId) {
+  return `${platform}:${sourceId}`;
+}
+
+function _readWarehouseFbsSourcesFromDom(root) {
+  if (!root) return [];
+  const out = [];
+  root.querySelectorAll('input[type="checkbox"][data-fbs-platform]:checked').forEach((el) => {
+    const platform = String(el.getAttribute("data-fbs-platform") || "").trim().toLowerCase();
+    const sourceId = Number(el.getAttribute("data-fbs-source-id") || 0);
+    if ((platform === "wb" || platform === "ozon") && sourceId > 0) {
+      out.push({ platform, source_id: sourceId });
+    }
+  });
+  return out;
+}
+
+function _warehouseFbsSourcesSummary(sources) {
+  const list = Array.isArray(sources) ? sources : [];
+  if (!list.length) return "—";
+  const labels = list.map((s) => {
+    const platform = String(s.platform || "").toLowerCase() === "ozon" ? "Ozon" : "WB";
+    const id = s.source_id || s.id || "";
+    const cat = (_warehouseFbsSourcesCatalog || []).find(
+      (x) => x.platform === String(s.platform || "").toLowerCase() && Number(x.source_id) === Number(id)
+    );
+    return cat ? cat.label : `${platform} #${id}`;
+  });
+  return labels.join(", ");
+}
+
+async function _renderWarehouseFbsSourcesChecklist(containerId, selected) {
+  const root = document.getElementById(containerId);
+  if (!root) return;
+  const catalog = await _loadWarehouseFbsSourcesCatalog();
+  const selectedSet = new Set(
+    (selected || []).map((s) => _warehouseFbsSourcesKey(String(s.platform || "").toLowerCase(), Number(s.source_id || s.id || 0)))
+  );
+  if (!catalog.length) {
+    root.innerHTML = '<div class="small" style="color:#94a3b8">Нет доступных источников WB/Ozon FBS</div>';
+    return;
+  }
+  root.innerHTML = catalog.map((s) => {
+    const key = _warehouseFbsSourcesKey(s.platform, s.source_id);
+    const checked = selectedSet.has(key) ? "checked" : "";
+    return `<label class="warehouse-fbs-source-item">
+      <input type="checkbox" data-fbs-platform="${esc(s.platform)}" data-fbs-source-id="${s.source_id}" ${checked} />
+      <span>${esc(s.label)}</span>
+    </label>`;
+  }).join("");
+}
+
+
 async function loadSupplyWarehouses() {
   const res = await fetch("/api/supply-warehouses").catch(() => null);
   if (!res || !res.ok) return;
@@ -3743,12 +3833,13 @@ async function loadSupplyWarehouses() {
   renderSupplyWarehousesTbody();
 }
 
-function renderSupplyWarehousesTbody() {
+async function renderSupplyWarehousesTbody() {
   const tbody = document.getElementById("supplyWarehousesTbody");
   if (!tbody) return;
+  await _loadWarehouseFbsSourcesCatalog();
   tbody.innerHTML = "";
   if (!_supplyWarehousesCache.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="empty-cell">Склады не добавлены</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">Склады не добавлены</td></tr>';
     requestAnimationFrame(initAllSettingResizers);
     return;
   }
@@ -3764,6 +3855,7 @@ function renderSupplyWarehousesTbody() {
       <td class="editable-cell">${esc(contractorLabel)}</td>
       <td class="editable-cell">${esc(w.warehouse_name||"")}</td>
       <td class="editable-cell">${esc(warehouseAddressLine(w))}</td>
+      <td class="editable-cell small">${esc(_warehouseFbsSourcesSummary(w.fbs_sources))}</td>
       <td>
         <div class="sst-edit-actions">
           <button class="secondary small-btn icon-btn" onclick="startEditWarehouse(${w.id})" title="Редактировать">✏</button>
@@ -3786,15 +3878,19 @@ async function startEditWarehouse(id) {
   cells[0].innerHTML = `<select class="edit-inline-input" data-field="contractor_id">${_contractorOptionsHtml(item.contractor_id)}</select>`;
   cells[1].innerHTML = `<input class="edit-inline-input" data-field="name" value="${esc(item.warehouse_name||"")}" />`;
   cells[2].innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
+  if (cells[3]) cells[3].innerHTML = `<span class="small" style="color:#64748b">ниже</span>`;
   const addrRow = document.createElement("tr");
   addrRow.className = "wh-addr-edit-row";
   addrRow.dataset.forId = String(id);
   addrRow.style.background = "#f8fafc";
-  addrRow.innerHTML = `<td colspan="5" style="padding:12px 8px;border-top:none;white-space:normal">
+  addrRow.innerHTML = `<td colspan="6" style="padding:12px 8px;border-top:none;white-space:normal">
     <div class="small" style="margin-bottom:8px;color:#64748b">Адрес доставки (поля эТрН)</div>
     ${_warehouseAddrEditInputsHtml(item)}
+    <div class="small" style="margin:12px 0 8px;color:#64748b">Источники FBS (для автозаполнения ТН)</div>
+    <div id="editWarehouseFbsSources" class="warehouse-fbs-sources"></div>
   </td>`;
   tr.after(addrRow);
+  await _renderWarehouseFbsSourcesChecklist("editWarehouseFbsSources", item.fbs_sources || []);
   const actionCell = tr.cells[tr.cells.length - 1];
   actionCell.innerHTML = `<div class="sst-edit-actions">
     <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditWarehouse(${id})">Сохранить</button>
@@ -3819,6 +3915,7 @@ async function saveEditWarehouse(id) {
   _WH_ADDR_FIELDS.forEach(([key]) => {
     payload[key] = addrRow?.querySelector(`[data-wh-addr="${key}"]`)?.value.trim() || "";
   });
+  payload.fbs_sources = _readWarehouseFbsSourcesFromDom(document.getElementById("editWarehouseFbsSources"));
   await fetch(`/api/supply-warehouses/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify(payload) }).catch(() => null);
   await loadSupplyWarehouses();
 }
@@ -3831,6 +3928,7 @@ async function toggleAddWarehouseForm(show) {
     await _ensureSupplyContractorsLoaded();
     const sel = document.getElementById("newWarehouseContractor");
     if (sel) sel.innerHTML = _contractorOptionsHtml("");
+    await _renderWarehouseFbsSourcesChecklist("newWarehouseFbsSources", []);
   } else {
     _clearNewWarehouseFormFields();
   }
@@ -3847,6 +3945,7 @@ async function saveSupplyWarehouse() {
     address: "",
     contractor_id: Number.isFinite(contractorId) && contractorId > 0 ? contractorId : null,
     ..._readNewWarehouseAddrFields(),
+    fbs_sources: _readWarehouseFbsSourcesFromDom(document.getElementById("newWarehouseFbsSources")),
   };
   const res = await fetch("/api/supply-warehouses", { method: "POST", headers: jsonHeaders(), body: JSON.stringify(payload) }).catch(() => null);
   if (!res || !res.ok) { const e = await res?.json().catch(()=>({})) || {}; if (info) { info.textContent = e.detail||"Ошибка"; info.style.color = "#b91c1c"; } return; }
@@ -12974,6 +13073,12 @@ function openAddProductForm(editItem = null) {
   const boxQty = editItem?.box_qty;
   document.getElementById("productFormBoxQty").value =
     boxQty === null || boxQty === undefined || boxQty === "" ? "" : String(boxQty);
+  const weightKg = editItem?.weight_kg;
+  const weightEl = document.getElementById("productFormWeightKg");
+  if (weightEl) {
+    weightEl.value =
+      weightKg === null || weightKg === undefined || weightKg === "" ? "" : String(weightKg);
+  }
   const category = String(editItem?.product_category || "").trim();
   _fillProductCategorySelect(category);
   // Refresh options from server so modal edits are reflected immediately.
@@ -13344,7 +13449,7 @@ window.saveProductFillBarcodesModal = saveProductFillBarcodesModal;
 // ── Products table column resizer ────────────────────────────────────────
 const PRODUCTS_COL_WIDTHS_KEY = "products_col_widths_v4";
 // photo, name, seller, wb, ozon, ym, box qty, category, barcodes, actions
-const PRODUCTS_DEFAULT_WIDTHS = [7, 13, 9, 8, 8, 8, 8, 11, 11, 9, 7, 7];
+const PRODUCTS_DEFAULT_WIDTHS = [6.2, 11.5, 8, 7.1, 7.1, 7.1, 7.1, 6.2, 9.7, 9.7, 8, 6.2, 6.2];
 
 function initProductsColumnResizer() {
   const table = document.getElementById("productsTable");
@@ -13414,7 +13519,7 @@ async function loadProducts() {
     if (info) info.textContent = `Товаров: ${_productsCache.length}`;
     tbody.innerHTML = "";
     if (!_productsCache.length) {
-      tbody.innerHTML = '<tr><td colspan="12" class="small" style="color:#94a3b8;padding:16px">Нет товаров. Нажмите «+ Добавить товар»</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="13" class="small" style="color:#94a3b8;padding:16px">Нет товаров. Нажмите «+ Добавить товар»</td></tr>';
       initProductsColumnResizer();
       return;
     }
@@ -13440,6 +13545,7 @@ async function loadProducts() {
         <td>${esc(item.ozon_sku || "—")}</td>
         <td>${esc(item.yandex_offer_id || "—")}</td>
         <td>${esc(boxQtyText)}</td>
+        <td>${esc((item.weight_kg === null || item.weight_kg === undefined || item.weight_kg === "") ? "—" : String(item.weight_kg))}</td>
         <td title="${esc(item.product_category || "")}">${esc(item.product_category || "—")}</td>
         <td title="${esc(labelName)}">${esc(labelPreview)}</td>
         <td title="${esc(barcodesText)}">${esc(barcodesText)}</td>
@@ -13481,6 +13587,7 @@ async function exportProductsCsv() {
       "SKU Ozon",
       "Артикул Яндекс Маркет (offerId)",
       "Кратность в коробе",
+      "Вес, кг",
       "Категория товара",
       "Название для этикетки ШК",
       "ШК",
@@ -13503,6 +13610,7 @@ async function exportProductsCsv() {
         item.ozon_sku || "",
         item.yandex_offer_id || "",
         boxQtyText,
+        (item.weight_kg === null || item.weight_kg === undefined || item.weight_kg === "") ? "" : String(item.weight_kg),
         item.product_category || "",
         item.barcode_label_name || "",
         barcodes.join(", "),
@@ -13551,6 +13659,11 @@ async function saveProduct() {
     if (info) info.textContent = "Кратность в коробе должна быть целым числом";
     return;
   }
+  const weightKg = String(document.getElementById("productFormWeightKg")?.value || "").trim().replace(",", ".");
+  if (weightKg !== "" && !/^\d+(?:\.\d+)?$/.test(weightKg)) {
+    if (info) info.textContent = "Вес должен быть числом (кг)";
+    return;
+  }
   const barcodeSeen = new Set();
   for (const code of barcodes) {
     if (barcodeSeen.has(code)) {
@@ -13570,6 +13683,7 @@ async function saveProduct() {
   fd.append("ozon_sku", ozonSku);
   fd.append("yandex_offer_id", yandexOfferId);
   fd.append("box_qty", boxQty);
+  fd.append("weight_kg", weightKg);
   fd.append("product_category", productCategory);
   fd.append("barcode_label_name", barcodeLabelName);
   fd.append("skip_kiz_gtin_check", skipKizGtinCheck ? "1" : "0");
@@ -19102,13 +19216,167 @@ function onTtnDriverChange() {
 }
 window.onTtnDriverChange = onTtnDriverChange;
 
+
+// ── TN FBS supply autofill (places + weight) ─────────────────────────────────
+
+let _ttnFbsSupplyOptions = [];
+let _ttnFbsAutofillToken = 0;
+let _ttnSelectedFbsMeta = null; // {platform, source_id, supply_id}
+
+function _ttnWarehouseIdFromPlaceKey(key) {
+  const s = String(key || "");
+  const m = /^w:(\d+)$/.exec(s);
+  return m ? Number(m[1]) : 0;
+}
+
+function _ttnSelectedWarehouseIdsForFbs() {
+  const ids = [];
+  for (const key of [
+    document.getElementById("ttnCreateLoad")?.value,
+    document.getElementById("ttnCreateUnload")?.value,
+  ]) {
+    const id = _ttnWarehouseIdFromPlaceKey(key);
+    if (id && !ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
+function _ttnWarehouseById(id) {
+  return (_supplyWarehousesCache || []).find((w) => Number(w.id) === Number(id)) || null;
+}
+
+function _ttnHideFbsSupplyField() {
+  const field = document.getElementById("ttnFbsSupplyField");
+  if (field) field.classList.add("hidden");
+  _ttnFbsSupplyOptions = [];
+  _ttnSelectedFbsMeta = null;
+  const hint = document.getElementById("ttnFbsSupplyHint");
+  if (hint) hint.textContent = "";
+  try {
+    ssPopulate("ttnCreateFbsSupplyWrap", [{ value: "", label: "— Выберите поставку FBS —" }], () => onTtnFbsSupplyChange());
+  } catch (_) {}
+  _ttnSetSsValue("ttnCreateFbsSupplyWrap", "");
+}
+
+async function _ttnRefreshFbsSupplyField(preferValue) {
+  const field = document.getElementById("ttnFbsSupplyField");
+  if (!field) return;
+  if (!_supplyWarehousesCache.length) {
+    try { await loadSupplyWarehouses(); } catch (_) {}
+  }
+  const warehouseIds = _ttnSelectedWarehouseIdsForFbs();
+  const bound = [];
+  for (const wid of warehouseIds) {
+    const wh = _ttnWarehouseById(wid);
+    const sources = Array.isArray(wh?.fbs_sources) ? wh.fbs_sources : [];
+    if (sources.length) bound.push({ warehouse: wh, sources });
+  }
+  if (!bound.length) {
+    _ttnHideFbsSupplyField();
+    return;
+  }
+  field.classList.remove("hidden");
+  const hint = document.getElementById("ttnFbsSupplyHint");
+  if (hint) hint.textContent = "Подставляются количество мест и масса из выбранной поставки FBS. Вид тары укажите вручную.";
+
+  const token = ++_ttnFbsAutofillToken;
+  const items = [];
+  const seen = new Set();
+  for (const row of bound) {
+    const wid = Number(row.warehouse?.id || 0);
+    if (!wid) continue;
+    try {
+      const res = await fetch(`/api/supply-ttn/fbs-supplies?warehouse_id=${wid}`).catch(() => null);
+      if (!res || !res.ok) continue;
+      const data = await res.json().catch(() => ({}));
+      if (token !== _ttnFbsAutofillToken) return;
+      for (const it of data.items || []) {
+        if (!it || typeof it !== "object") continue;
+        const platform = String(it.platform || "").toLowerCase();
+        const sourceId = Number(it.source_id || 0);
+        const supplyId = String(it.supply_id || "").trim();
+        if (!platform || !sourceId || !supplyId) continue;
+        const value = `${platform}:${sourceId}:${supplyId}`;
+        if (seen.has(value)) continue;
+        seen.add(value);
+        items.push({
+          value,
+          label: String(it.label || it.name || supplyId),
+          platform,
+          source_id: sourceId,
+          supply_id: supplyId,
+        });
+      }
+    } catch (_) {}
+  }
+  if (token !== _ttnFbsAutofillToken) return;
+  _ttnFbsSupplyOptions = items;
+  const opts = [{ value: "", label: items.length ? "— Выберите поставку FBS —" : "— Нет поставок FBS —" }].concat(
+    items.map((x) => ({ value: x.value, label: x.label }))
+  );
+  ssPopulate("ttnCreateFbsSupplyWrap", opts, () => onTtnFbsSupplyChange());
+  let key = String(preferValue || "").trim();
+  if (key && !items.some((x) => x.value === key)) key = "";
+  if (!key && _ttnSelectedFbsMeta) {
+    key = `${_ttnSelectedFbsMeta.platform}:${_ttnSelectedFbsMeta.source_id}:${_ttnSelectedFbsMeta.supply_id}`;
+    if (!items.some((x) => x.value === key)) key = "";
+  }
+  _ttnSetSsValue("ttnCreateFbsSupplyWrap", key);
+  if (key) await onTtnFbsSupplyChange();
+}
+
+async function onTtnFbsSupplyChange() {
+  const raw = String(document.getElementById("ttnCreateFbsSupply")?.value || "").trim();
+  const hint = document.getElementById("ttnFbsSupplyHint");
+  if (!raw) {
+    _ttnSelectedFbsMeta = null;
+    if (hint) hint.textContent = "Подставляются количество мест и масса из выбранной поставки FBS. Вид тары укажите вручную.";
+    return;
+  }
+  const parts = raw.split(":");
+  if (parts.length < 3) return;
+  const platform = parts[0];
+  const sourceId = Number(parts[1]);
+  const supplyId = parts.slice(2).join(":");
+  _ttnSelectedFbsMeta = { platform, source_id: sourceId, supply_id: supplyId };
+  if (hint) hint.textContent = "Загрузка мест и веса…";
+  const token = ++_ttnFbsAutofillToken;
+  try {
+    const url = `/api/supply-ttn/fbs-cargo?platform=${encodeURIComponent(platform)}&source_id=${sourceId}&supply_id=${encodeURIComponent(supplyId)}`;
+    const res = await fetch(url).catch(() => null);
+    const data = await res?.json().catch(() => ({}));
+    if (token !== _ttnFbsAutofillToken) return;
+    if (!res || !res.ok) {
+      if (hint) hint.textContent = typeof data.detail === "string" ? data.detail : "Не удалось загрузить данные поставки";
+      return;
+    }
+    const placesEl = document.getElementById("ttnCreatePlaces");
+    const weightEl = document.getElementById("ttnCreateWeight");
+    if (placesEl && data.places_text) placesEl.value = String(data.places_text);
+    if (weightEl && data.weight) weightEl.value = String(data.weight);
+    const warnings = Array.isArray(data.warnings) ? data.warnings.filter(Boolean) : [];
+    if (hint) {
+      hint.textContent = warnings.length
+        ? warnings.join(" ")
+        : `Заполнено из поставки «${data.supply_name || supplyId}». Вид тары укажите вручную.`;
+    }
+  } catch (e) {
+    if (token !== _ttnFbsAutofillToken) return;
+    if (hint) hint.textContent = "Ошибка загрузки данных поставки";
+  }
+}
+window.onTtnFbsSupplyChange = onTtnFbsSupplyChange;
+
+
 function onTtnLoadPresetChange() {
   if (_ttnManualLoadMode) return;
   const key = String(document.getElementById("ttnCreateLoad")?.value || "");
   const addr = _ttnLoadAddressByValue[key] || "";
   const input = document.getElementById("ttnCreateLoadAddress");
   if (input) input.value = addr;
+  _ttnRefreshFbsSupplyField();
 }
+
 window.onTtnLoadPresetChange = onTtnLoadPresetChange;
 
 function _ttnWarehousesForContractor(contractorId) {
@@ -19121,7 +19389,9 @@ function onTtnUnloadPresetChange() {
   const addr = _ttnUnloadAddressByValue[key] || "";
   const input = document.getElementById("ttnCreateUnloadAddress");
   if (input) input.value = addr;
+  _ttnRefreshFbsSupplyField();
 }
+
 window.onTtnUnloadPresetChange = onTtnUnloadPresetChange;
 
 function toggleTtnManualDriver() {
@@ -19463,6 +19733,8 @@ async function _openTtnModal(mode, record) {
   setVal("ttnCreateCargo", TTN_DEFAULT_CARGO);
   setVal("ttnCreatePlaces", "");
   setVal("ttnCreateWeight", "");
+  _ttnHideFbsSupplyField();
+  _ttnSelectedFbsMeta = null;
   setVal("ttnCreateDocs", TTN_DEFAULT_DOCS);
   setVal("ttnCreateNotes", "");
   _ttnSetPackingValue("");
@@ -19509,6 +19781,13 @@ async function _openTtnModal(mode, record) {
     setVal("ttnCreateCargo", String(record.cargo_description || "").trim() || TTN_DEFAULT_CARGO);
     setVal("ttnCreatePlaces", record.cargo_places || "");
     setVal("ttnCreateWeight", record.cargo_weight || "");
+    if (record.fbs_platform && record.fbs_source_id && record.fbs_supply_id) {
+      _ttnSelectedFbsMeta = {
+        platform: String(record.fbs_platform || "").toLowerCase(),
+        source_id: Number(record.fbs_source_id || 0),
+        supply_id: String(record.fbs_supply_id || ""),
+      };
+    }
     setVal("ttnCreateDocs", String(record.accompanying_docs || "").trim() || TTN_DEFAULT_DOCS);
     setVal("ttnCreateNotes", record.notes || "");
     _ttnSetPackingValue(record.packing_type || "");
@@ -19594,7 +19873,15 @@ async function _openTtnModal(mode, record) {
   const saveBtn = document.getElementById("ttnCreateSaveBtn");
   if (saveBtn) saveBtn.textContent = mode === "edit" ? "Сохранить изменения" : "Сохранить";
   const modal = document.getElementById("createTtnModal");
-  if (modal) { modal.classList.remove("hidden"); modal.style.display = ""; }
+  if (modal) {
+    await _ttnRefreshFbsSupplyField(
+      _ttnSelectedFbsMeta
+        ? `${_ttnSelectedFbsMeta.platform}:${_ttnSelectedFbsMeta.source_id}:${_ttnSelectedFbsMeta.supply_id}`
+        : ""
+    );
+    modal.classList.remove("hidden");
+    modal.style.display = "";
+  }
 }
 
 async function openCreateTtnModal() { await _openTtnModal("create", null); }
@@ -19705,6 +19992,9 @@ async function saveTtnRecord() {
     redirect_info: document.getElementById("ttnCreateRedirect")?.value.trim() || "",
     carrier_marks: document.getElementById("ttnCreateMarks")?.value.trim() || "",
     freight_cost: document.getElementById("ttnCreateFreightCost")?.value.trim() || "",
+    fbs_platform: _ttnSelectedFbsMeta?.platform || "",
+    fbs_source_id: _ttnSelectedFbsMeta?.source_id || 0,
+    fbs_supply_id: _ttnSelectedFbsMeta?.supply_id || "",
   });
   let res;
   if (_ttnModalMode === "edit" && _ttnEditingId) {

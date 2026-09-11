@@ -510,6 +510,10 @@ class CreateTtnRecordRequest(BaseModel):
     redirect_info: str = ""
     carrier_marks: str = ""
     freight_cost: str = ""
+    fbs_platform: str = ""
+    fbs_source_id: int = 0
+    fbs_supply_id: str = ""
+
 
 
 class UpdateTtnRecordRequest(BaseModel):
@@ -543,6 +547,10 @@ class UpdateTtnRecordRequest(BaseModel):
     redirect_info: str = ""
     carrier_marks: str = ""
     freight_cost: str = ""
+    fbs_platform: str = ""
+    fbs_source_id: int = 0
+    fbs_supply_id: str = ""
+
 
 
 class CreateSupplyContractorRequest(BaseModel):
@@ -799,6 +807,7 @@ class CreateSupplyWarehouseRequest(BaseModel):
     addr_house: str = ""
     addr_corpus: str = ""
     addr_flat: str = ""
+    fbs_sources: list[dict[str, object]] | None = None
 
 
 class UpdateSupplyWarehouseRequest(BaseModel):
@@ -814,6 +823,7 @@ class UpdateSupplyWarehouseRequest(BaseModel):
     addr_house: str = ""
     addr_corpus: str = ""
     addr_flat: str = ""
+    fbs_sources: list[dict[str, object]] | None = None
 
 
 class CreateSupplyLegalEntityRequest(BaseModel):
@@ -3609,6 +3619,24 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             )
         return value
 
+    def _parse_product_weight_kg(raw: object) -> float | None:
+        text = str(raw or "").strip().replace(",", ".")
+        if not text:
+            return None
+        try:
+            value = float(text)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=400, detail="Вес должен быть числом (кг)"
+            ) from exc
+        if value < 0:
+            raise HTTPException(
+                status_code=400, detail="Вес не может быть отрицательным"
+            )
+        # Keep up to 3 decimal places (grams precision).
+        return round(value, 3)
+
+
     def _parse_product_category(raw: object, *, owner_uid: int) -> str:
         value = str(raw or "").strip()
         if not value:
@@ -3724,6 +3752,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         ozon_sku: str = Form(""),
         yandex_offer_id: str = Form(""),
         box_qty: str = Form(""),
+        weight_kg: str = Form(""),
         product_category: str = Form(""),
         skip_kiz_gtin_check: str = Form(""),
         requires_kiz: str = Form(""),
@@ -3738,6 +3767,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if photo is not None and str(photo.filename or "").strip():
             photo_path = await _save_product_photo_upload(photo)
         parsed_box_qty = _parse_product_box_qty(box_qty)
+        parsed_weight_kg = _parse_product_weight_kg(weight_kg)
         parsed_category = _parse_product_category(product_category, owner_uid=owner_uid)
         skip_gtin = str(skip_kiz_gtin_check or "").strip().lower() in ("1", "true", "yes", "on")
         needs_kiz = str(requires_kiz or "").strip().lower() in ("1", "true", "yes", "on")
@@ -3746,7 +3776,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             user_id=owner_uid, name=name.strip(), supplier_article=supplier_article.strip(),
             wb_nmid=wb_nmid.strip(), ozon_sku=ozon_sku.strip(),
             yandex_offer_id=yandex_offer_id.strip(), photo_path=photo_path,
-            box_qty=parsed_box_qty, product_category=parsed_category,
+            box_qty=parsed_box_qty, weight_kg=parsed_weight_kg, product_category=parsed_category,
             skip_kiz_gtin_check=skip_gtin,
             requires_kiz=needs_kiz,
             barcodes=parsed_barcodes,
@@ -3778,6 +3808,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         ozon_sku: str = Form(""),
         yandex_offer_id: str = Form(""),
         box_qty: str = Form(""),
+        weight_kg: str = Form(""),
         product_category: str = Form(""),
         skip_kiz_gtin_check: str = Form(""),
         requires_kiz: str = Form(""),
@@ -3799,6 +3830,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if photo is not None and str(photo.filename or "").strip():
             new_photo_path = await _save_product_photo_upload(photo)
         parsed_box_qty = _parse_product_box_qty(box_qty)
+        parsed_weight_kg = _parse_product_weight_kg(weight_kg)
         parsed_category = _parse_product_category(product_category, owner_uid=owner_uid)
         skip_gtin = str(skip_kiz_gtin_check or "").strip().lower() in ("1", "true", "yes", "on")
         needs_kiz = str(requires_kiz or "").strip().lower() in ("1", "true", "yes", "on")
@@ -3808,7 +3840,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             supplier_article=supplier_article.strip(), wb_nmid=wb_nmid.strip(),
             ozon_sku=ozon_sku.strip(), yandex_offer_id=yandex_offer_id.strip(),
             photo_path=new_photo_path,
-            box_qty=parsed_box_qty, product_category=parsed_category,
+            box_qty=parsed_box_qty, weight_kg=parsed_weight_kg, product_category=parsed_category,
             skip_kiz_gtin_check=skip_gtin,
             requires_kiz=needs_kiz,
             barcodes=parsed_barcodes,
@@ -19042,6 +19074,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                 addr_house=payload.addr_house,
                 addr_corpus=payload.addr_corpus,
                 addr_flat=payload.addr_flat,
+                fbs_sources=list(payload.fbs_sources or []),
             )
         except Exception as ex:
             msg = str(ex).lower()
@@ -19072,6 +19105,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             addr_house=payload.addr_house,
             addr_corpus=payload.addr_corpus,
             addr_flat=payload.addr_flat,
+            fbs_sources=list(payload.fbs_sources or []),
         )
         if not ok:
             raise HTTPException(status_code=404, detail="Склад не найден")
@@ -20798,6 +20832,287 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         from urllib.parse import quote as _qp2
         return Response(content=html_content.encode("utf-8"),media_type="application/msword",headers={"Content-Disposition":f"attachment; filename*=UTF-8''{_qp2(fname_doc)}"})
 
+
+    @app.get("/api/supply-ttn/fbs-supplies")
+    def list_ttn_fbs_supplies(
+        request: Request,
+        warehouse_id: int,
+    ) -> dict[str, object]:
+        """List WB/Ozon FBS supplies for warehouses bound in settings."""
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        repository._ensure_supply_tables()
+        warehouses = repository.list_supply_warehouses(user_id=owner_id)
+        warehouse = next((w for w in warehouses if int(w.get("id") or 0) == int(warehouse_id)), None)
+        if not warehouse:
+            raise HTTPException(status_code=404, detail="Склад не найден")
+        bindings = list(warehouse.get("fbs_sources") or [])
+        if not bindings:
+            return {"items": [], "warehouse_id": int(warehouse_id), "sources": []}
+
+        from . import wb_fbs as wb_fbs_mod
+        from . import ozon_fbs as ozon_fbs_mod
+        from . import ozon_fbs_supplies as oz_sup
+
+        items: list[dict[str, object]] = []
+        source_meta: list[dict[str, object]] = []
+        for bind in bindings:
+            platform = str(bind.get("platform") or "").strip().lower()
+            try:
+                source_id = int(bind.get("source_id") or 0)
+            except (TypeError, ValueError):
+                continue
+            if source_id <= 0 or platform not in ("wb", "ozon"):
+                continue
+            src_name = f"Источник {source_id}"
+            try:
+                if platform == "wb":
+                    sources = [
+                        s
+                        for s in repository.list_supply_sources(user_id=owner_id)
+                        if int(s.get("id") or 0) == source_id and wb_fbs_mod.is_wb_fbs_source(s)
+                    ]
+                    if sources:
+                        src_name = str(sources[0].get("name") or src_name)
+                    source_meta.append({"platform": "wb", "source_id": source_id, "name": src_name})
+                    for tab, tab_label, loader in (
+                        ("assembly", "На сборке", wb_fbs_mod.list_assembly_supplies),
+                        ("delivery", "В доставке", wb_fbs_mod.list_delivery_supplies),
+                    ):
+                        try:
+                            payload = loader(
+                                repository,
+                                user_id=owner_id,
+                                source_id=source_id,
+                                page=1,
+                                page_size=100,
+                            )
+                        except Exception:
+                            continue
+                        for row in (payload.get("items") or []):
+                            if not isinstance(row, dict):
+                                continue
+                            sid = str(row.get("supply_id") or "").strip()
+                            if not sid:
+                                continue
+                            name = str(row.get("name") or "").strip() or sid
+                            places = row.get("boxes_count")
+                            try:
+                                places_i = int(places) if places is not None else None
+                            except (TypeError, ValueError):
+                                places_i = None
+                            items.append(
+                                {
+                                    "platform": "wb",
+                                    "source_id": source_id,
+                                    "source_name": src_name,
+                                    "supply_id": sid,
+                                    "name": name,
+                                    "tab": tab,
+                                    "tab_label": tab_label,
+                                    "places": places_i,
+                                    "label": f"WB · {src_name} · {name}",
+                                }
+                            )
+                else:
+                    sources = [
+                        s
+                        for s in repository.list_supply_sources(user_id=owner_id)
+                        if int(s.get("id") or 0) == source_id and ozon_fbs_mod.is_ozon_fbs_source(s)
+                    ]
+                    if sources:
+                        src_name = str(sources[0].get("name") or src_name)
+                    source_meta.append({"platform": "ozon", "source_id": source_id, "name": src_name})
+                    ozon_fbs_mod.ensure_ozon_fbs_tables(repository)
+                    for tab, tab_label, loader in (
+                        ("awaiting_deliver", "Ожидают отгрузки", oz_sup.list_awaiting_deliver_supplies),
+                        ("delivering", "Доставляются", oz_sup.list_delivering_supplies),
+                    ):
+                        try:
+                            payload = loader(
+                                repository, user_id=owner_id, source_id=source_id
+                            )
+                        except Exception:
+                            continue
+                        for row in (payload.get("items") or []):
+                            if not isinstance(row, dict):
+                                continue
+                            sid = str(row.get("supply_id") or row.get("id") or "").strip()
+                            if not sid:
+                                continue
+                            name = str(row.get("name") or row.get("supply_name") or "").strip() or sid
+                            items.append(
+                                {
+                                    "platform": "ozon",
+                                    "source_id": source_id,
+                                    "source_name": src_name,
+                                    "supply_id": sid,
+                                    "name": name,
+                                    "tab": tab,
+                                    "tab_label": tab_label,
+                                    "places": None,
+                                    "label": f"Ozon · {src_name} · {name}",
+                                }
+                            )
+            except Exception:
+                continue
+
+        # Prefer assembly / awaiting first, stable by label.
+        tab_rank = {"assembly": 0, "awaiting_deliver": 0, "delivery": 1, "delivering": 1}
+        items.sort(
+            key=lambda x: (
+                tab_rank.get(str(x.get("tab") or ""), 9),
+                str(x.get("label") or "").casefold(),
+            )
+        )
+        return {
+            "warehouse_id": int(warehouse_id),
+            "sources": source_meta,
+            "items": items,
+        }
+
+    @app.get("/api/supply-ttn/fbs-cargo")
+    def get_ttn_fbs_cargo(
+        request: Request,
+        platform: str,
+        source_id: int,
+        supply_id: str,
+    ) -> dict[str, object]:
+        """Cargo places + weight for TN autofill from an FBS supply."""
+        from . import ttn_fbs_cargo as ttn_cargo
+        from . import wb_fbs as wb_fbs_mod
+        from . import wb_fbs_detail as wb_detail
+        from . import ozon_fbs as ozon_fbs_mod
+        from . import ozon_fbs_supplies as oz_sup
+        from . import ozon_fbs_containers as oz_ct
+
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        plat = str(platform or "").strip().lower()
+        if plat in ("wildberries", "wb_fbs", "wb-fbs"):
+            plat = "wb"
+        elif plat in ("ozon_fbs", "ozon-fbs"):
+            plat = "ozon"
+        sid = str(supply_id or "").strip()
+        if plat not in ("wb", "ozon") or not source_id or not sid:
+            raise HTTPException(status_code=400, detail="Укажите platform, source_id и supply_id")
+
+        products = repository.list_product_photos(user_id=owner_id)
+        weight_index = ttn_cargo.product_weight_index(products)
+        places: int | None = None
+        warnings: list[str] = []
+        supply_name = sid
+
+        if plat == "wb":
+            api_key = _wb_fbs_source_key(owner_id, int(source_id))
+            try:
+                trbx = wb_fbs_mod.list_supply_trbx(
+                    repository,
+                    user_id=owner_id,
+                    source_id=int(source_id),
+                    api_key=api_key,
+                    supply_id=sid,
+                )
+                places = ttn_cargo.places_from_wb_trbx(trbx if isinstance(trbx, dict) else None)
+            except Exception as exc:
+                warnings.append(f"Не удалось получить грузоместа WB: {exc}")
+            try:
+                detail = wb_detail.get_supply_detail(
+                    repository,
+                    user_id=owner_id,
+                    source_id=int(source_id),
+                    api_key=api_key,
+                    supply_id=sid,
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail=f"Не удалось загрузить поставку WB: {exc}") from exc
+            if isinstance(detail, dict):
+                supply_name = str(detail.get("name") or supply_name)
+                orders = list(detail.get("orders") or [])
+            else:
+                orders = []
+            weight_info = ttn_cargo.sum_weight_for_lines(
+                weight_index, ttn_cargo.weight_lines_from_wb_orders(orders)
+            )
+        else:
+            _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
+            client = ozon_fbs_mod.OzonFbsClient(client_id=client_id, api_key=api_key)
+            try:
+                wh_id, _wh_name = oz_ct.resolve_supply_warehouse_id(
+                    repository,
+                    user_id=owner_id,
+                    source_id=int(source_id),
+                    supply_id=sid,
+                )
+                listed = oz_ct.list_containers(client, warehouse_id=wh_id)
+                try:
+                    listed = oz_ct.enrich_containers_for_supply_modal(
+                        repository,
+                        user_id=owner_id,
+                        source_id=int(source_id),
+                        supply_id=sid,
+                        listed=listed,
+                        only_this_supply=True,
+                    )
+                except Exception:
+                    pass
+                places = ttn_cargo.places_from_ozon_containers(
+                    listed if isinstance(listed, dict) else None, supply_id=sid
+                )
+            except Exception as exc:
+                warnings.append(f"Не удалось получить грузоместа Ozon: {exc}")
+            try:
+                detail = oz_sup.get_supply_detail(
+                    repository,
+                    user_id=owner_id,
+                    source_id=int(source_id),
+                    supply_id=sid,
+                    client_id=client_id,
+                    api_key=api_key,
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail=f"Не удалось загрузить поставку Ozon: {exc}") from exc
+            if isinstance(detail, dict):
+                supply_name = str(detail.get("name") or supply_name)
+                orders = list(detail.get("orders") or [])
+            else:
+                orders = []
+            weight_info = ttn_cargo.sum_weight_for_lines(
+                weight_index, ttn_cargo.weight_lines_from_ozon_orders(orders)
+            )
+
+        if weight_info.get("missing_articles"):
+            miss = ", ".join(weight_info["missing_articles"][:8])
+            more = len(weight_info["missing_articles"]) - 8
+            suffix = f" и ещё {more}" if more > 0 else ""
+            warnings.append(
+                "Нет веса в настройках товаров для: "
+                + miss
+                + suffix
+            )
+        if places is None:
+            warnings.append("Количество мест не определено — укажите вручную")
+        if weight_info.get("weight_kg") is None:
+            warnings.append("Масса не рассчитана — укажите вручную или заполните вес товаров")
+
+        return {
+            "platform": plat,
+            "source_id": int(source_id),
+            "supply_id": sid,
+            "supply_name": supply_name,
+            "places": places,
+            "places_text": ttn_cargo.format_places(places),
+            "weight_kg": weight_info.get("weight_kg"),
+            "weight": weight_info.get("weight") or "",
+            "missing_articles": weight_info.get("missing_articles") or [],
+            "warnings": warnings,
+        }
+
+
     @app.get("/api/supply-ttn-records")
     def list_ttn_records(request: Request) -> list[dict[str, object]]:
         user = _require_user(request)
@@ -20857,6 +21172,9 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             redirect_info=payload.redirect_info,
             carrier_marks=payload.carrier_marks,
             freight_cost=payload.freight_cost,
+            fbs_platform=payload.fbs_platform,
+            fbs_source_id=payload.fbs_source_id,
+            fbs_supply_id=payload.fbs_supply_id,
         )
 
     @app.patch("/api/supply-ttn-records/{record_id}")
@@ -20906,6 +21224,9 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             redirect_info=payload.redirect_info,
             carrier_marks=payload.carrier_marks,
             freight_cost=payload.freight_cost,
+            fbs_platform=payload.fbs_platform,
+            fbs_source_id=payload.fbs_source_id,
+            fbs_supply_id=payload.fbs_supply_id,
         )
         if not ok:
             raise HTTPException(status_code=404, detail="ТН не найдена")
