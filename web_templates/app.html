@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=358" />
+  <link rel="stylesheet" href="/static/style.css?v=359" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -7129,9 +7129,9 @@
           </div>
         </div>
         <div class="sb-receipt-scan-bar">
-          <label class="sb-receipt-scan-label" for="supplyStockReceiptScan">Сканирование</label>
           <div class="sb-receipt-scan-field">
             <input id="supplyStockReceiptScan" class="sb-receipt-scan-input" type="text" autocomplete="off"
+                   aria-label="Сканирование штрихкода или маркировки"
                    placeholder="Штрихкод или маркировка (КИЗ)"
                    oninput="onSupplyStockReceiptScanInput(event)"
                    onkeydown="onSupplyStockReceiptScanKey(event)" />
@@ -7161,6 +7161,32 @@
       <div class="sb-sheet-footer">
         <button type="button" class="secondary" onclick="closeSupplyStockReceiptModal()">Отмена</button>
         <button type="button" id="supplyStockReceiptSaveBtn" onclick="saveSupplyStockReceipt()">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Receipt scan: qty before +N (above receipt; no backdrop close) -->
+  <div id="supplyStockReceiptScanQtyModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+       aria-labelledby="supplyStockReceiptScanQtyTitle">
+    <div class="modal-card sb-receipt-scan-qty-modal">
+      <div class="sb-receipt-scan-qty-header">
+        <h4 id="supplyStockReceiptScanQtyTitle" class="sb-receipt-scan-qty-title">Количество</h4>
+        <button type="button" class="icon-btn secondary" onclick="closeSupplyStockReceiptScanQtyModal()"
+                aria-label="Закрыть">✕</button>
+      </div>
+      <p id="supplyStockReceiptScanQtyMeta" class="sb-receipt-scan-qty-meta"></p>
+      <label class="sb-receipt-scan-qty-field" for="supplyStockReceiptScanQtyInput">
+        <span class="sr-only">Количество</span>
+        <input type="number" id="supplyStockReceiptScanQtyInput" min="0" step="any" inputmode="decimal"
+               value="1" autocomplete="off"
+               onfocus="onSupplyStockReceiptScanQtyFocus(event)"
+               onclick="onSupplyStockReceiptScanQtyFocus(event)"
+               onkeydown="onSupplyStockReceiptScanQtyKey(event)" />
+      </label>
+      <div id="supplyStockReceiptScanQtyErr" class="sb-doc-err" hidden></div>
+      <div class="sb-receipt-scan-qty-actions">
+        <button type="button" id="supplyStockReceiptScanQtyAddBtn"
+                onclick="confirmSupplyStockReceiptScanQty()">Добавить</button>
       </div>
     </div>
   </div>
@@ -7439,6 +7465,6 @@
 
   <script src="/static/ozon_fbs.js?v=144"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=22"></script>
-  <script src="/static/app.js?v=613"></script>
+  <script src="/static/app.js?v=614"></script>
 </body>
 </html>

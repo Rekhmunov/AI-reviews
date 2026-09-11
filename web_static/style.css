@@ -13932,6 +13932,66 @@ button.wb-fbs-kiz-add:disabled {
 #supplyStockReturnRestoreModal {
   z-index: 1250;
 }
+#supplyStockReceiptScanQtyModal {
+  z-index: 1300;
+}
+#supplyStockReceiptScanQtyModal .sb-receipt-scan-qty-modal {
+  width: min(400px, calc(100vw - 32px));
+  padding: 20px;
+}
+.sb-receipt-scan-qty-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.sb-receipt-scan-qty-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+}
+.sb-receipt-scan-qty-meta {
+  margin: 0 0 16px;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #475569;
+  word-break: break-word;
+}
+.sb-receipt-scan-qty-field {
+  display: block;
+  margin: 0 0 12px;
+}
+.sb-receipt-scan-qty-field input {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #0f172a;
+  font-size: 18px;
+  font-weight: 600;
+  box-sizing: border-box;
+}
+.sb-receipt-scan-qty-field input:focus {
+  outline: 2px solid #93c5fd;
+  outline-offset: 1px;
+  border-color: #93c5fd;
+}
+#supplyStockReceiptScanQtyErr {
+  margin: 0 0 12px;
+}
+.sb-receipt-scan-qty-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+.sb-receipt-scan-qty-actions button {
+  min-height: 40px;
+  padding: 8px 16px;
+}
 #wbFbsReturnsBarcodeModal {
   z-index: 1350;
 }

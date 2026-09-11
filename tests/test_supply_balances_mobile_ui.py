@@ -68,8 +68,8 @@ def test_js_fluid_table_width_on_compact() -> None:
 
 
 def test_cache_bump() -> None:
-    assert "style.css?v=358" in APP_HTML
-    assert "app.js?v=613" in APP_HTML
+    assert "style.css?v=359" in APP_HTML
+    assert "app.js?v=614" in APP_HTML
 
 
 def test_balances_table_readable_and_today_fill() -> None:

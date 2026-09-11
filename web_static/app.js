@@ -15802,9 +15802,11 @@ function _sbHighlightReceiptRow(row) {
   }
 }
 
-function _sbIncrementReceiptProductQty(product) {
+function _sbAddReceiptProductQty(product, delta) {
   const list = document.getElementById("supplyStockReceiptList");
   if (!list || !product) return false;
+  const add = Number(delta);
+  if (!Number.isFinite(add) || add <= 0) return false;
   const type = String(product.item_type || "");
   const id = Number(product.item_id || 0);
   let row = list.querySelector(`.sb-adj-row[data-sb-type="${type}"][data-sb-id="${id}"]`);
@@ -15821,14 +15823,131 @@ function _sbIncrementReceiptProductQty(product) {
   const qtyEl = row.querySelector(".sb-adj-qty");
   if (!qtyEl) return false;
   const cur = Number(qtyEl.value);
-  const next = (Number.isFinite(cur) && cur > 0 ? cur : 0) + 1;
+  const next = (Number.isFinite(cur) && cur > 0 ? cur : 0) + add;
   qtyEl.value = String(next);
   _sbHighlightReceiptRow(row);
   return true;
 }
 
+let _sbReceiptScanQtyProduct = null;
+let _sbReceiptScanQtySkipClear = false;
+
+function _sbReceiptScanQtyModalOpen() {
+  const modal = document.getElementById("supplyStockReceiptScanQtyModal");
+  return Boolean(modal && !modal.classList.contains("hidden") && modal.style.display !== "none");
+}
+
+function _sbSetReceiptScanQtyErr(text) {
+  const el = document.getElementById("supplyStockReceiptScanQtyErr");
+  if (!el) return;
+  const msg = String(text || "").trim();
+  if (!msg) {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  el.hidden = false;
+  el.textContent = msg;
+}
+
+function _sbFocusReceiptScanField() {
+  const scanEl = document.getElementById("supplyStockReceiptScan");
+  if (!scanEl || _wbFbsKizRuLayoutModalOpen()) return;
+  setTimeout(() => {
+    try {
+      scanEl.focus();
+    } catch (_e) {
+      /* ignore */
+    }
+  }, 0);
+}
+
+function openSupplyStockReceiptScanQtyModal(product) {
+  if (!product) return;
+  _sbReceiptScanQtyProduct = product;
+  _sbSetReceiptScanQtyErr("");
+  const meta = document.getElementById("supplyStockReceiptScanQtyMeta");
+  if (meta) {
+    const name = String(product.name || product.title || "").trim();
+    meta.textContent = name || "Товар";
+  }
+  const input = document.getElementById("supplyStockReceiptScanQtyInput");
+  if (input) input.value = "1";
+  setModalVisibility("supplyStockReceiptScanQtyModal", true);
+  _sbReceiptScanQtySkipClear = true;
+  setTimeout(() => {
+    try {
+      if (input) {
+        input.focus();
+        input.select();
+      }
+    } catch (_e) {
+      /* ignore */
+    } finally {
+      _sbReceiptScanQtySkipClear = false;
+    }
+  }, 0);
+}
+window.openSupplyStockReceiptScanQtyModal = openSupplyStockReceiptScanQtyModal;
+
+function closeSupplyStockReceiptScanQtyModal(opts) {
+  const skipFocus = Boolean(opts && opts.skipFocus);
+  _sbReceiptScanQtyProduct = null;
+  _sbSetReceiptScanQtyErr("");
+  setModalVisibility("supplyStockReceiptScanQtyModal", false);
+  if (!skipFocus) _sbFocusReceiptScanField();
+}
+window.closeSupplyStockReceiptScanQtyModal = closeSupplyStockReceiptScanQtyModal;
+
+function onSupplyStockReceiptScanQtyFocus(event) {
+  if (_sbReceiptScanQtySkipClear) return;
+  const input = event?.target;
+  if (!input) return;
+  if (String(input.value) === "1") input.value = "";
+}
+window.onSupplyStockReceiptScanQtyFocus = onSupplyStockReceiptScanQtyFocus;
+
+function onSupplyStockReceiptScanQtyKey(event) {
+  if (!event) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeSupplyStockReceiptScanQtyModal();
+    return;
+  }
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  confirmSupplyStockReceiptScanQty();
+}
+window.onSupplyStockReceiptScanQtyKey = onSupplyStockReceiptScanQtyKey;
+
+function confirmSupplyStockReceiptScanQty() {
+  const product = _sbReceiptScanQtyProduct;
+  const input = document.getElementById("supplyStockReceiptScanQtyInput");
+  const raw = String(input?.value || "").trim();
+  const qty = Number(raw);
+  if (!product) {
+    closeSupplyStockReceiptScanQtyModal();
+    return;
+  }
+  if (raw === "" || !Number.isFinite(qty) || qty <= 0) {
+    _sbSetReceiptScanQtyErr("Укажите количество больше 0");
+    try {
+      input?.focus();
+    } catch (_e) {
+      /* ignore */
+    }
+    return;
+  }
+  if (!_sbAddReceiptProductQty(product, qty)) {
+    _sbSetReceiptScanQtyErr("Не удалось обновить количество в списке");
+    return;
+  }
+  closeSupplyStockReceiptScanQtyModal();
+}
+window.confirmSupplyStockReceiptScanQty = confirmSupplyStockReceiptScanQty;
+
 function processSupplyStockReceiptScan() {
-  if (_sbReceiptScanBusy) return;
+  if (_sbReceiptScanBusy || _sbReceiptScanQtyModalOpen()) return;
   const scanEl = document.getElementById("supplyStockReceiptScan");
   const rawScan = String(scanEl?.value || "").replace(/[\r\n]+$/g, "").trim();
   if (!rawScan) {
@@ -15849,16 +15968,23 @@ function processSupplyStockReceiptScan() {
     const product = _sbFindReceiptProductByScan(scan);
     if (!product) {
       _sbSetReceiptScanInfo("Товар не найден в справочнике по ШК или GTIN", "error");
+      _sbClearReceiptScanField(scanEl);
       return;
     }
-    if (!_sbIncrementReceiptProductQty(product)) {
+    const list = document.getElementById("supplyStockReceiptList");
+    const type = String(product.item_type || "");
+    const id = Number(product.item_id || 0);
+    const row = list?.querySelector(`.sb-adj-row[data-sb-type="${type}"][data-sb-id="${id}"]`);
+    if (!row) {
       _sbSetReceiptScanInfo("Не удалось обновить количество в списке", "error");
+      _sbClearReceiptScanField(scanEl);
       return;
     }
     _sbSetReceiptScanInfo("");
+    if (scanEl) scanEl.value = "";
+    openSupplyStockReceiptScanQtyModal(product);
   } finally {
     _sbReceiptScanBusy = false;
-    _sbClearReceiptScanField(scanEl);
   }
 }
 window.processSupplyStockReceiptScan = processSupplyStockReceiptScan;
@@ -16123,7 +16249,21 @@ window.setSupplyStockReceiptBulkPanelOpen = setSupplyStockReceiptBulkPanelOpen;
 window.toggleSupplyStockAdjBulkPanel = toggleSupplyStockAdjBulkPanel;
 window.setSupplyStockAdjBulkPanelOpen = setSupplyStockAdjBulkPanelOpen;
 
-function closeSupplyStockReceiptModal() {
+function _sbStockDocListHasEnteredQty(listId) {
+  const list = document.getElementById(listId);
+  if (!list) return false;
+  for (const qtyEl of list.querySelectorAll(".sb-adj-qty")) {
+    if (String(qtyEl.value || "").trim() !== "") return true;
+  }
+  return false;
+}
+
+function closeSupplyStockReceiptModal(opts) {
+  const force = Boolean(opts && opts.force);
+  closeSupplyStockReceiptScanQtyModal({ skipFocus: true });
+  if (!force && _sbStockDocListHasEnteredQty("supplyStockReceiptList")) {
+    if (!confirm("Уверены? Введённые количества будут потеряны.")) return;
+  }
   if (_sbReceiptScanHighlightTimer) {
     clearTimeout(_sbReceiptScanHighlightTimer);
     _sbReceiptScanHighlightTimer = null;
@@ -16746,6 +16886,11 @@ window.printStockReturnRestoreBarcode = printStockReturnRestoreBarcode;
 
 document.addEventListener("keydown", (ev) => {
   if (ev.key !== "Escape") return;
+  if (_sbReceiptScanQtyModalOpen()) {
+    ev.preventDefault();
+    closeSupplyStockReceiptScanQtyModal();
+    return;
+  }
   const restore = document.getElementById("supplyStockReturnRestoreModal");
   if (restore && !restore.classList.contains("hidden")) {
     ev.preventDefault();
@@ -16776,7 +16921,7 @@ async function saveSupplyStockReceipt() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || "Ошибка сохранения");
-    closeSupplyStockReceiptModal();
+    closeSupplyStockReceiptModal({ force: true });
     await loadSupplyBalancesData();
     const doneLabel = kind === "return" ? "Возврат сохранён" : "Приход сохранён";
     _sbSetStatus(`${doneLabel}: ${data.saved || 0} · ${_sbFormatDateLabel(data.date)}`, "ok");
@@ -16862,7 +17007,11 @@ async function openSupplyStockAdjustmentModal() {
 }
 window.openSupplyStockAdjustmentModal = openSupplyStockAdjustmentModal;
 
-function closeSupplyStockAdjustmentModal() {
+function closeSupplyStockAdjustmentModal(opts) {
+  const force = Boolean(opts && opts.force);
+  if (!force && _sbStockDocListHasEnteredQty("supplyStockAdjList")) {
+    if (!confirm("Уверены? Введённые количества будут потеряны.")) return;
+  }
   setSupplyStockAdjBulkPanelOpen(false);
   setModalVisibility("supplyStockAdjustmentModal", false);
 }
@@ -16917,7 +17066,7 @@ async function saveSupplyStockAdjustment() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || "Ошибка сохранения");
-    closeSupplyStockAdjustmentModal();
+    closeSupplyStockAdjustmentModal({ force: true });
     await loadSupplyBalancesData();
     const msg = data.message
       ? String(data.message)
