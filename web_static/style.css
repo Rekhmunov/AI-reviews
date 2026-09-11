@@ -7463,8 +7463,28 @@ body.sst-col-resizing * {
   margin-top: 8px;
 }
 
-#createTtnModal #ttnCreateVehicleType {
+#createTtnModal .ttn-vehicle-type-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   margin-top: 8px;
+}
+
+#createTtnModal .ttn-vehicle-type-label {
+  color: #64748b;
+}
+
+#createTtnModal #ttnCreateVehicleType,
+#createTtnModal .ttn-vehicle-type-readonly {
+  margin-top: 0;
+  background: #f8fafc;
+  color: #334155;
+  cursor: default;
+}
+
+#createTtnModal .wfg-hint {
+  font-weight: 400;
+  color: #94a3b8;
 }
 
 #createTtnModal .ttn-modal-footer {

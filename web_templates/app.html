@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=346" />
+  <link rel="stylesheet" href="/static/style.css?v=347" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -4199,8 +4199,11 @@
                       onclick="clearTtnManualVehicle()" title="Убрать ручной ввод">✕</button>
                   </div>
                 </div>
-                <input id="ttnCreateVehicleType" class="ttn-input" type="text"
-                       placeholder="Тип / вместимость ТС (необязательно)" autocomplete="off" />
+                <div class="ttn-vehicle-type-row" id="ttnCreateVehicleTypeRow">
+                  <span class="small ttn-vehicle-type-label">7. Тип / вместимость</span>
+                  <input id="ttnCreateVehicleType" class="ttn-input ttn-vehicle-type-readonly" type="text"
+                         placeholder="Подтянется из карточки ТС" autocomplete="off" readonly tabindex="-1" />
+                </div>
               </div>
               <div class="ttn-field">
                 <label class="small">8. Место погрузки</label>
@@ -7322,6 +7325,6 @@
 
   <script src="/static/ozon_fbs.js?v=144"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=22"></script>
-  <script src="/static/app.js?v=597"></script>
+  <script src="/static/app.js?v=598"></script>
 </body>
 </html>

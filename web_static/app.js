@@ -2888,7 +2888,7 @@ function addDriverVehicleRow(listId, value = "") {
         <input class="drv-veh-number" type="text" maxlength="9" value="${esc(v.number)}" placeholder="В849ВО37" autocomplete="off" />
       </div>
       <div class="wfg-field">
-        <label class="wfg-label">Тип ТС</label>
+        <label class="wfg-label">Тип ТС <span class="wfg-hint">(для ТН)</span></label>
         <input class="drv-veh-type" type="text" value="${esc(v.type)}" placeholder="грузовой автомобиль" autocomplete="off" />
       </div>
       <div class="wfg-field">
@@ -2900,11 +2900,11 @@ function addDriverVehicleRow(listId, value = "") {
         </select>
       </div>
       <div class="wfg-field">
-        <label class="wfg-label">Грузоподъёмность, т</label>
+        <label class="wfg-label">Грузоподъёмность, т <span class="wfg-hint">(для ТН)</span></label>
         <input class="drv-veh-capacity" type="text" inputmode="decimal" value="${esc(v.capacity_t)}" placeholder="20" autocomplete="off" />
       </div>
       <div class="wfg-field">
-        <label class="wfg-label">Вместимость, м³</label>
+        <label class="wfg-label">Вместимость, м³ <span class="wfg-hint">(для ТН)</span></label>
         <input class="drv-veh-volume" type="text" inputmode="decimal" value="${esc(v.volume_m3)}" placeholder="20" autocomplete="off" />
       </div>
     </div>`;
@@ -18605,6 +18605,50 @@ function _ttnDriverVehicles(d) {
   }
 }
 
+/** Compose TN §7 type/capacity line from a driver vehicle card. */
+function _ttnFormatVehicleType(v) {
+  if (!v || typeof v === "string") return "";
+  const type = String(v.type || "").trim();
+  const cap = String(v.capacity_t || "").trim();
+  const vol = String(v.volume_m3 || "").trim();
+  const parts = [];
+  if (type) parts.push(type);
+  if (cap) parts.push(`${cap} т`);
+  if (vol) parts.push(`${vol} м³`);
+  return parts.join(", ");
+}
+
+function _ttnFindDriverVehicleByLine(driverId, line) {
+  const want = String(line || "").trim();
+  if (!want) return null;
+  const driver = (_supplyDriversCache || []).find((x) => Number(x.id) === Number(driverId));
+  const vehicles = _ttnDriverVehicles(driver);
+  return vehicles.find((v) => driverVehicleLine(v) === want) || null;
+}
+
+/**
+ * Sync readonly vehicle_type from the selected catalog vehicle.
+ * Manual vehicle / no match → clear (empty snapshot).
+ */
+function _ttnSyncVehicleTypeFromSelection() {
+  const el = document.getElementById("ttnCreateVehicleType");
+  if (!el) return;
+  if (_ttnManualVehicleMode || _ttnManualDriverMode) {
+    el.value = "";
+    return;
+  }
+  const dId = parseInt(document.getElementById("ttnCreateDriver")?.value || "0", 10);
+  const line = String(document.getElementById("ttnCreateVehicle")?.value || "").trim();
+  const match = dId && line ? _ttnFindDriverVehicleByLine(dId, line) : null;
+  el.value = match ? _ttnFormatVehicleType(match) : "";
+}
+window._ttnSyncVehicleTypeFromSelection = _ttnSyncVehicleTypeFromSelection;
+
+function onTtnVehicleChange() {
+  _ttnSyncVehicleTypeFromSelection();
+}
+window.onTtnVehicleChange = onTtnVehicleChange;
+
 function _ttnPartyOptions() {
   const opts = [{ value: "", label: "— Выберите —" }];
   const les = Array.isArray(_supplyLegalEntitiesCache) ? _supplyLegalEntitiesCache.slice() : [];
@@ -18800,43 +18844,48 @@ function _ttnSetVehicleManualUi(active, prefill) {
   }
 }
 
-function _ttnPopulateVehicleOptions(driverId, selectedLine) {
+function _ttnPopulateVehicleOptions(driverId, selectedLine, opts = {}) {
+  const skipTypeSync = !!(opts && opts.skipTypeSync);
   if (_ttnManualVehicleMode && !selectedLine) {
     // Keep manual mode; still refresh catalog options in case user turns pencil off
   }
   const driver = _supplyDriversCache.find((x) => Number(x.id) === Number(driverId));
   const vehicles = _ttnDriverVehicles(driver);
-  const opts = [{ value: "", label: vehicles.length ? "— Выберите ТС —" : "— Нет ТС у водителя —" }];
+  const options = [{ value: "", label: vehicles.length ? "— Выберите ТС —" : "— Нет ТС у водителя —" }];
   for (let i = 0; i < vehicles.length; i++) {
     const line = driverVehicleLine(vehicles[i]) || `ТС ${i + 1}`;
-    opts.push({ value: line, label: line });
+    options.push({ value: line, label: line });
   }
-  ssPopulate("ttnCreateVehicleWrap", opts, null);
+  ssPopulate("ttnCreateVehicleWrap", options, () => onTtnVehicleChange());
 
   const selected = String(selectedLine || "").trim();
   if (selected) {
-    const has = opts.some((o) => o.value === selected);
+    const has = options.some((o) => o.value === selected);
     if (has) {
       _ttnSetVehicleManualUi(false);
       _ttnSetSsValue("ttnCreateVehicleWrap", selected);
+      if (!skipTypeSync) _ttnSyncVehicleTypeFromSelection();
       return;
     }
     // Custom line not in driver vehicles → open pencil field
     _ttnSetVehicleManualUi(true, selected);
+    if (!skipTypeSync) _ttnSyncVehicleTypeFromSelection();
     return;
   }
 
   if (_ttnManualVehicleMode) {
     _ttnSetSsValue("ttnCreateVehicleWrap", "");
+    if (!skipTypeSync) _ttnSyncVehicleTypeFromSelection();
     return;
   }
 
   _ttnSetVehicleManualUi(false);
   if (vehicles.length === 1) {
-    _ttnSetSsValue("ttnCreateVehicleWrap", opts[1].value);
+    _ttnSetSsValue("ttnCreateVehicleWrap", options[1].value);
   } else {
     _ttnSetSsValue("ttnCreateVehicleWrap", "");
   }
+  if (!skipTypeSync) _ttnSyncVehicleTypeFromSelection();
 }
 
 function onTtnDriverChange() {
@@ -18885,8 +18934,9 @@ function toggleTtnManualDriver() {
     if (mf) mf.style.display = "block";
     if (wrap) wrap.style.opacity = "0.55";
     _ttnSetSsValue("ttnCreateDriverWrap", "");
-    ssPopulate("ttnCreateVehicleWrap", [{ value: "", label: "— Вручную —" }], null);
+    ssPopulate("ttnCreateVehicleWrap", [{ value: "", label: "— Вручную —" }], () => onTtnVehicleChange());
     _ttnSetVehicleManualUi(true);
+    _ttnSyncVehicleTypeFromSelection();
     if (hint) hint.textContent = "";
   } else {
     if (mf) mf.style.display = "none";
@@ -18900,6 +18950,7 @@ function toggleTtnManualVehicle() {
   const next = !_ttnManualVehicleMode;
   if (next) {
     _ttnSetVehicleManualUi(true);
+    _ttnSyncVehicleTypeFromSelection();
     const manual = document.getElementById("ttnCreateVehicleManual");
     if (manual) {
       try { manual.focus(); } catch (_e) { /* ignore */ }
@@ -18907,8 +18958,9 @@ function toggleTtnManualVehicle() {
   } else {
     _ttnSetVehicleManualUi(false);
     if (_ttnManualDriverMode) {
-      ssPopulate("ttnCreateVehicleWrap", [{ value: "", label: "— Вручную —" }], null);
+      ssPopulate("ttnCreateVehicleWrap", [{ value: "", label: "— Вручную —" }], () => onTtnVehicleChange());
       _ttnSetSsValue("ttnCreateVehicleWrap", "");
+      _ttnSyncVehicleTypeFromSelection();
     } else {
       const dId = parseInt(document.getElementById("ttnCreateDriver")?.value || "0", 10);
       _ttnPopulateVehicleOptions(dId, "");
@@ -19258,7 +19310,6 @@ async function _openTtnModal(mode, record) {
     setVal("ttnCreateCustomer", record.customer_services || "");
     setVal("ttnCreatePacking", record.packing_type || "");
     setVal("ttnCreateDeclaredValue", record.declared_value || "");
-    setVal("ttnCreateVehicleType", record.vehicle_type || "");
     setVal("ttnCreateLoadingDatetime", record.loading_datetime || "");
     setVal("ttnCreateLoaderName", record.loader_name || "");
     setVal("ttnCreateUnloadingDatetime", record.unloading_datetime || "");
@@ -19293,7 +19344,9 @@ async function _openTtnModal(mode, record) {
       const driver = _supplyDriversCache.find((x) => Number(x.id) === Number(dId));
       const carrier = _ttnCarrierLineFromDriver(driver);
       if (hint) hint.textContent = carrier ? `Перевозчик: ${carrier}` : "Перевозчик не указан у водителя";
-      _ttnPopulateVehicleOptions(dId, record.vehicle_line || "");
+      // Keep saved vehicle_type snapshot until the user changes the vehicle.
+      _ttnPopulateVehicleOptions(dId, record.vehicle_line || "", { skipTypeSync: true });
+      setVal("ttnCreateVehicleType", record.vehicle_type || "");
     } else if (record.driver_manual_name) {
       _ttnManualDriverMode = true;
       if (mf) mf.style.display = "block";
@@ -19302,10 +19355,12 @@ async function _openTtnModal(mode, record) {
       setVal("ttnManualDriverName", record.driver_manual_name || "");
       setVal("ttnManualDriverDocs", record.driver_manual_docs || "");
       setVal("ttnManualCarrier", record.carrier_snapshot || "");
-      ssPopulate("ttnCreateVehicleWrap", [{ value: "", label: "— Вручную —" }], null);
+      ssPopulate("ttnCreateVehicleWrap", [{ value: "", label: "— Вручную —" }], () => onTtnVehicleChange());
       _ttnSetVehicleManualUi(true, record.vehicle_line || "");
+      setVal("ttnCreateVehicleType", record.vehicle_type || "");
     } else {
       onTtnDriverChange();
+      setVal("ttnCreateVehicleType", record.vehicle_type || "");
     }
   } else {
     onTtnDriverChange();

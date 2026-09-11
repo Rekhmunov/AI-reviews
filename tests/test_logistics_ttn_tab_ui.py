@@ -40,8 +40,8 @@ def test_logistics_title_picker_and_panes() -> None:
     assert "function initLogisticsSection" in js
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
-    assert "app.js?v=595" in html
-    assert "style.css?v=345" in html
+    assert "app.js?v=598" in html
+    assert "style.css?v=347" in html
     assert "ttn-modal-card" in html
     assert "ttn-form-grid" in html
     assert 'max-width:560px' not in html.split('id="createTtnModal"')[1].split("<!-- ── Планирование")[0]
@@ -286,6 +286,14 @@ def test_tn_rename_and_pp2200_fields_additive() -> None:
     ):
         assert f'id="{field_id}"' in html
         assert field_id in js
+    # Vehicle type/capacity comes from driver vehicle card — readonly in TN modal.
+    vt = html.split('id="ttnCreateVehicleType"', 1)[1].split(">", 1)[0]
+    assert "readonly" in vt
+    assert "function _ttnFormatVehicleType" in js
+    assert "function _ttnSyncVehicleTypeFromSelection" in js
+    assert "function onTtnVehicleChange" in js
+    assert "skipTypeSync" in js
+    assert "(для ТН)" in js
     for col in (
         "customer_services",
         "packing_type",
