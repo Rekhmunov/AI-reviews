@@ -14216,6 +14216,9 @@ button.wb-fbs-kiz-add:disabled {
   font-size: 15px;
 }
 .sb-adj-list-wrap {
+  --sb-adj-name-w: 280px;
+  --sb-adj-qty-w: 110px;
+  --sb-adj-comment-w: 220px;
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
@@ -14225,7 +14228,7 @@ button.wb-fbs-kiz-add:disabled {
 }
 .sb-adj-list-head {
   display: grid;
-  grid-template-columns: 36px minmax(0, 1.4fr) 110px minmax(0, 1fr);
+  grid-template-columns: 36px var(--sb-adj-name-w) var(--sb-adj-qty-w) var(--sb-adj-comment-w);
   gap: 12px;
   padding: 12px 24px;
   background: #fff;
@@ -14258,7 +14261,7 @@ button.wb-fbs-kiz-add:disabled {
 }
 .sb-adj-row {
   display: grid;
-  grid-template-columns: 36px minmax(0, 1.4fr) 110px minmax(0, 1fr);
+  grid-template-columns: 36px var(--sb-adj-name-w) var(--sb-adj-qty-w) var(--sb-adj-comment-w);
   gap: 12px;
   align-items: center;
   padding: 10px 24px;
@@ -14323,6 +14326,27 @@ button.wb-fbs-kiz-add:disabled {
   outline-offset: 1px;
   border-color: #60a5fa;
 }
+.sb-adj-col {
+  position: relative;
+  display: block;
+  min-width: 0;
+  padding-right: 8px;
+  user-select: none;
+}
+.sb-adj-col-resize {
+  position: absolute;
+  top: 0;
+  right: -6px;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+  touch-action: none;
+}
+.sb-adj-col-resize:hover,
+.sb-adj-col-resize.is-dragging {
+  background: rgba(37, 99, 235, 0.35);
+}
 @media (max-width: 640px) {
   .sb-adj-list-head {
     grid-template-columns: 36px 1fr;
@@ -14337,6 +14361,9 @@ button.wb-fbs-kiz-add:disabled {
   .sb-adj-row .sb-adj-qty,
   .sb-adj-row .sb-adj-comment {
     grid-column: 2;
+  }
+  .sb-adj-col-resize {
+    display: none;
   }
 }
 .sb-asof-modal {
@@ -14587,11 +14614,11 @@ button.wb-fbs-kiz-add:disabled {
 }
 .supply-balances-table td.sb-col-date,
 .supply-balances-table td.sb-col-today {
-  text-align: right;
+  text-align: left;
 }
 .supply-balances-table th.sb-col-date,
 .supply-balances-table th.sb-col-today {
-  text-align: right;
+  text-align: left;
 }
 .supply-balances-table .sb-name-text {
   display: block;
@@ -14662,7 +14689,7 @@ button.wb-fbs-kiz-add:disabled {
 .supply-balances-table .sb-qty-wrap {
   display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 8px;
   width: 100%;
 }
@@ -14675,7 +14702,7 @@ button.wb-fbs-kiz-add:disabled {
   border-radius: 8px;
   background: #fff;
   font-size: 14px;
-  text-align: right;
+  text-align: left;
   font-variant-numeric: tabular-nums;
   color: #0f172a;
 }
@@ -15390,8 +15417,8 @@ button.wb-fbs-kiz-add:disabled {
   #section-supplies-balances .supply-balances-table tr.sb-item-row td.sb-col-today {
     grid-column: 2;
     grid-row: 1;
-    justify-self: end;
-    text-align: right;
+    justify-self: start;
+    text-align: left;
     min-width: 72px;
   }
   #section-supplies-balances .supply-balances-table tr.sb-item-row td.sb-col-date {
@@ -15445,7 +15472,7 @@ button.wb-fbs-kiz-add:disabled {
     font-size: 14px;
   }
   #section-supplies-balances .supply-balances-table .sb-qty-wrap {
-    justify-content: flex-end;
+    justify-content: flex-start;
   }
   #section-supplies-balances .supply-balances-table .sb-qty-ro {
     font-size: 18px;
@@ -15456,7 +15483,7 @@ button.wb-fbs-kiz-add:disabled {
     display: block;
     margin-top: 4px;
     font-size: 12px;
-    text-align: right;
+    text-align: left;
   }
   #section-supplies-balances .supply-balances-table .sb-resize-handle {
     display: none;

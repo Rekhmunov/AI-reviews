@@ -15872,11 +15872,99 @@ function _sbMergeReceiptKindComment(userComment, typeTag) {
   return `${base} · ${tag}`;
 }
 
+
+const SB_ADJ_COL_WIDTHS_KEY = "supply_stock_adj_col_widths_v1";
+const SB_ADJ_COL_DEFAULTS = { name: 280, qty: 110, comment: 220 };
+const SB_ADJ_COL_MIN = { name: 140, qty: 72, comment: 100 };
+const SB_ADJ_COL_MAX = { name: 640, qty: 280, comment: 560 };
+
+function _sbClampAdjColWidth(kind, value) {
+  const n = Math.round(Number(value));
+  const min = SB_ADJ_COL_MIN[kind] || 80;
+  const max = SB_ADJ_COL_MAX[kind] || 640;
+  if (!Number.isFinite(n)) return SB_ADJ_COL_DEFAULTS[kind] || min;
+  return Math.max(min, Math.min(max, n));
+}
+
+function _sbLoadAdjColWidths() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SB_ADJ_COL_WIDTHS_KEY) || "null");
+    if (!raw || typeof raw !== "object") {
+      return { ...SB_ADJ_COL_DEFAULTS };
+    }
+    return {
+      name: _sbClampAdjColWidth("name", raw.name),
+      qty: _sbClampAdjColWidth("qty", raw.qty),
+      comment: _sbClampAdjColWidth("comment", raw.comment),
+    };
+  } catch (_e) {
+    return { ...SB_ADJ_COL_DEFAULTS };
+  }
+}
+
+function _sbSaveAdjColWidths(store) {
+  try {
+    localStorage.setItem(SB_ADJ_COL_WIDTHS_KEY, JSON.stringify({
+      name: _sbClampAdjColWidth("name", store?.name),
+      qty: _sbClampAdjColWidth("qty", store?.qty),
+      comment: _sbClampAdjColWidth("comment", store?.comment),
+    }));
+  } catch (_e) {
+    /* ignore quota / private mode */
+  }
+}
+
+function _sbApplyAdjColWidths(store) {
+  const w = store || _sbLoadAdjColWidths();
+  document.querySelectorAll(".sb-adj-list-wrap").forEach((root) => {
+    root.style.setProperty("--sb-adj-name-w", `${w.name}px`);
+    root.style.setProperty("--sb-adj-qty-w", `${w.qty}px`);
+    root.style.setProperty("--sb-adj-comment-w", `${w.comment}px`);
+  });
+}
+
+function initSupplyStockAdjColumnResizer() {
+  _sbApplyAdjColWidths();
+  document.querySelectorAll(".sb-adj-col-resize").forEach((handle) => {
+    if (handle.dataset.bound === "1") return;
+    handle.dataset.bound = "1";
+    handle.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const kind = String(handle.getAttribute("data-sb-adj-resize") || "");
+      if (!SB_ADJ_COL_DEFAULTS[kind]) return;
+      const store = _sbLoadAdjColWidths();
+      const startX = e.clientX;
+      const startW = store[kind];
+      handle.classList.add("is-dragging");
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+
+      const onMove = (ev) => {
+        store[kind] = _sbClampAdjColWidth(kind, startW + (ev.clientX - startX));
+        _sbApplyAdjColWidths(store);
+      };
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        handle.classList.remove("is-dragging");
+        _sbSaveAdjColWidths(store);
+        _sbApplyAdjColWidths(store);
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+  });
+}
+
 async function openSupplyStockReceiptModal() {
   _sbSetDocErr("supplyStockReceiptErr", "");
   _sbSetReceiptScanInfo("");
   setSupplyStockReceiptBulkPanelOpen(false);
   setModalVisibility("supplyStockReceiptModal", true);
+  initSupplyStockAdjColumnResizer();
   const kindEl = document.getElementById("supplyStockReceiptKind");
   const dateEl = document.getElementById("supplyStockReceiptDate");
   const list = document.getElementById("supplyStockReceiptList");
@@ -16676,6 +16764,7 @@ async function openSupplyStockAdjustmentModal() {
   _sbSetDocErr("supplyStockAdjErr", "");
   setSupplyStockAdjBulkPanelOpen(false);
   setModalVisibility("supplyStockAdjustmentModal", true);
+  initSupplyStockAdjColumnResizer();
   const dateEl = document.getElementById("supplyStockAdjDate");
   const modeEl = document.getElementById("supplyStockAdjMode");
   const list = document.getElementById("supplyStockAdjList");
