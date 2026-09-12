@@ -12445,6 +12445,91 @@ button.wb-fbs-sd-portal-btn:focus-visible {
   font-weight: 600;
   color: #475569;
 }
+/* WB FBS scan mode: keyboard (off) / COM (on, green). Default off = legacy wedge. */
+.wb-fbs-scan-mode-toggle {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 4px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #475569;
+  cursor: pointer;
+  box-shadow: none;
+}
+.wb-fbs-scan-mode-toggle:hover {
+  border-color: #94a3b8;
+  background: #f8fafc;
+}
+.wb-fbs-scan-mode-toggle:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 1px;
+}
+.wb-fbs-scan-mode-toggle[aria-checked="true"] {
+  border-color: #86efac;
+  background: #f0fdf4;
+  color: #166534;
+}
+.wb-fbs-scan-mode-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  opacity: 0.55;
+}
+.wb-fbs-scan-mode-toggle[aria-checked="false"] .wb-fbs-scan-mode-kb,
+.wb-fbs-scan-mode-toggle[aria-checked="true"] .wb-fbs-scan-mode-com {
+  opacity: 1;
+}
+.wb-fbs-scan-mode-track {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  flex: 0 0 auto;
+  transition: background 0.15s ease;
+}
+.wb-fbs-scan-mode-toggle[aria-checked="true"] .wb-fbs-scan-mode-track {
+  background: #22c55e;
+}
+.wb-fbs-scan-mode-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.2);
+  transition: transform 0.15s ease;
+}
+.wb-fbs-scan-mode-toggle[aria-checked="true"] .wb-fbs-scan-mode-thumb {
+  transform: translateX(16px);
+}
+.wb-fbs-scan-mode-status {
+  flex: 0 1 auto;
+  max-width: 160px;
+  font-size: 12px;
+  line-height: 1.3;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wb-fbs-scan-mode-status.is-error {
+  color: #b91c1c;
+}
+.wb-fbs-scan-mode-status.is-ok {
+  color: #15803d;
+}
 .wb-fbs-kiz-scan-field {
   flex: 1 1 280px;
   display: flex;

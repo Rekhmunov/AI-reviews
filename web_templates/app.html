@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=359" />
+  <link rel="stylesheet" href="/static/style.css?v=360" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2493,10 +2493,25 @@
                 <input type="file" id="wbFbsKizUploadInput" accept=".csv,text/csv" hidden onchange="uploadWbFbsKizTemplate(event)" />
               </div>
             </div>
-            <div class="wb-fbs-kiz-scan-bar">
-              <label class="wb-fbs-kiz-scan-label" for="wbFbsKizStickerScan">Сканирование</label>
+                        <div class="wb-fbs-kiz-scan-bar">
+              <button type="button" id="wbFbsKizScanModeToggle" class="wb-fbs-scan-mode-toggle"
+                      role="switch" aria-checked="false"
+                      aria-label="Режим сканера: клавиатура или COM"
+                      title="Выкл — клавиатура (как сейчас). Вкл — COM-порт"
+                      onclick="onWbFbsScanModeToggleClick(event)">
+                <span class="wb-fbs-scan-mode-ico wb-fbs-scan-mode-kb" aria-hidden="true" title="Клавиатура">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                    <rect x="2" y="6" width="20" height="12" rx="2" stroke="currentColor" stroke-width="1.8"/>
+                    <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 13h.01M10 13h4M16 13h.01M18 13h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                  </svg>
+                </span>
+                <span class="wb-fbs-scan-mode-track" aria-hidden="true"><span class="wb-fbs-scan-mode-thumb"></span></span>
+                <span class="wb-fbs-scan-mode-ico wb-fbs-scan-mode-com" aria-hidden="true" title="COM">COM</span>
+              </button>
+              <span id="wbFbsKizScanModeStatus" class="wb-fbs-scan-mode-status" hidden></span>
               <div class="wb-fbs-kiz-scan-field">
                 <input id="wbFbsKizStickerScan" class="wb-fbs-kiz-scan-input" type="text" autocomplete="off"
+                       aria-label="Сканирование QR стикера заказа"
                        placeholder="Сканируйте QR стикера заказа"
                        oninput="onWbFbsKizScanInputCheck(event)"
                        onkeydown="onWbFbsKizStickerScanKey(event)" />
@@ -2695,10 +2710,25 @@
                 <div id="wbFbsPickScanCount" class="wb-fbs-kiz-scan-count" aria-live="polite">Проверено 0 из 0</div>
               </div>
             </div>
-            <div class="wb-fbs-kiz-scan-bar">
-              <label class="wb-fbs-kiz-scan-label" for="wbFbsPickStickerScan">Сканирование</label>
+                        <div class="wb-fbs-kiz-scan-bar">
+              <button type="button" id="wbFbsPickScanModeToggle" class="wb-fbs-scan-mode-toggle"
+                      role="switch" aria-checked="false"
+                      aria-label="Режим сканера: клавиатура или COM"
+                      title="Выкл — клавиатура (как сейчас). Вкл — COM-порт"
+                      onclick="onWbFbsScanModeToggleClick(event)">
+                <span class="wb-fbs-scan-mode-ico wb-fbs-scan-mode-kb" aria-hidden="true" title="Клавиатура">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                    <rect x="2" y="6" width="20" height="12" rx="2" stroke="currentColor" stroke-width="1.8"/>
+                    <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 13h.01M10 13h4M16 13h.01M18 13h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                  </svg>
+                </span>
+                <span class="wb-fbs-scan-mode-track" aria-hidden="true"><span class="wb-fbs-scan-mode-thumb"></span></span>
+                <span class="wb-fbs-scan-mode-ico wb-fbs-scan-mode-com" aria-hidden="true" title="COM">COM</span>
+              </button>
+              <span id="wbFbsPickScanModeStatus" class="wb-fbs-scan-mode-status" hidden></span>
               <div class="wb-fbs-kiz-scan-field">
                 <input id="wbFbsPickStickerScan" class="wb-fbs-kiz-scan-input" type="text" autocomplete="off"
+                       aria-label="Сканирование QR стикера заказа"
                        placeholder="Сканируйте QR стикера заказа"
                        oninput="onWbFbsPickScanInputCheck(event)"
                        onkeydown="onWbFbsPickStickerScanKey(event)" />
@@ -7465,6 +7495,6 @@
 
   <script src="/static/ozon_fbs.js?v=144"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=22"></script>
-  <script src="/static/app.js?v=614"></script>
+  <script src="/static/app.js?v=615"></script>
 </body>
 </html>

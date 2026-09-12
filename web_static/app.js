@@ -34021,6 +34021,7 @@ async function closeWbFbsKizModal(opts) {
   setModalVisibility("wbFbsKizRuLayoutModal", false);
   setModalVisibility("wbFbsKizScanPrompt", false);
   setModalVisibility("wbFbsKizModal", false);
+  void _wbFbsScanComOnModalClosed();
   wbFbsKizState.rows = [];
   wbFbsKizState.errors = {};
   wbFbsKizState.pendingOrderId = null;
@@ -34094,6 +34095,7 @@ async function openWbFbsKizModal() {
           try { scan.focus(); } catch (_) {}
         }, 50);
       }
+      void _wbFbsScanComOnModalOpened();
     }
   }
 }
@@ -35084,13 +35086,336 @@ function _wbFbsKizFindBySticker(scan) {
   return { row: null, ambiguous: false };
 }
 
-function onWbFbsKizStickerScanKey(event) {
-  if (!event || event.key !== "Enter") return;
-  event.preventDefault();
+
+/* ── WB FBS scan input mode: keyboard (default) / COM (Web Serial) ─────────
+ * Keyboard path is unchanged (Enter → process*). COM only feeds the same process* helpers.
+ */
+const WB_FBS_SCAN_MODE_KEY = "wb_fbs_scan_input_mode_v1";
+const WB_FBS_COM_BAUD = 9600;
+const WB_FBS_COM_INTER_BYTE_MS = 50;
+const WB_FBS_COM_DEDUP_MS = 500;
+
+const wbFbsScanComState = {
+  preferredCom: false,
+  port: null,
+  reader: null,
+  reading: false,
+  buffer: "",
+  interByteTimer: null,
+  lastRaw: "",
+  lastAt: 0,
+  connectInFlight: false,
+};
+
+function _wbFbsScanComSupported() {
+  return typeof navigator !== "undefined" && !!(navigator.serial && navigator.serial.requestPort);
+}
+
+function _wbFbsScanComPrefEnabled() {
+  try {
+    return localStorage.getItem(WB_FBS_SCAN_MODE_KEY) === "com";
+  } catch (_e) {
+    return false;
+  }
+}
+
+function _wbFbsScanComSetPref(enabled) {
+  wbFbsScanComState.preferredCom = !!enabled;
+  try {
+    localStorage.setItem(WB_FBS_SCAN_MODE_KEY, enabled ? "com" : "keyboard");
+  } catch (_e) {
+    /* ignore */
+  }
+}
+
+function _wbFbsScanModeStatusEls() {
+  return [
+    document.getElementById("wbFbsKizScanModeStatus"),
+    document.getElementById("wbFbsPickScanModeStatus"),
+  ].filter(Boolean);
+}
+
+function _wbFbsScanModeToggleEls() {
+  return [
+    document.getElementById("wbFbsKizScanModeToggle"),
+    document.getElementById("wbFbsPickScanModeToggle"),
+  ].filter(Boolean);
+}
+
+function _wbFbsScanComSetStatus(text, tone) {
+  const msg = String(text || "").trim();
+  for (const el of _wbFbsScanModeStatusEls()) {
+    if (!msg) {
+      el.hidden = true;
+      el.textContent = "";
+      el.classList.remove("is-error", "is-ok");
+      continue;
+    }
+    el.hidden = false;
+    el.textContent = msg;
+    el.classList.remove("is-error", "is-ok");
+    if (tone === "error") el.classList.add("is-error");
+    else if (tone === "ok") el.classList.add("is-ok");
+  }
+}
+
+function _wbFbsScanComSyncToggleUi() {
+  const on = !!wbFbsScanComState.preferredCom;
+  for (const btn of _wbFbsScanModeToggleEls()) {
+    btn.setAttribute("aria-checked", on ? "true" : "false");
+    btn.classList.toggle("is-com", on);
+  }
+}
+
+function _wbFbsScanComModalOpen() {
+  try {
+    if (typeof _wbFbsKizModalIsOpen === "function" && _wbFbsKizModalIsOpen()) return true;
+  } catch (_e) { /* ignore */ }
+  try {
+    if (typeof _wbFbsPickModalIsOpen === "function" && _wbFbsPickModalIsOpen()) return true;
+  } catch (_e) { /* ignore */ }
+  return false;
+}
+
+function _wbFbsScanComPromptOpen(id) {
+  const el = document.getElementById(id);
+  return !!(el && !el.classList.contains("hidden"));
+}
+
+function deliverWbFbsComScan(raw) {
+  const value = String(raw || "").replace(/[\r\n]+$/g, "");
+  if (!value.replace(/\s+/g, "")) return false;
+  const now = Date.now();
+  if (value === wbFbsScanComState.lastRaw && now - wbFbsScanComState.lastAt < WB_FBS_COM_DEDUP_MS) {
+    return false;
+  }
+  wbFbsScanComState.lastRaw = value;
+  wbFbsScanComState.lastAt = now;
+
+  if (_wbFbsScanComPromptOpen("wbFbsKizScanPrompt")) {
+    const input = document.getElementById("wbFbsKizMarkScan");
+    if (input) input.value = value;
+    return !!processWbFbsKizMarkScan(value, input);
+  }
+  if (typeof _wbFbsKizModalIsOpen === "function" && _wbFbsKizModalIsOpen()) {
+    const input = document.getElementById("wbFbsKizStickerScan");
+    if (input) input.value = value;
+    return !!processWbFbsKizStickerScan(value, input);
+  }
+  if (_wbFbsScanComPromptOpen("wbFbsPickScanPrompt")) {
+    const input = document.getElementById("wbFbsPickSkuScan");
+    if (input) input.value = value;
+    return !!processWbFbsPickSkuScan(value, input);
+  }
+  if (typeof _wbFbsPickModalIsOpen === "function" && _wbFbsPickModalIsOpen()) {
+    const input = document.getElementById("wbFbsPickStickerScan");
+    if (input) input.value = value;
+    return !!processWbFbsPickStickerScan(value, input);
+  }
+  return false;
+}
+window.deliverWbFbsComScan = deliverWbFbsComScan;
+
+function _wbFbsScanComFlushBuffer() {
+  if (wbFbsScanComState.interByteTimer) {
+    clearTimeout(wbFbsScanComState.interByteTimer);
+    wbFbsScanComState.interByteTimer = null;
+  }
+  const raw = wbFbsScanComState.buffer;
+  wbFbsScanComState.buffer = "";
+  if (!raw) return;
+  deliverWbFbsComScan(raw);
+}
+
+function _wbFbsScanComOnChunk(text) {
+  if (!text) return;
+  wbFbsScanComState.buffer += text;
+  // Split on CR/LF frames; keep remainder in buffer.
+  const parts = wbFbsScanComState.buffer.split(/\r\n|\n|\r/);
+  wbFbsScanComState.buffer = parts.pop() || "";
+  for (const part of parts) {
+    if (String(part || "").replace(/\s+/g, "")) deliverWbFbsComScan(part);
+  }
+  if (wbFbsScanComState.interByteTimer) clearTimeout(wbFbsScanComState.interByteTimer);
+  if (wbFbsScanComState.buffer) {
+    wbFbsScanComState.interByteTimer = setTimeout(() => {
+      wbFbsScanComState.interByteTimer = null;
+      _wbFbsScanComFlushBuffer();
+    }, WB_FBS_COM_INTER_BYTE_MS);
+  }
+}
+
+async function _wbFbsScanComReadLoop() {
+  const port = wbFbsScanComState.port;
+  if (!port || !port.readable) return;
+  wbFbsScanComState.reading = true;
+  const decoder = new TextDecoder("latin1");
+  try {
+    while (wbFbsScanComState.port && port.readable && wbFbsScanComState.preferredCom) {
+      const reader = port.readable.getReader();
+      wbFbsScanComState.reader = reader;
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          if (value && value.length) {
+            _wbFbsScanComOnChunk(decoder.decode(value, { stream: true }));
+          }
+        }
+      } catch (e) {
+        if (wbFbsScanComState.preferredCom) {
+          _wbFbsScanComSetStatus("COM: связь потеряна", "error");
+        }
+        break;
+      } finally {
+        try { reader.releaseLock(); } catch (_e) { /* ignore */ }
+        if (wbFbsScanComState.reader === reader) wbFbsScanComState.reader = null;
+      }
+      break;
+    }
+  } finally {
+    wbFbsScanComState.reading = false;
+  }
+}
+
+async function _wbFbsScanComDisconnect() {
+  if (wbFbsScanComState.interByteTimer) {
+    clearTimeout(wbFbsScanComState.interByteTimer);
+    wbFbsScanComState.interByteTimer = null;
+  }
+  wbFbsScanComState.buffer = "";
+  const reader = wbFbsScanComState.reader;
+  wbFbsScanComState.reader = null;
+  if (reader) {
+    try { await reader.cancel(); } catch (_e) { /* ignore */ }
+    try { reader.releaseLock(); } catch (_e) { /* ignore */ }
+  }
+  const port = wbFbsScanComState.port;
+  wbFbsScanComState.port = null;
+  if (port) {
+    try { await port.close(); } catch (_e) { /* ignore */ }
+  }
+}
+
+async function _wbFbsScanComConnect(opts) {
+  const interactive = !!(opts && opts.interactive);
+  if (!_wbFbsScanComSupported()) {
+    _wbFbsScanComSetStatus("COM недоступен в этом браузере", "error");
+    return false;
+  }
+  if (wbFbsScanComState.connectInFlight) return false;
+  wbFbsScanComState.connectInFlight = true;
+  try {
+    let port = wbFbsScanComState.port;
+    if (!port) {
+      const ports = await navigator.serial.getPorts();
+      if (ports && ports.length) port = ports[0];
+    }
+    if (!port && interactive) {
+      port = await navigator.serial.requestPort();
+    }
+    if (!port) {
+      _wbFbsScanComSetStatus("COM: выберите порт", "error");
+      return false;
+    }
+    if (wbFbsScanComState.port !== port) {
+      try {
+        await port.open({ baudRate: WB_FBS_COM_BAUD });
+      } catch (e) {
+        // Already open in this page session?
+        const msg = String(e && (e.message || e) || "");
+        if (!/already\s+open/i.test(msg)) {
+          _wbFbsScanComSetStatus("COM: не удалось открыть порт", "error");
+          return false;
+        }
+      }
+      wbFbsScanComState.port = port;
+    }
+    _wbFbsScanComSetStatus("COM подключён", "ok");
+    if (!wbFbsScanComState.reading) {
+      void _wbFbsScanComReadLoop();
+    }
+    return true;
+  } catch (e) {
+    if (e && e.name === "NotFoundError") {
+      _wbFbsScanComSetStatus("COM: порт не выбран", "error");
+    } else {
+      _wbFbsScanComSetStatus("COM: ошибка подключения", "error");
+    }
+    return false;
+  } finally {
+    wbFbsScanComState.connectInFlight = false;
+  }
+}
+
+async function onWbFbsScanModeToggleClick(event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  const next = !wbFbsScanComState.preferredCom;
+  if (next && !_wbFbsScanComSupported()) {
+    _wbFbsScanComSetStatus("COM недоступен в этом браузере", "error");
+    _wbFbsScanComSetPref(false);
+    _wbFbsScanComSyncToggleUi();
+    return;
+  }
+  _wbFbsScanComSetPref(next);
+  _wbFbsScanComSyncToggleUi();
+  if (!next) {
+    await _wbFbsScanComDisconnect();
+    _wbFbsScanComSetStatus("");
+    return;
+  }
+  const ok = await _wbFbsScanComConnect({ interactive: true });
+  if (!ok) {
+    // Stay preferred ON so operator can retry; UI remains green.
+    _wbFbsScanComSyncToggleUi();
+  }
+}
+window.onWbFbsScanModeToggleClick = onWbFbsScanModeToggleClick;
+
+async function _wbFbsScanComOnModalOpened() {
+  wbFbsScanComState.preferredCom = _wbFbsScanComPrefEnabled();
+  _wbFbsScanComSyncToggleUi();
+  if (!wbFbsScanComState.preferredCom) {
+    _wbFbsScanComSetStatus("");
+    return;
+  }
+  if (!_wbFbsScanComSupported()) {
+    _wbFbsScanComSetStatus("COM недоступен", "error");
+    return;
+  }
+  const ok = await _wbFbsScanComConnect({ interactive: false });
+  if (!ok) {
+    _wbFbsScanComSetStatus("COM: нажмите переключатель для порта", "error");
+  }
+}
+
+async function _wbFbsScanComOnModalClosed() {
+  // Release port when leaving scan modals; preference remembered for next open.
+  if (!_wbFbsScanComModalOpen()) {
+    await _wbFbsScanComDisconnect();
+  }
+}
+
+function _wbFbsScanComInitFromStorage() {
+  wbFbsScanComState.preferredCom = _wbFbsScanComPrefEnabled();
+  _wbFbsScanComSyncToggleUi();
+}
+if (typeof document !== "undefined") {
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", _wbFbsScanComInitFromStorage);
+  } else {
+    _wbFbsScanComInitFromStorage();
+  }
+}
+
+function processWbFbsKizStickerScan(raw, inputEl) {
   if (_wbFbsKizRuLayoutModalOpen()) return;
-  const input = event.target;
+  const input = inputEl || document.getElementById("wbFbsKizStickerScan");
   if (input && (input.readOnly || input.disabled || !wbFbsKizState.rowsReady)) return;
-  const rawTyped = String(input?.value || "").replace(/\s+/g, "").trim();
+  const rawTyped = String(raw || "").replace(/\s+/g, "").trim();
   if (!rawTyped) return;
   // Cyrillic first — before sticker↔order match and further checks.
   if (_wbFbsKizHasCyrillic(rawTyped)) {
@@ -35122,6 +35447,14 @@ function onWbFbsKizStickerScanKey(event) {
   _wbFbsKizSetInfo("");
   if (input) input.value = "";
   beginWbFbsKizMarkScan(Number(found.row.order_id));
+  return true;
+}
+window.processWbFbsKizStickerScan = processWbFbsKizStickerScan;
+
+function onWbFbsKizStickerScanKey(event) {
+  if (!event || event.key !== "Enter") return;
+  event.preventDefault();
+  processWbFbsKizStickerScan(event.target?.value || "", event.target);
 }
 window.onWbFbsKizStickerScanKey = onWbFbsKizStickerScanKey;
 
@@ -35155,13 +35488,11 @@ function cancelWbFbsKizMarkScan() {
 }
 window.cancelWbFbsKizMarkScan = cancelWbFbsKizMarkScan;
 
-function onWbFbsKizMarkScanKey(event) {
-  if (!event || event.key !== "Enter") return;
-  event.preventDefault();
+function processWbFbsKizMarkScan(raw, inputEl) {
   if (_wbFbsKizRuLayoutModalOpen()) return;
   const oid = Number(wbFbsKizState.pendingOrderId);
-  const input = event.target;
-  const rawTyped = String(input?.value || "");
+  const input = inputEl || document.getElementById("wbFbsKizMarkScan");
+  const rawTyped = String(raw ?? "");
   if (!oid || !String(rawTyped || "").replace(/\s+/g, "")) return;
   // Cyrillic first — before GTIN / order checks and accepting the code.
   if (_wbFbsKizHasCyrillic(rawTyped)) {
@@ -35231,6 +35562,14 @@ function onWbFbsKizMarkScanKey(event) {
     sticker.value = "";
     setTimeout(() => sticker.focus(), 40);
   }
+  return true;
+}
+window.processWbFbsKizMarkScan = processWbFbsKizMarkScan;
+
+function onWbFbsKizMarkScanKey(event) {
+  if (!event || event.key !== "Enter") return;
+  event.preventDefault();
+  processWbFbsKizMarkScan(event.target?.value || "", event.target);
 }
 window.onWbFbsKizMarkScanKey = onWbFbsKizMarkScanKey;
 
@@ -35897,6 +36236,7 @@ async function closeWbFbsPickVerifyModal(opts) {
   setModalVisibility("wbFbsKizRuLayoutModal", false);
   setModalVisibility("wbFbsPickScanPrompt", false);
   setModalVisibility("wbFbsPickVerifyModal", false);
+  void _wbFbsScanComOnModalClosed();
   wbFbsKizState.ruLayoutFocusId = null;
   wbFbsKizState.ruLayoutPreserveValue = false;
   wbFbsKizState.ruLayoutOpenedAt = 0;
@@ -35972,6 +36312,7 @@ async function openWbFbsPickVerifyModal() {
           try { scan.focus(); } catch (_) {}
         }, 50);
       }
+      void _wbFbsScanComOnModalOpened();
     }
   }
 }
@@ -36486,13 +36827,11 @@ function _wbFbsPickFindBySticker(scan) {
   return { row: null, ambiguous: false };
 }
 
-function onWbFbsPickStickerScanKey(event) {
-  if (!event || event.key !== "Enter") return;
-  event.preventDefault();
+function processWbFbsPickStickerScan(raw, inputEl) {
   if (_wbFbsKizRuLayoutModalOpen()) return;
-  const input = event.target;
+  const input = inputEl || document.getElementById("wbFbsPickStickerScan");
   if (input && (input.readOnly || input.disabled || !wbFbsPickState.rowsReady)) return;
-  const rawTyped = String(input?.value || "").replace(/\s+/g, "").trim();
+  const rawTyped = String(raw || "").replace(/\s+/g, "").trim();
   if (!rawTyped) return;
   // Cyrillic first — before sticker↔order match (same as Маркировка).
   if (_wbFbsKizHasCyrillic(rawTyped)) {
@@ -36523,6 +36862,14 @@ function onWbFbsPickStickerScanKey(event) {
   _wbFbsPickSetInfo("");
   if (input) input.value = "";
   beginWbFbsPickSkuScan(Number(found.row.order_id));
+  return true;
+}
+window.processWbFbsPickStickerScan = processWbFbsPickStickerScan;
+
+function onWbFbsPickStickerScanKey(event) {
+  if (!event || event.key !== "Enter") return;
+  event.preventDefault();
+  processWbFbsPickStickerScan(event.target?.value || "", event.target);
 }
 window.onWbFbsPickStickerScanKey = onWbFbsPickStickerScanKey;
 
@@ -36556,13 +36903,11 @@ function cancelWbFbsPickSkuScan() {
 }
 window.cancelWbFbsPickSkuScan = cancelWbFbsPickSkuScan;
 
-function onWbFbsPickSkuScanKey(event) {
-  if (!event || event.key !== "Enter") return;
-  event.preventDefault();
+function processWbFbsPickSkuScan(raw, inputEl) {
   if (_wbFbsKizRuLayoutModalOpen()) return;
   const oid = Number(wbFbsPickState.pendingOrderId);
-  const input = event.target;
-  const rawTyped = String(input?.value || "");
+  const input = inputEl || document.getElementById("wbFbsPickSkuScan");
+  const rawTyped = String(raw ?? "");
   if (!oid || !String(rawTyped || "").replace(/\s+/g, "")) return;
   // Cyrillic first — same guard as Маркировка mark-scan.
   if (_wbFbsKizHasCyrillic(rawTyped)) {
@@ -36622,6 +36967,14 @@ function onWbFbsPickSkuScanKey(event) {
     sticker.value = "";
     setTimeout(() => sticker.focus(), 40);
   }
+  return true;
+}
+window.processWbFbsPickSkuScan = processWbFbsPickSkuScan;
+
+function onWbFbsPickSkuScanKey(event) {
+  if (!event || event.key !== "Enter") return;
+  event.preventDefault();
+  processWbFbsPickSkuScan(event.target?.value || "", event.target);
 }
 window.onWbFbsPickSkuScanKey = onWbFbsPickSkuScanKey;
 

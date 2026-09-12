@@ -110,5 +110,5 @@ def test_receipt_and_adj_confirm_on_dirty_close() -> None:
 
 
 def test_cache_bump() -> None:
-    assert "style.css?v=359" in APP_HTML
-    assert "app.js?v=614" in APP_HTML
+    assert "style.css?v=360" in APP_HTML
+    assert "app.js?v=615" in APP_HTML
