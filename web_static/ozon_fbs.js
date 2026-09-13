@@ -11697,11 +11697,6 @@
     generating: false,
   };
 
-  const shipmentQualityState = {
-    file: null,
-    generating: false,
-  };
-
   const allCancellationsState = {
     loading: false,
     supplies: [],

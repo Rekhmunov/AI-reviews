@@ -30,7 +30,7 @@ def test_all_cancellations_ui_wired() -> None:
     assert 'id="ozonFbsShipmentQualityBtn"' in ozon_block
     assert 'id="ozonFbsAllCancellationsModal"' in html
     assert 'id="ozonFbsAllCancellationsSearch"' in html
-    assert "ozon_fbs.js?v=146" in html
+    assert "ozon_fbs.js?v=147" in html
     assert "style.css?v=361" in html
 
     assert "function openOzonFbsAllCancellationsModal" in js
@@ -38,6 +38,7 @@ def test_all_cancellations_ui_wired() -> None:
     assert "/api/ozon-fbs/cancellations/delivering" in js
     assert "window.openOzonFbsAllCancellationsModal" in js
     assert "_ozonFbsSyncOwnerOnlyAllCancellationsBtn()" in js
+    assert js.count("const shipmentQualityState = {") == 1
 
     assert ".ozon-fbs-all-cancels-modal" in css
     assert ".ozon-fbs-all-cancels-supply-head" in css
