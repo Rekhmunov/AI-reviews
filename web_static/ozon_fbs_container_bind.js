@@ -60,10 +60,27 @@
       ? (window.ozonFbsKizState?.rows || [])
       : (window.ozonFbsPickState?.rows || []);
     if (!rows.length || !binds || typeof binds !== "object") return 0;
+    const keptCancelled = new Set(
+      (Array.isArray(changes) ? changes : [])
+        .filter((c) => c && c.action === "kept_cancelled")
+        .map((c) => String(c.posting_number || "").trim())
+        .filter(Boolean)
+    );
     let touched = 0;
     for (const row of rows) {
       const pn = String(row?.posting_number || "").trim();
       if (!pn || state.dirtyPostings.has(pn)) continue;
+      // Do not wipe a local GM bind for cancelled rows (Ozon may have dropped them).
+      const isCancelled = typeof window._ozonFbsRowIsCancelled === "function"
+        ? window._ozonFbsRowIsCancelled(row)
+        : !!String(row?.cancel_reason_label || "").trim();
+      if (isCancelled || keptCancelled.has(pn)) {
+        const nextKeep = binds[pn];
+        if (nextKeep && (nextKeep.container_id == null || Number(nextKeep.container_id) <= 0)) {
+          continue;
+        }
+        if (!nextKeep && keptCancelled.has(pn)) continue;
+      }
       const next = binds[pn];
       if (!next) continue;
       const nextCid = next.container_id != null ? Number(next.container_id) : 0;
@@ -82,6 +99,8 @@
       ) {
         continue;
       }
+      // Cancelled + portal cleared → keep local progress.
+      if (isCancelled && curCid > 0 && nextCid <= 0) continue;
       row.container_id = nextCid > 0 ? nextCid : null;
       row.container_barcode = nextBc;
       row.container_synced = nextSynced;
@@ -348,9 +367,17 @@
     const el = document.getElementById(elId);
     if (!el) return;
     const list = Array.isArray(rows) ? rows : [];
-    const boundLocal = list.filter((r) => String(r?.container_barcode || "").trim()).length;
+    const isCancelled = (r) => {
+      if (typeof window._ozonFbsRowIsCancelled === "function") {
+        return window._ozonFbsRowIsCancelled(r);
+      }
+      return !!String(r?.cancel_reason_label || "").trim();
+    };
+    const active = list.filter((r) => !isCancelled(r));
+    const boundLocal = active.filter((r) => String(r?.container_barcode || "").trim()).length;
     // Green only for Ozon-confirmed binds (container_synced), like WB kiz_wb_synced.
-    const synced = list.filter((r) => {
+    // Cancelled rows are excluded from both sides of N/M.
+    const synced = active.filter((r) => {
       if (!String(r?.container_barcode || "").trim()) return false;
       if (String(r?.container_sync_error || "").trim()) return false;
       return !!r?.container_synced;
@@ -362,8 +389,7 @@
       el.classList.remove("is-complete");
       return;
     }
-    const total =
-      list.filter((r) => !String(r?.cancel_reason_label || "").trim()).length || list.length;
+    const total = active.length || 0;
     el.textContent = `Прикреплено к грузоместам ${synced} из ${total}`;
     el.classList.toggle("is-complete", total > 0 && synced === total);
   }

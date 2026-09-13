@@ -5413,7 +5413,13 @@
     tbody.innerHTML = rows.map((c) => {
       const cid = String(c.container_id || "").trim();
       const num = Number(c.container_number || 0);
-      const orders = Number(c.order_count || 0);
+      const ordersOzon = Number(
+        c.order_count_ozon != null ? c.order_count_ozon : c.order_count || 0
+      );
+      const cancelledN = Number(c.cancelled_removed_count || 0);
+      const ordersLabel = cancelledN > 0
+        ? `${ordersOzon} (отмененные: ${cancelledN})`
+        : String(ordersOzon);
       const status = esc(c.status_label || c.status || "—");
       const sortLabel = esc(c.sort_type_label || "");
       const cargoLabel = esc(c.cargo_type_label || "");
@@ -5439,7 +5445,7 @@
             </div>
           </div>
         </td>
-        <td class="ozon-fbs-containers-col-orders">${esc(String(orders))}</td>
+        <td class="ozon-fbs-containers-col-orders">${esc(ordersLabel)}</td>
         <td class="ozon-fbs-containers-col-meta">${status}</td>
         <td class="wb-fbs-trbx-boxes-col-act">
           <div class="wb-fbs-trbx-box-actions">
@@ -5485,12 +5491,17 @@
         }).join("")}</ul>`
       : `<div class="ozon-fbs-containers-detail-empty">Нет дат</div>`;
     const count = postings.length;
+    const cancelledN = Number(data.cancelled_removed_count || 0);
+    const compositionTitle = cancelledN > 0
+      ? `Состав (${count}) (отмененные: ${cancelledN})`
+      : `Состав (${count})`;
     let compositionNote = "";
     if (!count) {
+      const rowMeta = (containersState.items || []).find(
+        (x) => String(x.container_id || "").trim() === key
+      ) || {};
       const ozonOrders = Number(
-        (containersState.items || []).find(
-          (x) => String(x.container_id || "").trim() === key
-        )?.order_count || 0
+        rowMeta.order_count_ozon != null ? rowMeta.order_count_ozon : rowMeta.order_count || 0
       );
       if (ozonOrders > 0 && data.ozon_fetch_ok === false) {
         compositionNote = `<div class="ozon-fbs-containers-detail-empty">В Ozon указано заказов: ${esc(String(ozonOrders))}, но состав сейчас не удалось загрузить. Откройте снова.</div>`;
@@ -5514,7 +5525,7 @@
       </div>
       <div class="ozon-fbs-containers-detail-block">
         <div class="ozon-fbs-containers-detail-title ozon-fbs-containers-composition-head">
-          <span>Состав (${count})</span>${xlsLink}
+          <span>${esc(compositionTitle)}</span>${xlsLink}
         </div>
         ${compositionNote}
       </div>
@@ -12138,6 +12149,7 @@
   window.ozonFbsKizState = ozonFbsKizState;
   window.ozonFbsPickState = ozonFbsPickState;
   window.supplyDetailState = supplyDetailState;
+  window._ozonFbsRowIsCancelled = _ozonFbsRowIsCancelled;
   window._ozonFbsKizSetInfo = _ozonFbsKizSetInfo;
   window._ozonFbsPickSetInfo = _ozonFbsPickSetInfo;
   window.openOzonFbsKizModal = openOzonFbsKizModal;

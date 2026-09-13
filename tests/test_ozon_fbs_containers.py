@@ -477,6 +477,10 @@ def test_enrich_containers_rewrites_order_count_from_local_active() -> None:
         return_value={10: 80, 20: 36},
     ), patch.object(
         ct,
+        "_cancelled_local_order_counts_by_container",
+        return_value={10: 3},
+    ), patch.object(
+        ct,
         "_bound_supply_counts_by_container",
         return_value={
             10: [("S1", 80)],
@@ -493,11 +497,14 @@ def test_enrich_containers_rewrites_order_count_from_local_active() -> None:
     by_id = {int(x["container_id"]): x for x in out["items"]}
     assert by_id[10]["order_count"] == 80
     assert by_id[10]["order_count_ozon"] == 100
+    assert by_id[10]["cancelled_removed_count"] == 3
     assert by_id[10]["bound_to_open_supply"] is True
     assert by_id[20]["order_count"] == 36
+    assert by_id[20]["cancelled_removed_count"] == 0
     # No local binds for 30 → keep Ozon count (warehouse list is shared).
     assert by_id[30]["order_count"] == 5
     assert by_id[30]["order_count_ozon"] == 5
+    assert by_id[30]["cancelled_removed_count"] == 0
     assert by_id[30]["bound_to_open_supply"] is False
     assert by_id[30]["moved_to_delivering_at"] == ""
     assert out["active_order_count"] == 116

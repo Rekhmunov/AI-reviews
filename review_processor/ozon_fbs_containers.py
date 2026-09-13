@@ -808,6 +808,40 @@ def load_container_bind_map(
     return out
 
 
+def _load_cancelled_postings_map(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_numbers: list[str],
+) -> dict[str, bool]:
+    """Map posting_number → cancelled flag for reconcile keep-local decisions."""
+    nums = [str(x).strip() for x in posting_numbers if str(x).strip()]
+    if not nums:
+        return {}
+    oz.ensure_ozon_fbs_tables(repo)
+    placeholders = ", ".join("?" for _ in nums)
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT posting_number, status, tab, raw_json
+                FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ?
+                  AND posting_number IN ({placeholders})
+                """
+            ),
+            (user_id, source_id, *nums),
+        ).fetchall()
+    out: dict[str, bool] = {}
+    for row in rows:
+        d = repo._row_to_dict(row)
+        pn = str(d.get("posting_number") or "").strip()
+        if pn:
+            out[pn] = oz.posting_row_is_cancelled(d)
+    return out
+
+
 def _set_local_container_bind(
     repo: ReviewRepository,
     *,
@@ -1323,6 +1357,12 @@ def reconcile_supply_container_binds(
     local_binds = load_container_bind_map(
         repo, user_id=user_id, source_id=source_id, posting_numbers=posting_numbers
     )
+    cancelled_map = _load_cancelled_postings_map(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        posting_numbers=posting_numbers,
+    )
 
     warehouse_id, _wh_name = resolve_supply_warehouse_id(
         repo, user_id=user_id, source_id=source_id, supply_id=sid
@@ -1463,6 +1503,26 @@ def reconcile_supply_container_binds(
             if local_cid <= 0:
                 continue
             if not local_synced and local_err:
+                continue
+            # Cancelled on our side: Ozon often drops the posting from GM, but
+            # local scan progress must stay (KIZ/pick counters should not break).
+            if cancelled_map.get(pn):
+                changes.append(
+                    {
+                        "posting_number": pn,
+                        "action": "kept_cancelled",
+                        "reason": (
+                            "Отменённый заказ снят с ГМ на Ozon — "
+                            "локальная привязка сохранена"
+                        ),
+                        "container_id": local_cid,
+                        "container_barcode": str(
+                            local.get("container_barcode") or local_cid or ""
+                        ).strip(),
+                        "container_synced": bool(local_synced),
+                        "container_sync_error": local_err,
+                    }
+                )
                 continue
             _apply_local(
                 pn,
@@ -1683,6 +1743,49 @@ def _active_local_order_counts_by_container(
     return out
 
 
+def _cancelled_local_order_counts_by_container(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+) -> dict[int, int]:
+    """Map container_id → cancelled postings still bound locally (Ozon often dropped them)."""
+    sid = str(supply_id or "").strip()
+    if not sid:
+        return {}
+    oz.ensure_ozon_fbs_tables(repo)
+    not_cancelled = oz.sql_exclude_cancelled_postings_clause()
+    out: dict[int, int] = {}
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT container_id, COUNT(*) AS order_count
+                FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                  AND COALESCE(container_id, 0) > 0
+                  AND NOT ({not_cancelled})
+                GROUP BY container_id
+                """
+            ),
+            (int(user_id), int(source_id), sid),
+        ).fetchall()
+    for row in rows or []:
+        d = repo._row_to_dict(row) if not isinstance(row, dict) else row
+        try:
+            cid = int(d.get("container_id") or 0)
+        except (TypeError, ValueError):
+            cid = 0
+        if cid <= 0:
+            continue
+        try:
+            out[cid] = int(d.get("order_count") or 0)
+        except (TypeError, ValueError):
+            out[cid] = 0
+    return out
+
+
 def _bound_supply_counts_by_container(
     repo: ReviewRepository,
     *,
@@ -1875,6 +1978,12 @@ def enrich_containers_for_supply_modal(
         source_id=source_id,
         supply_id=open_sid,
     )
+    cancelled_counts = _cancelled_local_order_counts_by_container(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=open_sid,
+    )
     active_supply_total = len(
         oz_sup.list_active_supply_posting_numbers(
             repo,
@@ -1957,6 +2066,9 @@ def enrich_containers_for_supply_modal(
             except (TypeError, ValueError):
                 ozon_orders = 0
             row["order_count_ozon"] = max(0, ozon_orders)
+            row["cancelled_removed_count"] = (
+                max(0, int(cancelled_counts.get(cid) or 0)) if bound_to_open else 0
+            )
             # Only rewrite when this supply has local binds for THIS container.
             # Do not zero other warehouse GMs (list is warehouse-wide).
             if bound_to_open:
@@ -2274,14 +2386,28 @@ def build_container_modal_details(
             ozon_fetch_ok = False
 
     # Hide refusals/cancelled from composition so «Состав (N)» matches supply.
-    postings = [
-        p
-        for p in postings
-        if isinstance(p, dict)
-        and not oz.is_cancelled_posting(
-            status=p.get("status"), tab=p.get("tab")
-        )
-    ]
+    cancelled_in_composition = 0
+    active_postings: list[dict[str, Any]] = []
+    for p in postings:
+        if not isinstance(p, dict):
+            continue
+        if oz.is_cancelled_posting(status=p.get("status"), tab=p.get("tab")):
+            cancelled_in_composition += 1
+            continue
+        active_postings.append(p)
+    postings = active_postings
+    cancelled_local = int(
+        _cancelled_local_order_counts_by_container(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=str(supply_id or "").strip(),
+        ).get(cid, 0)
+        or 0
+    )
+    # Prefer local cancelled-still-bound count: Ozon usually already dropped them
+    # from container/get, so composition filter alone under-reports.
+    cancelled_removed = max(cancelled_in_composition, cancelled_local)
 
     created_display = oz.format_lookup_datetime(created_raw) if created_raw else ""
     warehouse_display = (
@@ -2360,6 +2486,7 @@ def build_container_modal_details(
         "timeline": timeline,
         "postings": postings,
         "postings_count": len(postings),
+        "cancelled_removed_count": int(cancelled_removed),
         "composition_source": composition_source,
         "ozon_fetch_ok": ozon_fetch_ok,
         "local_postings_count": len(local_postings),

@@ -17,7 +17,7 @@ def test_cancelled_orders_btn_visible_to_all_ozon_fbs_users() -> None:
 
     assert 'id="ozonFbsSupplyDetailCancelledBtn"' in html
     assert "openOzonFbsCancelledOrdersModal()" in html
-    assert "ozon_fbs.js?v=147" in html
+    assert "ozon_fbs.js?v=148" in html
 
     assert "function _ozonFbsSyncCancelledBtn" in js
     assert "_ozonFbsSyncOwnerOnlyCancelledBtn" not in js

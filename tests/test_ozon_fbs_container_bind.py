@@ -639,6 +639,7 @@ class ContainerReconcileTests(unittest.TestCase):
                 return_value=({"container_id": 10}, [], True),
             ),
             patch.object(ct, "_set_local_container_bind") as set_local,
+            patch.object(ct, "_load_cancelled_postings_map", return_value={"A-1": False}),
         ):
             out = ct.reconcile_supply_container_binds(
                 client,
@@ -651,6 +652,82 @@ class ContainerReconcileTests(unittest.TestCase):
         self.assertFalse(out["posting_lists_available"])
         self.assertEqual(out["changes"], [])
         set_local.assert_not_called()
+
+    def test_reconcile_keeps_local_bind_for_cancelled_dropped_by_ozon(self) -> None:
+        """Ozon removed cancelled posting from GM — keep local bind for scan progress."""
+        repo = MagicMock()
+        client = MagicMock()
+        supply = {"posting_numbers": ["A-1", "B-1"]}
+        with (
+            patch.object(ct.oz_sup, "get_supply", return_value=supply),
+            patch.object(
+                ct,
+                "load_container_bind_map",
+                side_effect=[
+                    {
+                        "A-1": {
+                            "container_id": 10,
+                            "container_barcode": "10",
+                            "container_synced": True,
+                            "container_sync_error": "",
+                        },
+                        "B-1": {
+                            "container_id": 10,
+                            "container_barcode": "10",
+                            "container_synced": True,
+                            "container_sync_error": "",
+                        },
+                    },
+                    {
+                        "A-1": {
+                            "container_id": 10,
+                            "container_barcode": "10",
+                            "container_synced": True,
+                            "container_sync_error": "",
+                        },
+                        "B-1": {
+                            "container_id": 10,
+                            "container_barcode": "10",
+                            "container_synced": True,
+                            "container_sync_error": "",
+                        },
+                    },
+                ],
+            ),
+            patch.object(ct, "resolve_supply_warehouse_id", return_value=(100, "WH")),
+            patch.object(
+                ct,
+                "_list_containers_cached",
+                return_value={"items": [{"container_id": 10}]},
+            ),
+            patch.object(
+                ct,
+                "_fetch_container_postings",
+                # Ozon GM composition no longer includes cancelled A-1.
+                return_value=({"container_id": 10}, ["B-1"], True),
+            ),
+            patch.object(ct, "_set_local_container_bind") as set_local,
+            patch.object(
+                ct,
+                "_load_cancelled_postings_map",
+                return_value={"A-1": True, "B-1": False},
+            ),
+        ):
+            out = ct.reconcile_supply_container_binds(
+                client,
+                repo,
+                user_id=1,
+                source_id=2,
+                supply_id="S1",
+            )
+        self.assertTrue(out["ok"])
+        self.assertTrue(out["posting_lists_available"])
+        actions = {c["posting_number"]: c["action"] for c in out["changes"]}
+        self.assertEqual(actions.get("A-1"), "kept_cancelled")
+        self.assertNotIn("B-1", actions)
+        set_local.assert_not_called()
+        self.assertEqual(out["binds"]["A-1"]["container_id"], 10)
+        self.assertTrue(out["binds"]["A-1"]["container_synced"])
 
 
 if __name__ == "__main__":
