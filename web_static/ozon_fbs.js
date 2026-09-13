@@ -3174,7 +3174,7 @@
     _ozonFbsSupplyDetailHideNewWarn();
     const readOnly = isDeliveringSuppliesTab();
     syncSupplyDetailReadOnlyMode(readOnly);
-    _ozonFbsSyncOwnerOnlyCancelledBtn();
+    _ozonFbsSyncCancelledBtn();
     const detailColspan = readOnly ? 2 : 4;
     if (tbody) tbody.innerHTML = `<tr><td colspan="${detailColspan}" class="wb-fbs-empty">Загрузка…</td></tr>`;
     if (modal) modal.classList.remove("hidden");
@@ -3679,10 +3679,6 @@
   }
 
   function openOzonFbsCancelledOrdersModal() {
-    if (typeof isTenantOwner === "function" && !isTenantOwner()) {
-      alert("Отменённые заказы доступны только главному пользователю");
-      return;
-    }
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
     if (!sid || !sourceId || !_ozonFbsSupplyActionsReady()) return;
@@ -4295,7 +4291,7 @@
         p.can_view_wb_fbs_tsd || p.is_tenant_owner ? "" : "none";
     }
     _ozonFbsSyncOwnerOnlyGear();
-    _ozonFbsSyncOwnerOnlyCancelledBtn();
+    _ozonFbsSyncCancelledBtn();
     _ozonFbsSyncOwnerOnlyShipmentQualityBtn();
     syncTableMode();
     initColumnResizer();
@@ -4358,12 +4354,12 @@
     }
   }
 
-  function _ozonFbsSyncOwnerOnlyCancelledBtn() {
+  function _ozonFbsSyncCancelledBtn() {
+    // Available to all Ozon FBS users (same as supply detail / stickers).
     const btn = document.getElementById("ozonFbsSupplyDetailCancelledBtn");
     if (!btn) return;
-    const can = typeof isTenantOwner === "function" && isTenantOwner();
-    btn.hidden = !can;
-    btn.style.display = can ? "" : "none";
+    btn.hidden = false;
+    btn.style.display = "";
   }
 
   function _ozonFbsSyncOwnerOnlyShipmentQualityBtn() {
