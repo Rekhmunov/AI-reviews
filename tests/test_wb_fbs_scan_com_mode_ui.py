@@ -83,4 +83,4 @@ def test_scan_mode_toggle_css() -> None:
 
 def test_cache_bump() -> None:
     assert "style.css?v=360" in APP_HTML
-    assert "app.js?v=616" in APP_HTML
+    assert "app.js?v=617" in APP_HTML

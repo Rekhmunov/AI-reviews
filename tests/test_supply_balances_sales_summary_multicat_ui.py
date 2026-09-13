@@ -39,7 +39,7 @@ def test_category_filter_multiselect_ctrl_click() -> None:
 
 def test_cache_bump_sales_summary_multicat() -> None:
     assert "style.css?v=360" in APP_HTML
-    assert "app.js?v=616" in APP_HTML
+    assert "app.js?v=617" in APP_HTML
 
 
 def test_category_filter_panel_shows_full_names() -> None:

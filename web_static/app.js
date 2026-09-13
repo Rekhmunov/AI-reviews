@@ -36304,11 +36304,8 @@ async function closeWbFbsPickVerifyModal(opts) {
 window.closeWbFbsPickVerifyModal = closeWbFbsPickVerifyModal;
 
 async function openWbFbsPickVerifyModal() {
+  // Assembly: all WB FBS users. Delivery tab is view-only via read-only guard.
   if (_wbFbsIsSupplyDetailReadOnly()) return;
-  if (!isTenantOwner()) {
-    alert("«Товары без КИЗ» доступны только главному пользователю");
-    return;
-  }
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId || !_wbFbsSupplyDetailActionsReady()) return;
   setModalVisibility("wbFbsPickVerifyModal", true);
@@ -37027,10 +37024,7 @@ window.onWbFbsPickSkuScanKey = onWbFbsPickSkuScanKey;
 async function saveWbFbsPickVerifyModal() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId || wbFbsPickState.saving) return;
-  if (!isTenantOwner()) {
-    alert("«Товары без КИЗ» доступны только главному пользователю");
-    return;
-  }
+  // Same access as open: assembly for all users; delivery blocked by read-only UI.
   const saveBtn = document.getElementById("wbFbsPickVerifySaveBtn");
   wbFbsPickState.saving = true;
   if (saveBtn) saveBtn.disabled = true;

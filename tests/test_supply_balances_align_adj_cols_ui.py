@@ -52,4 +52,4 @@ def test_adj_modal_columns_resizable_and_persisted() -> None:
 
 def test_cache_bump_align_adj_cols() -> None:
     assert "style.css?v=360" in APP_HTML
-    assert "app.js?v=616" in APP_HTML
+    assert "app.js?v=617" in APP_HTML
