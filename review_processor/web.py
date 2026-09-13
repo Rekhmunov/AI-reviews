@@ -14533,6 +14533,35 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.get("/api/ozon-fbs/cancellations/delivering")
+    def ozon_fbs_delivering_cancellations(
+        request: Request,
+        source_id: int,
+    ) -> dict[str, object]:
+        """Read-only journal of cancelled postings for «Доставляются» supplies.
+
+        Owner-only. Local DB only — no live Ozon status refresh.
+        """
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        if not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Все отмены доступны только главному пользователю",
+            )
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        owner_id = _supply_owner_id(user)
+        _require_ozon_fbs_source(user, int(source_id))
+        return oz_sup.list_delivering_supplies_cancellations(
+            repository,
+            user_id=owner_id,
+            source_id=int(source_id),
+        )
+
     @app.get("/api/ozon-fbs/supplies/{supply_id}/marking")
     def ozon_fbs_supply_marking_list(
         request: Request,

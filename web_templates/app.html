@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=360" />
+  <link rel="stylesheet" href="/static/style.css?v=361" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2830,6 +2830,12 @@
               </button>
             </div>
             <div class="wb-fbs-toolbar-right">
+              <button type="button" id="ozonFbsAllCancellationsBtn" class="secondary"
+                      onclick="openOzonFbsAllCancellationsModal()"
+                      title="Отменённые заказы по поставкам «Доставляются»"
+                      hidden>
+                Все отмены
+              </button>
               <button type="button" id="ozonFbsShipmentQualityBtn" class="secondary"
                       onclick="openOzonFbsShipmentQualityModal()"
                       title="Отчёт качества отгрузок FBS для поддержки"
@@ -3027,6 +3033,32 @@
             </div>
             <div class="wb-fbs-collect-mgt-footer" style="margin-top:16px">
               <button type="button" class="secondary" onclick="closeOzonFbsShipmentQualityModal()">Закрыть</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="ozonFbsAllCancellationsModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsAllCancellationsTitle">
+          <div class="modal-card wb-fbs-kiz-modal ozon-fbs-all-cancels-modal">
+            <div class="wb-fbs-kiz-header">
+              <div class="wb-fbs-kiz-header-main">
+                <h3 id="ozonFbsAllCancellationsTitle" class="wb-fbs-kiz-title">Все отмены</h3>
+                <p class="wb-fbs-kiz-sub">
+                  Отменённые заказы по поставкам вкладки «Доставляются» (данные из базы, без повторной проверки Ozon)
+                </p>
+              </div>
+              <button type="button" class="icon-btn secondary" onclick="closeOzonFbsAllCancellationsModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <div class="ozon-fbs-all-cancels-toolbar">
+              <input id="ozonFbsAllCancellationsSearch" class="wb-fbs-search ozon-fbs-all-cancels-search"
+                     type="search" placeholder="Поиск по поставке или заказу…"
+                     autocomplete="off" oninput="onOzonFbsAllCancellationsSearchInput()" />
+              <div id="ozonFbsAllCancellationsSummary" class="ozon-fbs-all-cancels-summary" aria-live="polite"></div>
+            </div>
+            <div id="ozonFbsAllCancellationsInfo" class="wb-fbs-kiz-info" hidden></div>
+            <div id="ozonFbsAllCancellationsList" class="ozon-fbs-all-cancels-list" role="list"></div>
+            <div class="wb-fbs-collect-mgt-footer">
+              <button type="button" class="secondary" onclick="closeOzonFbsAllCancellationsModal()">Закрыть</button>
             </div>
           </div>
         </div>
@@ -7493,7 +7525,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=145"></script>
+  <script src="/static/ozon_fbs.js?v=146"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=22"></script>
   <script src="/static/app.js?v=615"></script>
 </body>

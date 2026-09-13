@@ -2326,6 +2326,106 @@ def list_delivering_supplies(
     )
 
 
+def list_delivering_supplies_cancellations(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> dict[str, Any]:
+    """Read-only journal: cancelled postings for supplies on «Доставляются».
+
+    Uses local DB only (no live Ozon refresh). Supply list matches the
+    delivering tab; cancelled rows are those still linked by ``supply_id``.
+    """
+    ensure_ozon_fbs_supply_schema(repo)
+    supplies = _build_supply_items_for_tab(
+        repo, user_id=user_id, source_id=source_id, tab=oz.TAB_DELIVERING
+    )
+    if not supplies:
+        return {
+            "ok": True,
+            "source_id": int(source_id),
+            "supplies": [],
+            "cancelled_total": 0,
+        }
+
+    supply_ids = [
+        str(s.get("supply_id") or "").strip()
+        for s in supplies
+        if str(s.get("supply_id") or "").strip()
+    ]
+    cancelled_by_supply: dict[str, list[dict[str, Any]]] = {sid: [] for sid in supply_ids}
+    if supply_ids:
+        name_map = repo.get_product_name_by_article(user_id=user_id)
+        ozon_sku_map = repo.get_product_name_by_ozon_sku(user_id=user_id)
+        barcode_map = repo.get_product_barcodes_map(user_id=user_id)
+        photo_map = repo.get_product_photo_map(user_id=user_id)
+        placeholders = ", ".join("?" for _ in supply_ids)
+        with repo._connect() as conn:
+            rows = conn.execute(
+                repo._sql(
+                    f"""
+                    SELECT * FROM ozon_fbs_postings
+                    WHERE user_id = ? AND source_id = ?
+                      AND supply_id IN ({placeholders})
+                    ORDER BY posting_number ASC
+                    """
+                ),
+                (user_id, source_id, *supply_ids),
+            ).fetchall()
+        for row in rows:
+            d = repo._row_to_dict(row)
+            if not oz.posting_row_is_cancelled(d):
+                continue
+            sid = str(d.get("supply_id") or "").strip()
+            if sid not in cancelled_by_supply:
+                continue
+            article = str(d.get("offer_id") or "").strip()
+            sku = str(d.get("sku") or "").strip()
+            oz.enrich_posting_product_display(
+                d,
+                name_by_article=name_map,
+                name_by_ozon_sku=ozon_sku_map,
+            )
+            d["barcodes"] = oz.resolve_product_barcodes(
+                offer_id=article,
+                sku=sku,
+                barcode_map=barcode_map,
+                fallback=_parse_json_list(d.get("barcodes_json")),
+            )
+            d["product_photo"] = photo_map.get(article) or photo_map.get(sku) or ""
+            if not d["product_photo"] and d.get("products_brief"):
+                first = d["products_brief"][0]
+                if isinstance(first, dict):
+                    fa = str(first.get("offer_id") or "").strip()
+                    fs = str(first.get("sku") or "").strip()
+                    d["product_photo"] = photo_map.get(fa) or photo_map.get(fs) or ""
+            cancel_label = oz.cancel_reason_label_from_row(d) or "Отменено"
+            d["cancel_reason_label"] = cancel_label
+            d["cancelled"] = True
+            cancelled_by_supply[sid].append(_posting_row_payload(d))
+
+    out_supplies: list[dict[str, Any]] = []
+    cancelled_total = 0
+    for s in supplies:
+        sid = str(s.get("supply_id") or "").strip()
+        cancelled_rows = cancelled_by_supply.get(sid) or []
+        cancelled_total += len(cancelled_rows)
+        out_supplies.append(
+            {
+                "supply_id": sid,
+                "name": s.get("name") or sid,
+                "order_count": int(s.get("order_count") or 0),
+                "warehouse_label": s.get("warehouse_label") or "—",
+                "cancelled_count": len(cancelled_rows),
+                "cancelled_orders": cancelled_rows,
+            }
+        )
+    return {
+        "ok": True,
+        "source_id": int(source_id),
+        "supplies": out_supplies,
+        "cancelled_total": cancelled_total,
+    }
+
+
 def get_supply(
     repo: ReviewRepository, *, user_id: int, source_id: int, supply_id: str
 ) -> dict[str, Any] | None:

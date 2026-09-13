@@ -17,13 +17,13 @@ def test_cancelled_orders_btn_visible_to_all_ozon_fbs_users() -> None:
 
     assert 'id="ozonFbsSupplyDetailCancelledBtn"' in html
     assert "openOzonFbsCancelledOrdersModal()" in html
-    assert "ozon_fbs.js?v=145" in html
+    assert "ozon_fbs.js?v=146" in html
 
     assert "function _ozonFbsSyncCancelledBtn" in js
     assert "_ozonFbsSyncOwnerOnlyCancelledBtn" not in js
     sync_fn = js[
         js.find("function _ozonFbsSyncCancelledBtn") : js.find(
-            "function _ozonFbsSyncOwnerOnlyShipmentQualityBtn"
+            "function _ozonFbsSyncOwnerOnlyAllCancellationsBtn"
         )
     ]
     assert "isTenantOwner" not in sync_fn
@@ -39,7 +39,7 @@ def test_cancelled_orders_btn_visible_to_all_ozon_fbs_users() -> None:
 
     route = web[
         web.find('@app.get("/api/ozon-fbs/supplies/{supply_id}/cancelled")') : web.find(
-            '@app.get("/api/ozon-fbs/supplies/{supply_id}/marking")'
+            '@app.get("/api/ozon-fbs/cancellations/delivering")'
         )
     ]
     assert "_can_view_ozon_fbs" in route
