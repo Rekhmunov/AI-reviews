@@ -10870,10 +10870,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         supply_id: str,
         source_id: int,
         order_ids: str = "",
-    ) -> Response:
+        format: str = "",
+    ) -> Response | dict[str, object]:
         """58×40 thermal stickers HTML: article separators + WB stickers.
 
         Optional ``order_ids`` (comma-separated) prints only selected orders.
+        Pass ``format=json`` to also receive ``cancelled_orders`` discovered
+        during missing-sticker diagnosis (default remains raw HTML).
         """
         from . import wb_fbs_detail as wb_detail
 
@@ -10920,6 +10923,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        cancelled_orders = list(payload.get("cancelled_orders") or [])
+        if str(format or "").strip().lower() == "json":
+            return {
+                "ok": True,
+                "html": html_doc,
+                "cancelled_orders": cancelled_orders,
+            }
         return Response(
             content=html_doc,
             media_type="text/html; charset=utf-8",

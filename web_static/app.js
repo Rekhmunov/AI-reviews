@@ -32583,7 +32583,11 @@ function renderWbFbsSupplyDetail(data) {
   }
   // Supply modal renders cargo inside meta; keep the old slot empty/hidden.
   _wbFbsRenderCargoSummary("wbFbsSupplyDetailCargo", null);
-  const allOrders = Array.isArray(supply.orders) ? supply.orders : [];
+  const allOrdersRaw = Array.isArray(supply.orders) ? supply.orders : [];
+  // Working supply table / КИЗ entry: hide cancelled (journal «Отменённые» keeps them).
+  const allOrders = allOrdersRaw.filter(
+    (o) => !String(o?.cancel_reason_label || "").trim()
+  );
   const searchQ = document.getElementById("wbFbsSupplyDetailSearchFilter")?.value || "";
   const orders = String(searchQ || "").trim()
     ? allOrders.filter((o) => _wbFbsKizRowMatchesSearch(o, searchQ))
@@ -32840,7 +32844,29 @@ function toggleWbFbsStickersMenu(event) {
 }
 window.toggleWbFbsStickersMenu = toggleWbFbsStickersMenu;
 
-function wbFbsOpenStickersPrint(orderIds) {
+function _wbFbsApplyStickerCancelledOrders(rows) {
+  const list = Array.isArray(rows)
+    ? rows.filter((r) => r && (r.cancelled || String(r.cancel_reason_label || "").trim()))
+    : [];
+  if (!list.length) return;
+  _wbFbsCancelledMergeIntoDetail(list);
+  list.forEach((row) => {
+    _wbFbsRemoveOrderFromOpenModals(row.order_id);
+  });
+}
+
+function _wbFbsOpenPrintHtmlBlob(html, popupBlockedMsg) {
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const blobUrl = URL.createObjectURL(blob);
+  const win = window.open(blobUrl, "_blank");
+  if (!win) {
+    URL.revokeObjectURL(blobUrl);
+    throw new Error(popupBlockedMsg || "Разрешите всплывающие окна");
+  }
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+}
+
+async function wbFbsOpenStickersPrint(orderIds) {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId || !_wbFbsSupplyDetailActionsReady()) return;
   _wbFbsCloseStickersMenu();
@@ -32853,15 +32879,35 @@ function wbFbsOpenStickersPrint(orderIds) {
     : [];
   let url =
     `/api/wb-fbs/supplies/${encodeURIComponent(sid)}/stickers-print` +
-    `?source_id=${wbFbsState.sourceId}`;
+    `?source_id=${wbFbsState.sourceId}&format=json`;
   if (ids.length) url += `&order_ids=${encodeURIComponent(ids.join(","))}`;
-  _wbFbsOpenPrintHtml(url, "Разрешите всплывающие окна для стикеров")
-    .catch((e) => alert(String(e.message || e)))
-    .finally(() => {
-      if (!_wbFbsSupplyDetailActionsReady()) return;
+  try {
+    const res = await fetch(url, { credentials: "same-origin" });
+    const contentType = String(res.headers.get("content-type") || "").toLowerCase();
+    if (!res.ok) {
+      let detail = `Ошибка ${res.status}`;
+      if (contentType.includes("application/json")) {
+        const data = await res.json().catch(() => ({}));
+        detail = _wbFbsPrintErrorDetail(data, detail);
+      } else {
+        const text = await res.text().catch(() => "");
+        if (text && text.length < 500 && !text.trim().startsWith("<")) detail = text.trim();
+      }
+      throw new Error(detail);
+    }
+    const data = await res.json().catch(() => ({}));
+    _wbFbsApplyStickerCancelledOrders(data.cancelled_orders);
+    const html = String(data.html || "");
+    if (!html) throw new Error("Пустой ответ печати стикеров");
+    _wbFbsOpenPrintHtmlBlob(html, "Разрешите всплывающие окна для стикеров");
+  } catch (e) {
+    alert(String(e.message || e));
+  } finally {
+    if (_wbFbsSupplyDetailActionsReady()) {
       if (btn) btn.disabled = false;
       if (caret) caret.disabled = false;
-    });
+    }
+  }
 }
 window.wbFbsOpenStickersPrint = wbFbsOpenStickersPrint;
 

@@ -1564,12 +1564,17 @@ def _assembly_order_ids_for_supply(
     user_id: int,
     source_id: int,
     supply_id: str,
+    exclude_cancelled: bool = False,
 ) -> list[int]:
     """Order ids linked to a supply in local ``wb_fbs_orders`` (assembly truth).
 
     Prefer this over ``order_ids_json`` when checking print readiness: after a bulk
     collect-mgt WB ``order-ids`` may lag and rewrite ``order_ids_json`` incomplete
     while every successfully added row already has ``supply_id`` set.
+
+    When ``exclude_cancelled`` is True, skip rows whose supplier/wb status is
+    cancelled — they keep ``supply_id`` for the cancellations journal, but must
+    not block print readiness if WB already dropped them from the supply.
     """
     wb.ensure_wb_fbs_tables(repo)
     sid = str(supply_id or "").strip()
@@ -1580,7 +1585,8 @@ def _assembly_order_ids_for_supply(
         rows = conn.execute(
             repo._sql(
                 """
-                SELECT order_id FROM wb_fbs_orders
+                SELECT order_id, supplier_status, wb_status
+                FROM wb_fbs_orders
                 WHERE user_id = ? AND source_id = ? AND supply_id = ?
                 ORDER BY order_id ASC
                 """
@@ -1589,9 +1595,15 @@ def _assembly_order_ids_for_supply(
         ).fetchall()
     for row in rows:
         try:
-            ids.append(int(row["order_id"]))
+            oid = int(row["order_id"])
         except (TypeError, ValueError):
             continue
+        if exclude_cancelled and wb._is_cancelled_status(
+            supplier_status=row["supplier_status"] if row["supplier_status"] is not None else "",
+            wb_status=row["wb_status"] if row["wb_status"] is not None else "",
+        ):
+            continue
+        ids.append(oid)
     return ids
 
 
@@ -1645,21 +1657,33 @@ def ensure_supply_ready_for_print(
         ) from exc
     time.sleep(0.21)
 
-    local_ids = _assembly_order_ids_for_supply(
+    local_all = _assembly_order_ids_for_supply(
         repo, user_id=user_id, source_id=source_id, supply_id=sid
     )
+    local_active = _assembly_order_ids_for_supply(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=sid,
+        exclude_cancelled=True,
+    )
     wb_set = set(wb_ids)
-    local_set = set(local_ids)
-    if wb_set == local_set:
+    local_all_set = set(local_all)
+    local_active_set = set(local_active)
+    # Active local must be on WB; WB may still list known-cancelled locals.
+    # Unknown WB extras or missing active locals still block print.
+    if not (wb_set - local_all_set) and not (local_active_set - wb_set):
+        active_wb_ids = [oid for oid in wb_ids if oid in local_active_set]
         _log.info(
-            "print ok supply=%s source=%s kind=%s wb=%s assembly=%s",
+            "print ok supply=%s source=%s kind=%s wb=%s assembly=%s active=%s",
             sid,
             source_id,
             kind_label,
             len(wb_set),
-            len(local_set),
+            len(local_all_set),
+            len(active_wb_ids),
         )
-        return wb_ids
+        return active_wb_ids
 
     _log.warning(
         "print blocked supply=%s source=%s kind=%s wb=%s assembly=%s "
@@ -1668,14 +1692,14 @@ def ensure_supply_ready_for_print(
         source_id,
         kind_label,
         len(wb_set),
-        len(local_set),
-        len(local_set - wb_set),
-        len(wb_set - local_set),
+        len(local_active_set),
+        len(local_active_set - wb_set),
+        len(wb_set - local_all_set),
     )
     raise ValueError(
         print_order_ids_mismatch_message(
             wb_count=len(wb_set),
-            assembly_count=len(local_set),
+            assembly_count=len(local_active_set),
         )
     )
 
@@ -2092,7 +2116,9 @@ def build_kiz_marking_payload(
         supply_id=supply_id,
     )
     required_orders = [
-        o for o in (detail.get("orders") or []) if o.get("kiz_required")
+        o
+        for o in _orders_excluding_cancelled(list(detail.get("orders") or []))
+        if o.get("kiz_required")
     ]
     order_ids = [
         int(o["order_id"])
@@ -2323,7 +2349,9 @@ def build_pick_verify_payload(
         supply_id=supply_id,
     )
     plain_orders = [
-        o for o in (detail.get("orders") or []) if not o.get("kiz_required")
+        o
+        for o in _orders_excluding_cancelled(list(detail.get("orders") or []))
+        if not o.get("kiz_required")
     ]
     order_ids = [
         int(o["order_id"])
@@ -2597,6 +2625,109 @@ def _wb_fbs_order_is_cancelled(order: dict[str, Any]) -> bool:
         supplier_status=str(order.get("supplier_status") or ""),
         wb_status=str(order.get("wb_status") or ""),
     )
+
+
+def _orders_excluding_cancelled(orders: list[Any] | None) -> list[dict[str, Any]]:
+    """Working lists (print / КИЗ / pick) skip cancelled orders."""
+    return [
+        o
+        for o in (orders or [])
+        if isinstance(o, dict) and not _wb_fbs_order_is_cancelled(o)
+    ]
+
+
+def _sticker_file_present(sticker: dict[str, Any] | None) -> bool:
+    if not isinstance(sticker, dict):
+        return False
+    return bool(str(sticker.get("file") or "").strip())
+
+
+def _diagnose_missing_sticker_cancellations(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    api_key: str,
+    supply_id: str,
+    missing_order_ids: list[int],
+) -> list[dict[str, Any]]:
+    """Live ``/orders/status`` for orders without sticker file; persist cancels.
+
+    WB docs: stickers are returned only for ``confirm`` / ``complete``. Cancelled
+    orders are omitted from the stickers array (no per-id error). Missing file is
+    therefore the signal to check status — but missing ≠ always cancelled.
+    """
+    ids = [int(x) for x in missing_order_ids if int(x) > 0]
+    if not ids or not str(api_key or "").strip():
+        return []
+    client = wb.WbFbsClient(api_key)
+    cancel_labels: dict[int, str] = {}
+    persist_cancel: dict[int, tuple[str, str]] = {}
+    status_by_id: dict[int, tuple[str, str]] = {}
+    for i in range(0, len(ids), 1000):
+        chunk = ids[i : i + 1000]
+        try:
+            chunk_rows = client.get_statuses(chunk)
+        except Exception as exc:
+            _log.warning(
+                "wb stickers cancel-diagnose statuses supply=%s: %s",
+                supply_id,
+                exc,
+            )
+            break
+        if not isinstance(chunk_rows, list):
+            break
+        for st in chunk_rows:
+            if not isinstance(st, dict):
+                continue
+            try:
+                oid = int(st.get("id") or st.get("orderId") or 0)
+            except (TypeError, ValueError):
+                continue
+            if oid <= 0:
+                continue
+            ss = str(st.get("supplierStatus") or "").strip()
+            ws = str(st.get("wbStatus") or "").strip()
+            status_by_id[oid] = (ss, ws)
+            label = wb.cancel_reason_label(supplier_status=ss, wb_status=ws)
+            if label or wb._is_cancelled_status(supplier_status=ss, wb_status=ws):
+                cancel_labels[oid] = label or "Отменен"
+                if ss or ws:
+                    persist_cancel[oid] = (ss, ws)
+        if i + 1000 < len(ids):
+            time.sleep(0.21)
+    if persist_cancel:
+        try:
+            wb.update_order_wb_statuses(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                statuses=persist_cancel,
+            )
+        except Exception as exc:
+            _log.warning(
+                "wb stickers cancel-diagnose persist supply=%s: %s",
+                supply_id,
+                exc,
+            )
+        invalidate_supply_detail_cache(
+            user_id=user_id, source_id=source_id, supply_id=supply_id
+        )
+    out: list[dict[str, Any]] = []
+    for oid in ids:
+        if oid not in cancel_labels:
+            continue
+        ss, ws = status_by_id.get(oid, ("", ""))
+        out.append(
+            {
+                "order_id": oid,
+                "cancelled": True,
+                "cancel_reason_label": cancel_labels[oid],
+                "supplier_status": ss,
+                "wb_status": ws,
+            }
+        )
+    return out
 
 
 def check_supply_pick_verify_status(
@@ -3373,7 +3504,7 @@ def list_sticker_print_groups(
         refresh_order_ids=True,
         kind="sticker_groups",
     )
-    orders = list(detail.get("orders") or [])
+    orders = _orders_excluding_cancelled(list(detail.get("orders") or []))
     _refresh_product_names(repo, user_id=user_id, orders=orders)
     nm_ids: list[int] = []
     for o in orders:
@@ -3470,11 +3601,14 @@ def build_article_groups_for_print(
     )
     # Detail cache may be from modal open — refresh product names for print.
     _refresh_product_names(repo, user_id=user_id, orders=detail.get("orders") or [])
+    detail = dict(detail)
+    # Skip already-known cancelled (local label/status) from working print set.
+    detail["orders"] = _orders_excluding_cancelled(list(detail.get("orders") or []))
+    detail["order_count"] = len(detail["orders"])
     order_ids = [int(o["order_id"]) for o in detail["orders"] if o.get("order_id") is not None]
     if order_ids_filter is not None:
         allowed = {int(x) for x in order_ids_filter if x is not None}
         order_ids = [oid for oid in order_ids if oid in allowed]
-        detail = dict(detail)
         detail["orders"] = [
             o for o in (detail.get("orders") or [])
             if o.get("order_id") is not None and int(o["order_id"]) in allowed
@@ -3505,6 +3639,41 @@ def build_article_groups_for_print(
                 sticker_type="png",
                 keep_files=False,
             )
+    cancelled_orders: list[dict[str, Any]] = []
+    if not picking and order_ids:
+        # WB omits stickers for non-confirm/complete (incl. cancelled). Diagnose
+        # missing files via /orders/status — same idea as Ozon missing-label path.
+        missing_ids = [
+            oid
+            for oid in order_ids
+            if not _sticker_file_present(stickers.get(oid))
+        ]
+        if missing_ids:
+            cancelled_orders = _diagnose_missing_sticker_cancellations(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                api_key=api_key,
+                supply_id=str(supply_id or "").strip(),
+                missing_order_ids=missing_ids,
+            )
+            cancelled_ids = {
+                int(r["order_id"])
+                for r in cancelled_orders
+                if r.get("order_id") is not None
+            }
+            if cancelled_ids:
+                detail["orders"] = [
+                    o
+                    for o in (detail.get("orders") or [])
+                    if int(o.get("order_id") or 0) not in cancelled_ids
+                ]
+                detail["order_count"] = len(detail["orders"])
+                order_ids = [
+                    int(o["order_id"])
+                    for o in detail["orders"]
+                    if o.get("order_id") is not None
+                ]
     nm_ids: list[int] = []
     for o in detail["orders"]:
         try:
@@ -3560,6 +3729,7 @@ def build_article_groups_for_print(
         "detail": detail,
         "groups": groups,
         "stickers": stickers if include_files else {},
+        "cancelled_orders": cancelled_orders,
     }
 
 

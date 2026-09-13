@@ -144,3 +144,53 @@ class WbFbsPrintOrderCheckTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_ensure_passes_when_local_has_cancelled_extra(self):
+        """Cancelled local rows may remain linked after WB drops them."""
+        repo = MagicMock()
+
+        def _assembly(*_a, exclude_cancelled=False, **_k):
+            return [10, 20] if exclude_cancelled else [10, 20, 30]
+
+        with patch(
+            "review_processor.wb_fbs_detail.wb.WbFbsClient"
+        ) as client_cls, patch(
+            "review_processor.wb_fbs_detail._assembly_order_ids_for_supply",
+            side_effect=_assembly,
+        ), patch("review_processor.wb_fbs_detail.time.sleep"):
+            client_cls.return_value.get_supply_order_ids.return_value = [20, 10]
+            out = ensure_supply_ready_for_print(
+                repo,
+                user_id=1,
+                source_id=13,
+                api_key="key",
+                supply_id="WB-GI-1",
+                kind="stickers",
+            )
+        self.assertEqual(out, [20, 10])
+
+    def test_ensure_passes_when_wb_still_lists_cancelled(self):
+        """WB may still list cancelled orders that we exclude locally."""
+        repo = MagicMock()
+
+        def _assembly(*_a, exclude_cancelled=False, **_k):
+            return [10, 20] if exclude_cancelled else [10, 20, 30]
+
+        with patch(
+            "review_processor.wb_fbs_detail.wb.WbFbsClient"
+        ) as client_cls, patch(
+            "review_processor.wb_fbs_detail._assembly_order_ids_for_supply",
+            side_effect=_assembly,
+        ), patch("review_processor.wb_fbs_detail.time.sleep"):
+            client_cls.return_value.get_supply_order_ids.return_value = [30, 10, 20]
+            out = ensure_supply_ready_for_print(
+                repo,
+                user_id=1,
+                source_id=13,
+                api_key="key",
+                supply_id="WB-GI-1",
+                kind="stickers",
+            )
+        self.assertEqual(out, [10, 20])
+
