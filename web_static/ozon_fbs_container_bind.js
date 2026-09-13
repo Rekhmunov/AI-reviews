@@ -60,12 +60,6 @@
       ? (window.ozonFbsKizState?.rows || [])
       : (window.ozonFbsPickState?.rows || []);
     if (!rows.length || !binds || typeof binds !== "object") return 0;
-    const keptCancelled = new Set(
-      (Array.isArray(changes) ? changes : [])
-        .filter((c) => c && c.action === "kept_cancelled")
-        .map((c) => String(c.posting_number || "").trim())
-        .filter(Boolean)
-    );
     let touched = 0;
     for (const row of rows) {
       const pn = String(row?.posting_number || "").trim();
@@ -74,12 +68,12 @@
       const isCancelled = typeof window._ozonFbsRowIsCancelled === "function"
         ? window._ozonFbsRowIsCancelled(row)
         : !!String(row?.cancel_reason_label || "").trim();
-      if (isCancelled || keptCancelled.has(pn)) {
+      if (isCancelled) {
         const nextKeep = binds[pn];
-        if (nextKeep && (nextKeep.container_id == null || Number(nextKeep.container_id) <= 0)) {
+        // Portal/reconcile cleared → keep local barcode/progress.
+        if (!nextKeep || nextKeep.container_id == null || Number(nextKeep.container_id) <= 0) {
           continue;
         }
-        if (!nextKeep && keptCancelled.has(pn)) continue;
       }
       const next = binds[pn];
       if (!next) continue;

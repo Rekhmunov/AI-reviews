@@ -722,12 +722,12 @@ class ContainerReconcileTests(unittest.TestCase):
             )
         self.assertTrue(out["ok"])
         self.assertTrue(out["posting_lists_available"])
-        actions = {c["posting_number"]: c["action"] for c in out["changes"]}
-        self.assertEqual(actions.get("A-1"), "kept_cancelled")
-        self.assertNotIn("B-1", actions)
+        # Silent keep: no changes / no DB write (avoids toast & ops_log on every open).
+        self.assertEqual(out["changes"], [])
         set_local.assert_not_called()
         self.assertEqual(out["binds"]["A-1"]["container_id"], 10)
         self.assertTrue(out["binds"]["A-1"]["container_synced"])
+        self.assertEqual(out["binds"]["B-1"]["container_id"], 10)
 
 
 if __name__ == "__main__":

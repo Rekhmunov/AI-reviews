@@ -1506,23 +1506,9 @@ def reconcile_supply_container_binds(
                 continue
             # Cancelled on our side: Ozon often drops the posting from GM, but
             # local scan progress must stay (KIZ/pick counters should not break).
+            # Silent keep — do not append to ``changes`` (avoids toast/ops_log spam
+            # on every KIZ/pick modal open).
             if cancelled_map.get(pn):
-                changes.append(
-                    {
-                        "posting_number": pn,
-                        "action": "kept_cancelled",
-                        "reason": (
-                            "Отменённый заказ снят с ГМ на Ozon — "
-                            "локальная привязка сохранена"
-                        ),
-                        "container_id": local_cid,
-                        "container_barcode": str(
-                            local.get("container_barcode") or local_cid or ""
-                        ).strip(),
-                        "container_synced": bool(local_synced),
-                        "container_sync_error": local_err,
-                    }
-                )
                 continue
             _apply_local(
                 pn,
