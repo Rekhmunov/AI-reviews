@@ -149,4 +149,4 @@ def test_wb_js_applies_cancelled_after_sticker_print() -> None:
     assert "function _wbFbsApplyStickerCancelledOrders" in js
     assert "format=json" in js
     assert "data.cancelled_orders" in js
-    assert "app.js?v=617" in html
+    assert "app.js?v=618" in html

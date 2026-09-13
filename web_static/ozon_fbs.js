@@ -3583,6 +3583,7 @@
   }
 
   async function refreshOzonFbsCancelledOrders() {
+    if (typeof isTenantOwner === "function" && !isTenantOwner()) return;
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
     if (!sid || !sourceId || ozonFbsCancelledState.loading) return;
@@ -3679,6 +3680,10 @@
   }
 
   function openOzonFbsCancelledOrdersModal() {
+    if (typeof isTenantOwner === "function" && !isTenantOwner()) {
+      alert("Отмененные заказы доступны только главному пользователю");
+      return;
+    }
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
     if (!sid || !sourceId || !_ozonFbsSupplyActionsReady()) return;
@@ -4356,11 +4361,12 @@
   }
 
   function _ozonFbsSyncCancelledBtn() {
-    // Available to all Ozon FBS users (same as supply detail / stickers).
+    // Owner-only (same as «Все отмены»).
     const btn = document.getElementById("ozonFbsSupplyDetailCancelledBtn");
     if (!btn) return;
-    btn.hidden = false;
-    btn.style.display = "";
+    const can = typeof isTenantOwner === "function" && isTenantOwner();
+    btn.hidden = !can;
+    btn.style.display = can ? "" : "none";
   }
 
   function _ozonFbsSyncOwnerOnlyAllCancellationsBtn() {

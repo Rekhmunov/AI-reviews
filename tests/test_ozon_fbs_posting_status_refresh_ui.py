@@ -68,5 +68,5 @@ def test_posting_status_refresh_ui_wired() -> None:
     )]
     assert "border: 0;" in icon_css
     assert "background: transparent;" in icon_css
-    assert "ozon_fbs.js?v=148" in html
+    assert "ozon_fbs.js?v=149" in html
     assert "style.css?v=" in html

@@ -30643,10 +30643,19 @@ function _wbFbsSyncOwnerOnlyKizBtn() {
   btn.style.display = can ? "" : "none";
 }
 
+function _wbFbsSyncOwnerOnlyCancelledBtn() {
+  const btn = document.getElementById("wbFbsSupplyDetailCancelledBtn");
+  if (!btn) return;
+  const can = _wbFbsCanViewOwnerTabs();
+  btn.hidden = !can;
+  btn.style.display = can ? "" : "none";
+}
+
 async function initWbFbsSection() {
   _wbFbsSyncOwnerOnlyTabs();
   _wbFbsSyncOwnerOnlyGear();
   _wbFbsSyncOwnerOnlyKizBtn();
+  _wbFbsSyncOwnerOnlyCancelledBtn();
   initWbFbsColumnResizer();
   _wbFbsSyncTableMode();
   await loadWbFbsSources();
@@ -31858,6 +31867,7 @@ function _wbFbsSupplyDetailSetActionsReady(ready) {
     _wbFbsCloseStickersMenu();
   }
   _wbFbsSyncPickVerifyBtn();
+  _wbFbsSyncOwnerOnlyCancelledBtn();
   // Delivery: KIZ/pick remain visible as status tones but must not open editors.
   _wbFbsSyncSupplyDetailToneOnlySplits(_wbFbsIsSupplyDetailReadOnly());
 }
@@ -33211,6 +33221,7 @@ window.renderWbFbsCancelledOrdersTable = renderWbFbsCancelledOrdersTable;
 
 async function refreshWbFbsCancelledOrders() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
+  if (!_wbFbsCanViewOwnerTabs()) return;
   if (!sid || !wbFbsState.sourceId || wbFbsCancelledState.loading) return;
   const refreshGen = Number(wbFbsCancelledState.refreshGen || 0) + 1;
   wbFbsCancelledState.refreshGen = refreshGen;
@@ -33258,6 +33269,10 @@ async function refreshWbFbsCancelledOrders() {
 window.refreshWbFbsCancelledOrders = refreshWbFbsCancelledOrders;
 
 function openWbFbsCancelledOrdersModal() {
+  if (!_wbFbsCanViewOwnerTabs()) {
+    alert("Отмененные заказы доступны только главному пользователю");
+    return;
+  }
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId || !_wbFbsSupplyDetailActionsReady()) return;
   setModalVisibility("wbFbsCancelledOrdersModal", true);

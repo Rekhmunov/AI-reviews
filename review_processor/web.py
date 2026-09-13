@@ -11010,12 +11010,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         supply_id: str,
         source_id: int,
     ) -> dict[str, object]:
-        """Live check for cancelled orders still present in the supply."""
+        """Live check for cancelled orders still present in the supply.
+
+        Owner-only — same gate as the supply-detail «Отмененные заказы» button.
+        """
         from . import wb_fbs_detail as wb_detail
 
         user = _require_user(request)
         if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
+        if not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Отмененные заказы доступны только главному пользователю",
+            )
         owner_id = _supply_owner_id(user)
         sid = str(supply_id or "").strip()
         if not sid or not source_id:
@@ -14518,12 +14526,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         check_limit: int | None = None,
         posting_tab: str | None = None,
     ) -> dict[str, object]:
-        """Live check for cancelled postings still present in the local supply."""
+        """Live check for cancelled postings still present in the local supply.
+
+        Owner-only — same gate as the supply-detail «Отмененные заказы» button.
+        """
         from . import ozon_fbs_supplies as oz_sup
 
         user = _require_user(request)
         if not _can_view_ozon_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
+        if not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Отмененные заказы доступны только главному пользователю",
+            )
         owner_id = _supply_owner_id(user)
         sid = str(supply_id or "").strip()
         if not sid or not source_id:
