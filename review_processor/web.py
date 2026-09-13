@@ -10871,7 +10871,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         source_id: int,
         order_ids: str = "",
         format: str = "",
-    ) -> Response | dict[str, object]:
+    ) -> Response:
         """58×40 thermal stickers HTML: article separators + WB stickers.
 
         Optional ``order_ids`` (comma-separated) prints only selected orders.
@@ -10925,11 +10925,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         cancelled_orders = list(payload.get("cancelled_orders") or [])
         if str(format or "").strip().lower() == "json":
-            return {
-                "ok": True,
-                "html": html_doc,
-                "cancelled_orders": cancelled_orders,
-            }
+            # JSONResponse (subclass of Response) — avoid Union[Response, dict]
+            # return annotation which crashes FastAPI app startup (502).
+            return JSONResponse(
+                {
+                    "ok": True,
+                    "html": html_doc,
+                    "cancelled_orders": cancelled_orders,
+                }
+            )
         return Response(
             content=html_doc,
             media_type="text/html; charset=utf-8",
