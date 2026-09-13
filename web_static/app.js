@@ -35172,6 +35172,29 @@ function _wbFbsScanComSupported() {
   return typeof navigator !== "undefined" && !!(navigator.serial && navigator.serial.requestPort);
 }
 
+function _wbFbsScanComIsYandexBrowser() {
+  try {
+    const ua = String(navigator.userAgent || "");
+    return /YaBrowser|Yowser/i.test(ua);
+  } catch (_e) {
+    return false;
+  }
+}
+
+/** Подсказка, когда диалог браузера пустой («Совместимые устройства не найдены»). */
+function _wbFbsScanComEmptyPortsHint() {
+  if (_wbFbsScanComIsYandexBrowser()) {
+    return (
+      "COM: в Яндексе список портов пуст. Закройте Chrome полностью " +
+      "(он держит порт), выньте/вставьте сканер и повторите. Надёжнее — Chrome/Edge."
+    );
+  }
+  return (
+    "COM: порт не найден. Закройте другие браузеры/программы с этим COM, " +
+    "переподключите сканер и выберите порт снова."
+  );
+}
+
 function _wbFbsScanComPrefEnabled() {
   try {
     return localStorage.getItem(WB_FBS_SCAN_MODE_KEY) === "com";
@@ -35373,7 +35396,8 @@ async function _wbFbsScanComConnect(opts) {
       if (ports && ports.length) port = ports[0];
     }
     if (!port && interactive) {
-      port = await navigator.serial.requestPort();
+      // Без filters — иначе Яндекс/Chromium могут скрыть USB-UART сканер.
+      port = await navigator.serial.requestPort({ filters: [] });
     }
     if (!port) {
       _wbFbsScanComSetStatus("COM: выберите порт", "error");
@@ -35386,7 +35410,16 @@ async function _wbFbsScanComConnect(opts) {
         // Already open in this page session?
         const msg = String(e && (e.message || e) || "");
         if (!/already\s+open/i.test(msg)) {
-          _wbFbsScanComSetStatus("COM: не удалось открыть порт", "error");
+          const busy =
+            /Failed to open|NetworkError|InvalidStateError|Access denied|занят|in use/i.test(
+              msg + " " + String((e && e.name) || "")
+            );
+          _wbFbsScanComSetStatus(
+            busy
+              ? "COM: порт занят — закройте Chrome и другие программы с этим портом"
+              : "COM: не удалось открыть порт",
+            "error"
+          );
           return false;
         }
       }
@@ -35399,7 +35432,8 @@ async function _wbFbsScanComConnect(opts) {
     return true;
   } catch (e) {
     if (e && e.name === "NotFoundError") {
-      _wbFbsScanComSetStatus("COM: порт не выбран", "error");
+      // Пустой диалог Яндекса / отмена без выбора → одна и та же ошибка.
+      _wbFbsScanComSetStatus(_wbFbsScanComEmptyPortsHint(), "error");
     } else {
       _wbFbsScanComSetStatus("COM: ошибка подключения", "error");
     }

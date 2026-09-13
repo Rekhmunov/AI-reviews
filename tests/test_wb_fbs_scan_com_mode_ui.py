@@ -72,6 +72,10 @@ def test_com_module_optional_and_feeds_process_helpers() -> None:
     assert "_wbFbsScanComOnModalClosed()" in APP_JS
     # Default preference is keyboard unless localStorage says com.
     assert '=== "com"' in APP_JS
+    # Yandex empty Web Serial picker → actionable hint (Chrome often holds the COM port).
+    assert "function _wbFbsScanComEmptyPortsHint" in APP_JS
+    assert "YaBrowser" in APP_JS
+    assert "requestPort({ filters: [] })" in APP_JS
 
 
 def test_scan_mode_toggle_css() -> None:
@@ -82,5 +86,11 @@ def test_scan_mode_toggle_css() -> None:
 
 
 def test_cache_bump() -> None:
-    assert "style.css?v=360" in APP_HTML
-    assert "app.js?v=618" in APP_HTML
+    assert "style.css?v=361" in APP_HTML
+    assert "app.js?v=619" in APP_HTML
+
+
+def test_permissions_policy_allows_serial() -> None:
+    web = (ROOT / "review_processor" / "web.py").read_text(encoding="utf-8")
+    assert "serial=(self)" in web
+    assert "Permissions-Policy" in web

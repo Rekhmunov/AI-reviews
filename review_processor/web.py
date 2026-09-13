@@ -1554,9 +1554,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "same-origin")
         # camera=(self): ТСД phone barcode scan needs getUserMedia on same origin.
+        # serial=(self): COM-сканер (Web Serial) — явно, т.к. некоторые Chromium-форки
+        # (Яндекс.Браузер) иначе отдают пустой диалог выбора порта.
         response.headers.setdefault(
             "Permissions-Policy",
-            "camera=(self), microphone=(), geolocation=()",
+            "camera=(self), microphone=(), geolocation=(), serial=(self)",
         )
         # CryptoPro ЭЦП Browser plug-in loads nmcades_plugin_api.js from the browser
         # extension and may use an NPAPI <object type="application/x-cades"> fallback.

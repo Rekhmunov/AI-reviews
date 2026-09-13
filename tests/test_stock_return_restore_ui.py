@@ -141,5 +141,5 @@ def test_restore_styles_layering() -> None:
 
 
 def test_asset_versions_bumped() -> None:
-    assert "app.js?v=618" in APP_HTML
+    assert "app.js?v=619" in APP_HTML
     assert "style.css?v=360" in APP_HTML
