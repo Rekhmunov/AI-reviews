@@ -3706,16 +3706,54 @@ function _clearNewWarehouseFormFields() {
   if (sel) sel.value = "";
 }
 
-function _contractorOptionsHtml(selectedId) {
-  const selected = selectedId == null || selectedId === "" ? "" : String(selectedId);
+function _warehousePartyRef(item) {
+  if (!item) return "";
+  if (item.legal_entity_id) return `le:${item.legal_entity_id}`;
+  if (item.contractor_id) return `c:${item.contractor_id}`;
+  return "";
+}
+
+function _parseWarehousePartyRef(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return { contractor_id: null, legal_entity_id: null };
+  const m = s.match(/^(c|le):(\d+)$/i);
+  if (!m) return { contractor_id: null, legal_entity_id: null };
+  const id = parseInt(m[2], 10);
+  if (!Number.isFinite(id) || id <= 0) return { contractor_id: null, legal_entity_id: null };
+  if (m[1].toLowerCase() === "le") return { contractor_id: null, legal_entity_id: id };
+  return { contractor_id: id, legal_entity_id: null };
+}
+
+/** Combined contractor + legal-entity options for warehouse party select. */
+function _contractorOptionsHtml(selectedRef) {
+  let selected = selectedRef == null || selectedRef === "" ? "" : String(selectedRef);
+  // Back-compat: bare numeric id means contractor.
+  if (/^\d+$/.test(selected)) selected = `c:${selected}`;
   const opts = ['<option value="">— не указан —</option>'];
-  const list = Array.isArray(_supplyContractorsCache) ? _supplyContractorsCache.slice() : [];
-  list.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ru"));
-  for (const c of list) {
-    if (!c || c.id == null) continue;
-    const id = String(c.id);
-    const sel = id === selected ? " selected" : "";
-    opts.push(`<option value="${esc(id)}"${sel}>${esc(c.name || ("Контрагент #" + id))}</option>`);
+  const contractors = Array.isArray(_supplyContractorsCache) ? _supplyContractorsCache.slice() : [];
+  contractors.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ru"));
+  if (contractors.length) {
+    opts.push('<optgroup label="Контрагенты">');
+    for (const c of contractors) {
+      if (!c || c.id == null) continue;
+      const val = `c:${c.id}`;
+      const sel = val === selected ? " selected" : "";
+      opts.push(`<option value="${esc(val)}"${sel}>${esc(c.name || ("Контрагент #" + c.id))}</option>`);
+    }
+    opts.push("</optgroup>");
+  }
+  const les = Array.isArray(_supplyLegalEntitiesCache) ? _supplyLegalEntitiesCache.slice() : [];
+  les.sort((a, b) => String(a.short_name || a.name || "").localeCompare(String(b.short_name || b.name || ""), "ru"));
+  if (les.length) {
+    opts.push('<optgroup label="Юр. лица">');
+    for (const e of les) {
+      if (!e || e.id == null) continue;
+      const val = `le:${e.id}`;
+      const sel = val === selected ? " selected" : "";
+      const label = e.short_name || e.name || ("Юр. лицо #" + e.id);
+      opts.push(`<option value="${esc(val)}"${sel}>${esc(label)}</option>`);
+    }
+    opts.push("</optgroup>");
   }
   return opts.join("");
 }
@@ -3723,6 +3761,11 @@ function _contractorOptionsHtml(selectedId) {
 async function _ensureSupplyContractorsLoaded() {
   if (Array.isArray(_supplyContractorsCache) && _supplyContractorsCache.length) return;
   if (typeof loadSupplyContractors === "function") await loadSupplyContractors();
+}
+
+async function _ensureSupplyLegalEntitiesLoaded() {
+  if (Array.isArray(_supplyLegalEntitiesCache) && _supplyLegalEntitiesCache.length) return;
+  if (typeof loadSupplyLegalEntities === "function") await loadSupplyLegalEntities();
 }
 
 function _warehouseAddrEditInputsHtml(item) {
@@ -3830,6 +3873,7 @@ async function loadSupplyWarehouses() {
   if (!res || !res.ok) return;
   _supplyWarehousesCache = await res.json().catch(() => []);
   await _ensureSupplyContractorsLoaded();
+  await _ensureSupplyLegalEntitiesLoaded();
   renderSupplyWarehousesTbody();
 }
 
@@ -3846,10 +3890,17 @@ async function renderSupplyWarehousesTbody() {
   _supplyWarehousesCache.forEach((w, i) => {
     const tr = document.createElement("tr");
     tr.dataset.id = w.id;
-    let contractorLabel = String(w.contractor_name || "").trim();
-    if (!contractorLabel && w.contractor_id) {
-      const c = (_supplyContractorsCache || []).find((x) => Number(x.id) === Number(w.contractor_id));
-      contractorLabel = c?.name || "";
+    let contractorLabel = String(w.legal_entity_name || "").trim();
+    if (!contractorLabel && w.legal_entity_id) {
+      const e = (_supplyLegalEntitiesCache || []).find((x) => Number(x.id) === Number(w.legal_entity_id));
+      contractorLabel = e?.short_name || e?.name || "";
+    }
+    if (!contractorLabel) {
+      contractorLabel = String(w.contractor_name || "").trim();
+      if (!contractorLabel && w.contractor_id) {
+        const c = (_supplyContractorsCache || []).find((x) => Number(x.id) === Number(w.contractor_id));
+        contractorLabel = c?.name || "";
+      }
     }
     tr.innerHTML = `<td>${i+1}</td>
       <td class="editable-cell">${esc(contractorLabel)}</td>
@@ -3869,13 +3920,14 @@ async function renderSupplyWarehousesTbody() {
 
 async function startEditWarehouse(id) {
   await _ensureSupplyContractorsLoaded();
+  await _ensureSupplyLegalEntitiesLoaded();
   const item = _supplyWarehousesCache.find((x) => x.id === id);
   if (!item) return;
   const tr = document.querySelector(`#supplyWarehousesTbody tr[data-id="${id}"]`);
   if (!tr) return;
   document.querySelectorAll("#supplyWarehousesTbody tr.wh-addr-edit-row").forEach((r) => r.remove());
   const cells = tr.querySelectorAll(".editable-cell");
-  cells[0].innerHTML = `<select class="edit-inline-input" data-field="contractor_id">${_contractorOptionsHtml(item.contractor_id)}</select>`;
+  cells[0].innerHTML = `<select class="edit-inline-input" data-field="party_ref">${_contractorOptionsHtml(_warehousePartyRef(item))}</select>`;
   cells[1].innerHTML = `<input class="edit-inline-input" data-field="name" value="${esc(item.warehouse_name||"")}" />`;
   cells[2].innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
   if (cells[3]) cells[3].innerHTML = `<span class="small" style="color:#64748b">ниже</span>`;
@@ -3905,12 +3957,12 @@ async function saveEditWarehouse(id) {
   const addrRow = document.querySelector(`#supplyWarehousesTbody tr.wh-addr-edit-row[data-for-id="${id}"]`);
   const name = tr.querySelector("[data-field='name']")?.value.trim() || "";
   if (!name) return;
-  const rawCid = tr.querySelector("[data-field='contractor_id']")?.value || "";
-  const contractorId = rawCid ? parseInt(rawCid, 10) : null;
+  const party = _parseWarehousePartyRef(tr.querySelector("[data-field='party_ref']")?.value || "");
   const payload = {
     warehouse_name: name,
     address: item?.address || "",
-    contractor_id: Number.isFinite(contractorId) && contractorId > 0 ? contractorId : null,
+    contractor_id: party.contractor_id,
+    legal_entity_id: party.legal_entity_id,
   };
   _WH_ADDR_FIELDS.forEach(([key]) => {
     payload[key] = addrRow?.querySelector(`[data-wh-addr="${key}"]`)?.value.trim() || "";
@@ -3926,6 +3978,7 @@ async function toggleAddWarehouseForm(show) {
   form.classList.toggle("hidden", !show); form.style.display = show ? "" : "none";
   if (show) {
     await _ensureSupplyContractorsLoaded();
+    await _ensureSupplyLegalEntitiesLoaded();
     const sel = document.getElementById("newWarehouseContractor");
     if (sel) sel.innerHTML = _contractorOptionsHtml("");
     await _renderWarehouseFbsSourcesChecklist("newWarehouseFbsSources", []);
@@ -3938,12 +3991,12 @@ async function saveSupplyWarehouse() {
   const name = document.getElementById("newWarehouseName")?.value.trim();
   const info = document.getElementById("addWarehouseInfo");
   if (!name) { if (info) { info.textContent = "Введите название"; info.style.color = "#b91c1c"; } return; }
-  const rawCid = document.getElementById("newWarehouseContractor")?.value || "";
-  const contractorId = rawCid ? parseInt(rawCid, 10) : null;
+  const party = _parseWarehousePartyRef(document.getElementById("newWarehouseContractor")?.value || "");
   const payload = {
     warehouse_name: name,
     address: "",
-    contractor_id: Number.isFinite(contractorId) && contractorId > 0 ? contractorId : null,
+    contractor_id: party.contractor_id,
+    legal_entity_id: party.legal_entity_id,
     ..._readNewWarehouseAddrFields(),
     fbs_sources: _readWarehouseFbsSourcesFromDom(document.getElementById("newWarehouseFbsSources")),
   };
@@ -19496,13 +19549,16 @@ function _ttnAddressOptionsForParty(partyRef) {
   };
 
   if (parsed.type === "le") {
-    const e = (_supplyLegalEntitiesCache || []).find((x) => Number(x.id) === Number(parsed.id));
-    if (!e) return { opts, addressByValue };
-    const addr =
-      legalEntityAddressLine(e) ||
-      productionAddressLine(e) ||
-      String(e.address || "").trim();
-    if (addr) addAddr(`addr:le:${e.id}`, addr, addr);
+    // For legal entities use linked warehouse addresses (not the LE card address).
+    const whs = _ttnWarehousesForLegalEntity(parsed.id).slice();
+    whs.sort((a, b) => String(a.warehouse_name || "").localeCompare(String(b.warehouse_name || ""), "ru"));
+    for (const w of whs) {
+      const wname = String(w.warehouse_name || "").trim() || `Склад #${w.id}`;
+      const waddr = String(warehouseAddressLine(w) || "").trim();
+      const line = waddr || wname;
+      const label = waddr ? `${wname} | ${waddr}` : wname;
+      addAddr(`w:${w.id}`, label, line);
+    }
     return { opts, addressByValue };
   }
 
@@ -19910,6 +19966,10 @@ window.onTtnLoadPresetChange = onTtnLoadPresetChange;
 
 function _ttnWarehousesForContractor(contractorId) {
   return (_supplyWarehousesCache || []).filter((w) => Number(w.contractor_id) === Number(contractorId));
+}
+
+function _ttnWarehousesForLegalEntity(legalEntityId) {
+  return (_supplyWarehousesCache || []).filter((w) => Number(w.legal_entity_id) === Number(legalEntityId));
 }
 
 function onTtnUnloadPresetChange() {

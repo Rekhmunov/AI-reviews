@@ -798,6 +798,7 @@ class CreateSupplyWarehouseRequest(BaseModel):
     warehouse_name: str
     address: str = ""
     contractor_id: int | None = None
+    legal_entity_id: int | None = None
     addr_index: str = ""
     addr_region_code: str = ""
     addr_district: str = ""
@@ -814,6 +815,7 @@ class UpdateSupplyWarehouseRequest(BaseModel):
     warehouse_name: str
     address: str = ""
     contractor_id: int | None = None
+    legal_entity_id: int | None = None
     addr_index: str = ""
     addr_region_code: str = ""
     addr_district: str = ""
@@ -19154,6 +19156,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                 warehouse_name=name,
                 address=payload.address.strip(),
                 contractor_id=payload.contractor_id,
+                legal_entity_id=payload.legal_entity_id,
                 addr_index=payload.addr_index,
                 addr_region_code=payload.addr_region_code,
                 addr_district=payload.addr_district,
@@ -19185,6 +19188,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             warehouse_name=name,
             address=payload.address.strip(),
             contractor_id=payload.contractor_id,
+            legal_entity_id=payload.legal_entity_id,
             addr_index=payload.addr_index,
             addr_region_code=payload.addr_region_code,
             addr_district=payload.addr_district,

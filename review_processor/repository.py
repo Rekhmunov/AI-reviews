@@ -8240,6 +8240,16 @@ class ReviewRepository:
                 "ON supply_warehouses(user_id, contractor_id)"
             )
         )
+        # Optional link to supply_legal_entities; mutually exclusive with contractor_id in app logic.
+        conn.execute(
+            "ALTER TABLE supply_warehouses ADD COLUMN IF NOT EXISTS legal_entity_id BIGINT"
+        )
+        conn.execute(
+            self._sql(
+                "CREATE INDEX IF NOT EXISTS idx_supply_warehouses_legal_entity "
+                "ON supply_warehouses(user_id, legal_entity_id)"
+            )
+        )
         conn.execute(
             "ALTER TABLE supply_warehouses "
             "ADD COLUMN IF NOT EXISTS fbs_sources_json TEXT NOT NULL DEFAULT '[]'"
@@ -9229,6 +9239,52 @@ class ReviewRepository:
                 conn.close()
         return cid if row else None
 
+    def _normalize_warehouse_legal_entity_id(
+        self, *, user_id: int, legal_entity_id: int | None, conn=None
+    ) -> int | None:
+        """Return legal_entity_id if it belongs to the user, else None."""
+        if legal_entity_id is None:
+            return None
+        try:
+            lid = int(legal_entity_id)
+        except (TypeError, ValueError):
+            return None
+        if lid <= 0:
+            return None
+        own_conn = conn is None
+        if own_conn:
+            conn = self._connect()
+        try:
+            row = conn.execute(
+                self._sql(
+                    "SELECT id FROM supply_legal_entities WHERE user_id = ? AND id = ?"
+                ),
+                (user_id, lid),
+            ).fetchone()
+        finally:
+            if own_conn:
+                conn.close()
+        return lid if row else None
+
+    def _resolve_warehouse_party_ids(
+        self,
+        *,
+        user_id: int,
+        contractor_id: int | None,
+        legal_entity_id: int | None,
+        conn=None,
+    ) -> tuple[int | None, int | None]:
+        """Validate party ids; prefer legal entity when both are set (mutually exclusive)."""
+        lid = self._normalize_warehouse_legal_entity_id(
+            user_id=user_id, legal_entity_id=legal_entity_id, conn=conn
+        )
+        if lid is not None:
+            return None, lid
+        cid = self._normalize_warehouse_contractor_id(
+            user_id=user_id, contractor_id=contractor_id, conn=conn
+        )
+        return cid, None
+
 
     @staticmethod
     def _normalize_warehouse_fbs_sources(raw: Any) -> list[dict[str, Any]]:
@@ -9274,10 +9330,13 @@ class ReviewRepository:
         with self._connect() as conn:
             rows = conn.execute(
                 self._sql(
-                    "SELECT w.*, c.name AS contractor_name "
+                    "SELECT w.*, c.name AS contractor_name, "
+                    "le.short_name AS legal_entity_name "
                     "FROM supply_warehouses w "
                     "LEFT JOIN supply_contractors c "
                     "  ON c.id = w.contractor_id AND c.user_id = w.user_id "
+                    "LEFT JOIN supply_legal_entities le "
+                    "  ON le.id = w.legal_entity_id AND le.user_id = w.user_id "
                     "WHERE w.user_id = ? ORDER BY w.warehouse_name ASC"
                 ),
                 (user_id,),
@@ -9292,6 +9351,12 @@ class ReviewRepository:
             except (TypeError, ValueError):
                 d["contractor_id"] = None
             d["contractor_name"] = str(d.get("contractor_name") or "").strip()
+            raw_lid = d.get("legal_entity_id")
+            try:
+                d["legal_entity_id"] = int(raw_lid) if raw_lid not in (None, "") else None
+            except (TypeError, ValueError):
+                d["legal_entity_id"] = None
+            d["legal_entity_name"] = str(d.get("legal_entity_name") or "").strip()
             d["fbs_sources"] = self._normalize_warehouse_fbs_sources(d.get("fbs_sources_json"))
             d.pop("fbs_sources_json", None)
             result.append(d)
@@ -9313,6 +9378,7 @@ class ReviewRepository:
         addr_corpus: str = "",
         addr_flat: str = "",
         contractor_id: int | None = None,
+        legal_entity_id: int | None = None,
         fbs_sources: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         now = _utc_now()
@@ -9334,21 +9400,25 @@ class ReviewRepository:
         composed = self.compose_production_address_line(addr)
         address_val = composed or str(address or "").strip()
         with self._connect() as conn:
-            cid = self._normalize_warehouse_contractor_id(
-                user_id=user_id, contractor_id=contractor_id, conn=conn
+            cid, lid = self._resolve_warehouse_party_ids(
+                user_id=user_id,
+                contractor_id=contractor_id,
+                legal_entity_id=legal_entity_id,
+                conn=conn,
             )
             wid = self._insert_and_get_id(
                 conn,
                 "INSERT INTO supply_warehouses ("
-                "user_id, warehouse_name, address, contractor_id, fbs_sources_json, "
+                "user_id, warehouse_name, address, contractor_id, legal_entity_id, fbs_sources_json, "
                 "addr_index, addr_region_code, addr_district, addr_city, addr_settlement, "
                 "addr_street, addr_house, addr_corpus, addr_flat, created_at"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     user_id,
                     warehouse_name.strip(),
                     address_val,
                     cid,
+                    lid,
                     fbs_json,
                     addr["addr_index"],
                     addr["addr_region_code"],
@@ -9364,10 +9434,17 @@ class ReviewRepository:
             )
             row = conn.execute(self._sql("SELECT * FROM supply_warehouses WHERE id = ?"), (wid,)).fetchone()
         if not row:
-            return {"id": wid, "address": address_val, "contractor_id": cid, **addr}
+            return {
+                "id": wid,
+                "address": address_val,
+                "contractor_id": cid,
+                "legal_entity_id": lid,
+                **addr,
+            }
         d = self._row_to_dict(row)
         d["address"] = self.warehouse_address_line(d)
         d["contractor_id"] = cid
+        d["legal_entity_id"] = lid
         d["fbs_sources"] = self._normalize_warehouse_fbs_sources(d.get("fbs_sources_json"))
         d.pop("fbs_sources_json", None)
         return d
@@ -9389,6 +9466,7 @@ class ReviewRepository:
         addr_corpus: str = "",
         addr_flat: str = "",
         contractor_id: int | None = None,
+        legal_entity_id: int | None = None,
         fbs_sources: list[dict[str, Any]] | None = None,
     ) -> bool:
         addr = self._normalize_production_addr_fields(
@@ -9405,8 +9483,11 @@ class ReviewRepository:
         composed = self.compose_production_address_line(addr)
         address_val = composed or str(address or "").strip()
         with self._connect() as conn:
-            cid = self._normalize_warehouse_contractor_id(
-                user_id=user_id, contractor_id=contractor_id, conn=conn
+            cid, lid = self._resolve_warehouse_party_ids(
+                user_id=user_id,
+                contractor_id=contractor_id,
+                legal_entity_id=legal_entity_id,
+                conn=conn,
             )
             if not address_val:
                 existing_addr = conn.execute(
@@ -9422,7 +9503,7 @@ class ReviewRepository:
             result = conn.execute(
                 self._sql(
                     "UPDATE supply_warehouses SET warehouse_name = ?, address = ?, contractor_id = ?, "
-                    "fbs_sources_json = ?, "
+                    "legal_entity_id = ?, fbs_sources_json = ?, "
                     "addr_index = ?, addr_region_code = ?, addr_district = ?, addr_city = ?, "
                     "addr_settlement = ?, addr_street = ?, addr_house = ?, addr_corpus = ?, addr_flat = ? "
                     "WHERE user_id = ? AND id = ?"
@@ -9431,6 +9512,7 @@ class ReviewRepository:
                     warehouse_name.strip(),
                     address_val,
                     cid,
+                    lid,
                     fbs_json,
                     addr["addr_index"],
                     addr["addr_region_code"],
@@ -9679,6 +9761,14 @@ class ReviewRepository:
 
     def delete_supply_legal_entity(self, *, user_id: int, entity_id: int) -> bool:
         with self._connect() as conn:
+            # Keep warehouses; only detach the optional legal-entity link.
+            conn.execute(
+                self._sql(
+                    "UPDATE supply_warehouses SET legal_entity_id = NULL "
+                    "WHERE user_id = ? AND legal_entity_id = ?"
+                ),
+                (user_id, entity_id),
+            )
             result = conn.execute(
                 self._sql("DELETE FROM supply_legal_entities WHERE user_id = ? AND id = ?"),
                 (user_id, entity_id),

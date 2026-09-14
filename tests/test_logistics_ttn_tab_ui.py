@@ -40,7 +40,7 @@ def test_logistics_title_picker_and_panes() -> None:
     assert "function initLogisticsSection" in js
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
-    assert "app.js?v=622" in html
+    assert "app.js?v=623" in html
     assert "style.css?v=361" in html
     assert "ttn-modal-card" in html
     assert "ttn-form-grid" in html
@@ -233,9 +233,13 @@ def test_ttn_load_unload_places_from_party_addresses() -> None:
     assert "function onTtnConsigneeChange" in js
     helper = js.split("function _ttnAddressOptionsForParty", 1)[1].split("\nfunction ", 1)[0]
     assert "_ttnWarehousesForContractor" in helper
+    assert "_ttnWarehousesForLegalEntity" in helper
     assert "contractorAddressLine" in helper
-    assert "legalEntityAddressLine" in helper
     assert "warehouseAddressLine" in helper
+    # LE party: warehouses only (not LE card address).
+    assert "not the LE card address" in helper
+    assert "addr:le:" not in helper
+    assert "legalEntityAddressLine" not in helper
     # Warehouse dropdown: name first, then address via " | ".
     assert "${wname} | ${waddr}" in helper or "`${wname} | ${waddr}`" in helper
     assert "${waddr} · ${wname}" not in helper
@@ -246,6 +250,7 @@ def test_ttn_load_unload_places_from_party_addresses() -> None:
     assert "function _ttnPlacePresetOptions" not in js
     assert 'ssPopulate("ttnCreateShipperWrap", partyOpts, () => onTtnShipperChange())' in js
     assert 'ssPopulate("ttnCreateConsigneeWrap", partyOpts, () => onTtnConsigneeChange())' in js
+
 
 
 def test_ttn_contractor_shipper_gets_one_line_address() -> None:
