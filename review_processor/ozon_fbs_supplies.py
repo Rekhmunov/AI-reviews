@@ -2583,6 +2583,20 @@ def get_supply_driver_payload(
     }
 
 
+def supply_is_in_delivering(
+    repo: ReviewRepository, *, user_id: int, source_id: int, supply_id: str
+) -> bool:
+    """True when the supply already has postings on the «Доставляются» tab."""
+    nums = _assembly_posting_numbers_for_supply_tab(
+        repo,
+        user_id=user_id,
+        source_id=int(source_id or 0),
+        supply_id=str(supply_id or "").strip(),
+        tab=oz.TAB_DELIVERING,
+    )
+    return bool(nums)
+
+
 def set_supply_driver(
     repo: ReviewRepository,
     *,

@@ -8,6 +8,8 @@ ROOT = Path(__file__).resolve().parents[1]
 JS = ROOT / "web_static" / "ozon_fbs.js"
 CSS = ROOT / "web_static" / "style.css"
 HTML = ROOT / "web_templates" / "app.html"
+WEB = ROOT / "review_processor" / "web.py"
+SUP = ROOT / "review_processor" / "ozon_fbs_supplies.py"
 
 
 def test_driver_button_sits_after_shipments() -> None:
@@ -46,17 +48,41 @@ def test_driver_js_wires_catalog_vehicles_and_green_btn() -> None:
     assert '"ozonFbsSupplyDetailDriverBtn"' in js
     assert "/driver?source_id=" in js
     assert 'method: "PUT"' in js
-    assert "btn.classList.toggle(\"is-ok\"" in js
+    assert 'classList.toggle("is-ok"' in js
     assert "Нет гос. номеров у водителя" in js
 
 
+def test_driver_locked_in_delivering_for_non_owner() -> None:
+    js = JS.read_text(encoding="utf-8")
+    web = WEB.read_text(encoding="utf-8")
+    sup = SUP.read_text(encoding="utf-8")
+    assert "function _ozonFbsDriverLockedAsToneOnly" in js
+    assert "function _ozonFbsCanOpenDriverWhileReadOnly" in js
+    assert "_ozonFbsIsTenantOwner()" in js
+    assert "В «Доставляются» водителя может менять только главный пользователь" in js
+    tone = js[
+        js.index("function _ozonFbsSyncSupplyDetailToneOnlySplits") :
+        js.index("function _ozonFbsSyncSupplyDetailToneOnlySplits") + 1800
+    ]
+    assert "ozonFbsSupplyDetailDriverBtn" in tone
+    assert "def supply_is_in_delivering" in sup
+    assert "CREATE TABLE IF NOT EXISTS ozon_fbs_supply_driver" in sup
+    put = web[
+        web.index('@app.put("/api/ozon-fbs/supplies/{supply_id}/driver")') :
+        web.index('@app.put("/api/ozon-fbs/supplies/{supply_id}/driver")') + 1600
+    ]
+    assert "supply_is_in_delivering" in put
+    assert "_is_wb_fbs_tenant_owner(user)" in put
+    assert "В «Доставляются» водителя может менять только главный пользователь" in put
+
+
 def test_driver_api_routes_exist() -> None:
-    web = (ROOT / "review_processor" / "web.py").read_text(encoding="utf-8")
+    web = WEB.read_text(encoding="utf-8")
     assert '@app.get("/api/ozon-fbs/supplies/{supply_id}/driver")' in web
     assert '@app.put("/api/ozon-fbs/supplies/{supply_id}/driver")' in web
 
 
 def test_cache_bump_for_driver_modal() -> None:
     html = HTML.read_text(encoding="utf-8")
-    assert "ozon_fbs.js?v=151" in html
-    assert "style.css?v=363" in html
+    assert "ozon_fbs.js?v=152" in html
+    assert "style.css?v=364" in html

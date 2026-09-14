@@ -14351,6 +14351,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             driver_id = int(body.get("driver_id") or 0)
         except (TypeError, ValueError):
             driver_id = 0
+        # In «Доставляются» only the tenant owner may change the driver.
+        posting_tab = str(body.get("posting_tab") or "").strip()
+        in_delivering = posting_tab == "delivering" or oz_sup.supply_is_in_delivering(
+            repository, user_id=owner_id, source_id=source_id, supply_id=sid
+        )
+        if in_delivering and not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="В «Доставляются» водителя может менять только главный пользователь",
+            )
         try:
             return oz_sup.set_supply_driver(
                 repository,
