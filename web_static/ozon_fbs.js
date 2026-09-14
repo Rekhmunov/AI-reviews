@@ -12186,7 +12186,7 @@
       return `<div class="ozon-fbs-all-cancels-supply${open ? " is-open" : ""}" data-supply="${esc(sid)}" role="listitem">
         <button type="button" class="ozon-fbs-all-cancels-supply-head"
                 aria-expanded="${open ? "true" : "false"}"
-                onclick="toggleOzonFbsAllCancellationsSupply(${JSON.stringify(sid)})">
+                onclick='toggleOzonFbsAllCancellationsSupply(${JSON.stringify(sid)})'>
           <span class="ozon-fbs-all-cancels-caret" aria-hidden="true">${open ? "▾" : "▸"}</span>
           <span class="ozon-fbs-all-cancels-supply-main">
             <span class="ozon-fbs-all-cancels-supply-name">${esc(s.name || sid)}</span>
