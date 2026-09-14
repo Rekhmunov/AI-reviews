@@ -84,6 +84,24 @@ def test_wb_render_calls_update_filter_counts() -> None:
     assert "_wbFbsPickRowIsComplete(r)" in pick_render
 
 
+def test_wb_patch_scan_refreshes_filter_counts() -> None:
+    """Happy-path scan patches one cell and must not leave facet counts stale."""
+    kiz_patch = APP_JS[
+        APP_JS.find("function _wbFbsKizPatchScannedCode") : APP_JS.find(
+            "function _wbFbsKizRowIsEmpty"
+        )
+    ]
+    assert "_wbFbsKizUpdateScanCounter()" in kiz_patch
+    assert "_wbFbsKizUpdateFilterCounts()" in kiz_patch
+    pick_patch = APP_JS[
+        APP_JS.find("function _wbFbsPickPatchStatusCell") : APP_JS.find(
+            "function renderWbFbsPickVerifyTable"
+        )
+    ]
+    assert "_wbFbsPickUpdateScanCounter()" in pick_patch
+    assert "_wbFbsPickUpdateFilterCounts()" in pick_patch
+
+
 def test_filter_count_css_shared_with_ozon() -> None:
     assert ".wb-fbs-kiz-filter-count" in STYLE
     assert 'class="wb-fbs-kiz-filter-count"' in APP_HTML
@@ -91,4 +109,4 @@ def test_filter_count_css_shared_with_ozon() -> None:
 
 
 def test_asset_version_bumped() -> None:
-    assert "app.js?v=624" in APP_HTML
+    assert "app.js?v=629" in APP_HTML
