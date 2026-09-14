@@ -11651,7 +11651,8 @@
       void _ozonFbsContainerMaybeBind("pick", pn);
     }
     const rowEl = document.querySelector(`#ozonFbsPickTbody tr[data-posting="${pn}"]`);
-    if (rowEl) rowEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    // Instant jump — same as Ozon/WB KIZ and WB pick after scan.
+    if (rowEl) rowEl.scrollIntoView({ block: "nearest" });
   }
 
   async function refreshOzonFbsPickVerifyStatus(event, opts) {
