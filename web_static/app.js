@@ -20207,19 +20207,128 @@ function renderTtnTable() {
       <td>${esc(r.c_name || "")}</td>
       <td>${esc(_ttnDriverCarrierCell(r))}</td>
       <td>
-        <div class="row" style="gap:4px;flex-wrap:nowrap">
-          <button class="secondary small-btn icon-btn" onclick="downloadTtnPdf(${r.id})" title="Скачать PDF" style="font-size:10px;min-width:36px">PDF</button>
-          <button class="secondary small-btn icon-btn" onclick="downloadTtnDoc(${r.id})" title="Скачать DOC" style="font-size:10px;min-width:36px">DOC</button>
-          <button class="secondary small-btn icon-btn" onclick="printTtnRecord(${r.id})" title="Печать">⎙</button>
-          <button class="secondary small-btn icon-btn" onclick="openEditTtnModal(${r.id})" title="Редактировать">✏</button>
-          <button class="secondary small-btn icon-btn" style="color:#2563eb;border-color:#93c5fd" onclick="openCopyTtnModal(${r.id})" title="Копировать">⎘</button>
-          <button class="secondary small-btn icon-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deleteTtnRecord(${r.id})" title="Удалить">🗑</button>
+        <div class="ttn-row-actions">
+          <button type="button" class="secondary small-btn icon-btn ttn-row-print-btn"
+                  onclick="printTtnRecord(${r.id})" title="Печать" aria-label="Печать">⎙</button>
+          <div class="ttn-row-menu-wrap">
+            <button type="button" class="secondary small-btn icon-btn ttn-row-menu-btn"
+                    title="Действия" aria-label="Действия" aria-haspopup="menu"
+                    onclick="toggleTtnRowMenu(event, ${r.id})">⋮</button>
+            <div id="ttnRowMenu_${r.id}" class="ttn-row-menu" data-ttn-id="${r.id}" role="menu">
+              <button type="button" class="ttn-row-menu-item" role="menuitem"
+                      onclick="_ttnCloseRowMenus(); downloadTtnPdf(${r.id})">
+                <span class="ttn-row-menu-ico" aria-hidden="true">PDF</span>
+                <span>Скачать PDF</span>
+              </button>
+              <button type="button" class="ttn-row-menu-item" role="menuitem"
+                      onclick="_ttnCloseRowMenus(); downloadTtnDoc(${r.id})">
+                <span class="ttn-row-menu-ico" aria-hidden="true">DOC</span>
+                <span>Скачать Word</span>
+              </button>
+              <button type="button" class="ttn-row-menu-item" role="menuitem"
+                      onclick="_ttnCloseRowMenus(); openEditTtnModal(${r.id})">
+                <span class="ttn-row-menu-ico" aria-hidden="true">✏</span>
+                <span>Изменить</span>
+              </button>
+              <button type="button" class="ttn-row-menu-item" role="menuitem"
+                      onclick="_ttnCloseRowMenus(); openCopyTtnModal(${r.id})">
+                <span class="ttn-row-menu-ico" aria-hidden="true">⎘</span>
+                <span>Копировать</span>
+              </button>
+              <button type="button" class="ttn-row-menu-item ttn-row-menu-item-danger" role="menuitem"
+                      onclick="_ttnCloseRowMenus(); deleteTtnRecord(${r.id})">
+                <span class="ttn-row-menu-ico" aria-hidden="true">🗑</span>
+                <span>Удалить</span>
+              </button>
+            </div>
+          </div>
         </div>
       </td>`;
     tbody.appendChild(tr);
   });
 }
 window.renderTtnTable = renderTtnTable;
+
+function _ttnRestoreRowMenu(menu) {
+  if (!menu) return;
+  menu.classList.remove("open");
+  menu.style.top = "";
+  menu.style.left = "";
+  const wrapId = menu.dataset.wrapId;
+  const wrap = wrapId ? document.getElementById(wrapId) : null;
+  if (wrap && menu.parentElement !== wrap) wrap.appendChild(menu);
+}
+
+function _ttnCloseRowMenus(exceptId = null) {
+  document.querySelectorAll(".ttn-row-menu.open, .ttn-row-menu[data-ported='1']").forEach((menu) => {
+    if (exceptId != null && String(menu.dataset.ttnId) === String(exceptId) && menu.classList.contains("open")) {
+      return;
+    }
+    menu.dataset.ported = "";
+    _ttnRestoreRowMenu(menu);
+  });
+}
+window._ttnCloseRowMenus = _ttnCloseRowMenus;
+
+function _ttnPositionRowMenu(menu, anchorEl) {
+  const rect = anchorEl.getBoundingClientRect();
+  const menuW = Math.max(menu.offsetWidth || 220, 220);
+  const menuH = menu.offsetHeight || 180;
+  let left = rect.right - menuW;
+  if (left < 8) left = 8;
+  if (left + menuW > window.innerWidth - 8) left = Math.max(8, window.innerWidth - menuW - 8);
+  let top = rect.bottom + 4;
+  if (top + menuH > window.innerHeight - 8) {
+    top = Math.max(8, rect.top - menuH - 4);
+  }
+  menu.style.top = `${Math.round(top)}px`;
+  menu.style.left = `${Math.round(left)}px`;
+}
+
+function toggleTtnRowMenu(event, ttnId) {
+  event.stopPropagation();
+  const btn = event.currentTarget || event.target?.closest?.(".ttn-row-menu-btn");
+  const menu = document.getElementById(`ttnRowMenu_${ttnId}`);
+  if (!menu || !btn) return;
+  const willOpen = !menu.classList.contains("open");
+  _ttnCloseRowMenus(willOpen ? ttnId : null);
+  if (!willOpen) {
+    menu.dataset.ported = "";
+    _ttnRestoreRowMenu(menu);
+    return;
+  }
+  const wrap = menu.closest(".ttn-row-menu-wrap") || menu.parentElement;
+  if (wrap) {
+    if (!wrap.id) wrap.id = `ttnRowMenuWrap_${ttnId}`;
+    menu.dataset.wrapId = wrap.id;
+  }
+  document.body.appendChild(menu);
+  menu.dataset.ported = "1";
+  menu.classList.add("open");
+  _ttnPositionRowMenu(menu, btn);
+  requestAnimationFrame(() => _ttnPositionRowMenu(menu, btn));
+}
+window.toggleTtnRowMenu = toggleTtnRowMenu;
+
+document.addEventListener("click", (event) => {
+  if (event.target.closest(".ttn-row-menu-wrap") || event.target.closest(".ttn-row-menu")) return;
+  _ttnCloseRowMenus();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") _ttnCloseRowMenus();
+});
+document.addEventListener("scroll", (event) => {
+  if (!document.querySelector(".ttn-row-menu.open")) return;
+  if (
+    event.target === document
+    || event.target === document.documentElement
+    || event.target === document.body
+    || event.target?.closest?.("#logisticsTtnPane")
+    || event.target?.closest?.(".table-wrap")
+  ) {
+    _ttnCloseRowMenus();
+  }
+}, true);
 
 function _ttnFileName(id, ext) {
   const r = _ttnRecords.find((x) => x.id === id);

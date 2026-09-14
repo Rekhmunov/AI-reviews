@@ -18432,3 +18432,99 @@ body.is-col-resizing .wb-fbs-kiz-circ-table th .col-resize-handle {
 #ttnFbsSupplyHint {
   margin-top: 6px;
 }
+
+
+/* TTN table row actions: print + kebab menu */
+.ttn-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+.ttn-row-actions .ttn-row-print-btn,
+.ttn-row-actions .ttn-row-menu-btn {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  padding: 0;
+  border-radius: 8px;
+  font-size: 16px;
+  line-height: 1;
+  color: #64748b;
+}
+.ttn-row-actions .ttn-row-print-btn:hover,
+.ttn-row-actions .ttn-row-menu-btn:hover {
+  color: #0f172a;
+  background: #f1f5f9;
+}
+.ttn-row-actions .ttn-row-print-btn:focus-visible,
+.ttn-row-actions .ttn-row-menu-btn:focus-visible {
+  outline: 2px solid var(--primary, #2563eb);
+  outline-offset: 2px;
+}
+.ttn-row-menu-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.ttn-row-menu {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 2200;
+  min-width: 220px;
+  padding: 4px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  display: none;
+}
+.ttn-row-menu.open {
+  display: block;
+}
+.ttn-row-menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 8px 12px;
+  margin: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+.ttn-row-menu-item:hover {
+  background: #f1f5f9;
+}
+.ttn-row-menu-item:active {
+  background: #e2e8f0;
+}
+.ttn-row-menu-item:focus-visible {
+  outline: 2px solid var(--primary, #2563eb);
+  outline-offset: -2px;
+}
+.ttn-row-menu-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+}
+.ttn-row-menu-item-danger {
+  color: #b91c1c;
+}
+.ttn-row-menu-item-danger .ttn-row-menu-ico {
+  color: #b91c1c;
+}
+.ttn-row-menu-item-danger:hover {
+  background: #fff1f2;
+}

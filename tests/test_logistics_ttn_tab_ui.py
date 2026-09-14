@@ -40,11 +40,39 @@ def test_logistics_title_picker_and_panes() -> None:
     assert "function initLogisticsSection" in js
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
-    assert "app.js?v=623" in html
-    assert "style.css?v=361" in html
+    assert "app.js?v=624" in html
+    assert "style.css?v=362" in html
     assert "ttn-modal-card" in html
     assert "ttn-form-grid" in html
     assert 'max-width:560px' not in html.split('id="createTtnModal"')[1].split("<!-- ── Планирование")[0]
+
+
+def test_ttn_row_actions_print_and_kebab_menu() -> None:
+    """Actions column: printer + ⋮ menu with PDF/Word/Edit/Copy/Delete labels."""
+    js = JS.read_text(encoding="utf-8")
+    css = CSS.read_text(encoding="utf-8")
+    render = js.split("function renderTtnTable", 1)[1].split("\nfunction ", 1)[0]
+    assert "ttn-row-actions" in render
+    assert "printTtnRecord" in render
+    assert "toggleTtnRowMenu" in render
+    assert "ttn-row-menu-btn" in render
+    assert "Скачать PDF" in render
+    assert "Скачать Word" in render
+    assert "Изменить" in render
+    assert "Копировать" in render
+    assert "Удалить" in render
+    # Only print stays outside the menu; PDF/DOC are menu items.
+    assert 'title="Печать"' in render
+    assert "downloadTtnPdf" in render
+    assert "downloadTtnDoc" in render
+    assert "openEditTtnModal" in render
+    assert "openCopyTtnModal" in render
+    assert "deleteTtnRecord" in render
+    assert "function toggleTtnRowMenu" in js
+    assert "function _ttnCloseRowMenus" in js
+    assert ".ttn-row-menu" in css
+    assert ".ttn-row-menu-item" in css
+    assert ".ttn-row-menu.open" in css
 
 
 def test_ttn_table_and_modal_fields_present() -> None:
