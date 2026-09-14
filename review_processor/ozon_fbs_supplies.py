@@ -5384,6 +5384,94 @@ def detach_cancelled_postings_from_supply(
     return {"ok": True, "detached": len(detached), "posting_numbers": detached}
 
 
+def remove_cancelled_posting_from_supply(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    posting_number: str,
+) -> dict[str, Any]:
+    """Operator action: unlink one cancelled posting from a supply.
+
+    Only cancelled postings still linked to ``supply_id`` may be removed.
+    Clears ``supply_id`` and drops the number from ``posting_numbers_json``.
+    After this the posting is no longer in KIZ/pick modals and is not stocked
+    when the supply moves to «Доставляются».
+    """
+    ensure_ozon_fbs_supply_schema(repo)
+    oz.ensure_ozon_fbs_tables(repo)
+    sid = str(supply_id or "").strip()
+    pn = str(posting_number or "").strip()
+    if not sid:
+        raise ValueError("Укажите supply_id")
+    if not pn:
+        raise ValueError("Укажите posting_number")
+
+    with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql(
+                """
+                SELECT posting_number, supply_id, tab, status
+                FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ? AND posting_number = ?
+                """
+            ),
+            (user_id, source_id, pn),
+        ).fetchone()
+        if not row:
+            raise RuntimeError("Отправление не найдено локально")
+        posting = repo._row_to_dict(row)
+        cur_sid = str(posting.get("supply_id") or "").strip()
+        if cur_sid != sid:
+            raise RuntimeError("Отправление не входит в эту поставку")
+        if not oz.posting_row_is_cancelled(posting):
+            raise ValueError(
+                "Удалить из поставки можно только отменённое отправление"
+            )
+        conn.execute(
+            repo._sql(
+                """
+                UPDATE ozon_fbs_postings
+                SET supply_id = ''
+                WHERE user_id = ? AND source_id = ? AND posting_number = ?
+                  AND supply_id = ?
+                """
+            ),
+            (user_id, source_id, pn, sid),
+        )
+
+    supply = get_supply(repo, user_id=user_id, source_id=source_id, supply_id=sid)
+    if supply:
+        kept = [
+            str(x).strip()
+            for x in (supply.get("posting_numbers") or [])
+            if str(x).strip() and str(x).strip() != pn
+        ]
+        _set_supply_posting_numbers(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=sid,
+            posting_numbers=kept,
+        )
+    _log.info(
+        "ozon fbs remove cancelled posting from supply user=%s source=%s "
+        "supply=%s posting=%s",
+        user_id,
+        source_id,
+        sid,
+        pn,
+    )
+    return {
+        "ok": True,
+        "supply_id": sid,
+        "posting_number": pn,
+        "removed": True,
+        "message": f"Отправление {pn} удалено из поставки",
+    }
+
+
 def move_supply_to_delivering(
     repo: ReviewRepository,
     *,

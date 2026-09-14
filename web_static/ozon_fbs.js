@@ -2867,6 +2867,81 @@
     return String(row?.supply_id || "").trim();
   }
 
+  async function ozonFbsRemoveCancelledPostingFromSupply(event, postingNumber) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    closeOzonFbsRowMenus();
+    const pn = String(postingNumber || "").trim();
+    const supplyId = String(supplyDetailState.supplyId || "").trim();
+    const sourceId = Number(supplyDetailState.sourceId || state.sourceId || 0) || 0;
+    if (!pn || !supplyId || !sourceId) {
+      alert("Не удалось определить отправление или поставку");
+      return;
+    }
+    if (
+      !window.confirm(
+        "Удалить отправление " +
+          pn +
+          " из поставки?\n\nТовар исчезнет из списков КИЗ / без КИЗ. При переводе в «Доставляются» склад списан не будет."
+      )
+    ) {
+      return;
+    }
+    try {
+      const resp = await fetch(
+        "/api/ozon-fbs/supplies/" +
+          encodeURIComponent(supplyId) +
+          "/postings/" +
+          encodeURIComponent(pn) +
+          "/remove-cancelled",
+        {
+          method: "POST",
+          headers: jsonHeaders(),
+          body: JSON.stringify({ source_id: sourceId }),
+        }
+      );
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        throw new Error(detailText(data.detail) || detailText(data) || "Не удалось удалить из поставки");
+      }
+      _ozonFbsRemovePostingFromOpenModals(pn);
+      if (supplyDetailState.supply && Array.isArray(supplyDetailState.supply.orders)) {
+        supplyDetailState.supply.orders = supplyDetailState.supply.orders.filter(
+          (o) => String((o && o.posting_number) || "").trim() !== pn
+        );
+        if (Array.isArray(supplyDetailState.supply.posting_numbers)) {
+          supplyDetailState.supply.posting_numbers =
+            supplyDetailState.supply.posting_numbers.filter(
+              (x) => String(x || "").trim() !== pn
+            );
+        }
+        const n = supplyDetailState.supply.orders.length;
+        supplyDetailState.supply.order_count = n;
+        if (supplyDetailState.selected && typeof supplyDetailState.selected.delete === "function") {
+          supplyDetailState.selected.delete(pn);
+        }
+        renderSupplyDetail(supplyDetailState.supply);
+      }
+      if (Array.isArray(ozonFbsCancelledState.rows) && ozonFbsCancelledState.rows.length) {
+        const before = ozonFbsCancelledState.rows.length;
+        ozonFbsCancelledState.rows = ozonFbsCancelledState.rows.filter(
+          (r) => String((r && r.posting_number) || "").trim() !== pn
+        );
+        if (ozonFbsCancelledState.rows.length !== before) {
+          renderOzonFbsCancelledOrdersTable();
+        }
+      }
+      _ozonFbsSyncCancelledBtn();
+      _ozonFbsSupplyDetailUpdateNewWarn();
+      const msg = String(data.message || ("Отправление " + pn + " удалено из поставки"));
+      showSyncInfo(msg);
+    } catch (e) {
+      alert(e.message || String(e));
+    }
+  }
+
   function printOnePostingStickerFromDetail(event, postingNumber) {
     if (event) {
       event.preventDefault();
@@ -8572,12 +8647,19 @@
            Переместить в другое ГМ
          </button>`
       : "";
+    const removeCancelledItem = _ozonFbsRowIsCancelled(row)
+      ? `<button type="button" class="wb-fbs-row-menu-item" role="menuitem"
+                onclick="ozonFbsRemoveCancelledPostingFromSupply(event, '${safePn}')">
+           Удалить товар из поставки
+         </button>`
+      : "";
     return (
       moveItem +
       `<button type="button" class="wb-fbs-row-menu-item" role="menuitem"
               onclick="ozonFbsPrintOnePostingStickerFromDetail(event, '${safePn}')">
          Напечатать стикер
-       </button>`
+       </button>` +
+      removeCancelledItem
     );
   }
 
@@ -8597,7 +8679,7 @@
 
   function _ozonFbsModalRowActionsHtml(row, mode) {
     const pn = String(row?.posting_number || "").trim();
-    if (!pn || _ozonFbsRowIsCancelled(row)) {
+    if (!pn) {
       return `<div class="wb-fbs-row-menu-wrap wb-fbs-row-menu-wrap--empty" aria-hidden="true"></div>`;
     }
     const menuKey = _ozonFbsPostingMenuKey(pn);
@@ -12513,6 +12595,7 @@
   window.toggleOzonFbsRowMenu = toggleOzonFbsRowMenu;
   window.closeOzonFbsRowMenus = closeOzonFbsRowMenus;
   window.ozonFbsPrintOnePostingStickerFromDetail = printOnePostingStickerFromDetail;
+  window.ozonFbsRemoveCancelledPostingFromSupply = ozonFbsRemoveCancelledPostingFromSupply;
   window.openOzonFbsMovePostingModal = openOzonFbsMovePostingModal;
   window.closeOzonFbsMovePostingModal = closeOzonFbsMovePostingModal;
   window.selectOzonFbsMovePostingTarget = selectOzonFbsMovePostingTarget;

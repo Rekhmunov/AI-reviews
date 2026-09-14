@@ -245,4 +245,4 @@ def test_status_refresh_ui_keeps_cancelled_in_modals() -> None:
     assert "function _ozonFbsRefreshOpenModalsAfterCancelFlag" in js
     assert "остаётся в поставке" in js
     assert "будет удалён из модалки" not in js
-    assert "ozon_fbs.js?v=155" in html
+    assert "ozon_fbs.js?v=156" in html
