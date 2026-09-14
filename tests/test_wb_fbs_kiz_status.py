@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -10,6 +11,7 @@ from review_processor.wb_fbs_detail import (
     _kiz_from_meta_row,
     _kiz_status_from_decision,
     check_supply_kiz_status,
+    kiz_decision_label,
     summarize_kiz_check_status,
 )
 
@@ -59,6 +61,41 @@ def test_meta_row_decision_sgtin_retired() -> None:
     )
     assert parsed["kiz_status"] == "error"
     assert parsed["kiz_decision"] == "sgtinRetired"
+    assert parsed["kiz_decision_label"] == "Выбыл"
+    assert kiz_decision_label("sgtinRetired") == "Выбыл"
+
+
+def test_kiz_decision_labels_match_wb_docs() -> None:
+    expected = {
+        "sgtinInvalidFormat": "Неверный формат маркировки",
+        "sgtinNoGS": "Нет GS-разделителя \\u001d",
+        "sgtinHasInvalidSymbols": "Некорректные символы или пробелы",
+        "sgtinHasNonLatinSymbols": "Символы не из спец/латиницы",
+        "sgtinInvalidPattern": "Структура маркировки некорректна",
+        "sgtinNotFound": "Не найдена в Честном знаке",
+        "sgtinEmitted": "Маркировка эмитирована",
+        "sgtinApplied": "Не пройдена процедура Ввод в оборот",
+        "sgtinWrittenOff": "Списан",
+        "sgtinWithdrawn": "Выбыл",
+        "sgtinRetired": "Выбыл",
+        "sgtinDisaggregated": "Расформирован",
+        "sgtinDisaggregation": "Расформирован",
+        "sgtinAppliedNotPaid": "Не оплачен",
+    }
+    for code, label in expected.items():
+        assert kiz_decision_label(code) == label
+        assert _kiz_status_from_decision(code, ["01…"]) == "error"
+    assert kiz_decision_label("unknownThing") == ""
+
+
+def test_ui_shows_human_kiz_decision_labels() -> None:
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "web_static" / "app.js").read_text(encoding="utf-8")
+    html = (root / "web_templates" / "app.html").read_text(encoding="utf-8")
+    assert "function _wbFbsKizDecisionLabel" in js
+    assert 'sgtinretired: "Выбыл"' in js
+    assert "decisionLabel || (decision ? `Ошибка проверки (${decision})`" in js
+    assert "app.js?v=627" in html
 
 
 def test_meta_row_decision_filled() -> None:

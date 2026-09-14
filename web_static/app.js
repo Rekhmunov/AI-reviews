@@ -33805,6 +33805,7 @@ function _wbFbsKizClearOrderFields(order) {
   order.kiz_bound = false;
   order.kiz_codes = [];
   order.kiz_decision = "";
+  order.kiz_decision_label = "";
   order.kiz_status = "empty";
 }
 
@@ -33839,6 +33840,9 @@ function _wbFbsKizMergeStatusIntoDetail(orders) {
     o.kiz_bound = !!upd.kiz_bound;
     o.kiz_codes = Array.isArray(upd.kiz_codes) ? upd.kiz_codes.slice() : [];
     o.kiz_decision = String(upd.kiz_decision || "");
+    o.kiz_decision_label = String(
+      upd.kiz_decision_label || _wbFbsKizDecisionLabel(o.kiz_decision) || ""
+    );
     o.kiz_status = String(upd.kiz_status || "empty");
     if (upd.cancelled || upd.cancel_reason_label) {
       o.cancel_reason_label = String(
@@ -33930,6 +33934,9 @@ function _wbFbsKizBadgeHtml(order) {
   // Codes without a WB decision → pending (not green).
   const status = String(order?.kiz_status || (order?.kiz_bound ? "pending" : "empty"));
   const decision = String(order?.kiz_decision || "").trim();
+  const decisionLabel = String(
+    order?.kiz_decision_label || _wbFbsKizDecisionLabel(decision) || ""
+  ).trim();
   let cls = "is-empty";
   let label = "КИЗ";
   let title = "Требуется маркировка (КИЗ). Код ещё не привязан";
@@ -33944,9 +33951,12 @@ function _wbFbsKizBadgeHtml(order) {
   } else if (status === "error") {
     cls = "is-error";
     label = "КИЗ";
-    title = "Проверка КИЗ не пройдена (ошибка)";
+    title = decisionLabel
+      ? `Проверка КИЗ не пройдена: ${decisionLabel}`
+      : "Проверка КИЗ не пройдена (ошибка)";
   }
-  if (decision) title += ` · WB decision: ${decision}`;
+  if (decision && !decisionLabel) title += ` · WB decision: ${decision}`;
+  else if (decisionLabel && status !== "error") title += ` · ${decisionLabel}`;
   return `<div class="wb-fbs-kiz ${cls}" title="${_wbFbsEsc(title)}">${_wbFbsEsc(label)}</div>`;
 }
 
@@ -34779,6 +34789,32 @@ function _wbFbsKizRowMatchesSearch(row, query) {
   return hay.some((v) => v.includes(q));
 }
 
+/** WB OpenAPI labels for ``metaDetails.decision`` (sgtin). */
+const _WB_FBS_KIZ_DECISION_LABELS = {
+  sgtininvalidformat: "Неверный формат маркировки",
+  sgtinnogs: "Нет GS-разделителя \\u001d",
+  sgtinhasinvalidsymbols: "Некорректные символы или пробелы",
+  sgtinhasnonlatinsymbols: "Символы не из спец/латиницы",
+  sgtininvalidpattern: "Структура маркировки некорректна",
+  sgtinnotfound: "Не найдена в Честном знаке",
+  sgtinemitted: "Маркировка эмитирована",
+  sgtinapplied: "Не пройдена процедура Ввод в оборот",
+  sgtinwrittenoff: "Списан",
+  sgtinwithdrawn: "Выбыл",
+  sgtinretired: "Выбыл",
+  sgtindisaggregated: "Расформирован",
+  sgtindisaggregation: "Расформирован",
+  sgtinappliednotpaid: "Не оплачен",
+};
+
+function _wbFbsKizDecisionLabel(decision) {
+  const key = String(decision || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[-_]/g, "");
+  return String(_WB_FBS_KIZ_DECISION_LABELS[key] || "");
+}
+
 /** Status chip under a filled КИЗ code in the marking modal (never for empty). */
 function _wbFbsKizCodeStatusChip(row, codeValue, saveError) {
   const filled = String(codeValue || "").trim();
@@ -34787,6 +34823,9 @@ function _wbFbsKizCodeStatusChip(row, codeValue, saveError) {
   if ((!status || status === "empty") && saveError) status = "error";
   if (!status || status === "empty") return "";
   const decision = String(row?.kiz_decision || "").trim();
+  const decisionLabel = String(
+    row?.kiz_decision_label || _wbFbsKizDecisionLabel(decision) || ""
+  ).trim();
   let cls = "is-pending";
   let label = "На проверке";
   if (status === "ok") {
@@ -34796,7 +34835,7 @@ function _wbFbsKizCodeStatusChip(row, codeValue, saveError) {
     cls = "is-error";
     label = saveError
       ? `Ошибка: ${saveError}`
-      : (decision ? `Ошибка проверки (${decision})` : "Ошибка проверки");
+      : (decisionLabel || (decision ? `Ошибка проверки (${decision})` : "Ошибка проверки"));
   } else if (status === "pending") {
     cls = "is-pending";
     label = "На проверке";
@@ -36219,6 +36258,7 @@ async function saveWbFbsKizModal() {
           row.kiz_local = r.kiz_codes.length > 0;
           row.kiz_status = r.kiz_codes.length ? "pending" : "empty";
           row.kiz_decision = r.kiz_codes.length ? "required" : "";
+          row.kiz_decision_label = "";
           // Advance baseline only after WB accepted the write.
           if (!wbFbsKizState.baselineByOrder) wbFbsKizState.baselineByOrder = {};
           wbFbsKizState.baselineByOrder[oid] = _wbFbsKizNormalizeCodesList(r.kiz_codes);
@@ -36343,6 +36383,7 @@ function _wbFbsKizRefreshDetailBadges(results) {
     // After successful WB write: «на проверке» until next sync gets filled/invalid.
     order.kiz_status = codes.length ? "pending" : "empty";
     order.kiz_decision = codes.length ? "required" : "";
+    order.kiz_decision_label = "";
     changed = true;
   }
   if (changed) {

@@ -440,6 +440,37 @@ def _kiz_decision_raw(item: dict[str, Any]) -> str:
     return ""
 
 
+# Human labels for WB ``metaDetails.decision`` (sgtin) — OpenAPI FBS docs.
+_KIZ_SGTIN_DECISION_LABELS: dict[str, str] = {
+    "sgtininvalidformat": "Неверный формат маркировки",
+    "sgtinnogs": "Нет GS-разделителя \\u001d",
+    "sgtinhasinvalidsymbols": "Некорректные символы или пробелы",
+    "sgtinhasnonlatinsymbols": "Символы не из спец/латиницы",
+    "sgtininvalidpattern": "Структура маркировки некорректна",
+    "sgtinnotfound": "Не найдена в Честном знаке",
+    "sgtinemitted": "Маркировка эмитирована",
+    "sgtinapplied": "Не пройдена процедура Ввод в оборот",
+    "sgtinwrittenoff": "Списан",
+    "sgtinwithdrawn": "Выбыл",
+    "sgtinretired": "Выбыл",
+    "sgtindisaggregated": "Расформирован",
+    "sgtindisaggregation": "Расформирован",
+    "sgtinappliednotpaid": "Не оплачен",
+}
+
+
+def kiz_decision_label(decision: str) -> str:
+    """Readable Russian label for a WB sgtin decision code (empty if unknown)."""
+    key = (
+        str(decision or "")
+        .strip()
+        .lower()
+        .replace("-", "")
+        .replace("_", "")
+    )
+    return str(_KIZ_SGTIN_DECISION_LABELS.get(key) or "")
+
+
 def _kiz_status_from_decision(decision: str, codes: list[str]) -> str:
     """UI status: empty | pending | ok | error.
 
@@ -459,6 +490,14 @@ def _kiz_status_from_decision(decision: str, codes: list[str]) -> str:
         "sgtin_invalid",
         "sgtininvalidformat",
         "sgtin_invalid_format",
+        "sgtinnogs",
+        "sgtin_no_gs",
+        "sgtinhasinvalidsymbols",
+        "sgtin_has_invalid_symbols",
+        "sgtinhasnonlatinsymbols",
+        "sgtin_has_non_latin_symbols",
+        "sgtininvalidpattern",
+        "sgtin_invalid_pattern",
         "sgtinnotfound",
         "sgtin_not_found",
         "notfound",
@@ -472,8 +511,12 @@ def _kiz_status_from_decision(decision: str, codes: list[str]) -> str:
         "sgtin_emitted",
         "sgtinapplied",
         "sgtin_applied",
+        "sgtinappliednotpaid",
+        "sgtin_applied_not_paid",
         "sgtindisaggregated",
         "sgtin_disaggregated",
+        "sgtindisaggregation",
+        "sgtin_disaggregation",
         "error",
         "failed",
         "fail",
@@ -549,6 +592,7 @@ def _kiz_from_meta_row(row: dict[str, Any]) -> dict[str, Any]:
         "kiz_bound": bool(codes),
         "kiz_codes": codes,
         "kiz_decision": decision,
+        "kiz_decision_label": kiz_decision_label(decision),
         "kiz_status": status,
     }
 
@@ -711,6 +755,7 @@ def check_supply_kiz_status(
             "kiz_bound": False,
             "kiz_codes": [],
             "kiz_decision": "",
+            "kiz_decision_label": "",
             "kiz_status": "empty",
         }
         for oid in order_ids
@@ -797,12 +842,16 @@ def check_supply_kiz_status(
             # Tone uses only filled codes; empty required slots are ignored.
             if not has_filled:
                 status = "empty"
+        decision = str(kiz.get("kiz_decision") or "")
         row = {
             "order_id": oid,
             "kiz_required": kiz_required,
             "kiz_bound": has_filled,
             "kiz_codes": codes,
-            "kiz_decision": str(kiz.get("kiz_decision") or ""),
+            "kiz_decision": decision,
+            "kiz_decision_label": str(
+                kiz.get("kiz_decision_label") or kiz_decision_label(decision)
+            ),
             "kiz_status": status,
             "cancelled": is_cancelled,
             "cancel_reason_label": cancel_labels.get(oid, ""),
@@ -843,12 +892,17 @@ def check_supply_kiz_status(
                     o["kiz_bound"] = False
                     o["kiz_codes"] = []
                     o["kiz_decision"] = ""
+                    o["kiz_decision_label"] = ""
                     o["kiz_status"] = "empty"
                 continue
             o["kiz_required"] = bool(row.get("kiz_required"))
             o["kiz_bound"] = bool(row.get("kiz_bound"))
             o["kiz_codes"] = list(row.get("kiz_codes") or [])
-            o["kiz_decision"] = str(row.get("kiz_decision") or "")
+            decision = str(row.get("kiz_decision") or "")
+            o["kiz_decision"] = decision
+            o["kiz_decision_label"] = str(
+                row.get("kiz_decision_label") or kiz_decision_label(decision)
+            )
             o["kiz_status"] = str(row.get("kiz_status") or "empty")
             if row.get("cancelled") or row.get("cancel_reason_label"):
                 o["cancel_reason_label"] = str(
@@ -1371,6 +1425,7 @@ def _fetch_kiz_map(
             "kiz_bound": False,
             "kiz_codes": [],
             "kiz_decision": "",
+            "kiz_decision_label": "",
             "kiz_status": "empty",
         }
     if not ids:
@@ -1970,6 +2025,10 @@ def get_supply_detail(
                 "kiz_bound": bool(kiz.get("kiz_bound")),
                 "kiz_codes": list(kiz.get("kiz_codes") or []),
                 "kiz_decision": str(kiz.get("kiz_decision") or ""),
+                "kiz_decision_label": str(
+                    kiz.get("kiz_decision_label")
+                    or kiz_decision_label(kiz.get("kiz_decision") or "")
+                ),
                 "kiz_status": status,
                 "supplier_status": str(o.get("supplier_status") or ""),
                 "wb_status": str(o.get("wb_status") or ""),
@@ -2260,6 +2319,9 @@ def build_kiz_marking_payload(
                 else bool(o.get("kiz_bound")),
                 "kiz_status": kiz_status,
                 "kiz_decision": kiz_decision,
+                "kiz_decision_label": str(
+                    o.get("kiz_decision_label") or kiz_decision_label(kiz_decision)
+                ),
                 "supplier_status": str(o.get("supplier_status") or ""),
                 "wb_status": str(o.get("wb_status") or ""),
                 "cancel_reason_label": str(o.get("cancel_reason_label") or ""),
