@@ -34583,6 +34583,8 @@ function _wbFbsKizPatchScannedCode(orderId, codeIdx, mark) {
   });
   _wbFbsKizClearPendingHighlight();
   _wbFbsKizUpdateScanCounter();
+  // Patch path skips renderWbFbsKizTable — still refresh facet counts (filled/empty/…).
+  _wbFbsKizUpdateFilterCounts();
   return true;
 }
 
@@ -37078,6 +37080,8 @@ function _wbFbsPickPatchStatusCell(orderId) {
   cell.innerHTML = _wbFbsPickStatusHtml(row);
   _wbFbsPickClearPendingHighlight();
   _wbFbsPickUpdateScanCounter();
+  // Patch path skips renderWbFbsPickVerifyTable — still refresh facet counts.
+  _wbFbsPickUpdateFilterCounts();
   return true;
 }
 
