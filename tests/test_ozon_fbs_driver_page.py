@@ -30,8 +30,12 @@ def test_driver_page_html_boot_and_assets() -> None:
     assert "Для водителя" in html
     assert "OFD_BOOT" in html
     assert "CAN_VIEW_OZON_FBS_DRIVER" in html
-    assert "/static/ozon_fbs_driver.js?v=1" in html
-    assert "/static/ozon_fbs_driver.css?v=1" in html
+    assert "/static/ozon_fbs_driver.js?v=2" in html
+    assert "/static/ozon_fbs_driver.css?v=2" in html
+    assert "PAGE_MODE" in html
+    assert "PAGE_TOKEN" in html
+    assert "page_mode" in html
+    assert "page_token" in html
 
 
 def test_driver_button_next_to_tsd() -> None:
@@ -52,6 +56,9 @@ def test_web_routes_and_builder() -> None:
     assert '"/api/ozon-fbs/driver/cargo-places"' in src
     assert "list_driver_page_vehicle_plates" in src
     assert "list_driver_page_cargo_places" in src
+    assert "/ozon-fbs/driver/p/{page_token}" in src
+    assert "/api/ozon-fbs/driver/p/{page_token}/unlock" in src
+    assert "/api/ozon-fbs/driver/public-link" in src
 
 
 def test_driver_page_js_calls_apis() -> None:
@@ -59,6 +66,9 @@ def test_driver_page_js_calls_apis() -> None:
     assert "/api/ozon-fbs/driver/vehicles" in js
     assert "/api/ozon-fbs/driver/cargo-places" in js
     assert "ofdVehicleSelect" in js
+    assert "page_mode" in js
+    assert "isPinMode" in js
+    assert "/unlock" in js
     assert "acceptance_in_progress" in js
     assert "formed" in js
 

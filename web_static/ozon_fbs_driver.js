@@ -7,6 +7,10 @@
   const toastEl = document.getElementById("ofdToast");
   let toastTimer = 0;
 
+  const pageMode = String(boot.page_mode || "owner");
+  const pageToken = String(boot.page_token || "").trim();
+  const isPinMode = pageMode === "pin";
+
   const state = {
     plates: [],
     vehicleNumber: "",
@@ -15,6 +19,10 @@
     errors: [],
     loadingPlates: false,
     loadingItems: false,
+    accessToken: "",
+    driverName: "",
+    unlocking: false,
+    pinError: "",
   };
 
   function esc(value) {
@@ -37,12 +45,30 @@
     }
   }
 
-  async function api(path) {
+  async function api(path, options) {
+    const opts = options || {};
+    const headers = Object.assign(
+      { Accept: "application/json" },
+      opts.headers || {}
+    );
+    if (state.accessToken) {
+      headers["X-Driver-Access-Token"] = state.accessToken;
+    }
     const res = await fetch(path, {
       credentials: "same-origin",
-      headers: { Accept: "application/json" },
+      method: opts.method || "GET",
+      headers: headers,
+      body: opts.body || undefined,
     });
     if (res.status === 401) {
+      if (isPinMode) {
+        state.accessToken = "";
+        state.plates = [];
+        state.vehicleNumber = "";
+        state.items = [];
+        renderPinForm("Сессия истекла. Введите ПИН снова.");
+        throw new Error("Введите ПИН заново");
+      }
       window.location.href = "/login";
       throw new Error("Требуется вход");
     }
@@ -68,39 +94,143 @@
       '<div class="ofd-denied">Нет доступа к странице водителя Ozon FBS.</div>';
   }
 
+  function renderPinForm(errorMessage) {
+    const err = String(errorMessage || state.pinError || "");
+    main.innerHTML =
+      '<section class="ofd-panel ofd-pin-panel">' +
+      '<h2 class="ofd-pin-title">Вход по ПИН</h2>' +
+      '<p class="ofd-hint">Введите ПИН из настроек «Водители». После закрытия страницы потребуется ввести его снова.</p>' +
+      '<label class="ofd-label" for="ofdPinInput">ПИН</label>' +
+      '<input id="ofdPinInput" class="ofd-input" type="password" inputmode="numeric" ' +
+      'autocomplete="one-time-code" maxlength="8" placeholder="••••" />' +
+      (err ? '<p class="ofd-pin-error" role="alert">' + esc(err) + "</p>" : "") +
+      '<button type="button" id="ofdPinSubmit" class="ofd-btn"' +
+      (state.unlocking ? " disabled" : "") +
+      ">" +
+      (state.unlocking ? "Проверка…" : "Открыть") +
+      "</button>" +
+      "</section>";
+
+    const input = document.getElementById("ofdPinInput");
+    const btn = document.getElementById("ofdPinSubmit");
+    if (input) {
+      input.focus();
+      input.addEventListener("keydown", function (ev) {
+        if (ev.key === "Enter") {
+          ev.preventDefault();
+          submitPin();
+        }
+      });
+    }
+    if (btn) btn.addEventListener("click", submitPin);
+  }
+
+  async function submitPin() {
+    if (state.unlocking) return;
+    const input = document.getElementById("ofdPinInput");
+    const pin = String((input && input.value) || "").trim();
+    state.pinError = "";
+    if (!pin) {
+      renderPinForm("Введите ПИН");
+      return;
+    }
+    state.unlocking = true;
+    renderPinForm("");
+    try {
+      const data = await api(
+        "/api/ozon-fbs/driver/p/" + encodeURIComponent(pageToken) + "/unlock",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pin: pin }),
+        }
+      );
+      state.accessToken = String(data.access_token || "");
+      state.driverName = String(data.driver_name || "").trim();
+      state.plates = Array.isArray(data.items) ? data.items : [];
+      state.vehicleNumber = "";
+      state.items = [];
+      state.errors = [];
+      state.loadingPlates = false;
+      renderShell();
+      renderResults();
+      maybeAutoloadSinglePlate();
+    } catch (err) {
+      state.accessToken = "";
+      state.pinError = String(err.message || err);
+      renderPinForm(state.pinError);
+    } finally {
+      state.unlocking = false;
+    }
+  }
+
   function renderShell() {
+    const multi = state.plates.length > 1;
+    const single = state.plates.length === 1;
     const disabled = state.loadingPlates ? "disabled" : "";
     const placeholder = state.loadingPlates
       ? "Загрузка…"
-      : "Выберите гос. номер";
+      : multi
+        ? "Выберите гос. номер"
+        : "Нет машин";
+
+    const driverLine =
+      isPinMode && state.driverName
+        ? '<p class="ofd-driver-name">' + esc(state.driverName) + "</p>"
+        : "";
+
+    let vehicleBlock;
+    if (!state.loadingPlates && !multi) {
+      const number = single
+        ? String(state.plates[0].number || "").trim()
+        : "";
+      const line = single
+        ? String(state.plates[0].line || number).trim() || number
+        : "Нет машин в карточке водителя";
+      vehicleBlock =
+        '<div class="ofd-label">Номер машины</div>' +
+        '<div class="ofd-plate-value">' +
+        esc(line || "—") +
+        "</div>" +
+        (single
+          ? ""
+          : '<p class="ofd-hint">Добавьте автомобиль в настройках «Водители».</p>');
+      if (single && number) state.vehicleNumber = number;
+    } else {
+      vehicleBlock =
+        '<label class="ofd-label" for="ofdVehicleSelect">Номер машины</label>' +
+        '<select id="ofdVehicleSelect" class="ofd-select" ' +
+        disabled +
+        ">" +
+        '<option value="">' +
+        placeholder +
+        "</option>" +
+        "</select>" +
+        '<p class="ofd-hint">После выбора подгрузятся грузоместа со статусами «Сформировано» и «Принято на СЦ».</p>';
+    }
+
     main.innerHTML =
       '<section class="ofd-panel">' +
-      '<label class="ofd-label" for="ofdVehicleSelect">Номер машины</label>' +
-      '<select id="ofdVehicleSelect" class="ofd-select" ' +
-      disabled +
-      ">" +
-      '<option value="">' +
-      placeholder +
-      "</option>" +
-      "</select>" +
-      '<p class="ofd-hint">После выбора подгрузятся грузоместа со статусами «Сформировано» и «Принято на СЦ».</p>' +
+      driverLine +
+      vehicleBlock +
       "</section>" +
       '<section class="ofd-panel" id="ofdResults">' +
       '<div class="ofd-empty">Выберите номер машины</div>' +
       "</section>";
 
     const select = document.getElementById("ofdVehicleSelect");
-    if (!select) return;
-    state.plates.forEach(function (plate) {
-      const number = String(plate.number || "").trim();
-      if (!number) return;
-      const opt = document.createElement("option");
-      opt.value = number;
-      opt.textContent = String(plate.line || number).trim() || number;
-      if (number === state.vehicleNumber) opt.selected = true;
-      select.appendChild(opt);
-    });
-    select.addEventListener("change", onVehicleChange);
+    if (select) {
+      state.plates.forEach(function (plate) {
+        const number = String(plate.number || "").trim();
+        if (!number) return;
+        const opt = document.createElement("option");
+        opt.value = number;
+        opt.textContent = String(plate.line || number).trim() || number;
+        if (number === state.vehicleNumber) opt.selected = true;
+        select.appendChild(opt);
+      });
+      select.addEventListener("change", onVehicleChange);
+    }
   }
 
   function renderResults() {
@@ -196,18 +326,28 @@
       "</ul>";
   }
 
-  async function onVehicleChange(event) {
-    const value = String(event.target.value || "").trim();
-    state.vehicleNumber = value;
+  async function loadCargo(value) {
+    const plate = String(value || "").trim();
+    state.vehicleNumber = plate;
     state.items = [];
     state.errors = [];
     renderResults();
-    if (!value) return;
+    if (!plate) return;
     state.loadingItems = true;
     renderResults();
     try {
-      const params = new URLSearchParams({ vehicle_number: value });
-      const data = await api("/api/ozon-fbs/driver/cargo-places?" + params);
+      const params = new URLSearchParams({ vehicle_number: plate });
+      let path;
+      if (isPinMode) {
+        path =
+          "/api/ozon-fbs/driver/p/" +
+          encodeURIComponent(pageToken) +
+          "/cargo-places?" +
+          params.toString();
+      } else {
+        path = "/api/ozon-fbs/driver/cargo-places?" + params.toString();
+      }
+      const data = await api(path);
       state.items = Array.isArray(data.items) ? data.items : [];
       state.supplies = Array.isArray(data.supplies) ? data.supplies : [];
       state.errors = Array.isArray(data.errors) ? data.errors : [];
@@ -218,6 +358,17 @@
     } finally {
       state.loadingItems = false;
       renderResults();
+    }
+  }
+
+  async function onVehicleChange(event) {
+    await loadCargo(event.target.value);
+  }
+
+  function maybeAutoloadSinglePlate() {
+    if (state.plates.length === 1) {
+      const number = String(state.plates[0].number || "").trim();
+      if (number) loadCargo(number);
     }
   }
 
@@ -234,11 +385,20 @@
       state.loadingPlates = false;
       renderShell();
       renderResults();
+      maybeAutoloadSinglePlate();
     }
   }
 
   function init() {
     if (!main) return;
+    if (isPinMode) {
+      if (!pageToken) {
+        renderDenied();
+        return;
+      }
+      renderPinForm("");
+      return;
+    }
     if (!boot.can_view) {
       renderDenied();
       return;

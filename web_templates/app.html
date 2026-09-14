@@ -4746,6 +4746,14 @@
               <h4 class="no-margin">Водители</h4>
               <button onclick="toggleAddDriverForm(true)">+ Добавить водителя</button>
             </div>
+            <div id="driverPublicLinkBox" class="driver-public-link-box" style="margin-top:12px">
+              <div class="small" style="color:#64748b;margin-bottom:6px">Публичная страница «Для водителя» (без аккаунта, вход по ПИН)</div>
+              <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
+                <input id="driverPublicLinkInput" type="text" readonly style="flex:1;min-width:220px" value="" placeholder="Загрузка ссылки…" />
+                <button type="button" class="secondary" onclick="copyDriverPublicLink()">Копировать</button>
+              </div>
+              <div id="driverPublicLinkInfo" class="small" style="margin-top:6px;color:#64748b"></div>
+            </div>
             <div id="addDriverForm" class="source-form hidden" style="margin-top:12px">
               <div class="worker-form-grid">
                 <div class="wfg-field">
@@ -4763,6 +4771,10 @@
                 <div class="wfg-field">
                   <label class="wfg-label" for="newDriverPhone">Телефон</label>
                   <input id="newDriverPhone" type="tel" maxlength="32" placeholder="+7 900 123-45-67" autocomplete="off" />
+                </div>
+                <div class="wfg-field">
+                  <label class="wfg-label" for="newDriverAccessPin">ПИН (для страницы водителя)</label>
+                  <input id="newDriverAccessPin" type="text" inputmode="numeric" maxlength="8" placeholder="4–8 цифр" autocomplete="off" />
                 </div>
                 <div class="wfg-field">
                   <label class="wfg-label" for="newDriverInPerson">В лице</label>
@@ -4874,6 +4886,7 @@
                   <th data-col="num" style="width:40px">№</th>
                   <th data-col="name" style="width:160px">ФИО</th>
                   <th data-col="phone" style="width:120px">Телефон</th>
+                  <th data-col="pin" style="width:90px">ПИН</th>
                   <th data-col="inp" style="width:130px">В лице</th>
                   <th data-col="docs" style="width:140px">Документы</th>
                   <th data-col="carrier" style="width:160px">Перевозчик</th>
@@ -7603,6 +7616,6 @@
 
   <script src="/static/ozon_fbs.js?v=159"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=24"></script>
-  <script src="/static/app.js?v=629"></script>
+  <script src="/static/app.js?v=630"></script>
 </body>
 </html>

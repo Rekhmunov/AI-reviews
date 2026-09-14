@@ -2788,12 +2788,54 @@ let _supplyDriversCache = [];
 
 // ── Supply drivers ──
 
+
+async async function loadDriverPublicLink() {
+  const input = document.getElementById("driverPublicLinkInput");
+  const info = document.getElementById("driverPublicLinkInfo");
+  if (!input) return;
+  try {
+    const res = await fetch("/api/ozon-fbs/driver/public-link", { headers: { Accept: "application/json" } }).catch(() => null);
+    if (!res || !res.ok) {
+      if (info) info.textContent = res && res.status === 403 ? "Ссылка доступна только главному пользователю" : "";
+      return;
+    }
+    const data = await res.json().catch(() => ({}));
+    const path = String(data.path || "").trim();
+    input.value = path ? (window.location.origin + path) : "";
+    if (info) info.textContent = path ? "Отправьте ссылку водителю. На странице нужно ввести его ПИН." : "";
+  } catch (_) {
+    if (info) info.textContent = "";
+  }
+}
+
+async async function copyDriverPublicLink() {
+  const input = document.getElementById("driverPublicLinkInput");
+  const info = document.getElementById("driverPublicLinkInfo");
+  const value = String(input?.value || "").trim();
+  if (!value) {
+    await loadDriverPublicLink();
+  }
+  const finalValue = String(document.getElementById("driverPublicLinkInput")?.value || "").trim();
+  if (!finalValue) {
+    if (info) info.textContent = "Не удалось получить ссылку";
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(finalValue);
+    if (info) info.textContent = "Ссылка скопирована";
+  } catch (_) {
+    input?.select();
+    if (info) info.textContent = "Скопируйте ссылку вручную";
+  }
+}
+
 async function loadSupplyDrivers() {
   const res = await fetch("/api/supply-drivers").catch(() => null);
   if (!res || !res.ok) return;
   _supplyDriversCache = await res.json().catch(() => []);
   renderSupplyDriversTable();
   _populateDriverSelect();
+  loadDriverPublicLink();
 }
 
 const _VEHICLE_OWNERSHIP = [
@@ -3089,7 +3131,7 @@ function _readNewDriverFioFields() {
 
 function _clearNewDriverCarrierFields() {
   [
-    "newDriverLastName", "newDriverFirstName", "newDriverMiddleName", "newDriverPhone", "newDriverInPerson",
+    "newDriverLastName", "newDriverFirstName", "newDriverMiddleName", "newDriverPhone", "newDriverAccessPin", "newDriverInPerson",
     "newDriverVuSeries", "newDriverVuNumber", "newDriverVuIssuer", "newDriverVuDate", "newDriverInnFl",
     "newDriverCarrierName", "newDriverCarrierInn", "newDriverCarrierKpp", "newDriverCarrierPhone",
     "newDriverCarrierFnsId",
@@ -3115,7 +3157,7 @@ function renderSupplyDriversTable() {
   if (!tbody) return;
   tbody.innerHTML = "";
   if (!_supplyDriversCache.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty-cell">Водители не добавлены</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-cell">Водители не добавлены</td></tr>';
     requestAnimationFrame(initAllSettingResizers);
     return;
   }
@@ -3128,6 +3170,7 @@ function renderSupplyDriversTable() {
       <td>${idx + 1}</td>
       <td class="editable-cell">${esc(driverFullNameLine(d))}</td>
       <td class="editable-cell">${esc(d.phone || "")}</td>
+      <td class="editable-cell">${esc(d.access_pin || "")}</td>
       <td class="editable-cell">${esc(d.in_person || "")}</td>
       <td class="editable-cell">${esc(driverDocumentsLine(d))}</td>
       <td class="editable-cell">${esc(driverCarrierLine(d))}</td>
@@ -3185,7 +3228,7 @@ function toggleAddDriverForm(show) {
   }
 }
 
-async function _createDriverRequest(fioPayload, infoEl, documents, in_person, vehicles, carrierPayload, docsPayload, phone) {
+async function _createDriverRequest(fioPayload, infoEl, documents, in_person, vehicles, carrierPayload, docsPayload, phone, accessPin) {
   if (infoEl) { infoEl.textContent = "Сохранение…"; infoEl.style.color = ""; }
   const fio = _normalizeDriverFioObj(fioPayload || {});
   const name = driverFullNameLine(fio);
@@ -3195,6 +3238,7 @@ async function _createDriverRequest(fioPayload, infoEl, documents, in_person, ve
     first_name: fio.first_name,
     middle_name: fio.middle_name,
     phone: phone || "",
+    access_pin: accessPin || "",
     documents: documents || "",
     in_person: in_person || "",
     vehicles: vehicles || [],
@@ -3208,9 +3252,11 @@ async function _createDriverRequest(fioPayload, infoEl, documents, in_person, ve
   }).catch(() => null);
   if (!res || !res.ok) {
     const err = await res?.json().catch(() => ({})) || {};
-    const msg = res?.status === 409
-      ? `Водитель «${name}» уже существует`
-      : (err.detail || "Ошибка сохранения");
+    const msg = (res?.status === 409 && err.detail)
+      ? String(err.detail)
+      : (res?.status === 409
+        ? `Водитель «${name}» уже существует`
+        : (err.detail || "Ошибка сохранения"));
     if (infoEl) { infoEl.textContent = msg; infoEl.style.color = "#b91c1c"; }
     return false;
   }
@@ -3222,6 +3268,7 @@ async function saveSupplyDriver() {
   const fio = _readNewDriverFioFields();
   const name = driverFullNameLine(fio);
   const phone = document.getElementById("newDriverPhone")?.value.trim() || "";
+  const accessPin = document.getElementById("newDriverAccessPin")?.value.trim() || "";
   const inpVal = document.getElementById("newDriverInPerson")?.value.trim() || "";
   const vehicles = _collectVehicles("newDriverVehiclesList");
   if (!name) { if (info) { info.textContent = "Введите фамилию"; info.style.color = "#b91c1c"; } return; }
@@ -3230,6 +3277,7 @@ async function saveSupplyDriver() {
     _readNewDriverCarrierFields(),
     _readNewDriverDocFields(),
     phone,
+    accessPin,
   );
   if (!ok) return;
   if (info) { info.textContent = "Добавлен"; info.style.color = "#16a34a"; }
@@ -3247,9 +3295,10 @@ async function startEditDriver(id) {
   const fio = _normalizeDriverFioObj(item);
   cells[0].innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
   cells[1].innerHTML = `<input class="edit-inline-input" data-field="phone" value="${esc(item.phone||"")}" placeholder="+7 …" />`;
-  cells[2].innerHTML = `<input class="edit-inline-input" data-field="inp" value="${esc(item.in_person||"")}" />`;
-  cells[3].innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
+  cells[2].innerHTML = `<input class="edit-inline-input" data-field="access_pin" value="${esc(item.access_pin||"")}" placeholder="4–8 цифр" inputmode="numeric" maxlength="8" />`;
+  cells[3].innerHTML = `<input class="edit-inline-input" data-field="inp" value="${esc(item.in_person||"")}" />`;
   cells[4].innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
+  if (cells[5]) cells[5].innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
   let vehicles = [];
   try { vehicles = JSON.parse(item.vehicles_json || "[]"); } catch(_) {}
   const vCell = tr.querySelector(".editable-cell-vehicles");
@@ -3258,7 +3307,7 @@ async function startEditDriver(id) {
   fioRow.className = "driver-fio-edit-row";
   fioRow.dataset.forId = String(id);
   fioRow.style.background = "#f8fafc";
-  fioRow.innerHTML = `<td colspan="8" style="padding:12px 8px;border-top:none;white-space:normal">
+  fioRow.innerHTML = `<td colspan="9" style="padding:12px 8px;border-top:none;white-space:normal">
     <div class="small" style="margin-bottom:8px;color:#64748b">ФИО водителя (поля эТрН СвВодит)</div>
     <div class="worker-form-grid" style="margin:0">
       <div class="wfg-field"><label class="wfg-label">Фамилия</label>
@@ -3274,7 +3323,7 @@ async function startEditDriver(id) {
   docsRow.className = "driver-docs-edit-row";
   docsRow.dataset.forId = String(id);
   docsRow.style.background = "#f8fafc";
-  docsRow.innerHTML = `<td colspan="8" style="padding:12px 8px;border-top:none;white-space:normal">
+  docsRow.innerHTML = `<td colspan="9" style="padding:12px 8px;border-top:none;white-space:normal">
     <div class="small" style="margin-bottom:8px;color:#64748b">Документы водителя (поля эТрН СвВодит)</div>
     ${_driverDocsEditInputsHtml(item)}
   </td>`;
@@ -3284,7 +3333,7 @@ async function startEditDriver(id) {
   vehiclesRow.dataset.forId = String(id);
   vehiclesRow.style.background = "#f8fafc";
   const listId = `editDriverVehicles_${id}`;
-  vehiclesRow.innerHTML = `<td colspan="8" style="padding:12px 8px;border-top:none;white-space:normal">
+  vehiclesRow.innerHTML = `<td colspan="9" style="padding:12px 8px;border-top:none;white-space:normal">
     <div class="small" style="margin-bottom:8px;color:#64748b">Сведения о транспортном средстве (поля эТрН СвТС)</div>
     <div id="${listId}" class="driver-vehicles-list"></div>
     <button type="button" class="secondary" style="font-size:12px;padding:4px 10px;margin-top:8px" onclick="addDriverVehicleRow('${listId}')">+ Добавить автомобиль</button>
@@ -3296,7 +3345,7 @@ async function startEditDriver(id) {
   carrierRow.className = "driver-carrier-edit-row";
   carrierRow.dataset.forId = String(id);
   carrierRow.style.background = "#f8fafc";
-  carrierRow.innerHTML = `<td colspan="8" style="padding:12px 8px;border-top:none;white-space:normal">
+  carrierRow.innerHTML = `<td colspan="9" style="padding:12px 8px;border-top:none;white-space:normal">
     <div class="small" style="margin-bottom:8px;color:#64748b">Перевозчик (поля эТрН)</div>
     ${_carrierEditInputsHtml(item)}
   </td>`;
@@ -3323,6 +3372,7 @@ async function saveEditDriver(id) {
   };
   const name = driverFullNameLine(fio);
   const phone = tr.querySelector("[data-field='phone']")?.value.trim() || "";
+  const accessPin = tr.querySelector("[data-field='access_pin']")?.value.trim() || "";
   const inp = tr.querySelector("[data-field='inp']")?.value.trim() || "";
   const vehicles = _collectVehicles(`editDriverVehicles_${id}`);
   if (!name) return;
@@ -3332,6 +3382,7 @@ async function saveEditDriver(id) {
     first_name: fio.first_name,
     middle_name: fio.middle_name,
     phone,
+    access_pin: accessPin,
     in_person: inp,
     documents: item?.documents || "",
     vehicles,
@@ -18450,6 +18501,8 @@ window.createChatQuickTemplate = createChatQuickTemplate;
 // Supplies module
 window.toggleAddDriverForm = toggleAddDriverForm;
 window.saveSupplyDriver = saveSupplyDriver;
+window.copyDriverPublicLink = copyDriverPublicLink;
+window.loadDriverPublicLink = loadDriverPublicLink;
 window.deleteSupplyDriver = deleteSupplyDriver;
 window.addDriverFromModal = addDriverFromModal;
 window.cancelNewDriverInModal = cancelNewDriverInModal;

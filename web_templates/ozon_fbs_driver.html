@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/ozon_fbs_driver.css?v=1" />
+  <link rel="stylesheet" href="/static/ozon_fbs_driver.css?v=2" />
 </head>
 <body class="ofd-body">
   <div class="ofd-app">
@@ -28,9 +28,11 @@
     window.OFD_BOOT = {
       can_view: {{CAN_VIEW_OZON_FBS_DRIVER}},
       is_tenant_owner: {{IS_TENANT_OWNER}},
-      email: "{{SAFE_EMAIL}}"
+      email: "{{SAFE_EMAIL}}",
+      page_mode: "{{PAGE_MODE}}",
+      page_token: "{{PAGE_TOKEN}}"
     };
   </script>
-  <script src="/static/ozon_fbs_driver.js?v=1"></script>
+  <script src="/static/ozon_fbs_driver.js?v=2"></script>
 </body>
 </html>

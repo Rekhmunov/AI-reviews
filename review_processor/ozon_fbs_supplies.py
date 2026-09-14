@@ -2664,13 +2664,33 @@ def set_supply_driver(
 DRIVER_PAGE_CONTAINER_STATUSES = frozenset({"formed", "acceptance_in_progress"})
 
 
+
+def driver_owns_vehicle_plate(
+    repo: ReviewRepository, *, user_id: int, driver_id: int, vehicle_number: str
+) -> bool:
+    """True if ``vehicle_number`` belongs to the given driver catalog entry."""
+    want = _norm_vehicle_plate(vehicle_number)
+    if not want or int(driver_id or 0) <= 0:
+        return False
+    plates = list_driver_page_vehicle_plates(
+        repo, user_id=user_id, driver_id=int(driver_id)
+    )
+    return any(_norm_vehicle_plate(p.get("number")) == want for p in plates)
+
+
 def list_driver_page_vehicle_plates(
-    repo: ReviewRepository, *, user_id: int
+    repo: ReviewRepository, *, user_id: int, driver_id: int | None = None
 ) -> list[dict[str, str]]:
-    """Unique reg. plates from the drivers catalog for the driver page dropdown."""
+    """Unique reg. plates from the drivers catalog for the driver page dropdown.
+
+    When ``driver_id`` is set, only that driver's plates are returned.
+    """
     seen: set[str] = set()
     out: list[dict[str, str]] = []
+    want_driver = int(driver_id) if driver_id else 0
     for opt in list_supply_driver_options(repo, user_id=user_id):
+        if want_driver and int(opt.get("id") or 0) != want_driver:
+            continue
         for plate in opt.get("vehicles") or []:
             if not isinstance(plate, dict):
                 continue

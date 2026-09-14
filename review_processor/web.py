@@ -762,6 +762,10 @@ class SupplyManualFieldsRequest(BaseModel):
     drivers_json: str | None = None  # JSON array of {pass_number, driver_name, pallets_count}
 
 
+class OzonFbsDriverPinUnlockRequest(BaseModel):
+    pin: str = ""
+
+
 class CreateSupplyDriverRequest(BaseModel):
     full_name: str = ""
     last_name: str = ""
@@ -792,6 +796,7 @@ class CreateSupplyDriverRequest(BaseModel):
     doc_vu_issuer: str = ""
     doc_vu_date: str = ""
     doc_inn_fl: str = ""
+    access_pin: str = ""
 
 
 class CreateSupplyWarehouseRequest(BaseModel):
@@ -903,6 +908,7 @@ class UpdateSupplyDriverRequest(BaseModel):
     doc_vu_issuer: str = ""
     doc_vu_date: str = ""
     doc_inn_fl: str = ""
+    access_pin: str = ""
 
 
 class ManagerSuppliesAccessRequest(BaseModel):
@@ -2362,6 +2368,28 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         _ensure_csrf_cookie(response, request)
         return response
 
+
+    @app.get("/ozon-fbs/driver/p/{page_token}", response_class=HTMLResponse)
+    def ozon_fbs_driver_public_page(request: Request, page_token: str) -> HTMLResponse:
+        """Public PIN-gated driver page (no account). Scoped by cabinet page token."""
+        del request
+        token = str(page_token or "").strip()
+        owner_id = (
+            repository.find_user_id_by_ozon_fbs_driver_page_token(token) if token else None
+        )
+        if not owner_id:
+            return HTMLResponse(
+                "<h1>Ссылка недействительна</h1>"
+                "<p>Проверьте адрес страницы для водителя.</p>",
+                status_code=404,
+            )
+        return HTMLResponse(
+            build_ozon_fbs_driver_html(
+                user=None,
+                repository=repository,
+                public_page_token=token,
+            )
+        )
 
     @app.get("/ozon-fbs/driver", response_class=HTMLResponse)
     @app.get("/ozon-fbs/driver/{path:path}", response_class=HTMLResponse)
@@ -14445,6 +14473,109 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             allowed_source_ids=allowed,
         )
 
+    @app.get("/api/ozon-fbs/driver/public-link")
+    def ozon_fbs_driver_public_link(request: Request) -> dict[str, object]:
+        """Owner-only: public URL path for the PIN-gated driver page."""
+        user = _require_user(request)
+        if not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Ссылка для водителя доступна только главному пользователю",
+            )
+        owner_id = _supply_owner_id(user)
+        repository._ensure_supply_tables()
+        token = repository.ensure_ozon_fbs_driver_page_token(user_id=owner_id)
+        if not token:
+            raise HTTPException(status_code=500, detail="Не удалось создать публичную ссылку")
+        path = f"/ozon-fbs/driver/p/{token}"
+        return {"ok": True, "path": path, "token": token}
+
+    @app.post("/api/ozon-fbs/driver/p/{page_token}/unlock")
+    def ozon_fbs_driver_public_unlock(
+        request: Request, page_token: str, payload: OzonFbsDriverPinUnlockRequest
+    ) -> dict[str, object]:
+        """Public: unlock driver plates with PIN. Access token stays in browser memory."""
+        from . import ozon_fbs_supplies as oz_sup
+
+        del request
+        token = str(page_token or "").strip()
+        owner_id = (
+            repository.find_user_id_by_ozon_fbs_driver_page_token(token) if token else None
+        )
+        if not owner_id:
+            raise HTTPException(status_code=404, detail="Ссылка недействительна")
+        repository._ensure_supply_tables()
+        pin = repository.normalize_driver_access_pin(payload.pin)
+        if not pin:
+            raise HTTPException(status_code=400, detail="Введите ПИН")
+        driver = repository.find_supply_driver_by_access_pin(
+            user_id=owner_id, access_pin=pin
+        )
+        if driver is None:
+            raise HTTPException(status_code=403, detail="Неверный ПИН")
+        driver_id = int(driver.get("id") or 0)
+        plates = oz_sup.list_driver_page_vehicle_plates(
+            repository, user_id=owner_id, driver_id=driver_id
+        )
+        access = repository.create_ozon_fbs_driver_access_session(
+            user_id=owner_id, driver_id=driver_id
+        )
+        return {
+            "ok": True,
+            "access_token": access,
+            "driver_id": driver_id,
+            "driver_name": str(driver.get("full_name") or "").strip(),
+            "items": plates,
+            "total": len(plates),
+        }
+
+    @app.get("/api/ozon-fbs/driver/p/{page_token}/cargo-places")
+    def ozon_fbs_driver_public_cargo_places(
+        request: Request,
+        page_token: str,
+        vehicle_number: str = "",
+        access_token: str = "",
+    ) -> dict[str, object]:
+        """Public: cargo places for a plate of the PIN-unlocked driver."""
+        from . import ozon_fbs as ozon_fbs_mod
+        from . import ozon_fbs_supplies as oz_sup
+
+        token = str(page_token or "").strip()
+        owner_id = (
+            repository.find_user_id_by_ozon_fbs_driver_page_token(token) if token else None
+        )
+        if not owner_id:
+            raise HTTPException(status_code=404, detail="Ссылка недействительна")
+        header_token = str(request.headers.get("X-Driver-Access-Token") or "").strip()
+        sess_token = header_token or str(access_token or "").strip()
+        session = repository.get_ozon_fbs_driver_access_session(sess_token)
+        if session is None or int(session.get("user_id") or 0) != int(owner_id):
+            raise HTTPException(status_code=401, detail="Введите ПИН заново")
+        driver_id = int(session.get("driver_id") or 0)
+        plate = str(vehicle_number or "").strip()
+        if not plate:
+            raise HTTPException(status_code=400, detail="Укажите гос. номер")
+        if not oz_sup.driver_owns_vehicle_plate(
+            repository,
+            user_id=owner_id,
+            driver_id=driver_id,
+            vehicle_number=plate,
+        ):
+            raise HTTPException(status_code=403, detail="Нет доступа к этому номеру")
+
+        def _client_for_source(source_id: int):
+            _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
+            return ozon_fbs_mod.OzonFbsClient(client_id=client_id, api_key=api_key)
+
+        return oz_sup.list_driver_page_cargo_places(
+            repository,
+            user_id=owner_id,
+            vehicle_number=plate,
+            client_for_source=_client_for_source,
+            allowed_source_ids=None,
+        )
+
+
     @app.post("/api/ozon-fbs/supplies/{supply_id}/move-to-delivering")
     def ozon_fbs_supply_move_to_delivering(
         request: Request,
@@ -19238,6 +19369,11 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         repository._ensure_supply_tables()
         if repository.driver_exists(user_id=owner_id, full_name=name):
             raise HTTPException(status_code=409, detail=f"Водитель «{name}» уже существует")
+        pin = repository.normalize_driver_access_pin(payload.access_pin)
+        if pin and (len(pin) < 4 or len(pin) > 8):
+            raise HTTPException(status_code=400, detail="ПИН должен содержать от 4 до 8 цифр")
+        if pin and repository.driver_access_pin_taken(user_id=owner_id, access_pin=pin):
+            raise HTTPException(status_code=409, detail="Такой ПИН уже есть у другого водителя")
         return repository.create_supply_driver(
             user_id=owner_id,
             full_name=name,
@@ -19269,6 +19405,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             doc_vu_issuer=payload.doc_vu_issuer,
             doc_vu_date=payload.doc_vu_date,
             doc_inn_fl=payload.doc_inn_fl,
+            access_pin=pin,
         )
 
     @app.patch("/api/supply-drivers/{driver_id}")
@@ -19285,6 +19422,13 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         name = fio["full_name"]
         if not name:
             raise HTTPException(status_code=400, detail="Укажите фамилию или ФИО")
+        pin = repository.normalize_driver_access_pin(payload.access_pin)
+        if pin and (len(pin) < 4 or len(pin) > 8):
+            raise HTTPException(status_code=400, detail="ПИН должен содержать от 4 до 8 цифр")
+        if pin and repository.driver_access_pin_taken(
+            user_id=_supply_owner_id(user), access_pin=pin, exclude_driver_id=driver_id
+        ):
+            raise HTTPException(status_code=409, detail="Такой ПИН уже есть у другого водителя")
         ok = repository.update_supply_driver(
             user_id=_supply_owner_id(user),
             driver_id=driver_id,
@@ -19317,6 +19461,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             doc_vu_issuer=payload.doc_vu_issuer,
             doc_vu_date=payload.doc_vu_date,
             doc_inn_fl=payload.doc_inn_fl,
+            access_pin=pin,
         )
         if not ok:
             raise HTTPException(status_code=404, detail="Водитель не найден")
@@ -22462,8 +22607,42 @@ def build_wb_fbs_tsd_html(user: dict[str, object], repository=None) -> str:
     )
 
 
-def build_ozon_fbs_driver_html(user: dict[str, object], repository=None) -> str:
-    """Standalone Ozon FBS driver page (plates + cargo places). Isolated from app."""
+def build_ozon_fbs_driver_html(
+    user: dict[str, object] | None,
+    repository=None,
+    *,
+    public_page_token: str | None = None,
+) -> str:
+    """Standalone Ozon FBS driver page (plates + cargo places). Isolated from app.
+
+    Owner mode (logged-in): all plates, no PIN.
+    Public mode (``public_page_token``): PIN gate, then only that driver's plates.
+    """
+    page_token = str(public_page_token or "").strip()
+    if page_token:
+        return _render_template(
+            "ozon_fbs_driver.html",
+            {
+                "SAFE_EMAIL": "",
+                "CAN_VIEW_OZON_FBS_DRIVER": "true",
+                "IS_TENANT_OWNER": "false",
+                "PAGE_MODE": "pin",
+                "PAGE_TOKEN": page_token,
+            },
+        )
+
+    if user is None:
+        return _render_template(
+            "ozon_fbs_driver.html",
+            {
+                "SAFE_EMAIL": "",
+                "CAN_VIEW_OZON_FBS_DRIVER": "false",
+                "IS_TENANT_OWNER": "false",
+                "PAGE_MODE": "owner",
+                "PAGE_TOKEN": "",
+            },
+        )
+
     safe_email = escape(str(user["email"]))
     role = str(user.get("role") or ROLE_USER)
     user_id = int(user.get("id") or 0)
@@ -22482,14 +22661,24 @@ def build_ozon_fbs_driver_html(user: dict[str, object], repository=None) -> str:
             for v in sources.values()
             if isinstance(v, dict)
         )
+    public_token = ""
+    if is_tenant_owner and repository is not None:
+        try:
+            repository._ensure_supply_tables()
+            public_token = repository.ensure_ozon_fbs_driver_page_token(user_id=user_id)
+        except Exception:
+            public_token = ""
     return _render_template(
         "ozon_fbs_driver.html",
         {
             "SAFE_EMAIL": safe_email,
             "CAN_VIEW_OZON_FBS_DRIVER": "true" if can_view else "false",
             "IS_TENANT_OWNER": "true" if is_tenant_owner else "false",
+            "PAGE_MODE": "owner",
+            "PAGE_TOKEN": public_token,
         },
     )
+
 
 
 def build_app_html(user: dict[str, object], repository=None) -> str:

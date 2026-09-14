@@ -7992,6 +7992,19 @@ class ReviewRepository:
         conn.execute(
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS stock_productions TEXT NOT NULL DEFAULT '[]'"
         )
+        conn.execute(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS ozon_fbs_driver_page_token TEXT NOT NULL DEFAULT ''"
+        )
+        try:
+            conn.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_users_ozon_fbs_driver_page_token
+                ON users (ozon_fbs_driver_page_token)
+                WHERE ozon_fbs_driver_page_token <> ''
+                """
+            )
+        except Exception:
+            pass
         self._ensure_supply_balances_tables(conn)
         # Add transit/actual warehouse columns (idempotent)
         conn.execute(
@@ -8118,6 +8131,34 @@ class ReviewRepository:
             )
         conn.execute(
             "ALTER TABLE supply_drivers ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT ''"
+        )
+        conn.execute(
+            "ALTER TABLE supply_drivers ADD COLUMN IF NOT EXISTS access_pin TEXT NOT NULL DEFAULT ''"
+        )
+        try:
+            conn.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_supply_drivers_user_access_pin
+                ON supply_drivers (user_id, access_pin)
+                WHERE access_pin <> ''
+                """
+            )
+        except Exception:
+            pass
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ozon_fbs_driver_access_sessions (
+                token TEXT PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                driver_id BIGINT NOT NULL,
+                expires_at TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ozon_fbs_driver_access_sessions_exp "
+            "ON ozon_fbs_driver_access_sessions(expires_at)"
         )
         # ── OZON Supplies module (fully isolated from WB) ──────────────────────
         conn.execute(
@@ -8955,6 +8996,176 @@ class ReviewRepository:
             ).fetchone()
         return row is not None
 
+
+    @staticmethod
+    def normalize_driver_access_pin(raw: object) -> str:
+        """Digits-only PIN for the public driver page (empty = no public access)."""
+        return "".join(ch for ch in str(raw or "") if ch.isdigit())
+
+    def driver_access_pin_taken(
+        self, *, user_id: int, access_pin: str, exclude_driver_id: int | None = None
+    ) -> bool:
+        pin = self.normalize_driver_access_pin(access_pin)
+        if not pin:
+            return False
+        with self._connect() as conn:
+            if exclude_driver_id is not None:
+                row = conn.execute(
+                    self._sql(
+                        "SELECT id FROM supply_drivers "
+                        "WHERE user_id = ? AND access_pin = ? AND id <> ?"
+                    ),
+                    (user_id, pin, int(exclude_driver_id)),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    self._sql(
+                        "SELECT id FROM supply_drivers "
+                        "WHERE user_id = ? AND access_pin = ?"
+                    ),
+                    (user_id, pin),
+                ).fetchone()
+        return row is not None
+
+    def find_supply_driver_by_access_pin(
+        self, *, user_id: int, access_pin: str
+    ) -> dict[str, Any] | None:
+        pin = self.normalize_driver_access_pin(access_pin)
+        if not pin:
+            return None
+        with self._connect() as conn:
+            row = conn.execute(
+                self._sql(
+                    "SELECT * FROM supply_drivers WHERE user_id = ? AND access_pin = ?"
+                ),
+                (user_id, pin),
+            ).fetchone()
+        if row is None:
+            return None
+        d = self._row_to_dict(row)
+        fio = self._normalize_driver_fio_fields(
+            last_name=str(d.get("last_name") or ""),
+            first_name=str(d.get("first_name") or ""),
+            middle_name=str(d.get("middle_name") or ""),
+            full_name=str(d.get("full_name") or ""),
+        )
+        d.update(fio)
+        return d
+
+    def get_supply_driver(
+        self, *, user_id: int, driver_id: int
+    ) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                self._sql("SELECT * FROM supply_drivers WHERE user_id = ? AND id = ?"),
+                (user_id, int(driver_id)),
+            ).fetchone()
+        if row is None:
+            return None
+        d = self._row_to_dict(row)
+        fio = self._normalize_driver_fio_fields(
+            last_name=str(d.get("last_name") or ""),
+            first_name=str(d.get("first_name") or ""),
+            middle_name=str(d.get("middle_name") or ""),
+            full_name=str(d.get("full_name") or ""),
+        )
+        d.update(fio)
+        return d
+
+    def ensure_ozon_fbs_driver_page_token(self, *, user_id: int) -> str:
+        """Return (and create if needed) the public driver-page token for the owner."""
+        import secrets as _secrets
+
+        with self._connect() as conn:
+            row = conn.execute(
+                self._sql(
+                    "SELECT ozon_fbs_driver_page_token FROM users WHERE id = ?"
+                ),
+                (int(user_id),),
+            ).fetchone()
+            if row is None:
+                return ""
+            token = str(self._row_to_dict(row).get("ozon_fbs_driver_page_token") or "").strip()
+            if token:
+                return token
+            for _ in range(8):
+                token = _secrets.token_urlsafe(18)
+                try:
+                    conn.execute(
+                        self._sql(
+                            "UPDATE users SET ozon_fbs_driver_page_token = ? WHERE id = ?"
+                        ),
+                        (token, int(user_id)),
+                    )
+                    return token
+                except Exception:
+                    continue
+            return ""
+
+    def find_user_id_by_ozon_fbs_driver_page_token(self, page_token: str) -> int | None:
+        token = str(page_token or "").strip()
+        if not token:
+            return None
+        with self._connect() as conn:
+            row = conn.execute(
+                self._sql(
+                    "SELECT id FROM users "
+                    "WHERE ozon_fbs_driver_page_token = ? AND is_deleted = FALSE"
+                ),
+                (token,),
+            ).fetchone()
+        if row is None:
+            return None
+        return int(self._row_to_dict(row)["id"])
+
+    def create_ozon_fbs_driver_access_session(
+        self, *, user_id: int, driver_id: int, ttl_seconds: int = 12 * 3600
+    ) -> str:
+        import secrets as _secrets
+        from datetime import datetime, timedelta, timezone
+
+        token = _secrets.token_urlsafe(32)
+        now = datetime.now(timezone.utc)
+        expires = (now + timedelta(seconds=int(ttl_seconds))).strftime("%Y-%m-%dT%H:%M:%SZ")
+        created = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+        with self._connect() as conn:
+            conn.execute(
+                self._sql(
+                    "DELETE FROM ozon_fbs_driver_access_sessions WHERE expires_at <= ?"
+                ),
+                (created,),
+            )
+            conn.execute(
+                self._sql(
+                    "INSERT INTO ozon_fbs_driver_access_sessions "
+                    "(token, user_id, driver_id, expires_at, created_at) "
+                    "VALUES (?, ?, ?, ?, ?)"
+                ),
+                (token, int(user_id), int(driver_id), expires, created),
+            )
+        return token
+
+    def get_ozon_fbs_driver_access_session(
+        self, token: str
+    ) -> dict[str, Any] | None:
+        raw = str(token or "").strip()
+        if not raw:
+            return None
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with self._connect() as conn:
+            row = conn.execute(
+                self._sql(
+                    "SELECT * FROM ozon_fbs_driver_access_sessions "
+                    "WHERE token = ? AND expires_at > ?"
+                ),
+                (raw, now),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_dict(row)
+
     def create_supply_driver(
         self,
         *,
@@ -8988,6 +9199,7 @@ class ReviewRepository:
         doc_vu_issuer: str = "",
         doc_vu_date: str = "",
         doc_inn_fl: str = "",
+        access_pin: str = "",
     ) -> dict[str, Any]:
         import json as _j
         now = _utc_now()
@@ -8998,6 +9210,7 @@ class ReviewRepository:
             full_name=full_name,
         )
         phone_val = self._normalize_driver_phone(phone)
+        pin_val = self.normalize_driver_access_pin(access_pin)
         vj = _j.dumps(self._normalize_vehicles_list(vehicles), ensure_ascii=False)
         cf = self._normalize_carrier_fields(
             carrier_name=carrier_name,
@@ -9034,8 +9247,8 @@ class ReviewRepository:
                 "carrier_addr_index, carrier_addr_region_code, carrier_addr_district, "
                 "carrier_addr_city, carrier_addr_settlement, carrier_addr_street, "
                 "carrier_addr_house, carrier_addr_corpus, carrier_addr_flat, carrier_addr_fias, "
-                "doc_vu_series, doc_vu_number, doc_vu_issuer, doc_vu_date, doc_inn_fl, created_at"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "doc_vu_series, doc_vu_number, doc_vu_issuer, doc_vu_date, doc_inn_fl, access_pin, created_at"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     user_id,
                     fio["full_name"],
@@ -9067,6 +9280,7 @@ class ReviewRepository:
                     df["doc_vu_issuer"],
                     df["doc_vu_date"],
                     df["doc_inn_fl"],
+                    pin_val,
                     now,
                 ),
             )
@@ -9125,6 +9339,7 @@ class ReviewRepository:
         doc_vu_issuer: str = "",
         doc_vu_date: str = "",
         doc_inn_fl: str = "",
+        access_pin: str = "",
     ) -> bool:
         import json as _j
         fio = self._normalize_driver_fio_fields(
@@ -9134,6 +9349,7 @@ class ReviewRepository:
             full_name=full_name,
         )
         phone_val = self._normalize_driver_phone(phone)
+        pin_val = self.normalize_driver_access_pin(access_pin)
         vj = _j.dumps(self._normalize_vehicles_list(vehicles), ensure_ascii=False)
         cf = self._normalize_carrier_fields(
             carrier_name=carrier_name,
@@ -9187,7 +9403,8 @@ class ReviewRepository:
                     "carrier_addr_city = ?, carrier_addr_settlement = ?, carrier_addr_street = ?, "
                     "carrier_addr_house = ?, carrier_addr_corpus = ?, carrier_addr_flat = ?, "
                     "carrier_addr_fias = ?, "
-                    "doc_vu_series = ?, doc_vu_number = ?, doc_vu_issuer = ?, doc_vu_date = ?, doc_inn_fl = ? "
+                    "doc_vu_series = ?, doc_vu_number = ?, doc_vu_issuer = ?, doc_vu_date = ?, doc_inn_fl = ?, "
+                    "access_pin = ? "
                     "WHERE user_id = ? AND id = ?"
                 ),
                 (
@@ -9220,6 +9437,7 @@ class ReviewRepository:
                     df["doc_vu_issuer"],
                     df["doc_vu_date"],
                     df["doc_inn_fl"],
+                    pin_val,
                     user_id,
                     driver_id,
                 ),
