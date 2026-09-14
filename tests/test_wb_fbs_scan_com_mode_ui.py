@@ -87,7 +87,7 @@ def test_scan_mode_toggle_css() -> None:
 
 def test_cache_bump() -> None:
     assert "style.css?v=362" in APP_HTML
-    assert "app.js?v=620" in APP_HTML
+    assert "app.js?v=624" in APP_HTML
 
 
 def test_permissions_policy_allows_serial() -> None:
