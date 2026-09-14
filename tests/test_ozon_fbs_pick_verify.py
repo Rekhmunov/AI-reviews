@@ -48,9 +48,12 @@ def test_build_pick_verify_payload_plain_only() -> None:
         payload = build_pick_verify_payload(
             MagicMock(), user_id=1, source_id=2, supply_id="OZ-1", resolve_kiz=False
         )
-    assert payload["plain_count"] == 1
+    # Frozen composition: cancelled plain rows stay in the modal payload.
+    assert payload["plain_count"] == 2
     pns = {r["posting_number"] for r in payload["rows"]}
-    assert pns == {"P-1"}
+    assert pns == {"P-1", "P-3"}
+    by_pn = {r["posting_number"]: r for r in payload["rows"]}
+    assert by_pn["P-3"]["cancelled"] is True
 
 
 def test_build_pick_verify_payload_resolves_kiz_then_filters_plain() -> None:

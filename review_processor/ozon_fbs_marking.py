@@ -235,9 +235,7 @@ def build_marking_payload(
     orders = [
         o
         for o in (detail.get("orders") or [])
-        if isinstance(o, dict)
-        and o.get("kiz_required")
-        and not o.get("cancelled")
+        if isinstance(o, dict) and o.get("kiz_required")
     ]
     posting_numbers = [
         str(o.get("posting_number") or "").strip()
@@ -285,7 +283,7 @@ def build_marking_payload(
                 "gtd_required": gtd_required,
                 "gtd_number": str(loc.get("gtd_number") or "").strip(),
                 "cancel_reason_label": str(o.get("cancel_reason_label") or ""),
-                "cancelled": False,
+                "cancelled": bool(o.get("cancelled")),
                 "order_id": o.get("order_id"),
                 "order_number": str(o.get("order_number") or "").strip(),
                 "created_at_ozon": o.get("created_at_ozon") or o.get("in_process_at") or "",

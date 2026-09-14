@@ -3386,18 +3386,39 @@
     }
   }
 
+  function _ozonFbsRefreshOpenModalsAfterCancelFlag() {
+    // Keep cancelled rows in KIZ / pick modals; only refresh filters + counters.
+    if (Array.isArray(ozonFbsKizState.rows) && ozonFbsKizState.rows.length) {
+      _ozonFbsKizRebuildIndexes();
+      renderOzonFbsKizTable();
+      _ozonFbsKizUpdateFilterCounts();
+      _ozonFbsKizUpdateScanCounter();
+    }
+    if (Array.isArray(ozonFbsPickState.rows) && ozonFbsPickState.rows.length) {
+      renderOzonFbsPickVerifyTable();
+      _ozonFbsPickUpdateFilterCounts();
+      _ozonFbsPickUpdateScanCounter();
+    }
+    if (typeof window._ozonFbsContainerUpdateCounters === "function") {
+      try {
+        window._ozonFbsContainerUpdateCounters();
+      } catch (_e) {
+        /* ignore */
+      }
+    }
+    _ozonFbsKizSplitSetTone(_ozonFbsKizToneFromSupply(supplyDetailState.supply));
+    _ozonFbsPickSplitSetTone(_ozonFbsPickToneFromSupply(supplyDetailState.supply));
+    _ozonFbsSupplyDetailUpdateNewWarn();
+  }
+
   function closeOzonFbsPostingStatusModal() {
     if (ozonFbsPostingStatusState.busy) return;
-    const pn = String(ozonFbsPostingStatusState.postingNumber || "").trim();
-    const wasCancelled = !!ozonFbsPostingStatusState.cancelled;
     ozonFbsPostingStatusState.postingNumber = "";
     ozonFbsPostingStatusState.cancelled = false;
     ozonFbsPostingStatusState.statusLabel = "";
     ozonFbsPostingStatusState.mode = "";
     _ozonFbsPostingStatusSetVisible(false);
-    if (wasCancelled && pn) {
-      _ozonFbsRemovePostingFromOpenModals(pn);
-    }
+    // Frozen composition: cancelled stay in modal/supply until pick-list + stickers reset.
   }
 
   function _ozonFbsCopyTextFallback(text) {
@@ -3510,7 +3531,7 @@
           cancelled,
         },
       ]);
-      // Mark row cancelled in open modal state (removal happens on close).
+      // Mark row cancelled in open modal state; keep in composition until pick-list+stickers reset.
       for (const row of [...(ozonFbsKizState.rows || []), ...(ozonFbsPickState.rows || [])]) {
         if (String(row?.posting_number || "").trim() !== pn) continue;
         row.status = status || row.status;
@@ -3519,6 +3540,9 @@
           row.cancelled = true;
           row.cancel_reason_label = cancelLabel || "Отменено";
         }
+      }
+      if (cancelled) {
+        _ozonFbsRefreshOpenModalsAfterCancelFlag();
       }
 
       if (cancelled) {
@@ -3530,7 +3554,8 @@
             (cancelLabel ? ` (${esc(cancelLabel)})` : "") +
             `.</p>` +
             `<p class="ozon-fbs-move-delivering-text">` +
-            `После закрытия этого окна заказ будет удалён из модалки «Товары с КИЗ» / «Товары без КИЗ».` +
+            `Заказ остаётся в поставке и в модалке «Товары с КИЗ» / «Товары без КИЗ» ` +
+            `(фильтр «Отменённые»). В счётчики «Проверено» / «Просканировано» / «Прикреплено» не входит.` +
             `</p>`,
           kind: "cancelled",
         });
@@ -9664,11 +9689,14 @@
     let cancelled = 0;
     for (const r of ozonFbsKizState.rows || []) {
       if (!_ozonFbsKizRowMatchesSearch(r, q)) continue;
+      if (_ozonFbsRowIsCancelled(r)) {
+        cancelled += 1;
+        continue;
+      }
       if (_ozonFbsKizRowIsComplete(r)) filled += 1;
       else empty += 1;
       if (r?.gtd_required) legal += 1;
       if (_ozonFbsKizRowHasError(r)) errors += 1;
-      if (_ozonFbsRowIsCancelled(r)) cancelled += 1;
     }
     _ozonFbsSetFilterCount("ozonFbsKizFilterFilledCount", filled);
     _ozonFbsSetFilterCount("ozonFbsKizFilterEmptyCount", empty);
@@ -9687,10 +9715,13 @@
     let cancelled = 0;
     for (const r of ozonFbsPickState.rows || []) {
       if (!_ozonFbsPickRowMatchesSearch(r, q)) continue;
+      if (_ozonFbsRowIsCancelled(r)) {
+        cancelled += 1;
+        continue;
+      }
       if (_ozonFbsPickRowIsComplete(r)) filled += 1;
       else empty += 1;
       if (_ozonFbsPickRowHasError(r)) errors += 1;
-      if (_ozonFbsRowIsCancelled(r)) cancelled += 1;
     }
     _ozonFbsSetFilterCount("ozonFbsPickFilterFilledCount", filled);
     _ozonFbsSetFilterCount("ozonFbsPickFilterEmptyCount", empty);

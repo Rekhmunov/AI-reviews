@@ -62,7 +62,7 @@ def test_picking_list_excludes_cancelled() -> None:
     assert "One — 1 шт." in html
 
 
-def test_build_marking_payload_excludes_cancelled_with_marking() -> None:
+def test_build_marking_payload_includes_cancelled_with_marking() -> None:
     detail = {
         "supply_id": "OZ-1",
         "orders": [
@@ -77,7 +77,7 @@ def test_build_marking_payload_excludes_cancelled_with_marking() -> None:
             },
             {
                 "posting_number": "A-2",
-                "kiz_required": False,
+                "kiz_required": True,
                 "kiz_quantity": 1,
                 "product_name": "Cancelled",
                 "offer_id": "Y",
@@ -114,11 +114,15 @@ def test_build_marking_payload_excludes_cancelled_with_marking() -> None:
             MagicMock(), user_id=1, source_id=2, supply_id="OZ-1"
         )
     pns = [r["posting_number"] for r in payload["rows"]]
-    assert pns == ["A-1"]
-    assert payload["required_count"] == 1
+    # Frozen composition: cancelled KIZ rows stay in the modal payload.
+    assert "A-1" in pns
+    assert "A-2" in pns
+    by_pn = {r["posting_number"]: r for r in payload["rows"]}
+    assert by_pn["A-2"]["cancelled"] is True
+    assert payload["required_count"] == 2
 
 
-def test_build_pick_verify_payload_excludes_cancelled_plain() -> None:
+def test_build_pick_verify_payload_includes_cancelled_plain() -> None:
     detail = {
         "supply_id": "OZ-1",
         "orders": [
@@ -155,9 +159,11 @@ def test_build_pick_verify_payload_excludes_cancelled_plain() -> None:
         payload = build_pick_verify_payload(
             MagicMock(), user_id=1, source_id=2, supply_id="OZ-1", resolve_kiz=False
         )
-    assert payload["plain_count"] == 1
+    assert payload["plain_count"] == 2
     pns = {r["posting_number"] for r in payload["rows"]}
-    assert pns == {"P-1"}
+    assert pns == {"P-1", "P-3"}
+    by_pn = {r["posting_number"]: r for r in payload["rows"]}
+    assert by_pn["P-3"]["cancelled"] is True
 
 
 def test_save_marking_skips_cancelled_postings() -> None:

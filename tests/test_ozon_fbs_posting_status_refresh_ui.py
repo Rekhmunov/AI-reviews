@@ -68,5 +68,15 @@ def test_posting_status_refresh_ui_wired() -> None:
     )]
     assert "border: 0;" in icon_css
     assert "background: transparent;" in icon_css
-    assert "ozon_fbs.js?v=154" in html
+    assert "ozon_fbs.js?v=155" in html
+    close_fn = js[
+        js.find("function closeOzonFbsPostingStatusModal") : js.find(
+            "function closeOzonFbsPostingStatusModal"
+        )
+        + 550
+    ]
+    assert "_ozonFbsRemovePostingFromOpenModals(" not in close_fn
+    assert "_ozonFbsRefreshOpenModalsAfterCancelFlag" in js
+    assert "остаётся в поставке" in js
+    assert "будет удалён из модалки" not in js
     assert "style.css?v=" in html

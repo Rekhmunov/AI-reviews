@@ -308,12 +308,11 @@ def build_pick_verify_payload(
         supply_id=supply_id,
         posting_tab=tab_key,
     )
+    # Keep cancelled plain rows in the modal (frozen composition); counters exclude them.
     plain_orders = [
         o
         for o in (detail.get("orders") or [])
-        if isinstance(o, dict)
-        and not o.get("kiz_required")
-        and not oz.posting_row_is_cancelled(o)
+        if isinstance(o, dict) and not o.get("kiz_required")
     ]
     posting_numbers = [
         str(o.get("posting_number") or "").strip()

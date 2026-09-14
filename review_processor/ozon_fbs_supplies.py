@@ -3242,6 +3242,23 @@ def get_supply_detail_for_print(
     Without tab, keep the full supply↔assembly composition gate.
     """
     sid = str(supply_id or "").strip()
+    kind_key = str(kind or "print").strip() or "print"
+    # Re-download pick list / full stickers = composition reset: unlink frozen cancelled.
+    if kind_key in {"picking_list", "stickers"}:
+        try:
+            detach_cancelled_postings_from_supply(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                supply_id=sid,
+            )
+        except Exception as exc:
+            _log.warning(
+                "ozon detach cancelled before print supply=%s kind=%s: %s",
+                sid,
+                kind_key,
+                exc,
+            )
     tab_key = str(posting_tab or "").strip() or None
     if tab_key:
         return get_supply_detail(
@@ -3647,6 +3664,21 @@ def get_supply_detail(
             supply_id=str(supply_id),
             tab=tab_filter,
         )
+        # Frozen composition after pick-list + stickers: keep cancelled still
+        # linked to this supply visible in detail / KIZ / pick modals.
+        if tab_filter in {oz.TAB_AWAITING_DELIVER, oz.TAB_DELIVERING}:
+            cancelled_nums = _assembly_posting_numbers_for_supply_tab(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                supply_id=str(supply_id),
+                tab=oz.TAB_CANCELLED,
+            )
+            seen = set(nums)
+            for pn in cancelled_nums:
+                if pn not in seen:
+                    nums.append(pn)
+                    seen.add(pn)
     else:
         nums = _assembly_posting_numbers_for_supply(
             repo, user_id=user_id, source_id=source_id, supply_id=str(supply_id)
@@ -3714,13 +3746,15 @@ def get_supply_detail(
             cancel_label = oz.cancel_reason_label_from_row(d)
             d["cancel_reason_label"] = cancel_label
             d["cancelled"] = bool(cancel_label)
-            d["kiz_required"] = (
-                oz.posting_requires_marking(d, requires_kiz_map=requires_kiz_map)
-                and not d["cancelled"]
+            requires_mark = oz.posting_requires_marking(
+                d, requires_kiz_map=requires_kiz_map
             )
+            # Keep catalog KIZ flag even for cancelled: frozen rows must stay in
+            # the correct modal (KIZ vs plain), while counters exclude cancelled.
+            d["kiz_required"] = requires_mark
             d["kiz_quantity"] = (
                 oz.posting_marking_quantity(d, requires_kiz_map=requires_kiz_map)
-                if d["kiz_required"]
+                if requires_mark
                 else 0
             )
             if d["kiz_required"]:
@@ -3890,6 +3924,16 @@ def list_supply_cancelled_postings(
             supply_id=sid,
             tab=tab_key,
         )
+        if tab_key in {oz.TAB_AWAITING_DELIVER, oz.TAB_DELIVERING}:
+            for pn in _assembly_posting_numbers_for_supply_tab(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                supply_id=sid,
+                tab=oz.TAB_CANCELLED,
+            ):
+                if pn not in posting_numbers:
+                    posting_numbers.append(pn)
     else:
         posting_numbers = [
             str(x).strip()
@@ -5261,6 +5305,85 @@ def _reconcile_ozon_fbs_stock_after_local_move(
         return empty
 
 
+
+def detach_cancelled_postings_from_supply(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+) -> dict[str, Any]:
+    """Unlink cancelled postings from a supply (pick-list / stickers reset).
+
+    After pick-list download + sticker print the supply composition is frozen:
+    cancelled postings stay linked until the operator restarts that workflow.
+    This clears ``supply_id`` on cancelled rows and drops them from
+    ``posting_numbers_json`` so a fresh composition can match assembly again.
+    """
+    ensure_ozon_fbs_supply_schema(repo)
+    oz.ensure_ozon_fbs_tables(repo)
+    sid = str(supply_id or "").strip()
+    if not sid:
+        return {"ok": True, "detached": 0, "posting_numbers": []}
+    detached: list[str] = []
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                """
+                SELECT posting_number FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                  AND tab = ?
+                ORDER BY posting_number
+                """
+            ),
+            (user_id, source_id, sid, oz.TAB_CANCELLED),
+        ).fetchall()
+        for row in rows:
+            pn = str(
+                row["posting_number"] if hasattr(row, "keys") else row[0] or ""
+            ).strip()
+            if pn:
+                detached.append(pn)
+        if detached:
+            placeholders = ", ".join("?" for _ in detached)
+            conn.execute(
+                repo._sql(
+                    f"""
+                    UPDATE ozon_fbs_postings
+                    SET supply_id = ''
+                    WHERE user_id = ? AND source_id = ?
+                      AND supply_id = ? AND tab = ?
+                      AND posting_number IN ({placeholders})
+                    """
+                ),
+                (user_id, source_id, sid, oz.TAB_CANCELLED, *detached),
+            )
+    if detached:
+        supply = get_supply(repo, user_id=user_id, source_id=source_id, supply_id=sid)
+        if supply:
+            drop = set(detached)
+            kept = [
+                str(x).strip()
+                for x in (supply.get("posting_numbers") or [])
+                if str(x).strip() and str(x).strip() not in drop
+            ]
+            _set_supply_posting_numbers(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                supply_id=sid,
+                posting_numbers=kept,
+            )
+    _log.info(
+        "ozon fbs detach cancelled from supply user=%s source=%s supply=%s n=%s",
+        user_id,
+        source_id,
+        sid,
+        len(detached),
+    )
+    return {"ok": True, "detached": len(detached), "posting_numbers": detached}
+
+
 def move_supply_to_delivering(
     repo: ReviewRepository,
     *,
@@ -5307,8 +5430,21 @@ def move_supply_to_delivering(
             (user_id, source_id, sid, oz.TAB_AWAITING_DELIVER),
         ).fetchall()
         to_move = [repo._row_to_dict(r) for r in rows]
+        cancelled_rows = conn.execute(
+            repo._sql(
+                """
+                SELECT posting_number, tab, offer_id, sku, quantity, products_json
+                FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                  AND tab = ?
+                ORDER BY posting_number
+                """
+            ),
+            (user_id, source_id, sid, oz.TAB_CANCELLED),
+        ).fetchall()
+        cancelled_for_stock = [repo._row_to_dict(r) for r in cancelled_rows]
         if not to_move:
-            # Already moved / empty on awaiting — idempotent success.
+            # Already moved / empty on awaiting — still ship frozen cancelled stock.
             already = conn.execute(
                 repo._sql(
                     """
@@ -5323,12 +5459,25 @@ def move_supply_to_delivering(
                 (already["n"] if already and hasattr(already, "keys") else (already[0] if already else 0))
                 or 0
             )
+            stock_stats = {"shipped": 0, "reversed": 0, "skipped": 0, "ok": 0, "settled": 0}
+            if cancelled_for_stock:
+                stock_postings = []
+                for row in cancelled_for_stock:
+                    ship = dict(row)
+                    # Reconcile as delivering for stock only; keep tab=cancelled in DB.
+                    ship["tab"] = oz.TAB_DELIVERING
+                    ship["status"] = oz.TAB_DELIVERING
+                    stock_postings.append(ship)
+                stock_stats = _reconcile_ozon_fbs_stock_after_local_move(
+                    repo, user_id=user_id, postings=stock_postings
+                )
             return {
                 "ok": True,
                 "supply_id": sid,
                 "moved": 0,
                 "already_delivering": already_n,
-                "stock": {"shipped": 0, "reversed": 0, "skipped": 0, "ok": 0, "settled": 0},
+                "stock": stock_stats,
+                "cancelled_stocked": len(cancelled_for_stock),
                 "message": (
                     "Поставка уже в «Доставляются»"
                     if already_n
@@ -5366,15 +5515,24 @@ def move_supply_to_delivering(
         row["tab"] = oz.TAB_DELIVERING
         row["status"] = oz.TAB_DELIVERING
 
+    stock_postings = list(to_move)
+    for row in cancelled_for_stock:
+        ship = dict(row)
+        ship["tab"] = oz.TAB_DELIVERING
+        ship["status"] = oz.TAB_DELIVERING
+        stock_postings.append(ship)
+
     stock_stats = _reconcile_ozon_fbs_stock_after_local_move(
-        repo, user_id=user_id, postings=to_move
+        repo, user_id=user_id, postings=stock_postings
     )
     _log.info(
-        "ozon fbs move-to-delivering user=%s source=%s supply=%s moved=%s stock=%s",
+        "ozon fbs move-to-delivering user=%s source=%s supply=%s moved=%s "
+        "cancelled_stocked=%s stock=%s",
         user_id,
         source_id,
         sid,
         len(to_move),
+        len(cancelled_for_stock),
         stock_stats,
     )
     return {
@@ -5383,6 +5541,7 @@ def move_supply_to_delivering(
         "moved": len(to_move),
         "already_delivering": 0,
         "stock": stock_stats,
+        "cancelled_stocked": len(cancelled_for_stock),
         "message": f"Перенесено в «Доставляются»: {len(to_move)} отпр.",
     }
 
