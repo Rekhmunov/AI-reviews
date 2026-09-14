@@ -2660,6 +2660,233 @@ def set_supply_driver(
     )
 
 
+# Cargo-place statuses shown on the standalone «Для водителя» page.
+DRIVER_PAGE_CONTAINER_STATUSES = frozenset({"formed", "acceptance_in_progress"})
+
+
+def list_driver_page_vehicle_plates(
+    repo: ReviewRepository, *, user_id: int
+) -> list[dict[str, str]]:
+    """Unique reg. plates from the drivers catalog for the driver page dropdown."""
+    seen: set[str] = set()
+    out: list[dict[str, str]] = []
+    for opt in list_supply_driver_options(repo, user_id=user_id):
+        for plate in opt.get("vehicles") or []:
+            if not isinstance(plate, dict):
+                continue
+            number = str(plate.get("number") or "").strip()
+            key = _norm_vehicle_plate(number)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            out.append(
+                {
+                    "number": number,
+                    "model": str(plate.get("model") or "").strip(),
+                    "line": str(plate.get("line") or "").strip() or number,
+                }
+            )
+    out.sort(key=lambda p: _norm_vehicle_plate(p.get("number")))
+    return out
+
+
+def list_supplies_for_driver_vehicle(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    vehicle_number: str,
+    allowed_source_ids: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Supplies where this plate is assigned via «Водитель» on the supply card."""
+    ensure_ozon_fbs_supply_schema(repo)
+    want = _norm_vehicle_plate(vehicle_number)
+    if not want:
+        return []
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                """
+                SELECT source_id, supply_id, driver_id, driver_name, vehicle_number
+                FROM ozon_fbs_supply_driver
+                WHERE user_id = ? AND vehicle_number <> ''
+                ORDER BY source_id ASC, supply_id ASC
+                """
+            ),
+            (user_id,),
+        ).fetchall()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        d = repo._row_to_dict(row)
+        if not isinstance(d, dict):
+            continue
+        plate = str(d.get("vehicle_number") or "").strip()
+        if _norm_vehicle_plate(plate) != want:
+            continue
+        try:
+            source_id = int(d.get("source_id") or 0)
+        except (TypeError, ValueError):
+            source_id = 0
+        if source_id <= 0:
+            continue
+        if allowed_source_ids is not None and str(source_id) not in allowed_source_ids:
+            continue
+        supply_id = str(d.get("supply_id") or "").strip()
+        if not supply_id:
+            continue
+        supply = get_supply(
+            repo, user_id=user_id, source_id=source_id, supply_id=supply_id
+        )
+        name = str((supply or {}).get("name") or "").strip() or supply_id
+        warehouse_name = str((supply or {}).get("warehouse_name") or "").strip()
+        out.append(
+            {
+                "source_id": source_id,
+                "supply_id": supply_id,
+                "supply_name": name,
+                "warehouse_name": warehouse_name,
+                "driver_id": int(d.get("driver_id") or 0),
+                "driver_name": str(d.get("driver_name") or "").strip(),
+                "vehicle_number": plate,
+            }
+        )
+    return out
+
+
+def list_driver_page_cargo_places(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    vehicle_number: str,
+    client_for_source: Callable[[int], Any],
+    allowed_source_ids: set[str] | None = None,
+) -> dict[str, Any]:
+    """Cargo places for supplies assigned to ``vehicle_number``.
+
+    Only statuses «Сформировано» (``formed``) and «Принято на СЦ»
+    (``acceptance_in_progress``). Containers are limited to GMs bound to the
+    assigned supply (same as «ГМ у этой поставки»).
+    """
+    from . import ozon_fbs_containers as oz_ct
+
+    plate = str(vehicle_number or "").strip()
+    supplies = list_supplies_for_driver_vehicle(
+        repo,
+        user_id=user_id,
+        vehicle_number=plate,
+        allowed_source_ids=allowed_source_ids,
+    )
+    items: list[dict[str, Any]] = []
+    errors: list[str] = []
+    seen: set[tuple[int, int]] = set()
+    # Cache Ozon list per (source_id, warehouse_id).
+    listed_by_wh: dict[tuple[int, int], dict[str, Any]] = {}
+    wh_name_by_key: dict[tuple[int, int], str] = {}
+
+    for supply in supplies:
+        source_id = int(supply["source_id"])
+        supply_id = str(supply["supply_id"])
+        try:
+            client = client_for_source(source_id)
+            wh_id, wh_name = oz_ct.resolve_supply_warehouse_id(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                supply_id=supply_id,
+            )
+            key = (source_id, int(wh_id))
+            if key not in listed_by_wh:
+                listed_by_wh[key] = oz_ct.list_containers(
+                    client,
+                    warehouse_id=int(wh_id),
+                    include_sc_accepted=True,
+                )
+                wh_name_by_key[key] = wh_name
+            listed = listed_by_wh[key]
+            enriched = oz_ct.enrich_containers_for_supply_modal(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                supply_id=supply_id,
+                listed=listed,
+                only_this_supply=True,
+            )
+        except Exception as exc:
+            errors.append(f"{supply.get('supply_name') or supply_id}: {exc}")
+            continue
+
+        for raw in enriched.get("items") or []:
+            if not isinstance(raw, dict):
+                continue
+            status = str(raw.get("status") or "").strip().lower()
+            if status not in DRIVER_PAGE_CONTAINER_STATUSES:
+                continue
+            try:
+                cid = int(raw.get("container_id") or 0)
+            except (TypeError, ValueError):
+                cid = 0
+            if cid <= 0:
+                continue
+            dedupe = (source_id, cid)
+            if dedupe in seen:
+                continue
+            seen.add(dedupe)
+            try:
+                number = int(raw.get("container_number") or 0)
+            except (TypeError, ValueError):
+                number = 0
+            try:
+                orders = int(raw.get("order_count") or 0)
+            except (TypeError, ValueError):
+                orders = 0
+            items.append(
+                {
+                    "container_id": cid,
+                    "container_number": number,
+                    "status": status,
+                    "status_label": str(
+                        raw.get("status_label") or oz_ct.status_label(status)
+                    ),
+                    "cargo_type": str(raw.get("cargo_type") or "").strip(),
+                    "cargo_type_label": str(
+                        raw.get("cargo_type_label") or ""
+                    ).strip(),
+                    "sort_type": str(raw.get("sort_type") or "").strip(),
+                    "sort_type_label": str(
+                        raw.get("sort_type_label") or ""
+                    ).strip(),
+                    "order_count": max(0, orders),
+                    "source_id": source_id,
+                    "supply_id": supply_id,
+                    "supply_name": str(supply.get("supply_name") or supply_id),
+                    "warehouse_name": str(
+                        wh_name_by_key.get((source_id, int(wh_id)), "")
+                        or supply.get("warehouse_name")
+                        or ""
+                    ).strip(),
+                    "driver_name": str(supply.get("driver_name") or "").strip(),
+                    "vehicle_number": str(
+                        supply.get("vehicle_number") or plate
+                    ).strip(),
+                }
+            )
+
+    items.sort(
+        key=lambda r: (
+            str(r.get("supply_name") or ""),
+            int(r.get("container_number") or 0),
+            int(r.get("container_id") or 0),
+        )
+    )
+    return {
+        "ok": True,
+        "vehicle_number": plate,
+        "supplies": supplies,
+        "items": items,
+        "total": len(items),
+        "errors": errors,
+    }
+
+
 def _set_supply_posting_numbers(
     repo: ReviewRepository,
     *,

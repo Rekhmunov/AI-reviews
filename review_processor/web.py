@@ -2362,6 +2362,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         _ensure_csrf_cookie(response, request)
         return response
 
+
+    @app.get("/ozon-fbs/driver", response_class=HTMLResponse)
+    @app.get("/ozon-fbs/driver/{path:path}", response_class=HTMLResponse)
+    def ozon_fbs_driver_page(request: Request, path: str = "") -> HTMLResponse:
+        """Standalone page for drivers: pick plate, see formed/SC cargo places."""
+        del path
+        user = _get_current_user(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=302)
+        response = HTMLResponse(build_ozon_fbs_driver_html(user, repository=repository))
+        _ensure_csrf_cookie(response, request)
+        return response
+
     @app.get("/admin", response_class=HTMLResponse)
     def admin_page(request: Request) -> HTMLResponse:
         user = _get_current_user(request)
@@ -14373,6 +14386,49 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+
+    @app.get("/api/ozon-fbs/driver/vehicles")
+    def ozon_fbs_driver_page_vehicles(request: Request) -> dict[str, object]:
+        """Vehicle plates for the standalone driver page dropdown."""
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        items = oz_sup.list_driver_page_vehicle_plates(repository, user_id=owner_id)
+        return {"ok": True, "items": items, "total": len(items)}
+
+    @app.get("/api/ozon-fbs/driver/cargo-places")
+    def ozon_fbs_driver_page_cargo_places(
+        request: Request, vehicle_number: str = ""
+    ) -> dict[str, object]:
+        """Cargo places for supplies assigned to the selected vehicle plate."""
+        from . import ozon_fbs as ozon_fbs_mod
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        plate = str(vehicle_number or "").strip()
+        if not plate:
+            raise HTTPException(status_code=400, detail="Укажите гос. номер")
+        owner_id = _supply_owner_id(user)
+        allowed = _ozon_fbs_allowed_source_ids(user)
+
+        def _client_for_source(source_id: int):
+            _require_ozon_fbs_source(user, int(source_id))
+            _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
+            return ozon_fbs_mod.OzonFbsClient(client_id=client_id, api_key=api_key)
+
+        return oz_sup.list_driver_page_cargo_places(
+            repository,
+            user_id=owner_id,
+            vehicle_number=plate,
+            client_for_source=_client_for_source,
+            allowed_source_ids=allowed,
+        )
+
     @app.post("/api/ozon-fbs/supplies/{supply_id}/move-to-delivering")
     def ozon_fbs_supply_move_to_delivering(
         request: Request,
@@ -22322,6 +22378,36 @@ def build_wb_fbs_tsd_html(user: dict[str, object], repository=None) -> str:
         {
             "SAFE_EMAIL": safe_email,
             "CAN_VIEW_WB_FBS_TSD": "true" if can_view else "false",
+            "IS_TENANT_OWNER": "true" if is_tenant_owner else "false",
+        },
+    )
+
+
+def build_ozon_fbs_driver_html(user: dict[str, object], repository=None) -> str:
+    """Standalone Ozon FBS driver page (plates + cargo places). Isolated from app."""
+    safe_email = escape(str(user["email"]))
+    role = str(user.get("role") or ROLE_USER)
+    user_id = int(user.get("id") or 0)
+    owner_user_id = int(user.get("owner_user_id") or user_id or 0)
+    is_tenant_owner = (
+        role in ROLE_CAN_ACCESS_SETTINGS
+        and user_id > 0
+        and owner_user_id == user_id
+    )
+    can_view = role in ROLE_CAN_ACCESS_SETTINGS
+    if not can_view and repository is not None:
+        perms = repository.get_manager_supply_permissions(manager_user_id=user_id)
+        sources = perms.get("sources") or {}
+        can_view = any(
+            bool(v.get("ozon_fbs"))
+            for v in sources.values()
+            if isinstance(v, dict)
+        )
+    return _render_template(
+        "ozon_fbs_driver.html",
+        {
+            "SAFE_EMAIL": safe_email,
+            "CAN_VIEW_OZON_FBS_DRIVER": "true" if can_view else "false",
             "IS_TENANT_OWNER": "true" if is_tenant_owner else "false",
         },
     )
