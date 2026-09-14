@@ -2371,6 +2371,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         user = _get_current_user(request)
         if user is None:
             return RedirectResponse("/login", status_code=302)
+        # Owner-only (same as Ozon FBS toolbar button «Для водителя»).
+        if not _is_wb_fbs_tenant_owner(user):
+            return HTMLResponse(
+                "<h1>Доступ запрещён</h1><p>Страница «Для водителя» доступна только главному пользователю.</p>",
+                status_code=403,
+            )
         response = HTMLResponse(build_ozon_fbs_driver_html(user, repository=repository))
         _ensure_csrf_cookie(response, request)
         return response
@@ -14395,6 +14401,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         user = _require_user(request)
         if not _can_view_ozon_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
+        if not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Страница «Для водителя» доступна только главному пользователю",
+            )
         owner_id = _supply_owner_id(user)
         items = oz_sup.list_driver_page_vehicle_plates(repository, user_id=owner_id)
         return {"ok": True, "items": items, "total": len(items)}
@@ -14410,6 +14421,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         user = _require_user(request)
         if not _can_view_ozon_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
+        if not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Страница «Для водителя» доступна только главному пользователю",
+            )
         plate = str(vehicle_number or "").strip()
         if not plate:
             raise HTTPException(status_code=400, detail="Укажите гос. номер")

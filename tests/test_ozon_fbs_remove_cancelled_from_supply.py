@@ -144,7 +144,7 @@ def test_remove_cancelled_ui_wiring() -> None:
     actions_start = js.find("function _ozonFbsModalRowActionsHtml")
     actions_fn = js[actions_start : actions_start + 700]
     assert "_ozonFbsRowIsCancelled(row)" not in actions_fn.split("return")[0]
-    assert "ozon_fbs.js?v=158" in html
+    assert "ozon_fbs.js?v=159" in html
 
 
 def test_endpoint_registered() -> None:

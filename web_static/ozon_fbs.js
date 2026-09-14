@@ -4410,14 +4410,20 @@
     _ozonFbsCloseMovedToDeliveringHistory();
   });
 
+  function _ozonFbsSyncOwnerOnlyTsdDriverBtns() {
+    // «ТСД» and «Для водителя» — owner-only (same as cancelled / quality).
+    const can = typeof isTenantOwner === "function" && isTenantOwner();
+    for (const id of ["ozonFbsTsdBtn", "ozonFbsDriverPageBtn"]) {
+      const btn = document.getElementById(id);
+      if (!btn) continue;
+      btn.hidden = !can;
+      btn.style.display = can ? "" : "none";
+    }
+  }
+
   async function initSection() {
     if (!canView()) return;
-    const tsdBtn = document.getElementById("ozonFbsTsdBtn");
-    if (tsdBtn) {
-      const p = permissions();
-      tsdBtn.style.display =
-        p.can_view_wb_fbs_tsd || p.is_tenant_owner ? "" : "none";
-    }
+    _ozonFbsSyncOwnerOnlyTsdDriverBtns();
     _ozonFbsSyncOwnerOnlyGear();
     _ozonFbsSyncCancelledBtn();
     _ozonFbsSyncOwnerOnlyAllCancellationsBtn();

@@ -115,5 +115,5 @@ def test_scan_mode_toggle_css_reused() -> None:
 
 
 def test_cache_bump() -> None:
-    assert "ozon_fbs.js?v=158" in APP_HTML
+    assert "ozon_fbs.js?v=159" in APP_HTML
     assert "style.css?v=365" in APP_HTML
