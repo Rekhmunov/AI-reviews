@@ -1,0 +1,87 @@
+"""TTN catalog → Zakaz / eTrN XML adapters (parity with Ozon supplies)."""
+from __future__ import annotations
+
+import xml.etree.ElementTree as ET
+
+from review_processor.ozon_etrn import OZON_CONSIGNEE_NAME
+from review_processor.ttn_docs import build_ttn_etrn_xml, build_ttn_zakaz_xml, collect_ttn_doc_context
+
+
+class _Repo:
+    def list_supply_legal_entities(self, user_id=0):
+        return []
+
+    def list_supply_contractors(self, user_id=0):
+        return []
+
+    def list_supply_drivers(self, user_id=0):
+        return []
+
+    def list_supply_productions(self, user_id=0):
+        return []
+
+    def list_supply_warehouses(self, user_id=0):
+        return []
+
+
+def _record(**overrides):
+    base = {
+        "id": 42,
+        "doc_number": "TN-42",
+        "ttn_date": "2026-03-20",
+        "legal_entity_id": 0,
+        "contractor_id": 0,
+        "shipper_type": "le",
+        "consignee_type": "contractor",
+        "load_address": "141580, Московская обл., г. Химки, ул. Заводская, д. 10",
+        "unload_address": "143420, Московская обл., г. Истра, ул. Складская, д. 5",
+        "cargo_description": "Одежда",
+        "cargo_places": "3",
+        "cargo_weight": "240",
+        "packing_type": "Паллеты",
+        "vehicle_line": "Газель А123ВС77",
+        "le_short": "Тест",
+        "le_full": 'ООО "Тест Поставщик"',
+        "le_req": "ИНН 7701234567 КПП 770101001",
+        "le_address": "101000, г. Москва, ул. Ленина, д. 1",
+        "le_phone": "+79991112233",
+        "c_name": 'ООО "Получатель"',
+        "c_req": "ИНН 5001002003 КПП 500101001",
+        "driver_manual_name": "Иванов Иван Иванович",
+        "driver_manual_docs": "ВУ 99 00 123456",
+        "carrier_snapshot": 'ООО "Перевозчик" ИНН 5001002003',
+    }
+    base.update(overrides)
+    return base
+
+
+def test_collect_ttn_context_maps_core_fields():
+    ctx = collect_ttn_doc_context(repository=_Repo(), owner_id=1, record=_record())
+    assert ctx["item"]["supply_order_number"] == "TN-42"
+    assert ctx["cargo_name"] == "Одежда"
+    assert ctx["cargo_kg"] == 240.0
+    assert ctx["consignee"]["name"] == 'ООО "Получатель"'
+    assert ctx["consignee"]["inn"] == "5001002003"
+    assert ctx["le"]["short_name"] == "Тест"
+    assert "Химки" in ctx["load_address"]
+    assert "Истра" in ctx["delivery_address"]
+
+
+def test_ttn_zakaz_xml_download_shape():
+    xml_bytes, fname = build_ttn_zakaz_xml(repository=_Repo(), owner_id=1, record=_record())
+    assert fname.startswith("Заявка №TN-42")
+    root = ET.fromstring(xml_bytes)
+    assert root.tag == "Файл"
+    assert "Одежда" in xml_bytes.decode("utf-8")
+
+
+def test_ttn_etrn_uses_ttn_consignee_not_ozon():
+    xml_bytes, fname = build_ttn_etrn_xml(repository=_Repo(), owner_id=1, record=_record())
+    assert fname.startswith("эТрН №TN-42")
+    text = xml_bytes.decode("utf-8")
+    assert "Получатель" in text
+    assert OZON_CONSIGNEE_NAME not in text
+    assert "Одежда" in text
+    root = ET.fromstring(xml_bytes)
+    assert root.tag == "Файл"
+    assert "5001002003" in text

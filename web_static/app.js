@@ -20226,6 +20226,42 @@ function renderTtnTable() {
                 <span>Скачать Word</span>
               </button>
               <button type="button" class="ttn-row-menu-item" role="menuitem"
+                      onclick="_ttnCloseRowMenus(); window.open('/api/supply-ttn-records/${r.id}/zakaz.xml','_blank')"
+                      title="Скачать XML заявки (ЭЗЗ) для Контур.Логистики">
+                <span class="ttn-row-menu-ico" aria-hidden="true">⬇</span>
+                <span>Заявка логисту</span>
+              </button>
+              <button type="button" class="ttn-row-menu-item" role="menuitem"
+                      onclick="_ttnCloseRowMenus(); openOzonEdoSendModal(${r.id},'zakaz','ttn')"
+                      title="Отправить Заявку в ЭДО">
+                <span class="ttn-row-menu-ico" aria-hidden="true">↗</span>
+                <span>Заявка → ЭДО</span>
+              </button>
+              <button type="button" class="ttn-row-menu-item" role="menuitem"
+                      onclick="_ttnCloseRowMenus(); openOzonEdoStatusModal(${r.id},'zakaz','ttn')"
+                      title="Статус Заявки в ЭДО">
+                <span class="ttn-row-menu-ico" aria-hidden="true">↻</span>
+                <span>Статус заявки</span>
+              </button>
+              <button type="button" class="ttn-row-menu-item" role="menuitem"
+                      onclick="_ttnCloseRowMenus(); window.open('/api/supply-ttn-records/${r.id}/etrn.xml','_blank')"
+                      title="Скачать XML эТрН для Контур.Логистики">
+                <span class="ttn-row-menu-ico" aria-hidden="true">⬇</span>
+                <span>Накладная эТрН</span>
+              </button>
+              <button type="button" class="ttn-row-menu-item" role="menuitem"
+                      onclick="_ttnCloseRowMenus(); openOzonEdoSendModal(${r.id},'etrn','ttn')"
+                      title="Отправить эТрН в ЭДО">
+                <span class="ttn-row-menu-ico" aria-hidden="true">↗</span>
+                <span>эТрН → ЭДО</span>
+              </button>
+              <button type="button" class="ttn-row-menu-item" role="menuitem"
+                      onclick="_ttnCloseRowMenus(); openOzonEdoStatusModal(${r.id},'etrn','ttn')"
+                      title="Статус эТрН в ЭДО">
+                <span class="ttn-row-menu-ico" aria-hidden="true">↻</span>
+                <span>Статус эТрН</span>
+              </button>
+              <button type="button" class="ttn-row-menu-item" role="menuitem"
                       onclick="_ttnCloseRowMenus(); openEditTtnModal(${r.id})">
                 <span class="ttn-row-menu-ico" aria-hidden="true">✏</span>
                 <span>Изменить</span>
@@ -21640,8 +21676,17 @@ window.showSuppliesSettingsTab = function(tab) {
 
 let _ozonEdoSupplyId = null;
 let _ozonEdoDocType = "etrn";
+let _ozonEdoSource = "ozon"; // ozon | ttn
 let _ozonEdoStatusSupplyId = null;
 let _ozonEdoStatusDocType = "";
+let _ozonEdoStatusSource = "ozon";
+
+function _edoApiBase(entityId, source) {
+  const src = source === "ttn" ? "ttn" : "ozon";
+  return src === "ttn"
+    ? `/api/supply-ttn-records/${entityId}`
+    : `/api/ozon-supplies/${entityId}`;
+}
 
 function _ozonEdoDocTitle(docType) {
   return docType === "zakaz" ? "Заявка (ЭЗЗ)" : "эТрН";
@@ -21871,9 +21916,10 @@ function _bytesToB64(bytes) {
   return btoa(bin);
 }
 
-async function openOzonEdoSendModal(supplyOrderId, docType) {
+async function openOzonEdoSendModal(supplyOrderId, docType, source) {
   _ozonEdoSupplyId = supplyOrderId;
   _ozonEdoDocType = docType === "zakaz" ? "zakaz" : "etrn";
+  _ozonEdoSource = source === "ttn" ? "ttn" : "ozon";
   const modal = document.getElementById("ozonEdoModal");
   if (!modal) return;
   const titleEl = document.getElementById("ozonEdoModalTitle");
@@ -21957,6 +22003,7 @@ async function openOzonEdoSendModal(supplyOrderId, docType) {
 function closeOzonEdoModal() {
   document.getElementById("ozonEdoModal")?.classList.add("hidden");
   _ozonEdoSupplyId = null;
+  _ozonEdoSource = "ozon";
 }
 
 async function confirmOzonEdoSend() {
@@ -21969,7 +22016,7 @@ async function confirmOzonEdoSend() {
   if (btn) btn.disabled = true;
   try {
     _edoSetInfo("ozonEdoModalInfo", `Формирование XML (${_ozonEdoDocTitle(docType)})…`);
-    const prep = await fetch(`/api/ozon-supplies/${supplyId}/edo/prepare?doc_type=${encodeURIComponent(docType)}`, {
+    const prep = await fetch(`${_edoApiBase(supplyId, _ozonEdoSource)}/edo/prepare?doc_type=${encodeURIComponent(docType)}`, {
       headers: jsonHeaders(),
     }).then(async (r) => {
       const j = await r.json().catch(() => ({}));
@@ -21980,7 +22027,7 @@ async function confirmOzonEdoSend() {
     const xmlBytes = _b64ToBytes(prep.xml_base64);
     const sigB64 = await _signDetachedCadesBes(xmlBytes, thumb);
     _edoSetInfo("ozonEdoModalInfo", "Отправка в Контур…");
-    const sendRes = await fetch(`/api/ozon-supplies/${supplyId}/edo/send`, {
+    const sendRes = await fetch(`${_edoApiBase(supplyId, _ozonEdoSource)}/edo/send`, {
       method: "POST",
       headers: jsonHeaders(),
       body: JSON.stringify({
@@ -21992,7 +22039,7 @@ async function confirmOzonEdoSend() {
     const sendData = await sendRes.json().catch(() => ({}));
     if (!sendRes.ok) throw new Error(sendData.detail || "Ошибка отправки");
     _edoSetInfo("ozonEdoModalInfo", "Отправлено. Можно проверить статус.", true);
-    setTimeout(() => { closeOzonEdoModal(); openOzonEdoStatusModal(supplyId, docType); }, 600);
+    setTimeout(() => { closeOzonEdoModal(); openOzonEdoStatusModal(supplyId, docType, _ozonEdoSource); }, 600);
   } catch (err) {
     _edoSetInfo("ozonEdoModalInfo", err?.message || String(err), false);
   } finally {
@@ -22000,9 +22047,10 @@ async function confirmOzonEdoSend() {
   }
 }
 
-async function openOzonEdoStatusModal(supplyOrderId, docType) {
+async function openOzonEdoStatusModal(supplyOrderId, docType, source) {
   _ozonEdoStatusSupplyId = supplyOrderId;
   _ozonEdoStatusDocType = docType === "zakaz" || docType === "etrn" ? docType : "";
+  _ozonEdoStatusSource = source === "ttn" ? "ttn" : "ozon";
   const modal = document.getElementById("ozonEdoStatusModal");
   if (!modal) return;
   const titleEl = document.getElementById("ozonEdoStatusModalTitle");
@@ -22026,7 +22074,7 @@ async function refreshOzonEdoStatusModal() {
   const body = document.getElementById("ozonEdoStatusBody");
   if (!supplyId || !body) return;
   body.innerHTML = '<span style="color:#94a3b8">Загрузка статуса…</span>';
-  const res = await fetch(`/api/ozon-supplies/${supplyId}/edo/status`, { headers: jsonHeaders() }).catch(() => null);
+  const res = await fetch(`${_edoApiBase(supplyId, _ozonEdoStatusSource)}/edo/status`, { headers: jsonHeaders() }).catch(() => null);
   const data = await res?.json().catch(() => ({})) || {};
   if (!res || !res.ok) {
     body.innerHTML = `<span style="color:#b91c1c">${esc(data.detail || "Не удалось получить статус")}</span>`;
@@ -22040,7 +22088,8 @@ async function refreshOzonEdoStatusModal() {
     const which = _ozonEdoStatusDocType
       ? _ozonEdoDocTitle(_ozonEdoStatusDocType)
       : "Документы";
-    body.innerHTML = `<span style="color:#64748b">${esc(which)}: отправок в ЭДО для этой поставки ещё нет.</span>`;
+    const entityLabel = _ozonEdoStatusSource === "ttn" ? "этой ТН" : "этой поставки";
+    body.innerHTML = `<span style="color:#64748b">${esc(which)}: отправок в ЭДО для ${entityLabel} ещё нет.</span>`;
     return;
   }
   body.innerHTML = docs.map((d) => {

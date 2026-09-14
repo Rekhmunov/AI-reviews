@@ -1045,6 +1045,9 @@ def build_ozon_etrn_xml(
     carrier_text: str = "",
     carrier_fields: dict[str, Any] | None = None,
     loader_name: str = "",
+    consignee: dict[str, Any] | None = None,
+    cargo_name: str = "",
+    cargo_kg: int | float | None = None,
     now: datetime | None = None,
 ) -> bytes:
     """Build formal eTrN title-1 XML draft bytes (UTF-8)."""
@@ -1096,6 +1099,15 @@ def build_ozon_etrn_xml(
         )
 
     cargo = _cargo_stats(cargoes_json if cargoes_json is not None else item.get("cargoes_json"))
+    if str(cargo_name or "").strip():
+        cargo["cargo_name"] = str(cargo_name).strip()
+    if cargo_kg is not None:
+        try:
+            kg_val = int(round(float(cargo_kg)))
+        except (TypeError, ValueError):
+            kg_val = 0
+        if kg_val > 0:
+            cargo["kg"] = kg_val
     fam, imya, otch = _driver_fio_from_fields(driver_fields, driver_name)
     if not fam:
         fam, imya = "Не", "указан"
@@ -1134,14 +1146,25 @@ def build_ozon_etrn_xml(
     date_file = now.strftime("%Y%m%d")
     file_guid = str(uuid.uuid4())
 
-    # A=carrier FNSId (from Водители → Перевозчик), E=fixed Ozon GUID, O=shipper draft id.
+    # A=carrier FNSId (from Водители → Перевозчик), E=consignee FNSId (Ozon by default), O=shipper draft id.
     # Kontur rewrites ИдФайл on import when needed. Empty A → ON_TRNACLGROT__{E}_...
     shipper_edo = f"2BM-{inn}-{kpp or '000000000'}-DRAFT" if inn else "2BM-DRAFT-SHIPPER"
     carrier_edo = str((carrier_fields or {}).get("carrier_fns_id") or "").strip()
+    consignee_cfg = dict(consignee or {})
+    consignee_name = str(consignee_cfg.get("name") or "").strip() or OZON_CONSIGNEE_NAME
+    consignee_inn = str(consignee_cfg.get("inn") or "").strip() or OZON_CONSIGNEE_INN
+    consignee_kpp = str(consignee_cfg.get("kpp") or "").strip() or OZON_CONSIGNEE_KPP
+    consignee_edo = str(consignee_cfg.get("edo_guid") or "").strip() or OZON_CONSIGNEE_EDO_GUID
+    if consignee_cfg.get("addr_fields") and isinstance(consignee_cfg.get("addr_fields"), dict):
+        consignee_addr_fields = dict(consignee_cfg["addr_fields"])
+    elif str(consignee_cfg.get("address") or "").strip():
+        consignee_addr_fields = _parse_ru_address(str(consignee_cfg.get("address") or ""))
+    else:
+        consignee_addr_fields = dict(OZON_CONSIGNEE_ADDR_FIELDS)
     id_file = (
         f"ON_TRNACLGROT_"
         f"{carrier_edo}_"
-        f"{OZON_CONSIGNEE_EDO_GUID}_"
+        f"{consignee_edo}_"
         f"{shipper_edo}_"
         f"0_"
         f"{date_file}_"
@@ -1192,20 +1215,19 @@ def build_ozon_etrn_xml(
         _add_adr_rf(adr_go, "АдрРФ", shipper_addr)
     _add_contact(rek_go, contact_phone)
 
-    # --- СвГП (Ozon) ---
+    # --- СвГП (Ozon by default; overridable for ТН / other consignees) ---
     sv_gp = _el(sod, "СвГП")
     rek_gp = _el(sv_gp, "РекИдентГП")
     id_gp = _el(rek_gp, "ИдСв")
-    _el(
-        id_gp,
-        "СвЮЛУч",
-        НаимОрг=OZON_CONSIGNEE_NAME,
-        ИННЮЛ=OZON_CONSIGNEE_INN,
-        КПП=OZON_CONSIGNEE_KPP,
-    )
-    # Legal address of consignee — always Russian АдрРФ (structured constant).
+    gp_attrs = {"НаимОрг": consignee_name}
+    if consignee_inn:
+        gp_attrs["ИННЮЛ"] = consignee_inn
+    if consignee_kpp:
+        gp_attrs["КПП"] = consignee_kpp
+    _el(id_gp, "СвЮЛУч", **gp_attrs)
+    # Legal address of consignee — always Russian АдрРФ.
     adr_gp = _el(rek_gp, "Адрес")
-    _add_adr_rf(adr_gp, "АдрРФ", dict(OZON_CONSIGNEE_ADDR_FIELDS))
+    _add_adr_rf(adr_gp, "АдрРФ", dict(consignee_addr_fields))
     _add_contact(rek_gp, contact_phone)
     # Delivery point — always АдресРФ, never АдресИнф.
     adr_dost = _el(sv_gp, "АдресДостГр")

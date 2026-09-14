@@ -352,6 +352,8 @@ def build_ozon_zakaz_xml(
     loader_name: str = "",
     shipper_phone: str = "",
     legal_entities: list[dict[str, Any]] | None = None,
+    cargo_name: str = "",
+    cargo_kg: int | float | None = None,
     now: datetime | None = None,
 ) -> bytes:
     """Build ЭЗЗ title-1 (ON_ZAKZVGO) XML draft bytes (UTF-8)."""
@@ -405,6 +407,15 @@ def build_ozon_zakaz_xml(
         shipper_addr["ФИАС"] = shipper_fias
 
     cargo = _cargo_stats(cargoes_json if cargoes_json is not None else item.get("cargoes_json"))
+    if str(cargo_name or "").strip():
+        cargo["cargo_name"] = str(cargo_name).strip()
+    if cargo_kg is not None:
+        try:
+            kg_val = int(round(float(cargo_kg)))
+        except (TypeError, ValueError):
+            kg_val = 0
+        if kg_val > 0:
+            cargo["kg"] = kg_val
     v_params = _vehicle_params(
         vehicle_json=vehicle_json if vehicle_json is not None else item.get("vehicle_json"),
         fallback_line=vehicle_line,

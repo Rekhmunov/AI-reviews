@@ -21568,6 +21568,358 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             headers={"Content-Disposition": f"attachment; filename*=UTF-8''{_qp2(fname_doc)}"},
         )
 
+
+    def _ttn_build_edo_xml(request: Request, record_id: int, doc_type: str) -> tuple[bytes, str, dict]:
+        """Build Заявка/эТрН XML for a TTN catalog record (CryptoPro + Contour)."""
+        import base64 as _b64
+        from . import ttn_docs as _ttn_docs
+
+        doc_type = str(doc_type or "").strip().lower()
+        if doc_type not in ("zakaz", "etrn"):
+            raise HTTPException(status_code=400, detail="doc_type: zakaz или etrn")
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        record = _get_ttn_catalog_record(user, record_id)
+        try:
+            if doc_type == "zakaz":
+                xml_bytes, fname = _ttn_docs.build_ttn_zakaz_xml(
+                    repository=repository, owner_id=owner_id, record=record
+                )
+            else:
+                xml_bytes, fname = _ttn_docs.build_ttn_etrn_xml(
+                    repository=repository, owner_id=owner_id, record=record
+                )
+        except Exception as exc:
+            _log.exception("ttn %s xml failed for %s", doc_type, record_id)
+            label = "Заявку" if doc_type == "zakaz" else "эТрН"
+            raise HTTPException(status_code=500, detail=f"Не удалось сформировать {label}: {exc}") from exc
+        try:
+            import xml.etree.ElementTree as ET
+            root = ET.fromstring(xml_bytes)
+            file_id = root.attrib.get("ИдФайл") or root.attrib.get("ИдФайл")
+            if file_id:
+                fname = f"{file_id}.xml"
+        except Exception:
+            pass
+        meta = {
+            "doc_type": doc_type,
+            "ttn_record_id": record_id,
+            "filename": fname,
+            "xml_base64": _b64.b64encode(xml_bytes).decode("ascii"),
+            "xml_size": len(xml_bytes),
+        }
+        return xml_bytes, fname, meta
+
+    @app.get("/api/supply-ttn-records/{record_id}/zakaz.xml")
+    def get_ttn_zakaz_xml(request: Request, record_id: int) -> "Response":
+        from fastapi.responses import Response
+        from urllib.parse import quote as _qp
+        from . import ttn_docs as _ttn_docs
+
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        record = _get_ttn_catalog_record(user, record_id)
+        try:
+            xml_bytes, fname = _ttn_docs.build_ttn_zakaz_xml(
+                repository=repository, owner_id=owner_id, record=record
+            )
+        except Exception as exc:
+            _log.exception("ttn zakaz xml failed for %s", record_id)
+            raise HTTPException(status_code=500, detail=f"Не удалось сформировать Заявку: {exc}") from exc
+        return Response(
+            content=xml_bytes,
+            media_type="application/xml; charset=utf-8",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{_qp(fname)}"},
+        )
+
+    @app.get("/api/supply-ttn-records/{record_id}/etrn.xml")
+    def get_ttn_etrn_xml(request: Request, record_id: int) -> "Response":
+        from fastapi.responses import Response
+        from urllib.parse import quote as _qp
+        from . import ttn_docs as _ttn_docs
+
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        record = _get_ttn_catalog_record(user, record_id)
+        try:
+            xml_bytes, fname = _ttn_docs.build_ttn_etrn_xml(
+                repository=repository, owner_id=owner_id, record=record
+            )
+        except Exception as exc:
+            _log.exception("ttn etrn xml failed for %s", record_id)
+            raise HTTPException(status_code=500, detail=f"Не удалось сформировать эТрН: {exc}") from exc
+        return Response(
+            content=xml_bytes,
+            media_type="application/xml; charset=utf-8",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{_qp(fname)}"},
+        )
+
+    @app.get("/api/supply-ttn-records/{record_id}/edo/prepare")
+    def prepare_ttn_edo_xml(request: Request, record_id: int, doc_type: str = "etrn") -> dict[str, object]:
+        """XML ТН для подписи КриптоПро перед отправкой в ЭДО."""
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        _xml, _fname, meta = _ttn_build_edo_xml(request, record_id, doc_type)
+        settings = repository.get_supply_edo_settings(user_id=_supply_owner_id(user))
+        meta["cert_thumbprint"] = str(settings.get("cert_thumbprint") or "")
+        diadoc_ready = bool(
+            settings.get("diadoc_client_id")
+            and settings.get("diadoc_login")
+            and settings.get("has_diadoc_password")
+            and settings.get("diadoc_from_box_id")
+            and settings.get("diadoc_to_box_id")
+        )
+        meta["edo_enabled"] = bool(
+            settings.get("is_enabled") and (settings.get("has_api_key") or diadoc_ready)
+        )
+        meta["logistics_ready"] = bool(settings.get("has_api_key"))
+        meta["diadoc_ready"] = diadoc_ready
+        return meta
+
+    @app.post("/api/supply-ttn-records/{record_id}/edo/send")
+    def send_ttn_edo_document(
+        request: Request, record_id: int, payload: OzonEdoSendRequest
+    ) -> dict[str, object]:
+        """Подписанный XML ТН → Contour.Логистика (эТрН) или Diadoc (Заявка)."""
+        import base64 as _b64
+        import json as _jj
+        from .kontur_logistics import KonturLogisticsClient, status_label
+        from .kontur_diadoc import KonturDiadocClient
+
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        _get_ttn_catalog_record(user, record_id)
+        doc_type = str(payload.doc_type or "").strip().lower()
+        if doc_type not in ("zakaz", "etrn"):
+            raise HTTPException(status_code=400, detail="doc_type: zakaz или etrn")
+        sig_b64 = str(payload.signature_base64 or "").strip()
+        if not sig_b64:
+            raise HTTPException(status_code=400, detail="Нужна подпись CryptoPro (signature_base64)")
+        try:
+            signature_bytes = _b64.b64decode(sig_b64)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Некорректный signature_base64") from exc
+        if payload.xml_base64:
+            try:
+                xml_bytes = _b64.b64decode(payload.xml_base64)
+                fname = f"{'ON_ZAKZVGO' if doc_type == 'zakaz' else 'ON_TRNACLGROT'}_{record_id}.xml"
+                try:
+                    import xml.etree.ElementTree as ET
+                    root = ET.fromstring(xml_bytes)
+                    if root.attrib.get("ИдФайл"):
+                        fname = f"{root.attrib['ИдФайл']}.xml"
+                except Exception:
+                    pass
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail="Некорректный xml_base64") from exc
+        else:
+            xml_bytes, fname, _meta = _ttn_build_edo_xml(request, record_id, doc_type)
+
+        settings = repository.get_supply_edo_settings(user_id=owner_id, include_secrets=True)
+        if not settings.get("is_enabled"):
+            raise HTTPException(status_code=400, detail="ЭДО выключен в настройках")
+
+        sig_name = fname + ".sig"
+        if doc_type == "etrn":
+            if not settings.get("api_key"):
+                raise HTTPException(status_code=400, detail="Задайте API-ключ Contour.Логистика в Настройки → ЭДО")
+            client = KonturLogisticsClient(
+                api_url=str(settings.get("api_url") or ""),
+                api_key=str(settings["api_key"]),
+            )
+            res = client.send_waybill(
+                xml_bytes=xml_bytes,
+                xml_filename=fname,
+                signature_bytes=signature_bytes,
+                signature_filename=sig_name,
+            )
+            if not res.ok:
+                repository.upsert_ttn_edo_document(
+                    user_id=owner_id,
+                    ttn_record_id=record_id,
+                    doc_type=doc_type,
+                    channel="logistics",
+                    status="error",
+                    status_label="Ошибка отправки",
+                    last_error=res.error or f"HTTP {res.status_code}",
+                    raw_json=res.raw[:8000],
+                )
+                raise HTTPException(status_code=502, detail=res.error or "Ошибка Contour.Логистика")
+            tid = str(res.data.get("transportationId") or res.data.get("transportation_id") or "").strip()
+            st = repository.upsert_ttn_edo_document(
+                user_id=owner_id,
+                ttn_record_id=record_id,
+                doc_type=doc_type,
+                channel="logistics",
+                transportation_id=tid,
+                status="sent",
+                status_label=status_label("NewTransportation"),
+                last_error="",
+                raw_json=_jj.dumps(res.data, ensure_ascii=False)[:8000],
+                mark_sent=True,
+            )
+            return {"ok": True, "doc_type": doc_type, "channel": "logistics", "document": st}
+
+        if not (
+            settings.get("diadoc_client_id")
+            and settings.get("diadoc_login")
+            and settings.get("diadoc_password")
+            and settings.get("diadoc_from_box_id")
+            and settings.get("diadoc_to_box_id")
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Для Заявки заполните Diadoc в Настройки → ЭДО (Client ID, логин, пароль, From/To BoxId)",
+            )
+        dclient = KonturDiadocClient(
+            api_url=str(settings.get("diadoc_url") or ""),
+            client_id=str(settings.get("diadoc_client_id") or ""),
+            login=str(settings.get("diadoc_login") or ""),
+            password=str(settings.get("diadoc_password") or ""),
+        )
+        res = dclient.send_order_request(
+            from_box_id=str(settings.get("diadoc_from_box_id") or ""),
+            to_box_id=str(settings.get("diadoc_to_box_id") or ""),
+            xml_bytes=xml_bytes,
+            signature_bytes=signature_bytes,
+        )
+        if not res.ok:
+            repository.upsert_ttn_edo_document(
+                user_id=owner_id,
+                ttn_record_id=record_id,
+                doc_type=doc_type,
+                channel="diadoc",
+                status="error",
+                status_label="Ошибка отправки",
+                last_error=res.error or f"HTTP {res.status_code}",
+                raw_json=res.raw[:8000],
+            )
+            raise HTTPException(status_code=502, detail=res.error or "Ошибка Diadoc")
+        ids = KonturDiadocClient.parse_post_message_ids(res.data)
+        st = repository.upsert_ttn_edo_document(
+            user_id=owner_id,
+            ttn_record_id=record_id,
+            doc_type=doc_type,
+            channel="diadoc",
+            message_id=ids.get("message_id") or "",
+            entity_id=ids.get("entity_id") or "",
+            status="sent",
+            status_label="Отправлено в Diadoc (ожидание статусов ГИС ЭПД)",
+            last_error="",
+            raw_json=_jj.dumps(res.data, ensure_ascii=False)[:8000] if isinstance(res.data, (dict, list)) else (res.raw[:8000]),
+            mark_sent=True,
+        )
+        return {"ok": True, "doc_type": doc_type, "channel": "diadoc", "document": st}
+
+    @app.get("/api/supply-ttn-records/{record_id}/edo/status")
+    def get_ttn_edo_status(request: Request, record_id: int) -> dict[str, object]:
+        """Проверка стадии документов ЭДО по ТН."""
+        import json as _jj
+        from .kontur_logistics import KonturLogisticsClient, status_label
+        from .kontur_diadoc import KonturDiadocClient
+
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        _get_ttn_catalog_record(user, record_id)
+        docs = repository.list_ttn_edo_documents(user_id=owner_id, ttn_record_id=record_id)
+        settings = repository.get_supply_edo_settings(user_id=owner_id, include_secrets=True)
+        refreshed: list[dict] = []
+        for doc in docs:
+            dtype = str(doc.get("doc_type") or "")
+            channel = str(doc.get("channel") or "")
+            tid = str(doc.get("transportation_id") or "").strip()
+            if channel == "logistics" and tid and settings.get("api_key"):
+                client = KonturLogisticsClient(
+                    api_url=str(settings.get("api_url") or ""),
+                    api_key=str(settings["api_key"]),
+                )
+                res = client.get_transportation(tid)
+                if res.ok:
+                    parsed = KonturLogisticsClient.parse_transportation_status(
+                        res.data if isinstance(res.data, dict) else {}
+                    )
+                    doc = repository.upsert_ttn_edo_document(
+                        user_id=owner_id,
+                        ttn_record_id=record_id,
+                        doc_type=dtype,
+                        channel="logistics",
+                        transportation_id=parsed.get("transportation_id") or tid,
+                        status=str(parsed.get("status") or ""),
+                        status_label=str(parsed.get("status_label") or status_label(parsed.get("status"))),
+                        mintrans_id=str(parsed.get("mintrans_id") or ""),
+                        mintrans_status=str(parsed.get("mintrans_status") or ""),
+                        last_error=str(parsed.get("mintrans_errors") or ""),
+                        raw_json=_jj.dumps(res.data, ensure_ascii=False)[:8000],
+                    )
+                else:
+                    doc = repository.upsert_ttn_edo_document(
+                        user_id=owner_id,
+                        ttn_record_id=record_id,
+                        doc_type=dtype,
+                        channel="logistics",
+                        transportation_id=tid,
+                        status=str(doc.get("status") or "unknown"),
+                        status_label=str(doc.get("status_label") or ""),
+                        last_error=res.error or f"HTTP {res.status_code}",
+                    )
+            elif channel == "diadoc" and doc.get("message_id") and settings.get("diadoc_client_id"):
+                dclient = KonturDiadocClient(
+                    api_url=str(settings.get("diadoc_url") or ""),
+                    client_id=str(settings.get("diadoc_client_id") or ""),
+                    login=str(settings.get("diadoc_login") or ""),
+                    password=str(settings.get("diadoc_password") or ""),
+                )
+                box_id = str(settings.get("diadoc_from_box_id") or "")
+                entity_id = str(doc.get("entity_id") or "")
+                if box_id and entity_id:
+                    res = dclient.get_document(
+                        box_id=box_id,
+                        message_id=str(doc.get("message_id") or ""),
+                        entity_id=entity_id,
+                    )
+                    if res.ok and isinstance(res.data, dict):
+                        parsed = KonturDiadocClient.parse_document_status(res.data)
+                        tid = str(doc.get("transportation_id") or parsed.get("kl_id") or "")
+                        doc = repository.upsert_ttn_edo_document(
+                            user_id=owner_id,
+                            ttn_record_id=record_id,
+                            doc_type=dtype,
+                            channel="diadoc",
+                            transportation_id=tid,
+                            message_id=str(doc.get("message_id") or ""),
+                            entity_id=entity_id,
+                            status=str(parsed.get("status") or "sent"),
+                            status_label=str(parsed.get("status_label") or ""),
+                            mintrans_id=str(parsed.get("mintrans_id") or ""),
+                            mintrans_status=str(parsed.get("mintrans_status") or ""),
+                            last_error="",
+                            raw_json=_jj.dumps(res.data, ensure_ascii=False)[:8000],
+                        )
+            refreshed.append(doc)
+        diadoc_ready = bool(
+            settings.get("diadoc_client_id")
+            and settings.get("diadoc_login")
+            and settings.get("has_diadoc_password")
+            and settings.get("diadoc_from_box_id")
+            and settings.get("diadoc_to_box_id")
+        )
+        return {
+            "ttn_record_id": record_id,
+            "documents": refreshed or docs,
+            "edo_configured": bool(settings.get("has_api_key") or diadoc_ready),
+        }
+
     @app.patch("/api/supplies/{supply_id}/manual-fields")
     def update_supply_manual_fields(
         request: Request,
