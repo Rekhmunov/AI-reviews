@@ -36,9 +36,10 @@ def test_kiz_and_pick_scan_bars_have_toggle_not_label() -> None:
 
 
 def test_other_scan_labels_untouched() -> None:
-    # Restore / Ozon still use the old label — out of scope for this MVP.
+    # Restore still uses the old label; Ozon KIZ/Pick now match WB COM toggle UX.
     assert 'for="wbFbsKizRestoreScan">Сканирование<' in APP_HTML
-    assert 'for="ozonFbsKizStickerScan">Сканирование<' in APP_HTML
+    assert 'id="ozonFbsKizScanModeToggle"' in APP_HTML
+    assert 'for="ozonFbsKizStickerScan">Сканирование<' not in APP_HTML
 
 
 def test_process_helpers_preserve_keyboard_enter_wrappers() -> None:
@@ -86,8 +87,8 @@ def test_scan_mode_toggle_css() -> None:
 
 
 def test_cache_bump() -> None:
-    assert "style.css?v=364" in APP_HTML
-    assert "app.js?v=624" in APP_HTML
+    assert "style.css?v=365" in APP_HTML
+    assert "app.js?v=629" in APP_HTML
 
 
 def test_permissions_policy_allows_serial() -> None:

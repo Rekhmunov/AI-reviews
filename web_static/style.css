@@ -13071,6 +13071,17 @@ button.wb-fbs-sd-portal-btn:focus-visible {
   gap: 12px;
   min-width: 0;
 }
+
+.ozon-fbs-scan-bar-compact .wb-fbs-scan-mode-toggle {
+  flex: 0 0 auto;
+}
+.ozon-fbs-scan-bar-compact .wb-fbs-scan-mode-status {
+  flex: 0 1 auto;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .ozon-fbs-scan-bar-compact .wb-fbs-kiz-scan-label {
   flex: 0 0 auto;
   font-size: 13px;

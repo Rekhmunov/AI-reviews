@@ -32,4 +32,4 @@ def test_wb_and_ozon_kiz_pick_scroll_is_instant() -> None:
         assert call == 'scrollIntoView({ block: "nearest" })', (name, call)
 
     assert "app.js?v=629" in html
-    assert "ozon_fbs.js?v=157" in html
+    assert "ozon_fbs.js?v=158" in html

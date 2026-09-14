@@ -10352,10 +10352,8 @@
     if (next) _ozonFbsKizIndexSetMark(next, pn);
   }
 
-  async function onOzonFbsKizStickerScanKey(event) {
-    if (!event || event.key !== "Enter") return;
-    event.preventDefault();
-    const input = event.target;
+  async function processOzonFbsKizStickerScan(raw, inputEl) {
+    const input = inputEl || document.getElementById("ozonFbsKizStickerScan");
     if (typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen()) {
       _ozonFbsKizScanDiag("sticker_enter_ru_modal", _ozonFbsKizScanDiagSnapshot(input));
       return;
@@ -10367,7 +10365,7 @@
       );
       return;
     }
-    const rawTyped = String(input?.value || "").replace(/\s+/g, "").trim();
+    const rawTyped = String(raw ?? input?.value ?? "").replace(/\s+/g, "").trim();
     if (!rawTyped) {
       // Digits never reached the field (swallow/readonly) or scanner sent bare Enter.
       _ozonFbsKizScanDiag("sticker_enter_empty", _ozonFbsKizScanDiagSnapshot(input));
@@ -10420,6 +10418,12 @@
     }
   }
 
+  async function onOzonFbsKizStickerScanKey(event) {
+    if (!event || event.key !== "Enter") return;
+    event.preventDefault();
+    await processOzonFbsKizStickerScan(event.target?.value || "", event.target);
+  }
+
   function cancelOzonFbsKizMarkScan() {
     if (typeof setModalVisibility === "function") setModalVisibility("ozonFbsKizScanPrompt", false);
     else document.getElementById("ozonFbsKizScanPrompt")?.classList.add("hidden");
@@ -10428,16 +10432,14 @@
     if (sticker) setTimeout(() => sticker.focus(), 40);
   }
 
-  function onOzonFbsKizMarkScanKey(event) {
-    if (!event || event.key !== "Enter") return;
-    event.preventDefault();
-    const input = event.target;
+  function processOzonFbsKizMarkScan(raw, inputEl) {
+    const input = inputEl || document.getElementById("ozonFbsKizMarkScan");
     if (typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen()) {
       _ozonFbsKizScanDiag("mark_enter_ru_modal", _ozonFbsKizScanDiagSnapshot(input));
       return;
     }
     const pn = String(ozonFbsKizState.pendingPosting || "");
-    const rawTyped = String(input?.value || "");
+    const rawTyped = String(raw ?? input?.value ?? "");
     if (!pn || !String(rawTyped || "").replace(/\s+/g, "")) {
       _ozonFbsKizScanDiag(
         "mark_enter_empty",
@@ -10514,6 +10516,13 @@
     }
     const rowEl = document.querySelector(`#ozonFbsKizTbody tr[data-posting="${pn}"]`);
     if (rowEl) rowEl.scrollIntoView({ block: "nearest" });
+  
+  }
+
+  function onOzonFbsKizMarkScanKey(event) {
+    if (!event || event.key !== "Enter") return;
+    event.preventDefault();
+    processOzonFbsKizMarkScan(event.target?.value || "", event.target);
   }
 
   function _ozonFbsKizApplySaveResults(results) {
@@ -10779,6 +10788,7 @@
       if (typeof _ozonFbsContainerPrepareModal === "function") {
         await _ozonFbsContainerPrepareModal("kiz");
       }
+      void _ozonFbsScanComOnModalOpened();
       if (loadOk && scan) setTimeout(() => {
         if (stillThisLoad()) scan.focus();
       }, 50);
@@ -10806,6 +10816,7 @@
     }
     cancelOzonFbsKizMarkScan();
     closeOzonFbsKizImportModal();
+    void _ozonFbsScanComOnModalClosed();
     ozonFbsKizState.rows = [];
     ozonFbsKizState.rowsByPosting = new Map();
     ozonFbsKizState.markIndex = new Map();
@@ -11550,13 +11561,12 @@
     }
   }
 
-  async function onOzonFbsPickStickerScanKey(event) {
-    if (!event || event.key !== "Enter") return;
-    event.preventDefault();
+  async function processOzonFbsPickStickerScan(raw, inputEl) {
+    const input = inputEl || document.getElementById("ozonFbsPickStickerScan");
     if (typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen()) return;
-    const input = event.target;
+
     if (input?.disabled || input?.readOnly || !ozonFbsPickState.rowsReady) return;
-    const rawTyped = String(input?.value || "").replace(/\s+/g, "").trim();
+    const rawTyped = String(raw ?? input?.value ?? "").replace(/\s+/g, "").trim();
     if (!rawTyped) return;
     if (typeof _wbFbsKizHasCyrillic === "function" && _wbFbsKizHasCyrillic(rawTyped)) {
       if (typeof _wbFbsKizBlockRuLayout === "function") _wbFbsKizBlockRuLayout(input);
@@ -11599,6 +11609,13 @@
       sku.value = "";
       setTimeout(() => sku.focus(), 40);
     }
+  
+  }
+
+  async function onOzonFbsPickStickerScanKey(event) {
+    if (!event || event.key !== "Enter") return;
+    event.preventDefault();
+    await processOzonFbsPickStickerScan(event.target?.value || "", event.target);
   }
 
   function cancelOzonFbsPickSkuScan() {
@@ -11609,26 +11626,24 @@
     if (sticker) setTimeout(() => sticker.focus(), 40);
   }
 
-  function onOzonFbsPickSkuScanKey(event) {
-    if (!event || event.key !== "Enter") return;
-    event.preventDefault();
+  function processOzonFbsPickSkuScan(raw, inputEl) {
     if (typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen()) return;
     const pn = String(ozonFbsPickState.pendingPosting || "");
-    const input = event.target;
-    const rawTyped = String(input?.value || "");
+    const input = inputEl || document.getElementById("ozonFbsPickSkuScan");
+    const rawTyped = String(raw ?? input?.value ?? "");
     if (!pn || !String(rawTyped || "").replace(/\s+/g, "")) return;
     if (typeof _wbFbsKizHasCyrillic === "function" && _wbFbsKizHasCyrillic(rawTyped)) {
       if (typeof _wbFbsKizBlockRuLayout === "function") _wbFbsKizBlockRuLayout(input);
       return;
     }
-    const raw = _ozonFbsNormalizeScan(rawTyped);
-    if (!raw) return;
+    const scan = _ozonFbsNormalizeScan(rawTyped);
+    if (!scan) return;
     const row = ozonFbsPickState.rows.find((r) => String(r.posting_number) === pn);
     if (!row) {
       cancelOzonFbsPickSkuScan();
       return;
     }
-    const check = _ozonFbsPickValidateEanForOrder(raw, row);
+    const check = _ozonFbsPickValidateEanForOrder(scan, row);
     if (!check.ok) {
       ozonFbsPickState.errors[pn] = check.error || "Ошибка проверки ШК";
       cancelOzonFbsPickSkuScan();
@@ -11653,6 +11668,13 @@
     const rowEl = document.querySelector(`#ozonFbsPickTbody tr[data-posting="${pn}"]`);
     // Instant jump — same as Ozon/WB KIZ and WB pick after scan.
     if (rowEl) rowEl.scrollIntoView({ block: "nearest" });
+  
+  }
+
+  function onOzonFbsPickSkuScanKey(event) {
+    if (!event || event.key !== "Enter") return;
+    event.preventDefault();
+    processOzonFbsPickSkuScan(event.target?.value || "", event.target);
   }
 
   async function refreshOzonFbsPickVerifyStatus(event, opts) {
@@ -11855,6 +11877,7 @@
       if (typeof _ozonFbsContainerPrepareModal === "function") {
         await _ozonFbsContainerPrepareModal("pick");
       }
+      void _ozonFbsScanComOnModalOpened();
       if (loadOk && scan) setTimeout(() => {
         if (stillThisLoad()) scan.focus();
       }, 50);
@@ -11871,6 +11894,7 @@
     if (typeof setModalVisibility === "function") setModalVisibility("ozonFbsPickVerifyModal", false);
     else document.getElementById("ozonFbsPickVerifyModal")?.classList.add("hidden");
     cancelOzonFbsPickSkuScan();
+    void _ozonFbsScanComOnModalClosed();
     ozonFbsPickState.rows = [];
     _ozonFbsPickSetInfo("");
     // Skip if save/open just refreshed (avoid double network on close).
@@ -12607,6 +12631,365 @@
   window.copyOzonFbsModalPostingNumber = copyOzonFbsModalPostingNumber;
   window.closeOzonFbsPostingStatusModal = closeOzonFbsPostingStatusModal;
   window.refreshOzonFbsCancelledOrders = refreshOzonFbsCancelledOrders;
+
+  /* ── Ozon FBS scan input mode: keyboard (default) / COM (Web Serial) ─────
+   * Keyboard path is unchanged (Enter → process*). COM only feeds the same process* helpers.
+   * Ozon specifics (cargo places, local-only marking, posting_number) stay inside process*.
+   */
+  const OZON_FBS_SCAN_MODE_KEY = "ozon_fbs_scan_input_mode_v1";
+  const OZON_FBS_COM_BAUD = 9600;
+  const OZON_FBS_COM_INTER_BYTE_MS = 50;
+  const OZON_FBS_COM_DEDUP_MS = 500;
+
+  const ozonFbsScanComState = {
+    preferredCom: false,
+    port: null,
+    reader: null,
+    reading: false,
+    buffer: "",
+    interByteTimer: null,
+    lastRaw: "",
+    lastAt: 0,
+    connectInFlight: false,
+  };
+
+  function _ozonFbsScanComSupported() {
+    return typeof navigator !== "undefined" && !!(navigator.serial && navigator.serial.requestPort);
+  }
+
+  function _ozonFbsScanComIsYandexBrowser() {
+    try {
+      const ua = String(navigator.userAgent || "");
+      return /YaBrowser|Yowser/i.test(ua);
+    } catch (_e) {
+      return false;
+    }
+  }
+
+  /** Подсказка, когда диалог браузера пустой («Совместимые устройства не найдены»). */
+  function _ozonFbsScanComEmptyPortsHint() {
+    if (_ozonFbsScanComIsYandexBrowser()) {
+      return (
+        "COM: в Яндексе список портов пуст. Закройте Chrome полностью " +
+        "(он держит порт), выньте/вставьте сканер и повторите. Надёжнее — Chrome/Edge."
+      );
+    }
+    return (
+      "COM: порт не найден. Закройте другие браузеры/программы с этим COM, " +
+      "переподключите сканер и выберите порт снова."
+    );
+  }
+
+  function _ozonFbsScanComPrefEnabled() {
+    try {
+      return localStorage.getItem(OZON_FBS_SCAN_MODE_KEY) === "com";
+    } catch (_e) {
+      return false;
+    }
+  }
+
+  function _ozonFbsScanComSetPref(enabled) {
+    ozonFbsScanComState.preferredCom = !!enabled;
+    try {
+      localStorage.setItem(OZON_FBS_SCAN_MODE_KEY, enabled ? "com" : "keyboard");
+    } catch (_e) {
+      /* ignore */
+    }
+  }
+
+  function _ozonFbsScanModeStatusEls() {
+    return [
+      document.getElementById("ozonFbsKizScanModeStatus"),
+      document.getElementById("ozonFbsPickScanModeStatus"),
+    ].filter(Boolean);
+  }
+
+  function _ozonFbsScanModeToggleEls() {
+    return [
+      document.getElementById("ozonFbsKizScanModeToggle"),
+      document.getElementById("ozonFbsPickScanModeToggle"),
+    ].filter(Boolean);
+  }
+
+  function _ozonFbsScanComSetStatus(text, tone) {
+    const msg = String(text || "").trim();
+    for (const el of _ozonFbsScanModeStatusEls()) {
+      if (!msg) {
+        el.hidden = true;
+        el.textContent = "";
+        el.classList.remove("is-error", "is-ok");
+        continue;
+      }
+      el.hidden = false;
+      el.textContent = msg;
+      el.classList.remove("is-error", "is-ok");
+      if (tone === "error") el.classList.add("is-error");
+      else if (tone === "ok") el.classList.add("is-ok");
+    }
+  }
+
+  function _ozonFbsScanComSyncToggleUi() {
+    const on = !!ozonFbsScanComState.preferredCom;
+    for (const btn of _ozonFbsScanModeToggleEls()) {
+      btn.setAttribute("aria-checked", on ? "true" : "false");
+      btn.classList.toggle("is-com", on);
+    }
+  }
+
+  function _ozonFbsScanComModalOpen() {
+    try {
+      if (typeof _ozonFbsKizModalIsOpen === "function" && _ozonFbsKizModalIsOpen()) return true;
+    } catch (_e) { /* ignore */ }
+    try {
+      if (typeof _ozonFbsPickModalIsOpen === "function" && _ozonFbsPickModalIsOpen()) return true;
+    } catch (_e) { /* ignore */ }
+    return false;
+  }
+
+  function _ozonFbsScanComPromptOpen(id) {
+    const el = document.getElementById(id);
+    return !!(el && !el.classList.contains("hidden"));
+  }
+
+  function deliverOzonFbsComScan(raw) {
+    const value = String(raw || "").replace(/[\r\n]+$/g, "");
+    if (!value.replace(/\s+/g, "")) return false;
+    const now = Date.now();
+    if (value === ozonFbsScanComState.lastRaw && now - ozonFbsScanComState.lastAt < OZON_FBS_COM_DEDUP_MS) {
+      return false;
+    }
+    ozonFbsScanComState.lastRaw = value;
+    ozonFbsScanComState.lastAt = now;
+
+    // Same priority as keyboard focus flow: open prompt first, then parent modal.
+    if (_ozonFbsScanComPromptOpen("ozonFbsKizScanPrompt")) {
+      const input = document.getElementById("ozonFbsKizMarkScan");
+      if (input) input.value = value;
+      return !!processOzonFbsKizMarkScan(value, input);
+    }
+    if (typeof _ozonFbsKizModalIsOpen === "function" && _ozonFbsKizModalIsOpen()) {
+      const input = document.getElementById("ozonFbsKizStickerScan");
+      if (input) input.value = value;
+      void processOzonFbsKizStickerScan(value, input);
+      return true;
+    }
+    if (_ozonFbsScanComPromptOpen("ozonFbsPickScanPrompt")) {
+      const input = document.getElementById("ozonFbsPickSkuScan");
+      if (input) input.value = value;
+      return !!processOzonFbsPickSkuScan(value, input);
+    }
+    if (typeof _ozonFbsPickModalIsOpen === "function" && _ozonFbsPickModalIsOpen()) {
+      const input = document.getElementById("ozonFbsPickStickerScan");
+      if (input) input.value = value;
+      void processOzonFbsPickStickerScan(value, input);
+      return true;
+    }
+    return false;
+  }
+
+  function _ozonFbsScanComFlushBuffer() {
+    if (ozonFbsScanComState.interByteTimer) {
+      clearTimeout(ozonFbsScanComState.interByteTimer);
+      ozonFbsScanComState.interByteTimer = null;
+    }
+    const raw = ozonFbsScanComState.buffer;
+    ozonFbsScanComState.buffer = "";
+    if (!raw) return;
+    deliverOzonFbsComScan(raw);
+  }
+
+  function _ozonFbsScanComOnChunk(text) {
+    if (!text) return;
+    ozonFbsScanComState.buffer += text;
+    const parts = ozonFbsScanComState.buffer.split(/\r\n|\n|\r/);
+    ozonFbsScanComState.buffer = parts.pop() || "";
+    for (const part of parts) {
+      if (String(part || "").replace(/\s+/g, "")) deliverOzonFbsComScan(part);
+    }
+    if (ozonFbsScanComState.interByteTimer) clearTimeout(ozonFbsScanComState.interByteTimer);
+    if (ozonFbsScanComState.buffer) {
+      ozonFbsScanComState.interByteTimer = setTimeout(() => {
+        ozonFbsScanComState.interByteTimer = null;
+        _ozonFbsScanComFlushBuffer();
+      }, OZON_FBS_COM_INTER_BYTE_MS);
+    }
+  }
+
+  async function _ozonFbsScanComReadLoop() {
+    const port = ozonFbsScanComState.port;
+    if (!port || !port.readable) return;
+    ozonFbsScanComState.reading = true;
+    const decoder = new TextDecoder("latin1");
+    try {
+      while (ozonFbsScanComState.port && port.readable && ozonFbsScanComState.preferredCom) {
+        const reader = port.readable.getReader();
+        ozonFbsScanComState.reader = reader;
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            if (value && value.length) {
+              _ozonFbsScanComOnChunk(decoder.decode(value, { stream: true }));
+            }
+          }
+        } catch (_e) {
+          if (ozonFbsScanComState.preferredCom) {
+            _ozonFbsScanComSetStatus("COM: связь потеряна", "error");
+          }
+          break;
+        } finally {
+          try { reader.releaseLock(); } catch (_e2) { /* ignore */ }
+          if (ozonFbsScanComState.reader === reader) ozonFbsScanComState.reader = null;
+        }
+        break;
+      }
+    } finally {
+      ozonFbsScanComState.reading = false;
+    }
+  }
+
+  async function _ozonFbsScanComDisconnect() {
+    if (ozonFbsScanComState.interByteTimer) {
+      clearTimeout(ozonFbsScanComState.interByteTimer);
+      ozonFbsScanComState.interByteTimer = null;
+    }
+    ozonFbsScanComState.buffer = "";
+    const reader = ozonFbsScanComState.reader;
+    ozonFbsScanComState.reader = null;
+    if (reader) {
+      try { await reader.cancel(); } catch (_e) { /* ignore */ }
+      try { reader.releaseLock(); } catch (_e) { /* ignore */ }
+    }
+    const port = ozonFbsScanComState.port;
+    ozonFbsScanComState.port = null;
+    if (port) {
+      try { await port.close(); } catch (_e) { /* ignore */ }
+    }
+  }
+
+  async function _ozonFbsScanComConnect(opts) {
+    const interactive = !!(opts && opts.interactive);
+    if (!_ozonFbsScanComSupported()) {
+      _ozonFbsScanComSetStatus("COM недоступен в этом браузере", "error");
+      return false;
+    }
+    if (ozonFbsScanComState.connectInFlight) return false;
+    ozonFbsScanComState.connectInFlight = true;
+    try {
+      let port = ozonFbsScanComState.port;
+      if (!port) {
+        const ports = await navigator.serial.getPorts();
+        if (ports && ports.length) port = ports[0];
+      }
+      if (!port && interactive) {
+        // Empty filters — otherwise Yandex/Chromium may hide USB-UART scanners.
+        port = await navigator.serial.requestPort({ filters: [] });
+      }
+      if (!port) {
+        _ozonFbsScanComSetStatus("COM: выберите порт", "error");
+        return false;
+      }
+      if (ozonFbsScanComState.port !== port) {
+        try {
+          await port.open({ baudRate: OZON_FBS_COM_BAUD });
+        } catch (e) {
+          const msg = String(e && (e.message || e) || "");
+          if (!/already\s+open/i.test(msg)) {
+            const busy =
+              /Failed to open|NetworkError|InvalidStateError|Access denied|занят|in use/i.test(
+                msg + " " + String((e && e.name) || "")
+              );
+            _ozonFbsScanComSetStatus(
+              busy
+                ? "COM: порт занят — закройте Chrome и другие программы с этим портом"
+                : "COM: не удалось открыть порт",
+              "error"
+            );
+            return false;
+          }
+        }
+        ozonFbsScanComState.port = port;
+      }
+      _ozonFbsScanComSetStatus("COM подключён", "ok");
+      if (!ozonFbsScanComState.reading) {
+        void _ozonFbsScanComReadLoop();
+      }
+      return true;
+    } catch (e) {
+      if (e && e.name === "NotFoundError") {
+        _ozonFbsScanComSetStatus(_ozonFbsScanComEmptyPortsHint(), "error");
+      } else {
+        _ozonFbsScanComSetStatus("COM: ошибка подключения", "error");
+      }
+      return false;
+    } finally {
+      ozonFbsScanComState.connectInFlight = false;
+    }
+  }
+
+  async function onOzonFbsScanModeToggleClick(event) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    const next = !ozonFbsScanComState.preferredCom;
+    if (next && !_ozonFbsScanComSupported()) {
+      _ozonFbsScanComSetStatus("COM недоступен в этом браузере", "error");
+      _ozonFbsScanComSetPref(false);
+      _ozonFbsScanComSyncToggleUi();
+      return;
+    }
+    _ozonFbsScanComSetPref(next);
+    _ozonFbsScanComSyncToggleUi();
+    if (!next) {
+      await _ozonFbsScanComDisconnect();
+      _ozonFbsScanComSetStatus("");
+      return;
+    }
+    const ok = await _ozonFbsScanComConnect({ interactive: true });
+    if (!ok) {
+      // Stay preferred ON so operator can retry; UI remains green.
+      _ozonFbsScanComSyncToggleUi();
+    }
+  }
+
+  async function _ozonFbsScanComOnModalOpened() {
+    ozonFbsScanComState.preferredCom = _ozonFbsScanComPrefEnabled();
+    _ozonFbsScanComSyncToggleUi();
+    if (!ozonFbsScanComState.preferredCom) {
+      _ozonFbsScanComSetStatus("");
+      return;
+    }
+    if (!_ozonFbsScanComSupported()) {
+      _ozonFbsScanComSetStatus("COM недоступен", "error");
+      return;
+    }
+    const ok = await _ozonFbsScanComConnect({ interactive: false });
+    if (!ok) {
+      _ozonFbsScanComSetStatus("COM: нажмите переключатель для порта", "error");
+    }
+  }
+
+  async function _ozonFbsScanComOnModalClosed() {
+    // Release port when leaving Ozon scan modals; preference remembered for next open.
+    if (!_ozonFbsScanComModalOpen()) {
+      await _ozonFbsScanComDisconnect();
+    }
+  }
+
+  function _ozonFbsScanComInitFromStorage() {
+    ozonFbsScanComState.preferredCom = _ozonFbsScanComPrefEnabled();
+    _ozonFbsScanComSyncToggleUi();
+  }
+  if (typeof document !== "undefined") {
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", _ozonFbsScanComInitFromStorage);
+    } else {
+      _ozonFbsScanComInitFromStorage();
+    }
+  }
+
+
   window.ozonFbsKizState = ozonFbsKizState;
   window.ozonFbsPickState = ozonFbsPickState;
   window.supplyDetailState = supplyDetailState;
@@ -12625,8 +13008,12 @@
   window.removeOzonFbsKizCode = removeOzonFbsKizCode;
   window.onOzonFbsKizFilterFilledChange = onOzonFbsKizFilterFilledChange;
   window.onOzonFbsKizFilterEmptyChange = onOzonFbsKizFilterEmptyChange;
+  window.processOzonFbsKizStickerScan = processOzonFbsKizStickerScan;
+  window.processOzonFbsKizMarkScan = processOzonFbsKizMarkScan;
   window.onOzonFbsKizStickerScanKey = onOzonFbsKizStickerScanKey;
   window.onOzonFbsKizMarkScanKey = onOzonFbsKizMarkScanKey;
+  window.onOzonFbsScanModeToggleClick = onOzonFbsScanModeToggleClick;
+  window.deliverOzonFbsComScan = deliverOzonFbsComScan;
   window.cancelOzonFbsKizMarkScan = cancelOzonFbsKizMarkScan;
   window.clearOzonFbsKizRow = clearOzonFbsKizRow;
   window.openOzonFbsKizImportModal = openOzonFbsKizImportModal;
@@ -12648,6 +13035,8 @@
   window.renderOzonFbsPickVerifyTable = renderOzonFbsPickVerifyTable;
   window.onOzonFbsPickFilterFilledChange = onOzonFbsPickFilterFilledChange;
   window.onOzonFbsPickFilterEmptyChange = onOzonFbsPickFilterEmptyChange;
+  window.processOzonFbsPickStickerScan = processOzonFbsPickStickerScan;
+  window.processOzonFbsPickSkuScan = processOzonFbsPickSkuScan;
   window.onOzonFbsPickStickerScanKey = onOzonFbsPickStickerScanKey;
   window.onOzonFbsPickSkuScanKey = onOzonFbsPickSkuScanKey;
   window.onOzonFbsPickBarcodeInput = onOzonFbsPickBarcodeInput;

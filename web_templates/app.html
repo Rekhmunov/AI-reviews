@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=364" />
+  <link rel="stylesheet" href="/static/style.css?v=365" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -3445,9 +3445,25 @@
             </div>
             <div class="wb-fbs-kiz-scan-bar ozon-fbs-scan-bar-compact">
               <div class="ozon-fbs-scan-bar-main">
-                <label class="wb-fbs-kiz-scan-label" for="ozonFbsKizStickerScan">Сканирование</label>
+                              <button type="button" id="ozonFbsKizScanModeToggle" class="wb-fbs-scan-mode-toggle"
+                      role="switch" aria-checked="false"
+                      aria-label="Режим сканера: клавиатура или COM"
+                      title="Выкл — клавиатура (как сейчас). Вкл — COM-порт"
+                      onclick="onOzonFbsScanModeToggleClick(event)">
+                <span class="wb-fbs-scan-mode-ico wb-fbs-scan-mode-kb" aria-hidden="true" title="Клавиатура">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                    <rect x="2" y="6" width="20" height="12" rx="2" stroke="currentColor" stroke-width="1.8"/>
+                    <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 13h.01M10 13h4M16 13h.01M18 13h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                  </svg>
+                </span>
+                <span class="wb-fbs-scan-mode-track" aria-hidden="true"><span class="wb-fbs-scan-mode-thumb"></span></span>
+                <span class="wb-fbs-scan-mode-ico wb-fbs-scan-mode-com" aria-hidden="true" title="COM">COM</span>
+              </button>
+              <span id="ozonFbsKizScanModeStatus" class="wb-fbs-scan-mode-status" hidden></span>
+
                 <div class="wb-fbs-kiz-scan-field">
                   <input id="ozonFbsKizStickerScan" class="wb-fbs-kiz-scan-input" type="text" autocomplete="off"
+                         aria-label="Сканирование QR этикетки Ozon или номера отправления"
                          placeholder="Сканируйте QR этикетки Ozon или номер отправления"
                          oninput="onWbFbsKizScanInputCheck(event)"
                          onkeydown="onOzonFbsKizStickerScanKey(event)" />
@@ -3607,9 +3623,25 @@
             </div>
             <div class="wb-fbs-kiz-scan-bar ozon-fbs-scan-bar-compact">
               <div class="ozon-fbs-scan-bar-main">
-                <label class="wb-fbs-kiz-scan-label" for="ozonFbsPickStickerScan">Сканирование</label>
+                              <button type="button" id="ozonFbsPickScanModeToggle" class="wb-fbs-scan-mode-toggle"
+                      role="switch" aria-checked="false"
+                      aria-label="Режим сканера: клавиатура или COM"
+                      title="Выкл — клавиатура (как сейчас). Вкл — COM-порт"
+                      onclick="onOzonFbsScanModeToggleClick(event)">
+                <span class="wb-fbs-scan-mode-ico wb-fbs-scan-mode-kb" aria-hidden="true" title="Клавиатура">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                    <rect x="2" y="6" width="20" height="12" rx="2" stroke="currentColor" stroke-width="1.8"/>
+                    <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 13h.01M10 13h4M16 13h.01M18 13h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                  </svg>
+                </span>
+                <span class="wb-fbs-scan-mode-track" aria-hidden="true"><span class="wb-fbs-scan-mode-thumb"></span></span>
+                <span class="wb-fbs-scan-mode-ico wb-fbs-scan-mode-com" aria-hidden="true" title="COM">COM</span>
+              </button>
+              <span id="ozonFbsPickScanModeStatus" class="wb-fbs-scan-mode-status" hidden></span>
+
                 <div class="wb-fbs-kiz-scan-field">
                   <input id="ozonFbsPickStickerScan" class="wb-fbs-kiz-scan-input" type="text" autocomplete="off"
+                         aria-label="Сканирование QR этикетки Ozon или номера отправления"
                          placeholder="Сканируйте QR этикетки Ozon или номер отправления"
                          oninput="onWbFbsKizScanInputCheck(event)"
                          onkeydown="onOzonFbsPickStickerScanKey(event)" />
@@ -7567,7 +7599,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=157"></script>
+  <script src="/static/ozon_fbs.js?v=158"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=24"></script>
   <script src="/static/app.js?v=629"></script>
 </body>
