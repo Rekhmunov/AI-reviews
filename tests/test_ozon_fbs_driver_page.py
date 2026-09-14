@@ -30,8 +30,8 @@ def test_driver_page_html_boot_and_assets() -> None:
     assert "Для водителя" in html
     assert "OFD_BOOT" in html
     assert "CAN_VIEW_OZON_FBS_DRIVER" in html
-    assert "/static/ozon_fbs_driver.js?v=2" in html
-    assert "/static/ozon_fbs_driver.css?v=2" in html
+    assert "/static/ozon_fbs_driver.js?v=3" in html
+    assert "/static/ozon_fbs_driver.css?v=3" in html
     assert "PAGE_MODE" in html
     assert "PAGE_TOKEN" in html
     assert "page_mode" in html
