@@ -32610,6 +32610,7 @@ function renderWbFbsSupplyDetail(data) {
     if (!needsKiz) _wbFbsKizSplitSetTone("");
   }
   _wbFbsSyncPickVerifyBtn();
+  _wbFbsSyncKizPickBtnLabels();
   const readOnly = _wbFbsIsSupplyDetailReadOnly();
   _wbFbsSyncSupplyDetailReadOnlyMode(readOnly);
   const detailColspan = readOnly ? 2 : 4;
@@ -33467,6 +33468,81 @@ function _wbFbsKizSplitSetTone(tone) {
   // pending / none / unknown → leave default secondary styling
 }
 
+function _wbFbsOrderIsCancelled(order) {
+  return !!String(order?.cancel_reason_label || "").trim();
+}
+
+function _wbFbsKizOrderScanned(order) {
+  if (!order) return false;
+  if (Array.isArray(order.kiz_codes) && order.kiz_codes.some((c) => String(c || "").trim())) {
+    return true;
+  }
+  return !!order.kiz_bound;
+}
+
+function _wbFbsPickOrderScanned(order) {
+  return !!(order?.pick_verified && String(order?.pick_barcode || "").trim());
+}
+
+/** Progress for supply-detail buttons: scanned / total (active orders only). */
+function _wbFbsComputeKizBtnProgress(orders) {
+  let done = 0;
+  let total = 0;
+  for (const o of Array.isArray(orders) ? orders : []) {
+    if (!o || !o.kiz_required || _wbFbsOrderIsCancelled(o)) continue;
+    total += 1;
+    if (_wbFbsKizOrderScanned(o)) done += 1;
+  }
+  return { done, total };
+}
+
+function _wbFbsComputePickBtnProgress(orders) {
+  let done = 0;
+  let total = 0;
+  for (const o of Array.isArray(orders) ? orders : []) {
+    if (!o || o.kiz_required || _wbFbsOrderIsCancelled(o)) continue;
+    total += 1;
+    if (_wbFbsPickOrderScanned(o)) done += 1;
+  }
+  return { done, total };
+}
+
+function _wbFbsSetSupplyActionBtnCount(btnId, baseLabel, done, total) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  const d = Math.max(0, Math.floor(Number(done) || 0));
+  const t = Math.max(0, Math.floor(Number(total) || 0));
+  // Keep title untouched (wait-orders / tone-only own it).
+  btn.textContent = t > 0 ? `${baseLabel} (${d}/${t})` : baseLabel;
+}
+
+function _wbFbsSyncKizPickBtnLabels(opts) {
+  const orders = Array.isArray(wbFbsDetailState.supply?.orders)
+    ? wbFbsDetailState.supply.orders
+    : [];
+  const kiz = (opts && opts.kiz) || _wbFbsComputeKizBtnProgress(orders);
+  let pick = (opts && opts.pick) || _wbFbsComputePickBtnProgress(orders);
+  // WB detail may lack pick_* until status refresh — reuse last status counts.
+  if (!(opts && opts.pick) && wbFbsDetailState.pickBtnProgress) {
+    const local = _wbFbsComputePickBtnProgress(orders);
+    if (!local.total || !orders.some((o) => o && "pick_verified" in o)) {
+      pick = wbFbsDetailState.pickBtnProgress;
+    }
+  }
+  _wbFbsSetSupplyActionBtnCount(
+    "wbFbsSupplyDetailKizBtn",
+    "Товары с КИЗ",
+    kiz.done,
+    kiz.total
+  );
+  _wbFbsSetSupplyActionBtnCount(
+    "wbFbsSupplyDetailPickVerifyBtn",
+    "Товары без КИЗ",
+    pick.done,
+    pick.total
+  );
+}
+
 /** Fire-and-forget: reuse kiz/pick status endpoints (same tone rules as refresh). */
 function _wbFbsAutoRefreshSplitTones() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
@@ -33592,6 +33668,7 @@ async function refreshWbFbsKizStatus(event, opts) {
     }
     _wbFbsStatusCooldownTouch("kiz");
     _wbFbsKizSplitSetTone(data.status);
+    _wbFbsSyncKizPickBtnLabels();
   } catch (e) {
     if (
       !silent
@@ -36144,6 +36221,26 @@ async function refreshWbFbsPickVerifyStatus(event, opts) {
       // Incomplete / bad — stay default secondary (also clears stale green).
       _wbFbsPickSplitSetTone("");
     }
+    // Prefer API done/required — detail orders often lack pick_* until modal load.
+    const pickProg = {
+      done: Math.max(0, Number(data.done) || 0),
+      total: Math.max(0, Number(data.required) || 0),
+    };
+    wbFbsDetailState.pickBtnProgress = pickProg;
+    if (Array.isArray(data.orders) && wbFbsDetailState.supply?.orders) {
+      const byId = new Map();
+      data.orders.forEach((row) => {
+        const oid = Number(row?.order_id);
+        if (Number.isFinite(oid) && oid > 0) byId.set(oid, row);
+      });
+      wbFbsDetailState.supply.orders.forEach((o) => {
+        const upd = byId.get(Number(o?.order_id));
+        if (!upd) return;
+        o.pick_verified = !!upd.pick_verified;
+        o.pick_barcode = String(upd.pick_barcode || "").trim();
+      });
+    }
+    _wbFbsSyncKizPickBtnLabels({ pick: pickProg });
   } catch (e) {
     if (
       !silent

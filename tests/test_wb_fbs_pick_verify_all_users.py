@@ -43,4 +43,4 @@ def test_kiz_open_not_owner_only() -> None:
 
 
 def test_cache_bump() -> None:
-    assert "app.js?v=619" in APP_HTML
+    assert "app.js?v=620" in APP_HTML

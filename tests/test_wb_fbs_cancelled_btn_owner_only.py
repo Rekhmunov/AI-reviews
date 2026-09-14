@@ -17,7 +17,7 @@ def test_cancelled_orders_btn_owner_only() -> None:
 
     assert 'id="wbFbsSupplyDetailCancelledBtn"' in html
     assert "openWbFbsCancelledOrdersModal()" in html
-    assert "app.js?v=619" in html
+    assert "app.js?v=620" in html
 
     assert "function _wbFbsSyncOwnerOnlyCancelledBtn" in js
     assert "_wbFbsSyncOwnerOnlyCancelledBtn()" in js

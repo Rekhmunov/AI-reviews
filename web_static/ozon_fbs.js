@@ -3036,6 +3036,7 @@
     if (!needsKiz) _ozonFbsKizSplitSetTone("");
     else _ozonFbsKizSplitSetTone(_ozonFbsKizToneFromSupply(supply));
     _ozonFbsSyncPickVerifyBtn(allOrders);
+    _ozonFbsSyncKizPickBtnLabels({ orders: allOrders });
     const needsPick = allOrders.some((o) => o && !o.kiz_required && !_ozonFbsRowIsCancelled(o));
     if (!needsPick) _ozonFbsPickSplitSetTone("");
     else _ozonFbsPickSplitSetTone(_ozonFbsPickToneFromSupply(supply));
@@ -8440,6 +8441,70 @@
     return !!supplyDetailState.ordersReady;
   }
 
+  function _ozonFbsKizOrderScanned(order) {
+    if (!order) return false;
+    if (Array.isArray(order.kiz_codes) && order.kiz_codes.some((c) => String(c || "").trim())) {
+      return true;
+    }
+    const st = String(order.kiz_status || "").trim().toLowerCase();
+    return st === "ok" || st === "pending";
+  }
+
+  function _ozonFbsPickOrderScanned(order) {
+    return !!(order?.pick_verified && String(order?.pick_barcode || "").trim());
+  }
+
+  function _ozonFbsComputeKizBtnProgress(orders) {
+    let done = 0;
+    let total = 0;
+    for (const o of Array.isArray(orders) ? orders : []) {
+      if (!o || !o.kiz_required || _ozonFbsRowIsCancelled(o)) continue;
+      total += 1;
+      if (_ozonFbsKizOrderScanned(o)) done += 1;
+    }
+    return { done, total };
+  }
+
+  function _ozonFbsComputePickBtnProgress(orders) {
+    let done = 0;
+    let total = 0;
+    for (const o of Array.isArray(orders) ? orders : []) {
+      if (!o || o.kiz_required || _ozonFbsRowIsCancelled(o)) continue;
+      total += 1;
+      if (_ozonFbsPickOrderScanned(o)) done += 1;
+    }
+    return { done, total };
+  }
+
+  function _ozonFbsSetSupplyActionBtnCount(btnId, baseLabel, done, total) {
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
+    const d = Math.max(0, Math.floor(Number(done) || 0));
+    const t = Math.max(0, Math.floor(Number(total) || 0));
+    // Keep title untouched (wait-orders / tone-only own it).
+    btn.textContent = t > 0 ? `${baseLabel} (${d}/${t})` : baseLabel;
+  }
+
+  function _ozonFbsSyncKizPickBtnLabels(opts) {
+    const orders = Array.isArray(opts && opts.orders)
+      ? opts.orders
+      : (Array.isArray(supplyDetailState.supply?.orders) ? supplyDetailState.supply.orders : []);
+    const kiz = (opts && opts.kiz) || _ozonFbsComputeKizBtnProgress(orders);
+    const pick = (opts && opts.pick) || _ozonFbsComputePickBtnProgress(orders);
+    _ozonFbsSetSupplyActionBtnCount(
+      "ozonFbsSupplyDetailKizBtn",
+      "Товары с КИЗ",
+      kiz.done,
+      kiz.total
+    );
+    _ozonFbsSetSupplyActionBtnCount(
+      "ozonFbsSupplyDetailPickVerifyBtn",
+      "Товары без КИЗ",
+      pick.done,
+      pick.total
+    );
+  }
+
   function _ozonFbsSyncPickVerifyBtn(orders) {
     const btn = document.getElementById("ozonFbsSupplyDetailPickVerifyBtn");
     const split = document.getElementById("ozonFbsPickSplit");
@@ -10541,6 +10606,7 @@
         // Recompute locally so incomplete GM cannot stay green when API only checked КИЗ.
         _ozonFbsKizSplitSetTone(_ozonFbsKizToneFromSupply(supplyDetailState.supply));
       }
+      _ozonFbsSyncKizPickBtnLabels();
     } catch (e) {
       if (
         !silent
@@ -11265,6 +11331,16 @@
         // _ozonFbsPickSyncToneFromRows already applied GM-aware tone.
       } else {
         _ozonFbsPickSplitSetTone(_ozonFbsPickToneFromSupply(supplyDetailState.supply));
+      }
+      if (Number.isFinite(Number(data.done)) || Number.isFinite(Number(data.required))) {
+        _ozonFbsSyncKizPickBtnLabels({
+          pick: {
+            done: Math.max(0, Number(data.done) || 0),
+            total: Math.max(0, Number(data.required) || 0),
+          },
+        });
+      } else {
+        _ozonFbsSyncKizPickBtnLabels();
       }
     } catch (e) {
       if (
