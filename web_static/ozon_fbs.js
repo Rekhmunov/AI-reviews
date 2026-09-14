@@ -88,6 +88,7 @@
     "ozonFbsSupplyDetailPickRefreshBtn",
     "ozonFbsSupplyDetailCancelledBtn",
     "ozonFbsSupplyDetailShipmentsBtn",
+    "ozonFbsSupplyDetailDriverBtn",
     "ozonFbsSupplyDetailMoveDeliveringBtn",
   ];
 
@@ -2640,6 +2641,7 @@
     supplyDetailState.selected = new Set();
     supplyDetailState.postingTab = null;
     _ozonFbsSupplyDetailSetActionsReady(false);
+    _ozonFbsSyncDriverBtn();
   }
 
   function supplyDetailReady() {
@@ -3022,6 +3024,7 @@
 
     _ozonFbsRenderCargoSummary("ozonFbsSupplyDetailCargo", supply.cargo_summary);
     _ozonFbsRenderMovedToDelivering(supply);
+    _ozonFbsSyncDriverBtn();
     const allOrdersRaw = Array.isArray(supply.orders) ? supply.orders : [];
     // Modal-only: oldest orders on top. Print endpoints keep their own order.
     const allOrders = sortSupplyDetailOrdersOldestFirst(allOrdersRaw);
@@ -3160,6 +3163,7 @@
     _ozonFbsSupplyDetailSetActionsReady(false);
     _ozonFbsKizSplitSetTone("");
     _ozonFbsPickSplitSetTone("");
+    _ozonFbsSyncDriverBtn();
     const kizSplitOpen = document.getElementById("ozonFbsKizSplit");
     if (kizSplitOpen) kizSplitOpen.hidden = true;
     const pickSplitOpen = document.getElementById("ozonFbsPickSplit");
@@ -5292,6 +5296,230 @@
   function closeShipmentsModal() {
     document.getElementById("ozonFbsShipmentsModal")?.classList.add("hidden");
     shipmentsState.forming = false;
+  }
+
+  const driverModalState = {
+    supplyId: null,
+    sourceId: null,
+    drivers: [],
+    loading: false,
+    saving: false,
+  };
+
+  function _ozonFbsDriverHasAssignment(supply) {
+    const row = supply || {};
+    const did = Number(row.driver_id || 0);
+    const name = String(row.driver_name || "").trim();
+    return Boolean(row.has_driver) || (did > 0 && !!name);
+  }
+
+  function _ozonFbsSyncDriverBtn() {
+    const btn = document.getElementById("ozonFbsSupplyDetailDriverBtn");
+    if (!btn) return;
+    btn.classList.toggle("is-ok", _ozonFbsDriverHasAssignment(supplyDetailState.supply));
+  }
+
+  function _ozonFbsDriverSetVisible(show) {
+    if (typeof setModalVisibility === "function") {
+      setModalVisibility("ozonFbsDriverModal", !!show);
+      return;
+    }
+    const modal = document.getElementById("ozonFbsDriverModal");
+    if (modal) modal.classList.toggle("hidden", !show);
+  }
+
+  function _ozonFbsDriverSetInfo(text, kind) {
+    const el = document.getElementById("ozonFbsDriverInfo");
+    if (!el) return;
+    const msg = String(text || "").trim();
+    el.hidden = !msg;
+    el.textContent = msg;
+    el.classList.toggle("is-ok", !!msg && kind === "ok");
+    el.classList.toggle("is-error", !!msg && kind === "error");
+  }
+
+  function _ozonFbsDriverById(driverId) {
+    const id = Number(driverId || 0);
+    return (driverModalState.drivers || []).find((d) => Number(d.id || 0) === id) || null;
+  }
+
+  function _ozonFbsFillDriverSelect(selectedId) {
+    const sel = document.getElementById("ozonFbsDriverSelect");
+    if (!sel) return;
+    const current = String(selectedId || sel.value || "");
+    const opts = ['<option value="">— Выберите водителя —</option>'];
+    (driverModalState.drivers || []).forEach((d) => {
+      const id = String(d.id || "");
+      const name = String(d.full_name || "").trim() || `Водитель ${id}`;
+      opts.push(`<option value="${esc(id)}">${esc(name)}</option>`);
+    });
+    sel.innerHTML = opts.join("");
+    if (current && [...sel.options].some((o) => o.value === current)) {
+      sel.value = current;
+    } else {
+      sel.value = "";
+    }
+  }
+
+  function _ozonFbsFillDriverVehicles(selectedPlate) {
+    const field = document.getElementById("ozonFbsDriverVehicleField");
+    const sel = document.getElementById("ozonFbsDriverVehicleSelect");
+    const driver = _ozonFbsDriverById(document.getElementById("ozonFbsDriverSelect")?.value);
+    if (!field || !sel) return;
+    if (!driver) {
+      field.hidden = true;
+      sel.innerHTML = '<option value="">— Выберите водителя —</option>';
+      sel.disabled = true;
+      return;
+    }
+    const vehicles = Array.isArray(driver.vehicles) ? driver.vehicles : [];
+    const plates = vehicles
+      .map((v) => String(v?.number || "").trim())
+      .filter(Boolean);
+    field.hidden = false;
+    if (!plates.length) {
+      sel.innerHTML = '<option value="">— Нет гос. номеров у водителя —</option>';
+      sel.disabled = true;
+      sel.value = "";
+      return;
+    }
+    const want = String(selectedPlate || "").trim();
+    const opts = plates.length > 1
+      ? ['<option value="">— Выберите гос. номер —</option>']
+      : [];
+    plates.forEach((num) => {
+      opts.push(`<option value="${esc(num)}">${esc(num)}</option>`);
+    });
+    sel.innerHTML = opts.join("");
+    sel.disabled = false;
+    if (want && plates.some((n) => n.toLowerCase() === want.toLowerCase())) {
+      const match = plates.find((n) => n.toLowerCase() === want.toLowerCase());
+      sel.value = match;
+    } else if (plates.length === 1) {
+      sel.value = plates[0];
+    } else {
+      sel.value = "";
+    }
+  }
+
+  function onOzonFbsDriverChange() {
+    _ozonFbsFillDriverVehicles("");
+    _ozonFbsDriverSetInfo("");
+  }
+
+  async function openOzonFbsDriverModal() {
+    const sid = String(supplyDetailState.supplyId || "").trim();
+    const sourceId = supplyDetailState.sourceId || state.sourceId;
+    if (!sid || !sourceId) {
+      alert("Откройте поставку");
+      return;
+    }
+    if (!supplyDetailState.ordersReady) return;
+    driverModalState.supplyId = sid;
+    driverModalState.sourceId = sourceId;
+    driverModalState.loading = true;
+    driverModalState.saving = false;
+    const saveBtn = document.getElementById("ozonFbsDriverSaveBtn");
+    const driverSel = document.getElementById("ozonFbsDriverSelect");
+    if (saveBtn) saveBtn.disabled = true;
+    if (driverSel) {
+      driverSel.innerHTML = '<option value="">Загрузка…</option>';
+      driverSel.disabled = true;
+    }
+    _ozonFbsFillDriverVehicles("");
+    _ozonFbsDriverSetInfo("Загрузка справочника водителей…");
+    _ozonFbsDriverSetVisible(true);
+    try {
+      const res = await fetch(
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/driver?source_id=${sourceId}`,
+        { headers: jsonHeaders() }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(detailText(data.detail) || "Не удалось загрузить водителя");
+      driverModalState.drivers = Array.isArray(data.drivers) ? data.drivers : [];
+      const assignedId = Number(data.driver_id || 0) || Number(supplyDetailState.supply?.driver_id || 0);
+      const assignedPlate = String(data.vehicle_number || supplyDetailState.supply?.vehicle_number || "").trim();
+      if (driverSel) driverSel.disabled = false;
+      _ozonFbsFillDriverSelect(assignedId > 0 ? assignedId : "");
+      _ozonFbsFillDriverVehicles(assignedPlate);
+      if (!driverModalState.drivers.length) {
+        _ozonFbsDriverSetInfo("В справочнике нет водителей. Добавьте их в Поставки → Настройки → Водители.", "error");
+      } else {
+        _ozonFbsDriverSetInfo("");
+      }
+    } catch (e) {
+      if (driverSel) driverSel.disabled = false;
+      _ozonFbsDriverSetInfo(e.message || String(e), "error");
+    } finally {
+      driverModalState.loading = false;
+      if (saveBtn) saveBtn.disabled = false;
+    }
+  }
+
+  function closeOzonFbsDriverModal() {
+    _ozonFbsDriverSetVisible(false);
+    driverModalState.supplyId = null;
+    driverModalState.sourceId = null;
+    driverModalState.saving = false;
+    _ozonFbsDriverSetInfo("");
+  }
+
+  async function saveOzonFbsDriver() {
+    const sid = String(driverModalState.supplyId || supplyDetailState.supplyId || "").trim();
+    const sourceId = driverModalState.sourceId || supplyDetailState.sourceId || state.sourceId;
+    const driverSel = document.getElementById("ozonFbsDriverSelect");
+    const vehSel = document.getElementById("ozonFbsDriverVehicleSelect");
+    const saveBtn = document.getElementById("ozonFbsDriverSaveBtn");
+    const driverId = Number(driverSel?.value || 0);
+    const plate = String(vehSel?.disabled ? "" : (vehSel?.value || "")).trim();
+    if (!sid || !sourceId) return;
+    if (!driverId) {
+      _ozonFbsDriverSetInfo("Выберите водителя", "error");
+      driverSel?.focus();
+      return;
+    }
+    const driver = _ozonFbsDriverById(driverId);
+    const plates = (driver?.vehicles || []).map((v) => String(v?.number || "").trim()).filter(Boolean);
+    if (plates.length > 1 && !plate) {
+      _ozonFbsDriverSetInfo("Выберите гос. номер", "error");
+      vehSel?.focus();
+      return;
+    }
+    if (saveBtn) saveBtn.disabled = true;
+    driverModalState.saving = true;
+    _ozonFbsDriverSetInfo("Сохраняем…");
+    try {
+      const res = await fetch(
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/driver`,
+        {
+          method: "PUT",
+          headers: jsonHeaders(),
+          body: JSON.stringify({
+            source_id: sourceId,
+            driver_id: driverId,
+            vehicle_number: plate,
+          }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(detailText(data.detail) || "Не удалось сохранить");
+      if (supplyDetailState.supply && String(supplyDetailState.supply.supply_id || "") === sid) {
+        supplyDetailState.supply.driver_id = Number(data.driver_id || driverId);
+        supplyDetailState.supply.driver_name = String(data.driver_name || "").trim();
+        supplyDetailState.supply.vehicle_number = String(data.vehicle_number || plate).trim();
+        supplyDetailState.supply.has_driver = true;
+      }
+      _ozonFbsSyncDriverBtn();
+      _ozonFbsDriverSetInfo("Сохранено", "ok");
+      setTimeout(() => {
+        if (driverModalState.supplyId === sid) closeOzonFbsDriverModal();
+      }, 350);
+    } catch (e) {
+      _ozonFbsDriverSetInfo(e.message || String(e), "error");
+    } finally {
+      driverModalState.saving = false;
+      if (saveBtn) saveBtn.disabled = false;
+    }
   }
 
   function _ozonFbsContainersModalOpen() {
@@ -12192,6 +12420,10 @@
   window.ozonFbsStickersCategoryFillDownAt = ozonFbsStickersCategoryFillDownAt;
   window.openOzonFbsShipmentsModal = openShipmentsModal;
   window.closeOzonFbsShipmentsModal = closeShipmentsModal;
+  window.openOzonFbsDriverModal = openOzonFbsDriverModal;
+  window.closeOzonFbsDriverModal = closeOzonFbsDriverModal;
+  window.onOzonFbsDriverChange = onOzonFbsDriverChange;
+  window.saveOzonFbsDriver = saveOzonFbsDriver;
   window.reloadOzonFbsShipments = loadShipments;
   window.ozonFbsShipmentsForm = formShipmentsCarriage;
   window.ozonFbsShipmentsPrintBarcode = shipmentsPrintBarcode;

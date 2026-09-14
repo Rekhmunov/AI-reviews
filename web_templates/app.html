@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=362" />
+  <link rel="stylesheet" href="/static/style.css?v=363" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -3319,6 +3319,9 @@
                 <button type="button" class="secondary" id="ozonFbsSupplyDetailShipmentsBtn"
                         onclick="openOzonFbsShipmentsModal()"
                         title="Отгрузки Ozon: ШК поставки и формирование">ШК поставки</button>
+                <button type="button" class="secondary" id="ozonFbsSupplyDetailDriverBtn"
+                        onclick="openOzonFbsDriverModal()"
+                        title="Водитель поставки: выбрать из справочника и гос. номер ТС">Водитель</button>
                 <button type="button" id="ozonFbsSupplyDetailMoveDeliveringBtn"
                         onclick="moveOzonFbsSupplyToDelivering()"
                         title="Локально перенести поставку в «Доставляются» и списать с Остатки (без отправки в Ozon)">
@@ -3797,6 +3800,41 @@
                     </tbody>
                   </table>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="ozonFbsDriverModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsDriverTitle"
+             onclick="if(event.target===this)closeOzonFbsDriverModal()">
+          <div class="modal-card wb-fbs-create-trbx-modal ozon-fbs-driver-modal">
+            <div class="wb-fbs-create-trbx-header">
+              <div class="wb-fbs-create-trbx-header-main">
+                <h3 id="ozonFbsDriverTitle" class="wb-fbs-create-trbx-title">Водитель</h3>
+              </div>
+              <button type="button" class="icon-btn secondary" onclick="closeOzonFbsDriverModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <div class="wb-fbs-create-trbx-body ozon-fbs-driver-body">
+              <div class="ozon-fbs-driver-fields">
+                <label class="ozon-fbs-driver-field" for="ozonFbsDriverSelect">
+                  <span class="ozon-fbs-driver-field-label">Водитель</span>
+                  <select id="ozonFbsDriverSelect" class="ozon-fbs-driver-select"
+                          aria-label="Водитель" onchange="onOzonFbsDriverChange()">
+                    <option value="">— Выберите водителя —</option>
+                  </select>
+                </label>
+                <label class="ozon-fbs-driver-field" id="ozonFbsDriverVehicleField" for="ozonFbsDriverVehicleSelect" hidden>
+                  <span class="ozon-fbs-driver-field-label">Гос. номер</span>
+                  <select id="ozonFbsDriverVehicleSelect" class="ozon-fbs-driver-select"
+                          aria-label="Гос. номер автомобиля">
+                    <option value="">— Нет ТС у водителя —</option>
+                  </select>
+                </label>
+              </div>
+              <p id="ozonFbsDriverInfo" class="ozon-fbs-driver-info" hidden></p>
+              <div class="ozon-fbs-driver-footer">
+                <button type="button" id="ozonFbsDriverSaveBtn" onclick="saveOzonFbsDriver()">Сохранить</button>
               </div>
             </div>
           </div>
@@ -7525,7 +7563,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=150"></script>
+  <script src="/static/ozon_fbs.js?v=151"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=24"></script>
   <script src="/static/app.js?v=626"></script>
 </body>

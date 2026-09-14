@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import re
 import secrets
 import threading
 import time
@@ -122,6 +123,20 @@ def ensure_ozon_fbs_supply_schema(repo: ReviewRepository) -> None:
                 "CREATE INDEX IF NOT EXISTS idx_ozon_fbs_postings_supply "
                 "ON ozon_fbs_postings(user_id, source_id, supply_id)"
             )
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ozon_fbs_supply_driver (
+                user_id BIGINT NOT NULL,
+                source_id BIGINT NOT NULL,
+                supply_id TEXT NOT NULL,
+                driver_id BIGINT NOT NULL DEFAULT 0,
+                driver_name TEXT NOT NULL DEFAULT '',
+                vehicle_number TEXT NOT NULL DEFAULT '',
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                PRIMARY KEY (user_id, source_id, supply_id)
+            )
+            """
         )
 
 
@@ -2456,6 +2471,181 @@ def get_supply(
     return d
 
 
+def _norm_vehicle_plate(value: object) -> str:
+    return re.sub(r"\s+", "", str(value or "").strip()).casefold()
+
+
+def driver_vehicle_plates(vehicles_json: object) -> list[dict[str, str]]:
+    """Рег. номера ТС с карточки водителя (Поставки → Настройки → Водители)."""
+    from .ozon_etrn import _parse_vehicles_json
+
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in _parse_vehicles_json(vehicles_json):
+        number = str(item.get("number") or item.get("vehicle_number") or "").strip()
+        if not number:
+            line = str(item.get("line") or "").strip()
+            parts = [t for t in line.split() if t]
+            if parts and re.search(r"\d", parts[-1]):
+                number = parts[-1][:9]
+        number = number[:9]
+        key = _norm_vehicle_plate(number)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        model = str(item.get("model") or "").strip()
+        line = str(item.get("line") or "").strip() or " ".join(x for x in (model, number) if x)
+        out.append({"number": number, "model": model, "line": line})
+    return out
+
+
+def empty_supply_driver() -> dict[str, Any]:
+    return {
+        "driver_id": 0,
+        "driver_name": "",
+        "vehicle_number": "",
+        "has_driver": False,
+    }
+
+
+def list_supply_driver_options(
+    repo: ReviewRepository, *, user_id: int
+) -> list[dict[str, Any]]:
+    rows = repo.list_supply_drivers(user_id=user_id) or []
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        did = int(row.get("id") or 0)
+        if did <= 0:
+            continue
+        name = str(row.get("full_name") or "").strip()
+        if not name:
+            continue
+        out.append(
+            {
+                "id": did,
+                "full_name": name,
+                "vehicles": driver_vehicle_plates(row.get("vehicles_json")),
+            }
+        )
+    return out
+
+
+def get_supply_driver(
+    repo: ReviewRepository, *, user_id: int, source_id: int, supply_id: str
+) -> dict[str, Any]:
+    ensure_ozon_fbs_supply_schema(repo)
+    sid = str(supply_id or "").strip()
+    if not sid:
+        return empty_supply_driver()
+    with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql(
+                """
+                SELECT driver_id, driver_name, vehicle_number
+                FROM ozon_fbs_supply_driver
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                """
+            ),
+            (user_id, source_id, sid),
+        ).fetchone()
+    if not row:
+        return empty_supply_driver()
+    d = repo._row_to_dict(row)
+    if not isinstance(d, dict):
+        return empty_supply_driver()
+    try:
+        did = int(d.get("driver_id") or 0)
+    except (TypeError, ValueError):
+        did = 0
+    name = str(d.get("driver_name") or "").strip()
+    plate = str(d.get("vehicle_number") or "").strip()
+    return {
+        "driver_id": did,
+        "driver_name": name,
+        "vehicle_number": plate,
+        "has_driver": did > 0 and bool(name),
+    }
+
+
+def get_supply_driver_payload(
+    repo: ReviewRepository, *, user_id: int, source_id: int, supply_id: str
+) -> dict[str, Any]:
+    assigned = get_supply_driver(
+        repo, user_id=user_id, source_id=source_id, supply_id=supply_id
+    )
+    return {
+        **assigned,
+        "supply_id": str(supply_id or "").strip(),
+        "source_id": int(source_id or 0),
+        "drivers": list_supply_driver_options(repo, user_id=user_id),
+    }
+
+
+def set_supply_driver(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    driver_id: int,
+    vehicle_number: str = "",
+) -> dict[str, Any]:
+    ensure_ozon_fbs_supply_schema(repo)
+    sid = str(supply_id or "").strip()
+    if not sid:
+        raise ValueError("Не указан ID поставки")
+    try:
+        did = int(driver_id or 0)
+    except (TypeError, ValueError):
+        did = 0
+    if did <= 0:
+        raise ValueError("Выберите водителя")
+
+    options = list_supply_driver_options(repo, user_id=user_id)
+    row = next((d for d in options if int(d.get("id") or 0) == did), None)
+    if not row:
+        raise ValueError("Водитель не найден в справочнике")
+    plates = list(row.get("vehicles") or [])
+    want = _norm_vehicle_plate(vehicle_number)
+    chosen = ""
+    if want:
+        match = next(
+            (p for p in plates if _norm_vehicle_plate(p.get("number")) == want),
+            None,
+        )
+        if not match:
+            raise ValueError("Гос. номер не относится к этому водителю")
+        chosen = str(match.get("number") or "").strip()
+    elif len(plates) == 1:
+        chosen = str(plates[0].get("number") or "").strip()
+    elif len(plates) > 1:
+        raise ValueError("Выберите гос. номер")
+
+    name = str(row.get("full_name") or "").strip()
+    with repo._connect() as conn:
+        conn.execute(
+            repo._sql(
+                """
+                INSERT INTO ozon_fbs_supply_driver (
+                    user_id, source_id, supply_id, driver_id, driver_name,
+                    vehicle_number, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, NOW())
+                ON CONFLICT (user_id, source_id, supply_id) DO UPDATE SET
+                    driver_id = excluded.driver_id,
+                    driver_name = excluded.driver_name,
+                    vehicle_number = excluded.vehicle_number,
+                    updated_at = NOW()
+                """
+            ),
+            (user_id, source_id, sid, did, name, chosen),
+        )
+    return get_supply_driver_payload(
+        repo, user_id=user_id, source_id=source_id, supply_id=sid
+    )
+
+
 def _set_supply_posting_numbers(
     repo: ReviewRepository,
     *,
@@ -3344,6 +3534,12 @@ def get_supply_detail(
         if moved_history:
             moved_at = moved_history[-1]["at"]
             moved_display = moved_history[-1]["at_display"]
+    driver = get_supply_driver(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=str(supply_id),
+    )
     return {
         "supply_id": supply.get("supply_id"),
         "name": supply.get("name"),
@@ -3359,6 +3555,10 @@ def get_supply_detail(
         "moved_to_delivering_at": moved_at,
         "moved_to_delivering_at_display": moved_display,
         "moved_to_delivering_history": moved_history,
+        "driver_id": driver.get("driver_id") or 0,
+        "driver_name": driver.get("driver_name") or "",
+        "vehicle_number": driver.get("vehicle_number") or "",
+        "has_driver": bool(driver.get("has_driver")),
     }
 
 

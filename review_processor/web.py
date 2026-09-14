@@ -14303,6 +14303,66 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+    @app.get("/api/ozon-fbs/supplies/{supply_id}/driver")
+    def ozon_fbs_get_supply_driver(
+        request: Request, supply_id: str, source_id: int
+    ) -> dict[str, object]:
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid or not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        _ozon_fbs_source_credentials(owner_id, int(source_id))
+        return oz_sup.get_supply_driver_payload(
+            repository,
+            user_id=owner_id,
+            source_id=int(source_id),
+            supply_id=sid,
+        )
+
+    @app.put("/api/ozon-fbs/supplies/{supply_id}/driver")
+    async def ozon_fbs_set_supply_driver(
+        request: Request, supply_id: str
+    ) -> dict[str, object]:
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid:
+            raise HTTPException(status_code=400, detail="Укажите supply_id")
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        source_id = int(body.get("source_id") or 0)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _ozon_fbs_source_credentials(owner_id, source_id)
+        try:
+            driver_id = int(body.get("driver_id") or 0)
+        except (TypeError, ValueError):
+            driver_id = 0
+        try:
+            return oz_sup.set_supply_driver(
+                repository,
+                user_id=owner_id,
+                source_id=source_id,
+                supply_id=sid,
+                driver_id=driver_id,
+                vehicle_number=str(body.get("vehicle_number") or "").strip(),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.post("/api/ozon-fbs/supplies/{supply_id}/move-to-delivering")
     def ozon_fbs_supply_move_to_delivering(
         request: Request,
