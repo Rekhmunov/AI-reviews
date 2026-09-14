@@ -35995,7 +35995,7 @@ function processWbFbsKizMarkScan(raw, inputEl) {
   );
   _wbFbsKizScheduleLocalAutosave(oid);
   const rowEl = document.querySelector(`#wbFbsKizTbody tr[data-order-id="${oid}"]`);
-  // Instant jump (same as Ozon FBS KIZ) — smooth scroll feels laggy on large tables.
+  // Instant jump (same as Ozon FBS KIZ) — animated scroll feels laggy on large tables.
   if (rowEl) rowEl.scrollIntoView({ block: "nearest" });
   const sticker = document.getElementById("wbFbsKizStickerScan");
   if (sticker) {
@@ -37420,7 +37420,7 @@ function processWbFbsPickSkuScan(raw, inputEl) {
   }
   _wbFbsPickScheduleLocalAutosave(oid);
   const rowEl = document.querySelector(`#wbFbsPickTbody tr[data-order-id="${oid}"]`);
-  // Instant jump (same as Ozon FBS KIZ) — smooth scroll feels laggy on large tables.
+  // Instant jump (same as Ozon FBS KIZ) — animated scroll feels laggy on large tables.
   if (rowEl) rowEl.scrollIntoView({ block: "nearest" });
   const sticker = document.getElementById("wbFbsPickStickerScan");
   if (sticker) {
