@@ -40,8 +40,8 @@ def test_logistics_title_picker_and_panes() -> None:
     assert "function initLogisticsSection" in js
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
-    assert "app.js?v=607" in html
-    assert "style.css?v=353" in html
+    assert "app.js?v=622" in html
+    assert "style.css?v=361" in html
     assert "ttn-modal-card" in html
     assert "ttn-form-grid" in html
     assert 'max-width:560px' not in html.split('id="createTtnModal"')[1].split("<!-- ── Планирование")[0]
@@ -236,6 +236,9 @@ def test_ttn_load_unload_places_from_party_addresses() -> None:
     assert "contractorAddressLine" in helper
     assert "legalEntityAddressLine" in helper
     assert "warehouseAddressLine" in helper
+    # Warehouse dropdown: name first, then address via " | ".
+    assert "${wname} | ${waddr}" in helper or "`${wname} | ${waddr}`" in helper
+    assert "${waddr} · ${wname}" not in helper
     assert "Юр. лицо ·" not in helper
     assert "Контрагент ·" not in helper
     assert "c.requisites" not in helper
@@ -389,9 +392,31 @@ def test_tn_rename_and_pp2200_fields_additive() -> None:
     unload_block = html.split('id="ttnCreateUnloadWrap"', 1)[1].split('id="ttnCreateCargo"', 1)[0]
     assert 'id="ttnCreateLoadingDatetime"' in load_block
     assert 'id="ttnCreateUnloadingDatetime"' in unload_block
-    assert 'type="datetime-local"' in load_block and 'type="datetime-local"' in unload_block
+    assert "Дата погрузки" in load_block
+    assert "Дата выдачи" in unload_block
+    assert "Дата и время погрузки" not in load_block
+    assert "Дата и время выдачи" not in unload_block
+    assert 'type="date"' in load_block and 'type="date"' in unload_block
+    assert 'type="datetime-local"' not in load_block and 'type="datetime-local"' not in unload_block
     assert "ttn-datetime-cal-btn" in load_block and "ttn-datetime-cal-btn" in unload_block
     assert "function _ttnDatetimeToInputValue" in js
     assert "function _ttnDatetimeFromInputValue" in js
     assert "function openTtnDatetimePicker" in js
+    # Stored value is date-only (ДД.ММ.ГГГГ), no time component.
+    assert "ДД.ММ.ГГГГ ЧЧ:ММ" not in js
+    assert "YYYY-MM-DDTHH:MM" not in js or "legacy" in js.lower()
 
+
+def test_ttn_fbs_supplies_sorted_newest_first() -> None:
+    """FBS supply picker lists newest created_at first (API + client merge)."""
+    web = WEB.read_text(encoding="utf-8")
+    js = JS.read_text(encoding="utf-8")
+    api = web.split("def list_ttn_fbs_supplies", 1)[1].split("\n    @app.", 1)[0]
+    assert '"created_at": created_at' in api
+    assert "_ttn_fbs_created_ts" in api
+    assert "tab_rank" not in api
+    assert "created_at: String(it.created_at" in js
+    assert "db.localeCompare(da)" in js or "db.localeCompare(da)" in js.replace(" ", "")
+    refresh = js.split("async function _ttnRefreshFbsSupplyField", 1)[1].split("\nasync function ", 1)[0]
+    assert "created_at" in refresh
+    assert "localeCompare" in refresh

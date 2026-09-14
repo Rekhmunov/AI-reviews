@@ -20992,6 +20992,8 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                                 places_i = int(places) if places is not None else None
                             except (TypeError, ValueError):
                                 places_i = None
+                            created_raw = row.get("created_at_wb") or row.get("created_at") or ""
+                            created_at = str(created_raw).strip() if created_raw is not None else ""
                             items.append(
                                 {
                                     "platform": "wb",
@@ -21002,6 +21004,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                                     "tab": tab,
                                     "tab_label": tab_label,
                                     "places": places_i,
+                                    "created_at": created_at,
                                     "label": f"WB · {src_name} · {name}",
                                 }
                             )
@@ -21032,6 +21035,8 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                             if not sid:
                                 continue
                             name = str(row.get("name") or row.get("supply_name") or "").strip() or sid
+                            created_raw = row.get("created_at") or row.get("created_at_ozon") or ""
+                            created_at = str(created_raw).strip() if created_raw is not None else ""
                             items.append(
                                 {
                                     "platform": "ozon",
@@ -21042,17 +21047,30 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                                     "tab": tab,
                                     "tab_label": tab_label,
                                     "places": None,
+                                    "created_at": created_at,
                                     "label": f"Ozon · {src_name} · {name}",
                                 }
                             )
             except Exception:
                 continue
 
-        # Prefer assembly / awaiting first, stable by label.
-        tab_rank = {"assembly": 0, "awaiting_deliver": 0, "delivery": 1, "delivering": 1}
+        # Newest supplies first (later created_at higher); undated last, then by label.
+        def _ttn_fbs_created_ts(raw: object) -> float:
+            s = str(raw or "").strip()
+            if not s:
+                return float("-inf")
+            try:
+                from datetime import datetime as _dt
+
+                return _dt.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+            except Exception:
+                # Non-ISO leftovers: keep relative order via string ordinals as float.
+                return 0.0
+
         items.sort(
             key=lambda x: (
-                tab_rank.get(str(x.get("tab") or ""), 9),
+                # Negated ts → newest first; empty (-inf) becomes +inf → last.
+                -_ttn_fbs_created_ts(x.get("created_at")),
                 str(x.get("label") or "").casefold(),
             )
         )

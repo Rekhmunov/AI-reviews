@@ -19194,28 +19194,25 @@ function _ttnDateToInputValue(displayDate) {
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
-/** Convert stored TN datetime → datetime-local value (YYYY-MM-DDTHH:MM). */
+/** Convert stored TN date/datetime → date input value (YYYY-MM-DD). Time is ignored. */
 function _ttnDatetimeToInputValue(raw) {
   const s = String(raw || "").trim();
   if (!s) return "";
-  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2})/);
-  if (m) return `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}`;
-  m = s.match(/^(\d{2})\.(\d{2})\.(\d{4})(?:[,\s]+(\d{2}):(\d{2}))?/);
-  if (m) {
-    const hh = m[4] || "00";
-    const mm = m[5] || "00";
-    return `${m[3]}-${m[2]}-${m[1]}T${hh}:${mm}`;
-  }
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = s.match(/^(\d{2})\.(\d{2})\.(\d{4})/);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
   return "";
 }
 
-/** Convert datetime-local value → printable TN string (ДД.ММ.ГГГГ ЧЧ:ММ). */
+/** Convert date input value → printable TN string (ДД.ММ.ГГГГ). */
 function _ttnDatetimeFromInputValue(raw) {
   const s = String(raw || "").trim();
   if (!s) return "";
-  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  // Accept YYYY-MM-DD or legacy YYYY-MM-DDTHH:MM from older drafts.
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:T|$)/);
   if (!m) return s;
-  return `${m[3]}.${m[2]}.${m[1]} ${m[4]}:${m[5]}`;
+  return `${m[3]}.${m[2]}.${m[1]}`;
 }
 
 function openTtnDatetimePicker(inputId) {
@@ -19523,7 +19520,8 @@ function _ttnAddressOptionsForParty(partyRef) {
     const wname = String(w.warehouse_name || "").trim() || `Склад #${w.id}`;
     const waddr = String(warehouseAddressLine(w) || "").trim();
     const line = waddr || wname;
-    const label = waddr ? `${waddr} · ${wname}` : wname;
+    // Dropdown: warehouse first, then address (same for load #8 and unload #10).
+    const label = waddr ? `${wname} | ${waddr}` : wname;
     addAddr(`w:${w.id}`, label, line);
   }
   return { opts, addressByValue };
@@ -19813,11 +19811,21 @@ async function _ttnRefreshFbsSupplyField(preferValue, opts) {
           platform,
           source_id: sourceId,
           supply_id: supplyId,
+          created_at: String(it.created_at || "").trim(),
         });
       }
     } catch (_) {}
   }
   if (token !== _ttnFbsAutofillToken) return;
+  // Newest supplies first (later created_at higher); empty dates last.
+  items.sort((a, b) => {
+    const da = String(a.created_at || "");
+    const db = String(b.created_at || "");
+    if (da && db) return db.localeCompare(da);
+    if (da) return -1;
+    if (db) return 1;
+    return String(a.label || "").localeCompare(String(b.label || ""), "ru");
+  });
   _ttnFbsSupplyOptions = items;
   const optsList = [{ value: "", label: items.length ? "— Выберите поставку FBS —" : "— Нет поставок FBS —" }].concat(
     items.map((x) => ({ value: x.value, label: x.label }))
