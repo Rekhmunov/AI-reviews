@@ -32562,6 +32562,12 @@ function renderWbFbsSupplyDetail(data) {
   const cargoLabel = _wbFbsCargoSummaryLabel(supply.cargo_summary);
   if (meta) {
     const chips = [];
+    // Товаров/Паллет/Коробов — слева от МГТ и остальных meta-чипов.
+    if (cargoLabel) {
+      chips.push(
+        `<span class="wb-fbs-sd-chip wb-fbs-sd-cargo-chip" title="Расчёт по товарам этой поставки (как после синхронизации)">${_wbFbsEsc(cargoLabel)}</span>`
+      );
+    }
     if (supply.cargo_label) chips.push(`<span class="wb-fbs-sd-chip">${_wbFbsEsc(supply.cargo_label)}</span>`);
     // order_count chip removed — cargo line already shows product count.
     chips.push(`<span class="wb-fbs-sd-chip">Грузоместа ${_wbFbsEsc(supply.boxes_count || 0)}</span>`);
@@ -32581,12 +32587,6 @@ function renderWbFbsSupplyDetail(data) {
           `</svg>` +
           `</button>` +
         `</span>`
-      );
-    }
-    // Pallet summary right after QR — same chip style as the other meta buttons.
-    if (cargoLabel) {
-      chips.push(
-        `<span class="wb-fbs-sd-chip wb-fbs-sd-cargo-chip" title="Расчёт по товарам этой поставки (как после синхронизации)">${_wbFbsEsc(cargoLabel)}</span>`
       );
     }
     meta.innerHTML = chips.join("");

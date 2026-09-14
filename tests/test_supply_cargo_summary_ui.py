@@ -43,11 +43,12 @@ def test_supply_and_gm_cargo_summary_markup() -> None:
     assert "function _wbFbsCargoSummaryLabel(" in app_js
     assert "function _wbFbsFormatCargoQty(" in app_js
     assert "wb-fbs-sd-cargo-chip" in app_js
-    # WB supply modal: pallet chip is appended after QR inside meta (not by search).
+    # WB supply modal: cargo chip is first in meta (left of МГТ / QR), not by search.
     assert 'wb-fbs-sd-chip wb-fbs-sd-chip-qr' in app_js
     assert '_wbFbsRenderCargoSummary("wbFbsSupplyDetailCargo", null)' in app_js
     assert "wbFbsSupplyDetailCargo" in app_js
     assert "wbFbsCreateTrbxCargo" in app_js
+    assert "слева от МГТ" in app_js
     # Same cargo line format as Ozon; no redundant «Заказы N» under the title.
     assert "Товаров:" in app_js
     assert "Паллет:" in app_js
@@ -76,14 +77,15 @@ def test_supply_and_gm_cargo_summary_markup() -> None:
 
 
 def test_ozon_cargo_summary_inline_with_meta_and_title() -> None:
-    """Ozon: pallet line sits on the same row as chips / Грузоместа title."""
+    """Ozon: cargo summary sits left of ID chip on the same meta row."""
     app_html = (TEMPLATES / "app.html").read_text(encoding="utf-8")
     cargo_idx = app_html.find('id="ozonFbsSupplyDetailCargo"')
+    meta_idx = app_html.find('id="ozonFbsSupplyDetailMeta"')
     assert cargo_idx > 0
-    neighborhood = app_html[max(0, cargo_idx - 400) : cargo_idx + 200]
+    assert meta_idx > cargo_idx  # cargo left of ID meta
+    neighborhood = app_html[max(0, cargo_idx - 400) : meta_idx + 80]
     assert "wb-fbs-sd-meta-row" in neighborhood
     assert "wb-fbs-sd-cargo-inline" in neighborhood
-    assert 'id="ozonFbsSupplyDetailMeta"' in neighborhood
 
     c_idx = app_html.find('id="ozonFbsContainersCargo"')
     assert c_idx > 0
@@ -93,15 +95,24 @@ def test_ozon_cargo_summary_inline_with_meta_and_title() -> None:
     assert 'id="ozonFbsContainersTitle"' in c_nb
 
 
-def test_wb_cargo_summary_inline_after_qr_and_in_gm_header() -> None:
-    """WB: pallet chip right of QR meta; GM modal has no lead, cargo in header."""
+def test_wb_cargo_summary_inline_before_mgt_and_in_gm_header() -> None:
+    """WB: cargo chip first in meta (JS); slot stays on meta row; GM cargo in header."""
     app_html = (TEMPLATES / "app.html").read_text(encoding="utf-8")
+    app_js = (STATIC / "app.js").read_text(encoding="utf-8")
     cargo_idx = app_html.find('id="wbFbsSupplyDetailCargo"')
     assert cargo_idx > 0
     neighborhood = app_html[max(0, cargo_idx - 350) : cargo_idx + 220]
     assert "wb-fbs-sd-meta-row" in neighborhood
     assert "wb-fbs-sd-cargo-inline" in neighborhood
     assert 'id="wbFbsSupplyDetailMeta"' in neighborhood
+    # Chip order in renderWbFbsSupplyDetail: cargo summary before cargo_label (МГТ).
+    render_fn = app_js.find("function renderWbFbsSupplyDetail(")
+    assert render_fn > 0
+    chunk = app_js[render_fn : render_fn + 2200]
+    cargo_chip = chunk.find("wb-fbs-sd-cargo-chip")
+    mgt_chip = chunk.find("supply.cargo_label")
+    assert cargo_chip > 0 and mgt_chip > 0
+    assert cargo_chip < mgt_chip
 
     modal_start = app_html.find('id="wbFbsCreateTrbxModal"')
     assert modal_start > 0
