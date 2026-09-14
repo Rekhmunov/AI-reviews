@@ -22039,7 +22039,8 @@ async function confirmOzonEdoSend() {
     const sendData = await sendRes.json().catch(() => ({}));
     if (!sendRes.ok) throw new Error(sendData.detail || "Ошибка отправки");
     _edoSetInfo("ozonEdoModalInfo", "Отправлено. Можно проверить статус.", true);
-    setTimeout(() => { closeOzonEdoModal(); openOzonEdoStatusModal(supplyId, docType, _ozonEdoSource); }, 600);
+    const edoSource = _ozonEdoSource;
+    setTimeout(() => { closeOzonEdoModal(); openOzonEdoStatusModal(supplyId, docType, edoSource); }, 600);
   } catch (err) {
     _edoSetInfo("ozonEdoModalInfo", err?.message || String(err), false);
   } finally {
@@ -22067,6 +22068,7 @@ function closeOzonEdoStatusModal() {
   document.getElementById("ozonEdoStatusModal")?.classList.add("hidden");
   _ozonEdoStatusSupplyId = null;
   _ozonEdoStatusDocType = "";
+  _ozonEdoStatusSource = "ozon";
 }
 
 async function refreshOzonEdoStatusModal() {
