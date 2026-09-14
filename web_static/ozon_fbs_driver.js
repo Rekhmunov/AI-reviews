@@ -54,8 +54,11 @@
     if (state.accessToken) {
       headers["X-Driver-Access-Token"] = state.accessToken;
     }
+    // Public PIN page must not send the cabinet session cookie: CSRF would
+    // block unlock for a logged-in owner testing the public link, and the
+    // page is intentionally account-free.
     const res = await fetch(path, {
-      credentials: "same-origin",
+      credentials: isPinMode ? "omit" : "same-origin",
       method: opts.method || "GET",
       headers: headers,
       body: opts.body || undefined,
@@ -158,10 +161,11 @@
     } catch (err) {
       state.accessToken = "";
       state.pinError = String(err.message || err);
-      renderPinForm(state.pinError);
-    } finally {
       state.unlocking = false;
+      renderPinForm(state.pinError);
+      return;
     }
+    state.unlocking = false;
   }
 
   function renderShell() {

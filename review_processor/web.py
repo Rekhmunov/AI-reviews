@@ -1515,6 +1515,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         path = request.url.path
         if not path.startswith("/api/"):
             return
+        # Public driver PIN unlock is account-free (no CSRF token on that page).
+        if path.startswith("/api/ozon-fbs/driver/p/") and path.endswith("/unlock"):
+            return
         # Only enforce CSRF for authenticated browser requests.
         if not request.cookies.get("session_token"):
             return

@@ -64,6 +64,12 @@ def test_driver_js_pin_gate_and_single_plate() -> None:
     assert "/unlock" in DRIVER_JS
     assert "maybeAutoloadSinglePlate" in DRIVER_JS
     assert "X-Driver-Access-Token" in DRIVER_JS
+    assert 'credentials: isPinMode ? "omit"' in DRIVER_JS
+
+
+def test_csrf_skips_public_driver_unlock() -> None:
+    assert 'path.endswith("/unlock")' in WEB
+    assert "/api/ozon-fbs/driver/p/" in WEB
 
 
 def test_list_plates_can_filter_by_driver_id() -> None:
