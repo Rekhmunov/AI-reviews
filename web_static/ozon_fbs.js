@@ -10162,8 +10162,15 @@
     _ozonFbsKizCollectFromDom();
     const pn = String(postingNumber || "");
     const row = _ozonFbsKizRowByPosting(pn);
-    if (!row) return;
+    if (!row || _ozonFbsRowIsCancelled(row)) return;
     if (!Array.isArray(row.kiz_codes)) row.kiz_codes = [""];
+    const qty = Math.max(1, Number(row.quantity) || 1);
+    if (row.kiz_codes.length >= qty) {
+      _ozonFbsKizSetInfo(
+        `У отправления ${pn} уже ${qty} слот(ов) КИЗ — больше добавлять нельзя`
+      );
+      return;
+    }
     row.kiz_codes.push("");
     renderOzonFbsKizTable({ skipCollect: true });
     const inputs = document.querySelectorAll(`.wb-fbs-kiz-code-input[data-posting="${pn}"]`);
@@ -10543,6 +10550,19 @@
         dupPn === pn
           ? `Этот КИЗ уже просканирован в отправление ${pn} — повторно не добавляем`
           : `Этот КИЗ уже просканирован в отправление ${dupPn} — в ${pn} не добавляем`
+      );
+      if (input) input.select();
+      return;
+    }
+    // Cap by quantity: do not grow a second (Nth) slot when all required codes
+    // are already filled. Prevents «same sticker + other KIZ» creating 2 codes
+    // on qty=1 postings (live scan path; import already had this check).
+    const existing = _ozonFbsKizRowExistingCodes(row);
+    const qty = Math.max(1, Number(row.quantity) || 1);
+    if (existing.length >= qty) {
+      const had = existing.map(_ozonFbsKizMarkPreview).join("; ");
+      _ozonFbsKizSetInfo(
+        `У отправления ${pn} уже есть КИЗ (${had}). Чтобы заменить — сначала очистите текущий.`
       );
       if (input) input.select();
       return;
