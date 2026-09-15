@@ -21772,58 +21772,58 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
 <p style="text-align:right;margin:0 0 10pt">Дата составления: <b>{ttn_date}</b></p>
 <table class="meta">
   <tr>
-    <td width="50%"><div class="label">1. Грузоотправитель</div>{shipper or "—"}</td>
-    <td width="50%"><div class="label">1а. Заказчик услуг по организации перевозки груза (при наличии)</div>{customer or "—"}</td>
+    <td width="50%"><div class="label">1. Грузоотправитель</div>{shipper}</td>
+    <td width="50%"><div class="label">1а. Заказчик услуг по организации перевозки груза (при наличии)</div>{customer}</td>
   </tr>
   <tr>
-    <td colspan="2"><div class="label">2. Грузополучатель</div>{consignee or "—"}</td>
+    <td colspan="2"><div class="label">2. Грузополучатель</div>{consignee}</td>
   </tr>
   <tr>
     <td colspan="2">
       <div class="label">3. Наименование груза</div>
-      <div>{cargo or "—"}</div>
-      <div style="margin-top:4pt">Тара / упаковка: <b>{packing or "—"}</b>
-        &nbsp;&nbsp; Мест: <b>{places or "—"}</b>
-        &nbsp;&nbsp; Масса, кг: <b>{weight or "—"}</b>
-        &nbsp;&nbsp; Объявленная стоимость: <b>{declared or "—"}</b></div>
+      <div>{cargo}</div>
+      <div style="margin-top:4pt">Тара / упаковка: <b>{packing}</b>
+        &nbsp;&nbsp; Мест: <b>{places}</b>
+        &nbsp;&nbsp; Масса, кг: <b>{weight}</b>
+        &nbsp;&nbsp; Объявленная стоимость: <b>{declared}</b></div>
     </td>
   </tr>
   <tr>
-    <td colspan="2"><div class="label">4. Сопроводительные документы на груз</div>{docs or "—"}</td>
+    <td colspan="2"><div class="label">4. Сопроводительные документы на груз</div>{docs}</td>
   </tr>
   <tr>
-    <td colspan="2"><div class="label">5. Указания грузоотправителя</div>{notes or "—"}</td>
+    <td colspan="2"><div class="label">5. Указания грузоотправителя</div>{notes}</td>
   </tr>
   <tr>
-    <td><div class="label">6. Перевозчик</div>{carrier or "—"}
-        <div class="label" style="margin-top:6pt">Водитель</div>{driver_str or "—"}</td>
-    <td><div class="label">7. Транспортное средство</div>{vehicle or "—"}
-        <div class="label" style="margin-top:6pt">Тип / вместимость</div>{vehicle_type or "—"}</td>
+    <td><div class="label">6. Перевозчик</div>{carrier}
+        <div class="label" style="margin-top:6pt">Водитель</div>{driver_str}</td>
+    <td><div class="label">7. Транспортное средство</div>{vehicle}
+        <div class="label" style="margin-top:6pt">Тип / вместимость</div>{vehicle_type}</td>
   </tr>
   <tr>
     <td colspan="2">
       <div class="label">8. Приём груза к перевозке</div>
-      <div>Адрес погрузки: {load_addr or "—"}</div>
-      <div style="margin-top:4pt">Дата и время подачи ТС / погрузки: <b>{loading_dt or "—"}</b></div>
-      <div style="margin-top:4pt">Лицо, осуществившее погрузку: <b>{loader or "—"}</b></div>
+      <div>Адрес погрузки: {load_addr}</div>
+      <div style="margin-top:4pt">Дата и время подачи ТС / погрузки: <b>{loading_dt}</b></div>
+      <div style="margin-top:4pt">Лицо, осуществившее погрузку: <b>{loader}</b></div>
     </td>
   </tr>
   <tr>
-    <td colspan="2"><div class="label">9. Переадресовка</div>{redirect or "—"}</td>
+    <td colspan="2"><div class="label">9. Переадресовка</div>{redirect}</td>
   </tr>
   <tr>
     <td colspan="2">
       <div class="label">10. Выдача груза</div>
-      <div>Адрес выдачи / разгрузки: {unload_addr or "—"}</div>
-      <div style="margin-top:4pt">Дата и время прибытия / выдачи: <b>{unloading_dt or "—"}</b></div>
-      <div style="margin-top:4pt">Лицо, принявшее груз: <b>{receiver or "—"}</b></div>
+      <div>Адрес выдачи / разгрузки: {unload_addr}</div>
+      <div style="margin-top:4pt">Дата и время прибытия / выдачи: <b>{unloading_dt}</b></div>
+      <div style="margin-top:4pt">Лицо, принявшее груз: <b>{receiver}</b></div>
     </td>
   </tr>
   <tr>
-    <td colspan="2"><div class="label">11. Отметки грузоотправителей, грузополучателей и перевозчиков</div>{marks or "—"}</td>
+    <td colspan="2"><div class="label">11. Отметки грузоотправителей, грузополучателей и перевозчиков</div>{marks}</td>
   </tr>
   <tr>
-    <td colspan="2"><div class="label">12. Стоимость перевозки груза и расчёт платы</div>{freight or "—"}</td>
+    <td colspan="2"><div class="label">12. Стоимость перевозки груза и расчёт платы</div>{freight}</td>
   </tr>
 </table>
 <table class="meta sig" style="border:none">

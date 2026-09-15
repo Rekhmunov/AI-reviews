@@ -439,6 +439,8 @@ def test_tn_rename_and_pp2200_fields_additive() -> None:
         assert col in repo and col in web and col in js
     print_html = web.split("def _build_ttn_catalog_html", 1)[1].split("\n    def ", 1)[0]
     assert "Транспортная накладная" in print_html
+    # Empty fields stay blank in the printed form (no placeholder dash).
+    assert ' or "—"' not in print_html
     for label in ("1.", "1а.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "9.", "10.", "11.", "12."):
         assert label in print_html
     # Existing core fields still present (no regression).
