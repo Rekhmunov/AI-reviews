@@ -10609,8 +10609,10 @@
     if (_ozonFbsRowIsCancelled(row)) {
       const msg = `Отправление ${pn} отменено — КИЗ менять нельзя`;
       _ozonFbsKizSetInfo(msg);
-      if (typeof showFbsScanAck === "function") showFbsScanAck(msg, input);
+      // Prompt closes — refocus sticker after «Хорошо», not the hidden mark field.
+      const sticker = document.getElementById("ozonFbsKizStickerScan");
       cancelOzonFbsKizMarkScan();
+      if (typeof showFbsScanAck === "function") showFbsScanAck(msg, sticker || input);
       return;
     }
     const check = _ozonFbsKizValidateMarkForOrder(mark, row);
@@ -11820,11 +11822,12 @@
     if (!check.ok) {
       const msg = check.error || "Ошибка проверки ШК";
       ozonFbsPickState.errors[pn] = msg;
+      // Prompt closes — refocus sticker after «Хорошо», not the hidden SKU field.
+      const sticker = document.getElementById("ozonFbsPickStickerScan");
       cancelOzonFbsPickSkuScan();
       renderOzonFbsPickVerifyTable();
       _ozonFbsPickSetInfo(msg);
-      if (typeof showFbsScanAck === "function") showFbsScanAck(msg, input);
-      if (input) input.select();
+      if (typeof showFbsScanAck === "function") showFbsScanAck(msg, sticker || input);
       return;
     }
     row.pick_verified = true;

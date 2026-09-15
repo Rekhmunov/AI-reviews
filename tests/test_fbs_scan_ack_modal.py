@@ -54,5 +54,13 @@ def test_ozon_scan_error_ack_call_sites() -> None:
 
 def test_cache_bumps() -> None:
     html = HTML.read_text(encoding="utf-8")
-    assert "app.js?v=639" in html
-    assert "ozon_fbs.js?v=168" in html
+    assert "app.js?v=640" in html
+    assert "ozon_fbs.js?v=169" in html
+
+
+def test_ozon_ack_refocuses_sticker_after_closed_prompt() -> None:
+    oz = OZON_JS.read_text(encoding="utf-8")
+    # Cancelled mark / failed pick SKU close the prompt — ack must not refocus hidden field.
+    assert 'getElementById("ozonFbsKizStickerScan")' in oz
+    assert 'getElementById("ozonFbsPickStickerScan")' in oz
+    assert "showFbsScanAck(msg, sticker || input)" in oz

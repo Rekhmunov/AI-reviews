@@ -20,6 +20,9 @@ def test_trbx_title_without_pvz() -> None:
     block = _between(HTML, 'id="wbFbsCreateTrbxTitle"', "</h3>")
     assert "Создайте грузоместа для поставки" in block
     assert "ПВЗ" not in block
+    assert 'Создать грузоместа для поставки' in JS
+    assert "для ПВЗ" not in JS or JS.count("для ПВЗ") == JS.count("Отказ на ПВЗ")  # unrelated chips OK
+    assert "Создать грузоместа (короба) для ПВЗ" not in JS
     btn = _between(HTML, 'id="wbFbsSupplyDetailTrbxBtn"', "</button>")
     assert "ПВЗ" not in btn
 
@@ -36,5 +39,5 @@ def test_trbx_created_count_above_info() -> None:
 
 
 def test_cache_bump() -> None:
-    assert "app.js?v=639" in HTML
+    assert "app.js?v=640" in HTML
     assert "style.css?v=371" in HTML
