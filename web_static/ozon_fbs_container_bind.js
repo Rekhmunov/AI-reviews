@@ -61,6 +61,7 @@
       : (window.ozonFbsPickState?.rows || []);
     if (!rows.length || !binds || typeof binds !== "object") return 0;
     let touched = 0;
+    const touchedPns = [];
     for (const row of rows) {
       const pn = String(row?.posting_number || "").trim();
       if (!pn || state.dirtyPostings.has(pn)) continue;
@@ -100,10 +101,19 @@
       row.container_synced = nextSynced;
       row.container_sync_error = nextErr;
       touched += 1;
+      touchedPns.push(pn);
     }
     if (touched > 0) {
-      rerenderMode(mode);
       updateContainerCounters();
+      // Prefer cell patches; one full rebuild only if any row is missing from DOM.
+      let allPatched = true;
+      for (const pn of touchedPns) {
+        if (!patchContainerCell(mode, pn)) {
+          allPatched = false;
+          break;
+        }
+      }
+      if (!allPatched) rerenderMode(mode);
     }
     if (Array.isArray(changes) && changes.length > 0) {
       const setInfo = mode === "kiz" ? window._ozonFbsKizSetInfo : window._ozonFbsPickSetInfo;
@@ -217,6 +227,59 @@
     if (mode === "pick" && typeof window.renderOzonFbsPickVerifyTable === "function") {
       window.renderOzonFbsPickVerifyTable();
     }
+  }
+
+  function escapePostingSelector(pn) {
+    const raw = String(pn || "").trim();
+    if (!raw) return "";
+    if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+      return CSS.escape(raw);
+    }
+    return raw.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  }
+
+  /**
+   * Update one cargo-place cell without rebuilding the whole KIZ/pick table.
+   * Critical at ~hundreds of rows: maybeBind used to full-rerender on every scan.
+   */
+  function patchContainerCell(mode, postingNumber) {
+    const pn = String(postingNumber || "").trim();
+    if (!pn) return false;
+    const tbodyId = mode === "pick" ? "ozonFbsPickTbody" : "ozonFbsKizTbody";
+    const tbody = document.getElementById(tbodyId);
+    if (!tbody || typeof tbody.querySelector !== "function") return false;
+    const escPn = escapePostingSelector(pn);
+    const tr = tbody.querySelector(`tr.wb-fbs-kiz-row[data-posting="${escPn}"]`);
+    if (!tr || typeof tr.querySelector !== "function") return false;
+    const td = tr.querySelector("td.wb-fbs-kiz-col-container");
+    if (!td) return false;
+    const row = findRow(mode, pn);
+    if (!row) return false;
+    td.innerHTML = containerCellHtml(row, mode);
+    return true;
+  }
+
+  /** Prefer single-cell patch; fall back to full table only when DOM row is missing. */
+  function refreshContainerRow(mode, postingNumber) {
+    updateContainerCounters();
+    if (postingNumber && patchContainerCell(mode, postingNumber)) return true;
+    rerenderMode(mode);
+    return false;
+  }
+
+  let statusRefreshTimer = null;
+  /** Coalesce supply-detail status polls while scanning many postings quickly. */
+  function scheduleSupplyStatusRefresh() {
+    if (statusRefreshTimer) return;
+    statusRefreshTimer = setTimeout(() => {
+      statusRefreshTimer = null;
+      if (typeof window.refreshOzonFbsMarkingStatus === "function") {
+        void window.refreshOzonFbsMarkingStatus(null, { silent: true });
+      }
+      if (typeof window.refreshOzonFbsPickVerifyStatus === "function") {
+        void window.refreshOzonFbsPickVerifyStatus(null, { silent: true });
+      }
+    }, 400);
   }
 
   function setContainerColumnsVisible(show) {
@@ -699,12 +762,7 @@
       order.container_synced = !!row?.container_synced;
       order.container_sync_error = String(row?.container_sync_error || "").trim();
     }
-    if (typeof window.refreshOzonFbsMarkingStatus === "function") {
-      void window.refreshOzonFbsMarkingStatus(null, { silent: true });
-    }
-    if (typeof window.refreshOzonFbsPickVerifyStatus === "function") {
-      void window.refreshOzonFbsPickVerifyStatus(null, { silent: true });
-    }
+    scheduleSupplyStatusRefresh();
   }
 
   function httpError(res, data) {
@@ -850,8 +908,8 @@
       state.usedInSession = true;
       markContainerDirty(postingNumber);
     }
-    updateContainerCounters();
-    rerenderMode(mode);
+    // Same posting cell only — avoid second full-table rebuild when Ozon fill returns.
+    refreshContainerRow(mode, postingNumber);
   }
 
   /**
@@ -892,14 +950,14 @@
       return true;
     }
     // Optimistic UI immediately, then sync in background (fast sticker flow).
+    // Patch only this row's GM cell — full table rebuild at ~600 rows freezes mark scan.
     row.container_id = activeId;
     row.container_barcode = nextBarcode;
     row.container_synced = false;
     row.container_sync_error = "";
     state.usedInSession = true;
     markContainerDirty(postingNumber);
-    updateContainerCounters();
-    rerenderMode(mode);
+    refreshContainerRow(mode, postingNumber);
     void runBindAndRefresh(
       mode,
       postingNumber,
@@ -941,8 +999,7 @@
     } catch (e) {
       row.container_sync_error = String(e.message || e);
     }
-    updateContainerCounters();
-    rerenderMode(mode);
+    refreshContainerRow(mode, postingNumber);
   }
 
   let containerCellCommitLock = false;
@@ -1032,7 +1089,9 @@
         markContainerDirty(postingNumber);
       }
       updateContainerCounters();
-      if (!options.skipRerender) rerenderMode(mode);
+      if (!options.skipRerender) {
+        if (!patchContainerCell(mode, postingNumber)) rerenderMode(mode);
+      }
       return true;
     } finally {
       containerCellCommitLock = false;
@@ -1325,4 +1384,6 @@
   // Test hooks
   window._ozonFbsContainerRunBindAndRefresh = runBindAndRefresh;
   window._ozonFbsContainerIsSessionExpiredError = isSessionExpiredError;
+  window._ozonFbsContainerPatchCell = patchContainerCell;
+  window._ozonFbsContainerRefreshRow = refreshContainerRow;
 })();

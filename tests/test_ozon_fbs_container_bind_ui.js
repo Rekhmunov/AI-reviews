@@ -12,9 +12,8 @@ function assert(cond, msg) {
   if (!cond) throw new Error(msg || "assertion failed");
 }
 
-function makeDom() {
+function makeDom(opts = {}) {
   const nodes = new Map();
-  let idCounter = 0;
   function el(id, tag = "div") {
     if (!nodes.has(id)) {
       nodes.set(id, {
@@ -31,6 +30,11 @@ function makeDom() {
           _set: new Set(),
           add(cls) { this._set.add(cls); },
           remove(cls) { this._set.delete(cls); },
+          toggle(cls, on) {
+            if (on) this._set.add(cls);
+            else this._set.delete(cls);
+          },
+          contains(cls) { return this._set.has(cls); },
         },
         setAttribute(name, val) {
           if (name === "title") this.title = val;
@@ -61,6 +65,8 @@ function makeDom() {
     "ozonFbsPickStickerScan",
     "ozonFbsContainerAuthModal",
     "ozonFbsContainerRebindModal",
+    "ozonFbsKizContainerCount",
+    "ozonFbsPickContainerCount",
   ];
   ids.forEach((id) => el(id, id.includes("Check") ? "input" : "div"));
   el("ozonFbsContainerAuthModal").classList = {
@@ -70,8 +76,32 @@ function makeDom() {
     contains(cls) { return this._set.has(cls); },
   };
 
+  // Optional KIZ table row so maybeBind can patch the GM cell without full re-render.
+  const kizPosting = String(opts.kizPosting || "").trim();
+  let kizTd = null;
+  if (kizPosting) {
+    kizTd = { tag: "td", className: "wb-fbs-kiz-col-container", innerHTML: "—" };
+    const kizTr = {
+      tag: "tr",
+      className: "wb-fbs-kiz-row",
+      querySelector(sel) {
+        if (String(sel) === "td.wb-fbs-kiz-col-container") return kizTd;
+        return null;
+      },
+    };
+    nodes.set("ozonFbsKizTbody", {
+      id: "ozonFbsKizTbody",
+      querySelector(sel) {
+        const m = String(sel).match(/data-posting="([^"]+)"/);
+        if (m && m[1] === kizPosting) return kizTr;
+        return null;
+      },
+    });
+  }
+
   return {
     nodes,
+    kizTd,
     document: {
       getElementById(id) {
         return nodes.get(id) || null;
@@ -88,6 +118,7 @@ function loadBindModule(dom, opts = {}) {
   const src = fs.readFileSync(srcPath, "utf8");
   const bindResponse = opts.bindResponse || null;
   const cleared = { kiz: [], pick: [] };
+  const counters = { kizRender: 0, pickRender: 0 };
   const sandbox = {
     window: {
       supplyDetailState: { supplyId: "S1", sourceId: 1 },
@@ -116,11 +147,16 @@ function loadBindModule(dom, opts = {}) {
           row.pick_barcode = "";
         }
       },
-      renderOzonFbsKizTable() {},
-      renderOzonFbsPickVerifyTable() {},
+      renderOzonFbsKizTable() {
+        counters.kizRender += 1;
+      },
+      renderOzonFbsPickVerifyTable() {
+        counters.pickRender += 1;
+      },
     },
     document: dom.document,
     URLSearchParams: global.URLSearchParams,
+    CSS: { escape: (s) => String(s) },
     fetch: async (url) => {
       if (String(url).includes("/containers/reconcile")) {
         return { ok: true, status: 200, json: async () => ({ binds: {}, changes: [] }) };
@@ -173,7 +209,10 @@ function loadBindModule(dom, opts = {}) {
   };
   sandbox.window.window = sandbox.window;
   sandbox.cleared = cleared;
+  sandbox.counters = counters;
   vm.runInNewContext(src, sandbox, { filename: "ozon_fbs_container_bind.js" });
+  // Attach counters on window for assertions without leaking sandbox.
+  sandbox.window.__bindCounters = counters;
   return sandbox.window;
 }
 
@@ -361,6 +400,57 @@ async function run() {
     assert(
       winDet._ozonFbsContainerIsSessionExpiredError(e401) === true,
       "401 status is session expiry"
+    );
+  }
+
+  // maybeBind + bind response patch GM cell — no full table rebuild
+  {
+    const domPatch = makeDom({ kizPosting: "P-FAST" });
+    const winPatch = loadBindModule(domPatch);
+    const cid = 202174459906000;
+    winPatch.ozonFbsContainerBindState.hasContainers = true;
+    winPatch.ozonFbsContainerBindState.activeId = cid;
+    winPatch.ozonFbsContainerBindState.activeBarcode = String(cid);
+    winPatch.ozonFbsContainerBindState.byId.set(String(cid), {
+      container_id: cid,
+      can_fill: true,
+      available_actions: ["fill"],
+    });
+    winPatch.ozonFbsKizState.rows = [{
+      posting_number: "P-FAST",
+      sticker_barcode: "ST-FAST",
+      kiz_codes: ["01fast"],
+      kiz_status: "ok",
+      container_id: null,
+      container_barcode: "",
+    }];
+    winPatch.__bindCounters.kizRender = 0;
+    await winPatch._ozonFbsContainerMaybeBind("kiz", "P-FAST");
+    assert(
+      winPatch.ozonFbsKizState.rows[0].container_id === cid,
+      "patch path still binds container"
+    );
+    assert(
+      winPatch.__bindCounters.kizRender === 0,
+      "maybeBind must not full-render KIZ table when cell exists"
+    );
+    assert(
+      String(domPatch.kizTd.innerHTML || "").includes("ozon-fbs-container-input"),
+      "GM cell patched with input HTML"
+    );
+    assert(
+      String(domPatch.kizTd.innerHTML || "").includes(String(cid)),
+      "GM cell shows active container barcode"
+    );
+    // Await microtasks from void runBindAndRefresh
+    await new Promise((r) => setImmediate(r));
+    assert(
+      winPatch.__bindCounters.kizRender === 0,
+      "bind response must not full-render KIZ table when cell exists"
+    );
+    assert(
+      winPatch.ozonFbsKizState.rows[0].container_synced === true,
+      "bind response marks container_synced"
     );
   }
 
