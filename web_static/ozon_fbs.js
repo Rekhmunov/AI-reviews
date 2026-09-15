@@ -10024,7 +10024,9 @@
       const row = _ozonFbsKizRowByPosting(pn);
       if (!row || !Number.isFinite(idx)) return;
       const rowCodes = Array.isArray(row.kiz_codes) ? row.kiz_codes : [];
-      input.value = String(rowCodes[idx] ?? "");
+      const val = String(rowCodes[idx] ?? "");
+      input.value = val;
+      _ozonFbsKizSyncCommittedMark(input, val);
     });
     _ozonFbsKizRebuildIndexes();
     _ozonFbsKizUpdateScanCounter();
@@ -10044,6 +10046,7 @@
     const input = tr.querySelector(`.wb-fbs-kiz-code-input[data-posting="${pn}"][data-idx="${idx}"]`);
     if (!input) return false;
     input.value = String(mark || "");
+    _ozonFbsKizSyncCommittedMark(input, mark);
     input.classList.remove("is-error");
     const block = input.closest(".wb-fbs-kiz-code-block");
     if (block) block.querySelectorAll(".wb-fbs-kiz-code-status").forEach((node) => node.remove());
@@ -10099,6 +10102,41 @@
     // Keep GTD in local autosave so it is not lost before «Сохранить».
     _ozonFbsKizScheduleLocalAutosave(pn, false);
   }
+  function _ozonFbsKizSyncCommittedMark(input, mark) {
+    if (!input) return;
+    input.dataset.committedMark = _ozonFbsNormalizeMark(mark) || "";
+  }
+
+  /**
+   * Block replacing a filled KIZ slot with a different code unless cleared (×).
+   * Uses data-committed-mark so keyboard wedge cannot poison row state via oninput
+   * before Enter/blur. COM fill into the cell uses the same guard.
+   * Returns true when the replace was rejected.
+   */
+  function _ozonFbsKizRejectReplaceFilledSlot(postingNumber, input, nextRaw) {
+    const pn = String(postingNumber || "").trim();
+    if (!pn || !input) return false;
+    const idx = Number(input.dataset?.idx);
+    const row = _ozonFbsKizRowByPosting(pn);
+    if (!row || !Number.isFinite(idx) || idx < 0) return false;
+    if (!Array.isArray(row.kiz_codes)) return false;
+    const committed = _ozonFbsNormalizeMark(input.dataset.committedMark || "");
+    const prev = committed || _ozonFbsNormalizeMark(row.kiz_codes[idx]);
+    const next = _ozonFbsNormalizeMark(nextRaw ?? input.value);
+    if (!prev || !next || prev === next) {
+      if (next) _ozonFbsKizSyncCommittedMark(input, next);
+      return false;
+    }
+    input.value = prev;
+    _ozonFbsKizSyncCommittedMark(input, prev);
+    if (Array.isArray(row.kiz_codes)) row.kiz_codes[idx] = prev;
+    _ozonFbsKizSetInfo(
+      `У отправления ${pn} уже есть КИЗ. Чтобы заменить — сначала очистите текущий.`
+    );
+    try { input.focus(); input.select?.(); } catch (_e) { /* ignore */ }
+    return true;
+  }
+
 
   function onOzonFbsKizCodeInput(postingNumber, event) {
     const pn = String(postingNumber || "");
@@ -10123,6 +10161,10 @@
       }
     }
     if (ozonFbsKizState.errors[pn]) delete ozonFbsKizState.errors[pn];
+    // Clearing the cell (× or Delete) unlocks replace; keep committed in sync.
+    if (input && !String(input.value || "").trim()) {
+      _ozonFbsKizSyncCommittedMark(input, "");
+    }
     _ozonFbsKizCollectFromDom();
     const row = _ozonFbsKizRowByPosting(pn);
     if (row) {
@@ -10137,9 +10179,11 @@
     _ozonFbsKizUpdateScanCounter();
   }
 
-  function onOzonFbsKizCodeBlur(postingNumber, _event) {
+  function onOzonFbsKizCodeBlur(postingNumber, event) {
     const pn = String(postingNumber || "").trim();
     if (!pn || !_ozonFbsKizModalIsOpen()) return;
+    const input = event?.target;
+    if (input && _ozonFbsKizRejectReplaceFilledSlot(pn, input, input.value)) return;
     _ozonFbsKizCollectFromDom();
     _ozonFbsKizScheduleLocalAutosave(pn, false);
   }
@@ -10149,6 +10193,8 @@
     event.preventDefault();
     const pn = String(postingNumber || "").trim();
     if (!pn) return;
+    const input = event.target;
+    if (input && _ozonFbsKizRejectReplaceFilledSlot(pn, input, input.value)) return;
     _ozonFbsKizCollectFromDom();
     _ozonFbsKizScheduleLocalAutosave(pn, false);
     const sticker = document.getElementById("ozonFbsKizStickerScan");
@@ -12875,10 +12921,12 @@
       && _ozonFbsKizModalIsOpen()
       && el.closest?.("#ozonFbsKizModal")
     ) {
-      el.value = value;
       const pn = String(el.dataset.posting || el.getAttribute("data-posting") || "").trim();
+      if (pn && _ozonFbsKizRejectReplaceFilledSlot(pn, el, value)) return true;
+      el.value = value;
       if (pn) {
         onOzonFbsKizCodeInput(pn, { target: el });
+        _ozonFbsKizSyncCommittedMark(el, value);
         _ozonFbsKizScheduleLocalAutosave(pn, false);
       } else {
         try { el.dispatchEvent(new Event("input", { bubbles: true })); } catch (_e) { /* ignore */ }

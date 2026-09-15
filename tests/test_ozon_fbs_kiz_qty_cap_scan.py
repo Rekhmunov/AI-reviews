@@ -36,5 +36,23 @@ def test_import_path_still_has_qty_guard() -> None:
     assert "if (filledN >= qty)" in JS
 
 
+def test_filled_slot_reject_replace_guard() -> None:
+    """Focused cell / COM must not silently overwrite a committed KIZ."""
+    reject = _fn("_ozonFbsKizRejectReplaceFilledSlot")
+    assert "dataset.committedMark" in reject
+    assert "Чтобы заменить — сначала очистите текущий" in reject
+    sync = _fn("_ozonFbsKizSyncCommittedMark")
+    assert "committedMark" in sync
+    blur = _fn("onOzonFbsKizCodeBlur")
+    assert "_ozonFbsKizRejectReplaceFilledSlot" in blur
+    key = _fn("onOzonFbsKizCodeKey")
+    assert "_ozonFbsKizRejectReplaceFilledSlot" in key
+    com = _fn("_ozonFbsComTryFillFocusedRowInput")
+    assert "_ozonFbsKizRejectReplaceFilledSlot" in com
+    # Clear (×) unlocks replace by resetting committed mark.
+    on_input = _fn("onOzonFbsKizCodeInput")
+    assert '_ozonFbsKizSyncCommittedMark(input, "")' in on_input
+
+
 def test_cache_bump() -> None:
-    assert "ozon_fbs.js?v=165" in HTML
+    assert "ozon_fbs.js?v=166" in HTML
