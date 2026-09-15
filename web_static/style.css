@@ -18572,6 +18572,47 @@ body.is-col-resizing .wb-fbs-kiz-circ-table th .col-resize-handle {
 }
 
 
+/* TTN table: resizable columns */
+#ttnTable {
+  table-layout: fixed;
+  width: 100%;
+}
+#ttnTable th {
+  position: relative;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: none;
+}
+#ttnTable th .col-resize-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 2;
+}
+#ttnTable th .col-resize-handle:hover,
+#ttnTable th .col-resize-handle:active,
+body.ttn-col-resizing #ttnTable th .col-resize-handle {
+  background: rgba(37, 99, 235, 0.35);
+}
+body.ttn-col-resizing {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+#ttnTable td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#ttnTable td:last-child {
+  overflow: visible;
+  white-space: normal;
+}
+
 /* TTN table row actions: print + kebab menu */
 .ttn-row-actions {
   display: inline-flex;
@@ -18584,16 +18625,32 @@ body.is-col-resizing .wb-fbs-kiz-circ-table th .col-resize-handle {
   width: 32px;
   height: 32px;
   min-width: 32px;
+  min-height: 32px;
   padding: 0;
+  margin: 0;
+  border: 1px solid #e2e8f0;
   border-radius: 8px;
+  background: #fff;
+  box-shadow: none;
+  transform: none;
   font-size: 16px;
+  font-weight: 500;
   line-height: 1;
   color: #64748b;
 }
 .ttn-row-actions .ttn-row-print-btn:hover,
 .ttn-row-actions .ttn-row-menu-btn:hover {
   color: #0f172a;
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  box-shadow: none;
+  transform: none;
+}
+.ttn-row-actions .ttn-row-print-btn:active,
+.ttn-row-actions .ttn-row-menu-btn:active {
   background: #f1f5f9;
+  transform: none;
+  box-shadow: none;
 }
 .ttn-row-actions .ttn-row-print-btn:focus-visible,
 .ttn-row-actions .ttn-row-menu-btn:focus-visible {
@@ -18609,12 +18666,12 @@ body.is-col-resizing .wb-fbs-kiz-circ-table th .col-resize-handle {
   top: 0;
   left: 0;
   z-index: 2200;
-  min-width: 220px;
-  padding: 4px;
+  min-width: 240px;
+  padding: 6px;
   border: 1px solid #e2e8f0;
-  border-radius: 10px;
+  border-radius: 12px;
   background: #fff;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
   display: none;
 }
 .ttn-row-menu.open {
@@ -18626,11 +18683,15 @@ body.is-col-resizing .wb-fbs-kiz-circ-table th .col-resize-handle {
   align-items: center;
   gap: 10px;
   min-height: 36px;
+  height: auto;
   padding: 8px 12px;
   margin: 0;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
+  border: none !important;
+  border-radius: 8px;
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  transform: none !important;
   color: #0f172a;
   font-size: 14px;
   font-weight: 500;
@@ -18639,10 +18700,17 @@ body.is-col-resizing .wb-fbs-kiz-circ-table th .col-resize-handle {
   transition: background-color 0.12s ease;
 }
 .ttn-row-menu-item:hover {
-  background: #f1f5f9;
+  background: #f1f5f9 !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  transform: none !important;
+  border: none !important;
+  color: #0f172a;
 }
 .ttn-row-menu-item:active {
-  background: #e2e8f0;
+  background: #e2e8f0 !important;
+  box-shadow: none !important;
+  transform: none !important;
 }
 .ttn-row-menu-item:focus-visible {
   outline: 2px solid var(--primary, #2563eb);
@@ -18652,9 +18720,16 @@ body.is-col-resizing .wb-fbs-kiz-circ-table th .col-resize-handle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 28px;
-  font-size: 12px;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 24px;
+  min-width: 32px;
+  border-radius: 6px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  font-size: 11px;
   font-weight: 700;
+  letter-spacing: 0.02em;
   color: #64748b;
 }
 .ttn-row-menu-item-danger {
@@ -18662,7 +18737,46 @@ body.is-col-resizing .wb-fbs-kiz-circ-table th .col-resize-handle {
 }
 .ttn-row-menu-item-danger .ttn-row-menu-ico {
   color: #b91c1c;
+  background: #fff1f2;
+  border-color: #fecdd3;
 }
 .ttn-row-menu-item-danger:hover {
-  background: #fff1f2;
+  background: #fff1f2 !important;
+  color: #b91c1c;
+}
+
+/* Ozon supply link rows: Заявка / эТрН (3-кнопочные группы) */
+.supply-detail-link.supply-zakaz-link {
+  background: #f0fdf4 !important;
+  border-color: #86efac !important;
+  color: #166534 !important;
+}
+.supply-detail-link.supply-zakaz-link:hover {
+  background: #dcfce7 !important;
+  border-color: #4ade80 !important;
+  color: #14532d !important;
+  box-shadow: 0 1px 4px rgba(34, 197, 94, 0.15) !important;
+}
+.supply-detail-link.supply-etrn-link {
+  background: #eff6ff !important;
+  border-color: #93c5fd !important;
+  color: #1d4ed8 !important;
+}
+.supply-detail-link.supply-etrn-link:hover {
+  background: #dbeafe !important;
+  border-color: #60a5fa !important;
+  color: #1e40af !important;
+  box-shadow: 0 1px 4px rgba(59, 130, 246, 0.15) !important;
+}
+.supply-links-col .supply-detail-link.supply-print-btn {
+  border-color: #e2e8f0 !important;
+  background: #fff !important;
+  color: #475569 !important;
+  box-shadow: none !important;
+}
+.supply-links-col .supply-detail-link.supply-print-btn:hover {
+  border-color: #cbd5e1 !important;
+  background: #f8fafc !important;
+  color: #0f172a !important;
+  box-shadow: none !important;
 }

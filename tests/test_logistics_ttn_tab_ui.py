@@ -40,8 +40,8 @@ def test_logistics_title_picker_and_panes() -> None:
     assert "function initLogisticsSection" in js
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
-    assert "app.js?v=624" in html
-    assert "style.css?v=366" in html
+    assert "app.js?v=632" in html
+    assert "style.css?v=367" in html
     assert "ttn-modal-card" in html
     assert "ttn-form-grid" in html
     assert 'max-width:560px' not in html.split('id="createTtnModal"')[1].split("<!-- ── Планирование")[0]
@@ -73,6 +73,21 @@ def test_ttn_row_actions_print_and_kebab_menu() -> None:
     assert ".ttn-row-menu" in css
     assert ".ttn-row-menu-item" in css
     assert ".ttn-row-menu.open" in css
+
+
+def test_ttn_table_columns_resizable_with_persistence() -> None:
+    """Logistics → ТН table: drag handles + localStorage column widths."""
+    html = HTML.read_text(encoding="utf-8")
+    js = JS.read_text(encoding="utf-8")
+    css = CSS.read_text(encoding="utf-8")
+    assert 'id="ttnTable"' in html
+    assert 'id="ttnColgroup"' in html
+    assert 'class="col-resize-handle"' in html.split('id="ttnTable"', 1)[1].split("tbody", 1)[0]
+    assert "function initTtnColumnResizer" in js
+    assert "logistics_ttn_col_widths_v1" in js
+    assert "initTtnColumnResizer()" in js.split("function setLogisticsTab", 1)[1].split("\nfunction ", 1)[0]
+    assert "#ttnTable th .col-resize-handle" in css
+    assert "box-shadow: none !important" in css.split(".ttn-row-menu-item", 1)[1][:500]
 
 
 def test_ttn_table_and_modal_fields_present() -> None:

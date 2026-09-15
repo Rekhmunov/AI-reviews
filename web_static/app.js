@@ -19360,6 +19360,7 @@ function setLogisticsTab(tab, options = {}) {
   syncFbsSourcePicker("logisticsTab");
   if (next === "ttn") {
     loadTtnRecords();
+    initTtnColumnResizer();
   } else {
     loadPoARecords();
   }
@@ -21131,6 +21132,77 @@ async function saveCertEdit() {
 }
 
 // ── Resizable columns ──
+const TTN_COL_WIDTHS_KEY = "logistics_ttn_col_widths_v1";
+const TTN_DEFAULT_WIDTHS = [8, 12, 18, 22, 28, 12];
+let _ttnColResizerInited = false;
+
+function initTtnColumnResizer() {
+  const table = document.getElementById("ttnTable");
+  if (!table) return;
+  let widths = TTN_DEFAULT_WIDTHS.slice();
+  try {
+    const saved = JSON.parse(localStorage.getItem(TTN_COL_WIDTHS_KEY) || "null");
+    if (Array.isArray(saved) && saved.length === widths.length) widths = saved;
+    else if (Array.isArray(saved)) localStorage.removeItem(TTN_COL_WIDTHS_KEY);
+  } catch (_) {}
+  _applyTtnColWidths(widths);
+  if (_ttnColResizerInited) return;
+  _ttnColResizerInited = true;
+  table.querySelectorAll("th .col-resize-handle").forEach((handle) => {
+    let startX = 0, colIdx = 0, startWidths = [];
+    handle.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const th = handle.parentElement;
+      colIdx = parseInt(th.getAttribute("data-col") || "0", 10);
+      startX = e.clientX;
+      startWidths = _getTtnColWidths();
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+      document.body.classList.add("ttn-col-resizing");
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    });
+    function onMove(e) {
+      const tbl = document.getElementById("ttnTable");
+      if (!tbl) return;
+      const tw = tbl.offsetWidth || 1;
+      const delta = ((e.clientX - startX) / tw) * 100;
+      const nw = startWidths.slice();
+      const minP = 5;
+      const nextIdx = colIdx < nw.length - 1 ? colIdx + 1 : colIdx - 1;
+      let nc = Math.max(minP, startWidths[colIdx] + delta);
+      let nn = Math.max(minP, startWidths[nextIdx] - delta);
+      if (nn < minP) {
+        nc = startWidths[colIdx] + (startWidths[nextIdx] - minP);
+        nn = minP;
+      }
+      nw[colIdx] = Math.round(nc * 10) / 10;
+      nw[nextIdx] = Math.round(nn * 10) / 10;
+      _applyTtnColWidths(nw);
+    }
+    function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.classList.remove("ttn-col-resizing");
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      try { localStorage.setItem(TTN_COL_WIDTHS_KEY, JSON.stringify(_getTtnColWidths())); } catch (_) {}
+    }
+  });
+}
+function _applyTtnColWidths(widths) {
+  document.querySelectorAll("#ttnColgroup col").forEach((col, i) => {
+    if (widths[i] !== undefined) col.style.width = widths[i] + "%";
+  });
+}
+function _getTtnColWidths() {
+  return Array.from(document.querySelectorAll("#ttnColgroup col")).map(
+    (col, i) => parseFloat(col.style.width) || TTN_DEFAULT_WIDTHS[i] || TTN_DEFAULT_WIDTHS[0]
+  );
+}
+window.initTtnColumnResizer = initTtnColumnResizer;
+
 const CERTS_COL_WIDTHS_KEY = "certs_col_widths_v2";
 const CERTS_DEFAULT_WIDTHS = [18, 20, 20, 16, 14];
 let _certsColResizerInited = false;
