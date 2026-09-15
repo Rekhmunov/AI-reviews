@@ -62,6 +62,7 @@
     if (!rows.length || !binds || typeof binds !== "object") return 0;
     let touched = 0;
     const touchedPns = [];
+    const statusCheckPns = [];
     for (const row of rows) {
       const pn = String(row?.posting_number || "").trim();
       if (!pn || state.dirtyPostings.has(pn)) continue;
@@ -96,12 +97,17 @@
       }
       // Cancelled + portal cleared → keep local progress.
       if (isCancelled && curCid > 0 && nextCid <= 0) continue;
+      // Ozon kicked posting out of GM — after applying clear, silently check status.
+      const gmClearedByPortal = curCid > 0 && nextCid <= 0 && !isCancelled;
       row.container_id = nextCid > 0 ? nextCid : null;
       row.container_barcode = nextBc;
       row.container_synced = nextSynced;
       row.container_sync_error = nextErr;
       touched += 1;
       touchedPns.push(pn);
+      if (gmClearedByPortal) {
+        statusCheckPns.push(pn);
+      }
     }
     if (touched > 0) {
       updateContainerCounters();
@@ -120,12 +126,13 @@
         else refreshFilterCounts(mode);
       }
     }
-    if (Array.isArray(changes) && changes.length > 0) {
-      const setInfo = mode === "kiz" ? window._ozonFbsKizSetInfo : window._ozonFbsPickSetInfo;
-      if (typeof setInfo === "function") {
-        setInfo("Грузоместа синхронизированы с порталом Ozon", true);
+    // Background: only the postings Ozon dropped from GM — no toasts, no modal.
+    for (const pn of statusCheckPns) {
+      if (typeof window._ozonFbsSilentRefreshPostingStatus === "function") {
+        try { void window._ozonFbsSilentRefreshPostingStatus(pn); } catch (_e) { /* ignore */ }
       }
     }
+    // No "Грузоместа синхронизированы…" banner — it distracts during scanning.
     return touched;
   }
 

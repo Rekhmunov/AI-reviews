@@ -68,7 +68,7 @@ def test_posting_status_refresh_ui_wired() -> None:
     )]
     assert "border: 0;" in icon_css
     assert "background: transparent;" in icon_css
-    assert "ozon_fbs.js?v=169" in html
+    assert "ozon_fbs.js?v=170" in html
     close_fn = js[
         js.find("function closeOzonFbsPostingStatusModal") : js.find(
             "function closeOzonFbsPostingStatusModal"
@@ -77,6 +77,9 @@ def test_posting_status_refresh_ui_wired() -> None:
     ]
     assert "_ozonFbsRemovePostingFromOpenModals(" not in close_fn
     assert "_ozonFbsRefreshOpenModalsAfterCancelFlag" in js
-    assert "остаётся в поставке" in js
+    # Silent path after GM clear: no long instructional copy (distracts while scanning).
     assert "будет удалён из модалки" not in js
+    assert "function _ozonFbsApplyCancelledQuiet" in js
+    assert "window._ozonFbsSilentRefreshPostingStatus" in js
+    assert "silent: true" in js or "{ silent: true }" in js or "opts.silent" in js or "opts && opts.silent" in js
     assert "style.css?v=" in html

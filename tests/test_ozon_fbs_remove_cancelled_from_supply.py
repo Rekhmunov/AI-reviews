@@ -144,7 +144,10 @@ def test_remove_cancelled_ui_wiring() -> None:
     actions_start = js.find("function _ozonFbsModalRowActionsHtml")
     actions_fn = js[actions_start : actions_start + 700]
     assert "_ozonFbsRowIsCancelled(row)" not in actions_fn.split("return")[0]
-    assert "ozon_fbs.js?v=169" in html
+    # Menu id must be mode-prefixed so supply-detail ⋮ does not shadow KIZ/pick delete.
+    assert '`${mode || "kiz"}_${pn}`' in actions_fn or "${mode || \"kiz\"}_${pn}" in actions_fn or 'mode || "kiz"' in actions_fn
+    assert "sd_${pn}" in js or "`sd_${pn}`" in js
+    assert "ozon_fbs.js?v=170" in html
 
 
 def test_endpoint_registered() -> None:

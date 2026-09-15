@@ -243,6 +243,7 @@ def test_status_refresh_ui_keeps_cancelled_in_modals() -> None:
     close_fn = js[close_start : close_start + 550]
     assert "_ozonFbsRemovePostingFromOpenModals(" not in close_fn
     assert "function _ozonFbsRefreshOpenModalsAfterCancelFlag" in js
-    assert "остаётся в поставке" in js
+    # Cancelled stay in KIZ/pick modals until pick-list+stickers reset / ⋮ remove.
     assert "будет удалён из модалки" not in js
-    assert "ozon_fbs.js?v=169" in html
+    assert "function _ozonFbsApplyCancelledQuiet" in js
+    assert "ozon_fbs.js?v=170" in html
