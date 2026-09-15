@@ -34753,6 +34753,7 @@ function _wbFbsKizPatchScannedCode(orderId, codeIdx, mark) {
   if (!input) return false;
   // Assign via property so GS (\\u001D) survives — same as renderWbFbsKizTable.
   input.value = String(mark || "");
+  _wbFbsKizSyncCommittedMark(input, mark);
   const row = wbFbsKizState.rows.find((r) => Number(r.order_id) === oid);
   // Mirror full render: refresh every code block in this row (errors[oid] already cleared).
   tr.querySelectorAll(".wb-fbs-kiz-code-block").forEach((block) => {
@@ -34787,6 +34788,51 @@ function _wbFbsKizNormalizeCodesList(codes) {
     out.push(n);
   }
   return out;
+}
+
+/** WB FBS: one order ≈ one unit; honor quantity when present. */
+function _wbFbsKizRowQty(row) {
+  return Math.max(1, Number(row?.quantity) || 1);
+}
+
+function _wbFbsKizMarkPreview(mark) {
+  const s = String(mark || "");
+  return s.length > 24 ? `${s.slice(0, 20)}…` : s;
+}
+
+function _wbFbsKizSyncCommittedMark(input, mark) {
+  if (!input) return;
+  input.dataset.committedMark = _wbFbsKizNormalizeMark(mark) || "";
+}
+
+/**
+ * Block replacing a filled KIZ slot with a different code unless cleared (×).
+ * Uses data-committed-mark so keyboard wedge cannot poison row state via oninput
+ * before Enter/blur. COM fill into the cell uses the same guard.
+ * Returns true when the replace was rejected.
+ */
+function _wbFbsKizRejectReplaceFilledSlot(orderId, input, nextRaw) {
+  const oid = Number(orderId);
+  if (!Number.isFinite(oid) || oid <= 0 || !input) return false;
+  const idx = Number(input.dataset?.idx);
+  const row = wbFbsKizState.rows.find((r) => Number(r.order_id) === oid);
+  if (!row || !Number.isFinite(idx) || idx < 0) return false;
+  if (!Array.isArray(row.kiz_codes)) return false;
+  const committed = _wbFbsKizNormalizeMark(input.dataset.committedMark || "");
+  const prev = committed || _wbFbsKizNormalizeMark(row.kiz_codes[idx]);
+  const next = _wbFbsKizNormalizeMark(nextRaw ?? input.value);
+  if (!prev || !next || prev === next) {
+    if (next) _wbFbsKizSyncCommittedMark(input, next);
+    return false;
+  }
+  input.value = prev;
+  _wbFbsKizSyncCommittedMark(input, prev);
+  row.kiz_codes[idx] = prev;
+  _wbFbsKizSetInfo(
+    `У заказа ${oid} уже есть КИЗ. Чтобы заменить — сначала очистите текущий.`
+  );
+  try { input.focus(); input.select?.(); } catch (_e) { /* ignore */ }
+  return true;
 }
 
 function _wbFbsKizCaptureBaseline() {
@@ -35508,7 +35554,9 @@ function renderWbFbsKizTable(opts) {
     const row = wbFbsKizState.rows.find((r) => Number(r.order_id) === oid);
     if (!row || !Number.isFinite(idx)) return;
     const codes = Array.isArray(row.kiz_codes) ? row.kiz_codes : [];
-    input.value = String(codes[idx] ?? "");
+    const val = String(codes[idx] ?? "");
+    input.value = val;
+    _wbFbsKizSyncCommittedMark(input, val);
   });
   _wbFbsKizUpdateScanCounter();
 }
@@ -35542,6 +35590,10 @@ function onWbFbsKizCodeInput(orderId, event) {
   if (wbFbsKizState.errors[oid]) {
     delete wbFbsKizState.errors[oid];
   }
+  // Clearing the cell (× or Delete) unlocks replace; keep committed in sync.
+  if (input && !String(input.value || "").trim()) {
+    _wbFbsKizSyncCommittedMark(input, "");
+  }
   _wbFbsKizCollectFromDom();
   const row = wbFbsKizState.rows.find((r) => Number(r.order_id) === oid);
   if (row) {
@@ -35557,10 +35609,12 @@ function onWbFbsKizCodeInput(orderId, event) {
 window.onWbFbsKizCodeInput = onWbFbsKizCodeInput;
 
 /** Manual КИЗ entry: silent FeedPilot autosave when leaving the field. */
-function onWbFbsKizCodeBlur(orderId, _event) {
+function onWbFbsKizCodeBlur(orderId, event) {
   const oid = Number(orderId);
   if (!Number.isFinite(oid) || oid <= 0) return;
   if (!_wbFbsKizModalIsOpen()) return;
+  const input = event?.target;
+  if (input && _wbFbsKizRejectReplaceFilledSlot(oid, input, input.value)) return;
   _wbFbsKizCollectFromDom();
   _wbFbsKizScheduleLocalAutosave(oid);
 }
@@ -35572,6 +35626,8 @@ function onWbFbsKizCodeKey(orderId, event) {
   event.preventDefault();
   const oid = Number(orderId);
   if (!Number.isFinite(oid) || oid <= 0) return;
+  const input = event.target;
+  if (input && _wbFbsKizRejectReplaceFilledSlot(oid, input, input.value)) return;
   _wbFbsKizCollectFromDom();
   _wbFbsKizScheduleLocalAutosave(oid);
   const sticker = document.getElementById("wbFbsKizStickerScan");
@@ -35588,6 +35644,13 @@ function addWbFbsKizCode(orderId) {
   const row = wbFbsKizState.rows.find((r) => Number(r.order_id) === oid);
   if (!row) return;
   if (!Array.isArray(row.kiz_codes)) row.kiz_codes = [""];
+  const qty = _wbFbsKizRowQty(row);
+  if (row.kiz_codes.length >= qty) {
+    _wbFbsKizSetInfo(
+      `У заказа ${oid} уже ${qty} слот(ов) КИЗ — больше добавлять нельзя`
+    );
+    return;
+  }
   row.kiz_codes.push("");
   renderWbFbsKizTable({ skipCollect: true });
   const inputs = document.querySelectorAll(`.wb-fbs-kiz-code-input[data-order-id="${oid}"]`);
@@ -35814,10 +35877,14 @@ function _wbFbsComTryFillFocusedKizCodeInput(value) {
   if (!el.classList?.contains("wb-fbs-kiz-code-input")) return false;
   if (typeof _wbFbsKizModalIsOpen !== "function" || !_wbFbsKizModalIsOpen()) return false;
   if (!el.closest?.("#wbFbsKizModal")) return false;
-  el.value = value;
   const oid = Number(el.dataset.orderId || el.getAttribute("data-order-id"));
+  if (Number.isFinite(oid) && oid > 0 && _wbFbsKizRejectReplaceFilledSlot(oid, el, value)) {
+    return true;
+  }
+  el.value = value;
   if (Number.isFinite(oid) && oid > 0) {
     onWbFbsKizCodeInput(oid, { target: el });
+    _wbFbsKizSyncCommittedMark(el, value);
     _wbFbsKizScheduleLocalAutosave(oid);
   } else {
     try {
@@ -36263,6 +36330,19 @@ function processWbFbsKizMarkScan(raw, inputEl) {
       dupOid === oid
         ? `Этот КИЗ уже просканирован в заказ ${oid} — повторно не добавляем`
         : `Этот КИЗ уже просканирован в заказ ${dupOid} — в заказ ${oid} не добавляем`
+    );
+    if (input) input.select();
+    return;
+  }
+  // Cap by quantity (WB FBS order = 1 unit by default): do not grow a second
+  // slot when required codes are already filled. Same sticker + other KIZ must
+  // clear (×) first — mirrors Ozon FBS KIZ guard.
+  const existing = _wbFbsKizNormalizeCodesList(row.kiz_codes);
+  const qty = _wbFbsKizRowQty(row);
+  if (existing.length >= qty) {
+    const had = existing.map(_wbFbsKizMarkPreview).join("; ");
+    _wbFbsKizSetInfo(
+      `У заказа ${oid} уже есть КИЗ (${had}). Чтобы заменить — сначала очистите текущий.`
     );
     if (input) input.select();
     return;
