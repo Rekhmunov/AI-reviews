@@ -8181,6 +8181,16 @@ tr.dnd-over td {
   line-height: 1.4;
   color: #334155;
 }
+.wb-fbs-create-trbx-created {
+  margin: 12px 24px 0;
+  font-size: 14px;
+  line-height: 1.4;
+  font-weight: 600;
+  color: #0f172a;
+}
+.wb-fbs-create-trbx-created + .wb-fbs-create-trbx-info {
+  margin-top: 8px;
+}
 .wb-fbs-create-trbx-info.is-error {
   color: #b91c1c;
 }

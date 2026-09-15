@@ -108,8 +108,8 @@ def test_com_auto_reconnect_on_link_loss() -> None:
 
 
 def test_cache_bump() -> None:
-    assert "style.css?v=370" in APP_HTML
-    assert "app.js?v=637" in APP_HTML
+    assert "style.css?v=371" in APP_HTML
+    assert "app.js?v=638" in APP_HTML
 
 
 def test_permissions_policy_allows_serial() -> None:

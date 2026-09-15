@@ -32388,6 +32388,20 @@ function _wbFbsCreateTrbxSetInfo(text, kind = "") {
   el.classList.toggle("is-ok", kind === "ok");
 }
 
+/** Persistent counter above the info strip: how many boxes already exist. */
+function _wbFbsTrbxUpdateCreatedCount(n) {
+  const el = document.getElementById("wbFbsCreateTrbxCreated");
+  if (!el) return;
+  if (n == null || !Number.isFinite(Number(n))) {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  const count = Math.max(0, Math.floor(Number(n)));
+  el.hidden = false;
+  el.textContent = `Создано грузомест: ${count}`;
+}
+
 function _wbFbsTrbxSetCreateEnabled(enabled) {
   const input = document.getElementById("wbFbsCreateTrbxAmount");
   const steppers = document.querySelectorAll(".wb-fbs-trbx-stepper-btn");
@@ -32461,8 +32475,14 @@ function _wbFbsTrbxApplyListPayload(data) {
   wbFbsDetailState.trbxRemaining = remaining;
   wbFbsDetailState.trbxLoaded = true;
   _wbFbsRenderTrbxBoxesList(data.boxes || []);
+  const boxesCount = Array.isArray(data.boxes)
+    ? data.boxes.length
+    : Number(data.boxes_count || wbFbsDetailState.trbxBoxes.length || 0);
+  _wbFbsTrbxUpdateCreatedCount(boxesCount);
   if (wbFbsDetailState.supply) {
-    wbFbsDetailState.supply.boxes_count = Number(data.boxes_count || 0);
+    wbFbsDetailState.supply.boxes_count = Number(
+      data.boxes_count != null ? data.boxes_count : boxesCount
+    );
     if (Number.isFinite(Number(data.order_count))) {
       wbFbsDetailState.supply.order_count = Number(data.order_count);
     }
@@ -32581,6 +32601,7 @@ function openWbFbsCreateTrbxModal() {
     input.max = String(_wbFbsTrbxMaxAmount());
   }
   _wbFbsRenderTrbxBoxesList([]);
+  _wbFbsTrbxUpdateCreatedCount(null);
   if (closed) {
     _wbFbsCreateTrbxSetInfo(
       _wbFbsIsSupplyDetailReadOnly()

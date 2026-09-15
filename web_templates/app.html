@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=370" />
+  <link rel="stylesheet" href="/static/style.css?v=371" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2273,7 +2273,7 @@
                   </button>
                 </div>
                 <button type="button" class="secondary" id="wbFbsSupplyDetailTrbxBtn"
-                        onclick="openWbFbsCreateTrbxModal()" title="Создать грузоместа (короба) для ПВЗ">Грузоместа</button>
+                        onclick="openWbFbsCreateTrbxModal()" title="Создать грузоместа для поставки">Грузоместа</button>
                 <button type="button" class="secondary wb-fbs-sd-portal-btn" id="wbFbsSupplyDetailPortalBtn"
                         onclick="openWbFbsSupplyPortal()" title="Открыть поставку на портале Wildberries">
                   <span>Портал ВБ</span>
@@ -2319,7 +2319,7 @@
             <div class="wb-fbs-create-trbx-header">
               <div class="wb-fbs-create-trbx-header-main">
                 <h3 id="wbFbsCreateTrbxTitle" class="wb-fbs-create-trbx-title">
-                  Создайте грузоместа для поставки в ПВЗ
+                  Создайте грузоместа для поставки
                 </h3>
                 <div id="wbFbsCreateTrbxCargo" class="wb-fbs-sd-cargo wb-fbs-trbx-cargo wb-fbs-trbx-cargo-inline" hidden></div>
               </div>
@@ -2336,6 +2336,7 @@
                 </div>
                 <button type="button" id="wbFbsCreateTrbxSubmitBtn" onclick="submitWbFbsCreateTrbx()" disabled>Создать</button>
               </div>
+              <div id="wbFbsCreateTrbxCreated" class="wb-fbs-create-trbx-created" hidden aria-live="polite"></div>
               <div id="wbFbsCreateTrbxInfo" class="wb-fbs-create-trbx-info" hidden></div>
               <div id="wbFbsTrbxPrintSection" class="wb-fbs-trbx-print-section" hidden>
                 <div class="wb-fbs-trbx-print-actions">
@@ -7658,6 +7659,6 @@
 
   <script src="/static/ozon_fbs.js?v=167"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=26"></script>
-  <script src="/static/app.js?v=637"></script>
+  <script src="/static/app.js?v=638"></script>
 </body>
 </html>
