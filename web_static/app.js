@@ -2789,7 +2789,7 @@ let _supplyDriversCache = [];
 // ── Supply drivers ──
 
 
-async async function loadDriverPublicLink() {
+async function loadDriverPublicLink() {
   const input = document.getElementById("driverPublicLinkInput");
   const info = document.getElementById("driverPublicLinkInfo");
   if (!input) return;
@@ -2808,7 +2808,7 @@ async async function loadDriverPublicLink() {
   }
 }
 
-async async function copyDriverPublicLink() {
+async function copyDriverPublicLink() {
   const input = document.getElementById("driverPublicLinkInput");
   const info = document.getElementById("driverPublicLinkInfo");
   const value = String(input?.value || "").trim();
