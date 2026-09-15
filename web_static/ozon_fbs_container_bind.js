@@ -5,6 +5,9 @@
 (function () {
   "use strict";
 
+  /** While KIZ/pick modal is open: poll portal GM composition (not a webhook). */
+  const RECONCILE_POLL_MS = 30000;
+
   const state = {
     hasContainers: false,
     /** Last containers list request succeeded (even when items=[]). */
@@ -26,6 +29,11 @@
     dirtyPostings: new Set(),
     /** Monotonic token to ignore stale reconcile responses. */
     reconcileGen: 0,
+    /** Background poll while modal stays open (catch mid-scan GM drops). */
+    reconcilePollTimer: null,
+    reconcilePollMode: "",
+    reconcileInFlight: false,
+    reconcileVisibilityBound: false,
   };
 
   function markContainerDirty(postingNumber) {
@@ -140,6 +148,8 @@
     const { sid, sourceId } = supplyIds();
     if (!sid || !sourceId || !gmUiVisible(mode)) return;
     if (!modalStillOpen(mode)) return;
+    if (state.reconcileInFlight) return;
+    state.reconcileInFlight = true;
     const gen = (state.reconcileGen = Number(state.reconcileGen || 0) + 1);
     const skip = collectReconcileSkipPostings(mode);
     try {
@@ -163,6 +173,41 @@
       }
     } catch (_e) {
       // Background reconcile — do not interrupt operator workflow.
+    } finally {
+      state.reconcileInFlight = false;
+    }
+  }
+
+  function stopReconcilePolling() {
+    if (state.reconcilePollTimer != null) {
+      clearInterval(state.reconcilePollTimer);
+      state.reconcilePollTimer = null;
+    }
+    state.reconcilePollMode = "";
+  }
+
+  function startReconcilePolling(mode) {
+    const m = String(mode || "").trim();
+    stopReconcilePolling();
+    if (m !== "kiz" && m !== "pick") return;
+    if (!gmUiVisible(m)) return;
+    state.reconcilePollMode = m;
+    state.reconcilePollTimer = setInterval(() => {
+      const cur = state.reconcilePollMode;
+      if (!cur || !modalStillOpen(cur) || !gmUiVisible(cur)) {
+        stopReconcilePolling();
+        return;
+      }
+      void reconcileContainers(cur);
+    }, RECONCILE_POLL_MS);
+    if (!state.reconcileVisibilityBound && typeof document !== "undefined") {
+      state.reconcileVisibilityBound = true;
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) return;
+        const cur = state.reconcilePollMode;
+        if (!cur || !modalStillOpen(cur) || !gmUiVisible(cur)) return;
+        void reconcileContainers(cur);
+      });
     }
   }
 
@@ -702,6 +747,7 @@
   }
 
   function clearActiveContainerOnModalClose() {
+    stopReconcilePolling();
     const hadActive = !!state.activeId;
     setActive(null);
     ["kiz", "pick"].forEach((mode) => {
@@ -1224,6 +1270,9 @@
     }
     resetForModal(mode);
     void reconcileContainers(mode);
+    // Keep polling while the modal stays open so mid-scan GM drops
+    // (and silent cancel) update «прикреплено» / «Отменённые» without re-entry.
+    startReconcilePolling(mode);
   }
 
   function containerErrorsTooltip(errors) {
