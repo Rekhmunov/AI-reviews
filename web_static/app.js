@@ -34285,50 +34285,69 @@ function _wbFbsKizRuLayoutModalOpen() {
   return !!(modal && !modal.classList.contains("hidden"));
 }
 
-/** Blocking overlay when top sticker/order scan is not in the current KIZ/pick modal. */
-const fbsStickerNotFoundState = {
+/**
+ * Shared blocking scan-ack overlay for WB/Ozon FBS KIZ + pick.
+ * Caller still sets the red info strip; modal hard-stops scan/COM until «Хорошо».
+ * Reuses #fbsStickerNotFoundModal (same card as RU-layout). Not used by TSD/import.
+ */
+const fbsScanAckState = {
   openedAt: 0,
   focusInputId: null,
 };
 
-function _fbsStickerNotFoundModalOpen() {
+function _fbsScanAckModalOpen() {
   const modal = document.getElementById("fbsStickerNotFoundModal");
   return !!(modal && !modal.classList.contains("hidden"));
 }
 
+/** @deprecated alias — same modal as scan-ack */
+function _fbsStickerNotFoundModalOpen() {
+  return _fbsScanAckModalOpen();
+}
+
 /**
- * Show red inline info (caller) + blocking modal. Scan/COM must wait until «Хорошо».
+ * Show blocking ack (caller sets info strip). Scan/COM must wait until «Хорошо».
  * @param {string} message
  * @param {HTMLElement|null|undefined} focusInputEl field to refocus after dismiss
+ * @param {{ title?: string }|null|undefined} opts
  */
-function showFbsStickerNotFound(message, focusInputEl) {
-  const text = String(message || "Код не найден в этой модалке.").trim();
+function showFbsScanAck(message, focusInputEl, opts) {
+  const text = String(message || "Ошибка скана.").trim();
+  const title = String(opts?.title || "Ошибка скана").trim() || "Ошибка скана";
+  const titleEl = document.getElementById("fbsStickerNotFoundTitle");
   const msgEl = document.getElementById("fbsStickerNotFoundMessage");
+  if (titleEl) titleEl.textContent = title;
   if (msgEl) msgEl.textContent = text;
-  fbsStickerNotFoundState.focusInputId = String(focusInputEl?.id || "") || null;
-  fbsStickerNotFoundState.openedAt = Date.now();
+  fbsScanAckState.focusInputId = String(focusInputEl?.id || "") || null;
+  fbsScanAckState.openedAt = Date.now();
   setModalVisibility("fbsStickerNotFoundModal", true);
   // Do not focus «Хорошо»: wedge scanners end with Enter and would auto-dismiss.
-  document.removeEventListener("keydown", _fbsStickerNotFoundSwallowKeys, true);
-  document.addEventListener("keydown", _fbsStickerNotFoundSwallowKeys, true);
+  document.removeEventListener("keydown", _fbsScanAckSwallowKeys, true);
+  document.addEventListener("keydown", _fbsScanAckSwallowKeys, true);
   return true;
 }
 
-/** Block all keyboard/scanner input while the not-found modal is open. */
-function _fbsStickerNotFoundSwallowKeys(event) {
-  if (!_fbsStickerNotFoundModalOpen()) return;
+/** Sticker/order not in current modal — same ack chrome, fixed title. */
+function showFbsStickerNotFound(message, focusInputEl) {
+  const text = String(message || "Код не найден в этой модалке.").trim();
+  return showFbsScanAck(text, focusInputEl, { title: "Код не найден" });
+}
+
+/** Block all keyboard/scanner input while the scan-ack modal is open. */
+function _fbsScanAckSwallowKeys(event) {
+  if (!_fbsScanAckModalOpen()) return;
   event.preventDefault();
   event.stopPropagation();
 }
 
 /** Close only from the «Хорошо» button onclick — not Esc / overlay / Enter. */
-function dismissFbsStickerNotFound() {
-  if (!_fbsStickerNotFoundModalOpen()) return;
-  document.removeEventListener("keydown", _fbsStickerNotFoundSwallowKeys, true);
+function dismissFbsScanAck() {
+  if (!_fbsScanAckModalOpen()) return;
+  document.removeEventListener("keydown", _fbsScanAckSwallowKeys, true);
   setModalVisibility("fbsStickerNotFoundModal", false);
-  const id = fbsStickerNotFoundState.focusInputId;
-  fbsStickerNotFoundState.focusInputId = null;
-  fbsStickerNotFoundState.openedAt = 0;
+  const id = fbsScanAckState.focusInputId;
+  fbsScanAckState.focusInputId = null;
+  fbsScanAckState.openedAt = 0;
   const el = id ? document.getElementById(id) : null;
   if (el) {
     setTimeout(() => {
@@ -34339,6 +34358,14 @@ function dismissFbsStickerNotFound() {
     }, 40);
   }
 }
+
+function dismissFbsStickerNotFound() {
+  dismissFbsScanAck();
+}
+
+window.showFbsScanAck = showFbsScanAck;
+window.dismissFbsScanAck = dismissFbsScanAck;
+window._fbsScanAckModalOpen = _fbsScanAckModalOpen;
 window.showFbsStickerNotFound = showFbsStickerNotFound;
 window.dismissFbsStickerNotFound = dismissFbsStickerNotFound;
 window._fbsStickerNotFoundModalOpen = _fbsStickerNotFoundModalOpen;
@@ -34853,9 +34880,10 @@ function _wbFbsKizRejectReplaceFilledSlot(orderId, input, nextRaw) {
   input.value = prev;
   _wbFbsKizSyncCommittedMark(input, prev);
   row.kiz_codes[idx] = prev;
-  _wbFbsKizSetInfo(
-    `У заказа ${oid} уже есть КИЗ. Чтобы заменить — сначала очистите текущий.`
-  );
+  const msg =
+    `У заказа ${oid} уже есть КИЗ. Чтобы заменить — сначала очистите текущий.`;
+  _wbFbsKizSetInfo(msg);
+  if (typeof showFbsScanAck === "function") showFbsScanAck(msg, input);
   try { input.focus(); input.select?.(); } catch (_e) { /* ignore */ }
   return true;
 }
@@ -35926,7 +35954,10 @@ function _wbFbsComTryFillFocusedKizCodeInput(value) {
 function deliverWbFbsComScan(raw) {
   const value = String(raw || "").replace(/[\r\n]+$/g, "");
   if (!value.replace(/\s+/g, "")) return false;
-  // Block COM while sticker-not-found ack is open — operator must press «Хорошо».
+  // Block COM while scan-ack is open — operator must press «Хорошо».
+  if (typeof _fbsScanAckModalOpen === "function" && _fbsScanAckModalOpen()) {
+    return false;
+  }
   if (typeof _fbsStickerNotFoundModalOpen === "function" && _fbsStickerNotFoundModalOpen()) {
     return false;
   }
@@ -36246,6 +36277,7 @@ if (typeof document !== "undefined") {
 
 function processWbFbsKizStickerScan(raw, inputEl) {
   if (_wbFbsKizRuLayoutModalOpen()) return;
+  if (typeof _fbsScanAckModalOpen === "function" && _fbsScanAckModalOpen()) return;
   if (typeof _fbsStickerNotFoundModalOpen === "function" && _fbsStickerNotFoundModalOpen()) return;
   const input = inputEl || document.getElementById("wbFbsKizStickerScan");
   if (input && (input.readOnly || input.disabled || !wbFbsKizState.rowsReady)) return;
@@ -36262,11 +36294,12 @@ function processWbFbsKizStickerScan(raw, inputEl) {
   const found = _wbFbsKizFindBySticker(scan);
   if (found.ambiguous) {
     const ids = (found.matches || []).map((r) => r.order_id).slice(0, 5).join(", ");
-    _wbFbsKizSetInfo(
+    const msg =
       `Код стикера совпадает у нескольких заказов (${ids}${
         (found.matches || []).length > 5 ? "…" : ""
-      }). Отсканируйте QR стикера ещё раз.`
-    );
+      }). Отсканируйте QR стикера ещё раз.`;
+    _wbFbsKizSetInfo(msg);
+    if (typeof showFbsScanAck === "function") showFbsScanAck(msg, input);
     if (input) input.select();
     return;
   }
@@ -36325,6 +36358,8 @@ window.cancelWbFbsKizMarkScan = cancelWbFbsKizMarkScan;
 
 function processWbFbsKizMarkScan(raw, inputEl) {
   if (_wbFbsKizRuLayoutModalOpen()) return;
+  if (typeof _fbsScanAckModalOpen === "function" && _fbsScanAckModalOpen()) return;
+  if (typeof _fbsStickerNotFoundModalOpen === "function" && _fbsStickerNotFoundModalOpen()) return;
   const oid = Number(wbFbsKizState.pendingOrderId);
   const input = inputEl || document.getElementById("wbFbsKizMarkScan");
   const rawTyped = String(raw ?? "");
@@ -36344,18 +36379,21 @@ function processWbFbsKizMarkScan(raw, inputEl) {
   }
   const check = _wbFbsKizValidateMarkForOrder(mark, row);
   if (!check.ok) {
-    _wbFbsKizSetInfo(check.error || "Маркировка не подходит к ШК товара в заказе");
+    const msg = check.error || "Маркировка не подходит к ШК товара в заказе";
+    _wbFbsKizSetInfo(msg);
+    if (typeof showFbsScanAck === "function") showFbsScanAck(msg, input);
     if (input) input.select();
     return;
   }
   const dup = _wbFbsKizFindExistingMark(mark);
   if (dup) {
     const dupOid = Number(dup.order_id);
-    _wbFbsKizSetInfo(
+    const msg =
       dupOid === oid
         ? `Этот КИЗ уже просканирован в заказ ${oid} — повторно не добавляем`
-        : `Этот КИЗ уже просканирован в заказ ${dupOid} — в заказ ${oid} не добавляем`
-    );
+        : `Этот КИЗ уже просканирован в заказ ${dupOid} — в заказ ${oid} не добавляем`;
+    _wbFbsKizSetInfo(msg);
+    if (typeof showFbsScanAck === "function") showFbsScanAck(msg, input);
     if (input) input.select();
     return;
   }
@@ -36366,9 +36404,10 @@ function processWbFbsKizMarkScan(raw, inputEl) {
   const qty = _wbFbsKizRowQty(row);
   if (existing.length >= qty) {
     const had = existing.map(_wbFbsKizMarkPreview).join("; ");
-    _wbFbsKizSetInfo(
-      `У заказа ${oid} уже есть КИЗ (${had}). Чтобы заменить — сначала очистите текущий.`
-    );
+    const msg =
+      `У заказа ${oid} уже есть КИЗ (${had}). Чтобы заменить — сначала очистите текущий.`;
+    _wbFbsKizSetInfo(msg);
+    if (typeof showFbsScanAck === "function") showFbsScanAck(msg, input);
     if (input) input.select();
     return;
   }
@@ -37699,6 +37738,7 @@ function _wbFbsPickFindBySticker(scan) {
 
 function processWbFbsPickStickerScan(raw, inputEl) {
   if (_wbFbsKizRuLayoutModalOpen()) return;
+  if (typeof _fbsScanAckModalOpen === "function" && _fbsScanAckModalOpen()) return;
   if (typeof _fbsStickerNotFoundModalOpen === "function" && _fbsStickerNotFoundModalOpen()) return;
   const input = inputEl || document.getElementById("wbFbsPickStickerScan");
   if (input && (input.readOnly || input.disabled || !wbFbsPickState.rowsReady)) return;
@@ -37714,11 +37754,12 @@ function processWbFbsPickStickerScan(raw, inputEl) {
   const found = _wbFbsPickFindBySticker(scan);
   if (found.ambiguous) {
     const ids = (found.matches || []).map((r) => r.order_id).slice(0, 5).join(", ");
-    _wbFbsPickSetInfo(
+    const msg =
       `Код стикера совпадает у нескольких заказов (${ids}${
         (found.matches || []).length > 5 ? "…" : ""
-      }). Отсканируйте QR стикера ещё раз.`
-    );
+      }). Отсканируйте QR стикера ещё раз.`;
+    _wbFbsPickSetInfo(msg);
+    if (typeof showFbsScanAck === "function") showFbsScanAck(msg, input);
     if (input) input.select();
     return;
   }
@@ -37777,6 +37818,8 @@ window.cancelWbFbsPickSkuScan = cancelWbFbsPickSkuScan;
 
 function processWbFbsPickSkuScan(raw, inputEl) {
   if (_wbFbsKizRuLayoutModalOpen()) return;
+  if (typeof _fbsScanAckModalOpen === "function" && _fbsScanAckModalOpen()) return;
+  if (typeof _fbsStickerNotFoundModalOpen === "function" && _fbsStickerNotFoundModalOpen()) return;
   const oid = Number(wbFbsPickState.pendingOrderId);
   const input = inputEl || document.getElementById("wbFbsPickSkuScan");
   const rawTyped = String(raw ?? "");
@@ -37793,8 +37836,10 @@ function processWbFbsPickSkuScan(raw, inputEl) {
   }
   const check = _wbFbsPickValidateEanForOrder(rawTyped, row);
   if (!check.ok) {
+    const msg = check.error || "ШК не подходит к товару в заказе";
     wbFbsPickState.errors[oid] = check.error || "ШК не подходит";
-    _wbFbsPickSetInfo(check.error || "ШК не подходит к товару в заказе");
+    _wbFbsPickSetInfo(msg);
+    if (typeof showFbsScanAck === "function") showFbsScanAck(msg, input);
     if (input) input.select();
     // Patch status in-place when possible (errors filter may hide the row).
     if (!_wbFbsPickPatchStatusCell(oid)) {
@@ -37805,15 +37850,11 @@ function processWbFbsPickSkuScan(raw, inputEl) {
   const existing = String(row.pick_barcode || "").trim();
   if (row.pick_verified && existing) {
     // Same as Маркировка: do not silently overwrite an already filled scan.
-    if (_wbFbsPickBarcodesMatch(existing, check.barcode)) {
-      _wbFbsPickSetInfo(
-        `Этот ШК уже просканирован в заказ ${oid} — повторно не добавляем`
-      );
-    } else {
-      _wbFbsPickSetInfo(
-        `Заказ ${oid} уже проверен (ШК ${existing}). Сбросьте проверку (×), чтобы сканировать другой ШК.`
-      );
-    }
+    const msg = _wbFbsPickBarcodesMatch(existing, check.barcode)
+      ? `Этот ШК уже просканирован в заказ ${oid} — повторно не добавляем`
+      : `Заказ ${oid} уже проверен (ШК ${existing}). Сбросьте проверку (×), чтобы сканировать другой ШК.`;
+    _wbFbsPickSetInfo(msg);
+    if (typeof showFbsScanAck === "function") showFbsScanAck(msg, input);
     if (input) input.select();
     return;
   }

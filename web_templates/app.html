@@ -7643,8 +7643,9 @@
     </div>
   </div>
 
-  <!-- Blocking "sticker/order not found" for WB/Ozon FBS KIZ + pick top scan fields.
-       Same card size/format as RU-layout warning. Close only via «Хорошо». -->
+  <!-- Shared blocking scan-ack for WB/Ozon FBS KIZ + pick (not-found, mismatch,
+       duplicate, qty/replace, cancelled, ambiguous). Same card as RU-layout.
+       Close only via «Хорошо». Info strip stays; TSD/import excluded. -->
   <div id="fbsStickerNotFoundModal" class="modal-overlay hidden" role="alertdialog" aria-modal="true"
        aria-labelledby="fbsStickerNotFoundTitle" aria-describedby="fbsStickerNotFoundMessage">
     <div class="modal-card wb-fbs-kiz-ru-layout-modal">
@@ -7652,13 +7653,13 @@
       <p id="fbsStickerNotFoundMessage" class="wb-fbs-kiz-ru-layout-text"></p>
       <div class="wb-fbs-kiz-ru-layout-actions">
         <button type="button" id="fbsStickerNotFoundOk" tabindex="-1"
-                onclick="dismissFbsStickerNotFound()">Хорошо</button>
+                onclick="dismissFbsScanAck()">Хорошо</button>
       </div>
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=167"></script>
+  <script src="/static/ozon_fbs.js?v=168"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=26"></script>
-  <script src="/static/app.js?v=638"></script>
+  <script src="/static/app.js?v=639"></script>
 </body>
 </html>

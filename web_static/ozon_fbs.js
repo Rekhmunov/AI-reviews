@@ -10128,9 +10128,10 @@
     // CollectFromDom may have briefly indexed `next` before reject — restore.
     if (next) _ozonFbsKizIndexClearMark(next);
     if (prev) _ozonFbsKizIndexSetMark(prev, pn);
-    _ozonFbsKizSetInfo(
-      `У отправления ${pn} уже есть КИЗ. Чтобы заменить — сначала очистите текущий.`
-    );
+    const msg =
+      `У отправления ${pn} уже есть КИЗ. Чтобы заменить — сначала очистите текущий.`;
+    _ozonFbsKizSetInfo(msg);
+    if (typeof showFbsScanAck === "function") showFbsScanAck(msg, input);
     try { input.focus(); input.select?.(); } catch (_e) { /* ignore */ }
     return true;
   }
@@ -10477,6 +10478,9 @@
       _ozonFbsKizScanDiag("sticker_enter_ru_modal", _ozonFbsKizScanDiagSnapshot(input));
       return;
     }
+    if (typeof _fbsScanAckModalOpen === "function" && _fbsScanAckModalOpen()) {
+      return;
+    }
     if (typeof _fbsStickerNotFoundModalOpen === "function" && _fbsStickerNotFoundModalOpen()) {
       return;
     }
@@ -10510,11 +10514,12 @@
     const found = await _ozonFbsKizFindByStickerWithLookup(rawTyped);
     if (found.ambiguous) {
       const ids = (found.matches || []).map((r) => r.posting_number).slice(0, 5).join(", ");
-      _ozonFbsKizSetInfo(
+      const msg =
         `Код этикетки совпадает у нескольких отправлений (${ids}${
           (found.matches || []).length > 5 ? "…" : ""
-        }). Отсканируйте QR ещё раз.`
-      );
+        }). Отсканируйте QR ещё раз.`;
+      _ozonFbsKizSetInfo(msg);
+      if (typeof showFbsScanAck === "function") showFbsScanAck(msg, input);
       if (input) input.select();
       return;
     }
@@ -10529,9 +10534,10 @@
     // (readonly cell / × disabled; import already skips cancelled).
     if (_ozonFbsRowIsCancelled(found.row)) {
       const pnCancelled = String(found.row.posting_number || "").trim();
-      _ozonFbsKizSetInfo(
-        `Отправление ${pnCancelled || rawTyped} отменено — КИЗ менять нельзя`
-      );
+      const msg =
+        `Отправление ${pnCancelled || rawTyped} отменено — КИЗ менять нельзя`;
+      _ozonFbsKizSetInfo(msg);
+      if (typeof showFbsScanAck === "function") showFbsScanAck(msg, input);
       if (input) {
         input.value = "";
         input.select?.();
@@ -10573,6 +10579,8 @@
       _ozonFbsKizScanDiag("mark_enter_ru_modal", _ozonFbsKizScanDiagSnapshot(input));
       return;
     }
+    if (typeof _fbsScanAckModalOpen === "function" && _fbsScanAckModalOpen()) return;
+    if (typeof _fbsStickerNotFoundModalOpen === "function" && _fbsStickerNotFoundModalOpen()) return;
     const pn = String(ozonFbsKizState.pendingPosting || "");
     const rawTyped = String(raw ?? input?.value ?? "");
     if (!pn || !String(rawTyped || "").replace(/\s+/g, "")) {
@@ -10599,24 +10607,29 @@
       return;
     }
     if (_ozonFbsRowIsCancelled(row)) {
-      _ozonFbsKizSetInfo(`Отправление ${pn} отменено — КИЗ менять нельзя`);
+      const msg = `Отправление ${pn} отменено — КИЗ менять нельзя`;
+      _ozonFbsKizSetInfo(msg);
+      if (typeof showFbsScanAck === "function") showFbsScanAck(msg, input);
       cancelOzonFbsKizMarkScan();
       return;
     }
     const check = _ozonFbsKizValidateMarkForOrder(mark, row);
     if (!check.ok) {
-      _ozonFbsKizSetInfo(check.error || "Маркировка не подходит к ШК товара в отправлении");
+      const msg = check.error || "Маркировка не подходит к ШК товара в отправлении";
+      _ozonFbsKizSetInfo(msg);
+      if (typeof showFbsScanAck === "function") showFbsScanAck(msg, input);
       if (input) input.select();
       return;
     }
     const dup = _ozonFbsKizFindExistingMark(mark);
     if (dup) {
       const dupPn = String(dup.posting_number || "");
-      _ozonFbsKizSetInfo(
+      const msg =
         dupPn === pn
           ? `Этот КИЗ уже просканирован в отправление ${pn} — повторно не добавляем`
-          : `Этот КИЗ уже просканирован в отправление ${dupPn} — в ${pn} не добавляем`
-      );
+          : `Этот КИЗ уже просканирован в отправление ${dupPn} — в ${pn} не добавляем`;
+      _ozonFbsKizSetInfo(msg);
+      if (typeof showFbsScanAck === "function") showFbsScanAck(msg, input);
       if (input) input.select();
       return;
     }
@@ -10627,9 +10640,10 @@
     const qty = Math.max(1, Number(row.quantity) || 1);
     if (existing.length >= qty) {
       const had = existing.map(_ozonFbsKizMarkPreview).join("; ");
-      _ozonFbsKizSetInfo(
-        `У отправления ${pn} уже есть КИЗ (${had}). Чтобы заменить — сначала очистите текущий.`
-      );
+      const msg =
+        `У отправления ${pn} уже есть КИЗ (${had}). Чтобы заменить — сначала очистите текущий.`;
+      _ozonFbsKizSetInfo(msg);
+      if (typeof showFbsScanAck === "function") showFbsScanAck(msg, input);
       if (input) input.select();
       return;
     }
@@ -11717,6 +11731,7 @@
   async function processOzonFbsPickStickerScan(raw, inputEl) {
     const input = inputEl || document.getElementById("ozonFbsPickStickerScan");
     if (typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen()) return;
+    if (typeof _fbsScanAckModalOpen === "function" && _fbsScanAckModalOpen()) return;
     if (typeof _fbsStickerNotFoundModalOpen === "function" && _fbsStickerNotFoundModalOpen()) return;
 
     if (input?.disabled || input?.readOnly || !ozonFbsPickState.rowsReady) return;
@@ -11735,11 +11750,12 @@
     const found = await _ozonFbsPickFindByStickerWithLookup(scan);
     if (found.ambiguous) {
       const ids = (found.matches || []).map((r) => r.posting_number).slice(0, 5).join(", ");
-      _ozonFbsPickSetInfo(
+      const msg =
         `Код стикера совпадает у нескольких отправлений (${ids}${
           (found.matches || []).length > 5 ? "…" : ""
-        }). Отсканируйте QR ещё раз.`
-      );
+        }). Отсканируйте QR ещё раз.`;
+      _ozonFbsPickSetInfo(msg);
+      if (typeof showFbsScanAck === "function") showFbsScanAck(msg, input);
       if (input) input.select();
       return;
     }
@@ -11783,6 +11799,8 @@
 
   function processOzonFbsPickSkuScan(raw, inputEl) {
     if (typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen()) return;
+    if (typeof _fbsScanAckModalOpen === "function" && _fbsScanAckModalOpen()) return;
+    if (typeof _fbsStickerNotFoundModalOpen === "function" && _fbsStickerNotFoundModalOpen()) return;
     const pn = String(ozonFbsPickState.pendingPosting || "");
     const input = inputEl || document.getElementById("ozonFbsPickSkuScan");
     const rawTyped = String(raw ?? input?.value ?? "");
@@ -11800,10 +11818,12 @@
     }
     const check = _ozonFbsPickValidateEanForOrder(scan, row);
     if (!check.ok) {
-      ozonFbsPickState.errors[pn] = check.error || "Ошибка проверки ШК";
+      const msg = check.error || "Ошибка проверки ШК";
+      ozonFbsPickState.errors[pn] = msg;
       cancelOzonFbsPickSkuScan();
       renderOzonFbsPickVerifyTable();
-      _ozonFbsPickSetInfo(check.error || "Ошибка проверки ШК");
+      _ozonFbsPickSetInfo(msg);
+      if (typeof showFbsScanAck === "function") showFbsScanAck(msg, input);
       if (input) input.select();
       return;
     }
@@ -12996,7 +13016,10 @@
   function deliverOzonFbsComScan(raw) {
     const value = String(raw || "").replace(/[\r\n]+$/g, "");
     if (!value.replace(/\s+/g, "")) return false;
-    // Block COM while sticker-not-found ack is open — operator must press «Хорошо».
+    // Block COM while scan-ack is open — operator must press «Хорошо».
+    if (typeof _fbsScanAckModalOpen === "function" && _fbsScanAckModalOpen()) {
+      return false;
+    }
     if (typeof _fbsStickerNotFoundModalOpen === "function" && _fbsStickerNotFoundModalOpen()) {
       return false;
     }

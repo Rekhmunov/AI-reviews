@@ -15,7 +15,8 @@ def test_modal_markup_and_khorosho_only() -> None:
     html = HTML.read_text(encoding="utf-8")
     assert 'id="fbsStickerNotFoundModal"' in html
     assert ">Хорошо<" in html
-    assert 'onclick="dismissFbsStickerNotFound()"' in html
+    # Generalized dismiss; sticker-not-found remains an alias.
+    assert 'onclick="dismissFbsScanAck()"' in html
     # No Esc / overlay dismiss hooks on this modal.
     block = html[html.find("fbsStickerNotFoundModal") : html.find("fbsStickerNotFoundModal") + 900]
     assert "if(event.target===this)" not in block
@@ -28,23 +29,24 @@ def test_js_helpers_and_gates() -> None:
     assert "function showFbsStickerNotFound" in app
     assert "function dismissFbsStickerNotFound" in app
     assert "function _fbsStickerNotFoundModalOpen" in app
-    assert "_fbsStickerNotFoundSwallowKeys" in app
-    # COM blocked while open
-    assert "_fbsStickerNotFoundModalOpen()" in app
-    assert "_fbsStickerNotFoundModalOpen()" in oz
-    # All four sticker processors call the modal
+    assert "function showFbsScanAck" in app
+    assert "_fbsScanAckSwallowKeys" in app
+    # COM blocked while open (scan-ack / legacy alias)
+    assert "_fbsScanAckModalOpen()" in app or "_fbsStickerNotFoundModalOpen()" in app
+    assert "_fbsScanAckModalOpen()" in oz or "_fbsStickerNotFoundModalOpen()" in oz
+    # All four sticker processors still call the not-found helper
     assert app.count("showFbsStickerNotFound(") >= 2
     assert oz.count("showFbsStickerNotFound(") >= 2
     # Processors bail while modal open
-    assert 'processWbFbsKizStickerScan' in app
-    assert "_fbsStickerNotFoundModalOpen()) return" in app
-    assert "_fbsStickerNotFoundModalOpen())" in oz
+    assert "processWbFbsKizStickerScan" in app
+    assert "_fbsScanAckModalOpen()) return" in app or "_fbsStickerNotFoundModalOpen()) return" in app
+    assert "_fbsScanAckModalOpen())" in oz or "_fbsStickerNotFoundModalOpen())" in oz
 
 
 def test_cache_bumps() -> None:
     html = HTML.read_text(encoding="utf-8")
-    assert "app.js?v=638" in html
-    assert "ozon_fbs.js?v=167" in html
+    assert "app.js?v=639" in html
+    assert "ozon_fbs.js?v=168" in html
     assert "style.css?v=371" in html
     # Same card classes as RU-layout warning (identical size/format).
     assert 'class="modal-card wb-fbs-kiz-ru-layout-modal"' in html
