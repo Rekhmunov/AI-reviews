@@ -9940,33 +9940,24 @@
           ).join("")}</div>`
         : "";
       const canRemoveRow = !isCancelled && codes.length > 1;
-      const codeHtml = isCancelled
-        ? codes
-            .map((code, idx) => {
-              const val = String(code || "").trim();
-              return `<div class="wb-fbs-kiz-code-block is-readonly">
-                <div class="wb-fbs-kiz-code-row">
-                  <span class="wb-fbs-kiz-code-idx">${idx + 1}</span>
-                  <span class="wb-fbs-kiz-code-readonly">${val ? esc(val) : "—"}</span>
-                </div>
-              </div>`;
-            })
-            .join("")
-        : codes.map((code, idx) => {
+      // Cancelled: same input chrome as active rows (not plain text), but readonly.
+      const codeHtml = codes.map((code, idx) => {
         const clearTitle = canRemoveRow ? "Удалить строку КИЗ" : "Очистить маркировку";
+        const roAttrs = isCancelled ? " readonly tabindex=\"-1\"" : "";
+        const removeDisabled = isCancelled ? " disabled" : "";
         return `
-        <div class="wb-fbs-kiz-code-block">
+        <div class="wb-fbs-kiz-code-block${isCancelled ? " is-cancelled" : ""}">
           <div class="wb-fbs-kiz-code-row">
             <span class="wb-fbs-kiz-code-idx">${idx + 1}</span>
             <input id="ozonFbsKizCode_${menuKey}_${idx}"
                    class="wb-fbs-kiz-code-input${err && String(code || "").trim() ? " is-error" : ""}" type="text"
                    data-posting="${safePn}" data-idx="${idx}"
-                   autocomplete="off"
+                   autocomplete="off"${roAttrs}
                    oninput="onOzonFbsKizCodeInput('${safePn}', event)"
                    onblur="onOzonFbsKizCodeBlur('${safePn}', event)"
                    onkeydown="onOzonFbsKizCodeKey('${safePn}', event)" />
             <button type="button" class="wb-fbs-kiz-remove" title="${clearTitle}"
-                    aria-label="${clearTitle}"
+                    aria-label="${clearTitle}"${removeDisabled}
                     onclick="removeOzonFbsKizCode('${safePn}', ${idx})">×</button>
           </div>
           ${err && String(code || "").trim() ? `<div class="wb-fbs-kiz-code-status is-error">${esc(err)}</div>` : ""}
@@ -10103,6 +10094,8 @@
   function onOzonFbsKizCodeInput(postingNumber, event) {
     const pn = String(postingNumber || "");
     const input = event?.target;
+    if (_ozonFbsRowIsCancelled(_ozonFbsKizRowByPosting(pn))) return;
+    if (input?.readOnly) return;
     if (input && typeof _wbFbsKizHasCyrillic === "function") {
       if (typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen()) {
         input.value = "";
@@ -10140,6 +10133,7 @@
   function onOzonFbsKizCodeBlur(postingNumber, _event) {
     const pn = String(postingNumber || "").trim();
     if (!pn || !_ozonFbsKizModalIsOpen()) return;
+    if (_ozonFbsRowIsCancelled(_ozonFbsKizRowByPosting(pn))) return;
     _ozonFbsKizCollectFromDom();
     _ozonFbsKizScheduleLocalAutosave(pn, false);
   }
@@ -10149,6 +10143,7 @@
     event.preventDefault();
     const pn = String(postingNumber || "").trim();
     if (!pn) return;
+    if (_ozonFbsRowIsCancelled(_ozonFbsKizRowByPosting(pn))) return;
     _ozonFbsKizCollectFromDom();
     _ozonFbsKizScheduleLocalAutosave(pn, false);
     const sticker = document.getElementById("ozonFbsKizStickerScan");
@@ -10162,7 +10157,7 @@
     _ozonFbsKizCollectFromDom();
     const pn = String(postingNumber || "");
     const row = _ozonFbsKizRowByPosting(pn);
-    if (!row) return;
+    if (!row || _ozonFbsRowIsCancelled(row)) return;
     if (!Array.isArray(row.kiz_codes)) row.kiz_codes = [""];
     row.kiz_codes.push("");
     renderOzonFbsKizTable({ skipCollect: true });
@@ -10176,7 +10171,7 @@
     const pn = String(postingNumber || "");
     const removeIdx = Number(idx);
     const row = _ozonFbsKizRowByPosting(pn);
-    if (!row || !Number.isFinite(removeIdx)) return;
+    if (!row || _ozonFbsRowIsCancelled(row) || !Number.isFinite(removeIdx)) return;
     if (!Array.isArray(row.kiz_codes)) row.kiz_codes = [""];
     const removedMark = _ozonFbsNormalizeMark(row.kiz_codes[removeIdx]);
     if (row.kiz_codes.length <= 1) {
