@@ -114,6 +114,14 @@ def test_scan_mode_toggle_css_reused() -> None:
     assert ".ozon-fbs-scan-bar-compact .wb-fbs-scan-mode-toggle" in STYLE
 
 
+def test_com_auto_reconnect_on_link_loss() -> None:
+    assert "OZON_FBS_COM_RECONNECT_MS" in OZON_JS
+    assert "_ozonFbsScanComShouldStayConnected" in OZON_JS
+    assert "связь потеряна — переподключение" in OZON_JS
+    assert "_ozonFbsScanComReleasePort" in OZON_JS
+    assert "_ozonFbsScanComBindDisconnect" in OZON_JS
+
+
 def test_cache_bump() -> None:
-    assert "ozon_fbs.js?v=159" in APP_HTML
+    assert "ozon_fbs.js?v=160" in APP_HTML
     assert "style.css?v=365" in APP_HTML

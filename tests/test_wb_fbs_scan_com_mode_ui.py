@@ -86,9 +86,17 @@ def test_scan_mode_toggle_css() -> None:
     assert "background: #22c55e" in STYLE
 
 
+def test_com_auto_reconnect_on_link_loss() -> None:
+    assert "WB_FBS_COM_RECONNECT_MS" in APP_JS
+    assert "_wbFbsScanComShouldStayConnected" in APP_JS
+    assert "связь потеряна — переподключение" in APP_JS
+    assert "_wbFbsScanComReleasePort" in APP_JS
+    assert "_wbFbsScanComBindDisconnect" in APP_JS
+
+
 def test_cache_bump() -> None:
     assert "style.css?v=365" in APP_HTML
-    assert "app.js?v=629" in APP_HTML
+    assert "app.js?v=631" in APP_HTML
 
 
 def test_permissions_policy_allows_serial() -> None:

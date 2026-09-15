@@ -12646,6 +12646,8 @@
   const OZON_FBS_COM_BAUD = 9600;
   const OZON_FBS_COM_INTER_BYTE_MS = 50;
   const OZON_FBS_COM_DEDUP_MS = 500;
+  /** USB-UART сканеры часто кратко рвут порт после кадра — переподключаемся сами. */
+  const OZON_FBS_COM_RECONNECT_MS = 600;
 
   const ozonFbsScanComState = {
     preferredCom: false,
@@ -12657,7 +12659,14 @@
     lastRaw: "",
     lastAt: 0,
     connectInFlight: false,
+    /** True while we intentionally close (toggle off / modal close) — skip error UX. */
+    closing: false,
+    disconnectBound: false,
   };
+
+  function _ozonFbsScanComSleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
+  }
 
   function _ozonFbsScanComSupported() {
     return typeof navigator !== "undefined" && !!(navigator.serial && navigator.serial.requestPort);
@@ -12821,40 +12830,23 @@
     }
   }
 
-  async function _ozonFbsScanComReadLoop() {
-    const port = ozonFbsScanComState.port;
-    if (!port || !port.readable) return;
-    ozonFbsScanComState.reading = true;
-    const decoder = new TextDecoder("latin1");
+  function _ozonFbsScanComBindDisconnect(port) {
+    if (!port || ozonFbsScanComState.disconnectBound) return;
+    ozonFbsScanComState.disconnectBound = true;
     try {
-      while (ozonFbsScanComState.port && port.readable && ozonFbsScanComState.preferredCom) {
-        const reader = port.readable.getReader();
-        ozonFbsScanComState.reader = reader;
-        try {
-          while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            if (value && value.length) {
-              _ozonFbsScanComOnChunk(decoder.decode(value, { stream: true }));
-            }
-          }
-        } catch (_e) {
-          if (ozonFbsScanComState.preferredCom) {
-            _ozonFbsScanComSetStatus("COM: связь потеряна", "error");
-          }
-          break;
-        } finally {
-          try { reader.releaseLock(); } catch (_e2) { /* ignore */ }
-          if (ozonFbsScanComState.reader === reader) ozonFbsScanComState.reader = null;
+      port.addEventListener("disconnect", () => {
+        if (ozonFbsScanComState.port === port) {
+          ozonFbsScanComState.port = null;
+          ozonFbsScanComState.reader = null;
         }
-        break;
-      }
-    } finally {
-      ozonFbsScanComState.reading = false;
+      });
+    } catch (_e) {
+      /* older Chromium — ignore */
     }
   }
 
-  async function _ozonFbsScanComDisconnect() {
+  /** Close reader/port without clearing preferredCom (used before auto-reconnect). */
+  async function _ozonFbsScanComReleasePort() {
     if (ozonFbsScanComState.interByteTimer) {
       clearTimeout(ozonFbsScanComState.interByteTimer);
       ozonFbsScanComState.interByteTimer = null;
@@ -12868,18 +12860,106 @@
     }
     const port = ozonFbsScanComState.port;
     ozonFbsScanComState.port = null;
+    ozonFbsScanComState.disconnectBound = false;
     if (port) {
       try { await port.close(); } catch (_e) { /* ignore */ }
     }
   }
 
+  function _ozonFbsScanComShouldStayConnected() {
+    return (
+      !!ozonFbsScanComState.preferredCom &&
+      !ozonFbsScanComState.closing &&
+      _ozonFbsScanComModalOpen()
+    );
+  }
+
+  async function _ozonFbsScanComReadLoop() {
+    if (ozonFbsScanComState.reading) return;
+    ozonFbsScanComState.reading = true;
+    const decoder = new TextDecoder("latin1");
+    try {
+      while (_ozonFbsScanComShouldStayConnected()) {
+        let port = ozonFbsScanComState.port;
+        if (!port || !port.readable) {
+          if (!_ozonFbsScanComShouldStayConnected()) break;
+          _ozonFbsScanComSetStatus("COM: переподключение…", "error");
+          const ok = await _ozonFbsScanComConnect({
+            interactive: false,
+            quiet: true,
+            fromReconnect: true,
+          });
+          if (!ok) {
+            await _ozonFbsScanComSleep(OZON_FBS_COM_RECONNECT_MS);
+            continue;
+          }
+          port = ozonFbsScanComState.port;
+          if (!port || !port.readable) {
+            await _ozonFbsScanComSleep(OZON_FBS_COM_RECONNECT_MS);
+            continue;
+          }
+        }
+
+        const reader = port.readable.getReader();
+        ozonFbsScanComState.reader = reader;
+        let streamEnded = false;
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) {
+              streamEnded = true;
+              break;
+            }
+            if (value && value.length) {
+              _ozonFbsScanComOnChunk(decoder.decode(value, { stream: true }));
+            }
+          }
+        } catch (_e) {
+          streamEnded = true;
+        } finally {
+          try { reader.releaseLock(); } catch (_e2) { /* ignore */ }
+          if (ozonFbsScanComState.reader === reader) ozonFbsScanComState.reader = null;
+        }
+
+        if (!streamEnded || !_ozonFbsScanComShouldStayConnected()) {
+          break;
+        }
+        // Drop was unexpected: release and retry while COM mode stays on.
+        _ozonFbsScanComSetStatus("COM: связь потеряна — переподключение…", "error");
+        await _ozonFbsScanComReleasePort();
+        await _ozonFbsScanComSleep(OZON_FBS_COM_RECONNECT_MS);
+      }
+    } finally {
+      ozonFbsScanComState.reading = false;
+    }
+  }
+
+  async function _ozonFbsScanComDisconnect() {
+    ozonFbsScanComState.closing = true;
+    try {
+      await _ozonFbsScanComReleasePort();
+      // Let the read loop observe `closing` before we clear the flag.
+      let spins = 0;
+      while (ozonFbsScanComState.reading && spins < 40) {
+        await _ozonFbsScanComSleep(25);
+        spins += 1;
+      }
+    } finally {
+      ozonFbsScanComState.closing = false;
+    }
+  }
+
   async function _ozonFbsScanComConnect(opts) {
     const interactive = !!(opts && opts.interactive);
+    const quiet = !!(opts && opts.quiet);
+    const fromReconnect = !!(opts && opts.fromReconnect);
     if (!_ozonFbsScanComSupported()) {
-      _ozonFbsScanComSetStatus("COM недоступен в этом браузере", "error");
+      if (!quiet) _ozonFbsScanComSetStatus("COM недоступен в этом браузере", "error");
       return false;
     }
     if (ozonFbsScanComState.connectInFlight) return false;
+    // Do not clear/override an intentional close (modal close / toggle off).
+    if (ozonFbsScanComState.closing) return false;
     ozonFbsScanComState.connectInFlight = true;
     try {
       let port = ozonFbsScanComState.port;
@@ -12892,7 +12972,9 @@
         port = await navigator.serial.requestPort({ filters: [] });
       }
       if (!port) {
-        _ozonFbsScanComSetStatus("COM: выберите порт", "error");
+        if (!quiet && !fromReconnect) {
+          _ozonFbsScanComSetStatus("COM: выберите порт", "error");
+        }
         return false;
       }
       if (ozonFbsScanComState.port !== port) {
@@ -12901,6 +12983,7 @@
         } catch (e) {
           const msg = String(e && (e.message || e) || "");
           if (!/already\s+open/i.test(msg)) {
+            if (quiet || fromReconnect) return false;
             const busy =
               /Failed to open|NetworkError|InvalidStateError|Access denied|занят|in use/i.test(
                 msg + " " + String((e && e.name) || "")
@@ -12915,6 +12998,7 @@
           }
         }
         ozonFbsScanComState.port = port;
+        _ozonFbsScanComBindDisconnect(port);
       }
       _ozonFbsScanComSetStatus("COM подключён", "ok");
       if (!ozonFbsScanComState.reading) {
@@ -12922,6 +13006,7 @@
       }
       return true;
     } catch (e) {
+      if (quiet || fromReconnect) return false;
       if (e && e.name === "NotFoundError") {
         _ozonFbsScanComSetStatus(_ozonFbsScanComEmptyPortsHint(), "error");
       } else {

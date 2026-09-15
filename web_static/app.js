@@ -35554,6 +35554,8 @@ const WB_FBS_SCAN_MODE_KEY = "wb_fbs_scan_input_mode_v1";
 const WB_FBS_COM_BAUD = 9600;
 const WB_FBS_COM_INTER_BYTE_MS = 50;
 const WB_FBS_COM_DEDUP_MS = 500;
+/** USB-UART сканеры часто кратко рвут порт после кадра — переподключаемся сами. */
+const WB_FBS_COM_RECONNECT_MS = 600;
 
 const wbFbsScanComState = {
   preferredCom: false,
@@ -35565,7 +35567,14 @@ const wbFbsScanComState = {
   lastRaw: "",
   lastAt: 0,
   connectInFlight: false,
+  /** True while we intentionally close (toggle off / modal close) — skip error UX. */
+  closing: false,
+  disconnectBound: false,
 };
+
+function _wbFbsScanComSleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
+}
 
 function _wbFbsScanComSupported() {
   return typeof navigator !== "undefined" && !!(navigator.serial && navigator.serial.requestPort);
@@ -35728,40 +35737,23 @@ function _wbFbsScanComOnChunk(text) {
   }
 }
 
-async function _wbFbsScanComReadLoop() {
-  const port = wbFbsScanComState.port;
-  if (!port || !port.readable) return;
-  wbFbsScanComState.reading = true;
-  const decoder = new TextDecoder("latin1");
+function _wbFbsScanComBindDisconnect(port) {
+  if (!port || wbFbsScanComState.disconnectBound) return;
+  wbFbsScanComState.disconnectBound = true;
   try {
-    while (wbFbsScanComState.port && port.readable && wbFbsScanComState.preferredCom) {
-      const reader = port.readable.getReader();
-      wbFbsScanComState.reader = reader;
-      try {
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          if (value && value.length) {
-            _wbFbsScanComOnChunk(decoder.decode(value, { stream: true }));
-          }
-        }
-      } catch (e) {
-        if (wbFbsScanComState.preferredCom) {
-          _wbFbsScanComSetStatus("COM: связь потеряна", "error");
-        }
-        break;
-      } finally {
-        try { reader.releaseLock(); } catch (_e) { /* ignore */ }
-        if (wbFbsScanComState.reader === reader) wbFbsScanComState.reader = null;
+    port.addEventListener("disconnect", () => {
+      if (wbFbsScanComState.port === port) {
+        wbFbsScanComState.port = null;
+        wbFbsScanComState.reader = null;
       }
-      break;
-    }
-  } finally {
-    wbFbsScanComState.reading = false;
+    });
+  } catch (_e) {
+    /* older Chromium — ignore */
   }
 }
 
-async function _wbFbsScanComDisconnect() {
+/** Close reader/port without clearing preferredCom (used before auto-reconnect). */
+async function _wbFbsScanComReleasePort() {
   if (wbFbsScanComState.interByteTimer) {
     clearTimeout(wbFbsScanComState.interByteTimer);
     wbFbsScanComState.interByteTimer = null;
@@ -35775,18 +35767,105 @@ async function _wbFbsScanComDisconnect() {
   }
   const port = wbFbsScanComState.port;
   wbFbsScanComState.port = null;
+  wbFbsScanComState.disconnectBound = false;
   if (port) {
     try { await port.close(); } catch (_e) { /* ignore */ }
   }
 }
 
+function _wbFbsScanComShouldStayConnected() {
+  return (
+    !!wbFbsScanComState.preferredCom &&
+    !wbFbsScanComState.closing &&
+    _wbFbsScanComModalOpen()
+  );
+}
+
+async function _wbFbsScanComReadLoop() {
+  if (wbFbsScanComState.reading) return;
+  wbFbsScanComState.reading = true;
+  const decoder = new TextDecoder("latin1");
+  try {
+    while (_wbFbsScanComShouldStayConnected()) {
+      let port = wbFbsScanComState.port;
+      if (!port || !port.readable) {
+        if (!_wbFbsScanComShouldStayConnected()) break;
+        _wbFbsScanComSetStatus("COM: переподключение…", "error");
+        const ok = await _wbFbsScanComConnect({
+          interactive: false,
+          quiet: true,
+          fromReconnect: true,
+        });
+        if (!ok) {
+          await _wbFbsScanComSleep(WB_FBS_COM_RECONNECT_MS);
+          continue;
+        }
+        port = wbFbsScanComState.port;
+        if (!port || !port.readable) {
+          await _wbFbsScanComSleep(WB_FBS_COM_RECONNECT_MS);
+          continue;
+        }
+      }
+
+      const reader = port.readable.getReader();
+      wbFbsScanComState.reader = reader;
+      let streamEnded = false;
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) {
+            streamEnded = true;
+            break;
+          }
+          if (value && value.length) {
+            _wbFbsScanComOnChunk(decoder.decode(value, { stream: true }));
+          }
+        }
+      } catch (_e) {
+        streamEnded = true;
+      } finally {
+        try { reader.releaseLock(); } catch (_e2) { /* ignore */ }
+        if (wbFbsScanComState.reader === reader) wbFbsScanComState.reader = null;
+      }
+
+      if (!streamEnded || !_wbFbsScanComShouldStayConnected()) {
+        break;
+      }
+      // Drop was unexpected: release and retry while COM mode stays on.
+      _wbFbsScanComSetStatus("COM: связь потеряна — переподключение…", "error");
+      await _wbFbsScanComReleasePort();
+      await _wbFbsScanComSleep(WB_FBS_COM_RECONNECT_MS);
+    }
+  } finally {
+    wbFbsScanComState.reading = false;
+  }
+}
+
+async function _wbFbsScanComDisconnect() {
+  wbFbsScanComState.closing = true;
+  try {
+    await _wbFbsScanComReleasePort();
+    // Let the read loop observe `closing` before we clear the flag.
+    let spins = 0;
+    while (wbFbsScanComState.reading && spins < 40) {
+      await _wbFbsScanComSleep(25);
+      spins += 1;
+    }
+  } finally {
+    wbFbsScanComState.closing = false;
+  }
+}
+
 async function _wbFbsScanComConnect(opts) {
   const interactive = !!(opts && opts.interactive);
+  const quiet = !!(opts && opts.quiet);
+  const fromReconnect = !!(opts && opts.fromReconnect);
   if (!_wbFbsScanComSupported()) {
-    _wbFbsScanComSetStatus("COM недоступен в этом браузере", "error");
+    if (!quiet) _wbFbsScanComSetStatus("COM недоступен в этом браузере", "error");
     return false;
   }
   if (wbFbsScanComState.connectInFlight) return false;
+  if (wbFbsScanComState.closing) return false;
   wbFbsScanComState.connectInFlight = true;
   try {
     let port = wbFbsScanComState.port;
@@ -35799,7 +35878,9 @@ async function _wbFbsScanComConnect(opts) {
       port = await navigator.serial.requestPort({ filters: [] });
     }
     if (!port) {
-      _wbFbsScanComSetStatus("COM: выберите порт", "error");
+      if (!quiet && !fromReconnect) {
+        _wbFbsScanComSetStatus("COM: выберите порт", "error");
+      }
       return false;
     }
     if (wbFbsScanComState.port !== port) {
@@ -35809,6 +35890,7 @@ async function _wbFbsScanComConnect(opts) {
         // Already open in this page session?
         const msg = String(e && (e.message || e) || "");
         if (!/already\s+open/i.test(msg)) {
+          if (quiet || fromReconnect) return false;
           const busy =
             /Failed to open|NetworkError|InvalidStateError|Access denied|занят|in use/i.test(
               msg + " " + String((e && e.name) || "")
@@ -35823,6 +35905,7 @@ async function _wbFbsScanComConnect(opts) {
         }
       }
       wbFbsScanComState.port = port;
+      _wbFbsScanComBindDisconnect(port);
     }
     _wbFbsScanComSetStatus("COM подключён", "ok");
     if (!wbFbsScanComState.reading) {
@@ -35830,6 +35913,7 @@ async function _wbFbsScanComConnect(opts) {
     }
     return true;
   } catch (e) {
+    if (quiet || fromReconnect) return false;
     if (e && e.name === "NotFoundError") {
       // Пустой диалог Яндекса / отмена без выбора → одна и та же ошибка.
       _wbFbsScanComSetStatus(_wbFbsScanComEmptyPortsHint(), "error");
