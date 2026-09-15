@@ -40,7 +40,7 @@ def test_logistics_title_picker_and_panes() -> None:
     assert "function initLogisticsSection" in js
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
-    assert "app.js?v=642" in html
+    assert "app.js?v=643" in html
     assert "style.css?v=373" in html
     assert "ttn-modal-card" in html
     assert "ttn-form-grid" in html
@@ -412,6 +412,16 @@ def test_tn_rename_and_pp2200_fields_additive() -> None:
     assert "function toggleTtnOptionalFields" in js
     assert "function _ttnCustomerPartyOptions" in js
     assert "customer_party_type" in js and "customer_party_id" in js
+    # 1а customer picker: legal entities only (no contractors).
+    cust_fn = js.split("function _ttnCustomerPartyOptions", 1)[1].split("\nfunction ", 1)[0]
+    assert "_supplyLegalEntitiesCache" in cust_fn
+    assert "_supplyContractorsCache" not in cust_fn
+    assert "Контрагент ·" not in cust_fn
+    assert 'label: "— Не указан (как грузоотправитель) —"' in cust_fn
+    ref_fn = js.split("function _ttnCustomerRefFromRecord", 1)[1].split("\nfunction ", 1)[0]
+    assert 'partyType === "le"' in ref_fn
+    assert 'partyType === "contractor"' not in ref_fn
+    assert "_supplyContractorsCache" not in ref_fn
     # Vehicle type/capacity comes from driver vehicle card — readonly in TN modal.
     vt = html.split('id="ttnCreateVehicleType"', 1)[1].split(">", 1)[0]
     assert "readonly" in vt

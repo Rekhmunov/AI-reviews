@@ -19636,9 +19636,14 @@ function _ttnPartyOptions() {
 }
 
 function _ttnCustomerPartyOptions() {
-  const opts = _ttnPartyOptions().slice();
-  if (opts.length) {
-    opts[0] = { value: "", label: "— Не указан (как грузоотправитель) —" };
+  // Section 1а: only legal entities (no contractors).
+  const opts = [{ value: "", label: "— Не указан (как грузоотправитель) —" }];
+  const les = Array.isArray(_supplyLegalEntitiesCache) ? _supplyLegalEntitiesCache.slice() : [];
+  les.sort((a, b) => String(a.short_name || "").localeCompare(String(b.short_name || ""), "ru"));
+  for (const e of les) {
+    const name = String(e.short_name || e.full_name || "").trim();
+    if (!name) continue;
+    opts.push({ value: `le:${e.id}`, label: `Юр. лицо · ${name}` });
   }
   return opts;
 }
@@ -19709,10 +19714,11 @@ function _ttnCustomerRefFromRecord(record) {
   if (!record) return "";
   const partyType = String(record.customer_party_type || "").trim();
   const partyId = Number(record.customer_party_id || 0);
-  if (partyId > 0 && (partyType === "le" || partyType === "contractor")) {
-    return partyType === "contractor" ? `c:${partyId}` : `le:${partyId}`;
+  // Customer picker is LE-only; skip legacy counterparty party_type.
+  if (partyId > 0 && partyType === "le") {
+    return `le:${partyId}`;
   }
-  // Legacy free-text customer_services: try match by party name.
+  // Legacy free-text customer_services: try match by legal entity name.
   const saved = String(record.customer_services || "").trim().toLowerCase();
   if (!saved) return "";
   for (const e of _supplyLegalEntitiesCache || []) {
@@ -19720,13 +19726,6 @@ function _ttnCustomerRefFromRecord(record) {
     const full = String(e.full_name || "").trim().toLowerCase();
     if ((short && saved.includes(short)) || (full && saved.includes(full))) {
       return `le:${e.id}`;
-    }
-  }
-  for (const c of _supplyContractorsCache || []) {
-    const name = String(c.name || "").trim().toLowerCase();
-    const full = String(c.full_name || "").trim().toLowerCase();
-    if ((name && saved.includes(name)) || (full && saved.includes(full))) {
-      return `c:${c.id}`;
     }
   }
   return "";
