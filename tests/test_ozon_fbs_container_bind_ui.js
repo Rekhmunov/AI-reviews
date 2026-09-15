@@ -454,6 +454,44 @@ async function run() {
     );
   }
 
+  // With filled/empty filter on, bind must full-render (GM changes completeness)
+  {
+    const domFilt = makeDom({ kizPosting: "P-FILT" });
+    // Simulate active "empty" filter checkbox
+    domFilt.nodes.set("ozonFbsKizFilterEmpty", {
+      id: "ozonFbsKizFilterEmpty",
+      checked: true,
+    });
+    const winFilt = loadBindModule(domFilt);
+    const cid = 202174459906000;
+    winFilt.ozonFbsContainerBindState.hasContainers = true;
+    winFilt.ozonFbsContainerBindState.activeId = cid;
+    winFilt.ozonFbsContainerBindState.activeBarcode = String(cid);
+    winFilt.ozonFbsContainerBindState.byId.set(String(cid), {
+      container_id: cid,
+      can_fill: true,
+      available_actions: ["fill"],
+    });
+    winFilt.ozonFbsKizState.rows = [{
+      posting_number: "P-FILT",
+      sticker_barcode: "ST-FILT",
+      kiz_codes: ["01filt"],
+      kiz_status: "ok",
+      container_id: null,
+      container_barcode: "",
+    }];
+    winFilt.__bindCounters.kizRender = 0;
+    await winFilt._ozonFbsContainerMaybeBind("kiz", "P-FILT");
+    assert(
+      winFilt.ozonFbsKizState.rows[0].container_id === cid,
+      "filter path still binds container"
+    );
+    assert(
+      winFilt.__bindCounters.kizRender >= 1,
+      "empty filter active → full KIZ re-render required"
+    );
+  }
+
   console.log("test_ozon_fbs_container_bind_ui.js: all checks passed");
 }
 

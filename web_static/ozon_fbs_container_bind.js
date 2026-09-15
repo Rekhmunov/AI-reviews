@@ -105,15 +105,20 @@
     }
     if (touched > 0) {
       updateContainerCounters();
-      // Prefer cell patches; one full rebuild only if any row is missing from DOM.
-      let allPatched = true;
-      for (const pn of touchedPns) {
-        if (!patchContainerCell(mode, pn)) {
-          allPatched = false;
-          break;
+      // Prefer cell patches; full rebuild if filter needs show/hide or DOM row missing.
+      if (completenessFilterActive(mode)) {
+        rerenderMode(mode);
+      } else {
+        let allPatched = true;
+        for (const pn of touchedPns) {
+          if (!patchContainerCell(mode, pn)) {
+            allPatched = false;
+            break;
+          }
         }
+        if (!allPatched) rerenderMode(mode);
+        else refreshFilterCounts(mode);
       }
-      if (!allPatched) rerenderMode(mode);
     }
     if (Array.isArray(changes) && changes.length > 0) {
       const setInfo = mode === "kiz" ? window._ozonFbsKizSetInfo : window._ozonFbsPickSetInfo;
@@ -259,10 +264,46 @@
     return true;
   }
 
-  /** Prefer single-cell patch; fall back to full table only when DOM row is missing. */
+  /** Filled/empty filters treat GM as part of "complete" — need a full rebuild to show/hide rows. */
+  function completenessFilterActive(mode) {
+    if (mode === "pick") {
+      return !!(
+        document.getElementById("ozonFbsPickFilterFilled")?.checked
+        || document.getElementById("ozonFbsPickFilterEmpty")?.checked
+      );
+    }
+    return !!(
+      document.getElementById("ozonFbsKizFilterFilled")?.checked
+      || document.getElementById("ozonFbsKizFilterEmpty")?.checked
+    );
+  }
+
+  function refreshFilterCounts(mode) {
+    if (mode === "pick") {
+      if (typeof window._ozonFbsPickUpdateFilterCounts === "function") {
+        window._ozonFbsPickUpdateFilterCounts();
+      }
+      return;
+    }
+    if (typeof window._ozonFbsKizUpdateFilterCounts === "function") {
+      window._ozonFbsKizUpdateFilterCounts();
+    }
+  }
+
+  /**
+   * Prefer single-cell patch for scan speed.
+   * Full table when: DOM row missing, OR filled/empty filter is on (GM changes completeness).
+   */
   function refreshContainerRow(mode, postingNumber) {
     updateContainerCounters();
-    if (postingNumber && patchContainerCell(mode, postingNumber)) return true;
+    if (completenessFilterActive(mode)) {
+      rerenderMode(mode);
+      return false;
+    }
+    if (postingNumber && patchContainerCell(mode, postingNumber)) {
+      refreshFilterCounts(mode);
+      return true;
+    }
     rerenderMode(mode);
     return false;
   }
@@ -1090,7 +1131,13 @@
       }
       updateContainerCounters();
       if (!options.skipRerender) {
-        if (!patchContainerCell(mode, postingNumber)) rerenderMode(mode);
+        if (completenessFilterActive(mode)) {
+          rerenderMode(mode);
+        } else if (!patchContainerCell(mode, postingNumber)) {
+          rerenderMode(mode);
+        } else {
+          refreshFilterCounts(mode);
+        }
       }
       return true;
     } finally {

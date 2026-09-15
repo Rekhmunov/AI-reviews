@@ -13242,6 +13242,7 @@
   window.removeOzonFbsKizCode = removeOzonFbsKizCode;
   window.onOzonFbsKizFilterFilledChange = onOzonFbsKizFilterFilledChange;
   window.onOzonFbsKizFilterEmptyChange = onOzonFbsKizFilterEmptyChange;
+  window._ozonFbsKizUpdateFilterCounts = _ozonFbsKizUpdateFilterCounts;
   window.processOzonFbsKizStickerScan = processOzonFbsKizStickerScan;
   window.processOzonFbsKizMarkScan = processOzonFbsKizMarkScan;
   window.onOzonFbsKizStickerScanKey = onOzonFbsKizStickerScanKey;
@@ -13269,6 +13270,7 @@
   window.renderOzonFbsPickVerifyTable = renderOzonFbsPickVerifyTable;
   window.onOzonFbsPickFilterFilledChange = onOzonFbsPickFilterFilledChange;
   window.onOzonFbsPickFilterEmptyChange = onOzonFbsPickFilterEmptyChange;
+  window._ozonFbsPickUpdateFilterCounts = _ozonFbsPickUpdateFilterCounts;
   window.processOzonFbsPickStickerScan = processOzonFbsPickStickerScan;
   window.processOzonFbsPickSkuScan = processOzonFbsPickSkuScan;
   window.onOzonFbsPickStickerScanKey = onOzonFbsPickStickerScanKey;
