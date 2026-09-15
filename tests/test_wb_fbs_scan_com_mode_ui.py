@@ -108,7 +108,7 @@ def test_com_auto_reconnect_on_link_loss() -> None:
 
 
 def test_cache_bump() -> None:
-    assert "style.css?v=369" in APP_HTML
+    assert "style.css?v=370" in APP_HTML
     assert "app.js?v=635" in APP_HTML
 
 
