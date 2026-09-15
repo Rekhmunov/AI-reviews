@@ -9616,7 +9616,11 @@
       if (!row || !Number.isFinite(idx)) return;
       if (!Array.isArray(row.kiz_codes)) row.kiz_codes = [];
       const prev = _ozonFbsNormalizeMark(row.kiz_codes[idx]);
-      const next = _ozonFbsNormalizeMark(input.value);
+      const committed = _ozonFbsNormalizeMark(input.dataset.committedMark || "");
+      let next = _ozonFbsNormalizeMark(input.value);
+      // Illegal replace in progress (wedge typed over filled slot): keep committed
+      // in row/index until blur/Enter rejects — do not poison markIndex or Save.
+      if (committed && next && committed !== next) next = committed;
       row.kiz_codes[idx] = next;
       if (prev && prev !== next) _ozonFbsKizIndexClearMark(prev);
       if (next) _ozonFbsKizIndexSetMark(next, pn);
@@ -10121,6 +10125,9 @@
     input.value = prev;
     _ozonFbsKizSyncCommittedMark(input, prev);
     if (Array.isArray(row.kiz_codes)) row.kiz_codes[idx] = prev;
+    // CollectFromDom may have briefly indexed `next` before reject — restore.
+    if (next) _ozonFbsKizIndexClearMark(next);
+    if (prev) _ozonFbsKizIndexSetMark(prev, pn);
     _ozonFbsKizSetInfo(
       `У отправления ${pn} уже есть КИЗ. Чтобы заменить — сначала очистите текущий.`
     );
@@ -10518,6 +10525,19 @@
       if (input) input.select();
       return;
     }
+    // Cancelled stay visible in the modal, but must not accept new KIZ via scan
+    // (readonly cell / × disabled; import already skips cancelled).
+    if (_ozonFbsRowIsCancelled(found.row)) {
+      const pnCancelled = String(found.row.posting_number || "").trim();
+      _ozonFbsKizSetInfo(
+        `Отправление ${pnCancelled || rawTyped} отменено — КИЗ менять нельзя`
+      );
+      if (input) {
+        input.value = "";
+        input.select?.();
+      }
+      return;
+    }
     ozonFbsKizState.pendingPosting = String(found.row.posting_number || "");
     void _ozonFbsPersistStickerForRow(found.row, rawTyped);
     _ozonFbsKizSetInfo("");
@@ -10575,6 +10595,11 @@
     _ozonFbsKizSyncActiveCodeInput();
     const row = _ozonFbsKizRowByPosting(pn);
     if (!row) {
+      cancelOzonFbsKizMarkScan();
+      return;
+    }
+    if (_ozonFbsRowIsCancelled(row)) {
+      _ozonFbsKizSetInfo(`Отправление ${pn} отменено — КИЗ менять нельзя`);
       cancelOzonFbsKizMarkScan();
       return;
     }

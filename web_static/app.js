@@ -34699,7 +34699,11 @@ function _wbFbsKizCollectFromDom() {
     const row = byId[oid];
     if (!row || !Number.isFinite(idx)) return;
     if (!Array.isArray(row.kiz_codes)) row.kiz_codes = [];
-    row.kiz_codes[idx] = _wbFbsKizNormalizeMark(input.value);
+    const committed = _wbFbsKizNormalizeMark(input.dataset.committedMark || "");
+    let next = _wbFbsKizNormalizeMark(input.value);
+    // Illegal replace in progress: keep committed until blur/Enter rejects.
+    if (committed && next && committed !== next) next = committed;
+    row.kiz_codes[idx] = next;
   });
 }
 

@@ -54,5 +54,23 @@ def test_filled_slot_reject_replace_guard() -> None:
     assert '_ozonFbsKizSyncCommittedMark(input, "")' in on_input
 
 
+def test_cancelled_blocked_on_live_scan() -> None:
+    sticker = _fn("processOzonFbsKizStickerScan")
+    assert "_ozonFbsRowIsCancelled(found.row)" in sticker
+    assert "КИЗ менять нельзя" in sticker
+    mark = _fn("processOzonFbsKizMarkScan")
+    assert "_ozonFbsRowIsCancelled(row)" in mark
+    assert "КИЗ менять нельзя" in mark
+
+
+def test_collect_keeps_committed_during_illegal_replace() -> None:
+    body = _fn("_ozonFbsKizCollectFromDom")
+    assert "dataset.committedMark" in body
+    assert "next = committed" in body
+    reject = _fn("_ozonFbsKizRejectReplaceFilledSlot")
+    assert "_ozonFbsKizIndexClearMark(next)" in reject
+    assert "_ozonFbsKizIndexSetMark(prev, pn)" in reject
+
+
 def test_cache_bump() -> None:
-    assert "ozon_fbs.js?v=166" in HTML
+    assert "ozon_fbs.js?v=167" in HTML

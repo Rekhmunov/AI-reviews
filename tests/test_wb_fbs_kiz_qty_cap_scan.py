@@ -55,5 +55,11 @@ def test_filled_slot_reject_replace_guard() -> None:
     assert '_wbFbsKizSyncCommittedMark(input, "")' in on_input
 
 
+def test_collect_keeps_committed_during_illegal_replace() -> None:
+    body = _fn("_wbFbsKizCollectFromDom")
+    assert "dataset.committedMark" in body
+    assert "next = committed" in body
+
+
 def test_cache_bump() -> None:
-    assert "app.js?v=636" in HTML
+    assert "app.js?v=637" in HTML
