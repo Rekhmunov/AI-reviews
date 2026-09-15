@@ -35746,6 +35746,33 @@ function _wbFbsScanComPromptOpen(id) {
   return !!(el && !el.classList.contains("hidden"));
 }
 
+/**
+ * COM → focused row КИЗ input (Товары с КИЗ).
+ * If the operator clicked a row КИЗ field, put the scan there instead of the top sticker bar.
+ */
+function _wbFbsComTryFillFocusedKizCodeInput(value) {
+  const el = document.activeElement;
+  if (!el || el.disabled || el.readOnly) return false;
+  if (!el.classList?.contains("wb-fbs-kiz-code-input")) return false;
+  if (typeof _wbFbsKizModalIsOpen !== "function" || !_wbFbsKizModalIsOpen()) return false;
+  if (!el.closest?.("#wbFbsKizModal")) return false;
+  el.value = value;
+  const oid = Number(el.dataset.orderId || el.getAttribute("data-order-id"));
+  if (Number.isFinite(oid) && oid > 0) {
+    onWbFbsKizCodeInput(oid, { target: el });
+    _wbFbsKizScheduleLocalAutosave(oid);
+  } else {
+    try {
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    } catch (_e) { /* ignore */ }
+  }
+  try {
+    el.focus();
+    el.select?.();
+  } catch (_e) { /* ignore */ }
+  return true;
+}
+
 function deliverWbFbsComScan(raw) {
   const value = String(raw || "").replace(/[\r\n]+$/g, "");
   if (!value.replace(/\s+/g, "")) return false;
@@ -35762,6 +35789,8 @@ function deliverWbFbsComScan(raw) {
     return !!processWbFbsKizMarkScan(value, input);
   }
   if (typeof _wbFbsKizModalIsOpen === "function" && _wbFbsKizModalIsOpen()) {
+    // Focused row КИЗ → fill that cell; otherwise top sticker scan as before.
+    if (_wbFbsComTryFillFocusedKizCodeInput(value)) return true;
     const input = document.getElementById("wbFbsKizStickerScan");
     if (input) input.value = value;
     return !!processWbFbsKizStickerScan(value, input);

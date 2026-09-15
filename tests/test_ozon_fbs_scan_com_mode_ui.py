@@ -109,6 +109,27 @@ def test_com_module_optional_and_feeds_process_helpers() -> None:
     assert "wb_fbs_scan_input_mode_v1" not in OZON_JS
 
 
+def test_com_fills_focused_row_fields_before_sticker_bar() -> None:
+    """COM: focused row КИЗ/ШК/грузоместо → that cell; otherwise top sticker scan."""
+    assert "function _ozonFbsComTryFillFocusedRowInput" in OZON_JS
+    helper = _extract_fn(OZON_JS, "function _ozonFbsComTryFillFocusedRowInput")
+    assert 'contains("wb-fbs-kiz-code-input")' in helper
+    assert 'contains("ozon-fbs-pick-barcode-input")' in helper
+    assert 'contains("ozon-fbs-container-input")' in helper
+    assert "onOzonFbsContainerCellBlur" in helper
+    assert "_ozonFbsPickCommitBarcode" in helper
+    deliver = _extract_fn(OZON_JS, "function deliverOzonFbsComScan")
+    assert "_ozonFbsComTryFillFocusedRowInput(value)" in deliver
+    # Row fill is attempted inside both KIZ and Pick modal branches, before sticker fields.
+    assert deliver.find("_ozonFbsComTryFillFocusedRowInput") < deliver.find("ozonFbsKizStickerScan")
+    assert "ozonFbsPickStickerScan" in deliver
+    pick_idx = deliver.find("_ozonFbsPickModalIsOpen()")
+    assert pick_idx > 0
+    pick_branch = deliver[pick_idx:]
+    assert "_ozonFbsComTryFillFocusedRowInput(value)" in pick_branch
+    assert pick_branch.find("_ozonFbsComTryFillFocusedRowInput") < pick_branch.find("ozonFbsPickStickerScan")
+
+
 def test_scan_mode_toggle_css_reused() -> None:
     assert ".wb-fbs-scan-mode-toggle" in STYLE
     assert ".ozon-fbs-scan-bar-compact .wb-fbs-scan-mode-toggle" in STYLE
@@ -137,5 +158,5 @@ def test_packaging_exemplar_com_and_keyboard_scan_wired() -> None:
     assert "onkeydown=\"onOzonFbsPackagingExemplarKizKey(event" in OZON_JS
 
 def test_cache_bump() -> None:
-    assert "ozon_fbs.js?v=161" in APP_HTML
+    assert "ozon_fbs.js?v=162" in APP_HTML
     assert "style.css?v=367" in APP_HTML

@@ -79,6 +79,19 @@ def test_com_module_optional_and_feeds_process_helpers() -> None:
     assert "requestPort({ filters: [] })" in APP_JS
 
 
+def test_com_fills_focused_kiz_row_input_before_sticker_bar() -> None:
+    """COM: focused row КИЗ → that cell; otherwise top sticker scan."""
+    assert "function _wbFbsComTryFillFocusedKizCodeInput" in APP_JS
+    assert 'contains("wb-fbs-kiz-code-input")' in APP_JS
+    assert "_wbFbsComTryFillFocusedKizCodeInput(value)" in APP_JS
+    deliver = APP_JS.split("function deliverWbFbsComScan", 1)[1].split("\nfunction ", 1)[0]
+    kiz_branch = deliver.split("_wbFbsKizModalIsOpen()")[1].split("_wbFbsScanComPromptOpen")[0]
+    assert "_wbFbsComTryFillFocusedKizCodeInput(value)" in kiz_branch
+    assert "wbFbsKizStickerScan" in kiz_branch
+    # Focused fill must run before writing into the top sticker field.
+    assert kiz_branch.find("_wbFbsComTryFillFocusedKizCodeInput") < kiz_branch.find("wbFbsKizStickerScan")
+
+
 def test_scan_mode_toggle_css() -> None:
     assert ".wb-fbs-scan-mode-toggle" in STYLE
     assert '.wb-fbs-scan-mode-toggle[aria-checked="true"]' in STYLE
@@ -96,7 +109,7 @@ def test_com_auto_reconnect_on_link_loss() -> None:
 
 def test_cache_bump() -> None:
     assert "style.css?v=367" in APP_HTML
-    assert "app.js?v=632" in APP_HTML
+    assert "app.js?v=633" in APP_HTML
 
 
 def test_permissions_policy_allows_serial() -> None:

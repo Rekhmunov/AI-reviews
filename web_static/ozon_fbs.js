@@ -12834,6 +12834,72 @@
     return !!(el && !el.classList.contains("hidden"));
   }
 
+  /**
+   * COM → focused row field in KIZ / Pick tables.
+   * KIZ modal: КИЗ + грузоместо. Pick modal: ШК + грузоместо.
+   * Returns true when the scan was applied to the focused cell.
+   */
+  function _ozonFbsComTryFillFocusedRowInput(value) {
+    const el = document.activeElement;
+    if (!el || el.disabled || el.readOnly) return false;
+
+    // Товары с КИЗ — поле КИЗ в строке заказа.
+    if (
+      el.classList?.contains("wb-fbs-kiz-code-input")
+      && typeof _ozonFbsKizModalIsOpen === "function"
+      && _ozonFbsKizModalIsOpen()
+      && el.closest?.("#ozonFbsKizModal")
+    ) {
+      el.value = value;
+      const pn = String(el.dataset.posting || el.getAttribute("data-posting") || "").trim();
+      if (pn) {
+        onOzonFbsKizCodeInput(pn, { target: el });
+        _ozonFbsKizScheduleLocalAutosave(pn, false);
+      } else {
+        try { el.dispatchEvent(new Event("input", { bubbles: true })); } catch (_e) { /* ignore */ }
+      }
+      try { el.focus(); el.select?.(); } catch (_e) { /* ignore */ }
+      return true;
+    }
+
+    // Товары без КИЗ — поле ШК в строке заказа.
+    if (
+      el.classList?.contains("ozon-fbs-pick-barcode-input")
+      && typeof _ozonFbsPickModalIsOpen === "function"
+      && _ozonFbsPickModalIsOpen()
+      && el.closest?.("#ozonFbsPickVerifyModal")
+    ) {
+      el.value = value;
+      const pn = String(el.dataset.posting || el.getAttribute("data-posting") || "").trim();
+      if (pn) {
+        // Same as Enter in the cell: validate + local autosave.
+        _ozonFbsPickCommitBarcode(pn, value);
+      } else {
+        try { el.dispatchEvent(new Event("input", { bubbles: true })); } catch (_e) { /* ignore */ }
+      }
+      return true;
+    }
+
+    // Грузоместо (КИЗ и Pick) — commit via existing blur/Enter path.
+    if (el.classList?.contains("ozon-fbs-container-input")) {
+      const pn = String(el.dataset.posting || el.getAttribute("data-posting") || "").trim();
+      const mode = String(el.dataset.mode || el.getAttribute("data-mode") || "").trim();
+      if (!pn || (mode !== "kiz" && mode !== "pick")) return false;
+      if (mode === "kiz") {
+        if (typeof _ozonFbsKizModalIsOpen !== "function" || !_ozonFbsKizModalIsOpen()) return false;
+      } else if (typeof _ozonFbsPickModalIsOpen !== "function" || !_ozonFbsPickModalIsOpen()) {
+        return false;
+      }
+      el.value = value;
+      if (typeof window.onOzonFbsContainerCellBlur === "function") {
+        void window.onOzonFbsContainerCellBlur({ target: el }, pn, mode);
+      }
+      return true;
+    }
+
+    return false;
+  }
+
   function deliverOzonFbsComScan(raw) {
     const value = String(raw || "").replace(/[\r\n]+$/g, "");
     if (!value.replace(/\s+/g, "")) return false;
@@ -12856,6 +12922,8 @@
       return !!processOzonFbsKizMarkScan(value, input);
     }
     if (typeof _ozonFbsKizModalIsOpen === "function" && _ozonFbsKizModalIsOpen()) {
+      // Focused row КИЗ / грузоместо → that cell; otherwise top sticker scan.
+      if (_ozonFbsComTryFillFocusedRowInput(value)) return true;
       const input = document.getElementById("ozonFbsKizStickerScan");
       if (input) input.value = value;
       void processOzonFbsKizStickerScan(value, input);
@@ -12867,6 +12935,8 @@
       return !!processOzonFbsPickSkuScan(value, input);
     }
     if (typeof _ozonFbsPickModalIsOpen === "function" && _ozonFbsPickModalIsOpen()) {
+      // Focused row ШК / грузоместо → that cell; otherwise top sticker scan.
+      if (_ozonFbsComTryFillFocusedRowInput(value)) return true;
       const input = document.getElementById("ozonFbsPickStickerScan");
       if (input) input.value = value;
       void processOzonFbsPickStickerScan(value, input);
