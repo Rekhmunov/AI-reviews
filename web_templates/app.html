@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=371" />
+  <link rel="stylesheet" href="/static/style.css?v=372" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -4501,11 +4501,29 @@
               </div>
               <div class="ttn-field">
                 <label class="small" for="ttnCreatePacking">Вид тары / упаковки</label>
-                <select id="ttnCreatePacking" class="ttn-input">
-                  <option value="">— Выберите —</option>
-                  <option value="Короба">Короба</option>
-                  <option value="Паллеты">Паллеты</option>
-                </select>
+                <div class="ttn-field-with-action">
+                  <div class="ttn-packing-select-wrap">
+                    <select id="ttnCreatePacking" class="ttn-input"
+                            onchange="onTtnPackingSelectChange()">
+                      <option value="">— Выберите —</option>
+                      <option value="Короба">Короба</option>
+                      <option value="Паллеты">Паллеты</option>
+                      <option value="Рулоны">Рулоны</option>
+                    </select>
+                  </div>
+                  <button type="button" class="secondary small-btn ttn-manual-btn" id="ttnManualPackingBtn"
+                          onclick="toggleTtnManualPacking()"
+                          title="Ввести вручную">✏</button>
+                </div>
+                <div id="ttnManualPackingFields" class="ttn-manual-fields" style="display:none">
+                  <div class="ttn-manual-row">
+                    <input id="ttnCreatePackingManual" class="ttn-input" type="text"
+                           placeholder="Вид тары / упаковки" autocomplete="off" />
+                    <button type="button" class="secondary small-btn ttn-manual-clear-btn"
+                            onclick="clearTtnManualPacking()" title="Убрать ручной ввод">✕</button>
+                  </div>
+                  <p class="small ttn-hint">Значение сохранится только в этой ТН, шаблон не меняется</p>
+                </div>
               </div>
               <div class="ttn-field ttn-field-span-2 hidden" id="ttnFbsSupplyField">
                 <label class="small" for="ttnCreateFbsSupplyInput">Поставка FBS (места и вес)</label>
@@ -7660,6 +7678,6 @@
 
   <script src="/static/ozon_fbs.js?v=170"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=29"></script>
-  <script src="/static/app.js?v=640"></script>
+  <script src="/static/app.js?v=641"></script>
 </body>
 </html>

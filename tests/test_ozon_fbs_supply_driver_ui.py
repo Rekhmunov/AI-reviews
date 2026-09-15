@@ -85,4 +85,4 @@ def test_driver_api_routes_exist() -> None:
 def test_cache_bump_for_driver_modal() -> None:
     html = HTML.read_text(encoding="utf-8")
     assert "ozon_fbs.js?v=170" in html
-    assert "style.css?v=371" in html
+    assert "style.css?v=372" in html

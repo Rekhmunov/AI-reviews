@@ -7372,6 +7372,12 @@ body.sst-col-resizing * {
   width: 100%;
 }
 
+#createTtnModal .ttn-packing-select-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+}
+
 .ttn-ss-field.ss-wrap,
 #createTtnModal .ss-wrap,
 #createTtnModal .ttn-ss-field {

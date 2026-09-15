@@ -54,7 +54,7 @@ def test_ozon_scan_error_ack_call_sites() -> None:
 
 def test_cache_bumps() -> None:
     html = HTML.read_text(encoding="utf-8")
-    assert "app.js?v=640" in html
+    assert "app.js?v=641" in html
     assert "ozon_fbs.js?v=170" in html
 
 

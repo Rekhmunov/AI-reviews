@@ -19245,19 +19245,18 @@ let _ttnManualDriverMode = false;
 let _ttnManualVehicleMode = false;
 let _ttnManualLoadMode = false;
 let _ttnManualUnloadMode = false;
+let _ttnManualPackingMode = false;
 let _ttnModalMode = "create";
 let _ttnEditingId = null;
 let _ttnLoadAddressByValue = {};
 let _ttnUnloadAddressByValue = {};
 const TTN_DEFAULT_CARGO = "Текстиль (постельное белье/наматрасники)";
 const TTN_DEFAULT_DOCS = "УПД/ТОРГ-12/Электронная накладная";
-const TTN_PACKING_OPTIONS = ["Короба", "Паллеты"];
+const TTN_PACKING_OPTIONS = ["Короба", "Паллеты", "Рулоны"];
 
-function _ttnSetPackingValue(val) {
+function _ttnRebuildPackingSelect() {
   const el = document.getElementById("ttnCreatePacking");
   if (!el) return;
-  const allowed = new Set(TTN_PACKING_OPTIONS);
-  // Keep fixed options; drop any leftover legacy custom option.
   el.innerHTML = "";
   const empty = document.createElement("option");
   empty.value = "";
@@ -19269,25 +19268,90 @@ function _ttnSetPackingValue(val) {
     opt.textContent = label;
     el.appendChild(opt);
   }
+}
+
+function _ttnSetPackingManualUi(active, prefill) {
+  _ttnManualPackingMode = !!active;
+  const fields = document.getElementById("ttnManualPackingFields");
+  const wrap = document.getElementById("ttnCreatePacking")?.closest(".ttn-packing-select-wrap")
+    || document.getElementById("ttnCreatePacking");
+  const select = document.getElementById("ttnCreatePacking");
+  const manual = document.getElementById("ttnCreatePackingManual");
+  _ttnSetManualBtn("ttnManualPackingBtn", _ttnManualPackingMode);
+  if (_ttnManualPackingMode) {
+    if (fields) fields.style.display = "block";
+    if (wrap) wrap.style.opacity = "0.55";
+    if (select) select.value = "";
+    if (manual && prefill != null) manual.value = String(prefill || "");
+  } else {
+    if (fields) fields.style.display = "none";
+    if (wrap) wrap.style.opacity = "";
+    if (manual && prefill == null) manual.value = "";
+  }
+}
+
+function _ttnSetPackingValue(val) {
+  const el = document.getElementById("ttnCreatePacking");
+  if (!el) return;
+  _ttnRebuildPackingSelect();
   const raw = String(val || "").trim();
   if (!raw) {
+    _ttnSetPackingManualUi(false);
     el.value = "";
     return;
   }
   const match = TTN_PACKING_OPTIONS.find((x) => x.toLowerCase() === raw.toLowerCase());
   if (match) {
+    _ttnSetPackingManualUi(false);
     el.value = match;
     return;
   }
-  // Preserve older free-text values so edit/save does not silently drop them.
-  if (!allowed.has(raw)) {
-    const custom = document.createElement("option");
-    custom.value = raw;
-    custom.textContent = raw;
-    el.appendChild(custom);
-  }
-  el.value = raw;
+  // Custom value for this TTN only — not a template change.
+  _ttnSetPackingManualUi(true, raw);
 }
+
+function _ttnPackingTypeValue() {
+  if (_ttnManualPackingMode) {
+    return String(document.getElementById("ttnCreatePackingManual")?.value || "").trim();
+  }
+  return String(document.getElementById("ttnCreatePacking")?.value || "").trim();
+}
+
+function toggleTtnManualPacking() {
+  const next = !_ttnManualPackingMode;
+  if (next) {
+    const fromSelect = String(document.getElementById("ttnCreatePacking")?.value || "").trim();
+    _ttnSetPackingManualUi(true, fromSelect);
+    const manual = document.getElementById("ttnCreatePackingManual");
+    if (manual) {
+      try { manual.focus(); } catch (_e) { /* ignore */ }
+    }
+  } else {
+    const fromManual = String(document.getElementById("ttnCreatePackingManual")?.value || "").trim();
+    _ttnSetPackingManualUi(false);
+    _ttnRebuildPackingSelect();
+    const el = document.getElementById("ttnCreatePacking");
+    if (!el) return;
+    const match = TTN_PACKING_OPTIONS.find((x) => x.toLowerCase() === fromManual.toLowerCase());
+    el.value = match || "";
+  }
+}
+window.toggleTtnManualPacking = toggleTtnManualPacking;
+
+function clearTtnManualPacking() {
+  if (!_ttnManualPackingMode) return;
+  const manual = document.getElementById("ttnCreatePackingManual");
+  if (manual) manual.value = "";
+  toggleTtnManualPacking();
+}
+window.clearTtnManualPacking = clearTtnManualPacking;
+
+function onTtnPackingSelectChange() {
+  if (!_ttnManualPackingMode) return;
+  // Choosing a preset exits one-off manual mode for this TTN.
+  _ttnSetPackingManualUi(false);
+}
+window.onTtnPackingSelectChange = onTtnPackingSelectChange;
 
 function _ttnDateToInputValue(displayDate) {
   const s = String(displayDate || "").trim();
@@ -20498,6 +20562,7 @@ async function _openTtnModal(mode, record) {
   _ttnManualVehicleMode = false;
   _ttnManualLoadMode = false;
   _ttnManualUnloadMode = false;
+  _ttnManualPackingMode = false;
   const mf = document.getElementById("ttnManualDriverFields");
   if (mf) mf.style.display = "none";
   const vehicleFields = document.getElementById("ttnManualVehicleFields");
@@ -20506,6 +20571,8 @@ async function _openTtnModal(mode, record) {
   if (loadFields) loadFields.style.display = "none";
   const unloadFields = document.getElementById("ttnManualUnloadFields");
   if (unloadFields) unloadFields.style.display = "none";
+  const packingFields = document.getElementById("ttnManualPackingFields");
+  if (packingFields) packingFields.style.display = "none";
   const driverWrap = document.getElementById("ttnCreateDriverWrap");
   if (driverWrap) driverWrap.style.opacity = "";
   const vehicleWrap = document.getElementById("ttnCreateVehicleWrap");
@@ -20514,10 +20581,13 @@ async function _openTtnModal(mode, record) {
   if (loadWrap) loadWrap.style.opacity = "";
   const unloadWrap = document.getElementById("ttnCreateUnloadWrap");
   if (unloadWrap) unloadWrap.style.opacity = "";
+  const packingWrap = document.getElementById("ttnCreatePacking")?.closest(".ttn-packing-select-wrap");
+  if (packingWrap) packingWrap.style.opacity = "";
   _ttnSetManualBtn("ttnManualDriverBtn", false);
   _ttnSetManualBtn("ttnManualVehicleBtn", false);
   _ttnSetManualBtn("ttnManualLoadBtn", false);
   _ttnSetManualBtn("ttnManualUnloadBtn", false);
+  _ttnSetManualBtn("ttnManualPackingBtn", false);
 
   const setVal = (id, val) => {
     const el = document.getElementById(id);
@@ -20530,6 +20600,7 @@ async function _openTtnModal(mode, record) {
   _ttnSelectedFbsMeta = null;
   setVal("ttnCreateDocs", TTN_DEFAULT_DOCS);
   setVal("ttnCreateNotes", "");
+  setVal("ttnCreatePackingManual", "");
   _ttnSetPackingValue("");
   setVal("ttnCreateDeclaredValue", "");
   setVal("ttnCreateVehicleType", "");
@@ -20694,6 +20765,7 @@ function closeCreateTtnModal() {
   _ttnManualVehicleMode = false;
   _ttnManualLoadMode = false;
   _ttnManualUnloadMode = false;
+  _ttnManualPackingMode = false;
   const modal = document.getElementById("createTtnModal");
   if (modal) { modal.classList.add("hidden"); modal.style.display = "none"; }
 }
@@ -20780,7 +20852,7 @@ async function saveTtnRecord() {
       const parsed = _ttnParsePartyRef(document.getElementById("ttnCreateCustomer")?.value || "");
       return parsed ? parsed.id : 0;
     })(),
-    packing_type: document.getElementById("ttnCreatePacking")?.value.trim() || "",
+    packing_type: _ttnPackingTypeValue(),
     declared_value: document.getElementById("ttnCreateDeclaredValue")?.value.trim() || "",
     vehicle_type: document.getElementById("ttnCreateVehicleType")?.value.trim() || "",
     loading_datetime: _ttnDatetimeFromInputValue(document.getElementById("ttnCreateLoadingDatetime")?.value || ""),
