@@ -61,5 +61,19 @@ def test_collect_keeps_committed_during_illegal_replace() -> None:
     assert "next = committed" in body
 
 
+def test_filters_do_not_scope_dup_checks() -> None:
+    """Filled/empty/cancelled filters only affect render slice, not FindExistingMark."""
+    find = _fn("_wbFbsKizFindExistingMark")
+    assert "wbFbsKizState.rows" in find
+    render = _fn("renderWbFbsKizTable")
+    assert "wbFbsKizState.rows.slice()" in render
+    assert "wbFbsKizState.rows = rows.filter" not in render
+    collect = _fn("_wbFbsKizCollectFromDom")
+    # Merge by idx into existing arrays — does not rebuild/wipe hidden rows.
+    assert "row.kiz_codes[idx] = next" in collect
+    assert "row.kiz_codes = codes" not in collect
+    assert "row.kiz_codes.length = 0" not in collect
+
+
 def test_cache_bump() -> None:
     assert "app.js?v=637" in HTML
