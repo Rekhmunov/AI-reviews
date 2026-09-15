@@ -10422,6 +10422,9 @@
       _ozonFbsKizScanDiag("sticker_enter_ru_modal", _ozonFbsKizScanDiagSnapshot(input));
       return;
     }
+    if (typeof _fbsStickerNotFoundModalOpen === "function" && _fbsStickerNotFoundModalOpen()) {
+      return;
+    }
     if (input?.disabled || input?.readOnly || !ozonFbsKizState.rowsReady) {
       _ozonFbsKizScanDiag(
         "sticker_enter_blocked",
@@ -10461,9 +10464,9 @@
       return;
     }
     if (!found.row) {
-      _ozonFbsKizSetInfo(
-        `Отправление «${rawTyped}» не найдено среди товаров с маркировкой.`
-      );
+      const msg = `Отправление «${rawTyped}» не найдено среди товаров с маркировкой.`;
+      _ozonFbsKizSetInfo(msg);
+      if (typeof showFbsStickerNotFound === "function") showFbsStickerNotFound(msg, input);
       if (input) input.select();
       return;
     }
@@ -11628,6 +11631,7 @@
   async function processOzonFbsPickStickerScan(raw, inputEl) {
     const input = inputEl || document.getElementById("ozonFbsPickStickerScan");
     if (typeof _wbFbsKizRuLayoutModalOpen === "function" && _wbFbsKizRuLayoutModalOpen()) return;
+    if (typeof _fbsStickerNotFoundModalOpen === "function" && _fbsStickerNotFoundModalOpen()) return;
 
     if (input?.disabled || input?.readOnly || !ozonFbsPickState.rowsReady) return;
     const rawTyped = String(raw ?? input?.value ?? "").replace(/\s+/g, "").trim();
@@ -11654,9 +11658,10 @@
       return;
     }
     if (!found.row) {
-      _ozonFbsPickSetInfo(
-        `Отправление «${scan}» не найдено среди товаров без маркировки. Возможно, это товар с КИЗ.`
-      );
+      const msg =
+        `Отправление «${scan}» не найдено среди товаров без маркировки. Возможно, это товар с КИЗ.`;
+      _ozonFbsPickSetInfo(msg);
+      if (typeof showFbsStickerNotFound === "function") showFbsStickerNotFound(msg, input);
       if (input) input.select();
       return;
     }
@@ -12903,6 +12908,10 @@
   function deliverOzonFbsComScan(raw) {
     const value = String(raw || "").replace(/[\r\n]+$/g, "");
     if (!value.replace(/\s+/g, "")) return false;
+    // Block COM while sticker-not-found ack is open — operator must press «Хорошо».
+    if (typeof _fbsStickerNotFoundModalOpen === "function" && _fbsStickerNotFoundModalOpen()) {
+      return false;
+    }
     const now = Date.now();
     if (value === ozonFbsScanComState.lastRaw && now - ozonFbsScanComState.lastAt < OZON_FBS_COM_DEDUP_MS) {
       return false;

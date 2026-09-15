@@ -34264,6 +34264,64 @@ function _wbFbsKizRuLayoutModalOpen() {
   return !!(modal && !modal.classList.contains("hidden"));
 }
 
+/** Blocking overlay when top sticker/order scan is not in the current KIZ/pick modal. */
+const fbsStickerNotFoundState = {
+  openedAt: 0,
+  focusInputId: null,
+};
+
+function _fbsStickerNotFoundModalOpen() {
+  const modal = document.getElementById("fbsStickerNotFoundModal");
+  return !!(modal && !modal.classList.contains("hidden"));
+}
+
+/**
+ * Show red inline info (caller) + blocking modal. Scan/COM must wait until «Хорошо».
+ * @param {string} message
+ * @param {HTMLElement|null|undefined} focusInputEl field to refocus after dismiss
+ */
+function showFbsStickerNotFound(message, focusInputEl) {
+  const text = String(message || "Код не найден в этой модалке.").trim();
+  const msgEl = document.getElementById("fbsStickerNotFoundMessage");
+  if (msgEl) msgEl.textContent = text;
+  fbsStickerNotFoundState.focusInputId = String(focusInputEl?.id || "") || null;
+  fbsStickerNotFoundState.openedAt = Date.now();
+  setModalVisibility("fbsStickerNotFoundModal", true);
+  // Do not focus «Хорошо»: wedge scanners end with Enter and would auto-dismiss.
+  document.removeEventListener("keydown", _fbsStickerNotFoundSwallowKeys, true);
+  document.addEventListener("keydown", _fbsStickerNotFoundSwallowKeys, true);
+  return true;
+}
+
+/** Block all keyboard/scanner input while the not-found modal is open. */
+function _fbsStickerNotFoundSwallowKeys(event) {
+  if (!_fbsStickerNotFoundModalOpen()) return;
+  event.preventDefault();
+  event.stopPropagation();
+}
+
+/** Close only from the «Хорошо» button onclick — not Esc / overlay / Enter. */
+function dismissFbsStickerNotFound() {
+  if (!_fbsStickerNotFoundModalOpen()) return;
+  document.removeEventListener("keydown", _fbsStickerNotFoundSwallowKeys, true);
+  setModalVisibility("fbsStickerNotFoundModal", false);
+  const id = fbsStickerNotFoundState.focusInputId;
+  fbsStickerNotFoundState.focusInputId = null;
+  fbsStickerNotFoundState.openedAt = 0;
+  const el = id ? document.getElementById(id) : null;
+  if (el) {
+    setTimeout(() => {
+      try {
+        el.focus();
+        el.select?.();
+      } catch (_e) { /* ignore */ }
+    }, 40);
+  }
+}
+window.showFbsStickerNotFound = showFbsStickerNotFound;
+window.dismissFbsStickerNotFound = dismissFbsStickerNotFound;
+window._fbsStickerNotFoundModalOpen = _fbsStickerNotFoundModalOpen;
+
 function clearWbFbsKizScanField(inputId) {
   const el = document.getElementById(String(inputId || ""));
   if (!el || el.readOnly || el.disabled) return;
@@ -35776,6 +35834,10 @@ function _wbFbsComTryFillFocusedKizCodeInput(value) {
 function deliverWbFbsComScan(raw) {
   const value = String(raw || "").replace(/[\r\n]+$/g, "");
   if (!value.replace(/\s+/g, "")) return false;
+  // Block COM while sticker-not-found ack is open — operator must press «Хорошо».
+  if (typeof _fbsStickerNotFoundModalOpen === "function" && _fbsStickerNotFoundModalOpen()) {
+    return false;
+  }
   const now = Date.now();
   if (value === wbFbsScanComState.lastRaw && now - wbFbsScanComState.lastAt < WB_FBS_COM_DEDUP_MS) {
     return false;
@@ -36092,6 +36154,7 @@ if (typeof document !== "undefined") {
 
 function processWbFbsKizStickerScan(raw, inputEl) {
   if (_wbFbsKizRuLayoutModalOpen()) return;
+  if (typeof _fbsStickerNotFoundModalOpen === "function" && _fbsStickerNotFoundModalOpen()) return;
   const input = inputEl || document.getElementById("wbFbsKizStickerScan");
   if (input && (input.readOnly || input.disabled || !wbFbsKizState.rowsReady)) return;
   const rawTyped = String(raw || "").replace(/\s+/g, "").trim();
@@ -36116,9 +36179,10 @@ function processWbFbsKizStickerScan(raw, inputEl) {
     return;
   }
   if (!found.row) {
-    _wbFbsKizSetInfo(
-      `Заказ со стикером «${scan}» не найден среди товаров с маркировкой. Возможно, это товар без маркировки.`
-    );
+    const msg =
+      `Заказ со стикером «${scan}» не найден среди товаров с маркировкой. Возможно, это товар без маркировки.`;
+    _wbFbsKizSetInfo(msg);
+    if (typeof showFbsStickerNotFound === "function") showFbsStickerNotFound(msg, input);
     if (input) input.select();
     return;
   }
@@ -37530,6 +37594,7 @@ function _wbFbsPickFindBySticker(scan) {
 
 function processWbFbsPickStickerScan(raw, inputEl) {
   if (_wbFbsKizRuLayoutModalOpen()) return;
+  if (typeof _fbsStickerNotFoundModalOpen === "function" && _fbsStickerNotFoundModalOpen()) return;
   const input = inputEl || document.getElementById("wbFbsPickStickerScan");
   if (input && (input.readOnly || input.disabled || !wbFbsPickState.rowsReady)) return;
   const rawTyped = String(raw || "").replace(/\s+/g, "").trim();
@@ -37553,9 +37618,10 @@ function processWbFbsPickStickerScan(raw, inputEl) {
     return;
   }
   if (!found.row) {
-    _wbFbsPickSetInfo(
-      `Заказ со стикером «${scan}» не найден среди товаров без маркировки. Возможно, это товар с маркировкой.`
-    );
+    const msg =
+      `Заказ со стикером «${scan}» не найден среди товаров без маркировки. Возможно, это товар с маркировкой.`;
+    _wbFbsPickSetInfo(msg);
+    if (typeof showFbsStickerNotFound === "function") showFbsStickerNotFound(msg, input);
     if (input) input.select();
     return;
   }

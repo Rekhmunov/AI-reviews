@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=367" />
+  <link rel="stylesheet" href="/static/style.css?v=368" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -7642,8 +7642,22 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=163"></script>
+  <!-- Blocking "sticker/order not found" for WB/Ozon FBS KIZ + pick top scan fields.
+       Close only via «Хорошо» — no Esc / overlay click / scanner Enter. -->
+  <div id="fbsStickerNotFoundModal" class="modal-overlay hidden" role="alertdialog" aria-modal="true"
+       aria-labelledby="fbsStickerNotFoundTitle" aria-describedby="fbsStickerNotFoundMessage">
+    <div class="modal-card fbs-sticker-not-found-modal">
+      <h4 id="fbsStickerNotFoundTitle" class="fbs-sticker-not-found-title">Код не найден</h4>
+      <p id="fbsStickerNotFoundMessage" class="fbs-sticker-not-found-text"></p>
+      <div class="fbs-sticker-not-found-actions">
+        <button type="button" id="fbsStickerNotFoundOk" tabindex="-1"
+                onclick="dismissFbsStickerNotFound()">Хорошо</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/ozon_fbs.js?v=164"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=26"></script>
-  <script src="/static/app.js?v=634"></script>
+  <script src="/static/app.js?v=635"></script>
 </body>
 </html>
