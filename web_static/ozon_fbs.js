@@ -1701,6 +1701,11 @@
     gtdLookupHint: "",
   };
 
+  function _ozonFbsPackagingExemplarModalIsOpen() {
+    const modal = document.getElementById("ozonFbsPackagingExemplarModal");
+    return !!(modal && !modal.classList.contains("hidden"));
+  }
+
   function closeOzonFbsPackagingExemplarModal() {
     if (packagingExemplarState.busy) return;
     document.getElementById("ozonFbsPackagingExemplarModal")?.classList.add("hidden");
@@ -1708,6 +1713,7 @@
     packagingExemplarState.payload = null;
     packagingExemplarState.gtdManual = false;
     packagingExemplarState.gtdLookupHint = "";
+    void _ozonFbsScanComOnModalClosed();
   }
 
   function _packagingExemplarSetInfo(text, tone) {
@@ -1744,7 +1750,8 @@
         <input type="text" id="ozonFbsPackagingKiz_${i}" autocomplete="off"
                value="${esc(codes[i] || "")}"
                placeholder="Сканируйте КИЗ"
-               oninput="onOzonFbsPackagingExemplarKizInput(${i})" />
+               oninput="onOzonFbsPackagingExemplarKizInput(${i})"
+               onkeydown="onOzonFbsPackagingExemplarKizKey(event, ${i})" />
       </div>`;
     }
     const hint = packagingExemplarState.gtdLookupHint
@@ -1823,6 +1830,55 @@
     }, 280);
   }
 
+  /** Apply a scanned KIZ into the packaging-exemplar modal (keyboard Enter or COM). */
+  function processOzonFbsPackagingExemplarKizScan(raw) {
+    if (!_ozonFbsPackagingExemplarModalIsOpen() || !packagingExemplarState.payload) {
+      return false;
+    }
+    const value = String(raw || "").replace(/[\r\n]+$/g, "");
+    if (!value.replace(/\s+/g, "")) return false;
+    const qty = Math.max(Number(packagingExemplarState.payload.quantity || 1) || 1, 1);
+    let targetIdx = -1;
+    const active = document.activeElement;
+    const activeId = String(active && active.id || "");
+    if (activeId.startsWith("ozonFbsPackagingKiz_")) {
+      const n = Number(activeId.slice("ozonFbsPackagingKiz_".length));
+      if (Number.isFinite(n) && n >= 0 && n < qty) targetIdx = n;
+    }
+    if (targetIdx < 0) {
+      for (let i = 0; i < qty; i += 1) {
+        const el = document.getElementById(`ozonFbsPackagingKiz_${i}`);
+        if (el && !String(el.value || "").trim()) {
+          targetIdx = i;
+          break;
+        }
+      }
+    }
+    if (targetIdx < 0) targetIdx = 0;
+    const input = document.getElementById(`ozonFbsPackagingKiz_${targetIdx}`);
+    if (!input) return false;
+    input.value = value;
+    onOzonFbsPackagingExemplarKizInput(targetIdx);
+    for (let i = targetIdx + 1; i < qty; i += 1) {
+      const next = document.getElementById(`ozonFbsPackagingKiz_${i}`);
+      if (next && !String(next.value || "").trim()) {
+        next.focus();
+        return true;
+      }
+    }
+    input.focus();
+    try { input.select(); } catch (_e) { /* ignore */ }
+    return true;
+  }
+
+  function onOzonFbsPackagingExemplarKizKey(event, idx) {
+    if (!event || event.key !== "Enter") return;
+    event.preventDefault();
+    const input =
+      event.target || document.getElementById(`ozonFbsPackagingKiz_${idx}`);
+    processOzonFbsPackagingExemplarKizScan(input && input.value);
+  }
+
   function onOzonFbsPackagingExemplarManualGtd(el) {
     packagingExemplarState.gtdManual = !!(el && el.checked);
     const gtdInput = document.getElementById("ozonFbsPackagingGtd");
@@ -1868,9 +1924,11 @@
       if (saveBtn) saveBtn.disabled = false;
       const first = document.getElementById("ozonFbsPackagingKiz_0");
       if (first) first.focus();
+      void _ozonFbsScanComOnModalOpened();
     } catch (e) {
       _packagingExemplarSetInfo(e.message || String(e), "error");
       if (saveBtn) saveBtn.disabled = true;
+      void _ozonFbsScanComOnModalOpened();
     }
   }
 
@@ -12570,6 +12628,8 @@
   window.closeOzonFbsPackagingExemplarModal = closeOzonFbsPackagingExemplarModal;
   window.saveOzonFbsPackagingExemplar = saveOzonFbsPackagingExemplar;
   window.onOzonFbsPackagingExemplarKizInput = onOzonFbsPackagingExemplarKizInput;
+  window.onOzonFbsPackagingExemplarKizKey = onOzonFbsPackagingExemplarKizKey;
+  window.processOzonFbsPackagingExemplarKizScan = processOzonFbsPackagingExemplarKizScan;
   window.onOzonFbsPackagingExemplarManualGtd = onOzonFbsPackagingExemplarManualGtd;
   window.confirmOzonFbsCollect = confirmCollect;
   window.ozonFbsCollectNameInput = collectNameInput;
@@ -12716,6 +12776,7 @@
     return [
       document.getElementById("ozonFbsKizScanModeStatus"),
       document.getElementById("ozonFbsPickScanModeStatus"),
+      document.getElementById("ozonFbsPackagingExemplarScanModeStatus"),
     ].filter(Boolean);
   }
 
@@ -12723,6 +12784,7 @@
     return [
       document.getElementById("ozonFbsKizScanModeToggle"),
       document.getElementById("ozonFbsPickScanModeToggle"),
+      document.getElementById("ozonFbsPackagingExemplarScanModeToggle"),
     ].filter(Boolean);
   }
 
@@ -12753,6 +12815,12 @@
 
   function _ozonFbsScanComModalOpen() {
     try {
+      if (typeof _ozonFbsPackagingExemplarModalIsOpen === "function"
+          && _ozonFbsPackagingExemplarModalIsOpen()) {
+        return true;
+      }
+    } catch (_e) { /* ignore */ }
+    try {
       if (typeof _ozonFbsKizModalIsOpen === "function" && _ozonFbsKizModalIsOpen()) return true;
     } catch (_e) { /* ignore */ }
     try {
@@ -12775,6 +12843,11 @@
     }
     ozonFbsScanComState.lastRaw = value;
     ozonFbsScanComState.lastAt = now;
+
+    // Packaging exemplar (юрлица КИЗ+ГТД) — dedicated overlay, highest when open.
+    if (_ozonFbsPackagingExemplarModalIsOpen()) {
+      return !!processOzonFbsPackagingExemplarKizScan(value);
+    }
 
     // Same priority as keyboard focus flow: open prompt first, then parent modal.
     if (_ozonFbsScanComPromptOpen("ozonFbsKizScanPrompt")) {

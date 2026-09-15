@@ -122,6 +122,20 @@ def test_com_auto_reconnect_on_link_loss() -> None:
     assert "_ozonFbsScanComBindDisconnect" in OZON_JS
 
 
+
+def test_packaging_exemplar_com_and_keyboard_scan_wired() -> None:
+    """Юрлица «Маркировка и ГТД»: COM deliver + Enter path + modal COM hooks."""
+    assert 'id="ozonFbsPackagingExemplarScanModeToggle"' in APP_HTML
+    assert 'id="ozonFbsPackagingExemplarScanModeStatus"' in APP_HTML
+    assert "function processOzonFbsPackagingExemplarKizScan" in OZON_JS
+    assert "function onOzonFbsPackagingExemplarKizKey" in OZON_JS
+    assert "processOzonFbsPackagingExemplarKizScan(value)" in OZON_JS
+    assert "_ozonFbsPackagingExemplarModalIsOpen()" in OZON_JS
+    assert 'ozonFbsPackagingExemplarScanModeToggle' in OZON_JS
+    assert 'ozonFbsPackagingExemplarScanModeStatus' in OZON_JS
+    assert "void _ozonFbsScanComOnModalOpened()" in OZON_JS
+    assert "onkeydown=\"onOzonFbsPackagingExemplarKizKey(event" in OZON_JS
+
 def test_cache_bump() -> None:
-    assert "ozon_fbs.js?v=160" in APP_HTML
-    assert "style.css?v=365" in APP_HTML
+    assert "ozon_fbs.js?v=161" in APP_HTML
+    assert "style.css?v=366" in APP_HTML

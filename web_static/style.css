@@ -11245,6 +11245,20 @@ button.wb-fbs-select-all-link:disabled {
   font-size: 14px;
   color: #334155;
 }
+.ozon-fbs-packaging-exemplar-scan-bar {
+  padding: 12px 24px 0;
+}
+.ozon-fbs-packaging-exemplar-scan-bar .ozon-fbs-scan-bar-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.ozon-fbs-packaging-exemplar-scan-hint {
+  font-size: 13px;
+  line-height: 1.4;
+  color: #64748b;
+}
 .ozon-fbs-packaging-exemplar-meta .pn {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
