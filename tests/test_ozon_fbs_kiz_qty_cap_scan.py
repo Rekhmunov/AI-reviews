@@ -72,5 +72,15 @@ def test_collect_keeps_committed_during_illegal_replace() -> None:
     assert "_ozonFbsKizIndexSetMark(prev, pn)" in reject
 
 
+def test_filters_do_not_scope_dup_checks() -> None:
+    """Filters only slice for render; FindExistingMark / markIndex cover all rows."""
+    find = _fn("_ozonFbsKizFindExistingMark")
+    assert "ozonFbsKizState.markIndex" in find or "ozonFbsKizState.rows" in find
+    render = _fn("renderOzonFbsKizTable")
+    assert "ozonFbsKizState.rows =" not in render
+    collect = _fn("_ozonFbsKizCollectFromDom")
+    assert "row.kiz_codes[idx] = next" in collect
+
+
 def test_cache_bump() -> None:
     assert "ozon_fbs.js?v=167" in HTML

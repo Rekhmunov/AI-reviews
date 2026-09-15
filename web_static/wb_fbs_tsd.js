@@ -2889,6 +2889,11 @@
       .filter((x) => x.code);
   }
 
+  /** WB/Ozon FBS: one order/posting ≈ one unit; honor quantity when present. */
+  function rowKizQty(row) {
+    return Math.max(1, Number(row?.quantity) || 1);
+  }
+
   function orderBarcodesLabel(row) {
     const seen = new Set();
     const out = [];
@@ -4517,15 +4522,23 @@
       ? `<img src="${esc(pending.product_photo)}" alt="" width="48" height="48" />`
       : "";
     const existingKizN = mode === "kiz" ? filledKizEntries(pending).length : 0;
+    const kizQty = mode === "kiz" ? rowKizQty(pending) : 1;
+    const kizSlotsFull = mode === "kiz" && existingKizN >= kizQty;
     const prompt =
       mode === "kiz"
-        ? existingKizN
-          ? `Сканируйте КИЗ ${existingKizN + 1}`
-          : "Сканируйте КИЗ"
+        ? kizSlotsFull
+          ? "КИЗ уже записан"
+          : existingKizN
+            ? `Сканируйте КИЗ ${existingKizN + 1}`
+            : "Сканируйте КИЗ"
         : "Сканируйте штрихкод товара";
+    // When slots are full, do not invite another code — same rule as desktop modal.
+    const entity = isOzon() ? "отправления" : "заказа";
     const multiHint =
       mode === "kiz" && existingKizN
-        ? `<p class="tsd-scan-subhint">У заказа уже ${existingKizN} КИЗ — новый код добавится к заказу</p>`
+        ? kizSlotsFull
+          ? `<p class="tsd-scan-subhint">У ${entity} уже ${existingKizN} КИЗ — чтобы заменить, сначала очистите текущий</p>`
+          : `<p class="tsd-scan-subhint">У ${entity} уже ${existingKizN} КИЗ — можно добавить ещё (лимит ${kizQty})</p>`
         : "";
     const pendingBarcodes = orderBarcodesLabel(pending);
     const pendingBarcodesHtml = pendingBarcodes
@@ -5359,7 +5372,7 @@
           (c) => normalizeKizMark(c) === mark
         );
         if (ownDup) {
-          setBanner("Этот КИЗ уже в этом заказе", "err");
+          setBanner(`Этот КИЗ уже в этом ${isOzon() ? "отправлении" : "заказе"}`, "err");
           beep(false);
           input.select();
           refreshScanBanner();
@@ -5373,6 +5386,22 @@
         );
         if (dup) {
           setBanner(`Этот КИЗ уже в ${isOzon() ? "отпр." : "заказе"} ${rowDisplayLabel(dup)}`, "err");
+          beep(false);
+          input.select();
+          refreshScanBanner();
+          return;
+        }
+        // Cap by quantity (default 1): do not grow a second code when slots are
+        // full. Same sticker + other KIZ must clear first — mirrors desktop modal.
+        const existing = filledKizEntries(row);
+        const qty = rowKizQty(row);
+        if (existing.length >= qty) {
+          const had = existing.map((x) => x.code).join("; ");
+          const entity = isOzon() ? "отправления" : "заказа";
+          setBanner(
+            `У ${entity} уже есть КИЗ (${had}). Чтобы заменить — сначала очистите текущий.`,
+            "err"
+          );
           beep(false);
           input.select();
           refreshScanBanner();
