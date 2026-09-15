@@ -13438,53 +13438,9 @@ button.wb-fbs-kiz-add:disabled {
   padding: 8px 16px;
 }
 
-/* FBS sticker/order not found — blocking ack (KIZ + pick, WB + Ozon) */
-.fbs-sticker-not-found-modal {
-  width: min(440px, calc(100vw - 32px));
-  padding: 24px;
-}
+/* Same card chrome as #wbFbsKizRuLayoutModal (.wb-fbs-kiz-ru-layout-*); only stack above overlays. */
 #fbsStickerNotFoundModal {
   z-index: 2500;
-}
-.fbs-sticker-not-found-title {
-  margin: 0 0 12px;
-  font-size: 20px;
-  font-weight: 700;
-  color: #991b1b;
-}
-.fbs-sticker-not-found-text {
-  margin: 0 0 24px;
-  font-size: 16px;
-  line-height: 1.45;
-  color: #334155;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.fbs-sticker-not-found-actions {
-  display: flex;
-  justify-content: flex-end;
-}
-.fbs-sticker-not-found-actions button {
-  min-height: 44px;
-  min-width: 120px;
-  padding: 10px 20px;
-  font-size: 16px;
-  font-weight: 600;
-  color: #fff;
-  background: #b91c1c;
-  border: 1px solid #991b1b;
-  border-radius: 8px;
-  cursor: pointer;
-}
-.fbs-sticker-not-found-actions button:hover {
-  background: #991b1b;
-}
-.fbs-sticker-not-found-actions button:active {
-  background: #7f1d1d;
-}
-.fbs-sticker-not-found-actions button:focus-visible {
-  outline: 2px solid #fecaca;
-  outline-offset: 2px;
 }
 
 /* WB FBS — Возвраты */

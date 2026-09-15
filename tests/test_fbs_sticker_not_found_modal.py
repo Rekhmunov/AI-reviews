@@ -45,7 +45,12 @@ def test_cache_bumps() -> None:
     html = HTML.read_text(encoding="utf-8")
     assert "app.js?v=635" in html
     assert "ozon_fbs.js?v=164" in html
-    assert "style.css?v=368" in html
+    assert "style.css?v=369" in html
+    # Same card classes as RU-layout warning (identical size/format).
+    assert 'class="modal-card wb-fbs-kiz-ru-layout-modal"' in html
+    assert 'id="fbsStickerNotFoundTitle" class="wb-fbs-kiz-ru-layout-title"' in html
     css = CSS.read_text(encoding="utf-8")
-    assert ".fbs-sticker-not-found-modal" in css
+    assert ".wb-fbs-kiz-ru-layout-modal" in css
+    assert "width: min(420px, calc(100vw - 32px))" in css
     assert "#fbsStickerNotFoundModal" in css
+    assert ".fbs-sticker-not-found-modal" not in css
