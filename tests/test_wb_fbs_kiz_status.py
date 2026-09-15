@@ -95,7 +95,7 @@ def test_ui_shows_human_kiz_decision_labels() -> None:
     assert "function _wbFbsKizDecisionLabel" in js
     assert 'sgtinretired: "Выбыл"' in js
     assert "decisionLabel || (decision ? `Ошибка проверки (${decision})`" in js
-    assert "app.js?v=641" in html
+    assert "app.js?v=642" in html
 
 
 def test_meta_row_decision_filled() -> None:

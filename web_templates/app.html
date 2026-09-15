@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=372" />
+  <link rel="stylesheet" href="/static/style.css?v=373" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -4496,8 +4496,30 @@
               </div>
               <div class="ttn-field ttn-field-span-2">
                 <label class="small" for="ttnCreateCargo">3. Наименование груза</label>
-                <input id="ttnCreateCargo" class="ttn-input" type="text" placeholder="Описание груза"
-                       autocomplete="off" />
+                <div class="ttn-field-with-action">
+                  <div class="ttn-cargo-select-wrap">
+                    <select id="ttnCreateCargo" class="ttn-input"
+                            onchange="onTtnCargoSelectChange()">
+                      <option value="">— Выберите —</option>
+                      <option value="Постельное белье/наматрасник">Постельное белье/наматрасник</option>
+                      <option value="Стеганное полотно">Стеганное полотно</option>
+                      <option value="Ткань">Ткань</option>
+                      <option value="Фурнитура">Фурнитура</option>
+                    </select>
+                  </div>
+                  <button type="button" class="secondary small-btn ttn-manual-btn" id="ttnManualCargoBtn"
+                          onclick="toggleTtnManualCargo()"
+                          title="Ввести вручную">✏</button>
+                </div>
+                <div id="ttnManualCargoFields" class="ttn-manual-fields" style="display:none">
+                  <div class="ttn-manual-row">
+                    <input id="ttnCreateCargoManual" class="ttn-input" type="text"
+                           placeholder="Наименование груза" autocomplete="off" />
+                    <button type="button" class="secondary small-btn ttn-manual-clear-btn"
+                            onclick="clearTtnManualCargo()" title="Убрать ручной ввод">✕</button>
+                  </div>
+                  <p class="small ttn-hint">Значение сохранится только в этой ТН, шаблон не меняется</p>
+                </div>
               </div>
               <div class="ttn-field">
                 <label class="small" for="ttnCreatePacking">Вид тары / упаковки</label>
@@ -7678,6 +7700,6 @@
 
   <script src="/static/ozon_fbs.js?v=170"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=29"></script>
-  <script src="/static/app.js?v=641"></script>
+  <script src="/static/app.js?v=642"></script>
 </body>
 </html>

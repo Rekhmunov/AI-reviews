@@ -40,8 +40,8 @@ def test_logistics_title_picker_and_panes() -> None:
     assert "function initLogisticsSection" in js
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
-    assert "app.js?v=641" in html
-    assert "style.css?v=372" in html
+    assert "app.js?v=642" in html
+    assert "style.css?v=373" in html
     assert "ttn-modal-card" in html
     assert "ttn-form-grid" in html
     assert 'max-width:560px' not in html.split('id="createTtnModal"')[1].split("<!-- ── Планирование")[0]
@@ -120,8 +120,8 @@ def test_ttn_table_and_modal_fields_present() -> None:
 
 def test_ttn_default_cargo_description() -> None:
     js = JS.read_text(encoding="utf-8")
-    assert 'TTN_DEFAULT_CARGO = "Текстиль (постельное белье/наматрасники)"' in js
-    assert 'setVal("ttnCreateCargo", TTN_DEFAULT_CARGO)' in js
+    assert 'TTN_DEFAULT_CARGO = "Постельное белье/наматрасник"' in js
+    assert "_ttnSetCargoValue(TTN_DEFAULT_CARGO)" in js
     assert 'TTN_DEFAULT_DOCS = "УПД/ТОРГ-12/Электронная накладная"' in js
     assert 'setVal("ttnCreateDocs", TTN_DEFAULT_DOCS)' in js
 
@@ -167,6 +167,31 @@ def test_ttn_packing_type_select() -> None:
     assert "select.ttn-input" in CSS.read_text(encoding="utf-8")
     assert ".ttn-packing-select-wrap" in CSS.read_text(encoding="utf-8")
 
+
+
+
+def test_ttn_cargo_select_with_manual() -> None:
+    html = HTML.read_text(encoding="utf-8")
+    js = JS.read_text(encoding="utf-8")
+    cargo = html.split('id="ttnCreateCargo"', 1)[1].split("</select>", 1)[0]
+    assert 'value="Постельное белье/наматрасник"' in cargo
+    assert 'value="Стеганное полотно"' in cargo
+    assert 'value="Ткань"' in cargo
+    assert 'value="Фурнитура"' in cargo
+    # Alphabetical order in options list.
+    assert 'TTN_CARGO_OPTIONS = [' in js
+    assert '"Постельное белье/наматрасник"' in js
+    assert '"Стеганное полотно"' in js
+    assert '"Ткань"' in js
+    assert '"Фурнитура"' in js
+    assert "function toggleTtnManualCargo" in js
+    assert "function _ttnCargoDescriptionValue" in js
+    assert 'id="ttnManualCargoFields"' in html
+    assert "onclick=\"toggleTtnManualCargo()\"" in html
+    assert "cargo_description: _ttnCargoDescriptionValue()" in js
+    assert ".ttn-cargo-select-wrap" in CSS.read_text(encoding="utf-8")
+    # Default cargo is first preset (alphabetically first bedding item).
+    assert 'TTN_DEFAULT_CARGO = "Постельное белье/наматрасник"' in js
 
 def test_ttn_vehicle_manual_via_pencil() -> None:
     html = HTML.read_text(encoding="utf-8")
