@@ -5,8 +5,15 @@
 (function () {
   "use strict";
 
-  /** While KIZ/pick modal is open: poll portal GM composition (not a webhook). */
-  const RECONCILE_POLL_MS = 30000;
+  /**
+   * While KIZ/pick modal is open: rare poll of portal GM composition (not a webhook).
+   * Expensive (Ozon API per container) — keep slow; never contend with scanning.
+   */
+  const RECONCILE_POLL_MS = 120000;
+  /** Hard floor between reconcile network calls (poll + tab focus). */
+  const RECONCILE_MIN_GAP_MS = 90000;
+  /** Treat operator as busy this long after last scan keystroke. */
+  const SCAN_BUSY_MS = 2500;
 
   const state = {
     hasContainers: false,
@@ -34,6 +41,15 @@
     reconcilePollMode: "",
     reconcileInFlight: false,
     reconcileVisibilityBound: false,
+    /** Last reconcile request start (ms). */
+    lastReconcileAt: 0,
+    /** Last sticker/KIZ/pick scan keystroke (ms). */
+    lastScanActivityAt: 0,
+    scanActivityBound: false,
+    scanIdleTimer: null,
+    pendingDomMode: "",
+    pendingDomPns: [],
+    pendingStatusCheckPns: [],
   };
 
   function markContainerDirty(postingNumber) {
@@ -61,6 +77,108 @@
     const id = mode === "kiz" ? "ozonFbsKizModal" : "ozonFbsPickVerifyModal";
     const modal = document.getElementById(id);
     return !!(modal && !modal.classList.contains("hidden"));
+  }
+
+  function noteScanActivity() {
+    state.lastScanActivityAt = Date.now();
+  }
+
+  function isScanBusy() {
+    return Date.now() - Number(state.lastScanActivityAt || 0) < SCAN_BUSY_MS;
+  }
+
+  function isScanInputEl(el) {
+    if (!el || String(el.tagName || "").toUpperCase() !== "INPUT") return false;
+    const id = String(el.id || "");
+    if (id === "ozonFbsKizStickerScan" || id === "ozonFbsPickStickerScan") return true;
+    const cls = el.classList;
+    if (!cls) return false;
+    return (
+      cls.contains("wb-fbs-kiz-code-input")
+      || cls.contains("wb-fbs-pick-code-input")
+      || cls.contains("ozon-fbs-pick-barcode-input")
+    );
+  }
+
+  function bindScanActivityWatch() {
+    if (state.scanActivityBound || typeof document === "undefined") return;
+    state.scanActivityBound = true;
+    const mark = (ev) => {
+      if (!isScanInputEl(ev && ev.target)) return;
+      noteScanActivity();
+    };
+    // Capture phase: see scanner wedges before other handlers.
+    document.addEventListener("keydown", mark, true);
+    document.addEventListener("input", mark, true);
+  }
+
+  function queuePendingStatusChecks(pns) {
+    const bag = state.pendingStatusCheckPns;
+    for (const pn of pns || []) {
+      const s = String(pn || "").trim();
+      if (s && !bag.includes(s)) bag.push(s);
+    }
+  }
+
+  function scheduleScanIdleFlush() {
+    if (state.scanIdleTimer != null) clearTimeout(state.scanIdleTimer);
+    state.scanIdleTimer = setTimeout(() => {
+      state.scanIdleTimer = null;
+      flushScanIdleWork();
+    }, SCAN_BUSY_MS + 50);
+  }
+
+  function flushScanIdleWork() {
+    if (isScanBusy()) {
+      scheduleScanIdleFlush();
+      return;
+    }
+    const mode = String(state.pendingDomMode || state.reconcilePollMode || "").trim();
+    const pns = state.pendingDomPns.slice();
+    state.pendingDomMode = "";
+    state.pendingDomPns = [];
+    if (mode && pns.length && modalStillOpen(mode)) {
+      applyReconcileDom(mode, pns);
+    }
+    const statusPns = state.pendingStatusCheckPns.slice();
+    state.pendingStatusCheckPns = [];
+    for (const pn of statusPns) {
+      if (typeof window._ozonFbsSilentRefreshPostingStatus === "function") {
+        try { void window._ozonFbsSilentRefreshPostingStatus(pn); } catch (_e) { /* ignore */ }
+      }
+    }
+    const cur = String(state.reconcilePollMode || "").trim();
+    if (cur && modalStillOpen(cur) && gmUiVisible(cur) && rowsHaveContainerBinds(cur)) {
+      void reconcileContainers(cur);
+    }
+  }
+
+  function applyReconcileDom(mode, touchedPns) {
+    if (!touchedPns || !touchedPns.length) return;
+    // Never full-rebuild the table while the operator is mid-scan burst.
+    if (isScanBusy()) {
+      state.pendingDomMode = mode;
+      const bag = state.pendingDomPns;
+      for (const pn of touchedPns) {
+        const s = String(pn || "").trim();
+        if (s && !bag.includes(s)) bag.push(s);
+      }
+      scheduleScanIdleFlush();
+      return;
+    }
+    if (completenessFilterActive(mode)) {
+      rerenderMode(mode);
+      return;
+    }
+    let allPatched = true;
+    for (const pn of touchedPns) {
+      if (!patchContainerCell(mode, pn)) {
+        allPatched = false;
+        break;
+      }
+    }
+    if (!allPatched) rerenderMode(mode);
+    else refreshFilterCounts(mode);
   }
 
   function mergeReconcileBinds(mode, binds, changes) {
@@ -119,37 +237,50 @@
     }
     if (touched > 0) {
       updateContainerCounters();
-      // Prefer cell patches; full rebuild if filter needs show/hide or DOM row missing.
-      if (completenessFilterActive(mode)) {
-        rerenderMode(mode);
-      } else {
-        let allPatched = true;
-        for (const pn of touchedPns) {
-          if (!patchContainerCell(mode, pn)) {
-            allPatched = false;
-            break;
-          }
-        }
-        if (!allPatched) rerenderMode(mode);
-        else refreshFilterCounts(mode);
-      }
+      // Prefer cell patches; defer heavy DOM while operator is scanning.
+      applyReconcileDom(mode, touchedPns);
     }
     // Background: only the postings Ozon dropped from GM — no toasts, no modal.
-    for (const pn of statusCheckPns) {
-      if (typeof window._ozonFbsSilentRefreshPostingStatus === "function") {
-        try { void window._ozonFbsSilentRefreshPostingStatus(pn); } catch (_e) { /* ignore */ }
+    // Defer status lookups during an active scan burst so focus/DOM stay free.
+    if (statusCheckPns.length) {
+      if (isScanBusy()) {
+        queuePendingStatusChecks(statusCheckPns);
+        scheduleScanIdleFlush();
+      } else {
+        for (const pn of statusCheckPns) {
+          if (typeof window._ozonFbsSilentRefreshPostingStatus === "function") {
+            try { void window._ozonFbsSilentRefreshPostingStatus(pn); } catch (_e) { /* ignore */ }
+          }
+        }
       }
     }
     // No "Грузоместа синхронизированы…" banner — it distracts during scanning.
     return touched;
   }
 
-  async function reconcileContainers(mode) {
+  async function reconcileContainers(mode, opts) {
+    const force = !!(opts && opts.force);
     const { sid, sourceId } = supplyIds();
     if (!sid || !sourceId || !gmUiVisible(mode)) return;
     if (!modalStillOpen(mode)) return;
     if (state.reconcileInFlight) return;
+
+    if (!force) {
+      // Hidden tab: do not burn Ozon/API quota in the background.
+      if (typeof document !== "undefined" && document.hidden) return;
+      // Operator is wedging stickers — skip network entirely this tick.
+      if (isScanBusy()) {
+        scheduleScanIdleFlush();
+        return;
+      }
+      // No local GM binds → nothing mid-scan can drift; skip expensive portal sync.
+      if (!rowsHaveContainerBinds(mode)) return;
+      const now = Date.now();
+      if (now - Number(state.lastReconcileAt || 0) < RECONCILE_MIN_GAP_MS) return;
+    }
+
     state.reconcileInFlight = true;
+    state.lastReconcileAt = Date.now();
     const gen = (state.reconcileGen = Number(state.reconcileGen || 0) + 1);
     const skip = collectReconcileSkipPostings(mode);
     try {
@@ -184,6 +315,13 @@
       state.reconcilePollTimer = null;
     }
     state.reconcilePollMode = "";
+    if (state.scanIdleTimer != null) {
+      clearTimeout(state.scanIdleTimer);
+      state.scanIdleTimer = null;
+    }
+    state.pendingDomMode = "";
+    state.pendingDomPns = [];
+    state.pendingStatusCheckPns = [];
   }
 
   function startReconcilePolling(mode) {
@@ -191,6 +329,7 @@
     stopReconcilePolling();
     if (m !== "kiz" && m !== "pick") return;
     if (!gmUiVisible(m)) return;
+    bindScanActivityWatch();
     state.reconcilePollMode = m;
     state.reconcilePollTimer = setInterval(() => {
       const cur = state.reconcilePollMode;
@@ -1269,9 +1408,8 @@
       if (!cur || !containerAcceptsFill(cur)) setActive(null);
     }
     resetForModal(mode);
-    void reconcileContainers(mode);
-    // Keep polling while the modal stays open so mid-scan GM drops
-    // (and silent cancel) update «прикреплено» / «Отменённые» without re-entry.
+    // One forced sync on open; later polls are soft (rare, scan-aware, binds-only).
+    void reconcileContainers(mode, { force: true });
     startReconcilePolling(mode);
   }
 

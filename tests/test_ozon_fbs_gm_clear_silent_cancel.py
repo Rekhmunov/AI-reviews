@@ -41,11 +41,15 @@ def test_row_is_cancelled_checks_status_tab() -> None:
 
 def test_asset_cache_bumped() -> None:
     assert "ozon_fbs.js?v=170" in HTML
-    assert "ozon_fbs_container_bind.js?v=28" in HTML
+    assert "ozon_fbs_container_bind.js?v=29" in HTML
 
 
 def test_reconcile_polls_while_modal_open() -> None:
-    assert "const RECONCILE_POLL_MS" in BIND
+    assert "const RECONCILE_POLL_MS = 120000" in BIND
+    assert "const RECONCILE_MIN_GAP_MS" in BIND
+    assert "function isScanBusy" in BIND
+    assert "rowsHaveContainerBinds" in BIND
+    assert "force: true" in BIND
     assert "function startReconcilePolling" in BIND
     assert "function stopReconcilePolling" in BIND
     assert "startReconcilePolling(mode)" in BIND
