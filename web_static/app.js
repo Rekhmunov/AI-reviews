@@ -32644,6 +32644,7 @@ function _wbFbsSupplyDetailSetActionsReady(ready) {
   _wbFbsSyncOwnerOnlyCancelledBtn();
   // Delivery: KIZ/pick remain visible as status tones but must not open editors.
   _wbFbsSyncSupplyDetailToneOnlySplits(_wbFbsIsSupplyDetailReadOnly());
+  _wbFbsSyncPortalBtn();
 }
 
 
@@ -33261,11 +33262,118 @@ function _wbFbsDriverHasAssignment(supply) {
   return Boolean(row.has_driver) || (did > 0 && !!name);
 }
 
+/** KIZ gate for portal: only when the supply has active KIZ-required orders. */
+function _wbFbsNeedsKizForPortal(supply) {
+  const orders = Array.isArray(supply?.orders) ? supply.orders : [];
+  return orders.some((o) => o && o.kiz_required && !_wbFbsOrderIsCancelled(o));
+}
+
+function _wbFbsKizOkForPortal(supply) {
+  if (!_wbFbsNeedsKizForPortal(supply)) return true;
+  const kizSplit = document.getElementById("wbFbsKizSplit");
+  return !!(kizSplit && !kizSplit.hidden && kizSplit.classList.contains("is-ok"));
+}
+
+function _wbFbsPortalGateItems() {
+  const supply = wbFbsDetailState.supply;
+  const items = [];
+  if (_wbFbsNeedsKizForPortal(supply)) {
+    items.push({
+      key: "kiz",
+      label: "Товары с КИЗ",
+      done: _wbFbsKizOkForPortal(supply),
+    });
+  }
+  items.push({
+    key: "driver",
+    label: "Водитель",
+    done: _wbFbsDriverHasAssignment(supply),
+  });
+  return items;
+}
+
+function _wbFbsRenderPortalGateTip(items) {
+  const tip = document.getElementById("wbFbsPortalGateTip");
+  if (!tip) return;
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) {
+    tip.hidden = true;
+    tip.innerHTML = "";
+    return;
+  }
+  tip.innerHTML =
+    `<p class="ozon-fbs-move-gate-title">Чтобы открыть портал ВБ</p>` +
+    `<ul class="ozon-fbs-move-gate-list">` +
+    list
+      .map((it) => {
+        const done = !!it.done;
+        const mark = done ? "✓" : "○";
+        return (
+          `<li class="${done ? "is-done" : "is-todo"}">` +
+          `<span class="ozon-fbs-move-gate-mark" aria-hidden="true">${mark}</span>` +
+          `<span>${_wbFbsEsc(it.label)}</span>` +
+          `</li>`
+        );
+      })
+      .join("") +
+    `</ul>`;
+}
+
+function _wbFbsCanOpenPortal() {
+  if (!_wbFbsSupplyDetailActionsReady()) return false;
+  const supply = wbFbsDetailState.supply;
+  if (!supply) return false;
+  if (!_wbFbsDriverHasAssignment(supply)) return false;
+  if (!_wbFbsKizOkForPortal(supply)) return false;
+  return true;
+}
+
+function _wbFbsSyncPortalBtn() {
+  const btn = document.getElementById("wbFbsSupplyDetailPortalBtn");
+  const tip = document.getElementById("wbFbsPortalGateTip");
+  if (!btn) {
+    if (tip) tip.hidden = true;
+    return;
+  }
+  const tipOk = "Открыть поставку на портале Wildberries";
+  if (!_wbFbsSupplyDetailActionsReady()) {
+    btn.setAttribute("aria-disabled", "true");
+    btn.classList.add("is-scan-incomplete");
+    btn.tabIndex = -1;
+    btn.removeAttribute("title");
+    if (tip) {
+      tip.hidden = true;
+      tip.innerHTML = "";
+    }
+    return;
+  }
+  const gateItems = _wbFbsPortalGateItems();
+  const can = _wbFbsCanOpenPortal();
+  if (can) {
+    btn.removeAttribute("aria-disabled");
+    btn.classList.remove("is-scan-incomplete");
+    btn.removeAttribute("tabindex");
+    btn.setAttribute("title", tipOk);
+    if (tip) {
+      tip.hidden = true;
+      tip.innerHTML = "";
+    }
+  } else {
+    btn.setAttribute("aria-disabled", "true");
+    btn.classList.add("is-scan-incomplete");
+    btn.tabIndex = -1;
+    btn.removeAttribute("title");
+    _wbFbsRenderPortalGateTip(gateItems);
+    if (tip) tip.hidden = false;
+  }
+}
+
 function _wbFbsSyncDriverBtn() {
   const btn = document.getElementById("wbFbsSupplyDetailDriverBtn");
   if (!btn) return;
   btn.classList.toggle("is-ok", _wbFbsDriverHasAssignment(wbFbsDetailState.supply));
   _wbFbsSyncSupplyDetailToneOnlySplits(_wbFbsIsSupplyDetailReadOnly());
+  _wbFbsSyncPortalBtn();
 }
 
 function _wbFbsDriverSetVisible(show) {
@@ -33681,6 +33789,7 @@ function renderWbFbsSupplyDetail(data) {
   _wbFbsSyncPickVerifyBtn();
   _wbFbsSyncKizPickBtnLabels();
   _wbFbsSyncDriverBtn();
+  _wbFbsSyncPortalBtn();
   const readOnly = _wbFbsIsSupplyDetailReadOnly();
   _wbFbsSyncSupplyDetailReadOnlyMode(readOnly);
   const detailColspan = readOnly ? 2 : 4;
@@ -34190,6 +34299,12 @@ function wbFbsPrintStickersByCategory() {
 window.wbFbsPrintStickersByCategory = wbFbsPrintStickersByCategory;
 
 function openWbFbsSupplyPortal() {
+  const btn = document.getElementById("wbFbsSupplyDetailPortalBtn");
+  if (btn && btn.getAttribute("aria-disabled") === "true") return;
+  if (!_wbFbsCanOpenPortal()) {
+    _wbFbsSyncPortalBtn();
+    return;
+  }
   const sid = String(wbFbsDetailState.supplyId || wbFbsDetailState.supply?.supply_id || "").trim();
   if (!sid) return;
   const url =
@@ -34536,6 +34651,7 @@ function _wbFbsKizSplitSetTone(tone) {
   if (t === "ok") split.classList.add("is-ok");
   else if (t === "error") split.classList.add("is-error");
   // pending / none / unknown → leave default secondary styling
+  _wbFbsSyncPortalBtn();
 }
 
 function _wbFbsOrderIsCancelled(order) {

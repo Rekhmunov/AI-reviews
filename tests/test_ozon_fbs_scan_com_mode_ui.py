@@ -159,4 +159,4 @@ def test_packaging_exemplar_com_and_keyboard_scan_wired() -> None:
 
 def test_cache_bump() -> None:
     assert "ozon_fbs.js?v=174" in APP_HTML
-    assert "style.css?v=379" in APP_HTML
+    assert "style.css?v=380" in APP_HTML

@@ -12486,6 +12486,18 @@ button.wb-fbs-sd-portal-btn:focus-visible {
   outline-offset: 2px;
   box-shadow: none;
 }
+button.wb-fbs-sd-portal-btn.is-scan-incomplete,
+button.wb-fbs-sd-portal-btn.is-scan-incomplete:hover,
+button.wb-fbs-sd-portal-btn.is-scan-incomplete:active,
+button.wb-fbs-sd-portal-btn.is-scan-incomplete:focus {
+  color: #94a3b8;
+  border-color: #e2e8f0;
+  background: #f8fafc;
+  box-shadow: none;
+  transform: none;
+  cursor: not-allowed;
+  opacity: 1;
+}
 .wb-fbs-sd-info {
   padding: 8px 24px;
   font-size: 14px;

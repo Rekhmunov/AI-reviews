@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=379" />
+  <link rel="stylesheet" href="/static/style.css?v=380" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2282,13 +2282,16 @@
                 <button type="button" class="secondary" id="wbFbsSupplyDetailDriverBtn"
                         onclick="openWbFbsDriverModal()"
                         title="Водитель поставки: выбрать из справочника и гос. номер ТС">Водитель</button>
-                <button type="button" class="secondary wb-fbs-sd-portal-btn" id="wbFbsSupplyDetailPortalBtn"
-                        onclick="openWbFbsSupplyPortal()" title="Открыть поставку на портале Wildberries">
-                  <span>Портал ВБ</span>
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                    <path d="M3.5 8h9M8.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-                  </svg>
-                </button>
+                <span class="ozon-fbs-move-gate-wrap" id="wbFbsPortalGateWrap">
+                  <button type="button" class="secondary wb-fbs-sd-portal-btn" id="wbFbsSupplyDetailPortalBtn"
+                          onclick="openWbFbsSupplyPortal()" title="Открыть поставку на портале Wildberries">
+                    <span>Портал ВБ</span>
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <path d="M3.5 8h9M8.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </button>
+                  <div class="ozon-fbs-move-gate-tip" id="wbFbsPortalGateTip" hidden role="tooltip"></div>
+                </span>
               </div>
             </div>
             <div id="wbFbsSupplyDetailNewWarn" class="wb-fbs-sd-new-warn" hidden role="alert">
@@ -7751,6 +7754,6 @@
 
   <script src="/static/ozon_fbs.js?v=174"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=32"></script>
-  <script src="/static/app.js?v=651"></script>
+  <script src="/static/app.js?v=652"></script>
 </body>
 </html>
