@@ -20055,7 +20055,9 @@ window.onTtnDriverChange = onTtnDriverChange;
 let _ttnFbsSupplyOptions = [];
 let _ttnFbsAutofillToken = 0;
 let _ttnSelectedFbsMeta = null; // {platform, source_id, supply_id}
-/** True while the TN modal was opened from WB FBS «В доставке». */
+/** True while the TN modal was opened from WB/Ozon FBS delivery. */
+let _ttnOpenedFromFbsTab = ""; // "" | "wb" | "ozon"
+/** @deprecated use _ttnOpenedFromFbsTab */
 let _ttnOpenedFromWbFbs = false;
 /** While opening the TN modal, suppress cargo overwrite from place refreshes. */
 let _ttnFbsSuppressCargoAutofill = false;
@@ -20114,7 +20116,9 @@ async function _ttnRefreshFbsSupplyField(preferValue, opts) {
   const applyCargo = opts && Object.prototype.hasOwnProperty.call(opts, "applyCargo")
     ? !!opts.applyCargo
     : !_ttnFbsSuppressCargoAutofill;
-  const keepLockedMeta = !!(opts && opts.keepMeta) || !!_ttnOpenedFromWbFbs;
+  const keepLockedMeta = !!(opts && opts.keepMeta)
+    || !!_ttnOpenedFromFbsTab
+    || !!_ttnOpenedFromWbFbs;
   const lockedMeta = _ttnParseFbsPreferValue(preferValue)
     || (keepLockedMeta && _ttnSelectedFbsMeta
       ? {
@@ -20956,7 +20960,7 @@ async function _openTtnModal(mode, record) {
       preferFbs,
       // Edit: keep saved places/weight. Create/copy: allow live autofill when supply is selected.
       // keepMeta: never drop FBS linkage opened from WB FBS / existing TTN record.
-      { applyCargo: mode !== "edit", keepMeta: !!preferFbs || !!_ttnOpenedFromWbFbs },
+      { applyCargo: mode !== "edit", keepMeta: !!preferFbs || !!_ttnOpenedFromFbsTab || !!_ttnOpenedFromWbFbs },
     );
     modal.classList.remove("hidden");
     modal.style.display = "";
@@ -20974,6 +20978,7 @@ window.openEditTtnModal = openEditTtnModal;
 window.openCopyTtnModal = openCopyTtnModal;
 
 function closeCreateTtnModal() {
+  _ttnOpenedFromFbsTab = "";
   _ttnOpenedFromWbFbs = false;
   _ttnManualDriverMode = false;
   _ttnManualVehicleMode = false;
@@ -21096,11 +21101,14 @@ async function saveTtnRecord() {
     if (info) { info.textContent = e.detail || "Ошибка"; info.style.color = "#b91c1c"; }
     return;
   }
-  const fromWbFbs = _ttnOpenedFromWbFbs;
+  const fromFbsTab = _ttnOpenedFromFbsTab || (_ttnOpenedFromWbFbs ? "wb" : "");
   closeCreateTtnModal();
   await loadTtnRecords();
-  if (fromWbFbs && wbFbsState.tab === "delivery") {
+  if (fromFbsTab === "wb" && wbFbsState.tab === "delivery") {
     try { await loadWbFbsOrders(); } catch (_e) { /* ignore */ }
+  }
+  if (fromFbsTab === "ozon" && typeof reloadOzonFbsPostings === "function") {
+    try { await reloadOzonFbsPostings(); } catch (_e) { /* ignore */ }
   }
 }
 window.saveTtnRecord = saveTtnRecord;
@@ -32368,6 +32376,7 @@ async function wbFbsFormTtn(supplyId, sourceId) {
     alert("Не удалось подготовить ТН");
     return;
   }
+  _ttnOpenedFromFbsTab = "wb";
   _ttnOpenedFromWbFbs = true;
   const existingId = Number(data.existing_ttn_id || record.id || 0);
   await _openTtnModal(existingId ? "edit" : "create", record);

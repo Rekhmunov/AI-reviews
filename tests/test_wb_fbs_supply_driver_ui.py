@@ -92,5 +92,5 @@ def test_shared_driver_cabinet_shows_wb_items() -> None:
 
 def test_cache_bump_for_driver_modal() -> None:
     html = HTML.read_text(encoding="utf-8")
-    assert "app.js?v=646" in html
+    assert "app.js?v=647" in html
     assert "style.css?v=376" in html

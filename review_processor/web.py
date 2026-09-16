@@ -14511,7 +14511,27 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.get("/api/ozon-fbs/supplies/{supply_id}/ttn-prefill")
+    def ozon_fbs_ttn_prefill(
+        request: Request, supply_id: str, source_id: int
+    ) -> dict[str, object]:
+        """Local shipper/consignee/driver/cargo draft for «Сформировать ТН»."""
+        from . import ozon_fbs_supplies as oz_sup
 
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid or not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        _ozon_fbs_source_credentials(owner_id, int(source_id))
+        return oz_sup.build_ttn_prefill(
+            repository,
+            user_id=owner_id,
+            source_id=int(source_id),
+            supply_id=sid,
+        )
 
     def _merge_driver_page_cargo_places(ozon_payload: dict, wb_payload: dict) -> dict[str, object]:
         """Combine Ozon GM + WB TRBX items for the shared driver cabinet."""

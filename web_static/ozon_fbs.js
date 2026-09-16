@@ -540,7 +540,7 @@
 
   function colspan() {
     if (!isSuppliesTab()) return state.lookupMode ? 5 : 4;
-    return isDeliveringSuppliesTab() ? 6 : 7;
+    return 7;
   }
 
   async function loadSources() {
@@ -817,15 +817,15 @@
     if (!colgroup || !thead) return;
     if (!modeChanged && colgroup.children.length) return;
     if (supplies) {
-      const canRename = !isDeliveringSuppliesTab();
+      const showActions = true;
       colgroup.innerHTML = `
         <col data-fixed="1" class="wb-fbs-col-check" style="width:40px" />
-        <col data-col="0" class="wb-fbs-col-supply" style="width:${canRename ? "26%" : "28%"}" />
+        <col data-col="0" class="wb-fbs-col-supply" style="width:26%" />
         <col data-col="1" class="wb-fbs-col-qr" style="width:16%" />
         <col data-col="2" class="wb-fbs-col-orders" style="width:14%" />
         <col data-col="3" class="wb-fbs-col-status" style="width:16%" />
-        <col data-col="4" class="wb-fbs-col-wh" style="width:${canRename ? "22%" : "24%"}" />
-        ${canRename ? '<col data-fixed="1" class="wb-fbs-col-act" style="width:48px" />' : ""}
+        <col data-col="4" class="wb-fbs-col-wh" style="width:22%" />
+        ${showActions ? '<col data-fixed="1" class="wb-fbs-col-act" style="width:48px" />' : ""}
       `;
       thead.innerHTML = `
         <th class="wb-fbs-th-check"><input type="checkbox" id="ozonFbsSelectAll" onchange="toggleSelectAllOzonFbs(this.checked)" title="Выбрать все на странице" /></th>
@@ -834,7 +834,7 @@
         <th data-col="2">Заказы</th>
         <th data-col="3">Этап сборки</th>
         <th data-col="4">Склад</th>
-        ${canRename ? '<th class="wb-fbs-th-act"></th>' : ""}
+        ${showActions ? '<th class="wb-fbs-th-act"></th>' : ""}
       `;
     } else {
       const showAct = !!state.lookupMode;
@@ -865,10 +865,54 @@
     </span>`;
   }
 
-  function _ozonFbsSupplyRowActionsHtml(supplyId) {
-    const sid = String(supplyId || "").trim();
-    if (!sid || isDeliveringSuppliesTab()) return "";
+  function _ozonFbsTtnMenuIconHtml() {
+    return `<span class="wb-fbs-menu-ico" aria-hidden="true">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M4 2.5h7.5L16 7v8.5H4V2.5z" stroke="currentColor" stroke-width="1.4" fill="none"/>
+        <path d="M11.5 2.5V7H16" stroke="currentColor" stroke-width="1.4" fill="none"/>
+        <path d="M6.5 10h5M6.5 12.5h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+      </svg>
+    </span>`;
+  }
+
+  function _ozonFbsTtnPrintMenuIconHtml() {
+    return `<span class="wb-fbs-menu-ico" aria-hidden="true">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M5 7V3.5h8V7" stroke="currentColor" stroke-width="1.4" fill="none"/>
+        <path d="M5 11.5H3.5A1.5 1.5 0 0 1 2 10V8.5A1.5 1.5 0 0 1 3.5 7h11A1.5 1.5 0 0 1 16 8.5V10a1.5 1.5 0 0 1-1.5 1.5H13" stroke="currentColor" stroke-width="1.4" fill="none"/>
+        <rect x="5" y="11" width="8" height="4.5" stroke="currentColor" stroke-width="1.4"/>
+      </svg>
+    </span>`;
+  }
+
+  function _ozonFbsSupplyRowActionsHtml(supply) {
+    const row = supply && typeof supply === "object" ? supply : { supply_id: supply };
+    const sid = String(row.supply_id || "").trim();
+    if (!sid) return "";
     const safeKey = _ozonFbsPostingMenuKey(`s_${sid}`);
+    const src = Number(row.source_id || state.sourceId || 0);
+    if (isDeliveringSuppliesTab()) {
+      const ttnId = Number(row.ttn_id || 0);
+      const printItem = ttnId > 0
+        ? `<button type="button" class="wb-fbs-row-menu-item" role="menuitem"
+                  onclick="printTtnRecord(${ttnId})">
+            ${_ozonFbsTtnPrintMenuIconHtml()}
+            Распечатать ТН
+          </button>`
+        : "";
+      return `<div class="wb-fbs-row-menu-wrap" id="ozonFbsRowMenuWrap_${safeKey}">
+        <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
+                onclick="toggleOzonFbsRowMenu(event, '${esc(safeKey)}')" aria-haspopup="menu">⋮</button>
+        <div id="ozonFbsRowMenu_${safeKey}" class="wb-fbs-row-menu" data-supply-id="${esc(sid)}" role="menu">
+          <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
+                  onclick="ozonFbsFormTtn('${esc(sid)}', ${src}).catch((e)=>alert(e.message||e))">
+            ${_ozonFbsTtnMenuIconHtml()}
+            Сформировать ТН
+          </button>
+          ${printItem}
+        </div>
+      </div>`;
+    }
     return `<div class="wb-fbs-row-menu-wrap" id="ozonFbsRowMenuWrap_${safeKey}">
       <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
               onclick="toggleOzonFbsRowMenu(event, '${esc(safeKey)}')" aria-haspopup="menu">⋮</button>
@@ -880,6 +924,45 @@
         </button>
       </div>
     </div>`;
+  }
+
+  async function ozonFbsFormTtn(supplyId, sourceId) {
+    closeOzonFbsRowMenus();
+    const sid = String(supplyId || "").trim();
+    const src = Number(sourceId || state.sourceId || 0);
+    if (!sid || !src) {
+      alert("Не указан источник поставки");
+      return;
+    }
+    if (typeof _openTtnModal !== "function") {
+      alert("Модалка ТН недоступна");
+      return;
+    }
+    const res = await fetch(
+      `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/ttn-prefill?source_id=${src}`
+    ).catch(() => null);
+    if (!res || !res.ok) {
+      const err = await res?.json().catch(() => ({})) || {};
+      alert(err.detail || "Не удалось подготовить ТН");
+      return;
+    }
+    const data = await res.json().catch(() => ({}));
+    const record = data.record || null;
+    if (!record) {
+      alert("Не удалось подготовить ТН");
+      return;
+    }
+    if (typeof window !== "undefined") {
+      window._ttnOpenedFromFbsTab = "ozon";
+    }
+    const existingId = Number(data.existing_ttn_id || record.id || 0);
+    await _openTtnModal(existingId ? "edit" : "create", record);
+    const info = document.getElementById("ttnCreateInfo");
+    const warnings = Array.isArray(data.warnings) ? data.warnings.filter(Boolean) : [];
+    if (info && warnings.length) {
+      info.textContent = warnings.join(" ");
+      info.style.color = "#b45309";
+    }
   }
 
   function openOzonFbsRenameSupplyModal(supplyId) {
@@ -1014,7 +1097,6 @@
       syncSelectAll();
       return;
     }
-    const canRename = !isDeliveringSuppliesTab();
     const openBlocked = isSupplyOpenBlocked();
     const openTip = openBlocked ? supplyOpenBlockedTitle() : "";
     tbody.innerHTML = state.items.map((s) => {
@@ -1026,9 +1108,7 @@
         : "";
       const ordersCount = Number(s.order_count || 0);
       const status = String(s.status_label || "Сборка заказов");
-      const actionsTd = canRename
-        ? `<td class="wb-fbs-td-act">${_ozonFbsSupplyRowActionsHtml(sid)}</td>`
-        : "";
+      const actionsTd = `<td class="wb-fbs-td-act">${_ozonFbsSupplyRowActionsHtml(s)}</td>`;
       const nameCls = openBlocked
         ? "wb-fbs-supply-name is-link is-disabled"
         : "wb-fbs-supply-name is-link";
@@ -12946,6 +13026,8 @@
   window.confirmOzonFbsMoveAwaiting = confirmOzonFbsMoveAwaiting;
   window.toggleOzonFbsRowMenu = toggleOzonFbsRowMenu;
   window.closeOzonFbsRowMenus = closeOzonFbsRowMenus;
+  window.ozonFbsFormTtn = ozonFbsFormTtn;
+  window.reloadOzonFbsPostings = loadPostings;
   window.ozonFbsPrintOnePostingStickerFromDetail = printOnePostingStickerFromDetail;
   window.ozonFbsRemoveCancelledPostingFromSupply = ozonFbsRemoveCancelledPostingFromSupply;
   window.openOzonFbsMovePostingModal = openOzonFbsMovePostingModal;
