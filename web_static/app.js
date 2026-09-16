@@ -2789,20 +2789,42 @@ let _supplyDriversCache = [];
 // ── Supply drivers ──
 
 
+async function fetchDriverPublicLinkPath() {
+  const res = await fetch("/api/ozon-fbs/driver/public-link", {
+    headers: { Accept: "application/json" },
+  }).catch(() => null);
+  if (!res || !res.ok) return "";
+  const data = await res.json().catch(() => ({}));
+  return String(data.path || "").trim();
+}
+
+/** Open PIN-gated driver page (no classic login). Falls back to short URL. */
+async function openOzonFbsDriverPage() {
+  try {
+    const path = await fetchDriverPublicLinkPath();
+    window.location.href = path || "/ozon-fbs/driver";
+  } catch (_) {
+    window.location.href = "/ozon-fbs/driver";
+  }
+}
+
 async function loadDriverPublicLink() {
   const input = document.getElementById("driverPublicLinkInput");
   const info = document.getElementById("driverPublicLinkInfo");
   if (!input) return;
   try {
-    const res = await fetch("/api/ozon-fbs/driver/public-link", { headers: { Accept: "application/json" } }).catch(() => null);
-    if (!res || !res.ok) {
-      if (info) info.textContent = res && res.status === 403 ? "Ссылка доступна только главному пользователю" : "";
+    const path = await fetchDriverPublicLinkPath();
+    if (!path) {
+      if (info) {
+        info.textContent = "Ссылка доступна только главному пользователю";
+      }
       return;
     }
-    const data = await res.json().catch(() => ({}));
-    const path = String(data.path || "").trim();
-    input.value = path ? (window.location.origin + path) : "";
-    if (info) info.textContent = path ? "Отправьте ссылку водителю. На странице нужно ввести его ПИН." : "";
+    input.value = window.location.origin + path;
+    if (info) {
+      info.textContent =
+        "Отправьте ссылку водителю. На странице нужно ввести его ПИН (без логина и пароля аккаунта).";
+    }
   } catch (_) {
     if (info) info.textContent = "";
   }

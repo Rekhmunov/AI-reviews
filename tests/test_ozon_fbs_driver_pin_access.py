@@ -93,10 +93,26 @@ def test_list_plates_can_filter_by_driver_id() -> None:
     assert nums == {"С333СС777"}
 
 
-def test_owner_route_still_owner_gated() -> None:
+def test_owner_route_redirects_to_pin_not_classic_login() -> None:
     owner_start = WEB.find("def ozon_fbs_driver_page(")
     assert owner_start > 0
     end = WEB.find(chr(10) + "    @app.", owner_start)
     page = WEB[owner_start:end]
     assert "_is_wb_fbs_tenant_owner" in page
-    assert "только главному пользователю" in page
+    # Short URL must not send drivers to classic /login.
+    assert 'RedirectResponse("/login"' not in page
+    assert "_ofd_driver_pin_help_html" in WEB
+    assert "не использует логин и пароль" in WEB
+    assert "/ozon-fbs/driver/p/" in page
+    assert "OFD_PAGE_TOKEN_COOKIE" in WEB
+    assert "ofd_page_token" in WEB
+
+
+def test_short_driver_url_never_classic_login() -> None:
+    assert "OFD_PAGE_TOKEN_COOKIE" in WEB or 'ofd_page_token' in WEB
+    assert "_ofd_driver_pin_help_html" in WEB
+    assert "не использует логин и пароль" in WEB
+    assert "openOzonFbsDriverPage" in APP_JS
+    assert "fetchDriverPublicLinkPath" in APP_JS
+    assert "openOzonFbsDriverPage()" in APP_HTML
+    assert "без логина и пароля аккаунта" in APP_JS

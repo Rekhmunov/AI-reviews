@@ -1294,6 +1294,10 @@ TENANT_ROLE_MANAGER = "feedback_manager"
 TENANT_MANAGER_ROLES = {"feedback_manager", "production_manager", "manager"}
 SESSION_TTL_SECONDS = 30 * 24 * 60 * 60
 CSRF_COOKIE_NAME = "csrf_token"
+# Remembers the cabinet public driver-page token so /ozon-fbs/driver can open
+# PIN auth without classic login after the first visit via the public link.
+OFD_PAGE_TOKEN_COOKIE = "ofd_page_token"
+OFD_PAGE_TOKEN_TTL_SECONDS = 365 * 24 * 60 * 60
 CSRF_HEADER_NAME = "X-CSRF-Token"
 RATE_LIMIT_API_READ_PER_MINUTE = 600
 RATE_LIMIT_API_WRITE_PER_MINUTE = 180
@@ -2374,10 +2378,45 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return response
 
 
+    def _ofd_remember_page_token_cookie(
+        response: HTMLResponse | RedirectResponse, *, token: str, secure: bool
+    ) -> None:
+        response.set_cookie(
+            OFD_PAGE_TOKEN_COOKIE,
+            token,
+            httponly=True,
+            samesite="lax",
+            secure=secure,
+            max_age=OFD_PAGE_TOKEN_TTL_SECONDS,
+            path="/ozon-fbs/driver",
+        )
+
+    def _ofd_driver_pin_help_html() -> HTMLResponse:
+        """Anonymous short URL without a remembered public token — no classic login."""
+        return HTMLResponse(
+            "<!DOCTYPE html><html lang=\"ru\"><head>"
+            "<meta charset=\"utf-8\"/>"
+            "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>"
+            "<title>Для водителя</title>"
+            "<style>"
+            "body{font-family:system-ui,sans-serif;margin:0;padding:32px 20px;"
+            "background:#f1f5f9;color:#0f172a;line-height:1.45}"
+            ".box{max-width:420px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;"
+            "border-radius:12px;padding:24px}"
+            "h1{font-size:20px;margin:0 0 12px}p{margin:0 0 12px;color:#475569}"
+            "p:last-child{margin-bottom:0}"
+            "</style></head><body><div class=\"box\">"
+            "<h1>Вход по ПИН</h1>"
+            "<p>Страница водителя не использует логин и пароль аккаунта.</p>"
+            "<p>Откройте персональную ссылку из настроек «Водители» "
+            "(раздел публичной страницы) и введите ПИН водителя.</p>"
+            "</div></body></html>",
+            status_code=401,
+        )
+
     @app.get("/ozon-fbs/driver/p/{page_token}", response_class=HTMLResponse)
     def ozon_fbs_driver_public_page(request: Request, page_token: str) -> HTMLResponse:
         """Public PIN-gated driver page (no account). Scoped by cabinet page token."""
-        del request
         token = str(page_token or "").strip()
         owner_id = (
             repository.find_user_id_by_ozon_fbs_driver_page_token(token) if token else None
@@ -2388,31 +2427,57 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 "<p>Проверьте адрес страницы для водителя.</p>",
                 status_code=404,
             )
-        return HTMLResponse(
+        response = HTMLResponse(
             build_ozon_fbs_driver_html(
                 user=None,
                 repository=repository,
                 public_page_token=token,
             )
         )
+        _ofd_remember_page_token_cookie(
+            response,
+            token=token,
+            secure=bool(app_config.is_production),
+        )
+        return response
 
     @app.get("/ozon-fbs/driver", response_class=HTMLResponse)
     @app.get("/ozon-fbs/driver/{path:path}", response_class=HTMLResponse)
     def ozon_fbs_driver_page(request: Request, path: str = "") -> HTMLResponse:
-        """Standalone page for drivers: pick plate, see formed/SC cargo places."""
+        """Short URL → public PIN page (no classic login/password).
+
+        Logged-in owner is redirected to the cabinet public token URL.
+        Anonymous visitors reuse a remembered public token cookie when present;
+        otherwise they see how to open the settings link (PIN only).
+        """
         del path
+        secure = bool(app_config.is_production)
         user = _get_current_user(request)
-        if user is None:
-            return RedirectResponse("/login", status_code=302)
-        # Owner-only (same as Ozon FBS toolbar button «Для водителя»).
-        if not _is_wb_fbs_tenant_owner(user):
-            return HTMLResponse(
-                "<h1>Доступ запрещён</h1><p>Страница «Для водителя» доступна только главному пользователю.</p>",
-                status_code=403,
+        if user is not None and _is_wb_fbs_tenant_owner(user):
+            owner_id = _supply_owner_id(user)
+            repository._ensure_supply_tables()
+            token = repository.ensure_ozon_fbs_driver_page_token(user_id=owner_id)
+            if not token:
+                return HTMLResponse(
+                    "<h1>Не удалось открыть страницу</h1>"
+                    "<p>Попробуйте позже или скопируйте ссылку в настройках «Водители».</p>",
+                    status_code=500,
+                )
+            response = RedirectResponse(
+                f"/ozon-fbs/driver/p/{token}", status_code=302
             )
-        response = HTMLResponse(build_ozon_fbs_driver_html(user, repository=repository))
-        _ensure_csrf_cookie(response, request)
-        return response
+            _ofd_remember_page_token_cookie(response, token=token, secure=secure)
+            return response
+
+        remembered = str(request.cookies.get(OFD_PAGE_TOKEN_COOKIE) or "").strip()
+        if remembered and repository.find_user_id_by_ozon_fbs_driver_page_token(
+            remembered
+        ):
+            return RedirectResponse(
+                f"/ozon-fbs/driver/p/{remembered}", status_code=302
+            )
+        # Do not send drivers to classic /login — PIN lives on the public token URL.
+        return _ofd_driver_pin_help_html()
 
     @app.get("/admin", response_class=HTMLResponse)
     def admin_page(request: Request) -> HTMLResponse:
@@ -22861,8 +22926,9 @@ def build_ozon_fbs_driver_html(
 ) -> str:
     """Standalone Ozon FBS driver page (plates + cargo places). Isolated from app.
 
-    Owner mode (logged-in): all plates, no PIN.
     Public mode (``public_page_token``): PIN gate, then only that driver's plates.
+    Owner mode (logged-in, legacy): all plates, no PIN — short URL now redirects
+    owners to the public PIN URL instead.
     """
     page_token = str(public_page_token or "").strip()
     if page_token:

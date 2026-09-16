@@ -48,7 +48,10 @@ def test_driver_page_and_apis_owner_only() -> None:
         WEB.find("def ozon_fbs_driver_page") : WEB.find("def admin_page")
     ]
     assert "_is_wb_fbs_tenant_owner" in page
-    assert "только главному пользователю" in page
+    # Anonymous / non-owner short URL → PIN help / public token, never classic /login.
+    assert 'RedirectResponse("/login"' not in page
+    assert "/ozon-fbs/driver/p/" in page
+    assert "_ofd_driver_pin_help_html" in WEB
 
     vehicles = WEB[
         WEB.find("def ozon_fbs_driver_page_vehicles") : WEB.find(
