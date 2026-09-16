@@ -91,8 +91,7 @@ def test_modal_status_poll_while_open() -> None:
         )
     ]
     assert "_ozonFbsPeerScanBurstBusy()" in start
-    assert "_ozonFbsPeerScanBusy()" not in start or "_ozonFbsPeerScanBurstBusy()" in start
-    assert "_ozonFbsPeerDomBusy()" not in start.replace("_ozonFbsPeerScanBurstBusy", "")
+    assert "_ozonFbsPeerDomBusy()" not in start
 
 
 def test_peer_merge_requires_newer_saved_at() -> None:
@@ -109,6 +108,15 @@ def test_peer_merge_requires_newer_saved_at() -> None:
         )
     ]
     assert "_ozonFbsPeerRemoteIsNewer" in pick
+
+
+def test_gm_reconcile_triggers_status_refresh_for_fill_counters() -> None:
+    merge = BIND[
+        BIND.find("function mergeReconcileBinds") : BIND.find(
+            "async function reconcileContainers"
+        )
+    ]
+    assert "scheduleSupplyStatusRefresh()" in merge
 
 
 def test_peer_merge_defers_table_rebuild_while_scanning() -> None:
