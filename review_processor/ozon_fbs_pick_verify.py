@@ -176,7 +176,8 @@ def update_posting_pick_verify(
                 "conflict": False,
                 "missing": False,
                 "unchanged": True,
-                "verified_at": cur_saved if cur_verified else "",
+                # Keep token even when unverified so peer clear/fill can compare.
+                "verified_at": cur_saved,
                 "verified": cur_verified,
                 "barcode": cur_barcode,
             }
@@ -191,7 +192,9 @@ def update_posting_pick_verify(
             (
                 new_verified,
                 new_barcode,
-                saved_at if new_verified else None,
+                # Always bump token (incl. clear) so multi-op status merge sees
+                # peer unverify as strictly newer than the previous fill.
+                saved_at,
                 user_id,
                 source_id,
                 pn,
@@ -202,7 +205,7 @@ def update_posting_pick_verify(
         "conflict": False,
         "missing": False,
         "unchanged": False,
-        "verified_at": wb._normalize_kiz_saved_at(saved_at) if new_verified else "",
+        "verified_at": wb._normalize_kiz_saved_at(saved_at),
         "verified": new_verified,
         "barcode": new_barcode,
     }
@@ -623,6 +626,7 @@ def check_supply_pick_verify_status(
                 "posting_number": pn,
                 "pick_verified": verified,
                 "pick_barcode": str(loc.get("pick_barcode") or "").strip() if verified else "",
+                # Token is kept after clear so peer sync can adopt unverify.
                 "pick_verified_at": str(loc.get("pick_verified_at") or ""),
                 "pick_status": st,
                 "container_id": loc.get("container_id"),

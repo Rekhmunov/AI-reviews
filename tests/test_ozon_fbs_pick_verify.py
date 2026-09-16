@@ -279,6 +279,40 @@ def test_update_posting_pick_verify_conflict() -> None:
     assert res["conflict"] is True
 
 
+def test_update_posting_pick_verify_clear_keeps_timestamp_for_peer_sync() -> None:
+    """Clear must bump pick_verified_at so peer modal merge can adopt unverify."""
+    repo = MagicMock()
+    conn = MagicMock()
+    repo._connect.return_value.__enter__ = MagicMock(return_value=conn)
+    repo._connect.return_value.__exit__ = MagicMock(return_value=False)
+    repo._sql.side_effect = lambda s: s
+    repo._row_to_dict.return_value = {
+        "pick_verified": True,
+        "pick_barcode": "4601234567890",
+        "pick_verified_at": "2026-01-01T00:00:00+00:00",
+    }
+    conn.execute.return_value.fetchone.return_value = {"pick_verified": True}
+    with patch("review_processor.ozon_fbs_pick_verify.oz.ensure_ozon_fbs_tables"):
+        res = update_posting_pick_verify(
+            repo,
+            user_id=1,
+            source_id=2,
+            posting_number="P-1",
+            verified=False,
+            barcode="",
+            expected_verified_at="2026-01-01T00:00:00+00:00",
+        )
+    assert res["ok"] is True
+    assert res["verified"] is False
+    assert res["barcode"] == ""
+    assert res["verified_at"]
+    # UPDATE args: verified, barcode, verified_at, user, source, pn
+    update_args = conn.execute.call_args_list[-1][0][1]
+    assert update_args[0] is False
+    assert update_args[1] == ""
+    assert update_args[2] is not None
+
+
 def test_supply_detail_for_pick_verify_local_only() -> None:
     from review_processor.ozon_fbs_pick_verify import _supply_detail_for_pick_verify
 

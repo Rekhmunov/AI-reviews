@@ -7872,6 +7872,7 @@
     /** While modal open: soft-poll marking/status so peer scans update fill counters. */
     modalStatusPollTimer: null,
     modalStatusFirstTimer: null,
+    modalStatusBurstRetry: null,
     lastModalStatusPollAt: 0,
     /** Defer table rebuild when operator is typing in a KIZ cell. */
     peerDomRefreshPending: false,
@@ -7902,6 +7903,7 @@
     /** While modal open: soft-poll pick-verify/status for peer fill counters. */
     modalStatusPollTimer: null,
     modalStatusFirstTimer: null,
+    modalStatusBurstRetry: null,
     lastModalStatusPollAt: 0,
     peerDomRefreshPending: false,
     /** Bumped to abort in-flight pick-verify resolve when modal closes / reopens. */
@@ -10024,12 +10026,24 @@
   }
 
   /**
-   * Defer heavy table rebuild while a scan field is focused OR a burst is active.
-   * Do NOT use focus alone to skip status polls — sticker field stays focused at rest.
+   * Defer heavy table rebuild while a burst is active OR a row/GM cell is focused.
+   * Resting focus on the top sticker/mark scan field must NOT block tbody refresh —
+   * those inputs live outside the table.
    */
   function _ozonFbsPeerDomBusy() {
     if (_ozonFbsPeerScanBurstBusy()) return true;
-    return _ozonFbsPeerIsScanInput(document.activeElement);
+    const el = document.activeElement;
+    if (!_ozonFbsPeerIsScanInput(el)) return false;
+    const id = String(el.id || "");
+    if (
+      id === "ozonFbsKizStickerScan"
+      || id === "ozonFbsKizMarkScan"
+      || id === "ozonFbsPickStickerScan"
+      || id === "ozonFbsPickSkuScan"
+    ) {
+      return false;
+    }
+    return true;
   }
 
   /** @deprecated alias — prefer burst (poll) vs dom (rebuild) explicitly. */
@@ -10169,6 +10183,10 @@
       clearTimeout(ozonFbsKizState.modalStatusFirstTimer);
       ozonFbsKizState.modalStatusFirstTimer = null;
     }
+    if (ozonFbsKizState.modalStatusBurstRetry != null) {
+      clearTimeout(ozonFbsKizState.modalStatusBurstRetry);
+      ozonFbsKizState.modalStatusBurstRetry = null;
+    }
     ozonFbsKizState.peerDomRefreshPending = false;
     if (!_ozonFbsPickModalIsOpen()) _ozonFbsPeerClearDomIdleTimer();
   }
@@ -10185,7 +10203,15 @@
       }
       if (typeof document !== "undefined" && document.hidden) return;
       // Burst only — resting focus on sticker must NOT block peer counter sync.
-      if (_ozonFbsPeerScanBurstBusy()) return;
+      if (_ozonFbsPeerScanBurstBusy()) {
+        if (ozonFbsKizState.modalStatusBurstRetry == null) {
+          ozonFbsKizState.modalStatusBurstRetry = setTimeout(() => {
+            ozonFbsKizState.modalStatusBurstRetry = null;
+            tick();
+          }, OZON_FBS_PEER_SCAN_BUSY_MS + 100);
+        }
+        return;
+      }
       const now = Date.now();
       if (now - Number(ozonFbsKizState.lastModalStatusPollAt || 0) < OZON_FBS_MODAL_STATUS_MIN_GAP_MS) {
         return;
@@ -11976,8 +12002,8 @@
       if (!_ozonFbsPeerRemoteIsNewer(curAt, nextAt)) continue;
       row.pick_verified = nextVerified;
       row.pick_barcode = nextBarcode;
-      if (nextAt) row.pick_verified_at = nextAt;
-      else if (!nextVerified) row.pick_verified_at = "";
+      // Keep clear/fill token for the next conflict / peer compare.
+      row.pick_verified_at = nextAt;
       _ozonFbsPickSetBaseline(pn, nextVerified, nextBarcode);
       if (ozonFbsPickState.forceSaveByPosting) delete ozonFbsPickState.forceSaveByPosting[pn];
       touched += 1;
@@ -12012,6 +12038,10 @@
       clearTimeout(ozonFbsPickState.modalStatusFirstTimer);
       ozonFbsPickState.modalStatusFirstTimer = null;
     }
+    if (ozonFbsPickState.modalStatusBurstRetry != null) {
+      clearTimeout(ozonFbsPickState.modalStatusBurstRetry);
+      ozonFbsPickState.modalStatusBurstRetry = null;
+    }
     ozonFbsPickState.peerDomRefreshPending = false;
     if (!_ozonFbsKizModalIsOpen()) _ozonFbsPeerClearDomIdleTimer();
   }
@@ -12027,7 +12057,15 @@
         return;
       }
       if (typeof document !== "undefined" && document.hidden) return;
-      if (_ozonFbsPeerScanBurstBusy()) return;
+      if (_ozonFbsPeerScanBurstBusy()) {
+        if (ozonFbsPickState.modalStatusBurstRetry == null) {
+          ozonFbsPickState.modalStatusBurstRetry = setTimeout(() => {
+            ozonFbsPickState.modalStatusBurstRetry = null;
+            tick();
+          }, OZON_FBS_PEER_SCAN_BUSY_MS + 100);
+        }
+        return;
+      }
       const now = Date.now();
       if (now - Number(ozonFbsPickState.lastModalStatusPollAt || 0) < OZON_FBS_MODAL_STATUS_MIN_GAP_MS) {
         return;
@@ -12476,7 +12514,10 @@
       }
       row.pick_verified = !!result.pick_verified;
       row.pick_barcode = String(result.pick_barcode || "").trim();
-      if (result.pick_verified_at) row.pick_verified_at = String(result.pick_verified_at);
+      // Always adopt token (incl. clear) for peer/conflict compares.
+      if (result.pick_verified_at != null) {
+        row.pick_verified_at = String(result.pick_verified_at || "");
+      }
       _ozonFbsPickSetBaseline(pn, row.pick_verified, row.pick_barcode);
       if (ozonFbsPickState.forceSaveByPosting) delete ozonFbsPickState.forceSaveByPosting[pn];
       delete ozonFbsPickState.errors[pn];
@@ -12961,7 +13002,10 @@
         if (row) {
           row.pick_verified = !!result.pick_verified;
           row.pick_barcode = String(result.pick_barcode || "").trim();
-          if (result.pick_verified_at) row.pick_verified_at = String(result.pick_verified_at);
+          // Always adopt token (incl. clear) for peer/conflict compares.
+          if (result.pick_verified_at != null) {
+            row.pick_verified_at = String(result.pick_verified_at || "");
+          }
         }
         _ozonFbsPickSetBaseline(
           pn,

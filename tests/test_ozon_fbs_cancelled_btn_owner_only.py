@@ -17,7 +17,7 @@ def test_cancelled_orders_btn_owner_only() -> None:
 
     assert 'id="ozonFbsSupplyDetailCancelledBtn"' in html
     assert "openOzonFbsCancelledOrdersModal()" in html
-    assert "ozon_fbs.js?v=178" in html
+    assert "ozon_fbs.js?v=179" in html
 
     assert "function _ozonFbsSyncCancelledBtn" in js
     sync_fn = js[

@@ -92,6 +92,33 @@ def test_modal_status_poll_while_open() -> None:
     ]
     assert "_ozonFbsPeerScanBurstBusy()" in start
     assert "_ozonFbsPeerDomBusy()" not in start
+    assert "modalStatusBurstRetry" in start
+    # Resting focus on top sticker/mark fields must not block tbody rebuild.
+    dom_busy = JS[
+        JS.find("function _ozonFbsPeerDomBusy") : JS.find(
+            "function _ozonFbsPeerScanBusy"
+        )
+    ]
+    assert 'id === "ozonFbsKizStickerScan"' in dom_busy
+    assert 'id === "ozonFbsPickStickerScan"' in dom_busy
+
+
+def test_pick_clear_keeps_verified_at_token() -> None:
+    """Backend clear must bump pick_verified_at (not NULL) for peer unverify."""
+    fn = PICK[
+        PICK.find("def update_posting_pick_verify") : PICK.find(
+            "def load_posting_barcodes_map"
+        )
+    ]
+    assert "Always bump token" in fn or "always bump" in fn.lower()
+    assert "saved_at if new_verified else None" not in fn
+    merge = JS[
+        JS.find("function _ozonFbsPickMergeRemoteIntoOpenModal") : JS.find(
+            "function _ozonFbsPickStopModalStatusPoll"
+        )
+    ]
+    assert "row.pick_verified_at = nextAt" in merge
+    assert 'row.pick_verified_at = ""' not in merge
 
 
 def test_peer_merge_requires_newer_saved_at() -> None:
@@ -186,5 +213,5 @@ def test_gm_status_refresh_skips_scan_busy_and_open_modals_only() -> None:
 
 
 def test_asset_cache_bumped_for_multiop_scan_counter() -> None:
-    assert "ozon_fbs.js?v=178" in HTML
+    assert "ozon_fbs.js?v=179" in HTML
     assert "ozon_fbs_container_bind.js?v=36" in HTML
