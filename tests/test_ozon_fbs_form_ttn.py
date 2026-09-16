@@ -36,6 +36,8 @@ def test_ttn_prefill_is_local_only() -> None:
     assert 'platform="ozon"' in prefill
     assert "find_legal_entity_for_fbs_source" in prefill
     assert "find_warehouse_for_fbs_source" in prefill
+    assert "resolve_shipper_load_place" in prefill
+    assert "load_warehouse_id" in prefill
     assert "get_supply_driver" in prefill
     assert "find_ttn_record_id_by_fbs" in prefill
     assert "Настройки → Юр. лица" in prefill
@@ -58,4 +60,4 @@ def test_ttn_prefill_is_local_only() -> None:
 
 def test_cache_bump_for_ozon_form_ttn() -> None:
     assert "ozon_fbs.js?v=174" in HTML
-    assert "app.js?v=648" in HTML
+    assert "app.js?v=649" in HTML

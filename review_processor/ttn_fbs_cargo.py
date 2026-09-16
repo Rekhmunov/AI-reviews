@@ -184,3 +184,49 @@ def format_places(value: int | None) -> str:
     if value is None:
         return ""
     return str(int(value))
+
+
+def resolve_shipper_load_place(
+    repo: Any,
+    *,
+    user_id: int,
+    legal_entity_id: int,
+    exclude_warehouse_id: int = 0,
+) -> tuple[int, str]:
+    """Warehouse under shipper LE for TTN «Место погрузки» dropdown.
+
+    Load options for legal entities are warehouses linked to the LE — not the
+    LE card address. Prefer a warehouse other than the marketplace unload one.
+    """
+    le_id = int(legal_entity_id or 0)
+    if le_id <= 0:
+        return 0, ""
+    try:
+        rows = repo.list_supply_warehouses(user_id=user_id) or []
+    except Exception:
+        return 0, ""
+    ex = int(exclude_warehouse_id or 0)
+    candidates: list[dict[str, Any]] = []
+    for w in rows:
+        if not isinstance(w, dict):
+            continue
+        if int(w.get("legal_entity_id") or 0) != le_id:
+            continue
+        wid = int(w.get("id") or 0)
+        if wid <= 0:
+            continue
+        candidates.append(w)
+    if not candidates:
+        return 0, ""
+    preferred = [w for w in candidates if int(w.get("id") or 0) != ex]
+    pool = preferred or candidates
+    pool.sort(key=lambda w: str(w.get("warehouse_name") or "").casefold())
+    pick = pool[0]
+    wid = int(pick.get("id") or 0)
+    addr = str(pick.get("address") or "").strip()
+    if not addr:
+        try:
+            addr = str(repo.warehouse_address_line(pick) or "").strip()
+        except Exception:
+            addr = ""
+    return wid, addr

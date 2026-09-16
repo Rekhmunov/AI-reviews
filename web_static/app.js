@@ -20898,7 +20898,30 @@ async function _openTtnModal(mode, record) {
 
     const loadAddr = String(record.load_address || "").trim();
     const unloadAddr = String(record.unload_address || "").trim();
-    const loadKey = _ttnRefreshLoadPlaceOptions(loadAddr);
+    // Same as unload: prefer warehouse key so LE card address does not force manual row.
+    let loadPrefer = Number(record.load_warehouse_id || 0) > 0
+      ? `w:${Number(record.load_warehouse_id)}`
+      : loadAddr;
+    let loadKey = _ttnRefreshLoadPlaceOptions(loadPrefer);
+    // Legacy FBS drafts stored LE card address; dropdown only has LE warehouses.
+    if (!loadKey && shipRef.startsWith("le:")) {
+      const leId = Number(shipRef.slice(3) || 0);
+      const whs = _ttnWarehousesForLegalEntity(leId);
+      if (whs.length === 1) {
+        loadPrefer = `w:${Number(whs[0].id)}`;
+        loadKey = _ttnRefreshLoadPlaceOptions(loadPrefer);
+      } else if (whs.length > 1 && loadAddr) {
+        const want = loadAddr.toLowerCase();
+        const match = whs.find((w) => {
+          const line = String(warehouseAddressLine(w) || w.address || "").trim().toLowerCase();
+          return line && (line === want || line.includes(want) || want.includes(line));
+        });
+        if (match) {
+          loadPrefer = `w:${Number(match.id)}`;
+          loadKey = _ttnRefreshLoadPlaceOptions(loadPrefer);
+        }
+      }
+    }
     if (!loadKey && loadAddr) {
       _ttnManualLoadMode = true;
       if (loadFields) loadFields.style.display = "block";

@@ -51,6 +51,8 @@ def test_ttn_prefill_is_local_only() -> None:
     prefill = WB.split("def build_ttn_prefill", 1)[1].split("\ndef persist_order_stickers_batch", 1)[0]
     assert "find_legal_entity_for_fbs_source" in prefill
     assert "find_warehouse_for_fbs_source" in prefill
+    assert "resolve_shipper_load_place" in prefill
+    assert "load_warehouse_id" in prefill
     assert "get_supply_driver" in prefill
     assert "find_ttn_record_id_by_fbs" in prefill
     assert "Юр. лицо для этого источника не выбрано" in prefill
@@ -71,7 +73,7 @@ def test_ttn_prefill_is_local_only() -> None:
 
 
 def test_cache_bump_for_form_ttn() -> None:
-    assert "app.js?v=648" in HTML
+    assert "app.js?v=649" in HTML
     assert "style.css?v=379" in HTML
     assert "_ttnParseFbsPreferValue" in JS
     assert "keepMeta: !!preferFbs || !!_ttnOpenedFromFbsTab || !!_ttnOpenedFromWbFbs" in JS
