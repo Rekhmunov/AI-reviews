@@ -30,8 +30,8 @@ def test_driver_page_html_boot_and_assets() -> None:
     assert "Для водителя" in html
     assert "OFD_BOOT" in html
     assert "CAN_VIEW_OZON_FBS_DRIVER" in html
-    assert "/static/ozon_fbs_driver.js?v=6" in html
-    assert "/static/ozon_fbs_driver.css?v=4" in html
+    assert "/static/ozon_fbs_driver.js?v=7" in html
+    assert "/static/ozon_fbs_driver.css?v=5" in html
     assert "PAGE_MODE" in html
     assert "PAGE_TOKEN" in html
     assert "page_mode" in html
@@ -83,10 +83,17 @@ def test_driver_page_js_calls_apis() -> None:
     assert "sortCargoItems" in js
     assert "STATUS_SORT_ORDER" in js
     assert "!list.length) return \"ok\"" in js or "if (!list.length) return \"ok\"" in js
+    assert "softRefresh" in js
+    assert "Обновление…" in js
+    assert "ofd-spinner" in js
+    assert "{ soft: true }" in js or "soft: true" in js
     css = (STATIC / "ozon_fbs_driver.css").read_text(encoding="utf-8")
     assert "ofd-banner-warn" in css
     assert "ofd-banner-ok" in css
     assert "ofd-btn-refresh" in css
+    assert "ofd-spinner" in css
+    assert "ofd-spin" in css
+    assert "is-refreshing" in css
 
 
 def test_driver_page_statuses_include_finished() -> None:
@@ -109,6 +116,11 @@ def test_driver_page_statuses_include_finished() -> None:
     assert driver_page_status_sort_key("formed") == 0
     assert driver_page_status_sort_key("acceptance_in_progress") == 1
     assert driver_page_status_sort_key("finished") == 2
+    supplies_src = (
+        ROOT / "review_processor" / "ozon_fbs_supplies.py"
+    ).read_text(encoding="utf-8")
+    assert "_list_containers_cached" in supplies_src
+    assert "include_sc_accepted=True" in supplies_src
 
 
 def test_list_driver_page_vehicle_plates_unique() -> None:

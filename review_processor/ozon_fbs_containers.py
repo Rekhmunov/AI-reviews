@@ -1233,7 +1233,7 @@ def unbind_posting_from_container(
     return {"ok": True, "error": "", **local}
 
 
-_CONTAINER_LIST_CACHE: dict[tuple[int, int, int], tuple[float, dict[str, Any]]] = {}
+_CONTAINER_LIST_CACHE: dict[tuple, tuple[float, dict[str, Any]]] = {}
 _CONTAINER_LIST_CACHE_TTL_SEC = 45.0
 _RECONCILE_FETCH_WORKERS = 8
 
@@ -1304,14 +1304,24 @@ def _list_containers_cached(
     source_id: int,
     warehouse_id: int,
     lookback_days: int = 30,
+    include_sc_accepted: bool = False,
 ) -> dict[str, Any]:
-    key = (int(user_id), int(source_id), int(warehouse_id))
+    key = (
+        int(user_id),
+        int(source_id),
+        int(warehouse_id),
+        bool(include_sc_accepted),
+        max(1, min(int(lookback_days or 30), 90)),
+    )
     now = _utc_now().timestamp()
     cached = _CONTAINER_LIST_CACHE.get(key)
     if cached and (now - cached[0]) < _CONTAINER_LIST_CACHE_TTL_SEC:
         return cached[1]
     listed = list_containers(
-        client, warehouse_id=int(warehouse_id), lookback_days=lookback_days
+        client,
+        warehouse_id=int(warehouse_id),
+        lookback_days=lookback_days,
+        include_sc_accepted=include_sc_accepted,
     )
     _CONTAINER_LIST_CACHE[key] = (now, listed)
     return listed

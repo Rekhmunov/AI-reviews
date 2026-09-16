@@ -87,7 +87,7 @@ def test_shared_driver_cabinet_shows_wb_items() -> None:
     assert 'id="wbFbsDriverPageBtn"' in html
     assert "openOzonFbsDriverPage()" in html
     driver_html = DRIVER_HTML.read_text(encoding="utf-8")
-    assert "ozon_fbs_driver.js?v=6" in driver_html
+    assert "ozon_fbs_driver.js?v=7" in driver_html
 
 
 def test_cache_bump_for_driver_modal() -> None:

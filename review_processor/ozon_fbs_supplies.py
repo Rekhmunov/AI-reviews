@@ -3098,8 +3098,12 @@ def list_driver_page_cargo_places(
             )
             key = (source_id, int(wh_id))
             if key not in listed_by_wh:
-                listed_by_wh[key] = oz_ct.list_containers(
+                # Shared short TTL cache (also used by GM reconcile) — refresh
+                # within ~45s avoids another full Ozon carriage/list walk.
+                listed_by_wh[key] = oz_ct._list_containers_cached(
                     client,
+                    user_id=user_id,
+                    source_id=source_id,
                     warehouse_id=int(wh_id),
                     include_sc_accepted=True,
                 )

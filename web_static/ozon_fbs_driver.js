@@ -19,6 +19,7 @@
     errors: [],
     loadingPlates: false,
     loadingItems: false,
+    softRefresh: false,
     accessToken: "",
     driverName: "",
     unlocking: false,
@@ -157,7 +158,13 @@
   function renderStatusBanner() {
     const host = document.getElementById("ofdStatusBanner");
     if (!host) return;
-    if (!state.vehicleNumber || state.loadingItems) {
+    if (!state.vehicleNumber) {
+      host.innerHTML = "";
+      host.hidden = true;
+      return;
+    }
+    // First load: hide banner until data arrives. Soft refresh keeps it.
+    if (state.loadingItems && !state.softRefresh) {
       host.innerHTML = "";
       host.hidden = true;
       return;
@@ -176,6 +183,7 @@
         "</div>";
       return;
     }
+    const refreshing = state.loadingItems && state.softRefresh;
     host.innerHTML =
       '<div class="ofd-banner ofd-banner-warn" role="status">' +
       "<p class=\"ofd-banner-text\">" +
@@ -183,15 +191,21 @@
       "пока статусы станут «Принято на СЦ» или «Завершено». " +
       "Нажмите «Обновить», чтобы проверить ещё раз." +
       "</p>" +
-      '<button type="button" id="ofdRefreshBtn" class="ofd-btn ofd-btn-refresh"' +
-      (state.loadingItems ? " disabled" : "") +
-      ">Обновить</button>" +
+      '<button type="button" id="ofdRefreshBtn" class="ofd-btn ofd-btn-refresh' +
+      (refreshing ? " is-loading" : "") +
+      '"' +
+      (refreshing ? " disabled" : "") +
+      ">" +
+      (refreshing
+        ? '<span class="ofd-spinner" aria-hidden="true"></span><span>Обновление…</span>'
+        : "Обновить") +
+      "</button>" +
       "</div>";
     const btn = document.getElementById("ofdRefreshBtn");
-    if (btn) {
+    if (btn && !refreshing) {
       btn.addEventListener("click", function () {
         if (state.loadingItems) return;
-        loadCargo(state.vehicleNumber);
+        loadCargo(state.vehicleNumber, { soft: true });
       });
     }
   }
@@ -351,7 +365,7 @@
       renderStatusBanner();
       return;
     }
-    if (state.loadingItems) {
+    if (state.loadingItems && !state.softRefresh) {
       box.innerHTML = '<div class="ofd-loading">Загрузка грузомест…</div>';
       renderStatusBanner();
       return;
@@ -374,6 +388,11 @@
       renderStatusBanner();
       return;
     }
+
+    const listClass =
+      state.loadingItems && state.softRefresh
+        ? "ofd-items is-refreshing"
+        : "ofd-items";
 
     const rows = sortCargoItems(state.items)
       .map(function (item) {
@@ -446,19 +465,28 @@
       "</div>" +
       "</div>" +
       errorsHtml +
-      '<ul class="ofd-items">' +
+      '<ul class="' +
+      listClass +
+      '">' +
       rows +
       "</ul>";
     renderStatusBanner();
   }
 
-  async function loadCargo(value) {
+  async function loadCargo(value, opts) {
+    const soft = !!(opts && opts.soft);
     const plate = String(value || "").trim();
     state.vehicleNumber = plate;
-    state.items = [];
-    state.errors = [];
+    state.softRefresh = soft;
+    if (!soft) {
+      state.items = [];
+      state.errors = [];
+    }
     renderResults();
-    if (!plate) return;
+    if (!plate) {
+      state.softRefresh = false;
+      return;
+    }
     state.loadingItems = true;
     renderResults();
     try {
@@ -478,11 +506,12 @@
       state.supplies = Array.isArray(data.supplies) ? data.supplies : [];
       state.errors = Array.isArray(data.errors) ? data.errors : [];
     } catch (err) {
-      state.items = [];
+      if (!soft) state.items = [];
       state.errors = [String(err.message || err)];
       toast(err.message || "Не удалось загрузить грузоместа");
     } finally {
       state.loadingItems = false;
+      state.softRefresh = false;
       renderResults();
     }
   }
