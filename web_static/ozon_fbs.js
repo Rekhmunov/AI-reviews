@@ -9965,6 +9965,7 @@
       || id === "ozonFbsKizMarkScan"
       || id === "ozonFbsPickStickerScan"
       || id === "ozonFbsPickSkuScan"
+      || id === "ozonFbsKizImportText"
     ) {
       return true;
     }
@@ -9991,6 +9992,10 @@
 
   function _ozonFbsPeerNoteScanActivity() {
     _ozonFbsPeerLastScanAt = Date.now();
+    // Keep GM-reconcile busy window in sync (COM never hits keydown watchers).
+    if (typeof window._ozonFbsContainerNoteScanActivity === "function") {
+      try { window._ozonFbsContainerNoteScanActivity(); } catch (_e) { /* ignore */ }
+    }
   }
 
   function _ozonFbsPeerBindScanWatch() {
@@ -10015,6 +10020,20 @@
     return Date.now() - Number(_ozonFbsPeerLastScanAt || 0) < OZON_FBS_PEER_SCAN_BUSY_MS;
   }
 
+  /** Posting whose row cell is focused — never peer-overwrite that row mid-edit. */
+  function _ozonFbsPeerFocusedPosting() {
+    const el = document.activeElement;
+    if (!_ozonFbsPeerIsScanInput(el)) return "";
+    return String(el.dataset?.posting || el.getAttribute?.("data-posting") || "").trim();
+  }
+
+  function _ozonFbsPeerClearDomIdleTimer() {
+    if (_ozonFbsPeerDomIdleTimer != null) {
+      clearTimeout(_ozonFbsPeerDomIdleTimer);
+      _ozonFbsPeerDomIdleTimer = null;
+    }
+  }
+
   function _ozonFbsPeerScheduleDomFlush() {
     if (_ozonFbsPeerDomIdleTimer != null) clearTimeout(_ozonFbsPeerDomIdleTimer);
     _ozonFbsPeerDomIdleTimer = setTimeout(() => {
@@ -10036,7 +10055,7 @@
 
   /**
    * Pull peer autosaves from marking/status into the open modal.
-   * Skips dirty / pending / locally-edited rows so we never overwrite an active scan.
+   * Skips dirty / pending / locally-edited / focused rows so we never overwrite an active scan.
    * Counters/indexes update immediately; full table rebuild waits until scan is idle.
    */
   function _ozonFbsKizMergeRemoteIntoOpenModal(orders) {
@@ -10047,6 +10066,7 @@
       ? ozonFbsKizState.localAutosaveDirty
       : new Set();
     const pending = String(ozonFbsKizState.pendingPosting || "").trim();
+    const focusedPn = _ozonFbsPeerFocusedPosting();
     const byPn = new Map();
     for (const o of orders) {
       const pn = String(o?.posting_number || "").trim();
@@ -10055,7 +10075,7 @@
     let touched = 0;
     for (const row of ozonFbsKizState.rows) {
       const pn = String(row?.posting_number || "").trim();
-      if (!pn || dirty.has(pn) || pending === pn) continue;
+      if (!pn || dirty.has(pn) || pending === pn || (focusedPn && pn === focusedPn)) continue;
       const upd = byPn.get(pn);
       if (!upd) continue;
       // Only touch marking-required rows (status payload includes all orders).
@@ -10110,6 +10130,7 @@
       ozonFbsKizState.modalStatusPollTimer = null;
     }
     ozonFbsKizState.peerDomRefreshPending = false;
+    if (!_ozonFbsPickModalIsOpen()) _ozonFbsPeerClearDomIdleTimer();
   }
 
   function _ozonFbsKizStartModalStatusPoll() {
@@ -11884,6 +11905,7 @@
     if (!Array.isArray(orders) || !orders.length) return 0;
     if (!Array.isArray(ozonFbsPickState.rows) || !ozonFbsPickState.rows.length) return 0;
     const pending = String(ozonFbsPickState.pendingPosting || "").trim();
+    const focusedPn = _ozonFbsPeerFocusedPosting();
     const byPn = new Map();
     for (const o of orders) {
       const pn = String(o?.posting_number || "").trim();
@@ -11892,7 +11914,7 @@
     let touched = 0;
     for (const row of ozonFbsPickState.rows) {
       const pn = String(row?.posting_number || "").trim();
-      if (!pn || pending === pn) continue;
+      if (!pn || pending === pn || (focusedPn && pn === focusedPn)) continue;
       const upd = byPn.get(pn);
       if (!upd) continue;
       const curVerified = !!row.pick_verified && !!String(row.pick_barcode || "").trim();
@@ -11942,6 +11964,7 @@
       ozonFbsPickState.modalStatusPollTimer = null;
     }
     ozonFbsPickState.peerDomRefreshPending = false;
+    if (!_ozonFbsKizModalIsOpen()) _ozonFbsPeerClearDomIdleTimer();
   }
 
   function _ozonFbsPickStartModalStatusPoll() {
@@ -13728,6 +13751,8 @@
     }
     ozonFbsScanComState.lastRaw = value;
     ozonFbsScanComState.lastAt = now;
+    // COM bypasses keyboard watchers — still mark scan-busy for peer sync deferral.
+    if (_ozonFbsScanComModalOpen()) _ozonFbsPeerNoteScanActivity();
 
     // Packaging exemplar (юрлица КИЗ+ГТД) — dedicated overlay, highest when open.
     if (_ozonFbsPackagingExemplarModalIsOpen()) {

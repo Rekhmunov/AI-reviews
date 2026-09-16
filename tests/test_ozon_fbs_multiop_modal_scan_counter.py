@@ -103,6 +103,42 @@ def test_peer_merge_defers_table_rebuild_while_scanning() -> None:
     assert "peerDomRefreshPending = true" in merge
     assert "_ozonFbsPeerScheduleDomFlush()" in merge
     assert "_ozonFbsKizUpdateScanCounter()" in merge
+    assert "_ozonFbsPeerFocusedPosting()" in merge
+    assert "focusedPn" in merge
+
+
+def test_com_scan_marks_peer_busy() -> None:
+    deliver = JS[
+        JS.find("function deliverOzonFbsComScan") : JS.find(
+            "function _ozonFbsScanComFlushBuffer"
+        )
+    ]
+    assert "_ozonFbsPeerNoteScanActivity()" in deliver
+    assert "_ozonFbsContainerNoteScanActivity" in JS
+    assert "ozonFbsKizImportText" in JS[
+        JS.find("function _ozonFbsPeerIsScanInput") : JS.find(
+            "const OZON_FBS_PEER_SCAN_BUSY_MS"
+        )
+    ]
+
+
+def test_modal_status_poll_only_while_open() -> None:
+    assert "_ozonFbsKizStartModalStatusPoll()" in JS
+    assert "_ozonFbsKizStopModalStatusPoll()" in JS
+    start = JS[
+        JS.find("function _ozonFbsKizStartModalStatusPoll") : JS.find(
+            "function _ozonFbsKizStickerIndexAdd"
+        )
+    ]
+    assert "!_ozonFbsKizModalIsOpen()" in start
+    assert "_ozonFbsKizStopModalStatusPoll()" in start
+    close = JS[
+        JS.find("async function closeOzonFbsKizModal") : JS.find(
+            "async function closeOzonFbsKizModal"
+        )
+        + 400
+    ]
+    assert "_ozonFbsKizStopModalStatusPoll()" in close
 
 
 def test_gm_status_refresh_skips_scan_busy_and_open_modals_only() -> None:
@@ -113,8 +149,15 @@ def test_gm_status_refresh_skips_scan_busy_and_open_modals_only() -> None:
         )
     ]
     assert "_ozonFbsContainerIsScanBusy" in BIND
+    assert "_ozonFbsContainerNoteScanActivity" in BIND
+    # COM / mark / import / GM cells count as scan activity for busy window.
+    scan_el = BIND[
+        BIND.find("function isScanInputEl") : BIND.find("function bindScanActivityWatch")
+    ]
+    assert "ozonFbsKizMarkScan" in scan_el
+    assert "ozon-fbs-container-input" in scan_el
 
 
 def test_asset_cache_bumped_for_multiop_scan_counter() -> None:
-    assert "ozon_fbs.js?v=176" in HTML
-    assert "ozon_fbs_container_bind.js?v=34" in HTML
+    assert "ozon_fbs.js?v=177" in HTML
+    assert "ozon_fbs_container_bind.js?v=35" in HTML

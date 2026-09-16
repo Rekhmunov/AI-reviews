@@ -68,7 +68,7 @@ def test_posting_status_refresh_ui_wired() -> None:
     )]
     assert "border: 0;" in icon_css
     assert "background: transparent;" in icon_css
-    assert "ozon_fbs.js?v=176" in html
+    assert "ozon_fbs.js?v=177" in html
     close_fn = js[
         js.find("function closeOzonFbsPostingStatusModal") : js.find(
             "function closeOzonFbsPostingStatusModal"

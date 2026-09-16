@@ -88,15 +88,26 @@
   }
 
   function isScanInputEl(el) {
-    if (!el || String(el.tagName || "").toUpperCase() !== "INPUT") return false;
+    if (!el) return false;
     const id = String(el.id || "");
-    if (id === "ozonFbsKizStickerScan" || id === "ozonFbsPickStickerScan") return true;
+    if (
+      id === "ozonFbsKizStickerScan"
+      || id === "ozonFbsKizMarkScan"
+      || id === "ozonFbsPickStickerScan"
+      || id === "ozonFbsPickSkuScan"
+      || id === "ozonFbsKizImportText"
+    ) {
+      return true;
+    }
+    const tag = String(el.tagName || "").toUpperCase();
+    if (tag !== "INPUT" && tag !== "TEXTAREA") return false;
     const cls = el.classList;
     if (!cls) return false;
     return (
       cls.contains("wb-fbs-kiz-code-input")
       || cls.contains("wb-fbs-pick-code-input")
       || cls.contains("ozon-fbs-pick-barcode-input")
+      || cls.contains("ozon-fbs-container-input")
     );
   }
 
@@ -1684,6 +1695,7 @@
   window._ozonFbsContainerSyncCheckboxUi = syncCheckboxUi;
   window._ozonFbsContainerIsScanMode = isContainerScanMode;
   window._ozonFbsContainerIsScanBusy = isScanBusy;
+  window._ozonFbsContainerNoteScanActivity = noteScanActivity;
   window._ozonFbsContainerHandleScan = handleContainerScan;
   window._ozonFbsContainerMaybeBind = maybeBindAfterPostingIdentified;
   window._ozonFbsContainerSupplyHasFilledGm = supplyHasFilledCargoPlace;
