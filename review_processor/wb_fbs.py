@@ -1635,8 +1635,11 @@ def list_driver_page_cargo_places(
                     }
                 )
 
+    from review_processor.ozon_fbs_supplies import driver_page_status_sort_key
+
     items.sort(
         key=lambda r: (
+            driver_page_status_sort_key(r.get("status")),
             str(r.get("supply_name") or ""),
             int(r.get("container_number") or 0),
             str(r.get("container_id") or ""),

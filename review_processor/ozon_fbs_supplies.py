@@ -2934,6 +2934,16 @@ def set_supply_driver(
 DRIVER_PAGE_CONTAINER_STATUSES = frozenset(
     {"formed", "acceptance_in_progress", "finished"}
 )
+# List order on the driver page: Сформировано → Принято на СЦ → Завершено.
+DRIVER_PAGE_STATUS_SORT_ORDER = {
+    "formed": 0,
+    "acceptance_in_progress": 1,
+    "finished": 2,
+}
+
+
+def driver_page_status_sort_key(status: object) -> int:
+    return DRIVER_PAGE_STATUS_SORT_ORDER.get(str(status or "").strip().lower(), 99)
 
 
 
@@ -3165,6 +3175,7 @@ def list_driver_page_cargo_places(
 
     items.sort(
         key=lambda r: (
+            driver_page_status_sort_key(r.get("status")),
             str(r.get("supply_name") or ""),
             int(r.get("container_number") or 0),
             int(r.get("container_id") or 0),

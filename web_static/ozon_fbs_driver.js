@@ -102,9 +102,12 @@
     });
   }
 
-  /** ``warn`` = any «Сформировано»; ``ok`` = all at SC / finished; else null. */
+  /** ``warn`` = any «Сформировано»; ``ok`` = none / all at SC / finished. */
   function palletBannerKind(items) {
-    const ozon = ozonPalletItems(items);
+    const list = items || [];
+    // No cargo places at all → same green as fully accepted at SC.
+    if (!list.length) return "ok";
+    const ozon = ozonPalletItems(list);
     if (!ozon.length) return null;
     let hasFormed = false;
     let allAccepted = true;
@@ -118,6 +121,37 @@
     if (hasFormed) return "warn";
     if (allAccepted) return "ok";
     return null;
+  }
+
+  const STATUS_SORT_ORDER = {
+    formed: 0,
+    acceptance_in_progress: 1,
+    finished: 2,
+  };
+
+  function statusSortKey(status) {
+    const st = String(status || "").toLowerCase();
+    return Object.prototype.hasOwnProperty.call(STATUS_SORT_ORDER, st)
+      ? STATUS_SORT_ORDER[st]
+      : 99;
+  }
+
+  function sortCargoItems(items) {
+    return (items || []).slice().sort(function (a, b) {
+      const sa = statusSortKey(a && a.status);
+      const sb = statusSortKey(b && b.status);
+      if (sa !== sb) return sa - sb;
+      const supplyA = String((a && a.supply_name) || "");
+      const supplyB = String((b && b.supply_name) || "");
+      if (supplyA < supplyB) return -1;
+      if (supplyA > supplyB) return 1;
+      const numA = Number((a && a.container_number) || 0);
+      const numB = Number((b && b.container_number) || 0);
+      if (numA !== numB) return numA - numB;
+      return String((a && a.container_id) || "").localeCompare(
+        String((b && b.container_id) || "")
+      );
+    });
   }
 
   function renderStatusBanner() {
@@ -341,7 +375,7 @@
       return;
     }
 
-    const rows = state.items
+    const rows = sortCargoItems(state.items)
       .map(function (item) {
         const isWb = String(item.marketplace || item.item_kind || "")
           .toLowerCase()

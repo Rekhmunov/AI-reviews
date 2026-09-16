@@ -30,7 +30,7 @@ def test_driver_page_html_boot_and_assets() -> None:
     assert "Для водителя" in html
     assert "OFD_BOOT" in html
     assert "CAN_VIEW_OZON_FBS_DRIVER" in html
-    assert "/static/ozon_fbs_driver.js?v=5" in html
+    assert "/static/ozon_fbs_driver.js?v=6" in html
     assert "/static/ozon_fbs_driver.css?v=4" in html
     assert "PAGE_MODE" in html
     assert "PAGE_TOKEN" in html
@@ -80,6 +80,9 @@ def test_driver_page_js_calls_apis() -> None:
     assert "ofdRefreshBtn" in js
     assert "Ваши паллеты приняты на СЦ, все хорошо" in js
     assert "После выбора подгрузятся грузоместа" not in js
+    assert "sortCargoItems" in js
+    assert "STATUS_SORT_ORDER" in js
+    assert "!list.length) return \"ok\"" in js or "if (!list.length) return \"ok\"" in js
     css = (STATIC / "ozon_fbs_driver.css").read_text(encoding="utf-8")
     assert "ofd-banner-warn" in css
     assert "ofd-banner-ok" in css
@@ -87,10 +90,25 @@ def test_driver_page_js_calls_apis() -> None:
 
 
 def test_driver_page_statuses_include_finished() -> None:
+    from review_processor.ozon_fbs_supplies import (
+        DRIVER_PAGE_STATUS_SORT_ORDER,
+        driver_page_status_sort_key,
+    )
+
     assert DRIVER_PAGE_CONTAINER_STATUSES == frozenset(
         {"formed", "acceptance_in_progress", "finished"}
     )
     assert "finished" in DRIVER_PAGE_CONTAINER_STATUSES
+    assert DRIVER_PAGE_STATUS_SORT_ORDER["formed"] < DRIVER_PAGE_STATUS_SORT_ORDER[
+        "acceptance_in_progress"
+    ]
+    assert (
+        DRIVER_PAGE_STATUS_SORT_ORDER["acceptance_in_progress"]
+        < DRIVER_PAGE_STATUS_SORT_ORDER["finished"]
+    )
+    assert driver_page_status_sort_key("formed") == 0
+    assert driver_page_status_sort_key("acceptance_in_progress") == 1
+    assert driver_page_status_sort_key("finished") == 2
 
 
 def test_list_driver_page_vehicle_plates_unique() -> None:
@@ -186,13 +204,11 @@ def test_list_driver_page_cargo_places_filters_statuses(monkeypatch) -> None:
         "ok": True,
         "items": [
             {
-                "container_id": 11,
-                "container_number": 1,
-                "status": "formed",
-                "status_label": "Сформировано",
-                "cargo_type_label": "Паллета",
-                "sort_type_label": "Сортируемое",
-                "order_count": 3,
+                "container_id": 13,
+                "container_number": 3,
+                "status": "finished",
+                "status_label": "Завершено на СЦ",
+                "order_count": 2,
             },
             {
                 "container_id": 12,
@@ -204,11 +220,13 @@ def test_list_driver_page_cargo_places_filters_statuses(monkeypatch) -> None:
                 "order_count": 1,
             },
             {
-                "container_id": 13,
-                "container_number": 3,
-                "status": "finished",
-                "status_label": "Завершено на СЦ",
-                "order_count": 2,
+                "container_id": 11,
+                "container_number": 1,
+                "status": "formed",
+                "status_label": "Сформировано",
+                "cargo_type_label": "Паллета",
+                "sort_type_label": "Сортируемое",
+                "order_count": 3,
             },
             {
                 "container_id": 14,
@@ -246,7 +264,13 @@ def test_list_driver_page_cargo_places_filters_statuses(monkeypatch) -> None:
         client_for_source=lambda sid: object(),
     )
     ids = [x["container_id"] for x in out["items"]]
+    # Sort: formed → acceptance_in_progress → finished
     assert ids == [11, 12, 13]
+    assert [x["status"] for x in out["items"]] == [
+        "formed",
+        "acceptance_in_progress",
+        "finished",
+    ]
     assert out["total"] == 3
     assert all(x["status"] in DRIVER_PAGE_CONTAINER_STATUSES for x in out["items"])
     assert "new" not in {x["status"] for x in out["items"]}

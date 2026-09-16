@@ -14645,8 +14645,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if msg and msg not in errors:
                 errors.append(msg)
         plate = str(oz.get("vehicle_number") or wb.get("vehicle_number") or "").strip()
+        from .ozon_fbs_supplies import driver_page_status_sort_key
+
         items.sort(
             key=lambda r: (
+                driver_page_status_sort_key(r.get("status")),
                 str(r.get("marketplace") or ""),
                 str(r.get("supply_name") or ""),
                 int(r.get("container_number") or 0),
