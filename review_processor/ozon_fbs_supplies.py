@@ -2931,7 +2931,9 @@ def set_supply_driver(
 
 
 # Cargo-place statuses shown on the standalone «Для водителя» page.
-DRIVER_PAGE_CONTAINER_STATUSES = frozenset({"formed", "acceptance_in_progress"})
+DRIVER_PAGE_CONTAINER_STATUSES = frozenset(
+    {"formed", "acceptance_in_progress", "finished"}
+)
 
 
 
@@ -3052,9 +3054,10 @@ def list_driver_page_cargo_places(
 ) -> dict[str, Any]:
     """Cargo places for supplies assigned to ``vehicle_number``.
 
-    Only statuses «Сформировано» (``formed``) and «Принято на СЦ»
-    (``acceptance_in_progress``). Containers are limited to GMs bound to the
-    assigned supply (same as «ГМ у этой поставки»).
+    Statuses «Сформировано» (``formed``), «Принято на СЦ»
+    (``acceptance_in_progress``) and «Завершено» (``finished``).
+    Containers are limited to GMs bound to the assigned supply
+    (same as «ГМ у этой поставки»).
     """
     from . import ozon_fbs_containers as oz_ct
 

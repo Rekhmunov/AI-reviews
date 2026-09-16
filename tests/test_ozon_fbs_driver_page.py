@@ -30,8 +30,8 @@ def test_driver_page_html_boot_and_assets() -> None:
     assert "Для водителя" in html
     assert "OFD_BOOT" in html
     assert "CAN_VIEW_OZON_FBS_DRIVER" in html
-    assert "/static/ozon_fbs_driver.js?v=4" in html
-    assert "/static/ozon_fbs_driver.css?v=3" in html
+    assert "/static/ozon_fbs_driver.js?v=5" in html
+    assert "/static/ozon_fbs_driver.css?v=4" in html
     assert "PAGE_MODE" in html
     assert "PAGE_TOKEN" in html
     assert "page_mode" in html
@@ -72,13 +72,25 @@ def test_driver_page_js_calls_apis() -> None:
     assert "/unlock" in js
     assert "acceptance_in_progress" in js
     assert "formed" in js
+    assert "finished" in js
+    assert "ofdStatusBanner" in js
+    assert "palletBannerKind" in js
+    assert "ofd-banner-warn" in js
+    assert "ofd-banner-ok" in js
+    assert "ofdRefreshBtn" in js
+    assert "Ваши паллеты приняты на СЦ, все хорошо" in js
+    assert "После выбора подгрузятся грузоместа" not in js
+    css = (STATIC / "ozon_fbs_driver.css").read_text(encoding="utf-8")
+    assert "ofd-banner-warn" in css
+    assert "ofd-banner-ok" in css
+    assert "ofd-btn-refresh" in css
 
 
-def test_driver_page_statuses_only_formed_and_sc() -> None:
+def test_driver_page_statuses_include_finished() -> None:
     assert DRIVER_PAGE_CONTAINER_STATUSES == frozenset(
-        {"formed", "acceptance_in_progress"}
+        {"formed", "acceptance_in_progress", "finished"}
     )
-    assert "finished" not in DRIVER_PAGE_CONTAINER_STATUSES
+    assert "finished" in DRIVER_PAGE_CONTAINER_STATUSES
 
 
 def test_list_driver_page_vehicle_plates_unique() -> None:
@@ -234,6 +246,7 @@ def test_list_driver_page_cargo_places_filters_statuses(monkeypatch) -> None:
         client_for_source=lambda sid: object(),
     )
     ids = [x["container_id"] for x in out["items"]]
-    assert ids == [11, 12]
-    assert out["total"] == 2
+    assert ids == [11, 12, 13]
+    assert out["total"] == 3
     assert all(x["status"] in DRIVER_PAGE_CONTAINER_STATUSES for x in out["items"])
+    assert "new" not in {x["status"] for x in out["items"]}

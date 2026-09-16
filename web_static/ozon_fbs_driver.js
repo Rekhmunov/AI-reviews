@@ -87,9 +87,79 @@
 
   function badgeClass(status) {
     const st = String(status || "").toLowerCase();
-    if (st === "acceptance_in_progress") return "is-sc";
+    if (st === "acceptance_in_progress" || st === "finished") return "is-sc";
     if (st === "formed") return "is-formed";
     return "";
+  }
+
+  /** Ozon GMs only — WB TRBX use a placeholder status and must not drive the banner. */
+  function ozonPalletItems(items) {
+    return (items || []).filter(function (item) {
+      const mp = String(item.marketplace || "").toLowerCase();
+      const kind = String(item.item_kind || "").toLowerCase();
+      if (mp === "wb" || kind === "trbx") return false;
+      return true;
+    });
+  }
+
+  /** ``warn`` = any «Сформировано»; ``ok`` = all at SC / finished; else null. */
+  function palletBannerKind(items) {
+    const ozon = ozonPalletItems(items);
+    if (!ozon.length) return null;
+    let hasFormed = false;
+    let allAccepted = true;
+    for (let i = 0; i < ozon.length; i++) {
+      const st = String(ozon[i].status || "").toLowerCase();
+      if (st === "formed") hasFormed = true;
+      if (st !== "acceptance_in_progress" && st !== "finished") {
+        allAccepted = false;
+      }
+    }
+    if (hasFormed) return "warn";
+    if (allAccepted) return "ok";
+    return null;
+  }
+
+  function renderStatusBanner() {
+    const host = document.getElementById("ofdStatusBanner");
+    if (!host) return;
+    if (!state.vehicleNumber || state.loadingItems) {
+      host.innerHTML = "";
+      host.hidden = true;
+      return;
+    }
+    const kind = palletBannerKind(state.items);
+    if (!kind) {
+      host.innerHTML = "";
+      host.hidden = true;
+      return;
+    }
+    host.hidden = false;
+    if (kind === "ok") {
+      host.innerHTML =
+        '<div class="ofd-banner ofd-banner-ok" role="status">' +
+        "Ваши паллеты приняты на СЦ, все хорошо" +
+        "</div>";
+      return;
+    }
+    host.innerHTML =
+      '<div class="ofd-banner ofd-banner-warn" role="status">' +
+      "<p class=\"ofd-banner-text\">" +
+      "Часть ваших паллет в статусе «Сформировано» — нужно дождаться, " +
+      "пока статусы станут «Принято на СЦ» или «Завершено». " +
+      "Нажмите «Обновить», чтобы проверить ещё раз." +
+      "</p>" +
+      '<button type="button" id="ofdRefreshBtn" class="ofd-btn ofd-btn-refresh"' +
+      (state.loadingItems ? " disabled" : "") +
+      ">Обновить</button>" +
+      "</div>";
+    const btn = document.getElementById("ofdRefreshBtn");
+    if (btn) {
+      btn.addEventListener("click", function () {
+        if (state.loadingItems) return;
+        loadCargo(state.vehicleNumber);
+      });
+    }
   }
 
   function renderDenied() {
@@ -209,18 +279,19 @@
         '<option value="">' +
         placeholder +
         "</option>" +
-        "</select>" +
-        '<p class="ofd-hint">После выбора подгрузятся грузоместа Ozon («Сформировано» / «Принято на СЦ») и WB (TRBX назначенных поставок).</p>';
+        "</select>";
     }
 
     main.innerHTML =
       '<section class="ofd-panel">' +
       driverLine +
       vehicleBlock +
+      '<div id="ofdStatusBanner" class="ofd-status-banner" hidden></div>' +
       "</section>" +
       '<section class="ofd-panel" id="ofdResults">' +
       '<div class="ofd-empty">Выберите номер машины</div>' +
       "</section>";
+    renderStatusBanner();
 
     const select = document.getElementById("ofdVehicleSelect");
     if (select) {
@@ -243,10 +314,12 @@
 
     if (!state.vehicleNumber) {
       box.innerHTML = '<div class="ofd-empty">Выберите номер машины</div>';
+      renderStatusBanner();
       return;
     }
     if (state.loadingItems) {
       box.innerHTML = '<div class="ofd-loading">Загрузка грузомест…</div>';
+      renderStatusBanner();
       return;
     }
 
@@ -263,7 +336,8 @@
         '<div class="ofd-list-count">0</div>' +
         "</div>" +
         errorsHtml +
-        '<div class="ofd-empty">Нет грузомест Ozon («Сформировано» / «Принято на СЦ») или WB TRBX для этого номера.</div>';
+        '<div class="ofd-empty">Нет грузомест Ozon («Сформировано» / «Принято на СЦ» / «Завершено») или WB TRBX для этого номера.</div>';
+      renderStatusBanner();
       return;
     }
 
@@ -341,6 +415,7 @@
       '<ul class="ofd-items">' +
       rows +
       "</ul>";
+    renderStatusBanner();
   }
 
   async function loadCargo(value) {
