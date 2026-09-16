@@ -40,8 +40,8 @@ def test_row_is_cancelled_checks_status_tab() -> None:
 
 
 def test_asset_cache_bumped() -> None:
-    assert "ozon_fbs.js?v=177" in HTML
-    assert "ozon_fbs_container_bind.js?v=35" in HTML
+    assert "ozon_fbs.js?v=178" in HTML
+    assert "ozon_fbs_container_bind.js?v=36" in HTML
 
 
 def test_reconcile_polls_while_modal_open() -> None:

@@ -7871,6 +7871,7 @@
     statusRefreshQueued: false,
     /** While modal open: soft-poll marking/status so peer scans update fill counters. */
     modalStatusPollTimer: null,
+    modalStatusFirstTimer: null,
     lastModalStatusPollAt: 0,
     /** Defer table rebuild when operator is typing in a KIZ cell. */
     peerDomRefreshPending: false,
@@ -7900,6 +7901,7 @@
     statusRefreshQueued: false,
     /** While modal open: soft-poll pick-verify/status for peer fill counters. */
     modalStatusPollTimer: null,
+    modalStatusFirstTimer: null,
     lastModalStatusPollAt: 0,
     peerDomRefreshPending: false,
     /** Bumped to abort in-flight pick-verify resolve when modal closes / reopens. */
@@ -9985,6 +9987,8 @@
   /** Soft poll: local-DB status only; keep rare so scanning stays primary. */
   const OZON_FBS_MODAL_STATUS_POLL_MS = 20000;
   const OZON_FBS_MODAL_STATUS_MIN_GAP_MS = 15000;
+  /** First silent pull after open — don't wait a full poll interval. */
+  const OZON_FBS_MODAL_STATUS_FIRST_MS = 3000;
 
   let _ozonFbsPeerLastScanAt = 0;
   let _ozonFbsPeerScanWatchBound = false;
@@ -10009,15 +10013,44 @@
     document.addEventListener("input", mark, true);
   }
 
-  function _ozonFbsPeerScanBusy() {
-    // Prefer shared GM-bind busy flag when available (same wedge window).
+  /** Recent wedge/COM activity — used to skip network poll during a burst. */
+  function _ozonFbsPeerScanBurstBusy() {
     if (typeof window._ozonFbsContainerIsScanBusy === "function") {
       try {
         if (window._ozonFbsContainerIsScanBusy()) return true;
       } catch (_e) { /* ignore */ }
     }
-    if (_ozonFbsPeerIsScanInput(document.activeElement)) return true;
     return Date.now() - Number(_ozonFbsPeerLastScanAt || 0) < OZON_FBS_PEER_SCAN_BUSY_MS;
+  }
+
+  /**
+   * Defer heavy table rebuild while a scan field is focused OR a burst is active.
+   * Do NOT use focus alone to skip status polls — sticker field stays focused at rest.
+   */
+  function _ozonFbsPeerDomBusy() {
+    if (_ozonFbsPeerScanBurstBusy()) return true;
+    return _ozonFbsPeerIsScanInput(document.activeElement);
+  }
+
+  /** @deprecated alias — prefer burst (poll) vs dom (rebuild) explicitly. */
+  function _ozonFbsPeerScanBusy() {
+    return _ozonFbsPeerDomBusy();
+  }
+
+  function _ozonFbsPeerSavedAtMs(value) {
+    const raw = String(value || "").trim();
+    if (!raw) return 0;
+    const t = Date.parse(raw);
+    return Number.isFinite(t) ? t : 0;
+  }
+
+  /** Remote wins only when strictly newer; never let a stale status wipe a fresh local save. */
+  function _ozonFbsPeerRemoteIsNewer(localSavedAt, remoteSavedAt) {
+    const localMs = _ozonFbsPeerSavedAtMs(localSavedAt);
+    const remoteMs = _ozonFbsPeerSavedAtMs(remoteSavedAt);
+    if (remoteMs <= 0 && localMs > 0) return false;
+    if (localMs <= 0) return true;
+    return remoteMs > localMs;
   }
 
   /** Posting whose row cell is focused — never peer-overwrite that row mid-edit. */
@@ -10038,7 +10071,7 @@
     if (_ozonFbsPeerDomIdleTimer != null) clearTimeout(_ozonFbsPeerDomIdleTimer);
     _ozonFbsPeerDomIdleTimer = setTimeout(() => {
       _ozonFbsPeerDomIdleTimer = null;
-      if (_ozonFbsPeerScanBusy()) {
+      if (_ozonFbsPeerDomBusy()) {
         _ozonFbsPeerScheduleDomFlush();
         return;
       }
@@ -10089,9 +10122,12 @@
       const nextSaved = String(upd.kiz_saved_at || "").trim();
       const curSaved = String(row.kiz_saved_at || "").trim();
       if (sameCodes) {
-        if (nextSaved && nextSaved !== curSaved) row.kiz_saved_at = nextSaved;
+        // Prefer the newer conflict token when codes already match.
+        if (_ozonFbsPeerRemoteIsNewer(curSaved, nextSaved)) row.kiz_saved_at = nextSaved;
         continue;
       }
+      // Codes differ: adopt only a strictly newer remote snapshot.
+      if (!_ozonFbsPeerRemoteIsNewer(curSaved, nextSaved)) continue;
       row.kiz_codes = nextCodes.length ? nextCodes.slice() : [""];
       if (upd.kiz_status) row.kiz_status = String(upd.kiz_status);
       if (nextSaved) row.kiz_saved_at = nextSaved;
@@ -10101,7 +10137,7 @@
       touched += 1;
     }
     if (!touched) {
-      if (ozonFbsKizState.peerDomRefreshPending && !_ozonFbsPeerScanBusy()) {
+      if (ozonFbsKizState.peerDomRefreshPending && !_ozonFbsPeerDomBusy()) {
         ozonFbsKizState.peerDomRefreshPending = false;
         renderOzonFbsKizTable({ skipCollect: true });
       } else if (ozonFbsKizState.peerDomRefreshPending) {
@@ -10114,7 +10150,7 @@
     _ozonFbsKizRebuildIndexes();
     _ozonFbsKizUpdateScanCounter();
     _ozonFbsKizUpdateFilterCounts();
-    if (_ozonFbsPeerScanBusy()) {
+    if (_ozonFbsPeerDomBusy()) {
       ozonFbsKizState.peerDomRefreshPending = true;
       _ozonFbsPeerScheduleDomFlush();
     } else {
@@ -10129,6 +10165,10 @@
       clearInterval(ozonFbsKizState.modalStatusPollTimer);
       ozonFbsKizState.modalStatusPollTimer = null;
     }
+    if (ozonFbsKizState.modalStatusFirstTimer != null) {
+      clearTimeout(ozonFbsKizState.modalStatusFirstTimer);
+      ozonFbsKizState.modalStatusFirstTimer = null;
+    }
     ozonFbsKizState.peerDomRefreshPending = false;
     if (!_ozonFbsPickModalIsOpen()) _ozonFbsPeerClearDomIdleTimer();
   }
@@ -10137,22 +10177,27 @@
     _ozonFbsKizStopModalStatusPoll();
     if (!_ozonFbsKizModalIsOpen()) return;
     _ozonFbsPeerBindScanWatch();
-    ozonFbsKizState.lastModalStatusPollAt = Date.now();
-    ozonFbsKizState.modalStatusPollTimer = setInterval(() => {
+    ozonFbsKizState.lastModalStatusPollAt = 0;
+    const tick = () => {
       if (!_ozonFbsKizModalIsOpen()) {
         _ozonFbsKizStopModalStatusPoll();
         return;
       }
       if (typeof document !== "undefined" && document.hidden) return;
-      // Never contend with wedge/scan bursts — counters can wait a few seconds.
-      if (_ozonFbsPeerScanBusy()) return;
+      // Burst only — resting focus on sticker must NOT block peer counter sync.
+      if (_ozonFbsPeerScanBurstBusy()) return;
       const now = Date.now();
       if (now - Number(ozonFbsKizState.lastModalStatusPollAt || 0) < OZON_FBS_MODAL_STATUS_MIN_GAP_MS) {
         return;
       }
       ozonFbsKizState.lastModalStatusPollAt = now;
       void refreshOzonFbsMarkingStatus(null, { silent: true });
-    }, OZON_FBS_MODAL_STATUS_POLL_MS);
+    };
+    ozonFbsKizState.modalStatusFirstTimer = setTimeout(() => {
+      ozonFbsKizState.modalStatusFirstTimer = null;
+      tick();
+    }, OZON_FBS_MODAL_STATUS_FIRST_MS);
+    ozonFbsKizState.modalStatusPollTimer = setInterval(tick, OZON_FBS_MODAL_STATUS_POLL_MS);
   }
 
   function _ozonFbsKizStickerIndexAdd(map, key, pn) {
@@ -11923,12 +11968,12 @@
       const nextVerified = !!upd.pick_verified && !!String(upd.pick_barcode || "").trim();
       const nextBarcode = nextVerified ? String(upd.pick_barcode || "").trim() : "";
       const nextAt = String(upd.pick_verified_at || "").trim();
+      const curAt = String(row.pick_verified_at || "").trim();
       if (curVerified === nextVerified && curBarcode === nextBarcode) {
-        if (nextAt && nextAt !== String(row.pick_verified_at || "").trim()) {
-          row.pick_verified_at = nextAt;
-        }
+        if (_ozonFbsPeerRemoteIsNewer(curAt, nextAt)) row.pick_verified_at = nextAt;
         continue;
       }
+      if (!_ozonFbsPeerRemoteIsNewer(curAt, nextAt)) continue;
       row.pick_verified = nextVerified;
       row.pick_barcode = nextBarcode;
       if (nextAt) row.pick_verified_at = nextAt;
@@ -11938,7 +11983,7 @@
       touched += 1;
     }
     if (!touched) {
-      if (ozonFbsPickState.peerDomRefreshPending && !_ozonFbsPeerScanBusy()) {
+      if (ozonFbsPickState.peerDomRefreshPending && !_ozonFbsPeerDomBusy()) {
         ozonFbsPickState.peerDomRefreshPending = false;
         renderOzonFbsPickVerifyTable();
       } else if (ozonFbsPickState.peerDomRefreshPending) {
@@ -11948,7 +11993,7 @@
     }
     _ozonFbsPickUpdateScanCounter();
     _ozonFbsPickUpdateFilterCounts();
-    if (_ozonFbsPeerScanBusy()) {
+    if (_ozonFbsPeerDomBusy()) {
       ozonFbsPickState.peerDomRefreshPending = true;
       _ozonFbsPeerScheduleDomFlush();
     } else {
@@ -11963,6 +12008,10 @@
       clearInterval(ozonFbsPickState.modalStatusPollTimer);
       ozonFbsPickState.modalStatusPollTimer = null;
     }
+    if (ozonFbsPickState.modalStatusFirstTimer != null) {
+      clearTimeout(ozonFbsPickState.modalStatusFirstTimer);
+      ozonFbsPickState.modalStatusFirstTimer = null;
+    }
     ozonFbsPickState.peerDomRefreshPending = false;
     if (!_ozonFbsKizModalIsOpen()) _ozonFbsPeerClearDomIdleTimer();
   }
@@ -11971,21 +12020,26 @@
     _ozonFbsPickStopModalStatusPoll();
     if (!_ozonFbsPickModalIsOpen()) return;
     _ozonFbsPeerBindScanWatch();
-    ozonFbsPickState.lastModalStatusPollAt = Date.now();
-    ozonFbsPickState.modalStatusPollTimer = setInterval(() => {
+    ozonFbsPickState.lastModalStatusPollAt = 0;
+    const tick = () => {
       if (!_ozonFbsPickModalIsOpen()) {
         _ozonFbsPickStopModalStatusPoll();
         return;
       }
       if (typeof document !== "undefined" && document.hidden) return;
-      if (_ozonFbsPeerScanBusy()) return;
+      if (_ozonFbsPeerScanBurstBusy()) return;
       const now = Date.now();
       if (now - Number(ozonFbsPickState.lastModalStatusPollAt || 0) < OZON_FBS_MODAL_STATUS_MIN_GAP_MS) {
         return;
       }
       ozonFbsPickState.lastModalStatusPollAt = now;
       void refreshOzonFbsPickVerifyStatus(null, { silent: true });
-    }, OZON_FBS_MODAL_STATUS_POLL_MS);
+    };
+    ozonFbsPickState.modalStatusFirstTimer = setTimeout(() => {
+      ozonFbsPickState.modalStatusFirstTimer = null;
+      tick();
+    }, OZON_FBS_MODAL_STATUS_FIRST_MS);
+    ozonFbsPickState.modalStatusPollTimer = setInterval(tick, OZON_FBS_MODAL_STATUS_POLL_MS);
   }
 
   function _ozonFbsPickCaptureBaseline() {

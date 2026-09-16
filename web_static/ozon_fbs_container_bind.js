@@ -552,21 +552,17 @@
   /** Coalesce supply-detail status polls while scanning many postings quickly. */
   function scheduleSupplyStatusRefresh() {
     if (statusRefreshTimer) return;
+    const delay = isScanBusy() ? SCAN_BUSY_MS + 80 : 400;
     statusRefreshTimer = setTimeout(() => {
       statusRefreshTimer = null;
-      // Skip while wedge-scanning — peer fill sync can wait a few seconds.
+      // Keep re-arming until the wedge burst ends — don't drop the refresh.
       if (isScanBusy()) {
         scheduleScanIdleFlush();
-        // Re-arm once; idle flush may call reconcile, which re-schedules status.
-        statusRefreshTimer = setTimeout(() => {
-          statusRefreshTimer = null;
-          if (isScanBusy()) return;
-          runSupplyStatusRefreshForOpenModals();
-        }, SCAN_BUSY_MS + 80);
+        scheduleSupplyStatusRefresh();
         return;
       }
       runSupplyStatusRefreshForOpenModals();
-    }, 400);
+    }, delay);
   }
 
   function modalDomOpen(id) {

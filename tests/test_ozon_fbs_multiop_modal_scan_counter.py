@@ -72,8 +72,10 @@ def test_pick_modal_merges_remote_status_into_open_rows() -> None:
 def test_modal_status_poll_while_open() -> None:
     assert "const OZON_FBS_MODAL_STATUS_POLL_MS = 20000" in JS
     assert "const OZON_FBS_MODAL_STATUS_MIN_GAP_MS = 15000" in JS
-    assert "function _ozonFbsPeerScanBusy" in JS
-    assert "_ozonFbsPeerScanBusy()" in JS
+    assert "const OZON_FBS_MODAL_STATUS_FIRST_MS = 3000" in JS
+    assert "function _ozonFbsPeerScanBurstBusy" in JS
+    assert "function _ozonFbsPeerDomBusy" in JS
+    assert "_ozonFbsPeerScanBurstBusy()" in JS
     assert "function _ozonFbsKizStartModalStatusPoll" in JS
     assert "function _ozonFbsKizStopModalStatusPoll" in JS
     assert "function _ozonFbsPickStartModalStatusPoll" in JS
@@ -82,15 +84,31 @@ def test_modal_status_poll_while_open() -> None:
     assert "_ozonFbsKizStopModalStatusPoll()" in JS
     assert "_ozonFbsPickStartModalStatusPoll()" in JS
     assert "_ozonFbsPickStopModalStatusPoll()" in JS
-
-
-def test_gm_reconcile_triggers_status_refresh_for_fill_counters() -> None:
-    merge = BIND[
-        BIND.find("function mergeReconcileBinds") : BIND.find(
-            "async function reconcileContainers"
+    # Poll must not treat resting sticker focus as busy.
+    start = JS[
+        JS.find("function _ozonFbsKizStartModalStatusPoll") : JS.find(
+            "function _ozonFbsKizStickerIndexAdd"
         )
     ]
-    assert "scheduleSupplyStatusRefresh()" in merge
+    assert "_ozonFbsPeerScanBurstBusy()" in start
+    assert "_ozonFbsPeerScanBusy()" not in start or "_ozonFbsPeerScanBurstBusy()" in start
+    assert "_ozonFbsPeerDomBusy()" not in start.replace("_ozonFbsPeerScanBurstBusy", "")
+
+
+def test_peer_merge_requires_newer_saved_at() -> None:
+    assert "function _ozonFbsPeerRemoteIsNewer" in JS
+    merge = JS[
+        JS.find("function _ozonFbsKizMergeRemoteIntoOpenModal") : JS.find(
+            "function _ozonFbsKizStopModalStatusPoll"
+        )
+    ]
+    assert "_ozonFbsPeerRemoteIsNewer" in merge
+    pick = JS[
+        JS.find("function _ozonFbsPickMergeRemoteIntoOpenModal") : JS.find(
+            "function _ozonFbsPickStopModalStatusPoll"
+        )
+    ]
+    assert "_ozonFbsPeerRemoteIsNewer" in pick
 
 
 def test_peer_merge_defers_table_rebuild_while_scanning() -> None:
@@ -99,7 +117,7 @@ def test_peer_merge_defers_table_rebuild_while_scanning() -> None:
             "function _ozonFbsKizStopModalStatusPoll"
         )
     ]
-    assert "_ozonFbsPeerScanBusy()" in merge
+    assert "_ozonFbsPeerDomBusy()" in merge
     assert "peerDomRefreshPending = true" in merge
     assert "_ozonFbsPeerScheduleDomFlush()" in merge
     assert "_ozonFbsKizUpdateScanCounter()" in merge
@@ -143,14 +161,15 @@ def test_modal_status_poll_only_while_open() -> None:
 
 def test_gm_status_refresh_skips_scan_busy_and_open_modals_only() -> None:
     assert "function runSupplyStatusRefreshForOpenModals" in BIND
-    assert "isScanBusy()" in BIND[
+    sched = BIND[
         BIND.find("function scheduleSupplyStatusRefresh") : BIND.find(
             "function modalDomOpen"
         )
     ]
+    assert "isScanBusy()" in sched
+    assert "scheduleSupplyStatusRefresh()" in sched  # re-arm until idle
     assert "_ozonFbsContainerIsScanBusy" in BIND
     assert "_ozonFbsContainerNoteScanActivity" in BIND
-    # COM / mark / import / GM cells count as scan activity for busy window.
     scan_el = BIND[
         BIND.find("function isScanInputEl") : BIND.find("function bindScanActivityWatch")
     ]
@@ -159,5 +178,5 @@ def test_gm_status_refresh_skips_scan_busy_and_open_modals_only() -> None:
 
 
 def test_asset_cache_bumped_for_multiop_scan_counter() -> None:
-    assert "ozon_fbs.js?v=177" in HTML
-    assert "ozon_fbs_container_bind.js?v=35" in HTML
+    assert "ozon_fbs.js?v=178" in HTML
+    assert "ozon_fbs_container_bind.js?v=36" in HTML
