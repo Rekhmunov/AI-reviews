@@ -54,8 +54,8 @@ def test_ozon_scan_error_ack_call_sites() -> None:
 
 def test_cache_bumps() -> None:
     html = HTML.read_text(encoding="utf-8")
-    assert "app.js?v=643" in html
-    assert "ozon_fbs.js?v=171" in html
+    assert "app.js?v=647" in html
+    assert "ozon_fbs.js?v=172" in html
 
 
 def test_ozon_ack_refocuses_sticker_after_closed_prompt() -> None:

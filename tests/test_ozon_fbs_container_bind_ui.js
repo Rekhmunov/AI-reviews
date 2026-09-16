@@ -109,6 +109,8 @@ function makeDom(opts = {}) {
       querySelectorAll() {
         return [];
       },
+      addEventListener() {},
+      removeEventListener() {},
     },
   };
 }
@@ -205,6 +207,11 @@ function loadBindModule(dom, opts = {}) {
     setTimeout(fn) {
       fn();
     },
+    clearTimeout() {},
+    setInterval() {
+      return 1;
+    },
+    clearInterval() {},
     console,
   };
   sandbox.window.window = sandbox.window;
@@ -489,6 +496,77 @@ async function run() {
     assert(
       winFilt.__bindCounters.kizRender >= 1,
       "empty filter active → full KIZ re-render required"
+    );
+  }
+
+  // ── Order-scan GM guard: filled GM requires active cargo place ─────────────
+  {
+    const ackCalls = [];
+    const infoCalls = [];
+    const domG = makeDom();
+    const winG = loadBindModule(domG);
+    winG.showFbsScanAck = (msg, el, opts) => {
+      ackCalls.push({ msg, el, opts });
+      return true;
+    };
+    winG._ozonFbsKizSetInfo = (msg, ok) => {
+      infoCalls.push({ msg, ok });
+    };
+    const st = winG.ozonFbsContainerBindState;
+    st.containers = [
+      { container_id: 1, order_count: 0, can_fill: true },
+      { container_id: 2, order_count: 0, can_fill: true },
+    ];
+    st.activeId = null;
+    assert(
+      winG._ozonFbsContainerSupplyHasFilledGm() === false,
+      "empty GMs → supplyHasFilledGm false"
+    );
+    assert(
+      winG._ozonFbsContainerGuardOrderScanRequiresActiveGm("kiz", null) === true,
+      "empty GMs → order scan allowed without active"
+    );
+    assert(ackCalls.length === 0, "no ack when empty GMs");
+
+    st.containers[0].order_count = 3;
+    assert(
+      winG._ozonFbsContainerSupplyHasFilledGm() === true,
+      "order_count>0 → supplyHasFilledGm true"
+    );
+    assert(
+      winG._ozonFbsContainerGuardOrderScanRequiresActiveGm("kiz", null) === false,
+      "filled GM + no active → block order scan"
+    );
+    assert(ackCalls.length === 1, "ack shown when blocked");
+    assert(
+      ackCalls[0].msg === "Вы пытаетесь просканировать заказ без грузоместа.",
+      "block message text"
+    );
+    assert(ackCalls[0].opts && ackCalls[0].opts.title === "Нет грузоместа", "ack title");
+    assert(
+      infoCalls.some((c) => String(c.msg).includes("без грузоместа")),
+      "info strip set on block"
+    );
+
+    st.activeId = 1;
+    assert(
+      winG._ozonFbsContainerGuardOrderScanRequiresActiveGm("kiz", null) === true,
+      "filled GM + active → allow"
+    );
+
+    // Local row binds also count as filled (stale container list / after unbind).
+    st.containers = [{ container_id: 9, order_count: 0 }];
+    st.activeId = null;
+    winG.ozonFbsKizState.rows = [
+      { posting_number: "P1", container_barcode: "202174459906000" },
+    ];
+    assert(
+      winG._ozonFbsContainerSupplyHasFilledGm() === true,
+      "row container_barcode → filled"
+    );
+    assert(
+      winG._ozonFbsContainerGuardOrderScanRequiresActiveGm("pick", null) === false,
+      "row bind + no active → block pick too"
     );
   }
 

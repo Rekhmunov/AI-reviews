@@ -10736,6 +10736,12 @@
       await _ozonFbsContainerHandleScan("kiz", rawTyped);
       return;
     }
+    if (
+      typeof _ozonFbsContainerGuardOrderScanRequiresActiveGm === "function"
+      && !_ozonFbsContainerGuardOrderScanRequiresActiveGm("kiz", input)
+    ) {
+      return;
+    }
     // Sync only the focused cell (if any) — avoid walking hundreds of inputs.
     _ozonFbsKizSyncActiveCodeInput();
     const found = await _ozonFbsKizFindByStickerWithLookup(rawTyped);
@@ -11972,6 +11978,12 @@
     }
     if (typeof _ozonFbsContainerIsScanMode === "function" && _ozonFbsContainerIsScanMode("pick")) {
       await _ozonFbsContainerHandleScan("pick", rawTyped);
+      return;
+    }
+    if (
+      typeof _ozonFbsContainerGuardOrderScanRequiresActiveGm === "function"
+      && !_ozonFbsContainerGuardOrderScanRequiresActiveGm("pick", input)
+    ) {
       return;
     }
     const scan = _ozonFbsNormalizeScan(rawTyped);

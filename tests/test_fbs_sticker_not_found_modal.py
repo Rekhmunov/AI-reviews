@@ -45,9 +45,9 @@ def test_js_helpers_and_gates() -> None:
 
 def test_cache_bumps() -> None:
     html = HTML.read_text(encoding="utf-8")
-    assert "app.js?v=643" in html
-    assert "ozon_fbs.js?v=171" in html
-    assert "style.css?v=373" in html
+    assert "app.js?v=647" in html
+    assert "ozon_fbs.js?v=172" in html
+    assert "style.css?v=377" in html
     # Same card classes as RU-layout warning (identical size/format).
     assert 'class="modal-card wb-fbs-kiz-ru-layout-modal"' in html
     assert 'id="fbsStickerNotFoundTitle" class="wb-fbs-kiz-ru-layout-title"' in html
@@ -55,4 +55,6 @@ def test_cache_bumps() -> None:
     assert ".wb-fbs-kiz-ru-layout-modal" in css
     assert "width: min(420px, calc(100vw - 32px))" in css
     assert "#fbsStickerNotFoundModal" in css
+    assert "#fbsStickerNotFoundModal > .modal-card.wb-fbs-kiz-ru-layout-modal" in css
+    assert "overflow: visible !important" in css
     assert ".fbs-sticker-not-found-modal" not in css

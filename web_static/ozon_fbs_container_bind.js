@@ -396,6 +396,38 @@
     return rowsForMode(mode).some((r) => String(r?.container_barcode || "").trim());
   }
 
+  /** True when at least one cargo place already has orders bound on this supply. */
+  function supplyHasFilledCargoPlace() {
+    const containers = Array.isArray(state.containers) ? state.containers : [];
+    if (containers.some((c) => Number(c?.order_count || 0) > 0)) return true;
+    // Local row binds (after unbind of active GM / stale container list).
+    if (rowsHaveContainerBinds("kiz") || rowsHaveContainerBinds("pick")) return true;
+    return false;
+  }
+
+  /**
+   * When the supply already has ≥1 filled GM, order scans require an active cargo place.
+   * Scanning cargo-place barcodes (container scan mode) is not gated here.
+   * Returns true when the scan may proceed.
+   */
+  function guardOrderScanRequiresActiveGm(mode, inputEl) {
+    if (!supplyHasFilledCargoPlace()) return true;
+    if (state.activeId) return true;
+    const msg = "Вы пытаетесь просканировать заказ без грузоместа.";
+    const setInfo = mode === "kiz" ? window._ozonFbsKizSetInfo : window._ozonFbsPickSetInfo;
+    if (typeof setInfo === "function") setInfo(msg, false);
+    if (typeof window.showFbsScanAck === "function") {
+      window.showFbsScanAck(msg, inputEl || null, { title: "Нет грузоместа" });
+    } else if (typeof window.alert === "function") {
+      window.alert(msg);
+    }
+    const input = inputEl || null;
+    if (input) {
+      try { input.select?.(); } catch (_e) { /* ignore */ }
+    }
+    return false;
+  }
+
   /** Show GM scan/column/menu when containers exist or rows already have binds. */
   function gmUiVisible(mode) {
     if (state.hasContainers) return true;
@@ -1604,6 +1636,8 @@
   window._ozonFbsContainerIsScanMode = isContainerScanMode;
   window._ozonFbsContainerHandleScan = handleContainerScan;
   window._ozonFbsContainerMaybeBind = maybeBindAfterPostingIdentified;
+  window._ozonFbsContainerSupplyHasFilledGm = supplyHasFilledCargoPlace;
+  window._ozonFbsContainerGuardOrderScanRequiresActiveGm = guardOrderScanRequiresActiveGm;
   window._ozonFbsContainerErrorsTooltip = containerErrorsTooltip;
   window._ozonFbsContainerInvalidate = invalidateContainersCache;
   window._ozonFbsContainerReconcile = reconcileContainers;
