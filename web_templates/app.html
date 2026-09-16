@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=373" />
+  <link rel="stylesheet" href="/static/style.css?v=374" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -1720,6 +1720,11 @@
                       onclick="window.location.href='/wb-fbs/tsd'" title="ТСД — сборка на складе">
                 ТСД
               </button>
+              <button type="button" id="wbFbsDriverPageBtn" class="secondary"
+                      onclick="window.location.href='/ozon-fbs/driver'" title="Страница для водителя"
+                      hidden>
+                Для водителя
+              </button>
             </div>
             <div class="wb-fbs-toolbar-right">
               <input id="wbFbsSearchFilter" class="wb-fbs-search" type="search"
@@ -2274,6 +2279,9 @@
                 </div>
                 <button type="button" class="secondary" id="wbFbsSupplyDetailTrbxBtn"
                         onclick="openWbFbsCreateTrbxModal()" title="Создать грузоместа для поставки">Грузоместа</button>
+                <button type="button" class="secondary" id="wbFbsSupplyDetailDriverBtn"
+                        onclick="openWbFbsDriverModal()"
+                        title="Водитель поставки: выбрать из справочника и гос. номер ТС">Водитель</button>
                 <button type="button" class="secondary wb-fbs-sd-portal-btn" id="wbFbsSupplyDetailPortalBtn"
                         onclick="openWbFbsSupplyPortal()" title="Открыть поставку на портале Wildberries">
                   <span>Портал ВБ</span>
@@ -3894,6 +3902,42 @@
               <p id="ozonFbsDriverInfo" class="ozon-fbs-driver-info" hidden></p>
               <div class="ozon-fbs-driver-footer">
                 <button type="button" id="ozonFbsDriverSaveBtn" onclick="saveOzonFbsDriver()">Сохранить</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+
+        <div id="wbFbsDriverModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="wbFbsDriverTitle"
+             onclick="if(event.target===this)closeWbFbsDriverModal()">
+          <div class="modal-card wb-fbs-create-trbx-modal ozon-fbs-driver-modal">
+            <div class="wb-fbs-create-trbx-header">
+              <div class="wb-fbs-create-trbx-header-main">
+                <h3 id="wbFbsDriverTitle" class="wb-fbs-create-trbx-title">Водитель</h3>
+              </div>
+              <button type="button" class="icon-btn secondary" onclick="closeWbFbsDriverModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <div class="wb-fbs-create-trbx-body ozon-fbs-driver-body">
+              <div class="ozon-fbs-driver-fields">
+                <label class="ozon-fbs-driver-field" for="wbFbsDriverSelect">
+                  <span class="ozon-fbs-driver-field-label">Водитель</span>
+                  <select id="wbFbsDriverSelect" class="ozon-fbs-driver-select"
+                          aria-label="Водитель" onchange="onWbFbsDriverChange()">
+                    <option value="">— Выберите водителя —</option>
+                  </select>
+                </label>
+                <label class="ozon-fbs-driver-field" id="wbFbsDriverVehicleField" for="wbFbsDriverVehicleSelect" hidden>
+                  <span class="ozon-fbs-driver-field-label">Гос. номер</span>
+                  <select id="wbFbsDriverVehicleSelect" class="ozon-fbs-driver-select"
+                          aria-label="Гос. номер автомобиля">
+                    <option value="">— Нет ТС у водителя —</option>
+                  </select>
+                </label>
+              </div>
+              <p id="wbFbsDriverInfo" class="ozon-fbs-driver-info" hidden></p>
+              <div class="ozon-fbs-driver-footer">
+                <button type="button" id="wbFbsDriverSaveBtn" onclick="saveWbFbsDriver()">Сохранить</button>
               </div>
             </div>
           </div>
@@ -7700,6 +7744,6 @@
 
   <script src="/static/ozon_fbs.js?v=170"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=29"></script>
-  <script src="/static/app.js?v=643"></script>
+  <script src="/static/app.js?v=644"></script>
 </body>
 </html>

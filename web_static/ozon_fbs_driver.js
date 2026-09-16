@@ -210,7 +210,7 @@
         placeholder +
         "</option>" +
         "</select>" +
-        '<p class="ofd-hint">После выбора подгрузятся грузоместа со статусами «Сформировано» и «Принято на СЦ».</p>';
+        '<p class="ofd-hint">После выбора подгрузятся грузоместа Ozon («Сформировано» / «Принято на СЦ») и WB (TRBX назначенных поставок).</p>';
     }
 
     main.innerHTML =
@@ -263,12 +263,15 @@
         '<div class="ofd-list-count">0</div>' +
         "</div>" +
         errorsHtml +
-        '<div class="ofd-empty">Нет грузомест со статусом «Сформировано» или «Принято на СЦ» для этого номера.</div>';
+        '<div class="ofd-empty">Нет грузомест Ozon («Сформировано» / «Принято на СЦ») или WB TRBX для этого номера.</div>';
       return;
     }
 
     const rows = state.items
       .map(function (item) {
+        const isWb = String(item.marketplace || item.item_kind || "")
+          .toLowerCase()
+          .indexOf("wb") >= 0 || String(item.item_kind || "") === "trbx";
         const num = Number(item.container_number || 0);
         const metaParts = [];
         if (item.supply_name) {
@@ -276,6 +279,11 @@
             "<div><span>Поставка:</span> " + esc(item.supply_name) + "</div>"
           );
         }
+        metaParts.push(
+          "<div><span>Маркетплейс:</span> " +
+            esc(isWb ? "Wildberries" : "Ozon") +
+            "</div>"
+        );
         if (item.warehouse_name) {
           metaParts.push(
             "<div><span>Склад:</span> " + esc(item.warehouse_name) + "</div>"
@@ -292,14 +300,19 @@
             esc(String(item.order_count ?? 0)) +
             "</div>"
         );
+        const title = isWb
+          ? "Грузоместо " + esc(String(num || "—"))
+          : "ГМ № " + esc(String(num || "—"));
+        const idLabel = isWb ? "TRBX " : "ID ";
         return (
           '<li class="ofd-item">' +
           '<div class="ofd-item-top">' +
           "<div>" +
-          '<div class="ofd-item-num">ГМ № ' +
-          esc(String(num || "—")) +
+          '<div class="ofd-item-num">' +
+          title +
           "</div>" +
-          '<div class="ofd-item-id">ID ' +
+          '<div class="ofd-item-id">' +
+          idLabel +
           esc(String(item.container_id || "")) +
           "</div>" +
           "</div>" +

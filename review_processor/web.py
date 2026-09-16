@@ -10637,6 +10637,72 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.get("/api/wb-fbs/supplies/{supply_id}/driver")
+    def wb_fbs_get_supply_driver(
+        request: Request, supply_id: str, source_id: int
+    ) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid or not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        _wb_fbs_source_key(owner_id, int(source_id))
+        return wb_fbs_mod.get_supply_driver_payload(
+            repository,
+            user_id=owner_id,
+            source_id=int(source_id),
+            supply_id=sid,
+        )
+
+    @app.put("/api/wb-fbs/supplies/{supply_id}/driver")
+    async def wb_fbs_set_supply_driver(
+        request: Request, supply_id: str
+    ) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid:
+            raise HTTPException(status_code=400, detail="Укажите supply_id")
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        source_id = int(body.get("source_id") or 0)
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _wb_fbs_source_key(owner_id, source_id)
+        try:
+            driver_id = int(body.get("driver_id") or 0)
+        except (TypeError, ValueError):
+            driver_id = 0
+        # In «В доставке» only the tenant owner may change the driver.
+        posting_tab = str(body.get("posting_tab") or body.get("tab") or "").strip()
+        in_delivery = posting_tab == "delivery" or wb_fbs_mod.supply_is_in_delivery(
+            repository, user_id=owner_id, source_id=source_id, supply_id=sid
+        )
+        if in_delivery and not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="В «В доставке» водителя может менять только главный пользователь",
+            )
+        try:
+            return wb_fbs_mod.set_supply_driver(
+                repository,
+                user_id=owner_id,
+                source_id=source_id,
+                supply_id=sid,
+                driver_id=driver_id,
+                vehicle_number=str(body.get("vehicle_number") or "").strip(),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.get("/api/wb-fbs/supplies/{supply_id}/trbx")
     def wb_fbs_list_supply_trbx(
         request: Request,
@@ -14424,6 +14490,71 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+
+    def _merge_driver_page_cargo_places(ozon_payload: dict, wb_payload: dict) -> dict[str, object]:
+        """Combine Ozon GM + WB TRBX items for the shared driver cabinet."""
+        oz = ozon_payload if isinstance(ozon_payload, dict) else {}
+        wb = wb_payload if isinstance(wb_payload, dict) else {}
+        items: list[dict[str, object]] = []
+        for raw in list(oz.get("items") or []) + list(wb.get("items") or []):
+            if not isinstance(raw, dict):
+                continue
+            row = dict(raw)
+            mp = str(row.get("marketplace") or "").strip().lower()
+            kind = str(row.get("item_kind") or "").strip().lower()
+            if mp == "wb" or kind == "trbx":
+                row["marketplace"] = "wb"
+                row["item_kind"] = "trbx"
+            else:
+                row["marketplace"] = "ozon"
+                row["item_kind"] = kind or "gm"
+            items.append(row)
+        supplies: list[dict[str, object]] = []
+        seen_sup: set[tuple[str, int, str]] = set()
+        for raw in list(oz.get("supplies") or []) + list(wb.get("supplies") or []):
+            if not isinstance(raw, dict):
+                continue
+            row = dict(raw)
+            mp = str(row.get("marketplace") or "").strip().lower() or (
+                "wb" if str(row.get("item_kind") or "") == "trbx" else "ozon"
+            )
+            # Ozon list has no marketplace field — default ozon; WB helper sets "wb".
+            if mp not in {"wb", "ozon"}:
+                mp = "ozon"
+            row["marketplace"] = mp
+            try:
+                source_id = int(row.get("source_id") or 0)
+            except (TypeError, ValueError):
+                source_id = 0
+            supply_id = str(row.get("supply_id") or "").strip()
+            key = (mp, source_id, supply_id)
+            if key in seen_sup:
+                continue
+            seen_sup.add(key)
+            supplies.append(row)
+        errors: list[str] = []
+        for err in list(oz.get("errors") or []) + list(wb.get("errors") or []):
+            msg = str(err or "").strip()
+            if msg and msg not in errors:
+                errors.append(msg)
+        plate = str(oz.get("vehicle_number") or wb.get("vehicle_number") or "").strip()
+        items.sort(
+            key=lambda r: (
+                str(r.get("marketplace") or ""),
+                str(r.get("supply_name") or ""),
+                int(r.get("container_number") or 0),
+                str(r.get("container_id") or ""),
+            )
+        )
+        return {
+            "ok": True,
+            "vehicle_number": plate,
+            "supplies": supplies,
+            "items": items,
+            "total": len(items),
+            "errors": errors,
+        }
+
     @app.get("/api/ozon-fbs/driver/vehicles")
     def ozon_fbs_driver_page_vehicles(request: Request) -> dict[str, object]:
         """Vehicle plates for the standalone driver page dropdown."""
@@ -14468,13 +14599,21 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
             return ozon_fbs_mod.OzonFbsClient(client_id=client_id, api_key=api_key)
 
-        return oz_sup.list_driver_page_cargo_places(
+        ozon_payload = oz_sup.list_driver_page_cargo_places(
             repository,
             user_id=owner_id,
             vehicle_number=plate,
             client_for_source=_client_for_source,
             allowed_source_ids=allowed,
         )
+        # Owner page sees all WB FBS assignments for the tenant.
+        wb_payload = wb_fbs_mod.list_driver_page_cargo_places(
+            repository,
+            user_id=owner_id,
+            vehicle_number=plate,
+            allowed_source_ids=None,
+        )
+        return _merge_driver_page_cargo_places(ozon_payload, wb_payload)
 
     @app.get("/api/ozon-fbs/driver/public-link")
     def ozon_fbs_driver_public_link(request: Request) -> dict[str, object]:
@@ -14570,13 +14709,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
             return ozon_fbs_mod.OzonFbsClient(client_id=client_id, api_key=api_key)
 
-        return oz_sup.list_driver_page_cargo_places(
+        ozon_payload = oz_sup.list_driver_page_cargo_places(
             repository,
             user_id=owner_id,
             vehicle_number=plate,
             client_for_source=_client_for_source,
             allowed_source_ids=None,
         )
+        wb_payload = wb_fbs_mod.list_driver_page_cargo_places(
+            repository,
+            user_id=owner_id,
+            vehicle_number=plate,
+            allowed_source_ids=None,
+        )
+        return _merge_driver_page_cargo_places(ozon_payload, wb_payload)
 
 
     @app.post("/api/ozon-fbs/supplies/{supply_id}/move-to-delivering")

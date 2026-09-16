@@ -1299,6 +1299,357 @@ def ensure_wb_fbs_tables(repo: ReviewRepository) -> None:
                 "WHERE sticker_part_b <> ''"
             )
         )
+        # Supply ↔ driver binding (catalog from «Поставки → Настройки → Водители»).
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS wb_fbs_supply_driver (
+                user_id BIGINT NOT NULL,
+                source_id BIGINT NOT NULL,
+                supply_id TEXT NOT NULL,
+                driver_id BIGINT NOT NULL DEFAULT 0,
+                driver_name TEXT NOT NULL DEFAULT '',
+                vehicle_number TEXT NOT NULL DEFAULT '',
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                PRIMARY KEY (user_id, source_id, supply_id)
+            )
+            """
+        )
+
+
+def empty_supply_driver() -> dict[str, Any]:
+    return {
+        "driver_id": 0,
+        "driver_name": "",
+        "vehicle_number": "",
+        "has_driver": False,
+    }
+
+
+def _norm_vehicle_plate(value: object) -> str:
+    return re.sub(r"\s+", "", str(value or "").strip()).casefold()
+
+
+def list_supply_driver_options(
+    repo: ReviewRepository, *, user_id: int
+) -> list[dict[str, Any]]:
+    """Drivers from shared catalog («Поставки → Настройки → Водители»)."""
+    from .ozon_fbs_supplies import list_supply_driver_options as _ozon_opts
+
+    return _ozon_opts(repo, user_id=user_id)
+
+
+def get_supply_driver(
+    repo: ReviewRepository, *, user_id: int, source_id: int, supply_id: str
+) -> dict[str, Any]:
+    ensure_wb_fbs_tables(repo)
+    sid = str(supply_id or "").strip()
+    if not sid:
+        return empty_supply_driver()
+    with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql(
+                """
+                SELECT driver_id, driver_name, vehicle_number
+                FROM wb_fbs_supply_driver
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                """
+            ),
+            (user_id, source_id, sid),
+        ).fetchone()
+    if not row:
+        return empty_supply_driver()
+    d = repo._row_to_dict(row)
+    if not isinstance(d, dict):
+        return empty_supply_driver()
+    try:
+        did = int(d.get("driver_id") or 0)
+    except (TypeError, ValueError):
+        did = 0
+    name = str(d.get("driver_name") or "").strip()
+    plate = str(d.get("vehicle_number") or "").strip()
+    return {
+        "driver_id": did,
+        "driver_name": name,
+        "vehicle_number": plate,
+        "has_driver": did > 0 and bool(name),
+    }
+
+
+def get_supply_driver_payload(
+    repo: ReviewRepository, *, user_id: int, source_id: int, supply_id: str
+) -> dict[str, Any]:
+    assigned = get_supply_driver(
+        repo, user_id=user_id, source_id=source_id, supply_id=supply_id
+    )
+    return {
+        **assigned,
+        "supply_id": str(supply_id or "").strip(),
+        "source_id": int(source_id or 0),
+        "drivers": list_supply_driver_options(repo, user_id=user_id),
+    }
+
+
+def supply_is_in_delivery(
+    repo: ReviewRepository, *, user_id: int, source_id: int, supply_id: str
+) -> bool:
+    """True when local orders of this supply are on the «В доставке» tab."""
+    ensure_wb_fbs_tables(repo)
+    sid = str(supply_id or "").strip()
+    if not sid:
+        return False
+    with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql(
+                """
+                SELECT 1
+                FROM wb_fbs_orders
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                  AND tab = ?
+                LIMIT 1
+                """
+            ),
+            (user_id, source_id, sid, TAB_DELIVERY),
+        ).fetchone()
+    return bool(row)
+
+
+def set_supply_driver(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    driver_id: int,
+    vehicle_number: str = "",
+) -> dict[str, Any]:
+    ensure_wb_fbs_tables(repo)
+    sid = str(supply_id or "").strip()
+    if not sid:
+        raise ValueError("Не указан ID поставки")
+    try:
+        did = int(driver_id or 0)
+    except (TypeError, ValueError):
+        did = 0
+    if did <= 0:
+        raise ValueError("Выберите водителя")
+
+    options = list_supply_driver_options(repo, user_id=user_id)
+    row = next((d for d in options if int(d.get("id") or 0) == did), None)
+    if not row:
+        raise ValueError("Водитель не найден в справочнике")
+    plates = list(row.get("vehicles") or [])
+    want = _norm_vehicle_plate(vehicle_number)
+    chosen = ""
+    if want:
+        match = next(
+            (p for p in plates if _norm_vehicle_plate(p.get("number")) == want),
+            None,
+        )
+        if not match:
+            raise ValueError("Гос. номер не относится к этому водителю")
+        chosen = str(match.get("number") or "").strip()
+    elif len(plates) == 1:
+        chosen = str(plates[0].get("number") or "").strip()
+    elif len(plates) > 1:
+        raise ValueError("Выберите гос. номер")
+
+    name = str(row.get("full_name") or "").strip()
+    with repo._connect() as conn:
+        conn.execute(
+            repo._sql(
+                """
+                INSERT INTO wb_fbs_supply_driver (
+                    user_id, source_id, supply_id, driver_id, driver_name,
+                    vehicle_number, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, NOW())
+                ON CONFLICT (user_id, source_id, supply_id) DO UPDATE SET
+                    driver_id = excluded.driver_id,
+                    driver_name = excluded.driver_name,
+                    vehicle_number = excluded.vehicle_number,
+                    updated_at = NOW()
+                """
+            ),
+            (user_id, source_id, sid, did, name, chosen),
+        )
+    try:
+        from . import wb_fbs_detail as wb_detail
+
+        wb_detail.invalidate_supply_detail_cache(
+            user_id=user_id, source_id=source_id, supply_id=sid
+        )
+    except Exception:
+        pass
+    return get_supply_driver_payload(
+        repo, user_id=user_id, source_id=source_id, supply_id=sid
+    )
+
+
+def list_supplies_for_driver_vehicle(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    vehicle_number: str,
+    allowed_source_ids: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """WB FBS supplies where this plate is assigned via «Водитель»."""
+    ensure_wb_fbs_tables(repo)
+    want = _norm_vehicle_plate(vehicle_number)
+    if not want:
+        return []
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                """
+                SELECT d.source_id, d.supply_id, d.driver_id, d.driver_name,
+                       d.vehicle_number, s.name AS supply_name
+                FROM wb_fbs_supply_driver d
+                LEFT JOIN wb_fbs_supplies s
+                  ON s.user_id = d.user_id
+                 AND s.source_id = d.source_id
+                 AND s.supply_id = d.supply_id
+                WHERE d.user_id = ? AND d.vehicle_number <> ''
+                ORDER BY d.source_id ASC, d.supply_id ASC
+                """
+            ),
+            (user_id,),
+        ).fetchall()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        d = repo._row_to_dict(row)
+        if not isinstance(d, dict):
+            continue
+        plate = str(d.get("vehicle_number") or "").strip()
+        if _norm_vehicle_plate(plate) != want:
+            continue
+        try:
+            source_id = int(d.get("source_id") or 0)
+        except (TypeError, ValueError):
+            source_id = 0
+        if source_id <= 0:
+            continue
+        if allowed_source_ids is not None and str(source_id) not in allowed_source_ids:
+            continue
+        supply_id = str(d.get("supply_id") or "").strip()
+        if not supply_id:
+            continue
+        name = str(d.get("supply_name") or "").strip() or supply_id
+        out.append(
+            {
+                "source_id": source_id,
+                "supply_id": supply_id,
+                "supply_name": name,
+                "warehouse_name": "",
+                "driver_id": int(d.get("driver_id") or 0),
+                "driver_name": str(d.get("driver_name") or "").strip(),
+                "vehicle_number": plate,
+                "marketplace": "wb",
+            }
+        )
+    return out
+
+
+def list_driver_page_cargo_places(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    vehicle_number: str,
+    allowed_source_ids: set[str] | None = None,
+) -> dict[str, Any]:
+    """TRBX cargo places for WB FBS supplies assigned to ``vehicle_number``.
+
+    Uses local ``boxes_json`` cache (no live WB API) so the driver page stays fast.
+    """
+    plate = str(vehicle_number or "").strip()
+    supplies = list_supplies_for_driver_vehicle(
+        repo,
+        user_id=user_id,
+        vehicle_number=plate,
+        allowed_source_ids=allowed_source_ids,
+    )
+    items: list[dict[str, Any]] = []
+    errors: list[str] = []
+    seen: set[tuple[int, str]] = set()
+
+    by_source: dict[int, list[str]] = {}
+    supply_meta: dict[tuple[int, str], dict[str, Any]] = {}
+    for supply in supplies:
+        source_id = int(supply["source_id"])
+        supply_id = str(supply["supply_id"])
+        by_source.setdefault(source_id, []).append(supply_id)
+        supply_meta[(source_id, supply_id)] = supply
+
+    for source_id, sids in by_source.items():
+        try:
+            boxes_map = cached_supply_boxes_by_id(
+                repo, user_id=user_id, source_id=source_id, supply_ids=sids
+            )
+        except Exception as exc:
+            for sid in sids:
+                meta = supply_meta.get((source_id, sid)) or {}
+                errors.append(f"{meta.get('supply_name') or sid}: {exc}")
+            continue
+        for supply_id in sids:
+            meta = supply_meta.get((source_id, supply_id)) or {}
+            boxes = boxes_map.get(supply_id) or []
+            order_count = 0
+            try:
+                order_count = len(
+                    _local_supply_order_ids(
+                        repo,
+                        user_id=user_id,
+                        source_id=source_id,
+                        supply_id=supply_id,
+                    )
+                )
+            except Exception:
+                order_count = 0
+            for idx, box in enumerate(boxes, start=1):
+                bid = _trbx_box_id(box)
+                if not bid:
+                    continue
+                dedupe = (source_id, bid)
+                if dedupe in seen:
+                    continue
+                seen.add(dedupe)
+                items.append(
+                    {
+                        "container_id": bid,
+                        "container_number": idx,
+                        "status": "formed",
+                        "status_label": "WB",
+                        "cargo_type": "",
+                        "cargo_type_label": "",
+                        "sort_type": "",
+                        "sort_type_label": "",
+                        "order_count": max(0, int(order_count or 0)),
+                        "source_id": source_id,
+                        "supply_id": supply_id,
+                        "supply_name": str(meta.get("supply_name") or supply_id),
+                        "warehouse_name": str(meta.get("warehouse_name") or "").strip(),
+                        "driver_name": str(meta.get("driver_name") or "").strip(),
+                        "vehicle_number": str(
+                            meta.get("vehicle_number") or plate
+                        ).strip(),
+                        "marketplace": "wb",
+                        "item_kind": "trbx",
+                    }
+                )
+
+    items.sort(
+        key=lambda r: (
+            str(r.get("supply_name") or ""),
+            int(r.get("container_number") or 0),
+            str(r.get("container_id") or ""),
+        )
+    )
+    return {
+        "ok": True,
+        "vehicle_number": plate,
+        "supplies": supplies,
+        "items": items,
+        "total": len(items),
+        "errors": errors,
+    }
 
 
 def persist_order_stickers_batch(

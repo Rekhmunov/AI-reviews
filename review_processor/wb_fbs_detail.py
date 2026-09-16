@@ -2042,6 +2042,12 @@ def get_supply_detail(
     cargo_summary = wb.compute_wb_fbs_supply_cargo_summary(
         repo, user_id=user_id, orders=order_rows
     )
+    driver = wb.get_supply_driver(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=sid,
+    )
     result = {
         "supply_id": sid,
         "source_id": source_id,
@@ -2057,6 +2063,10 @@ def get_supply_detail(
         "done": bool((supply or {}).get("done") if supply else (local or {}).get("done")),
         "orders": order_rows,
         "cargo_summary": cargo_summary,
+        "driver_id": driver.get("driver_id") or 0,
+        "driver_name": driver.get("driver_name") or "",
+        "vehicle_number": driver.get("vehicle_number") or "",
+        "has_driver": bool(driver.get("has_driver")),
     }
     _cache_put_detail(
         user_id=user_id, source_id=source_id, supply_id=sid, detail=result

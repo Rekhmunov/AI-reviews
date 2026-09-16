@@ -8448,6 +8448,28 @@ tr.dnd-over td {
   outline: 2px solid #16a34a;
   outline-offset: 2px;
 }
+#wbFbsSupplyDetailDriverBtn.is-ok,
+#wbFbsSupplyDetailDriverBtn.is-ok:hover:not(:disabled):not([aria-disabled="true"]),
+#wbFbsSupplyDetailDriverBtn.is-ok:active:not(:disabled):not([aria-disabled="true"]),
+#wbFbsSupplyDetailDriverBtn.is-ok:focus:not(:disabled):not([aria-disabled="true"]) {
+  color: #166534;
+  border-color: #86efac;
+  background: #dcfce7;
+}
+#wbFbsSupplyDetailDriverBtn.is-ok:hover:not(:disabled):not([aria-disabled="true"]) {
+  background: #bbf7d0;
+  border-color: #4ade80;
+}
+#wbFbsSupplyDetailDriverBtn.is-ok:active:not(:disabled):not([aria-disabled="true"]) {
+  background: #86efac;
+}
+#wbFbsSupplyDetailDriverBtn.is-ok:focus-visible {
+  outline: 2px solid #16a34a;
+  outline-offset: 2px;
+}
+#wbFbsDriverModal.modal-overlay {
+  z-index: 1300;
+}
 .ozon-fbs-container-approve-body {
   padding: 20px 24px 0;
   overflow: auto;

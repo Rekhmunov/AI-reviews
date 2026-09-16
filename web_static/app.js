@@ -18240,6 +18240,11 @@ document.addEventListener("DOMContentLoaded", () => {
   if (tsdBtn) {
     tsdBtn.style.display = (permissions.can_view_wb_fbs_tsd || isTenantOwner()) ? "" : "none";
   }
+  const wbDriverPageBtn = document.getElementById("wbFbsDriverPageBtn");
+  if (wbDriverPageBtn) {
+    wbDriverPageBtn.style.display = isTenantOwner() ? "" : "none";
+    wbDriverPageBtn.hidden = !isTenantOwner();
+  }
   if (!permissions.can_view_ozon_supplies && !isTenantOwner()) {
     document.getElementById("section-supplies-ozon")?.classList.add("hidden");
     const navOzon = document.getElementById("nav-supplies-ozon");
@@ -32364,6 +32369,7 @@ const _WB_FBS_DETAIL_ACTION_IDS = [
   "wbFbsSupplyDetailPickVerifyBtn",
   "wbFbsSupplyDetailPickRefreshBtn",
   "wbFbsSupplyDetailTrbxBtn",
+  "wbFbsSupplyDetailDriverBtn",
   "wbFbsSupplyDetailCancelledBtn",
 ];
 
@@ -32428,23 +32434,39 @@ function _wbFbsIsSupplyDetailCargoLocked() {
 const _WB_FBS_SD_READONLY_BANNER =
   "Состав поставки изменению не подлежит — отправления уже в доставке.";
 
+function _wbFbsCanOpenDriverWhileReadOnly() {
+  return isTenantOwner();
+}
+
+function _wbFbsDriverLockedAsToneOnly() {
+  return _wbFbsIsSupplyDetailReadOnly() && !_wbFbsCanOpenDriverWhileReadOnly();
+}
+
 function _wbFbsSyncSupplyDetailToneOnlySplits(toneOnly) {
   const tip =
     "Только индикатор статуса — изменение недоступно: отправления уже в доставке";
   const defaults = {
     wbFbsSupplyDetailKizBtn: "Товары с КИЗ — коды маркировки «Честный знак»",
     wbFbsSupplyDetailPickVerifyBtn: "Товары без КИЗ — проверка штрихкодов",
+    wbFbsSupplyDetailDriverBtn: "Водитель поставки: выбрать из справочника и гос. номер ТС",
   };
   Object.keys(defaults).forEach((id) => {
     const el = document.getElementById(id);
     if (!el) return;
-    if (toneOnly) {
+    const locked =
+      id === "wbFbsSupplyDetailDriverBtn" ? _wbFbsDriverLockedAsToneOnly() : !!toneOnly;
+    if (locked) {
       el.classList.add("is-tone-only");
       // Do not override wait-orders lock.
       if (!el.classList.contains("is-wait-orders")) {
         el.setAttribute("aria-disabled", "true");
         el.tabIndex = -1;
-        el.setAttribute("title", tip);
+        el.setAttribute(
+          "title",
+          id === "wbFbsSupplyDetailDriverBtn"
+            ? "Водитель: только просмотр. В «В доставке» менять может главный пользователь"
+            : tip
+        );
       }
     } else {
       el.classList.remove("is-tone-only");
@@ -32994,6 +33016,264 @@ async function submitWbFbsCreateTrbx() {
 }
 window.submitWbFbsCreateTrbx = submitWbFbsCreateTrbx;
 
+
+const wbFbsDriverModalState = {
+  supplyId: null,
+  sourceId: null,
+  drivers: [],
+  loading: false,
+  saving: false,
+};
+
+function _wbFbsDriverHasAssignment(supply) {
+  const row = supply || {};
+  const did = Number(row.driver_id || 0);
+  const name = String(row.driver_name || "").trim();
+  return Boolean(row.has_driver) || (did > 0 && !!name);
+}
+
+function _wbFbsSyncDriverBtn() {
+  const btn = document.getElementById("wbFbsSupplyDetailDriverBtn");
+  if (!btn) return;
+  btn.classList.toggle("is-ok", _wbFbsDriverHasAssignment(wbFbsDetailState.supply));
+  _wbFbsSyncSupplyDetailToneOnlySplits(_wbFbsIsSupplyDetailReadOnly());
+}
+
+function _wbFbsDriverSetVisible(show) {
+  if (typeof setModalVisibility === "function") {
+    setModalVisibility("wbFbsDriverModal", !!show);
+    return;
+  }
+  const modal = document.getElementById("wbFbsDriverModal");
+  if (modal) modal.classList.toggle("hidden", !show);
+}
+
+function _wbFbsDriverSetInfo(text, kind) {
+  const el = document.getElementById("wbFbsDriverInfo");
+  if (!el) return;
+  const msg = String(text || "").trim();
+  el.hidden = !msg;
+  el.textContent = msg;
+  el.classList.toggle("is-ok", !!msg && kind === "ok");
+  el.classList.toggle("is-error", !!msg && kind === "error");
+}
+
+function _wbFbsDriverById(driverId) {
+  const id = Number(driverId || 0);
+  return (wbFbsDriverModalState.drivers || []).find((d) => Number(d.id || 0) === id) || null;
+}
+
+function _wbFbsEscAttr(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function _wbFbsFillDriverSelect(selectedId) {
+  const sel = document.getElementById("wbFbsDriverSelect");
+  if (!sel) return;
+  const current = String(selectedId || sel.value || "");
+  const opts = ['<option value="">— Выберите водителя —</option>'];
+  (wbFbsDriverModalState.drivers || []).forEach((d) => {
+    const id = String(d.id || "");
+    const name = String(d.full_name || "").trim() || `Водитель ${id}`;
+    opts.push(`<option value="${_wbFbsEscAttr(id)}">${_wbFbsEscAttr(name)}</option>`);
+  });
+  sel.innerHTML = opts.join("");
+  if (current && [...sel.options].some((o) => o.value === current)) {
+    sel.value = current;
+  } else {
+    sel.value = "";
+  }
+}
+
+function _wbFbsFillDriverVehicles(selectedPlate) {
+  const field = document.getElementById("wbFbsDriverVehicleField");
+  const sel = document.getElementById("wbFbsDriverVehicleSelect");
+  const driver = _wbFbsDriverById(document.getElementById("wbFbsDriverSelect")?.value);
+  if (!field || !sel) return;
+  if (!driver) {
+    field.hidden = true;
+    sel.innerHTML = '<option value="">— Выберите водителя —</option>';
+    sel.disabled = true;
+    return;
+  }
+  const vehicles = Array.isArray(driver.vehicles) ? driver.vehicles : [];
+  const plates = vehicles
+    .map((v) => String(v?.number || "").trim())
+    .filter(Boolean);
+  field.hidden = false;
+  if (!plates.length) {
+    sel.innerHTML = '<option value="">— Нет гос. номеров у водителя —</option>';
+    sel.disabled = true;
+    sel.value = "";
+    return;
+  }
+  const want = String(selectedPlate || "").trim();
+  const opts = plates.length > 1
+    ? ['<option value="">— Выберите гос. номер —</option>']
+    : [];
+  plates.forEach((num) => {
+    opts.push(`<option value="${_wbFbsEscAttr(num)}">${_wbFbsEscAttr(num)}</option>`);
+  });
+  sel.innerHTML = opts.join("");
+  sel.disabled = false;
+  if (want && plates.some((n) => n.toLowerCase() === want.toLowerCase())) {
+    const match = plates.find((n) => n.toLowerCase() === want.toLowerCase());
+    sel.value = match;
+  } else if (plates.length === 1) {
+    sel.value = plates[0];
+  } else {
+    sel.value = "";
+  }
+}
+
+function onWbFbsDriverChange() {
+  _wbFbsFillDriverVehicles("");
+  _wbFbsDriverSetInfo("");
+}
+window.onWbFbsDriverChange = onWbFbsDriverChange;
+
+async function openWbFbsDriverModal() {
+  if (_wbFbsDriverLockedAsToneOnly()) {
+    alert("В «В доставке» водителя может менять только главный пользователь");
+    return;
+  }
+  const sid = String(wbFbsDetailState.supplyId || "").trim();
+  const sourceId = wbFbsState.sourceId;
+  if (!sid || !sourceId) {
+    alert("Откройте поставку");
+    return;
+  }
+  if (!_wbFbsSupplyDetailActionsReady()) return;
+  wbFbsDriverModalState.supplyId = sid;
+  wbFbsDriverModalState.sourceId = sourceId;
+  wbFbsDriverModalState.loading = true;
+  wbFbsDriverModalState.saving = false;
+  const saveBtn = document.getElementById("wbFbsDriverSaveBtn");
+  const driverSel = document.getElementById("wbFbsDriverSelect");
+  if (saveBtn) saveBtn.disabled = true;
+  if (driverSel) {
+    driverSel.innerHTML = '<option value="">Загрузка…</option>';
+    driverSel.disabled = true;
+  }
+  _wbFbsFillDriverVehicles("");
+  _wbFbsDriverSetInfo("Загрузка справочника водителей…");
+  _wbFbsDriverSetVisible(true);
+  try {
+    const res = await fetch(
+      `/api/wb-fbs/supplies/${encodeURIComponent(sid)}/driver?source_id=${sourceId}`,
+      { headers: jsonHeaders() }
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(
+      (typeof detailText === "function" ? detailText(data.detail) : "")
+      || data.detail
+      || "Не удалось загрузить водителя"
+    );
+    wbFbsDriverModalState.drivers = Array.isArray(data.drivers) ? data.drivers : [];
+    const assignedId = Number(data.driver_id || 0) || Number(wbFbsDetailState.supply?.driver_id || 0);
+    const assignedPlate = String(data.vehicle_number || wbFbsDetailState.supply?.vehicle_number || "").trim();
+    if (driverSel) driverSel.disabled = false;
+    _wbFbsFillDriverSelect(assignedId > 0 ? assignedId : "");
+    _wbFbsFillDriverVehicles(assignedPlate);
+    if (!wbFbsDriverModalState.drivers.length) {
+      _wbFbsDriverSetInfo("В справочнике нет водителей. Добавьте их в Поставки → Настройки → Водители.", "error");
+    } else {
+      _wbFbsDriverSetInfo("");
+    }
+  } catch (e) {
+    if (driverSel) driverSel.disabled = false;
+    _wbFbsDriverSetInfo(e.message || String(e), "error");
+  } finally {
+    wbFbsDriverModalState.loading = false;
+    if (saveBtn) saveBtn.disabled = false;
+  }
+}
+window.openWbFbsDriverModal = openWbFbsDriverModal;
+
+function closeWbFbsDriverModal() {
+  _wbFbsDriverSetVisible(false);
+  wbFbsDriverModalState.supplyId = null;
+  wbFbsDriverModalState.sourceId = null;
+  wbFbsDriverModalState.saving = false;
+  _wbFbsDriverSetInfo("");
+}
+window.closeWbFbsDriverModal = closeWbFbsDriverModal;
+
+async function saveWbFbsDriver() {
+  if (_wbFbsDriverLockedAsToneOnly()) {
+    _wbFbsDriverSetInfo(
+      "В «В доставке» водителя может менять только главный пользователь",
+      "error"
+    );
+    return;
+  }
+  const sid = String(wbFbsDriverModalState.supplyId || wbFbsDetailState.supplyId || "").trim();
+  const sourceId = wbFbsDriverModalState.sourceId || wbFbsState.sourceId;
+  const driverSel = document.getElementById("wbFbsDriverSelect");
+  const vehSel = document.getElementById("wbFbsDriverVehicleSelect");
+  const saveBtn = document.getElementById("wbFbsDriverSaveBtn");
+  const driverId = Number(driverSel?.value || 0);
+  const plate = String(vehSel?.disabled ? "" : (vehSel?.value || "")).trim();
+  if (!sid || !sourceId) return;
+  if (!driverId) {
+    _wbFbsDriverSetInfo("Выберите водителя", "error");
+    driverSel?.focus();
+    return;
+  }
+  const driver = _wbFbsDriverById(driverId);
+  const plates = (driver?.vehicles || []).map((v) => String(v?.number || "").trim()).filter(Boolean);
+  if (plates.length > 1 && !plate) {
+    _wbFbsDriverSetInfo("Выберите гос. номер", "error");
+    vehSel?.focus();
+    return;
+  }
+  if (saveBtn) saveBtn.disabled = true;
+  wbFbsDriverModalState.saving = true;
+  _wbFbsDriverSetInfo("Сохраняем…");
+  try {
+    const res = await fetch(
+      `/api/wb-fbs/supplies/${encodeURIComponent(sid)}/driver`,
+      {
+        method: "PUT",
+        headers: jsonHeaders(),
+        body: JSON.stringify({
+          source_id: sourceId,
+          driver_id: driverId,
+          vehicle_number: plate,
+          tab: String(wbFbsState.tab || "").trim(),
+        }),
+      }
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(
+      (typeof detailText === "function" ? detailText(data.detail) : "")
+      || data.detail
+      || "Не удалось сохранить"
+    );
+    if (wbFbsDetailState.supply && String(wbFbsDetailState.supply.supply_id || "") === sid) {
+      wbFbsDetailState.supply.driver_id = Number(data.driver_id || driverId);
+      wbFbsDetailState.supply.driver_name = String(data.driver_name || "").trim();
+      wbFbsDetailState.supply.vehicle_number = String(data.vehicle_number || plate).trim();
+      wbFbsDetailState.supply.has_driver = true;
+    }
+    _wbFbsSyncDriverBtn();
+    _wbFbsDriverSetInfo("Сохранено", "ok");
+    setTimeout(() => {
+      if (wbFbsDriverModalState.supplyId === sid) closeWbFbsDriverModal();
+    }, 350);
+  } catch (e) {
+    _wbFbsDriverSetInfo(e.message || String(e), "error");
+  } finally {
+    wbFbsDriverModalState.saving = false;
+    if (saveBtn) saveBtn.disabled = false;
+  }
+}
+window.saveWbFbsDriver = saveWbFbsDriver;
+
 async function openWbFbsSupplyDetailModal(supplyId) {
   _wbFbsCloseRowMenus();
   const sid = String(supplyId || "").trim();
@@ -33171,6 +33451,7 @@ function renderWbFbsSupplyDetail(data) {
   }
   _wbFbsSyncPickVerifyBtn();
   _wbFbsSyncKizPickBtnLabels();
+  _wbFbsSyncDriverBtn();
   const readOnly = _wbFbsIsSupplyDetailReadOnly();
   _wbFbsSyncSupplyDetailReadOnlyMode(readOnly);
   const detailColspan = readOnly ? 2 : 4;
