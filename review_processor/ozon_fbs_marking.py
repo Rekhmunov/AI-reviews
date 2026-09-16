@@ -1482,6 +1482,8 @@ def check_supply_marking_status(
                 "kiz_required": kiz_required,
                 "kiz_codes": codes,
                 "kiz_status": st if kiz_required else "empty",
+                # Needed so open-modal peer sync can adopt the conflict token.
+                "kiz_saved_at": str(loc.get("saved_at") or ""),
                 "cancelled": cancelled,
                 "cancel_reason_label": str(o.get("cancel_reason_label") or ""),
                 "container_id": loc.get("container_id"),

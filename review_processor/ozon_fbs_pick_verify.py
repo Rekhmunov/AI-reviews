@@ -623,6 +623,7 @@ def check_supply_pick_verify_status(
                 "posting_number": pn,
                 "pick_verified": verified,
                 "pick_barcode": str(loc.get("pick_barcode") or "").strip() if verified else "",
+                "pick_verified_at": str(loc.get("pick_verified_at") or ""),
                 "pick_status": st,
                 "container_id": loc.get("container_id"),
                 "container_barcode": str(loc.get("container_barcode") or "").strip(),

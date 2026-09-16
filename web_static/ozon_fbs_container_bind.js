@@ -239,6 +239,9 @@
       updateContainerCounters();
       // Prefer cell patches; defer heavy DOM while operator is scanning.
       applyReconcileDom(mode, touchedPns);
+      // Peer may have saved KIZ/ШК in the same burst as GM bind — pull fill
+      // counters into the open modal (status is local-DB, cheap).
+      scheduleSupplyStatusRefresh();
     }
     // Background: only the postings Ozon dropped from GM — no toasts, no modal.
     // Defer status lookups during an active scan burst so focus/DOM stay free.
