@@ -8432,19 +8432,26 @@ tr.dnd-over td {
 #ozonFbsSupplyDetailDriverBtn.is-ok,
 #ozonFbsSupplyDetailDriverBtn.is-ok:hover:not(:disabled):not([aria-disabled="true"]),
 #ozonFbsSupplyDetailDriverBtn.is-ok:active:not(:disabled):not([aria-disabled="true"]),
-#ozonFbsSupplyDetailDriverBtn.is-ok:focus:not(:disabled):not([aria-disabled="true"]) {
+#ozonFbsSupplyDetailDriverBtn.is-ok:focus:not(:disabled):not([aria-disabled="true"]),
+#ozonFbsSupplyDetailTrbxBtn.is-ok,
+#ozonFbsSupplyDetailTrbxBtn.is-ok:hover:not(:disabled):not([aria-disabled="true"]),
+#ozonFbsSupplyDetailTrbxBtn.is-ok:active:not(:disabled):not([aria-disabled="true"]),
+#ozonFbsSupplyDetailTrbxBtn.is-ok:focus:not(:disabled):not([aria-disabled="true"]) {
   color: #166534;
   border-color: #86efac;
   background: #dcfce7;
 }
-#ozonFbsSupplyDetailDriverBtn.is-ok:hover:not(:disabled):not([aria-disabled="true"]) {
+#ozonFbsSupplyDetailDriverBtn.is-ok:hover:not(:disabled):not([aria-disabled="true"]),
+#ozonFbsSupplyDetailTrbxBtn.is-ok:hover:not(:disabled):not([aria-disabled="true"]) {
   background: #bbf7d0;
   border-color: #4ade80;
 }
-#ozonFbsSupplyDetailDriverBtn.is-ok:active:not(:disabled):not([aria-disabled="true"]) {
+#ozonFbsSupplyDetailDriverBtn.is-ok:active:not(:disabled):not([aria-disabled="true"]),
+#ozonFbsSupplyDetailTrbxBtn.is-ok:active:not(:disabled):not([aria-disabled="true"]) {
   background: #86efac;
 }
-#ozonFbsSupplyDetailDriverBtn.is-ok:focus-visible {
+#ozonFbsSupplyDetailDriverBtn.is-ok:focus-visible,
+#ozonFbsSupplyDetailTrbxBtn.is-ok:focus-visible {
   outline: 2px solid #16a34a;
   outline-offset: 2px;
 }
@@ -12256,6 +12263,71 @@ button.wb-fbs-select-all-link:disabled {
   box-shadow: none;
   border-color: rgba(147, 197, 253, 0.55);
   background: linear-gradient(160deg, rgba(255, 255, 255, 0.82), rgba(239, 246, 255, 0.86));
+}
+
+/* Hover checklist for blocked «Перенести в доставку». */
+.ozon-fbs-move-gate-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  vertical-align: top;
+}
+.ozon-fbs-move-gate-tip {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 8px);
+  z-index: 40;
+  min-width: 260px;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  color: #0f172a;
+  font-size: 14px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+.ozon-fbs-move-gate-tip[hidden] {
+  display: none !important;
+}
+.ozon-fbs-move-gate-wrap:hover .ozon-fbs-move-gate-tip:not([hidden]),
+.ozon-fbs-move-gate-wrap:focus-within .ozon-fbs-move-gate-tip:not([hidden]) {
+  display: block;
+}
+.ozon-fbs-move-gate-title {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+}
+.ozon-fbs-move-gate-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ozon-fbs-move-gate-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  color: #64748b;
+}
+.ozon-fbs-move-gate-list li.is-done {
+  color: #166534;
+}
+.ozon-fbs-move-gate-mark {
+  flex: 0 0 auto;
+  width: 16px;
+  text-align: center;
+  font-weight: 700;
+}
+.ozon-fbs-move-gate-list li.is-done .ozon-fbs-move-gate-mark {
+  color: #16a34a;
 }
 .wb-fbs-kiz-split.is-ok > .secondary.is-wait-orders,
 .wb-fbs-kiz-split.is-ok > .secondary.is-wait-orders:hover,

@@ -519,6 +519,8 @@
       || isDeliveringSuppliesTab()
       || String(supplyDetailState.postingTab || "").trim() === "delivering";
     if (moveBtn) moveBtn.hidden = hideMove;
+    const moveWrap = document.getElementById("ozonFbsMoveDeliveringGateWrap");
+    if (moveWrap) moveWrap.hidden = hideMove;
     const info = document.getElementById("ozonFbsSupplyDetailInfo");
     if (info) {
       if (readOnly) {
@@ -3438,15 +3440,19 @@
       renderSupplyDetail(data);
       _ozonFbsSupplyDetailSetActionsReady(true);
       _ozonFbsSupplyDetailUpdateNewWarn();
-      // Load warehouse cargo places early so green tone can require full GM binds.
+      // Load warehouse cargo places early so green tone / GM button can require confirms.
       const refreshTonesAfterGm = () => {
         _ozonFbsKizSplitSetTone(_ozonFbsKizToneFromSupply(supplyDetailState.supply));
         _ozonFbsPickSplitSetTone(_ozonFbsPickToneFromSupply(supplyDetailState.supply));
+        _ozonFbsSyncContainersBtn();
+        _ozonFbsSyncMoveDeliveringEnabled();
       };
       if (typeof window._ozonFbsContainerInvalidate === "function") {
         void Promise.resolve(window._ozonFbsContainerInvalidate())
           .catch(() => false)
           .then(() => refreshTonesAfterGm());
+      } else {
+        refreshTonesAfterGm();
       }
       // Same ok/error rules as «Обновить», without requiring a click.
       _ozonFbsAutoRefreshSplitTones();
@@ -5932,6 +5938,7 @@
         supplyDetailState.supply.has_driver = true;
       }
       _ozonFbsSyncDriverBtn();
+      _ozonFbsSyncMoveDeliveringEnabled();
       _ozonFbsDriverSetInfo("Сохранено", "ok");
       setTimeout(() => {
         if (driverModalState.supplyId === sid) closeOzonFbsDriverModal();
@@ -6344,6 +6351,8 @@
       if (containersState.expandedId) {
         loadOzonFbsContainerDetails(containersState.expandedId);
       }
+      _ozonFbsSyncContainersBtn();
+      _ozonFbsSyncMoveDeliveringEnabled();
       const total = Number(data.total || (data.items || []).length || 0);
       const wh = String(data.warehouse_name || "").trim();
       if (!keepInfo) {
@@ -6418,6 +6427,8 @@
     containersState.detailsLoadingId = null;
     _ozonFbsContainersSetInfo("");
     _ozonFbsRenderCargoSummary("ozonFbsContainersCargo", null);
+    _ozonFbsSyncContainersBtn();
+    _ozonFbsSyncMoveDeliveringEnabled();
   }
 
   function refreshOzonFbsContainers() {
@@ -7194,7 +7205,7 @@
     if (!_ozonFbsCanMoveToDelivering()) {
       _ozonFbsSyncMoveDeliveringEnabled();
       _ozonFbsMoveDeliveringNotice(
-        "Сначала завершите сканирование: «Товары с КИЗ» и «Товары без КИЗ» должны быть зелёными",
+        "Сначала выполните все условия: подтверждение грузомест (если есть), зелёные «Товары с КИЗ» / «Товары без КИЗ» и выбранный водитель",
         { title: "Перенести в доставку", kind: "error" }
       );
       return;
@@ -7234,7 +7245,7 @@
     if (!_ozonFbsCanMoveToDelivering()) {
       _ozonFbsSyncMoveDeliveringEnabled();
       _ozonFbsMoveDeliveringNotice(
-        "Сначала завершите сканирование: «Товары с КИЗ» и «Товары без КИЗ» должны быть зелёными",
+        "Сначала выполните все условия: подтверждение грузомест (если есть), зелёные «Товары с КИЗ» / «Товары без КИЗ» и выбранный водитель",
         { title: "Перенести в доставку", kind: "error" }
       );
       return;
@@ -9376,6 +9387,88 @@
     return false;
   }
 
+  /** Prefer bind-module cache; fall back to containers modal list. */
+  function _ozonFbsSupplyContainerItems() {
+    const bindItems = window.ozonFbsContainerBindState?.containers;
+    if (Array.isArray(bindItems) && bindItems.length) return bindItems;
+    if (Array.isArray(containersState.items) && containersState.items.length) {
+      return containersState.items;
+    }
+    return Array.isArray(bindItems) ? bindItems : [];
+  }
+
+  /** GMs with local KIZ/pick binds to the open supply. */
+  function _ozonFbsSupplyBoundContainers() {
+    const items = _ozonFbsSupplyContainerItems();
+    const orders = Array.isArray(supplyDetailState.supply?.orders)
+      ? supplyDetailState.supply.orders
+      : [];
+    const orderCids = new Set();
+    for (const o of orders) {
+      if (!o || _ozonFbsRowIsCancelled(o)) continue;
+      const cid = Number(o.container_id || 0);
+      if (cid > 0) orderCids.add(cid);
+    }
+    return items.filter((c) => {
+      if (!c || typeof c !== "object") return false;
+      if (c.bound_to_open_supply === true) return true;
+      if (c.bound_to_open_supply === false) return false;
+      const cid = Number(c.container_id || 0);
+      if (cid > 0 && orderCids.has(cid)) return true;
+      return Number(c.order_count || 0) > 0 && orderCids.size > 0 && orderCids.has(cid);
+    });
+  }
+
+  /** True when operator already bound at least one order to a cargo place. */
+  function _ozonFbsSupplyHasGmBinds() {
+    if (_ozonFbsSupplyBoundContainers().length > 0) return true;
+    const orders = Array.isArray(supplyDetailState.supply?.orders)
+      ? supplyDetailState.supply.orders
+      : [];
+    return orders.some((o) => o && !_ozonFbsRowIsCancelled(o) && _ozonFbsOrderHasContainerBind(o));
+  }
+
+  /** Green ✓ pressed / composition locked on Ozon. */
+  function _ozonFbsContainerCompositionConfirmed(c) {
+    if (!c || typeof c !== "object") return false;
+    if (c.can_approve === true) return false;
+    const st = String(c.status || "").trim().toLowerCase();
+    return [
+      "approved",
+      "formed",
+      "ready",
+      "acceptance_in_progress",
+      "finished",
+      "shipped",
+      "closed",
+    ].includes(st);
+  }
+
+  /** All bound GMs confirmed — drives green «Грузоместа» button. */
+  function _ozonFbsContainersAllConfirmed() {
+    const bound = _ozonFbsSupplyBoundContainers();
+    if (!bound.length) return false;
+    return bound.every(_ozonFbsContainerCompositionConfirmed);
+  }
+
+  /** Move-to-delivering GM gate: N/A (ok) when no binds; else all confirmed. */
+  function _ozonFbsGmConfirmOkForMove() {
+    if (!_ozonFbsSupplyHasGmBinds()) return true;
+    return _ozonFbsContainersAllConfirmed();
+  }
+
+  function _ozonFbsSyncContainersBtn() {
+    const btn = document.getElementById("ozonFbsSupplyDetailTrbxBtn");
+    if (!btn) return;
+    btn.classList.toggle("is-ok", _ozonFbsContainersAllConfirmed());
+  }
+
+  /** Called after bind-module container list refresh (open detail / approve / invalidate). */
+  function _ozonFbsOnContainersLoaded() {
+    _ozonFbsSyncContainersBtn();
+    _ozonFbsSyncMoveDeliveringEnabled();
+  }
+
   function _ozonFbsKizToneFromSupply(supply) {
     const orders = Array.isArray(supply?.orders) ? supply.orders : [];
     const required = orders.filter((o) => o && o.kiz_required && !_ozonFbsRowIsCancelled(o));
@@ -9402,11 +9495,75 @@
     return "ok";
   }
 
+  function _ozonFbsMoveDeliveringGateItems() {
+    const supply = supplyDetailState.supply;
+    const orders = Array.isArray(supply?.orders) ? supply.orders : [];
+    const needsKiz = orders.some((o) => o && o.kiz_required && !_ozonFbsRowIsCancelled(o));
+    const needsPick = orders.some((o) => o && !o.kiz_required && !_ozonFbsRowIsCancelled(o));
+    const items = [];
+    if (_ozonFbsSupplyHasGmBinds()) {
+      items.push({
+        key: "gm",
+        label: "Подтверждение грузомест",
+        done: _ozonFbsContainersAllConfirmed(),
+      });
+    }
+    if (needsKiz) {
+      const kizSplit = document.getElementById("ozonFbsKizSplit");
+      const splitOk = !!(kizSplit && !kizSplit.hidden && kizSplit.classList.contains("is-ok"));
+      items.push({
+        key: "kiz",
+        label: "Сканирование товаров с КИЗ",
+        done: splitOk && _ozonFbsKizToneFromSupply(supply) === "ok",
+      });
+    }
+    if (needsPick) {
+      const pickSplit = document.getElementById("ozonFbsPickSplit");
+      const splitOk = !!(pickSplit && !pickSplit.hidden && pickSplit.classList.contains("is-ok"));
+      items.push({
+        key: "pick",
+        label: "Сканирование товаров без КИЗ",
+        done: splitOk && _ozonFbsPickToneFromSupply(supply) === "ok",
+      });
+    }
+    items.push({
+      key: "driver",
+      label: "Водитель выбран",
+      done: _ozonFbsDriverHasAssignment(supply),
+    });
+    return items;
+  }
+
+  function _ozonFbsRenderMoveDeliveringGateTip(items) {
+    const tip = document.getElementById("ozonFbsMoveDeliveringGateTip");
+    if (!tip) return;
+    const list = Array.isArray(items) ? items : [];
+    if (!list.length) {
+      tip.hidden = true;
+      tip.innerHTML = "";
+      return;
+    }
+    tip.innerHTML =
+      `<p class="ozon-fbs-move-gate-title">Чтобы перенести в доставку</p>`
+      + `<ul class="ozon-fbs-move-gate-list">`
+      + list.map((it) => {
+        const done = !!it.done;
+        const mark = done ? "✓" : "○";
+        return `<li class="${done ? "is-done" : "is-todo"}">`
+          + `<span class="ozon-fbs-move-gate-mark" aria-hidden="true">${mark}</span>`
+          + `<span>${esc(it.label)}</span>`
+          + `</li>`;
+      }).join("")
+      + `</ul>`;
+  }
+
   /**
-   * «Перенести в доставку» only when every present scan group is green:
+   * «Перенести в доставку» only when every present gate is green:
+   * - bound GMs → compositions confirmed (green «Грузоместа»)
    * - KIZ rows → «Товары с КИЗ» is-ok
    * - plain rows → «Товары без КИЗ» is-ok
-   * Missing group is not required. Cancelled postings are ignored.
+   * - driver assigned
+   * Missing scan group is not required. Cancelled postings are ignored.
    */
   function _ozonFbsCanMoveToDelivering() {
     if (isDeliveringSuppliesTab() || isSupplyDetailReadOnly()) return false;
@@ -9416,6 +9573,8 @@
     const needsKiz = orders.some((o) => o && o.kiz_required && !_ozonFbsRowIsCancelled(o));
     const needsPick = orders.some((o) => o && !o.kiz_required && !_ozonFbsRowIsCancelled(o));
     if (!needsKiz && !needsPick) return false;
+    if (!_ozonFbsGmConfirmOkForMove()) return false;
+    if (!_ozonFbsDriverHasAssignment(supply)) return false;
     if (needsKiz) {
       const kizSplit = document.getElementById("ozonFbsKizSplit");
       if (!kizSplit || kizSplit.hidden || !kizSplit.classList.contains("is-ok")) return false;
@@ -9431,27 +9590,38 @@
 
   function _ozonFbsSyncMoveDeliveringEnabled() {
     const btn = document.getElementById("ozonFbsSupplyDetailMoveDeliveringBtn");
-    if (!btn || btn.hidden) return;
+    const tip = document.getElementById("ozonFbsMoveDeliveringGateTip");
+    if (!btn || btn.hidden) {
+      if (tip) tip.hidden = true;
+      return;
+    }
     // While orders are loading / request in flight, leave wait-orders alone.
     if (!supplyDetailState.ordersReady || btn.classList.contains("is-wait-orders")) {
       btn.classList.remove("is-scan-incomplete");
+      if (tip) tip.hidden = true;
       return;
     }
     const tipOk =
       "Локально перенести поставку в «Доставляются» и списать с Остатки (без отправки в Ozon)";
-    const tipScan =
-      "Сначала завершите сканирование: «Товары с КИЗ» и «Товары без КИЗ» должны быть зелёными";
+    const gateItems = _ozonFbsMoveDeliveringGateItems();
     const can = _ozonFbsCanMoveToDelivering();
     if (can) {
       btn.removeAttribute("aria-disabled");
       btn.classList.remove("is-scan-incomplete");
       btn.removeAttribute("tabindex");
       btn.setAttribute("title", tipOk);
+      if (tip) {
+        tip.hidden = true;
+        tip.innerHTML = "";
+      }
     } else {
       btn.setAttribute("aria-disabled", "true");
       btn.classList.add("is-scan-incomplete");
       btn.tabIndex = -1;
-      btn.setAttribute("title", tipScan);
+      // Rich hover checklist replaces the plain title while blocked.
+      btn.removeAttribute("title");
+      _ozonFbsRenderMoveDeliveringGateTip(gateItems);
+      if (tip) tip.hidden = false;
     }
   }
 
@@ -13013,6 +13183,7 @@
   window.closeOzonFbsDriverModal = closeOzonFbsDriverModal;
   window.onOzonFbsDriverChange = onOzonFbsDriverChange;
   window.saveOzonFbsDriver = saveOzonFbsDriver;
+  window._ozonFbsOnContainersLoaded = _ozonFbsOnContainersLoaded;
   window.reloadOzonFbsShipments = loadShipments;
   window.ozonFbsShipmentsForm = formShipmentsCarriage;
   window.ozonFbsShipmentsPrintBarcode = shipmentsPrintBarcode;

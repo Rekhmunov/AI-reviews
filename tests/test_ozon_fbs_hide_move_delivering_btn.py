@@ -46,5 +46,5 @@ def test_move_delivering_requires_green_kiz_and_pick() -> None:
     # Wired into tone updates + action ready + click/confirm guards.
     assert "_ozonFbsSyncMoveDeliveringEnabled()" in js
     assert "if (!_ozonFbsCanMoveToDelivering())" in js
-    assert "должны быть зелёными" in js
-    assert "ozon_fbs.js?v=172" in html
+    assert "выполните все условия" in js
+    assert "ozon_fbs.js?v=173" in html

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=377" />
+  <link rel="stylesheet" href="/static/style.css?v=378" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -3357,11 +3357,14 @@
                 <button type="button" class="secondary" id="ozonFbsSupplyDetailDriverBtn"
                         onclick="openOzonFbsDriverModal()"
                         title="Водитель поставки: выбрать из справочника и гос. номер ТС">Водитель</button>
-                <button type="button" id="ozonFbsSupplyDetailMoveDeliveringBtn"
-                        onclick="moveOzonFbsSupplyToDelivering()"
-                        title="Локально перенести поставку в «Доставляются» и списать с Остатки (без отправки в Ozon)">
-                  Перенести в доставку
-                </button>
+                <span class="ozon-fbs-move-gate-wrap" id="ozonFbsMoveDeliveringGateWrap">
+                  <button type="button" id="ozonFbsSupplyDetailMoveDeliveringBtn"
+                          onclick="moveOzonFbsSupplyToDelivering()"
+                          title="Локально перенести поставку в «Доставляются» и списать с Остатки (без отправки в Ozon)">
+                    Перенести в доставку
+                  </button>
+                  <div class="ozon-fbs-move-gate-tip" id="ozonFbsMoveDeliveringGateTip" hidden role="tooltip"></div>
+                </span>
               </div>
             </div>
             <div id="ozonFbsSupplyDetailNewWarn" class="wb-fbs-sd-new-warn" hidden role="alert">
@@ -7747,8 +7750,8 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=172"></script>
-  <script src="/static/ozon_fbs_container_bind.js?v=30"></script>
+  <script src="/static/ozon_fbs.js?v=173"></script>
+  <script src="/static/ozon_fbs_container_bind.js?v=31"></script>
   <script src="/static/app.js?v=647"></script>
 </body>
 </html>

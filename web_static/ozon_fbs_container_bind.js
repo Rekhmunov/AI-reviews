@@ -801,6 +801,11 @@
       if (mode && gmUiVisible(mode)) {
         rerenderMode(mode);
       }
+      if (typeof window._ozonFbsOnContainersLoaded === "function") {
+        try {
+          window._ozonFbsOnContainersLoaded();
+        } catch (_e) { /* ignore */ }
+      }
     }
   }
 
@@ -1460,7 +1465,13 @@
   }
 
   async function invalidateContainersCache() {
-    return ensureContainersLoaded(true);
+    const out = await ensureContainersLoaded(true);
+    if (typeof window._ozonFbsOnContainersLoaded === "function") {
+      try {
+        window._ozonFbsOnContainersLoaded();
+      } catch (_e) { /* ignore */ }
+    }
+    return out;
   }
 
   const moveState = {
