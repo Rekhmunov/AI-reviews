@@ -543,13 +543,45 @@
     if (statusRefreshTimer) return;
     statusRefreshTimer = setTimeout(() => {
       statusRefreshTimer = null;
+      // Skip while wedge-scanning — peer fill sync can wait a few seconds.
+      if (isScanBusy()) {
+        scheduleScanIdleFlush();
+        // Re-arm once; idle flush may call reconcile, which re-schedules status.
+        statusRefreshTimer = setTimeout(() => {
+          statusRefreshTimer = null;
+          if (isScanBusy()) return;
+          runSupplyStatusRefreshForOpenModals();
+        }, SCAN_BUSY_MS + 80);
+        return;
+      }
+      runSupplyStatusRefreshForOpenModals();
+    }, 400);
+  }
+
+  function modalDomOpen(id) {
+    const el = document.getElementById(id);
+    return !!(el && !el.classList.contains("hidden"));
+  }
+
+  /** Only hit endpoints for the modal(s) actually open — cuts idle load. */
+  function runSupplyStatusRefreshForOpenModals() {
+    const kizOpen = modalDomOpen("ozonFbsKizModal");
+    const pickOpen = modalDomOpen("ozonFbsPickVerifyModal");
+    if (kizOpen && typeof window.refreshOzonFbsMarkingStatus === "function") {
+      void window.refreshOzonFbsMarkingStatus(null, { silent: true });
+    }
+    if (pickOpen && typeof window.refreshOzonFbsPickVerifyStatus === "function") {
+      void window.refreshOzonFbsPickVerifyStatus(null, { silent: true });
+    }
+    // Neither modal open (supply-detail tone only): keep prior both-refresh behavior.
+    if (!kizOpen && !pickOpen) {
       if (typeof window.refreshOzonFbsMarkingStatus === "function") {
         void window.refreshOzonFbsMarkingStatus(null, { silent: true });
       }
       if (typeof window.refreshOzonFbsPickVerifyStatus === "function") {
         void window.refreshOzonFbsPickVerifyStatus(null, { silent: true });
       }
-    }, 400);
+    }
   }
 
   function setContainerColumnsVisible(show) {
@@ -1651,6 +1683,7 @@
   window._ozonFbsContainerPrepareModal = prepareForModal;
   window._ozonFbsContainerSyncCheckboxUi = syncCheckboxUi;
   window._ozonFbsContainerIsScanMode = isContainerScanMode;
+  window._ozonFbsContainerIsScanBusy = isScanBusy;
   window._ozonFbsContainerHandleScan = handleContainerScan;
   window._ozonFbsContainerMaybeBind = maybeBindAfterPostingIdentified;
   window._ozonFbsContainerSupplyHasFilledGm = supplyHasFilledCargoPlace;

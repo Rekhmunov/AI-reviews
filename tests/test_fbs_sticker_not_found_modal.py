@@ -46,7 +46,7 @@ def test_js_helpers_and_gates() -> None:
 def test_cache_bumps() -> None:
     html = HTML.read_text(encoding="utf-8")
     assert "app.js?v=652" in html
-    assert "ozon_fbs.js?v=175" in html
+    assert "ozon_fbs.js?v=176" in html
     assert "style.css?v=380" in html
     # Same card classes as RU-layout warning (identical size/format).
     assert 'class="modal-card wb-fbs-kiz-ru-layout-modal"' in html

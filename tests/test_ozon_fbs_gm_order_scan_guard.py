@@ -70,6 +70,6 @@ def test_ack_modal_no_scrollbar_css() -> None:
 
 
 def test_asset_cache_bumped() -> None:
-    assert "ozon_fbs.js?v=175" in HTML
-    assert "ozon_fbs_container_bind.js?v=33" in HTML
+    assert "ozon_fbs.js?v=176" in HTML
+    assert "ozon_fbs_container_bind.js?v=34" in HTML
     assert "style.css?v=380" in HTML
