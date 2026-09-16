@@ -30,8 +30,8 @@ def test_driver_page_html_boot_and_assets() -> None:
     assert "Для водителя" in html
     assert "OFD_BOOT" in html
     assert "CAN_VIEW_OZON_FBS_DRIVER" in html
-    assert "/static/ozon_fbs_driver.js?v=7" in html
-    assert "/static/ozon_fbs_driver.css?v=5" in html
+    assert "/static/ozon_fbs_driver.js?v=8" in html
+    assert "/static/ozon_fbs_driver.css?v=6" in html
     assert "PAGE_MODE" in html
     assert "PAGE_TOKEN" in html
     assert "page_mode" in html
@@ -79,6 +79,8 @@ def test_driver_page_js_calls_apis() -> None:
     assert "ofd-banner-ok" in js
     assert "ofdRefreshBtn" in js
     assert "Ваши паллеты приняты на СЦ, все хорошо" in js
+    assert "обратитесь на склад" in js
+    assert "для повторного сканирования" in js
     assert "После выбора подгрузятся грузоместа" not in js
     assert "sortCargoItems" in js
     assert "STATUS_SORT_ORDER" in js
@@ -94,6 +96,7 @@ def test_driver_page_js_calls_apis() -> None:
     assert "ofd-spinner" in css
     assert "ofd-spin" in css
     assert "is-refreshing" in css
+    assert "#fee2e2" in css
 
 
 def test_driver_page_statuses_include_finished() -> None:
