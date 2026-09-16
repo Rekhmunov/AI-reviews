@@ -2821,10 +2821,7 @@ async function loadDriverPublicLink() {
       return;
     }
     input.value = window.location.origin + path;
-    if (info) {
-      info.textContent =
-        "Отправьте ссылку водителю. На странице нужно ввести его ПИН (без логина и пароля аккаунта).";
-    }
+    if (info) info.textContent = "";
   } catch (_) {
     if (info) info.textContent = "";
   }

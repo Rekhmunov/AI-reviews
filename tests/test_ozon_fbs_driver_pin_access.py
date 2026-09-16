@@ -49,11 +49,13 @@ def test_settings_ui_has_pin_and_public_link() -> None:
     assert 'id="newDriverAccessPin"' in APP_HTML
     assert "driverPublicLinkBox" in APP_HTML
     assert "copyDriverPublicLink" in APP_HTML
+    assert "Публичная страница «Для водителя»" not in APP_HTML
     assert "newDriverAccessPin" in APP_JS
     assert "access_pin: accessPin" in APP_JS
     assert "d.access_pin" in APP_JS
     assert "copyDriverPublicLink" in APP_JS
     assert "/api/ozon-fbs/driver/public-link" in APP_JS
+    assert "Отправьте ссылку водителю" not in APP_JS
 
 
 def test_driver_js_pin_gate_and_single_plate() -> None:
@@ -115,4 +117,4 @@ def test_short_driver_url_never_classic_login() -> None:
     assert "openOzonFbsDriverPage" in APP_JS
     assert "fetchDriverPublicLinkPath" in APP_JS
     assert "openOzonFbsDriverPage()" in APP_HTML
-    assert "без логина и пароля аккаунта" in APP_JS
+    assert "Отправьте ссылку водителю" not in APP_JS
