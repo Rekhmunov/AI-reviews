@@ -1652,6 +1652,240 @@ def list_driver_page_cargo_places(
     }
 
 
+def _ttn_date_from_created(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if len(raw) >= 10 and raw[4] == "-" and raw[7] == "-":
+        return raw[:10]
+    # 15.09.2026 or datetime iso
+    if len(raw) >= 10 and raw[2] == "." and raw[5] == ".":
+        d, m, y = raw[:2], raw[3:5], raw[6:10]
+        if y.isdigit() and d.isdigit() and m.isdigit():
+            return f"{y}-{m}-{d}"
+    return raw[:10]
+
+
+def build_ttn_prefill(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+) -> dict[str, Any]:
+    """Local draft for «Сформировать ТН» from a WB FBS supply."""
+    from . import ttn_fbs_cargo as ttn_cargo
+
+    sid = str(supply_id or "").strip()
+    src = int(source_id or 0)
+    warnings: list[str] = []
+    ensure_wb_fbs_tables(repo)
+    repo._ensure_supply_tables()
+
+    created_at = ""
+    supply_name = sid
+    with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql(
+                """
+                SELECT name, created_at_wb, boxes_json
+                FROM wb_fbs_supplies
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                """
+            ),
+            (user_id, src, sid),
+        ).fetchone()
+    local = repo._row_to_dict(row) if row else {}
+    if local:
+        supply_name = str(local.get("name") or sid).strip() or sid
+        created_at = str(local.get("created_at_wb") or "").strip()
+
+    shipper = repo.find_legal_entity_for_fbs_source(
+        user_id=user_id, platform="wb", source_id=src
+    )
+    warehouse = repo.find_warehouse_for_fbs_source(
+        user_id=user_id, platform="wb", source_id=src
+    )
+    driver = get_supply_driver(
+        repo, user_id=user_id, source_id=src, supply_id=sid
+    )
+    existing_id = repo.find_ttn_record_id_by_fbs(
+        user_id=user_id, platform="wb", source_id=src, supply_id=sid
+    )
+
+    legal_entity_id = int((shipper or {}).get("id") or 0)
+    if not legal_entity_id:
+        warnings.append(
+            "Юр. лицо для этого источника не выбрано. Отметьте кабинет в Настройки → Юр. лица."
+        )
+
+    consignee_type = "contractor"
+    contractor_id = 0
+    unload_address = ""
+    warehouse_id = 0
+    if warehouse:
+        warehouse_id = int(warehouse.get("id") or 0)
+        unload_address = str(warehouse.get("address") or "").strip()
+        cid = warehouse.get("contractor_id")
+        lid = warehouse.get("legal_entity_id")
+        try:
+            cid_i = int(cid) if cid not in (None, "") else 0
+        except (TypeError, ValueError):
+            cid_i = 0
+        try:
+            lid_i = int(lid) if lid not in (None, "") else 0
+        except (TypeError, ValueError):
+            lid_i = 0
+        if cid_i > 0:
+            consignee_type = "contractor"
+            contractor_id = cid_i
+        elif lid_i > 0:
+            consignee_type = "le"
+            contractor_id = lid_i
+        else:
+            warnings.append(
+                "У склада этого источника не выбран контрагент. Укажите его в Настройки → Склады."
+            )
+    else:
+        warnings.append(
+            "Склад для этого источника не привязан. Отметьте кабинет в Настройки → Склады."
+        )
+
+    load_address = ""
+    if shipper:
+        load_address = str(shipper.get("address") or "").strip()
+
+    driver_id = int(driver.get("driver_id") or 0)
+    vehicle_number = str(driver.get("vehicle_number") or "").strip()
+    vehicle_line = vehicle_number
+    carrier_snapshot = ""
+    if driver_id > 0:
+        catalog = list_supply_driver_options(repo, user_id=user_id)
+        drow = next((d for d in catalog if int(d.get("id") or 0) == driver_id), None)
+        if drow:
+            plates = list(drow.get("vehicles") or [])
+            want = _norm_vehicle_plate(vehicle_number)
+            match = next(
+                (
+                    p
+                    for p in plates
+                    if _norm_vehicle_plate(p.get("number")) == want
+                ),
+                plates[0] if len(plates) == 1 else None,
+            )
+            if match:
+                vehicle_line = str(match.get("line") or match.get("number") or vehicle_number).strip()
+        full = repo.list_supply_drivers(user_id=user_id) or []
+        raw_driver = next((d for d in full if int(d.get("id") or 0) == driver_id), None)
+        if raw_driver:
+            try:
+                carrier_snapshot = repo.driver_carrier_line(raw_driver)
+            except Exception:
+                carrier_snapshot = str(raw_driver.get("carrier") or "").strip()
+    else:
+        warnings.append("Назначьте водителя в карточке поставки.")
+
+    boxes_map = cached_supply_boxes_by_id(
+        repo, user_id=user_id, source_id=src, supply_ids=[sid]
+    )
+    boxes = boxes_map.get(sid) or _parse_json_list(local.get("boxes_json"))
+    places = len(boxes) if boxes else 0
+    places_text = str(places) if places else ""
+
+    order_ids = _local_supply_order_ids(
+        repo, user_id=user_id, source_id=src, supply_id=sid
+    )
+    orders: list[dict[str, Any]] = []
+    if order_ids:
+        placeholders = ", ".join("?" for _ in order_ids)
+        with repo._connect() as conn:
+            orows = conn.execute(
+                repo._sql(
+                    f"""
+                    SELECT order_id, article, nm_id, supplier_status, wb_status
+                    FROM wb_fbs_orders
+                    WHERE user_id = ? AND source_id = ? AND order_id IN ({placeholders})
+                    """
+                ),
+                (user_id, src, *order_ids),
+            ).fetchall()
+        for orow in orows:
+            od = repo._row_to_dict(orow)
+            od["cancel_reason_label"] = cancel_reason_label(
+                supplier_status=od.get("supplier_status"),
+                wb_status=od.get("wb_status"),
+            )
+            orders.append(od)
+    products = repo.list_product_photos(user_id=user_id)
+    weight_info = ttn_cargo.sum_weight_for_lines(
+        ttn_cargo.product_weight_index(products),
+        ttn_cargo.weight_lines_from_wb_orders(orders),
+    )
+
+    ttn_date = _ttn_date_from_created(created_at)
+    record = {
+        "id": existing_id or None,
+        "legal_entity_id": legal_entity_id,
+        "contractor_id": contractor_id,
+        "shipper_type": "le",
+        "consignee_type": consignee_type,
+        "driver_id": driver_id,
+        "driver_manual_name": "",
+        "driver_manual_docs": "",
+        "ttn_date": ttn_date,
+        "vehicle_line": vehicle_line,
+        "carrier_snapshot": carrier_snapshot,
+        "load_address": load_address,
+        "unload_address": unload_address,
+        "cargo_description": "Постельное белье/наматрасник",
+        "cargo_places": places_text,
+        "cargo_weight": str(weight_info.get("weight") or ""),
+        "fbs_platform": "wb",
+        "fbs_source_id": src,
+        "fbs_supply_id": sid,
+        "warehouse_id": warehouse_id,
+    }
+    existing_record = None
+    if existing_id:
+        try:
+            existing_record = repo.get_supply_ttn_record(
+                user_id=user_id, record_id=existing_id
+            )
+        except Exception:
+            existing_record = None
+    if existing_record:
+        record["id"] = existing_id
+        for key in (
+            "accompanying_docs",
+            "notes",
+            "customer_services",
+            "customer_party_type",
+            "customer_party_id",
+            "packing_type",
+            "declared_value",
+            "vehicle_type",
+            "loading_datetime",
+            "loader_name",
+            "unloading_datetime",
+            "receiver_name",
+            "redirect_info",
+            "carrier_marks",
+            "freight_cost",
+        ):
+            val = existing_record.get(key)
+            if val not in (None, ""):
+                record[key] = val
+    return {
+        "ok": True,
+        "existing_ttn_id": existing_id,
+        "supply_id": sid,
+        "source_id": src,
+        "supply_name": supply_name,
+        "warnings": warnings,
+        "record": record,
+    }
+
+
 def persist_order_stickers_batch(
     repo: ReviewRepository,
     *,
@@ -4011,6 +4245,21 @@ def _list_supplies_for_orders_tab(
                 "destination_office_id": d.get("destination_office_id"),
             }
         )
+
+    if tab_key == TAB_DELIVERY and items:
+        ttn_map = repo.map_ttn_ids_for_fbs_supplies(
+            user_id=user_id,
+            platform="wb",
+            source_id=source_id,
+            supply_ids=[str(it.get("supply_id") or "") for it in items],
+        )
+        for it in items:
+            try:
+                src = int(it.get("source_id") or 0)
+            except (TypeError, ValueError):
+                src = 0
+            sid = str(it.get("supply_id") or "").strip()
+            it["ttn_id"] = int(ttn_map.get((src, sid)) or 0)
 
     return {
         "items": items,

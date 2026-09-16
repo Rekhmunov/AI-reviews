@@ -853,6 +853,7 @@ class CreateSupplyLegalEntityRequest(BaseModel):
     addr_flat: str = ""
     addr_fias: str = ""
     signature_image: str | None = None
+    fbs_sources: list[dict[str, object]] | None = None
 
 
 class UpdateSupplyLegalEntityRequest(BaseModel):
@@ -876,6 +877,7 @@ class UpdateSupplyLegalEntityRequest(BaseModel):
     addr_fias: str = ""
     signature_image: str | None = None  # new base64 or None
     clear_signature: bool = False        # True = delete existing
+    fbs_sources: list[dict[str, object]] | None = None
 
 
 class UpdateSupplyDriverRequest(BaseModel):
@@ -10703,6 +10705,26 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.get("/api/wb-fbs/supplies/{supply_id}/ttn-prefill")
+    def wb_fbs_ttn_prefill(
+        request: Request, supply_id: str, source_id: int
+    ) -> dict[str, object]:
+        """Local shipper/consignee/driver/cargo draft for «Сформировать ТН»."""
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        sid = str(supply_id or "").strip()
+        if not sid or not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        _wb_fbs_source_key(owner_id, int(source_id))
+        return wb_fbs_mod.build_ttn_prefill(
+            repository,
+            user_id=owner_id,
+            source_id=int(source_id),
+            supply_id=sid,
+        )
+
     @app.get("/api/wb-fbs/supplies/{supply_id}/trbx")
     def wb_fbs_list_supply_trbx(
         request: Request,
@@ -19753,6 +19775,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             addr_flat=payload.addr_flat,
             addr_fias=payload.addr_fias,
             signature_image=payload.signature_image,
+            fbs_sources=list(payload.fbs_sources or []),
         )
 
     @app.patch("/api/supply-legal-entities/{entity_id}")
@@ -19787,6 +19810,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             addr_fias=payload.addr_fias,
             signature_image=payload.signature_image,
             clear_signature=payload.clear_signature,
+            fbs_sources=payload.fbs_sources,
         )
         if not ok:
             raise HTTPException(status_code=404, detail="Юридическое лицо не найдено")

@@ -8373,6 +8373,10 @@ class ReviewRepository:
             "ALTER TABLE supply_legal_entities ADD COLUMN IF NOT EXISTS address TEXT"
         )
         conn.execute(
+            "ALTER TABLE supply_legal_entities "
+            "ADD COLUMN IF NOT EXISTS fbs_sources_json TEXT NOT NULL DEFAULT '[]'"
+        )
+        conn.execute(
             "ALTER TABLE supply_legal_entities ADD COLUMN IF NOT EXISTS signature_image TEXT"
         )
         conn.execute(
@@ -9573,6 +9577,188 @@ class ReviewRepository:
         out.sort(key=lambda x: (x["platform"], x["source_id"]))
         return out
 
+    def _exclusive_legal_entity_fbs_sources(
+        self,
+        conn,
+        *,
+        user_id: int,
+        entity_id: int,
+        sources: list[dict[str, Any]],
+    ) -> None:
+        """One source belongs to one legal entity: strip it from other LE cards."""
+        want = {
+            (str(s.get("platform") or ""), int(s.get("source_id") or 0))
+            for s in (sources or [])
+            if str(s.get("platform") or "") and int(s.get("source_id") or 0) > 0
+        }
+        if not want:
+            return
+        rows = conn.execute(
+            self._sql(
+                "SELECT id, fbs_sources_json FROM supply_legal_entities "
+                "WHERE user_id = ? AND id <> ?"
+            ),
+            (user_id, entity_id),
+        ).fetchall()
+        for row in rows:
+            d = self._row_to_dict(row)
+            other_id = int(d.get("id") or 0)
+            current = self._normalize_warehouse_fbs_sources(d.get("fbs_sources_json"))
+            kept = [
+                s
+                for s in current
+                if (str(s.get("platform") or ""), int(s.get("source_id") or 0)) not in want
+            ]
+            if len(kept) == len(current):
+                continue
+            conn.execute(
+                self._sql(
+                    "UPDATE supply_legal_entities SET fbs_sources_json = ? "
+                    "WHERE user_id = ? AND id = ?"
+                ),
+                (json.dumps(kept, ensure_ascii=False), user_id, other_id),
+            )
+
+    def find_legal_entity_for_fbs_source(
+        self, *, user_id: int, platform: str, source_id: int
+    ) -> dict[str, Any] | None:
+        plat = str(platform or "").strip().lower()
+        if plat in ("wildberries", "wb_fbs", "wb-fbs"):
+            plat = "wb"
+        elif plat in ("ozon_fbs", "ozon-fbs"):
+            plat = "ozon"
+        try:
+            sid = int(source_id or 0)
+        except (TypeError, ValueError):
+            sid = 0
+        if plat not in ("wb", "ozon") or sid <= 0:
+            return None
+        for le in self.list_supply_legal_entities(user_id=user_id):
+            for bind in le.get("fbs_sources") or []:
+                if str(bind.get("platform") or "") == plat and int(bind.get("source_id") or 0) == sid:
+                    return le
+        return None
+
+    def find_warehouse_for_fbs_source(
+        self, *, user_id: int, platform: str, source_id: int
+    ) -> dict[str, Any] | None:
+        plat = str(platform or "").strip().lower()
+        if plat in ("wildberries", "wb_fbs", "wb-fbs"):
+            plat = "wb"
+        elif plat in ("ozon_fbs", "ozon-fbs"):
+            plat = "ozon"
+        try:
+            sid = int(source_id or 0)
+        except (TypeError, ValueError):
+            sid = 0
+        if plat not in ("wb", "ozon") or sid <= 0:
+            return None
+        for wh in self.list_supply_warehouses(user_id=user_id):
+            for bind in wh.get("fbs_sources") or []:
+                if str(bind.get("platform") or "") == plat and int(bind.get("source_id") or 0) == sid:
+                    return wh
+        return None
+
+    def find_ttn_record_id_by_fbs(
+        self,
+        *,
+        user_id: int,
+        platform: str,
+        source_id: int,
+        supply_id: str,
+    ) -> int:
+        plat = str(platform or "").strip().lower()
+        sid = str(supply_id or "").strip()
+        try:
+            src = int(source_id or 0)
+        except (TypeError, ValueError):
+            src = 0
+        if not plat or src <= 0 or not sid:
+            return 0
+        with self._connect() as conn:
+            row = conn.execute(
+                self._sql(
+                    """
+                    SELECT id FROM supply_ttn_records
+                    WHERE user_id = ? AND fbs_platform = ? AND fbs_source_id = ?
+                      AND fbs_supply_id = ?
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """
+                ),
+                (user_id, plat, src, sid),
+            ).fetchone()
+        if not row:
+            return 0
+        try:
+            return int(self._row_to_dict(row).get("id") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    def get_supply_ttn_record(self, *, user_id: int, record_id: int) -> dict[str, Any] | None:
+        try:
+            rid = int(record_id or 0)
+        except (TypeError, ValueError):
+            rid = 0
+        if rid <= 0:
+            return None
+        for rec in self.list_supply_ttn_records(user_id=user_id):
+            try:
+                if int(rec.get("id") or 0) == rid:
+                    return rec
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    def map_ttn_ids_for_fbs_supplies(
+        self,
+        *,
+        user_id: int,
+        platform: str,
+        source_id: int | None,
+        supply_ids: list[str],
+    ) -> dict[tuple[int, str], int]:
+        """Map (source_id, supply_id) → latest TTN id for an FBS platform."""
+        plat = str(platform or "").strip().lower()
+        ids = [str(s or "").strip() for s in (supply_ids or []) if str(s or "").strip()]
+        if not plat or not ids:
+            return {}
+        placeholders = ", ".join("?" for _ in ids)
+        params: list[Any] = [user_id, plat, *ids]
+        src_sql = ""
+        if source_id:
+            src_sql = " AND fbs_source_id = ?"
+            params.append(int(source_id))
+        with self._connect() as conn:
+            rows = conn.execute(
+                self._sql(
+                    f"""
+                    SELECT fbs_source_id, fbs_supply_id, MAX(id) AS ttn_id
+                    FROM supply_ttn_records
+                    WHERE user_id = ? AND fbs_platform = ?
+                      AND fbs_supply_id IN ({placeholders})
+                      {src_sql}
+                    GROUP BY fbs_source_id, fbs_supply_id
+                    """
+                ),
+                tuple(params),
+            ).fetchall()
+        out: dict[tuple[int, str], int] = {}
+        for row in rows:
+            d = self._row_to_dict(row)
+            try:
+                src = int(d.get("fbs_source_id") or 0)
+            except (TypeError, ValueError):
+                src = 0
+            sid = str(d.get("fbs_supply_id") or "").strip()
+            try:
+                tid = int(d.get("ttn_id") or 0)
+            except (TypeError, ValueError):
+                tid = 0
+            if src > 0 and sid and tid > 0:
+                out[(src, sid)] = tid
+        return out
+
     def list_supply_warehouses(self, *, user_id: int) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
@@ -9803,7 +9989,8 @@ class ReviewRepository:
                     "SELECT id, user_id, short_name, full_name, requisites, signatories, "
                     "in_person, basis, address, phone, "
                     "addr_index, addr_region_code, addr_district, addr_city, addr_settlement, "
-                    "addr_street, addr_house, addr_corpus, addr_flat, addr_fias, created_at, "
+                    "addr_street, addr_house, addr_corpus, addr_flat, addr_fias, "
+                    "fbs_sources_json, created_at, "
                     "(signature_image IS NOT NULL AND signature_image != '') AS has_signature "
                     "FROM supply_legal_entities WHERE user_id = ? ORDER BY short_name ASC"
                 ),
@@ -9813,6 +10000,8 @@ class ReviewRepository:
         for row in rows:
             d = self._row_to_dict(row)
             d["address"] = self.legal_entity_address_line(d)
+            d["fbs_sources"] = self._normalize_warehouse_fbs_sources(d.get("fbs_sources_json"))
+            d.pop("fbs_sources_json", None)
             result.append(d)
         return result
 
@@ -9861,6 +10050,7 @@ class ReviewRepository:
         addr_fias: str = "",
         signature_image: str | None = None,
         clear_signature: bool = False,
+        fbs_sources: list[dict[str, Any]] | None = None,
     ) -> bool:
         addr = self._normalize_production_addr_fields(
             addr_index=addr_index,
@@ -9892,13 +10082,28 @@ class ReviewRepository:
                 ).fetchone()
                 if existing_addr:
                     address_val = str(self._row_to_dict(existing_addr).get("address") or "").strip() or None
+            if fbs_sources is None:
+                existing_src = conn.execute(
+                    self._sql(
+                        "SELECT fbs_sources_json FROM supply_legal_entities "
+                        "WHERE user_id = ? AND id = ?"
+                    ),
+                    (user_id, entity_id),
+                ).fetchone()
+                sources_norm = self._normalize_warehouse_fbs_sources(
+                    self._row_to_dict(existing_src).get("fbs_sources_json")
+                    if existing_src
+                    else []
+                )
+            else:
+                sources_norm = self._normalize_warehouse_fbs_sources(fbs_sources)
             result = conn.execute(
                 self._sql(
                     "UPDATE supply_legal_entities SET short_name = ?, full_name = ?, requisites = ?, "
                     "signatories = ?, in_person = ?, basis = ?, address = ?, phone = ?, "
                     "addr_index = ?, addr_region_code = ?, addr_district = ?, addr_city = ?, "
                     "addr_settlement = ?, addr_street = ?, addr_house = ?, addr_corpus = ?, addr_flat = ?, "
-                    "addr_fias = ?, signature_image = ? "
+                    "addr_fias = ?, signature_image = ?, fbs_sources_json = ? "
                     "WHERE user_id = ? AND id = ?"
                 ),
                 (
@@ -9921,9 +10126,19 @@ class ReviewRepository:
                     addr["addr_flat"],
                     addr["addr_fias"],
                     sig_val,
+                    json.dumps(
+                        sources_norm,
+                        ensure_ascii=False,
+                    ),
                     user_id,
                     entity_id,
                 ),
+            )
+            self._exclusive_legal_entity_fbs_sources(
+                conn,
+                user_id=user_id,
+                entity_id=entity_id,
+                sources=sources_norm,
             )
         return bool(result.rowcount)
 
@@ -9950,6 +10165,7 @@ class ReviewRepository:
         addr_flat: str = "",
         addr_fias: str = "",
         signature_image: str | None = None,
+        fbs_sources: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         now = _utc_now()
         addr = self._normalize_production_addr_fields(
@@ -9966,14 +10182,17 @@ class ReviewRepository:
         )
         composed = self.compose_production_address_line(addr)
         address_val = composed or str(address or "").strip() or None
+        sources_norm = self._normalize_warehouse_fbs_sources(fbs_sources or [])
+        sources_json = json.dumps(sources_norm, ensure_ascii=False)
         with self._connect() as conn:
             eid = self._insert_and_get_id(
                 conn,
                 "INSERT INTO supply_legal_entities "
                 "(user_id, short_name, full_name, requisites, signatories, in_person, basis, address, phone, "
                 "addr_index, addr_region_code, addr_district, addr_city, addr_settlement, "
-                "addr_street, addr_house, addr_corpus, addr_flat, addr_fias, signature_image, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "addr_street, addr_house, addr_corpus, addr_flat, addr_fias, signature_image, "
+                "fbs_sources_json, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     user_id,
                     short_name.strip(),
@@ -9995,14 +10214,25 @@ class ReviewRepository:
                     addr["addr_flat"],
                     addr["addr_fias"],
                     signature_image or None,
+                    sources_json,
                     now,
                 ),
             )
+            self._exclusive_legal_entity_fbs_sources(
+                conn, user_id=user_id, entity_id=eid, sources=sources_norm
+            )
             row = conn.execute(self._sql("SELECT * FROM supply_legal_entities WHERE id = ?"), (eid,)).fetchone()
         if not row:
-            return {"id": eid, "address": address_val or "", **addr}
+            return {
+                "id": eid,
+                "address": address_val or "",
+                "fbs_sources": sources_norm,
+                **addr,
+            }
         d = self._row_to_dict(row)
         d["address"] = self.legal_entity_address_line(d)
+        d["fbs_sources"] = self._normalize_warehouse_fbs_sources(d.get("fbs_sources_json"))
+        d.pop("fbs_sources_json", None)
         return d
 
 

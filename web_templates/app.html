@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=374" />
+  <link rel="stylesheet" href="/static/style.css?v=375" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -5180,6 +5180,11 @@
                   <input id="newLegalAddrFias" type="text" maxlength="36" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off" />
                 </div>
               </div>
+              <div class="wfg-field" style="grid-column:1 / -1;margin-top:16px">
+                <label class="wfg-label">Источники FBS</label>
+                <div id="newLegalFbsSources" class="warehouse-fbs-sources"></div>
+                <div class="small" style="color:#64748b;margin-top:6px">Отметьте кабинеты WB FBS / Ozon FBS. Поставки с этим источником получат это юр. лицо как грузоотправителя. Один источник — одно юр. лицо.</div>
+              </div>
               <div class="row" style="margin-top:16px;align-items:center;gap:8px">
                 <span class="small" style="color:#64748b">Подпись:</span>
                 <div id="newLegalSigArea">
@@ -7744,6 +7749,6 @@
 
   <script src="/static/ozon_fbs.js?v=170"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=29"></script>
-  <script src="/static/app.js?v=644"></script>
+  <script src="/static/app.js?v=645"></script>
 </body>
 </html>

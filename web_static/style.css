@@ -18621,6 +18621,11 @@ body.is-col-resizing .wb-fbs-kiz-circ-table th .col-resize-handle {
 .warehouse-fbs-source-item input {
   margin-top: 2px;
 }
+.warehouse-fbs-source-taken {
+  color: #94a3b8;
+  font-size: 13px;
+  margin-left: 4px;
+}
 
 #ttnFbsSupplyField .ss-wrap {
   width: 100%;

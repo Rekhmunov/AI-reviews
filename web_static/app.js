@@ -3897,13 +3897,30 @@ function _warehouseFbsSourcesSummary(sources) {
   return labels.join(", ");
 }
 
-async function _renderWarehouseFbsSourcesChecklist(containerId, selected) {
+function _legalEntityFbsTakenMap(exceptId) {
+  const map = new Map();
+  const skip = Number(exceptId || 0);
+  for (const le of _supplyLegalEntitiesCache || []) {
+    if (Number(le.id) === skip) continue;
+    const name = String(le.short_name || le.full_name || "").trim() || `#${le.id}`;
+    for (const s of le.fbs_sources || []) {
+      const platform = String(s.platform || "").toLowerCase();
+      const sourceId = Number(s.source_id || s.id || 0);
+      if (!platform || !sourceId) continue;
+      map.set(_warehouseFbsSourcesKey(platform, sourceId), name);
+    }
+  }
+  return map;
+}
+
+async function _renderWarehouseFbsSourcesChecklist(containerId, selected, opts) {
   const root = document.getElementById(containerId);
   if (!root) return;
   const catalog = await _loadWarehouseFbsSourcesCatalog();
   const selectedSet = new Set(
     (selected || []).map((s) => _warehouseFbsSourcesKey(String(s.platform || "").toLowerCase(), Number(s.source_id || s.id || 0)))
   );
+  const takenBy = opts && opts.takenBy instanceof Map ? opts.takenBy : null;
   if (!catalog.length) {
     root.innerHTML = '<div class="small" style="color:#94a3b8">Нет доступных источников WB/Ozon FBS</div>';
     return;
@@ -3911,9 +3928,14 @@ async function _renderWarehouseFbsSourcesChecklist(containerId, selected) {
   root.innerHTML = catalog.map((s) => {
     const key = _warehouseFbsSourcesKey(s.platform, s.source_id);
     const checked = selectedSet.has(key) ? "checked" : "";
+    const taken = takenBy && !selectedSet.has(key) ? takenBy.get(key) : "";
+    const note = taken
+      ? `<span class="warehouse-fbs-source-taken">уже: ${esc(taken)}</span>`
+      : "";
     return `<label class="warehouse-fbs-source-item">
       <input type="checkbox" data-fbs-platform="${esc(s.platform)}" data-fbs-source-id="${s.source_id}" ${checked} />
       <span>${esc(s.label)}</span>
+      ${note}
     </label>`;
   }).join("");
 }
@@ -4172,6 +4194,11 @@ function _sstPartyEditPanelHtml(item, kind) {
         </div>
       </section>
       ${isLe ? `<section class="sst-edit-section">
+        <h5 class="sst-edit-section-title">Источники FBS</h5>
+        <p class="sst-edit-section-hint" style="margin:0 0 8px">Отметьте кабинеты WB/Ozon. Поставки с этим источником получат это юр. лицо как грузоотправителя. Один источник — одно юр. лицо.</p>
+        <div id="editLegalFbsSources-${item.id}" class="warehouse-fbs-sources"></div>
+      </section>
+      <section class="sst-edit-section">
         <h5 class="sst-edit-section-title">Подпись</h5>
         <div class="sst-edit-sig" id="le-sig-container-${item.id}"><span class="small" style="color:#94a3b8">Загрузка…</span></div>
       </section>` : ""}
@@ -4187,12 +4214,13 @@ async function loadSupplyLegalEntities() {
   const res = await fetch("/api/supply-legal-entities").catch(() => null);
   if (!res || !res.ok) return;
   _supplyLegalEntitiesCache = await res.json().catch(() => []);
-  renderSupplyLegalEntitiesTbody();
+  await renderSupplyLegalEntitiesTbody();
 }
 
-function renderSupplyLegalEntitiesTbody() {
+async function renderSupplyLegalEntitiesTbody() {
   const tbody = document.getElementById("supplyLegalEntitiesTbody");
   if (!tbody) return;
+  await _loadWarehouseFbsSourcesCatalog();
   tbody.innerHTML = "";
   if (!_supplyLegalEntitiesCache.length) {
     tbody.innerHTML = '<tr><td colspan="10" class="empty-cell">Юридические лица не добавлены</td></tr>';
@@ -4202,7 +4230,11 @@ function renderSupplyLegalEntitiesTbody() {
   _supplyLegalEntitiesCache.forEach((e, i) => {
     const tr = document.createElement("tr");
     tr.dataset.id = e.id;
-    tr.innerHTML = `<td>${i+1}</td><td class="editable-cell">${esc(e.short_name||"")}</td><td class="editable-cell">${esc(e.full_name||"")}</td><td class="editable-cell">${esc(e.requisites||"")}</td><td class="editable-cell">${esc(e.signatories||"")}</td><td class="editable-cell">${esc(e.in_person||"")}</td><td class="editable-cell">${esc(e.basis||"")}</td><td class="editable-cell">${esc(legalEntityAddressLine(e))}</td><td class="editable-cell">${esc(e.phone||"")}</td>
+    const fbs = _warehouseFbsSourcesSummary(e.fbs_sources);
+    const fbsHint = fbs !== "—"
+      ? `<div class="small" style="color:#64748b;margin-top:4px">${esc(fbs)}</div>`
+      : "";
+    tr.innerHTML = `<td>${i+1}</td><td class="editable-cell">${esc(e.short_name||"")}${fbsHint}</td><td class="editable-cell">${esc(e.full_name||"")}</td><td class="editable-cell">${esc(e.requisites||"")}</td><td class="editable-cell">${esc(e.signatories||"")}</td><td class="editable-cell">${esc(e.in_person||"")}</td><td class="editable-cell">${esc(e.basis||"")}</td><td class="editable-cell">${esc(legalEntityAddressLine(e))}</td><td class="editable-cell">${esc(e.phone||"")}</td>
       <td>
         <div class="sst-edit-actions">
           <button class="secondary small-btn" onclick="startEditLegalEntity(${e.id})">✏</button>
@@ -4236,6 +4268,11 @@ async function startEditLegalEntity(id) {
   panelRow.dataset.forId = String(id);
   panelRow.innerHTML = `<td colspan="10">${_sstPartyEditPanelHtml(item, "le")}</td>`;
   tr.after(panelRow);
+  await _renderWarehouseFbsSourcesChecklist(
+    `editLegalFbsSources-${id}`,
+    item.fbs_sources || [],
+    { takenBy: _legalEntityFbsTakenMap(id) },
+  );
   loadEditLegalSig(id);
 
   tr.cells[tr.cells.length - 1].innerHTML = `<div class="sst-edit-actions">
@@ -4270,6 +4307,9 @@ async function saveEditLegalEntity(id) {
   _LE_ADDR_FIELDS.forEach(([key]) => {
     sigPayload[key] = panel.querySelector(`[data-le-addr="${key}"]`)?.value.trim() || "";
   });
+  sigPayload.fbs_sources = _readWarehouseFbsSourcesFromDom(
+    document.getElementById(`editLegalFbsSources-${id}`)
+  );
   if (_editLegalSigClear) { sigPayload.clear_signature = true; }
   else if (_editLegalSigBase64) { sigPayload.signature_image = _editLegalSigBase64; }
   const saveRes = await fetch(`/api/supply-legal-entities/${id}`, {
@@ -4285,11 +4325,19 @@ async function saveEditLegalEntity(id) {
   await loadSupplyLegalEntities();
 }
 
-function toggleAddLegalEntityForm(show) {
+async function toggleAddLegalEntityForm(show) {
   const form = document.getElementById("addLegalEntityForm");
   if (!form) return;
   form.classList.toggle("hidden", !show); form.style.display = show ? "" : "none";
-  if (!show) _clearNewLegalFormFields();
+  if (!show) {
+    _clearNewLegalFormFields();
+    return;
+  }
+  await _renderWarehouseFbsSourcesChecklist(
+    "newLegalFbsSources",
+    [],
+    { takenBy: _legalEntityFbsTakenMap(0) },
+  );
 }
 
 async function saveSupplyLegalEntity() {
@@ -4306,6 +4354,7 @@ async function saveSupplyLegalEntity() {
     short_name: short, full_name: full, requisites: req, signatories: sig,
     in_person: inp, basis: bas, phone, address: "",
     ..._readNewLegalAddrFields(),
+    fbs_sources: _readWarehouseFbsSourcesFromDom(document.getElementById("newLegalFbsSources")),
   };
   if (_newLegalSigBase64) newSigPayload.signature_image = _newLegalSigBase64;
   const res = await fetch("/api/supply-legal-entities", { method: "POST", headers: jsonHeaders(), body: JSON.stringify(newSigPayload) }).catch(() => null);
@@ -20006,6 +20055,8 @@ window.onTtnDriverChange = onTtnDriverChange;
 let _ttnFbsSupplyOptions = [];
 let _ttnFbsAutofillToken = 0;
 let _ttnSelectedFbsMeta = null; // {platform, source_id, supply_id}
+/** True while the TN modal was opened from WB FBS «В доставке». */
+let _ttnOpenedFromWbFbs = false;
 /** While opening the TN modal, suppress cargo overwrite from place refreshes. */
 let _ttnFbsSuppressCargoAutofill = false;
 
@@ -20879,6 +20930,7 @@ window.openEditTtnModal = openEditTtnModal;
 window.openCopyTtnModal = openCopyTtnModal;
 
 function closeCreateTtnModal() {
+  _ttnOpenedFromWbFbs = false;
   _ttnManualDriverMode = false;
   _ttnManualVehicleMode = false;
   _ttnManualLoadMode = false;
@@ -21000,8 +21052,12 @@ async function saveTtnRecord() {
     if (info) { info.textContent = e.detail || "Ошибка"; info.style.color = "#b91c1c"; }
     return;
   }
+  const fromWbFbs = _ttnOpenedFromWbFbs;
   closeCreateTtnModal();
   await loadTtnRecords();
+  if (fromWbFbs && wbFbsState.tab === "delivery") {
+    try { await loadWbFbsOrders(); } catch (_e) { /* ignore */ }
+  }
 }
 window.saveTtnRecord = saveTtnRecord;
 
@@ -32192,12 +32248,42 @@ function _wbFbsQrMenuIconHtml() {
   </span>`;
 }
 
-function _wbFbsSupplyRowActionsHtml(supplyId) {
-  const sid = String(supplyId || "").trim();
+function _wbFbsTtnMenuIconHtml() {
+  return `<span class="wb-fbs-menu-ico" aria-hidden="true">
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M4 2.5h7.5L16 7v8.5H4V2.5z" stroke="currentColor" stroke-width="1.4" fill="none"/>
+      <path d="M11.5 2.5V7H16" stroke="currentColor" stroke-width="1.4" fill="none"/>
+      <path d="M6.5 10h5M6.5 12.5h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+    </svg>
+  </span>`;
+}
+
+function _wbFbsTtnPrintMenuIconHtml() {
+  return `<span class="wb-fbs-menu-ico" aria-hidden="true">
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M5 7V3.5h8V7" stroke="currentColor" stroke-width="1.4" fill="none"/>
+      <path d="M5 11.5H3.5A1.5 1.5 0 0 1 2 10V8.5A1.5 1.5 0 0 1 3.5 7h11A1.5 1.5 0 0 1 16 8.5V10a1.5 1.5 0 0 1-1.5 1.5H13" stroke="currentColor" stroke-width="1.4" fill="none"/>
+      <rect x="5" y="11" width="8" height="4.5" stroke="currentColor" stroke-width="1.4"/>
+    </svg>
+  </span>`;
+}
+
+function _wbFbsSupplyRowActionsHtml(supply) {
+  const row = supply && typeof supply === "object" ? supply : { supply_id: supply };
+  const sid = String(row.supply_id || "").trim();
   if (!sid) return "";
   // На «На сборке» меню нет: WB API не умеет переименовывать поставки.
   if (wbFbsState.tab === "assembly") return "";
   const safeKey = sid.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const src = Number(row.source_id || wbFbsState.sourceId || 0);
+  const ttnId = Number(row.ttn_id || 0);
+  const printItem = ttnId > 0
+    ? `<button type="button" class="wb-fbs-row-menu-item" role="menuitem"
+              onclick="printTtnRecord(${ttnId})">
+        ${_wbFbsTtnPrintMenuIconHtml()}
+        Распечатать ТН
+      </button>`
+    : "";
   return `<div class="wb-fbs-row-menu-wrap">
     <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
             onclick="toggleWbFbsRowMenu(event, '${_wbFbsEsc(safeKey)}')" aria-haspopup="menu">⋮</button>
@@ -32207,9 +32293,48 @@ function _wbFbsSupplyRowActionsHtml(supplyId) {
         ${_wbFbsQrMenuIconHtml()}
         Напечатать QR-код поставки
       </button>
+      <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
+              onclick="wbFbsFormTtn('${_wbFbsEsc(sid)}', ${src}).catch((e)=>alert(e.message||e))">
+        ${_wbFbsTtnMenuIconHtml()}
+        Сформировать ТН
+      </button>
+      ${printItem}
     </div>
   </div>`;
 }
+
+async function wbFbsFormTtn(supplyId, sourceId) {
+  const sid = String(supplyId || "").trim();
+  const src = Number(sourceId || wbFbsState.sourceId || 0);
+  if (!sid || !src) {
+    alert("Не указан источник поставки");
+    return;
+  }
+  const res = await fetch(
+    `/api/wb-fbs/supplies/${encodeURIComponent(sid)}/ttn-prefill?source_id=${src}`
+  ).catch(() => null);
+  if (!res || !res.ok) {
+    const err = await res?.json().catch(() => ({})) || {};
+    alert(err.detail || "Не удалось подготовить ТН");
+    return;
+  }
+  const data = await res.json().catch(() => ({}));
+  const record = data.record || null;
+  if (!record) {
+    alert("Не удалось подготовить ТН");
+    return;
+  }
+  _ttnOpenedFromWbFbs = true;
+  const existingId = Number(data.existing_ttn_id || record.id || 0);
+  await _openTtnModal(existingId ? "edit" : "create", record);
+  const info = document.getElementById("ttnCreateInfo");
+  const warnings = Array.isArray(data.warnings) ? data.warnings.filter(Boolean) : [];
+  if (info && warnings.length) {
+    info.textContent = warnings.join(" ");
+    info.style.color = "#b45309";
+  }
+}
+window.wbFbsFormTtn = wbFbsFormTtn;
 
 const wbFbsDetailState = {
   supplyId: "",
@@ -39602,7 +39727,7 @@ function renderWbFbsSuppliesTable() {
           ? `<div class="wb-fbs-wh-address" title="${_wbFbsEsc(s.warehouse_sub)}">${_wbFbsEsc(s.warehouse_sub)}</div>`
           : ""}
       </td>
-      ${isAssembly ? "" : `<td>${_wbFbsSupplyRowActionsHtml(sid)}</td>`}
+      ${isAssembly ? "" : `<td>${_wbFbsSupplyRowActionsHtml(s)}</td>`}
     </tr>`;
   }).join("");
   const selAll = document.getElementById("wbFbsSelectAll");
