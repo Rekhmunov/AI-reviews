@@ -2725,6 +2725,9 @@ def build_ttn_prefill(
         "carrier_snapshot": carrier_snapshot,
         "load_address": load_address,
         "unload_address": unload_address,
+        # Date only (no time): same as supply created date; editable in the modal.
+        "loading_datetime": ttn_date,
+        "unloading_datetime": ttn_date,
         "cargo_description": "Постельное белье/наматрасник",
         "cargo_places": places_text,
         "cargo_weight": str(weight_info.get("weight") or ""),

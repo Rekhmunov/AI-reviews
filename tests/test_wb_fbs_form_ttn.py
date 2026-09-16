@@ -53,6 +53,8 @@ def test_ttn_prefill_is_local_only() -> None:
     assert "find_warehouse_for_fbs_source" in prefill
     assert "resolve_shipper_load_place" in prefill
     assert "load_warehouse_id" in prefill
+    assert '"loading_datetime": ttn_date' in prefill
+    assert '"unloading_datetime": ttn_date' in prefill
     assert "get_supply_driver" in prefill
     assert "find_ttn_record_id_by_fbs" in prefill
     assert "Юр. лицо для этого источника не выбрано" in prefill
