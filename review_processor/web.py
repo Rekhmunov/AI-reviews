@@ -21772,9 +21772,62 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             ttn_date = raw_date
         else:
             ttn_date = _dtt.now().strftime("%d.%m.%Y")
+        owner_id = _supply_owner_id(user)
+        plat = str(payload.fbs_platform or "").strip().lower()
+        try:
+            src = int(payload.fbs_source_id or 0)
+        except (TypeError, ValueError):
+            src = 0
+        sid = str(payload.fbs_supply_id or "").strip()
+        existing_id = 0
+        if plat and src > 0 and sid:
+            existing_id = repository.find_ttn_record_id_by_fbs(
+                user_id=owner_id, platform=plat, source_id=src, supply_id=sid
+            )
+        if existing_id:
+            ok = repository.update_supply_ttn_record(
+                user_id=owner_id,
+                record_id=existing_id,
+                ttn_date=ttn_date,
+                legal_entity_id=payload.legal_entity_id,
+                contractor_id=payload.contractor_id,
+                shipper_type=payload.shipper_type,
+                consignee_type=payload.consignee_type,
+                driver_id=payload.driver_id,
+                driver_manual_name=payload.driver_manual_name,
+                driver_manual_docs=payload.driver_manual_docs,
+                vehicle_line=payload.vehicle_line,
+                carrier_snapshot=payload.carrier_snapshot,
+                load_address=payload.load_address,
+                unload_address=payload.unload_address,
+                cargo_description=payload.cargo_description,
+                cargo_places=payload.cargo_places,
+                cargo_weight=payload.cargo_weight,
+                accompanying_docs=payload.accompanying_docs,
+                notes=payload.notes,
+                customer_services=payload.customer_services,
+                customer_party_type=payload.customer_party_type,
+                customer_party_id=payload.customer_party_id,
+                packing_type=payload.packing_type,
+                declared_value=payload.declared_value,
+                vehicle_type=payload.vehicle_type,
+                loading_datetime=payload.loading_datetime,
+                loader_name=payload.loader_name,
+                unloading_datetime=payload.unloading_datetime,
+                receiver_name=payload.receiver_name,
+                redirect_info=payload.redirect_info,
+                carrier_marks=payload.carrier_marks,
+                freight_cost=payload.freight_cost,
+                fbs_platform=payload.fbs_platform,
+                fbs_source_id=payload.fbs_source_id,
+                fbs_supply_id=payload.fbs_supply_id,
+            )
+            if not ok:
+                raise HTTPException(status_code=404, detail="ТН не найдена")
+            return {"ok": True, "id": existing_id, "updated": True}
         doc_number = str(repository.next_ttn_number())
         return repository.create_supply_ttn_record(
-            user_id=_supply_owner_id(user),
+            user_id=owner_id,
             doc_number=doc_number,
             ttn_date=ttn_date,
             legal_entity_id=payload.legal_entity_id,

@@ -64,6 +64,10 @@ def test_ttn_prefill_is_local_only() -> None:
     assert "_ttnOpenedFromWbFbs" in JS
     assert 'wbFbsState.tab === "delivery"' in JS
     assert "existing_ttn_id" in WB
+    assert "find_ttn_record_id_by_fbs" in WEB
+    create = WEB.split("def create_ttn_record", 1)[1].split("\n    @app.patch", 1)[0]
+    assert "find_ttn_record_id_by_fbs" in create
+    assert '"updated": True' in create
 
 
 def test_cache_bump_for_form_ttn() -> None:
