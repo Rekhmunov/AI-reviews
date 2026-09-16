@@ -396,10 +396,13 @@
     return rowsForMode(mode).some((r) => String(r?.container_barcode || "").trim());
   }
 
-  /** True when at least one cargo place already has orders bound on this supply. */
+  /** True when at least one cargo place already has orders bound on *this* supply. */
   function supplyHasFilledCargoPlace() {
     const containers = Array.isArray(state.containers) ? state.containers : [];
-    if (containers.some((c) => Number(c?.order_count || 0) > 0)) return true;
+    // Warehouse list is shared — only count GMs bound to the open supply.
+    if (containers.some((c) => c?.bound_to_open_supply === true && Number(c?.order_count || 0) > 0)) {
+      return true;
+    }
     // Local row binds (after unbind of active GM / stale container list).
     if (rowsHaveContainerBinds("kiz") || rowsHaveContainerBinds("pick")) return true;
     return false;

@@ -12277,6 +12277,7 @@ button.wb-fbs-select-all-link:disabled {
   left: 0;
   top: calc(100% + 8px);
   z-index: 40;
+  display: none;
   min-width: 260px;
   max-width: min(360px, calc(100vw - 32px));
   padding: 12px 16px;

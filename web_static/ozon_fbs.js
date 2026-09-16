@@ -954,8 +954,8 @@
       alert("Не удалось подготовить ТН");
       return;
     }
-    if (typeof window !== "undefined") {
-      window._ttnOpenedFromFbsTab = "ozon";
+    if (typeof window.setTtnOpenedFromFbsTab === "function") {
+      window.setTtnOpenedFromFbsTab("ozon");
     }
     const existingId = Number(data.existing_ttn_id || record.id || 0);
     await _openTtnModal(existingId ? "edit" : "create", record);

@@ -20059,6 +20059,15 @@ let _ttnSelectedFbsMeta = null; // {platform, source_id, supply_id}
 let _ttnOpenedFromFbsTab = ""; // "" | "wb" | "ozon"
 /** @deprecated use _ttnOpenedFromFbsTab */
 let _ttnOpenedFromWbFbs = false;
+
+/** Cross-module setter (ozon_fbs.js cannot write the lexical let directly). */
+function setTtnOpenedFromFbsTab(tab) {
+  const v = String(tab || "").trim().toLowerCase();
+  _ttnOpenedFromFbsTab = v === "wb" || v === "ozon" ? v : "";
+  _ttnOpenedFromWbFbs = _ttnOpenedFromFbsTab === "wb";
+}
+window.setTtnOpenedFromFbsTab = setTtnOpenedFromFbsTab;
+
 /** While opening the TN modal, suppress cargo overwrite from place refreshes. */
 let _ttnFbsSuppressCargoAutofill = false;
 

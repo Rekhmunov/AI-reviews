@@ -530,8 +530,18 @@ async function run() {
 
     st.containers[0].order_count = 3;
     assert(
+      winG._ozonFbsContainerSupplyHasFilledGm() === false,
+      "foreign warehouse order_count alone → not filled for this supply"
+    );
+    assert(
+      winG._ozonFbsContainerGuardOrderScanRequiresActiveGm("kiz", null) === true,
+      "foreign GM count must not block scans on a new supply"
+    );
+
+    st.containers[0].bound_to_open_supply = true;
+    assert(
       winG._ozonFbsContainerSupplyHasFilledGm() === true,
-      "order_count>0 → supplyHasFilledGm true"
+      "bound_to_open_supply + order_count>0 → filled"
     );
     assert(
       winG._ozonFbsContainerGuardOrderScanRequiresActiveGm("kiz", null) === false,

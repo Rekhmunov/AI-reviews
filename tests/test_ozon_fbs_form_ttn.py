@@ -49,11 +49,13 @@ def test_ttn_prefill_is_local_only() -> None:
         "def list_awaiting_deliver_supplies", 1
     )[0]
     assert 'it["ttn_id"]' in OZ
-    assert '_ttnOpenedFromFbsTab = "ozon"' in JS
+    assert "function setTtnOpenedFromFbsTab" in APP_JS
+    assert 'setTtnOpenedFromFbsTab("ozon")' in JS
+    assert "window.setTtnOpenedFromFbsTab" in APP_JS
     assert "reloadOzonFbsPostings" in JS
     assert "fromFbsTab === \"ozon\"" in APP_JS or "fromFbsTab === 'ozon'" in APP_JS
 
 
 def test_cache_bump_for_ozon_form_ttn() -> None:
-    assert "ozon_fbs.js?v=173" in HTML
-    assert "app.js?v=647" in HTML
+    assert "ozon_fbs.js?v=174" in HTML
+    assert "app.js?v=648" in HTML

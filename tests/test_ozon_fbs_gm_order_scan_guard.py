@@ -14,6 +14,7 @@ HTML = (ROOT / "web_templates" / "app.html").read_text(encoding="utf-8")
 def test_guard_helpers_exported() -> None:
     assert "function supplyHasFilledCargoPlace" in BIND
     assert "function guardOrderScanRequiresActiveGm" in BIND
+    assert "bound_to_open_supply === true" in BIND
     assert 'order_count || 0) > 0' in BIND
     assert "rowsHaveContainerBinds" in BIND
     assert "Вы пытаетесь просканировать заказ без грузоместа." in BIND
@@ -69,6 +70,6 @@ def test_ack_modal_no_scrollbar_css() -> None:
 
 
 def test_asset_cache_bumped() -> None:
-    assert "ozon_fbs.js?v=173" in HTML
-    assert "ozon_fbs_container_bind.js?v=31" in HTML
-    assert "style.css?v=378" in HTML
+    assert "ozon_fbs.js?v=174" in HTML
+    assert "ozon_fbs_container_bind.js?v=32" in HTML
+    assert "style.css?v=379" in HTML
