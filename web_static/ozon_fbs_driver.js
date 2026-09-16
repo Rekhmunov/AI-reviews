@@ -363,11 +363,13 @@
     if (!box) return;
 
     if (!state.vehicleNumber) {
+      box.hidden = false;
       box.innerHTML = '<div class="ofd-empty">Выберите номер машины</div>';
       renderStatusBanner();
       return;
     }
     if (state.loadingItems && !state.softRefresh) {
+      box.hidden = false;
       box.innerHTML = '<div class="ofd-loading">Загрузка грузомест…</div>';
       renderStatusBanner();
       return;
@@ -379,17 +381,20 @@
         "</div>"
       : "";
 
+    // No cargo in the tracked statuses → only the green banner, no empty list block.
     if (!state.items.length) {
-      box.innerHTML =
-        '<div class="ofd-list-head">' +
-        '<h2 class="ofd-list-title">Грузоместа</h2>' +
-        '<div class="ofd-list-count">0</div>' +
-        "</div>" +
-        errorsHtml +
-        '<div class="ofd-empty">Нет грузомест Ozon («Сформировано» / «Принято на СЦ» / «Завершено») или WB TRBX для этого номера.</div>';
+      if (errorsHtml) {
+        box.hidden = false;
+        box.innerHTML = errorsHtml;
+      } else {
+        box.innerHTML = "";
+        box.hidden = true;
+      }
       renderStatusBanner();
       return;
     }
+
+    box.hidden = false;
 
     const listClass =
       state.loadingItems && state.softRefresh
