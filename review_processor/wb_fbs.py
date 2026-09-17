@@ -1887,6 +1887,7 @@ def build_ttn_prefill(
         "fbs_supply_id": sid,
         "warehouse_id": warehouse_id,
         "load_warehouse_id": load_warehouse_id,
+        "supply_name": supply_name,
     }
     existing_record = None
     if existing_id:
@@ -1914,10 +1915,19 @@ def build_ttn_prefill(
             "redirect_info",
             "carrier_marks",
             "freight_cost",
+            "title",
         ):
             val = existing_record.get(key)
             if val not in (None, ""):
                 record[key] = val
+    from . import ttn_title as ttn_title_mod
+
+    record["title"] = ttn_title_mod.suggest_fbs_ttn_title(
+        repo,
+        user_id=user_id,
+        supply_name=supply_name,
+        keep_title=str(record.get("title") or ""),
+    )
     return {
         "ok": True,
         "existing_ttn_id": existing_id,
