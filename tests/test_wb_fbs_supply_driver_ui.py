@@ -58,7 +58,16 @@ def test_driver_locked_in_delivery_for_non_owner() -> None:
     wb = WB.read_text(encoding="utf-8")
     assert "function _wbFbsDriverLockedAsToneOnly" in js
     assert "function _wbFbsCanOpenDriverWhileReadOnly" in js
+    assert "function _wbFbsApplyDriverModalReadOnly" in js
     assert "isTenantOwner()" in js
+    # Operators may open for view; save stays locked.
+    open_fn = js.split("async function openWbFbsDriverModal", 1)[1].split(
+        "\nasync function ", 1
+    )[0]
+    assert 'alert("В «В доставке» водителя может менять только главный пользователь")' not in open_fn
+    assert "viewOnly" in open_fn or "_wbFbsApplyDriverModalReadOnly(true)" in open_fn
+    assert "Только просмотр. В «В доставке» менять может главный пользователь" in open_fn
+    assert "Дождитесь загрузки заказов" in open_fn
     assert "В «В доставке» водителя может менять только главный пользователь" in js
     assert "def supply_is_in_delivery" in wb
     assert "CREATE TABLE IF NOT EXISTS wb_fbs_supply_driver" in wb
@@ -92,5 +101,12 @@ def test_shared_driver_cabinet_shows_wb_items() -> None:
 
 def test_cache_bump_for_driver_modal() -> None:
     html = HTML.read_text(encoding="utf-8")
-    assert "app.js?v=657" in html
-    assert "style.css?v=384" in html
+    css = CSS.read_text(encoding="utf-8")
+    assert "app.js?v=658" in html
+    assert "style.css?v=385" in html
+    assert "#wbFbsDriverModal," in css or "#wbFbsDriverModal" in css
+    # Mobile fullscreen parity with Ozon driver modal.
+    mobile = css.split("@media", 1)[1] if "@media" in css else css
+    assert "#wbFbsDriverModal" in css.split("#ozonFbsDriverModal,", 1)[-1][:400] or (
+        "#wbFbsDriverModal," in css
+    )

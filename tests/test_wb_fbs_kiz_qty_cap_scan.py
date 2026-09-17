@@ -76,4 +76,4 @@ def test_filters_do_not_scope_dup_checks() -> None:
 
 
 def test_cache_bump() -> None:
-    assert "app.js?v=657" in HTML
+    assert "app.js?v=658" in HTML

@@ -34227,30 +34227,47 @@ function _wbFbsFillDriverVehicles(selectedPlate) {
 }
 
 function onWbFbsDriverChange() {
+  if (_wbFbsDriverLockedAsToneOnly()) return;
   _wbFbsFillDriverVehicles("");
   _wbFbsDriverSetInfo("");
 }
 window.onWbFbsDriverChange = onWbFbsDriverChange;
 
-async function openWbFbsDriverModal() {
-  if (_wbFbsDriverLockedAsToneOnly()) {
-    alert("В «В доставке» водителя может менять только главный пользователь");
-    return;
+function _wbFbsApplyDriverModalReadOnly(locked) {
+  const readOnly = !!locked;
+  const driverSel = document.getElementById("wbFbsDriverSelect");
+  const vehSel = document.getElementById("wbFbsDriverVehicleSelect");
+  const saveBtn = document.getElementById("wbFbsDriverSaveBtn");
+  if (driverSel) driverSel.disabled = readOnly || driverSel.disabled;
+  if (vehSel) vehSel.disabled = readOnly || vehSel.disabled;
+  if (saveBtn) {
+    saveBtn.disabled = readOnly;
+    saveBtn.hidden = readOnly;
   }
+}
+
+async function openWbFbsDriverModal() {
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   const sourceId = wbFbsState.sourceId;
   if (!sid || !sourceId) {
     alert("Откройте поставку");
     return;
   }
-  if (!_wbFbsSupplyDetailActionsReady()) return;
+  if (!_wbFbsSupplyDetailActionsReady()) {
+    alert("Дождитесь загрузки заказов");
+    return;
+  }
+  const viewOnly = _wbFbsDriverLockedAsToneOnly();
   wbFbsDriverModalState.supplyId = sid;
   wbFbsDriverModalState.sourceId = sourceId;
   wbFbsDriverModalState.loading = true;
   wbFbsDriverModalState.saving = false;
   const saveBtn = document.getElementById("wbFbsDriverSaveBtn");
   const driverSel = document.getElementById("wbFbsDriverSelect");
-  if (saveBtn) saveBtn.disabled = true;
+  if (saveBtn) {
+    saveBtn.hidden = false;
+    saveBtn.disabled = true;
+  }
   if (driverSel) {
     driverSel.innerHTML = '<option value="">Загрузка…</option>';
     driverSel.disabled = true;
@@ -34275,7 +34292,12 @@ async function openWbFbsDriverModal() {
     if (driverSel) driverSel.disabled = false;
     _wbFbsFillDriverSelect(assignedId > 0 ? assignedId : "");
     _wbFbsFillDriverVehicles(assignedPlate);
-    if (!wbFbsDriverModalState.drivers.length) {
+    if (viewOnly) {
+      _wbFbsApplyDriverModalReadOnly(true);
+      _wbFbsDriverSetInfo(
+        "Только просмотр. В «В доставке» менять может главный пользователь"
+      );
+    } else if (!wbFbsDriverModalState.drivers.length) {
       _wbFbsDriverSetInfo("В справочнике нет водителей. Добавьте их в Поставки → Настройки → Водители.", "error");
     } else {
       _wbFbsDriverSetInfo("");
@@ -34283,9 +34305,10 @@ async function openWbFbsDriverModal() {
   } catch (e) {
     if (driverSel) driverSel.disabled = false;
     _wbFbsDriverSetInfo(e.message || String(e), "error");
+    if (viewOnly) _wbFbsApplyDriverModalReadOnly(true);
   } finally {
     wbFbsDriverModalState.loading = false;
-    if (saveBtn) saveBtn.disabled = false;
+    if (saveBtn && !viewOnly) saveBtn.disabled = false;
   }
 }
 window.openWbFbsDriverModal = openWbFbsDriverModal;
@@ -34296,6 +34319,15 @@ function closeWbFbsDriverModal() {
   wbFbsDriverModalState.sourceId = null;
   wbFbsDriverModalState.saving = false;
   _wbFbsDriverSetInfo("");
+  const saveBtn = document.getElementById("wbFbsDriverSaveBtn");
+  const driverSel = document.getElementById("wbFbsDriverSelect");
+  const vehSel = document.getElementById("wbFbsDriverVehicleSelect");
+  if (saveBtn) {
+    saveBtn.hidden = false;
+    saveBtn.disabled = false;
+  }
+  if (driverSel) driverSel.disabled = false;
+  if (vehSel) vehSel.disabled = false;
 }
 window.closeWbFbsDriverModal = closeWbFbsDriverModal;
 
