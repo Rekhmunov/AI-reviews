@@ -43,6 +43,19 @@ def test_resolve_row_tone_priority() -> None:
     assert resolve_fbs_supply_row_tone(gm_statuses=[], ttn_id=5) == ""
 
 
+def test_ozon_enrich_skips_unknown_gm_as_formed() -> None:
+    """Missing live GM status must not invent «formed» (false pale-red)."""
+    oz = OZ.read_text(encoding="utf-8")
+    enrich = oz.split("def enrich_ozon_supply_items_row_tones", 1)[1].split(
+        "\ndef list_awaiting_deliver_supplies", 1
+    )[0]
+    assert "treat as formed" not in enrich
+    assert "gm_statuses.append(\"formed\")" not in enrich
+    assert "Only known live statuses" in enrich
+    assert "if st:" in enrich
+    assert "gm_statuses.append(st)" in enrich
+
+
 def test_ozon_backend_enriches_tones() -> None:
     oz = OZ.read_text(encoding="utf-8")
     web = WEB.read_text(encoding="utf-8")

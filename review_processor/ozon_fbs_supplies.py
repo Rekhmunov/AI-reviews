@@ -2429,13 +2429,14 @@ def enrich_ozon_supply_items_row_tones(
                             st_map[cid] = st
                     status_by_wh[wh] = st_map
                 st_map = status_by_wh.get(wh, {}) if wh > 0 else {}
-                for cid in cids:
-                    st = st_map.get(int(cid), "")
-                    if st:
-                        gm_statuses.append(st)
-                    else:
-                        # Bound locally but missing from live list → treat as formed.
-                        gm_statuses.append("formed")
+                # Only known live statuses. Missing GMs (lookback / shipped /
+                # wrong WH) must not invent «formed» — that falsely paints
+                # pale-red over accepted+TTN rows.
+                if wh > 0:
+                    for cid in cids:
+                        st = st_map.get(int(cid), "")
+                        if st:
+                            gm_statuses.append(st)
         except Exception:
             gm_statuses = []
 
