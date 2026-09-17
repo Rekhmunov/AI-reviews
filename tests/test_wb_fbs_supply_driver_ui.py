@@ -58,25 +58,43 @@ def test_driver_locked_in_delivery_for_non_owner() -> None:
     wb = WB.read_text(encoding="utf-8")
     assert "function _wbFbsDriverLockedAsToneOnly" in js
     assert "function _wbFbsCanOpenDriverWhileReadOnly" in js
-    assert "function _wbFbsApplyDriverModalReadOnly" in js
     assert "isTenantOwner()" in js
-    # Operators may open for view; save stays locked.
     open_fn = js.split("async function openWbFbsDriverModal", 1)[1].split(
         "\nasync function ", 1
     )[0]
-    assert 'alert("В «В доставке» водителя может менять только главный пользователь")' not in open_fn
-    assert "viewOnly" in open_fn or "_wbFbsApplyDriverModalReadOnly(true)" in open_fn
-    assert "Только просмотр. В «В доставке» менять может главный пользователь" in open_fn
+    # Delivery: operators are blocked from opening (owner-only).
+    assert 'alert("В «В доставке» водителя может менять только главный пользователь")' in open_fn
+    assert "_wbFbsDriverLockedAsToneOnly()" in open_fn.split("alert(", 1)[0]
     assert "Дождитесь загрузки заказов" in open_fn
-    assert "В «В доставке» водителя может менять только главный пользователь" in js
     assert "def supply_is_in_delivery" in wb
     assert "CREATE TABLE IF NOT EXISTS wb_fbs_supply_driver" in wb
     put = web[
         web.index('@app.put("/api/wb-fbs/supplies/{supply_id}/driver")') :
-        web.index('@app.put("/api/wb-fbs/supplies/{supply_id}/driver")') + 1800
+        web.index('@app.put("/api/wb-fbs/supplies/{supply_id}/driver")') + 2200
     ]
-    assert "supply_is_in_delivery" in put
+    assert 'posting_tab == "assembly"' in put
+    assert "in_delivery = False" in put
     assert "_is_wb_fbs_tenant_owner(user)" in put
+
+
+def test_driver_assembly_uses_opened_tab_snapshot() -> None:
+    """Assembly open must not inherit delivery lock from live list tab / leftover DB rows."""
+    js = JS.read_text(encoding="utf-8")
+    assert "openedTab" in js
+    assert "wbFbsDetailState.openedTab" in js
+    is_delivery = js.split("function _wbFbsIsDeliverySuppliesTab", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+    assert 'opened === "delivery"' in is_delivery or 'openedTab' in is_delivery
+    open_detail = js.split("async function openWbFbsSupplyDetailModal", 1)[1].split(
+        "\nasync function ", 1
+    )[0]
+    assert "openedTab" in open_detail
+    sync = js.split("function _wbFbsSyncDriverBtn", 1)[1].split("\nfunction ", 1)[0]
+    assert "is-tone-only" in sync
+    assert "_wbFbsDriverLockedAsToneOnly()" in sync
+    save = js.split("async function saveWbFbsDriver", 1)[1].split("\nasync function ", 1)[0]
+    assert "openedTab" in save
 
 
 def test_driver_api_routes_exist() -> None:
@@ -102,11 +120,7 @@ def test_shared_driver_cabinet_shows_wb_items() -> None:
 def test_cache_bump_for_driver_modal() -> None:
     html = HTML.read_text(encoding="utf-8")
     css = CSS.read_text(encoding="utf-8")
-    assert "app.js?v=658" in html
+    assert "app.js?v=659" in html
     assert "style.css?v=385" in html
     assert "#wbFbsDriverModal," in css or "#wbFbsDriverModal" in css
-    # Mobile fullscreen parity with Ozon driver modal.
-    mobile = css.split("@media", 1)[1] if "@media" in css else css
-    assert "#wbFbsDriverModal" in css.split("#ozonFbsDriverModal,", 1)[-1][:400] or (
-        "#wbFbsDriverModal," in css
-    )
+    assert "#wbFbsDriverModal," in css

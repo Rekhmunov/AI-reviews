@@ -33210,6 +33210,8 @@ const wbFbsDetailState = {
   trbxLoading: false,
   /** False until supply detail (orders) finished loading. */
   ordersReady: false,
+  /** Tab snapshot at detail open — lock/driver gates use this, not live list tab. */
+  openedTab: "",
 };
 
 /** Generic % column resizer with per-user localStorage (WB FBS modal tables). */
@@ -33408,6 +33410,9 @@ function _wbFbsSupplyDetailSetActionsReady(ready) {
 
 
 function _wbFbsIsDeliverySuppliesTab() {
+  // Prefer the tab the detail modal was opened from (assembly vs delivery).
+  const opened = String(wbFbsDetailState.openedTab || "").trim();
+  if (opened) return opened === "delivery";
   return wbFbsState.tab === "delivery";
 }
 
@@ -33541,6 +33546,7 @@ function closeWbFbsSupplyDetailModal() {
 
   wbFbsDetailState.supplyId = "";
   wbFbsDetailState.supply = null;
+  wbFbsDetailState.openedTab = "";
   wbFbsDetailState.selected.clear();
   wbFbsDetailState.trbxBusy = false;
   wbFbsDetailState.trbxBoxes = [];
@@ -34132,6 +34138,20 @@ function _wbFbsSyncDriverBtn() {
   if (!btn) return;
   btn.classList.toggle("is-ok", _wbFbsDriverHasAssignment(wbFbsDetailState.supply));
   _wbFbsSyncSupplyDetailToneOnlySplits(_wbFbsIsSupplyDetailReadOnly());
+  // Assembly: never leave a stuck delivery lock on the button after orders load.
+  if (!_wbFbsDriverLockedAsToneOnly() && _wbFbsSupplyDetailActionsReady()) {
+    btn.classList.remove("is-tone-only");
+    if (!btn.classList.contains("is-wait-orders")) {
+      btn.removeAttribute("aria-disabled");
+      btn.removeAttribute("tabindex");
+      if (!btn.getAttribute("title")) {
+        btn.setAttribute(
+          "title",
+          "Водитель поставки: выбрать из справочника и гос. номер ТС"
+        );
+      }
+    }
+  }
   _wbFbsSyncPortalBtn();
 }
 
@@ -34227,26 +34247,17 @@ function _wbFbsFillDriverVehicles(selectedPlate) {
 }
 
 function onWbFbsDriverChange() {
-  if (_wbFbsDriverLockedAsToneOnly()) return;
   _wbFbsFillDriverVehicles("");
   _wbFbsDriverSetInfo("");
 }
 window.onWbFbsDriverChange = onWbFbsDriverChange;
 
-function _wbFbsApplyDriverModalReadOnly(locked) {
-  const readOnly = !!locked;
-  const driverSel = document.getElementById("wbFbsDriverSelect");
-  const vehSel = document.getElementById("wbFbsDriverVehicleSelect");
-  const saveBtn = document.getElementById("wbFbsDriverSaveBtn");
-  if (driverSel) driverSel.disabled = readOnly || driverSel.disabled;
-  if (vehSel) vehSel.disabled = readOnly || vehSel.disabled;
-  if (saveBtn) {
-    saveBtn.disabled = readOnly;
-    saveBtn.hidden = readOnly;
-  }
-}
-
 async function openWbFbsDriverModal() {
+  // «В доставке»: only tenant owner may open/edit. Operators stay blocked.
+  if (_wbFbsDriverLockedAsToneOnly()) {
+    alert("В «В доставке» водителя может менять только главный пользователь");
+    return;
+  }
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   const sourceId = wbFbsState.sourceId;
   if (!sid || !sourceId) {
@@ -34257,7 +34268,6 @@ async function openWbFbsDriverModal() {
     alert("Дождитесь загрузки заказов");
     return;
   }
-  const viewOnly = _wbFbsDriverLockedAsToneOnly();
   wbFbsDriverModalState.supplyId = sid;
   wbFbsDriverModalState.sourceId = sourceId;
   wbFbsDriverModalState.loading = true;
@@ -34292,12 +34302,7 @@ async function openWbFbsDriverModal() {
     if (driverSel) driverSel.disabled = false;
     _wbFbsFillDriverSelect(assignedId > 0 ? assignedId : "");
     _wbFbsFillDriverVehicles(assignedPlate);
-    if (viewOnly) {
-      _wbFbsApplyDriverModalReadOnly(true);
-      _wbFbsDriverSetInfo(
-        "Только просмотр. В «В доставке» менять может главный пользователь"
-      );
-    } else if (!wbFbsDriverModalState.drivers.length) {
+    if (!wbFbsDriverModalState.drivers.length) {
       _wbFbsDriverSetInfo("В справочнике нет водителей. Добавьте их в Поставки → Настройки → Водители.", "error");
     } else {
       _wbFbsDriverSetInfo("");
@@ -34305,10 +34310,9 @@ async function openWbFbsDriverModal() {
   } catch (e) {
     if (driverSel) driverSel.disabled = false;
     _wbFbsDriverSetInfo(e.message || String(e), "error");
-    if (viewOnly) _wbFbsApplyDriverModalReadOnly(true);
   } finally {
     wbFbsDriverModalState.loading = false;
-    if (saveBtn && !viewOnly) saveBtn.disabled = false;
+    if (saveBtn) saveBtn.disabled = false;
   }
 }
 window.openWbFbsDriverModal = openWbFbsDriverModal;
@@ -34320,14 +34324,10 @@ function closeWbFbsDriverModal() {
   wbFbsDriverModalState.saving = false;
   _wbFbsDriverSetInfo("");
   const saveBtn = document.getElementById("wbFbsDriverSaveBtn");
-  const driverSel = document.getElementById("wbFbsDriverSelect");
-  const vehSel = document.getElementById("wbFbsDriverVehicleSelect");
   if (saveBtn) {
     saveBtn.hidden = false;
     saveBtn.disabled = false;
   }
-  if (driverSel) driverSel.disabled = false;
-  if (vehSel) vehSel.disabled = false;
 }
 window.closeWbFbsDriverModal = closeWbFbsDriverModal;
 
@@ -34372,7 +34372,7 @@ async function saveWbFbsDriver() {
           source_id: sourceId,
           driver_id: driverId,
           vehicle_number: plate,
-          tab: String(wbFbsState.tab || "").trim(),
+          tab: String(wbFbsDetailState.openedTab || wbFbsState.tab || "").trim(),
         }),
       }
     );
@@ -34407,6 +34407,7 @@ async function openWbFbsSupplyDetailModal(supplyId) {
   const sid = String(supplyId || "").trim();
   if (!sid || !wbFbsState.sourceId) return;
   wbFbsDetailState.supplyId = sid;
+  wbFbsDetailState.openedTab = String(wbFbsState.tab || "").trim();
   wbFbsDetailState.selected.clear();
   _wbFbsSupplyDetailSetActionsReady(false);
   _wbFbsKizSplitSetTone("");

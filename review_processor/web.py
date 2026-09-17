@@ -10752,11 +10752,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             driver_id = int(body.get("driver_id") or 0)
         except (TypeError, ValueError):
             driver_id = 0
-        # In «В доставке» only the tenant owner may change the driver.
+        # «В доставке»: only tenant owner may change the driver.
+        # Trust the UI tab when opening from «На сборке» — a supply can still have
+        # leftover delivery-tab rows and must remain editable for operators there.
         posting_tab = str(body.get("posting_tab") or body.get("tab") or "").strip()
-        in_delivery = posting_tab == "delivery" or wb_fbs_mod.supply_is_in_delivery(
-            repository, user_id=owner_id, source_id=source_id, supply_id=sid
-        )
+        if posting_tab == "assembly":
+            in_delivery = False
+        elif posting_tab == "delivery":
+            in_delivery = True
+        else:
+            in_delivery = wb_fbs_mod.supply_is_in_delivery(
+                repository, user_id=owner_id, source_id=source_id, supply_id=sid
+            )
         if in_delivery and not _is_wb_fbs_tenant_owner(user):
             raise HTTPException(
                 status_code=403,
