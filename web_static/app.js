@@ -20549,6 +20549,48 @@ function _ttnDriverCarrierCell(r) {
   return String(driver || "").trim() || "—";
 }
 
+/** Keep same group_id adjacent after filters (mirrors backend cluster_supply_ttn_records_by_group). */
+function _ttnClusterRowsByGroup(list) {
+  const grouped = new Map();
+  const solo = [];
+  for (const rec of list || []) {
+    const gid = String(rec?.group_id || "").trim();
+    if (gid) {
+      if (!grouped.has(gid)) grouped.set(gid, []);
+      grouped.get(gid).push(rec);
+    } else {
+      solo.push(rec);
+    }
+  }
+  const clusters = [];
+  for (const members of grouped.values()) {
+    members.sort((a, b) => Number(a.id || 0) - Number(b.id || 0));
+    let maxCreated = "";
+    let maxId = 0;
+    for (const r of members) {
+      const c = String(r.created_at || "");
+      if (c > maxCreated) maxCreated = c;
+      const id = Number(r.id || 0);
+      if (id > maxId) maxId = id;
+    }
+    clusters.push({ keyCreated: maxCreated, keyId: maxId, members });
+  }
+  for (const rec of solo) {
+    clusters.push({
+      keyCreated: String(rec.created_at || ""),
+      keyId: Number(rec.id || 0),
+      members: [rec],
+    });
+  }
+  clusters.sort((a, b) => {
+    if (a.keyCreated !== b.keyCreated) return a.keyCreated < b.keyCreated ? 1 : -1;
+    return b.keyId - a.keyId;
+  });
+  const out = [];
+  for (const c of clusters) out.push(...c.members);
+  return out;
+}
+
 function renderTtnTable() {
   const tbody = document.getElementById("ttnTbody");
   if (!tbody) return;
@@ -20579,6 +20621,7 @@ function renderTtnTable() {
       (r.vehicle_line || "").toLowerCase().includes(sq)
     );
   }
+  rows = _ttnClusterRowsByGroup(rows);
   if (!rows.length) {
     tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">ТН не найдены</td></tr>';
     return;

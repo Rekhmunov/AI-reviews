@@ -40,7 +40,7 @@ def test_logistics_title_picker_and_panes() -> None:
     assert "function initLogisticsSection" in js
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
-    assert "app.js?v=656" in html
+    assert "app.js?v=657" in html
     assert "style.css?v=384" in html
     assert "ttn-modal-card" in html
     assert "ttn-form-grid" in html
@@ -96,7 +96,7 @@ def test_ttn_row_colors_by_fbs_origin() -> None:
     state_from = js.split("function _ttnStateFromRecord", 1)[1].split("\nfunction ", 1)[0]
     assert 'mode === "copy"' in state_from
     assert "fbsMeta = null" in state_from
-    assert "app.js?v=656" in html
+    assert "app.js?v=657" in html
     assert "style.css?v=384" in html
 
 

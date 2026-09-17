@@ -157,6 +157,32 @@ def _date_from_created_at_with_lookback(created_at: object, lookback_days: int) 
     return (base_date - timedelta(days=lookback)).isoformat()
 
 
+def cluster_supply_ttn_records_by_group(
+    records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Keep same group_id adjacent: groups by max(created_at,id) DESC, within by id ASC."""
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    solo: list[dict[str, Any]] = []
+    for rec in records:
+        gid = str((rec or {}).get("group_id") or "").strip()
+        if gid:
+            grouped.setdefault(gid, []).append(rec)
+        else:
+            solo.append(rec)
+    clusters: list[tuple[tuple[str, int], list[dict[str, Any]]]] = []
+    for _gid, members in grouped.items():
+        members.sort(key=lambda r: int(r.get("id") or 0))
+        max_created = max(str(r.get("created_at") or "") for r in members)
+        max_id = max(int(r.get("id") or 0) for r in members)
+        clusters.append(((max_created, max_id), members))
+    for rec in solo:
+        clusters.append(
+            ((str(rec.get("created_at") or ""), int(rec.get("id") or 0)), [rec])
+        )
+    clusters.sort(key=lambda c: c[0], reverse=True)
+    return [rec for _, members in clusters for rec in members]
+
+
 def _parse_datetime_utc(value: object) -> datetime | None:
     raw = str(value or "").strip()
     if not raw:
@@ -11164,25 +11190,7 @@ class ReviewRepository:
                 }
             )
             result.append(d)
-        # Cluster same group_id together: groups by max(created_at) DESC,
-        # within group by id ASC; ungrouped rows each act as a solo group.
-        grouped: dict[str, list[dict[str, Any]]] = {}
-        solo: list[dict[str, Any]] = []
-        for rec in result:
-            gid = str(rec.get("group_id") or "").strip()
-            if gid:
-                grouped.setdefault(gid, []).append(rec)
-            else:
-                solo.append(rec)
-        clusters: list[tuple[str, list[dict[str, Any]]]] = []
-        for gid, members in grouped.items():
-            members.sort(key=lambda r: int(r.get("id") or 0))
-            max_created = max(str(r.get("created_at") or "") for r in members)
-            clusters.append((max_created, members))
-        for rec in solo:
-            clusters.append((str(rec.get("created_at") or ""), [rec]))
-        clusters.sort(key=lambda c: c[0], reverse=True)
-        return [rec for _, members in clusters for rec in members]
+        return cluster_supply_ttn_records_by_group(result)
 
     def create_supply_ttn_record(
         self,

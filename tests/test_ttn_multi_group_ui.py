@@ -29,7 +29,7 @@ def test_multi_ttn_html_has_tabs_route_and_driver_column() -> None:
     # Overlay click must not close create modal.
     overlay_line = html.split('id="createTtnModal"', 1)[1].split(">", 1)[0]
     assert "closeCreateTtnModal" not in overlay_line
-    assert "app.js?v=656" in html
+    assert "app.js?v=657" in html
     assert "style.css?v=384" in html
 
 
@@ -87,9 +87,39 @@ def test_multi_ttn_backend_group_id_present() -> None:
     assert "group_id" in repo
     assert "ADD COLUMN IF NOT EXISTS group_id" in repo
     assert "list_supply_ttn_records_by_group" in repo
+    assert "def cluster_supply_ttn_records_by_group" in repo
+    assert "cluster_supply_ttn_records_by_group(result)" in repo
     assert "group_id: str = \"\"" in web
     assert 'group_id: str = ""' in web or "group_id: str =" in web
     assert "/api/supply-ttn-records" in web
     assert "list_ttn_records_by_group" in web or "group_id" in web.split(
         "@app.get(\"/api/supply-ttn-records\")", 1
     )[1][:800]
+
+
+def test_ttn_list_clusters_by_group_id() -> None:
+    """Grouped TN rows stay adjacent: newest group first, within group by id ASC."""
+    from review_processor.repository import cluster_supply_ttn_records_by_group
+
+    rows = [
+        {"id": 1, "group_id": "", "created_at": "2026-09-01T10:00:00"},
+        {"id": 3, "group_id": "g1", "created_at": "2026-09-02T10:01:00"},
+        {"id": 2, "group_id": "g1", "created_at": "2026-09-02T10:00:00"},
+        {"id": 4, "group_id": "", "created_at": "2026-09-03T10:00:00"},
+        {"id": 6, "group_id": "g2", "created_at": "2026-09-04T10:00:00"},
+        {"id": 5, "group_id": "g2", "created_at": "2026-09-02T12:00:00"},
+    ]
+    out = cluster_supply_ttn_records_by_group(rows)
+    assert [r["id"] for r in out] == [5, 6, 4, 2, 3, 1]
+    # Members of each group are contiguous.
+    g2 = [i for i, r in enumerate(out) if r["group_id"] == "g2"]
+    g1 = [i for i, r in enumerate(out) if r["group_id"] == "g1"]
+    assert g2 == [0, 1]
+    assert g1 == [3, 4]
+
+
+def test_ttn_ui_reclusters_after_filters() -> None:
+    js = JS.read_text(encoding="utf-8")
+    assert "function _ttnClusterRowsByGroup" in js
+    render = js.split("function renderTtnTable", 1)[1].split("\nfunction ", 1)[0]
+    assert "_ttnClusterRowsByGroup(rows)" in render
