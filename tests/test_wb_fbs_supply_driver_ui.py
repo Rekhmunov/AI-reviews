@@ -117,12 +117,32 @@ def test_shared_driver_cabinet_shows_wb_items() -> None:
     assert "ozon_fbs_driver.js?v=11" in driver_html
 
 
+def test_wb_driver_modal_lives_in_wb_section_not_ozon() -> None:
+    """WB driver overlay must not sit under hidden Ozon section (display:none parent)."""
+    html = HTML.read_text(encoding="utf-8")
+    wb_s = html.index('id="section-supplies-wb-fbs"')
+    wb_e = html.index("</section>", wb_s)
+    oz_s = html.index('id="section-supplies-ozon-fbs"')
+    oz_e = html.index("</section>", oz_s)
+    wb_modal = html.index('id="wbFbsDriverModal"')
+    oz_modal = html.index('id="ozonFbsDriverModal"')
+    assert wb_s < wb_modal < wb_e
+    assert oz_s < oz_modal < oz_e
+    assert not (oz_s < wb_modal < oz_e)
+    assert html.count('id="wbFbsDriverModal"') == 1
+    assert html.count('id="ozonFbsDriverModal"') == 1
+    # Shared driver cabinet entry points stay wired.
+    assert 'id="wbFbsDriverPageBtn"' in html
+    assert 'id="ozonFbsDriverPageBtn"' in html
+    assert "openOzonFbsDriverPage()" in html
+
+
 def test_cache_bump_for_driver_modal() -> None:
     html = HTML.read_text(encoding="utf-8")
     css = CSS.read_text(encoding="utf-8")
     js = JS.read_text(encoding="utf-8")
-    assert "app.js?v=661" in html
-    assert "style.css?v=386" in html
+    assert "app.js?v=662" in html
+    assert "style.css?v=387" in html
     assert "#wbFbsDriverModal," in css or "#wbFbsDriverModal" in css
     assert "#wbFbsDriverModal," in css
     assert "z-index: 1450" in css
