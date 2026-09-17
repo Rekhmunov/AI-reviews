@@ -58,6 +58,20 @@ def test_multi_ttn_js_capture_apply_group_route_overlay() -> None:
     assert "closeCreateTtnModal()" not in create_open.split("ttn-modal-card", 1)[0]
 
 
+def test_route_empty_load_address_stays_blank() -> None:
+    """Empty п.8 in route text stays blank — no em dash and no button gate."""
+    js = JS.read_text(encoding="utf-8")
+    html = HTML.read_text(encoding="utf-8")
+    route_fn = js.split("function _ttnBuildRouteText", 1)[1].split("\nfunction ", 1)[0]
+    assert 'addr || "—"' not in route_fn
+    assert "addr || '—'" not in route_fn
+    assert "${addr}" in route_fn
+    assert "пустое оставляем пустым" in route_fn
+    route_btn = html.split('id="ttnRouteBtn"', 1)[1].split("</button>", 1)[0]
+    assert "disabled" not in route_btn
+    assert "openTtnRouteModal()" in route_btn
+
+
 def test_multi_ttn_css_tabs() -> None:
     css = CSS.read_text(encoding="utf-8")
     assert "ttn-tabs" in css

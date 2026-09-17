@@ -21457,6 +21457,7 @@ function _ttnBuildRouteText() {
     } else {
       addr = String(s.loadAddress || "").trim();
     }
+    // п.8 (адрес погрузки): пустое оставляем пустым — без «—» и без блокировки кнопки маршрута.
     const party = _ttnLoadPartyNameForState(s);
     const places = String(s.places || "").trim() || "0";
     blocks.push(`${idx + 1}) ${party}\n${addr}\n${places} мест`);
