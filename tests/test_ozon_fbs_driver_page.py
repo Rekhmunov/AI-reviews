@@ -260,8 +260,11 @@ def test_list_driver_page_cargo_places_filters_statuses(monkeypatch) -> None:
     def _resolve(*a, **k):
         return 99, "Склад"
 
+    seen_lookback: list[int] = []
+
     def _list(*a, **k):
         assert k.get("include_sc_accepted") is True
+        seen_lookback.append(int(k.get("lookback_days") or 0))
         return listed
 
     def _enrich(*a, **k):
@@ -274,8 +277,10 @@ def test_list_driver_page_cargo_places_filters_statuses(monkeypatch) -> None:
     monkeypatch.setattr(oz_ct, "enrich_containers_for_supply_modal", _enrich)
     monkeypatch.setattr(oz_ct, "status_label", lambda st: st)
 
+    repo = MagicMock()
+    repo.get_ozon_fbs_sync_settings.return_value = {"lookback_days": 2}
     out = list_driver_page_cargo_places(
-        MagicMock(),
+        repo,
         user_id=1,
         vehicle_number="А123ВС777",
         client_for_source=lambda sid: object(),
@@ -289,5 +294,27 @@ def test_list_driver_page_cargo_places_filters_statuses(monkeypatch) -> None:
         "finished",
     ]
     assert out["total"] == 3
+    assert out["lookback_days"] == 2
+    assert seen_lookback == [2]
     assert all(x["status"] in DRIVER_PAGE_CONTAINER_STATUSES for x in out["items"])
     assert "new" not in {x["status"] for x in out["items"]}
+
+
+def test_driver_page_uses_sync_settings_lookback() -> None:
+    from review_processor.ozon_fbs_supplies import _driver_page_container_lookback_days
+
+    src = (ROOT / "review_processor" / "ozon_fbs_supplies.py").read_text(encoding="utf-8")
+    block = src[
+        src.find("def list_driver_page_cargo_places") : src.find(
+            "def list_driver_page_cargo_places"
+        )
+        + 3500
+    ]
+    assert "lookback_days=lookback_days" in block
+    assert "_driver_page_container_lookback_days" in block
+
+    repo = MagicMock()
+    repo.get_ozon_fbs_sync_settings.return_value = {"lookback_days": 2}
+    assert _driver_page_container_lookback_days(repo, user_id=1) == 2
+    repo.get_ozon_fbs_sync_settings.side_effect = RuntimeError("missing")
+    assert _driver_page_container_lookback_days(repo, user_id=1) == 3

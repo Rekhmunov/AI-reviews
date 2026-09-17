@@ -14656,7 +14656,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 str(r.get("container_id") or ""),
             )
         )
-        return {
+        lookback = oz.get("lookback_days")
+        try:
+            lookback_days = int(lookback) if lookback is not None else None
+        except (TypeError, ValueError):
+            lookback_days = None
+        out: dict[str, object] = {
             "ok": True,
             "vehicle_number": plate,
             "supplies": supplies,
@@ -14664,6 +14669,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "total": len(items),
             "errors": errors,
         }
+        if lookback_days is not None and lookback_days > 0:
+            out["lookback_days"] = lookback_days
+        return out
 
     @app.get("/api/ozon-fbs/driver/vehicles")
     def ozon_fbs_driver_page_vehicles(request: Request) -> dict[str, object]:

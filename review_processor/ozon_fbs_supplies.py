@@ -3054,6 +3054,18 @@ def list_supplies_for_driver_vehicle(
     return out
 
 
+def _driver_page_container_lookback_days(
+    repo: ReviewRepository, *, user_id: int
+) -> int:
+    """Same depth as Ozon FBS sync settings (1..30), not the GM-modal default 30."""
+    try:
+        settings = repo.get_ozon_fbs_sync_settings(user_id=int(user_id))
+        days = int((settings or {}).get("lookback_days") or 3)
+    except Exception:
+        days = 3
+    return max(1, min(int(days), 30))
+
+
 def list_driver_page_cargo_places(
     repo: ReviewRepository,
     *,
@@ -3068,10 +3080,12 @@ def list_driver_page_cargo_places(
     (``acceptance_in_progress``) and «Завершено» (``finished``).
     Containers are limited to GMs bound to the assigned supply
     (same as «ГМ у этой поставки»).
+    Lookback follows Ozon FBS sync settings (not the warehouse GM default 30d).
     """
     from . import ozon_fbs_containers as oz_ct
 
     plate = str(vehicle_number or "").strip()
+    lookback_days = _driver_page_container_lookback_days(repo, user_id=user_id)
     supplies = list_supplies_for_driver_vehicle(
         repo,
         user_id=user_id,
@@ -3105,6 +3119,7 @@ def list_driver_page_cargo_places(
                     user_id=user_id,
                     source_id=source_id,
                     warehouse_id=int(wh_id),
+                    lookback_days=lookback_days,
                     include_sc_accepted=True,
                 )
                 wh_name_by_key[key] = wh_name
@@ -3192,6 +3207,7 @@ def list_driver_page_cargo_places(
         "items": items,
         "total": len(items),
         "errors": errors,
+        "lookback_days": lookback_days,
     }
 
 
