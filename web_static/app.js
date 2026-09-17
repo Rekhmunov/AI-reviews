@@ -34018,6 +34018,10 @@ const wbFbsDriverModalState = {
   drivers: [],
   loading: false,
   saving: false,
+  /** Timestamp when modal was last shown — ignore same-tap / click-through closes. */
+  openedAt: 0,
+  /** True only when mousedown started on the backdrop (not the button that opened it). */
+  overlayPointerDown: false,
 };
 
 function _wbFbsDriverHasAssignment(supply) {
@@ -34155,14 +34159,54 @@ function _wbFbsSyncDriverBtn() {
   _wbFbsSyncPortalBtn();
 }
 
+const _WB_FBS_DRIVER_OPEN_GUARD_MS = 450;
+
 function _wbFbsDriverSetVisible(show) {
+  const modal = document.getElementById("wbFbsDriverModal");
+  if (show) {
+    // Same pointer that opened the modal must not close it (PC click-through + mobile ghost-click).
+    wbFbsDriverModalState.openedAt = Date.now();
+    wbFbsDriverModalState.overlayPointerDown = false;
+    if (modal) {
+      modal.classList.add("is-opening");
+      window.setTimeout(() => {
+        modal.classList.remove("is-opening");
+      }, _WB_FBS_DRIVER_OPEN_GUARD_MS);
+    }
+  } else if (modal) {
+    modal.classList.remove("is-opening");
+    wbFbsDriverModalState.overlayPointerDown = false;
+  }
   if (typeof setModalVisibility === "function") {
     setModalVisibility("wbFbsDriverModal", !!show);
     return;
   }
-  const modal = document.getElementById("wbFbsDriverModal");
   if (modal) modal.classList.toggle("hidden", !show);
 }
+
+/**
+ * Backdrop close only when both mousedown and click landed on the overlay itself.
+ * Prevents: mousedown on «Водитель» → modal opens under cursor → click closes it.
+ */
+function onWbFbsDriverOverlayPointer(event) {
+  const modal = document.getElementById("wbFbsDriverModal");
+  if (!modal || event.target !== modal) {
+    if (event.type === "mousedown" || event.type === "pointerdown") {
+      wbFbsDriverModalState.overlayPointerDown = false;
+    }
+    return;
+  }
+  if (event.type === "mousedown" || event.type === "pointerdown") {
+    wbFbsDriverModalState.overlayPointerDown = true;
+    return;
+  }
+  if (event.type === "click") {
+    if (!wbFbsDriverModalState.overlayPointerDown) return;
+    wbFbsDriverModalState.overlayPointerDown = false;
+    closeWbFbsDriverModal();
+  }
+}
+window.onWbFbsDriverOverlayPointer = onWbFbsDriverOverlayPointer;
 
 function _wbFbsDriverSetInfo(text, kind) {
   const el = document.getElementById("wbFbsDriverInfo");
@@ -34318,10 +34362,17 @@ async function openWbFbsDriverModal() {
 window.openWbFbsDriverModal = openWbFbsDriverModal;
 
 function closeWbFbsDriverModal() {
+  // Same pointer that opened the modal (PC click-through / mobile ghost-click).
+  const openedAt = Number(wbFbsDriverModalState.openedAt || 0);
+  if (openedAt && Date.now() - openedAt < _WB_FBS_DRIVER_OPEN_GUARD_MS) {
+    return;
+  }
   _wbFbsDriverSetVisible(false);
   wbFbsDriverModalState.supplyId = null;
   wbFbsDriverModalState.sourceId = null;
   wbFbsDriverModalState.saving = false;
+  wbFbsDriverModalState.openedAt = 0;
+  wbFbsDriverModalState.overlayPointerDown = false;
   _wbFbsDriverSetInfo("");
   const saveBtn = document.getElementById("wbFbsDriverSaveBtn");
   if (saveBtn) {
