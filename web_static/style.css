@@ -7318,12 +7318,150 @@ body.sst-col-resizing * {
   font-weight: 700;
   line-height: 1.25;
   color: #0f172a;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
+}
+
+#createTtnModal .ttn-add-tab-btn {
+  flex: 0 0 auto;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1;
+  color: #334155;
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+#createTtnModal .ttn-add-tab-btn:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+#createTtnModal .ttn-add-tab-btn:focus-visible {
+  outline: 2px solid #64748b;
+  outline-offset: 2px;
 }
 
 #createTtnModal .ttn-modal-close {
   flex: 0 0 auto;
+  margin-left: auto;
+}
+
+#createTtnModal .ttn-tabs-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 12px;
+  padding-top: 4px;
+}
+
+#createTtnModal .ttn-tabs-bar:empty {
+  display: none;
+}
+
+#createTtnModal .ttn-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px 6px 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+#createTtnModal .ttn-tab:hover {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+#createTtnModal .ttn-tab:focus-visible {
+  outline: 2px solid #64748b;
+  outline-offset: 2px;
+}
+
+#createTtnModal .ttn-tab.is-active {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+  color: #0f172a;
+  box-shadow: inset 0 -2px 0 #475569;
+}
+
+#createTtnModal .ttn-tab-label {
+  white-space: nowrap;
+}
+
+#createTtnModal .ttn-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+#createTtnModal .ttn-tab-close:hover {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+#createTtnModal .ttn-tab-close:focus-visible {
+  outline: 2px solid #64748b;
+  outline-offset: 1px;
+}
+
+.ttn-copy-source-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.ttn-copy-source-list button {
+  width: 100%;
+  text-align: left;
+  justify-content: flex-start;
+}
+
+.ttn-route-textarea {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  min-height: 220px;
+  padding: 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: #0f172a;
+  background: #fff;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  box-sizing: border-box;
+}
+
+.ttn-route-textarea:focus {
+  outline: none;
+  border-color: #64748b;
+  box-shadow: 0 0 0 3px rgba(100, 116, 139, 0.2);
 }
 
 #createTtnModal .ttn-modal-body {
@@ -7638,10 +7776,15 @@ body.sst-col-resizing * {
   flex: 0 0 auto;
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   gap: 8px;
   padding: 16px 24px;
   border-top: 1px solid #e2e8f0;
   background: #fff;
+}
+
+#createTtnModal #ttnRouteBtn {
+  margin-right: auto;
 }
 
 #createTtnModal .ss-dropdown {

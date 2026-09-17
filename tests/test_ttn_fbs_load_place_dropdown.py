@@ -68,9 +68,10 @@ def test_open_ttn_modal_prefers_load_warehouse_key() -> None:
     # Unload already prefers warehouse_id — keep both.
     assert "w:${Number(record.warehouse_id)}" in JS
     # Legacy recovery: sole LE warehouse when LE card address was stored.
-    assert 'shipRef.startsWith("le:")' in JS
+    assert 'startsWith("le:")' in JS
+    assert "_ttnWarehousesForLegalEntity" in JS
 
 
 def test_cache_bump() -> None:
-    html = HTML if "app.js?v=655" in HTML else (ROOT / "web_templates" / "app.html").read_text(encoding="utf-8")
-    assert "app.js?v=655" in html
+    html = HTML if "app.js?v=656" in HTML else (ROOT / "web_templates" / "app.html").read_text(encoding="utf-8")
+    assert "app.js?v=656" in html

@@ -40,8 +40,8 @@ def test_logistics_title_picker_and_panes() -> None:
     assert "function initLogisticsSection" in js
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
-    assert "app.js?v=655" in html
-    assert "style.css?v=383" in html
+    assert "app.js?v=656" in html
+    assert "style.css?v=384" in html
     assert "ttn-modal-card" in html
     assert "ttn-form-grid" in html
     assert 'max-width:560px' not in html.split('id="createTtnModal"')[1].split("<!-- ── Планирование")[0]
@@ -91,10 +91,13 @@ def test_ttn_row_colors_by_fbs_origin() -> None:
     open_modal = js.split("async function _openTtnModal", 1)[1].split(
         "async function openCreateTtnModal", 1
     )[0]
-    assert 'mode === "copy"' in open_modal
-    assert "_ttnSelectedFbsMeta = null" in open_modal
-    assert "app.js?v=655" in html
-    assert "style.css?v=383" in html
+    assert 'mode === "copy"' in js
+    assert "_ttnSelectedFbsMeta = null" in js
+    state_from = js.split("function _ttnStateFromRecord", 1)[1].split("\nfunction ", 1)[0]
+    assert 'mode === "copy"' in state_from
+    assert "fbsMeta = null" in state_from
+    assert "app.js?v=656" in html
+    assert "style.css?v=384" in html
 
 
 def test_ttn_table_columns_resizable_with_persistence() -> None:
@@ -143,9 +146,14 @@ def test_ttn_table_and_modal_fields_present() -> None:
 def test_ttn_default_cargo_description() -> None:
     js = JS.read_text(encoding="utf-8")
     assert 'TTN_DEFAULT_CARGO = "Постельное белье/наматрасник"' in js
-    assert "_ttnSetCargoValue(TTN_DEFAULT_CARGO)" in js
+    assert "TTN_DEFAULT_CARGO" in js.split("function _ttnApplyFormState", 1)[1].split(
+        "\nfunction ", 1
+    )[0] or "TTN_DEFAULT_CARGO" in js.split("async function _ttnApplyFormState", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+    assert "_ttnSetCargoValue" in js
     assert 'TTN_DEFAULT_DOCS = "УПД/ТОРГ-12/Электронная накладная"' in js
-    assert 'setVal("ttnCreateDocs", TTN_DEFAULT_DOCS)' in js
+    assert "TTN_DEFAULT_DOCS" in js
 
 
 def test_ttn_loader_receiver_autofill_from_parties() -> None:
@@ -184,8 +192,9 @@ def test_ttn_packing_type_select() -> None:
     assert "onclick=\"toggleTtnManualPacking()\"" in html
     assert "шаблон не меняется" in html
     assert '_ttnSetPackingValue("")' in js
-    assert "_ttnSetPackingValue(record.packing_type" in js
-    assert "packing_type: _ttnPackingTypeValue()" in js
+    assert "packing_type" in js.split("function _ttnStateFromRecord", 1)[1].split("\nfunction ", 1)[0] or \
+        "packing" in js.split("function _ttnStateFromRecord", 1)[1].split("\nfunction ", 1)[0]
+    assert "packing_type:" in js.split("function _ttnBuildPayloadFromState", 1)[1].split("\nfunction ", 1)[0]
     assert "select.ttn-input" in CSS.read_text(encoding="utf-8")
     assert ".ttn-packing-select-wrap" in CSS.read_text(encoding="utf-8")
 
@@ -210,7 +219,7 @@ def test_ttn_cargo_select_with_manual() -> None:
     assert "function _ttnCargoDescriptionValue" in js
     assert 'id="ttnManualCargoFields"' in html
     assert "onclick=\"toggleTtnManualCargo()\"" in html
-    assert "cargo_description: _ttnCargoDescriptionValue()" in js
+    assert "cargo_description:" in js.split("function _ttnBuildPayloadFromState", 1)[1].split("\nfunction ", 1)[0]
     assert ".ttn-cargo-select-wrap" in CSS.read_text(encoding="utf-8")
     # Default cargo is first preset (alphabetically first bedding item).
     assert 'TTN_DEFAULT_CARGO = "Постельное белье/наматрасник"' in js
@@ -348,8 +357,10 @@ def test_ttn_load_unload_places_from_party_addresses() -> None:
     assert "c.requisites" not in helper
     # Global catalog of all parties/warehouses must not drive place presets anymore.
     assert "function _ttnPlacePresetOptions" not in js
-    assert 'ssPopulate("ttnCreateShipperWrap", partyOpts, () => onTtnShipperChange())' in js
-    assert 'ssPopulate("ttnCreateConsigneeWrap", partyOpts, () => onTtnConsigneeChange())' in js
+    assert 'ssPopulate("ttnCreateShipperWrap", partyOpts,' in js
+    assert "onTtnShipperChange()" in js.split('ssPopulate("ttnCreateShipperWrap"', 1)[1].split(";", 1)[0]
+    assert 'ssPopulate("ttnCreateConsigneeWrap", partyOpts,' in js
+    assert "onTtnConsigneeChange()" in js.split('ssPopulate("ttnCreateConsigneeWrap"', 1)[1].split(";", 1)[0]
 
 
 

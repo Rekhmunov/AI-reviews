@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=383" />
+  <link rel="stylesheet" href="/static/style.css?v=384" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -4306,7 +4306,7 @@
                     <th data-col="1">Дата<span class="col-resize-handle"></span></th>
                     <th data-col="2">Юр. лицо<span class="col-resize-handle"></span></th>
                     <th data-col="3">Грузополучатель<span class="col-resize-handle"></span></th>
-                    <th data-col="4">Водитель / перевозчик<span class="col-resize-handle"></span></th>
+                    <th data-col="4">Водитель<span class="col-resize-handle"></span></th>
                     <th data-col="5">Действия</th>
                   </tr>
                 </thead>
@@ -4362,14 +4362,17 @@
       <!-- Create TN Modal — size matched to WB FBS «Поставка»; fields per ПП РФ № 2200 -->
       <div id="createTtnModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
            aria-labelledby="createTtnModalTitle"
-           onclick="if(event.target===this)closeCreateTtnModal()">
+           onclick="/* overlay click does not close */">
         <div class="modal-card ttn-modal-card">
           <div class="ttn-modal-header">
             <div class="ttn-modal-title-row">
               <h3 class="ttn-modal-title" id="createTtnModalTitle">Создать ТН</h3>
+              <button type="button" class="secondary small-btn ttn-add-tab-btn" id="ttnAddTabBtn"
+                      onclick="ttnAddTab()" title="Добавить ТН" aria-label="Добавить ТН">+</button>
               <button type="button" class="icon-btn secondary ttn-modal-close"
                       onclick="closeCreateTtnModal()" aria-label="Закрыть">✕</button>
             </div>
+            <div id="ttnTabsBar" class="ttn-tabs-bar" role="tablist" aria-label="ТН в группе"></div>
           </div>
           <div class="ttn-modal-body">
             <div class="ttn-form-grid">
@@ -4683,8 +4686,62 @@
             </div>
           </div>
           <div class="ttn-modal-footer">
+            <button type="button" class="secondary" id="ttnRouteBtn"
+                    onclick="openTtnRouteModal()">Сформировать маршрут</button>
             <button type="button" class="secondary" onclick="closeCreateTtnModal()">Отмена</button>
             <button type="button" id="ttnCreateSaveBtn" onclick="saveTtnRecord()">Сохранить</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TTN: choose copy source when adding a tab -->
+      <div id="ttnCopySourceModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+           aria-labelledby="ttnCopySourceTitle"
+           onclick="/* overlay click does not close */">
+        <div class="modal-card" style="max-width:420px;width:90%">
+          <div class="row row-between">
+            <h4 class="no-margin" id="ttnCopySourceTitle">Копировать из</h4>
+            <button type="button" class="icon-btn" onclick="closeTtnCopySourceModal()" aria-label="Закрыть">✕</button>
+          </div>
+          <p class="small" style="margin:12px 0 8px;color:#64748b">Выберите ТН, поля которой скопировать (кроме места погрузки).</p>
+          <div id="ttnCopySourceList" class="ttn-copy-source-list"></div>
+          <div class="row" style="justify-content:flex-end;gap:8px;margin-top:16px">
+            <button type="button" class="secondary" onclick="closeTtnCopySourceModal()">Отмена</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TTN: route text -->
+      <div id="ttnRouteModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+           aria-labelledby="ttnRouteModalTitle"
+           onclick="/* overlay click does not close */">
+        <div class="modal-card" style="max-width:520px;width:90%">
+          <div class="row row-between">
+            <h4 class="no-margin" id="ttnRouteModalTitle">Маршрут</h4>
+            <button type="button" class="icon-btn" onclick="closeTtnRouteModal()" aria-label="Закрыть">✕</button>
+          </div>
+          <textarea id="ttnRouteTextarea" class="ttn-route-textarea" rows="12"
+                    aria-label="Текст маршрута"></textarea>
+          <div class="row" style="justify-content:flex-end;gap:8px;margin-top:16px">
+            <button type="button" class="secondary" onclick="copyTtnRouteText()">Копировать</button>
+            <button type="button" class="secondary" onclick="closeTtnRouteModal()">Закрыть</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TTN: leave without saving -->
+      <div id="ttnLeaveConfirmModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+           aria-labelledby="ttnLeaveConfirmTitle"
+           onclick="/* overlay click does not close */">
+        <div class="modal-card" style="max-width:420px;width:90%">
+          <div class="row row-between">
+            <h4 class="no-margin" id="ttnLeaveConfirmTitle">Несохранённые изменения</h4>
+            <button type="button" class="icon-btn" onclick="closeTtnLeaveConfirmModal()" aria-label="Закрыть">✕</button>
+          </div>
+          <p style="margin:16px 0;color:#334155">Точно хотите уйти, не сохраняя?</p>
+          <div class="row" style="justify-content:flex-end;gap:8px">
+            <button type="button" class="secondary" onclick="closeTtnLeaveConfirmModal()">Остаться</button>
+            <button type="button" onclick="confirmLeaveTtnModal()">Уйти</button>
           </div>
         </div>
       </div>
@@ -7769,6 +7826,6 @@
 
   <script src="/static/ozon_fbs.js?v=181"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=36"></script>
-  <script src="/static/app.js?v=655"></script>
+  <script src="/static/app.js?v=656"></script>
 </body>
 </html>
