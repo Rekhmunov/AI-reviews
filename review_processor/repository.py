@@ -8473,6 +8473,7 @@ class ReviewRepository:
             "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS fbs_platform TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS fbs_source_id INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS fbs_supply_id TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS group_id TEXT NOT NULL DEFAULT ''",
         ):
             conn.execute(_ttn_col_sql)
         # Contour.Logistics / Diadoc EDO settings + sent document tracking (Ozon).
@@ -11094,7 +11095,8 @@ class ReviewRepository:
                            COALESCE(t.freight_cost, '') AS freight_cost,
                            COALESCE(t.fbs_platform, '') AS fbs_platform,
                            COALESCE(t.fbs_source_id, 0) AS fbs_source_id,
-                           COALESCE(t.fbs_supply_id, '') AS fbs_supply_id
+                           COALESCE(t.fbs_supply_id, '') AS fbs_supply_id,
+                           COALESCE(t.group_id, '') AS group_id
                     FROM supply_ttn_records t
                     LEFT JOIN supply_legal_entities le_s
                       ON COALESCE(t.shipper_type, 'le') = 'le' AND le_s.id = t.legal_entity_id
@@ -11150,6 +11152,7 @@ class ReviewRepository:
                 d["c_req"] = d.get("c_cons_req") or ""
             d["shipper_type"] = shipper_type
             d["consignee_type"] = consignee_type
+            d["group_id"] = str(d.get("group_id") or "").strip()
             d["d_docs"] = self.driver_documents_line(
                 {
                     "documents": d.get("d_docs"),
@@ -11161,7 +11164,25 @@ class ReviewRepository:
                 }
             )
             result.append(d)
-        return result
+        # Cluster same group_id together: groups by max(created_at) DESC,
+        # within group by id ASC; ungrouped rows each act as a solo group.
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        solo: list[dict[str, Any]] = []
+        for rec in result:
+            gid = str(rec.get("group_id") or "").strip()
+            if gid:
+                grouped.setdefault(gid, []).append(rec)
+            else:
+                solo.append(rec)
+        clusters: list[tuple[str, list[dict[str, Any]]]] = []
+        for gid, members in grouped.items():
+            members.sort(key=lambda r: int(r.get("id") or 0))
+            max_created = max(str(r.get("created_at") or "") for r in members)
+            clusters.append((max_created, members))
+        for rec in solo:
+            clusters.append((str(rec.get("created_at") or ""), [rec]))
+        clusters.sort(key=lambda c: c[0], reverse=True)
+        return [rec for _, members in clusters for rec in members]
 
     def create_supply_ttn_record(
         self,
@@ -11201,6 +11222,7 @@ class ReviewRepository:
         fbs_platform: str = "",
         fbs_source_id: int = 0,
         fbs_supply_id: str = "",
+        group_id: str = "",
     ) -> dict[str, Any]:
         now = _utc_now()
         shipper_type = "contractor" if str(shipper_type or "").strip() == "contractor" else "le"
@@ -11209,6 +11231,7 @@ class ReviewRepository:
         if _cust_type not in ("le", "contractor"):
             _cust_type = ""
         _cust_id = int(customer_party_id or 0) if _cust_type else 0
+        _group_id = str(group_id or "").strip()
         with self._connect() as conn:
             rid = self._insert_and_get_id(
                 conn,
@@ -11222,8 +11245,8 @@ class ReviewRepository:
                 "packing_type, declared_value, vehicle_type, "
                 "loading_datetime, loader_name, unloading_datetime, receiver_name, "
                 "redirect_info, carrier_marks, freight_cost, "
-                "fbs_platform, fbs_source_id, fbs_supply_id, created_at"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "fbs_platform, fbs_source_id, fbs_supply_id, group_id, created_at"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     user_id,
                     (doc_number or "").strip(),
@@ -11260,6 +11283,7 @@ class ReviewRepository:
                     str(fbs_platform or "").strip().lower(),
                     int(fbs_source_id or 0),
                     str(fbs_supply_id or "").strip(),
+                    _group_id,
                     now,
                 ),
             )
@@ -11304,6 +11328,7 @@ class ReviewRepository:
         fbs_platform: str = "",
         fbs_source_id: int = 0,
         fbs_supply_id: str = "",
+        group_id: str = "",
     ) -> bool:
         shipper_type = "contractor" if str(shipper_type or "").strip() == "contractor" else "le"
         consignee_type = "le" if str(consignee_type or "").strip() == "le" else "contractor"
@@ -11311,6 +11336,7 @@ class ReviewRepository:
         if _cust_type not in ("le", "contractor"):
             _cust_type = ""
         _cust_id = int(customer_party_id or 0) if _cust_type else 0
+        _group_id = str(group_id or "").strip()
         with self._connect() as conn:
             result = conn.execute(
                 self._sql(
@@ -11324,7 +11350,8 @@ class ReviewRepository:
                     "customer_services = ?, customer_party_type = ?, customer_party_id = ?, "
                     "packing_type = ?, declared_value = ?, vehicle_type = ?, "
                     "loading_datetime = ?, loader_name = ?, unloading_datetime = ?, receiver_name = ?, "
-                    "redirect_info = ?, carrier_marks = ?, freight_cost = ?, fbs_platform = ?, fbs_source_id = ?, fbs_supply_id = ? "
+                    "redirect_info = ?, carrier_marks = ?, freight_cost = ?, "
+                    "fbs_platform = ?, fbs_source_id = ?, fbs_supply_id = ?, group_id = ? "
                     "WHERE user_id = ? AND id = ?"
                 ),
                 (
@@ -11361,11 +11388,21 @@ class ReviewRepository:
                     str(fbs_platform or "").strip().lower(),
                     int(fbs_source_id or 0),
                     str(fbs_supply_id or "").strip(),
+                    _group_id,
                     user_id,
                     record_id,
                 ),
             )
         return bool(result.rowcount)
+
+    def list_supply_ttn_records_by_group(self, *, user_id: int, group_id: str) -> list[dict]:
+        gid = str(group_id or "").strip()
+        if not gid:
+            return []
+        records = self.list_supply_ttn_records(user_id=user_id)
+        members = [r for r in records if str(r.get("group_id") or "").strip() == gid]
+        members.sort(key=lambda r: int(r.get("id") or 0))
+        return members
 
     def delete_supply_ttn_record(self, *, user_id: int, record_id: int) -> bool:
         with self._connect() as conn:

@@ -513,6 +513,7 @@ class CreateTtnRecordRequest(BaseModel):
     fbs_platform: str = ""
     fbs_source_id: int = 0
     fbs_supply_id: str = ""
+    group_id: str = ""
 
 
 
@@ -550,6 +551,7 @@ class UpdateTtnRecordRequest(BaseModel):
     fbs_platform: str = ""
     fbs_source_id: int = 0
     fbs_supply_id: str = ""
+    group_id: str = ""
 
 
 
@@ -21884,12 +21886,27 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
 
 
     @app.get("/api/supply-ttn-records")
-    def list_ttn_records(request: Request) -> list[dict[str, object]]:
+    def list_ttn_records(request: Request, group_id: str = "") -> list[dict[str, object]]:
         user = _require_user(request)
         if not _can_view_supplies(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         repository._ensure_supply_tables()
-        return repository.list_supply_ttn_records(user_id=_supply_owner_id(user))
+        owner_id = _supply_owner_id(user)
+        gid = str(group_id or "").strip()
+        if gid:
+            return repository.list_supply_ttn_records_by_group(user_id=owner_id, group_id=gid)
+        return repository.list_supply_ttn_records(user_id=owner_id)
+
+    @app.get("/api/supply-ttn-records/by-group/{group_id}")
+    def list_ttn_records_by_group(request: Request, group_id: str) -> list[dict[str, object]]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        repository._ensure_supply_tables()
+        return repository.list_supply_ttn_records_by_group(
+            user_id=_supply_owner_id(user),
+            group_id=str(group_id or "").strip(),
+        )
 
     @app.post("/api/supply-ttn-records")
     def create_ttn_record(request: Request, payload: CreateTtnRecordRequest) -> dict[str, object]:
@@ -21957,6 +21974,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                 fbs_platform=payload.fbs_platform,
                 fbs_source_id=payload.fbs_source_id,
                 fbs_supply_id=payload.fbs_supply_id,
+                group_id=payload.group_id,
             )
             if not ok:
                 raise HTTPException(status_code=404, detail="ТН не найдена")
@@ -21998,6 +22016,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             fbs_platform=payload.fbs_platform,
             fbs_source_id=payload.fbs_source_id,
             fbs_supply_id=payload.fbs_supply_id,
+            group_id=payload.group_id,
         )
 
     @app.patch("/api/supply-ttn-records/{record_id}")
@@ -22050,6 +22069,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             fbs_platform=payload.fbs_platform,
             fbs_source_id=payload.fbs_source_id,
             fbs_supply_id=payload.fbs_supply_id,
+            group_id=payload.group_id,
         )
         if not ok:
             raise HTTPException(status_code=404, detail="ТН не найдена")
