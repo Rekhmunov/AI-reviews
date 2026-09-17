@@ -30,8 +30,8 @@ def test_driver_page_html_boot_and_assets() -> None:
     assert "Для водителя" in html
     assert "OFD_BOOT" in html
     assert "CAN_VIEW_OZON_FBS_DRIVER" in html
-    assert "/static/ozon_fbs_driver.js?v=9" in html
-    assert "/static/ozon_fbs_driver.css?v=7" in html
+    assert "/static/ozon_fbs_driver.js?v=10" in html
+    assert "/static/ozon_fbs_driver.css?v=8" in html
     assert "PAGE_MODE" in html
     assert "PAGE_TOKEN" in html
     assert "page_mode" in html
@@ -86,6 +86,14 @@ def test_driver_page_js_calls_apis() -> None:
     assert "box.hidden = true" in js
     assert "sortCargoItems" in js
     assert "STATUS_SORT_ORDER" in js
+    assert "groupItemsBySupply" in js
+    assert "supplyTone" in js
+    assert "ofd-supply" in js
+    assert "ofd-supplies" in js
+    assert "expandedSupplies" in js
+    assert "Поставки" in js
+    assert "is-ok" in js
+    assert "is-warn" in js
     assert "!list.length) return \"ok\"" in js or "if (!list.length) return \"ok\"" in js
     assert "softRefresh" in js
     assert "Обновление…" in js
@@ -97,6 +105,11 @@ def test_driver_page_js_calls_apis() -> None:
     assert "ofd-btn-refresh" in css
     assert "ofd-spinner" in css
     assert "ofd-spin" in css
+    assert "ofd-supply" in css
+    assert "ofd-supply.is-ok" in css
+    assert "ofd-supply.is-warn" in css
+    assert "#f0fdf4" in css
+    assert "#fff1f2" in css
     assert "is-refreshing" in css
     assert "#fee2e2" in css
 

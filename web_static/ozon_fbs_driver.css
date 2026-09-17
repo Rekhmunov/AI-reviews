@@ -171,6 +171,119 @@ html, body {
   font-size: 16px;
 }
 
+.ofd-supplies {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ofd-supplies.is-refreshing {
+  opacity: 0.55;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.ofd-supply {
+  border: 1px solid var(--ofd-line);
+  border-radius: 8px;
+  background: #f8fafc;
+  overflow: hidden;
+  animation: ofd-fade-up 0.35s ease both;
+}
+
+.ofd-supply.is-ok {
+  background: #f0fdf4;
+  border-color: #86efac;
+}
+
+.ofd-supply.is-warn {
+  background: #fff1f2;
+  border-color: #fecdd3;
+}
+
+.ofd-supply-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 14px 16px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.ofd-supply-head:hover {
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.ofd-supply-head:focus-visible {
+  outline: 3px solid rgba(3, 105, 161, 0.35);
+  outline-offset: -3px;
+}
+
+.ofd-supply-head:active {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.ofd-supply-head-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.ofd-supply-name {
+  font-family: var(--ofd-display);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+.ofd-supply.is-ok .ofd-supply-name {
+  color: var(--ofd-ok);
+}
+
+.ofd-supply.is-warn .ofd-supply-name {
+  color: #9f1239;
+}
+
+.ofd-supply-sub {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--ofd-muted);
+  font-weight: 500;
+}
+
+.ofd-supply-chevron {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") center / 16px no-repeat;
+  transition: transform 0.15s ease;
+}
+
+.ofd-supply.is-open .ofd-supply-chevron {
+  transform: rotate(180deg);
+}
+
+.ofd-supply-items {
+  margin: 0;
+  padding: 0 12px 12px;
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.ofd-supply-items .ofd-item {
+  background: #fff;
+}
+
 .ofd-items {
   list-style: none;
   margin: 0;

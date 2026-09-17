@@ -24,6 +24,8 @@
     driverName: "",
     unlocking: false,
     pinError: "",
+    /** @type {Record<string, boolean>} */
+    expandedSupplies: {},
   };
 
   function esc(value) {
@@ -142,10 +144,6 @@
       const sa = statusSortKey(a && a.status);
       const sb = statusSortKey(b && b.status);
       if (sa !== sb) return sa - sb;
-      const supplyA = String((a && a.supply_name) || "");
-      const supplyB = String((b && b.supply_name) || "");
-      if (supplyA < supplyB) return -1;
-      if (supplyA > supplyB) return 1;
       const numA = Number((a && a.container_number) || 0);
       const numB = Number((b && b.container_number) || 0);
       if (numA !== numB) return numA - numB;
@@ -153,6 +151,171 @@
         String((b && b.container_id) || "")
       );
     });
+  }
+
+  function isWbItem(item) {
+    const mp = String((item && item.marketplace) || "").toLowerCase();
+    const kind = String((item && item.item_kind) || "").toLowerCase();
+    return mp === "wb" || kind === "trbx" || mp.indexOf("wb") >= 0;
+  }
+
+  function supplyGroupKey(item) {
+    const mp = isWbItem(item) ? "wb" : "ozon";
+    const sid = String((item && item.source_id) || "");
+    const supply = String((item && item.supply_id) || "");
+    return mp + "|" + sid + "|" + supply;
+  }
+
+  /**
+   * Per-supply tone from Ozon GMs only (WB TRBX have no SC statuses).
+   * ``ok`` = all accepted/finished; ``warn`` = any not yet at SC.
+   */
+  function supplyTone(items) {
+    const ozon = ozonPalletItems(items);
+    if (!ozon.length) return "ok";
+    for (let i = 0; i < ozon.length; i++) {
+      const st = String(ozon[i].status || "").toLowerCase();
+      if (st !== "acceptance_in_progress" && st !== "finished") {
+        return "warn";
+      }
+    }
+    return "ok";
+  }
+
+  function groupItemsBySupply(items) {
+    const order = [];
+    const map = {};
+    (items || []).forEach(function (item) {
+      const key = supplyGroupKey(item);
+      if (!map[key]) {
+        map[key] = {
+          key: key,
+          supply_id: String(item.supply_id || ""),
+          supply_name: String(item.supply_name || item.supply_id || "Поставка"),
+          warehouse_name: String(item.warehouse_name || "").trim(),
+          marketplace: isWbItem(item) ? "wb" : "ozon",
+          items: [],
+        };
+        order.push(key);
+      }
+      const g = map[key];
+      if (!g.warehouse_name && item.warehouse_name) {
+        g.warehouse_name = String(item.warehouse_name || "").trim();
+      }
+      if (!g.supply_name && item.supply_name) {
+        g.supply_name = String(item.supply_name);
+      }
+      g.items.push(item);
+    });
+    return order.map(function (key) {
+      const g = map[key];
+      g.items = sortCargoItems(g.items);
+      g.tone = supplyTone(g.items);
+      return g;
+    });
+  }
+
+  function renderCargoItem(item) {
+    const isWb = isWbItem(item);
+    const num = Number(item.container_number || 0);
+    const metaParts = [];
+    metaParts.push(
+      "<div><span>Маркетплейс:</span> " +
+        esc(isWb ? "Wildberries" : "Ozon") +
+        "</div>"
+    );
+    if (item.warehouse_name) {
+      metaParts.push(
+        "<div><span>Склад:</span> " + esc(item.warehouse_name) + "</div>"
+      );
+    }
+    const typeBits = [item.cargo_type_label, item.sort_type_label]
+      .filter(Boolean)
+      .join(" · ");
+    if (typeBits) {
+      metaParts.push("<div><span>Тип:</span> " + esc(typeBits) + "</div>");
+    }
+    metaParts.push(
+      "<div><span>Заказов:</span> " +
+        esc(String(item.order_count ?? 0)) +
+        "</div>"
+    );
+    const title = isWb
+      ? "Грузоместо " + esc(String(num || "—"))
+      : "ГМ № " + esc(String(num || "—"));
+    const idLabel = isWb ? "TRBX " : "ID ";
+    return (
+      '<li class="ofd-item">' +
+      '<div class="ofd-item-top">' +
+      "<div>" +
+      '<div class="ofd-item-num">' +
+      title +
+      "</div>" +
+      '<div class="ofd-item-id">' +
+      idLabel +
+      esc(String(item.container_id || "")) +
+      "</div>" +
+      "</div>" +
+      '<span class="ofd-badge ' +
+      badgeClass(item.status) +
+      '">' +
+      esc(item.status_label || item.status || "—") +
+      "</span>" +
+      "</div>" +
+      '<div class="ofd-item-meta">' +
+      metaParts.join("") +
+      "</div>" +
+      "</li>"
+    );
+  }
+
+  function renderSupplyGroup(group) {
+    const expanded = !!state.expandedSupplies[group.key];
+    const toneClass =
+      group.tone === "ok"
+        ? " is-ok"
+        : group.tone === "warn"
+          ? " is-warn"
+          : "";
+    const count = group.items.length;
+    const toneLabel =
+      group.tone === "ok"
+        ? "Все на СЦ / завершены"
+        : group.tone === "warn"
+          ? "Есть непринятые на СЦ"
+          : "";
+    const mpLabel = group.marketplace === "wb" ? "Wildberries" : "Ozon";
+    const subBits = [mpLabel];
+    if (group.warehouse_name) subBits.push(group.warehouse_name);
+    subBits.push(count + " ГМ");
+    return (
+      '<li class="ofd-supply' +
+      toneClass +
+      (expanded ? " is-open" : "") +
+      '" data-supply-key="' +
+      esc(group.key) +
+      '">' +
+      '<button type="button" class="ofd-supply-head" aria-expanded="' +
+      (expanded ? "true" : "false") +
+      '">' +
+      '<div class="ofd-supply-head-text">' +
+      '<div class="ofd-supply-name">' +
+      esc(group.supply_name || "Поставка") +
+      "</div>" +
+      '<div class="ofd-supply-sub">' +
+      esc(subBits.join(" · ")) +
+      (toneLabel ? " · " + esc(toneLabel) : "") +
+      "</div>" +
+      "</div>" +
+      '<span class="ofd-supply-chevron" aria-hidden="true"></span>' +
+      "</button>" +
+      (expanded
+        ? '<ul class="ofd-items ofd-supply-items">' +
+          group.items.map(renderCargoItem).join("") +
+          "</ul>"
+        : "") +
+      "</li>"
+    );
   }
 
   function renderStatusBanner() {
@@ -398,77 +561,17 @@
 
     const listClass =
       state.loadingItems && state.softRefresh
-        ? "ofd-items is-refreshing"
-        : "ofd-items";
+        ? "ofd-supplies is-refreshing"
+        : "ofd-supplies";
 
-    const rows = sortCargoItems(state.items)
-      .map(function (item) {
-        const isWb = String(item.marketplace || item.item_kind || "")
-          .toLowerCase()
-          .indexOf("wb") >= 0 || String(item.item_kind || "") === "trbx";
-        const num = Number(item.container_number || 0);
-        const metaParts = [];
-        if (item.supply_name) {
-          metaParts.push(
-            "<div><span>Поставка:</span> " + esc(item.supply_name) + "</div>"
-          );
-        }
-        metaParts.push(
-          "<div><span>Маркетплейс:</span> " +
-            esc(isWb ? "Wildberries" : "Ozon") +
-            "</div>"
-        );
-        if (item.warehouse_name) {
-          metaParts.push(
-            "<div><span>Склад:</span> " + esc(item.warehouse_name) + "</div>"
-          );
-        }
-        const typeBits = [item.cargo_type_label, item.sort_type_label]
-          .filter(Boolean)
-          .join(" · ");
-        if (typeBits) {
-          metaParts.push("<div><span>Тип:</span> " + esc(typeBits) + "</div>");
-        }
-        metaParts.push(
-          "<div><span>Заказов:</span> " +
-            esc(String(item.order_count ?? 0)) +
-            "</div>"
-        );
-        const title = isWb
-          ? "Грузоместо " + esc(String(num || "—"))
-          : "ГМ № " + esc(String(num || "—"));
-        const idLabel = isWb ? "TRBX " : "ID ";
-        return (
-          '<li class="ofd-item">' +
-          '<div class="ofd-item-top">' +
-          "<div>" +
-          '<div class="ofd-item-num">' +
-          title +
-          "</div>" +
-          '<div class="ofd-item-id">' +
-          idLabel +
-          esc(String(item.container_id || "")) +
-          "</div>" +
-          "</div>" +
-          '<span class="ofd-badge ' +
-          badgeClass(item.status) +
-          '">' +
-          esc(item.status_label || item.status || "—") +
-          "</span>" +
-          "</div>" +
-          '<div class="ofd-item-meta">' +
-          metaParts.join("") +
-          "</div>" +
-          "</li>"
-        );
-      })
-      .join("");
+    const groups = groupItemsBySupply(state.items);
+    const rows = groups.map(renderSupplyGroup).join("");
 
     box.innerHTML =
       '<div class="ofd-list-head">' +
-      '<h2 class="ofd-list-title">Грузоместа</h2>' +
+      '<h2 class="ofd-list-title">Поставки</h2>' +
       '<div class="ofd-list-count">' +
-      state.items.length +
+      groups.length +
       "</div>" +
       "</div>" +
       errorsHtml +
@@ -477,6 +580,20 @@
       '">' +
       rows +
       "</ul>";
+
+    Array.prototype.forEach.call(
+      box.querySelectorAll(".ofd-supply-head"),
+      function (btn) {
+        btn.addEventListener("click", function () {
+          const li = btn.closest(".ofd-supply");
+          if (!li) return;
+          const key = String(li.getAttribute("data-supply-key") || "");
+          if (!key) return;
+          state.expandedSupplies[key] = !state.expandedSupplies[key];
+          renderResults();
+        });
+      }
+    );
     renderStatusBanner();
   }
 
@@ -488,6 +605,7 @@
     if (!soft) {
       state.items = [];
       state.errors = [];
+      state.expandedSupplies = {};
     }
     renderResults();
     if (!plate) {
