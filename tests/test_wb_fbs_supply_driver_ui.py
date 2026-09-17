@@ -120,7 +120,19 @@ def test_shared_driver_cabinet_shows_wb_items() -> None:
 def test_cache_bump_for_driver_modal() -> None:
     html = HTML.read_text(encoding="utf-8")
     css = CSS.read_text(encoding="utf-8")
-    assert "app.js?v=659" in html
-    assert "style.css?v=385" in html
+    js = JS.read_text(encoding="utf-8")
+    assert "app.js?v=660" in html
+    assert "style.css?v=386" in html
     assert "#wbFbsDriverModal," in css or "#wbFbsDriverModal" in css
     assert "#wbFbsDriverModal," in css
+    assert "z-index: 1450" in css
+    assert "#wbFbsDriverModal.modal-overlay.is-opening" in css
+    assert "pointer-events: none" in css.split("#wbFbsDriverModal.modal-overlay.is-opening", 1)[1][:200]
+    assert "_WB_FBS_DRIVER_OPEN_GUARD_MS" in js
+    assert "wbFbsDriverModalState.openedAt" in js
+    assert "is-opening" in js
+    close_fn = js.split("function closeWbFbsDriverModal", 1)[1].split(
+        "\nwindow.closeWbFbsDriverModal", 1
+    )[0]
+    assert "_WB_FBS_DRIVER_OPEN_GUARD_MS" in close_fn
+    assert "openedAt" in close_fn

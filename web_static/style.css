@@ -8618,7 +8618,12 @@ tr.dnd-over td {
   outline-offset: 2px;
 }
 #wbFbsDriverModal.modal-overlay {
-  z-index: 1300;
+  /* Above supply-detail (1200) and mobile topbar (1400) so open is visible. */
+  z-index: 1450;
+}
+#wbFbsDriverModal.modal-overlay.is-opening {
+  /* Block the synthetic click that follows the tap which opened the modal. */
+  pointer-events: none;
 }
 .ozon-fbs-container-approve-body {
   padding: 20px 24px 0;

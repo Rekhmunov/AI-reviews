@@ -34018,6 +34018,8 @@ const wbFbsDriverModalState = {
   drivers: [],
   loading: false,
   saving: false,
+  /** Timestamp when modal was last shown — used to ignore mobile overlay ghost-clicks. */
+  openedAt: 0,
 };
 
 function _wbFbsDriverHasAssignment(supply) {
@@ -34155,12 +34157,26 @@ function _wbFbsSyncDriverBtn() {
   _wbFbsSyncPortalBtn();
 }
 
+const _WB_FBS_DRIVER_OPEN_GUARD_MS = 450;
+
 function _wbFbsDriverSetVisible(show) {
+  const modal = document.getElementById("wbFbsDriverModal");
+  if (show) {
+    // Ignore the same tap that opened the modal (mobile ghost-click on overlay).
+    wbFbsDriverModalState.openedAt = Date.now();
+    if (modal) {
+      modal.classList.add("is-opening");
+      window.setTimeout(() => {
+        modal.classList.remove("is-opening");
+      }, _WB_FBS_DRIVER_OPEN_GUARD_MS);
+    }
+  } else if (modal) {
+    modal.classList.remove("is-opening");
+  }
   if (typeof setModalVisibility === "function") {
     setModalVisibility("wbFbsDriverModal", !!show);
     return;
   }
-  const modal = document.getElementById("wbFbsDriverModal");
   if (modal) modal.classList.toggle("hidden", !show);
 }
 
@@ -34318,10 +34334,16 @@ async function openWbFbsDriverModal() {
 window.openWbFbsDriverModal = openWbFbsDriverModal;
 
 function closeWbFbsDriverModal() {
+  // Same-tap overlay close on mobile: button open + delayed click on backdrop.
+  const openedAt = Number(wbFbsDriverModalState.openedAt || 0);
+  if (openedAt && Date.now() - openedAt < _WB_FBS_DRIVER_OPEN_GUARD_MS) {
+    return;
+  }
   _wbFbsDriverSetVisible(false);
   wbFbsDriverModalState.supplyId = null;
   wbFbsDriverModalState.sourceId = null;
   wbFbsDriverModalState.saving = false;
+  wbFbsDriverModalState.openedAt = 0;
   _wbFbsDriverSetInfo("");
   const saveBtn = document.getElementById("wbFbsDriverSaveBtn");
   if (saveBtn) {
