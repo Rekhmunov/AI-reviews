@@ -52,5 +52,5 @@ def test_edit_panel_styles_present() -> None:
 
 def test_asset_cache_bumped() -> None:
     html = HTML.read_text(encoding="utf-8")
-    assert "app.js?v=655" in html
-    assert "style.css?v=383" in html
+    assert "app.js?v=656" in html
+    assert "style.css?v=384" in html
