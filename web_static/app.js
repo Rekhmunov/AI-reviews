@@ -34018,8 +34018,10 @@ const wbFbsDriverModalState = {
   drivers: [],
   loading: false,
   saving: false,
-  /** Timestamp when modal was last shown — used to ignore mobile overlay ghost-clicks. */
+  /** Timestamp when modal was last shown — ignore same-tap / click-through closes. */
   openedAt: 0,
+  /** True only when mousedown started on the backdrop (not the button that opened it). */
+  overlayPointerDown: false,
 };
 
 function _wbFbsDriverHasAssignment(supply) {
@@ -34162,8 +34164,9 @@ const _WB_FBS_DRIVER_OPEN_GUARD_MS = 450;
 function _wbFbsDriverSetVisible(show) {
   const modal = document.getElementById("wbFbsDriverModal");
   if (show) {
-    // Ignore the same tap that opened the modal (mobile ghost-click on overlay).
+    // Same pointer that opened the modal must not close it (PC click-through + mobile ghost-click).
     wbFbsDriverModalState.openedAt = Date.now();
+    wbFbsDriverModalState.overlayPointerDown = false;
     if (modal) {
       modal.classList.add("is-opening");
       window.setTimeout(() => {
@@ -34172,6 +34175,7 @@ function _wbFbsDriverSetVisible(show) {
     }
   } else if (modal) {
     modal.classList.remove("is-opening");
+    wbFbsDriverModalState.overlayPointerDown = false;
   }
   if (typeof setModalVisibility === "function") {
     setModalVisibility("wbFbsDriverModal", !!show);
@@ -34179,6 +34183,30 @@ function _wbFbsDriverSetVisible(show) {
   }
   if (modal) modal.classList.toggle("hidden", !show);
 }
+
+/**
+ * Backdrop close only when both mousedown and click landed on the overlay itself.
+ * Prevents: mousedown on «Водитель» → modal opens under cursor → click closes it.
+ */
+function onWbFbsDriverOverlayPointer(event) {
+  const modal = document.getElementById("wbFbsDriverModal");
+  if (!modal || event.target !== modal) {
+    if (event.type === "mousedown" || event.type === "pointerdown") {
+      wbFbsDriverModalState.overlayPointerDown = false;
+    }
+    return;
+  }
+  if (event.type === "mousedown" || event.type === "pointerdown") {
+    wbFbsDriverModalState.overlayPointerDown = true;
+    return;
+  }
+  if (event.type === "click") {
+    if (!wbFbsDriverModalState.overlayPointerDown) return;
+    wbFbsDriverModalState.overlayPointerDown = false;
+    closeWbFbsDriverModal();
+  }
+}
+window.onWbFbsDriverOverlayPointer = onWbFbsDriverOverlayPointer;
 
 function _wbFbsDriverSetInfo(text, kind) {
   const el = document.getElementById("wbFbsDriverInfo");
@@ -34334,7 +34362,7 @@ async function openWbFbsDriverModal() {
 window.openWbFbsDriverModal = openWbFbsDriverModal;
 
 function closeWbFbsDriverModal() {
-  // Same-tap overlay close on mobile: button open + delayed click on backdrop.
+  // Same pointer that opened the modal (PC click-through / mobile ghost-click).
   const openedAt = Number(wbFbsDriverModalState.openedAt || 0);
   if (openedAt && Date.now() - openedAt < _WB_FBS_DRIVER_OPEN_GUARD_MS) {
     return;
@@ -34344,6 +34372,7 @@ function closeWbFbsDriverModal() {
   wbFbsDriverModalState.sourceId = null;
   wbFbsDriverModalState.saving = false;
   wbFbsDriverModalState.openedAt = 0;
+  wbFbsDriverModalState.overlayPointerDown = false;
   _wbFbsDriverSetInfo("");
   const saveBtn = document.getElementById("wbFbsDriverSaveBtn");
   if (saveBtn) {

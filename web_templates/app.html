@@ -3921,7 +3921,8 @@
 
         <div id="wbFbsDriverModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
              aria-labelledby="wbFbsDriverTitle"
-             onclick="if(event.target===this)closeWbFbsDriverModal()">
+             onmousedown="onWbFbsDriverOverlayPointer(event)"
+             onclick="onWbFbsDriverOverlayPointer(event)">
           <div class="modal-card wb-fbs-create-trbx-modal ozon-fbs-driver-modal">
             <div class="wb-fbs-create-trbx-header">
               <div class="wb-fbs-create-trbx-header-main">
@@ -7826,6 +7827,6 @@
 
   <script src="/static/ozon_fbs.js?v=181"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=36"></script>
-  <script src="/static/app.js?v=660"></script>
+  <script src="/static/app.js?v=661"></script>
 </body>
 </html>
