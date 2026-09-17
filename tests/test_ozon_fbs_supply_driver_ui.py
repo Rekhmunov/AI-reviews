@@ -12,14 +12,31 @@ WEB = ROOT / "review_processor" / "web.py"
 SUP = ROOT / "review_processor" / "ozon_fbs_supplies.py"
 
 
-def test_driver_button_sits_after_shipments() -> None:
+def test_driver_button_sits_after_containers() -> None:
     html = HTML.read_text(encoding="utf-8")
-    ship = html.index('id="ozonFbsSupplyDetailShipmentsBtn"')
+    # Standalone «ШК поставки» button removed — printer lives on the ID chip.
+    assert 'id="ozonFbsSupplyDetailShipmentsBtn"' not in html
+    assert ">ШК поставки</button>" not in html
+    trbx = html.index('id="ozonFbsSupplyDetailTrbxBtn"')
     driver = html.index('id="ozonFbsSupplyDetailDriverBtn"')
     move = html.index('id="ozonFbsSupplyDetailMoveDeliveringBtn"')
-    assert ship < driver < move
+    assert trbx < driver < move
     assert ">Водитель</button>" in html
     assert 'onclick="openOzonFbsDriverModal()"' in html
+
+
+def test_supply_barcode_printer_on_id_chip_and_containers() -> None:
+    html = HTML.read_text(encoding="utf-8")
+    js = JS.read_text(encoding="utf-8")
+    assert "wb-fbs-sd-chip-qr" in js
+    assert "wb-fbs-sd-qr-print" in js
+    assert "openOzonFbsShipmentsModal()" in js
+    assert 'id="ozonFbsContainersPrintSupplyBtn"' in html
+    assert "Распечатать ШК поставки" in html
+    filters = html.index('class="ozon-fbs-containers-filters"')
+    print_btn = html.index('id="ozonFbsContainersPrintSupplyBtn"')
+    assert print_btn < filters
+    assert '"ozonFbsSupplyDetailShipmentsBtn"' not in js
 
 
 def test_driver_modal_matches_cargo_places_footprint() -> None:
@@ -84,5 +101,5 @@ def test_driver_api_routes_exist() -> None:
 
 def test_cache_bump_for_driver_modal() -> None:
     html = HTML.read_text(encoding="utf-8")
-    assert "ozon_fbs.js?v=179" in html
-    assert "style.css?v=380" in html
+    assert "ozon_fbs.js?v=180" in html
+    assert "style.css?v=381" in html

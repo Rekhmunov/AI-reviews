@@ -87,7 +87,6 @@
     "ozonFbsSupplyDetailPickVerifyBtn",
     "ozonFbsSupplyDetailPickRefreshBtn",
     "ozonFbsSupplyDetailCancelledBtn",
-    "ozonFbsSupplyDetailShipmentsBtn",
     "ozonFbsSupplyDetailDriverBtn",
     "ozonFbsSupplyDetailMoveDeliveringBtn",
   ];
@@ -3255,9 +3254,21 @@
     if (renameBtn) renameBtn.hidden = !!readOnly;
     if (wh) wh.textContent = String(supply.warehouse_label || "—").trim() || "—";
     if (meta) {
-      // order_count chip removed — cargo line already shows product count.
+      // Same pattern as WB FBS: ID chip + printer opens ШК поставки modal.
       meta.innerHTML = sid
-        ? `<span class="wb-fbs-sd-chip">ID ${esc(sid)}</span>`
+        ? `<span class="wb-fbs-sd-chip wb-fbs-sd-chip-qr">` +
+          `<span class="wb-fbs-sd-qr-text">ID ${esc(sid)}</span>` +
+          `<button type="button" class="wb-fbs-sd-qr-print" ` +
+          `title="Распечатать ШК поставки" ` +
+          `aria-label="Распечатать ШК поставки ${esc(sid)}" ` +
+          `onclick="openOzonFbsShipmentsModal().catch((e)=>alert(e.message||e))">` +
+          `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">` +
+          `<path d="M4 6V2.5A.5.5 0 0 1 4.5 2h7a.5.5 0 0 1 .5.5V6M4 12H3a1.5 1.5 0 0 1-1.5-1.5v-3A1.5 1.5 0 0 1 3 6h10a1.5 1.5 0 0 1 1.5 1.5v3A1.5 1.5 0 0 1 13 12h-1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>` +
+          `<path d="M4 10.5h8V14a.5.5 0 0 1-.5.5h-7A.5.5 0 0 1 4 14v-3.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>` +
+          `<path d="M11.5 8.25h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>` +
+          `</svg>` +
+          `</button>` +
+          `</span>`
         : "";
     }
 

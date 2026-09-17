@@ -8976,6 +8976,18 @@ tr.dnd-over td {
   gap: 12px 20px;
   align-self: flex-start;
 }
+.ozon-fbs-containers-print-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  align-self: stretch;
+}
+.ozon-fbs-containers-print-actions .wb-fbs-trbx-print-supply-btn {
+  width: 100%;
+  max-width: 360px;
+  justify-self: start;
+}
 .ozon-fbs-containers-show-sc {
   display: inline-flex;
   align-items: center;
@@ -17644,7 +17656,6 @@ button.wb-fbs-kiz-add:disabled {
     min-height: 44px;
   }
 
-  #ozonFbsSupplyDetailModal #ozonFbsSupplyDetailShipmentsBtn,
   #ozonFbsSupplyDetailModal #ozonFbsSupplyDetailDriverBtn {
     width: 100%;
     min-height: 44px;

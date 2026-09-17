@@ -147,7 +147,7 @@ def test_remove_cancelled_ui_wiring() -> None:
     # Menu id must be mode-prefixed so supply-detail ⋮ does not shadow KIZ/pick delete.
     assert '`${mode || "kiz"}_${pn}`' in actions_fn or "${mode || \"kiz\"}_${pn}" in actions_fn or 'mode || "kiz"' in actions_fn
     assert "sd_${pn}" in js or "`sd_${pn}`" in js
-    assert "ozon_fbs.js?v=179" in html
+    assert "ozon_fbs.js?v=180" in html
 
 
 def test_endpoint_registered() -> None:
