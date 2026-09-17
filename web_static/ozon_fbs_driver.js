@@ -182,6 +182,13 @@
     return "ok";
   }
 
+  function supplyDateMs(value) {
+    const raw = String(value || "").trim();
+    if (!raw) return 0;
+    const t = Date.parse(raw);
+    return Number.isFinite(t) ? t : 0;
+  }
+
   function groupItemsBySupply(items) {
     const order = [];
     const map = {};
@@ -192,6 +199,7 @@
           key: key,
           supply_id: String(item.supply_id || ""),
           supply_name: String(item.supply_name || item.supply_id || "Поставка"),
+          supply_created_at: String(item.supply_created_at || "").trim(),
           warehouse_name: String(item.warehouse_name || "").trim(),
           marketplace: isWbItem(item) ? "wb" : "ozon",
           items: [],
@@ -205,14 +213,30 @@
       if (!g.supply_name && item.supply_name) {
         g.supply_name = String(item.supply_name);
       }
+      if (!g.supply_created_at && item.supply_created_at) {
+        g.supply_created_at = String(item.supply_created_at || "").trim();
+      }
       g.items.push(item);
     });
-    return order.map(function (key) {
+    const groups = order.map(function (key) {
       const g = map[key];
+      // Inside supply: сформировано → принято на СЦ → завершено.
       g.items = sortCargoItems(g.items);
       g.tone = supplyTone(g.items);
       return g;
     });
+    // Nearest supply dates first (missing dates last).
+    groups.sort(function (a, b) {
+      const da = supplyDateMs(a.supply_created_at);
+      const db = supplyDateMs(b.supply_created_at);
+      if (da !== db) return db - da;
+      const nameA = String(a.supply_name || "");
+      const nameB = String(b.supply_name || "");
+      if (nameA < nameB) return -1;
+      if (nameA > nameB) return 1;
+      return String(a.supply_id || "").localeCompare(String(b.supply_id || ""));
+    });
+    return groups;
   }
 
   function renderCargoItem(item) {

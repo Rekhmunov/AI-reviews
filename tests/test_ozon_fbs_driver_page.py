@@ -30,7 +30,7 @@ def test_driver_page_html_boot_and_assets() -> None:
     assert "Для водителя" in html
     assert "OFD_BOOT" in html
     assert "CAN_VIEW_OZON_FBS_DRIVER" in html
-    assert "/static/ozon_fbs_driver.js?v=10" in html
+    assert "/static/ozon_fbs_driver.js?v=11" in html
     assert "/static/ozon_fbs_driver.css?v=8" in html
     assert "PAGE_MODE" in html
     assert "PAGE_TOKEN" in html
@@ -88,12 +88,15 @@ def test_driver_page_js_calls_apis() -> None:
     assert "STATUS_SORT_ORDER" in js
     assert "groupItemsBySupply" in js
     assert "supplyTone" in js
+    assert "supplyDateMs" in js
+    assert "supply_created_at" in js
     assert "ofd-supply" in js
     assert "ofd-supplies" in js
     assert "expandedSupplies" in js
     assert "Поставки" in js
     assert "is-ok" in js
     assert "is-warn" in js
+    assert "db - da" in js
     assert "!list.length) return \"ok\"" in js or "if (!list.length) return \"ok\"" in js
     assert "softRefresh" in js
     assert "Обновление…" in js
@@ -309,8 +312,116 @@ def test_list_driver_page_cargo_places_filters_statuses(monkeypatch) -> None:
     assert out["total"] == 3
     assert out["lookback_days"] == 2
     assert seen_lookback == [2]
+    assert all(x.get("supply_created_at") == "" or "supply_created_at" in x for x in out["items"])
     assert all(x["status"] in DRIVER_PAGE_CONTAINER_STATUSES for x in out["items"])
     assert "new" not in {x["status"] for x in out["items"]}
+
+
+def test_driver_page_cargo_places_sort_by_supply_date(monkeypatch) -> None:
+    """Nearest supply dates first; inside supply: formed → SC → finished."""
+    monkeypatch.setattr(
+        "review_processor.ozon_fbs_supplies.list_supplies_for_driver_vehicle",
+        lambda *a, **k: [
+            {
+                "source_id": 5,
+                "supply_id": "OZ-OLD",
+                "supply_name": "Старая",
+                "warehouse_name": "Склад",
+                "supply_created_at": "2026-09-10T10:00:00+00:00",
+                "driver_name": "Иванов",
+                "vehicle_number": "А123ВС777",
+            },
+            {
+                "source_id": 5,
+                "supply_id": "OZ-NEW",
+                "supply_name": "Ближняя",
+                "warehouse_name": "Склад",
+                "supply_created_at": "2026-09-17T08:00:00+00:00",
+                "driver_name": "Иванов",
+                "vehicle_number": "А123ВС777",
+            },
+        ],
+    )
+
+    import review_processor.ozon_fbs_containers as oz_ct
+
+    def _resolve(*a, **k):
+        return 99, "Склад"
+
+    def _list(*a, **k):
+        return {"ok": True, "items": []}
+
+    def _enrich(repo, *, user_id, source_id, supply_id, listed, only_this_supply):
+        if supply_id == "OZ-OLD":
+            return {
+                "ok": True,
+                "items": [
+                    {
+                        "container_id": 21,
+                        "container_number": 1,
+                        "status": "finished",
+                        "status_label": "Завершено",
+                        "order_count": 1,
+                    },
+                    {
+                        "container_id": 22,
+                        "container_number": 2,
+                        "status": "formed",
+                        "status_label": "Сформировано",
+                        "order_count": 1,
+                    },
+                ],
+            }
+        return {
+            "ok": True,
+            "items": [
+                {
+                    "container_id": 11,
+                    "container_number": 1,
+                    "status": "acceptance_in_progress",
+                    "status_label": "Принято на СЦ",
+                    "order_count": 1,
+                },
+                {
+                    "container_id": 12,
+                    "container_number": 2,
+                    "status": "formed",
+                    "status_label": "Сформировано",
+                    "order_count": 1,
+                },
+            ],
+        }
+
+    monkeypatch.setattr(oz_ct, "resolve_supply_warehouse_id", _resolve)
+    monkeypatch.setattr(oz_ct, "list_containers", _list)
+    monkeypatch.setattr(oz_ct, "enrich_containers_for_supply_modal", _enrich)
+    monkeypatch.setattr(oz_ct, "status_label", lambda st: st)
+
+    repo = MagicMock()
+    repo.get_ozon_fbs_sync_settings.return_value = {"lookback_days": 2}
+    out = list_driver_page_cargo_places(
+        repo,
+        user_id=1,
+        vehicle_number="А123ВС777",
+        client_for_source=lambda sid: object(),
+    )
+    # Flat list: nearest supply first, then status order inside.
+    assert [x["supply_id"] for x in out["items"]] == [
+        "OZ-NEW",
+        "OZ-NEW",
+        "OZ-OLD",
+        "OZ-OLD",
+    ]
+    assert [x["status"] for x in out["items"] if x["supply_id"] == "OZ-NEW"] == [
+        "formed",
+        "acceptance_in_progress",
+    ]
+    assert [x["status"] for x in out["items"] if x["supply_id"] == "OZ-OLD"] == [
+        "formed",
+        "finished",
+    ]
+    assert out["supplies"][0]["supply_id"] == "OZ-NEW"
+    assert out["items"][0]["supply_created_at"].startswith("2026-09-17")
 
 
 def test_driver_page_uses_sync_settings_lookback() -> None:

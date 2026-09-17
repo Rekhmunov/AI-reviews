@@ -3040,12 +3040,14 @@ def list_supplies_for_driver_vehicle(
         )
         name = str((supply or {}).get("name") or "").strip() or supply_id
         warehouse_name = str((supply or {}).get("warehouse_name") or "").strip()
+        created_at = str((supply or {}).get("created_at") or "").strip()
         out.append(
             {
                 "source_id": source_id,
                 "supply_id": supply_id,
                 "supply_name": name,
                 "warehouse_name": warehouse_name,
+                "supply_created_at": created_at,
                 "driver_id": int(d.get("driver_id") or 0),
                 "driver_name": str(d.get("driver_name") or "").strip(),
                 "vehicle_number": plate,
@@ -3180,6 +3182,9 @@ def list_driver_page_cargo_places(
                     "source_id": source_id,
                     "supply_id": supply_id,
                     "supply_name": str(supply.get("supply_name") or supply_id),
+                    "supply_created_at": str(
+                        supply.get("supply_created_at") or ""
+                    ).strip(),
                     "warehouse_name": str(
                         wh_name_by_key.get((source_id, int(wh_id)), "")
                         or supply.get("warehouse_name")
@@ -3192,18 +3197,39 @@ def list_driver_page_cargo_places(
                 }
             )
 
+    def _supply_created_ms(value: object) -> float:
+        raw = str(value or "").strip()
+        if not raw:
+            return 0.0
+        try:
+            # Accept ISO / space-separated timestamps.
+            norm = raw.replace("Z", "+00:00") if raw.endswith("Z") else raw
+            return datetime.fromisoformat(norm).timestamp()
+        except Exception:
+            return 0.0
+
     items.sort(
         key=lambda r: (
-            driver_page_status_sort_key(r.get("status")),
+            # Nearest supply date first (missing dates last).
+            -_supply_created_ms(r.get("supply_created_at")),
             str(r.get("supply_name") or ""),
+            driver_page_status_sort_key(r.get("status")),
             int(r.get("container_number") or 0),
             int(r.get("container_id") or 0),
         )
     )
+    supplies_sorted = sorted(
+        supplies,
+        key=lambda s: (
+            -_supply_created_ms(s.get("supply_created_at")),
+            str(s.get("supply_name") or ""),
+            str(s.get("supply_id") or ""),
+        ),
+    )
     return {
         "ok": True,
         "vehicle_number": plate,
-        "supplies": supplies,
+        "supplies": supplies_sorted,
         "items": items,
         "total": len(items),
         "errors": errors,
