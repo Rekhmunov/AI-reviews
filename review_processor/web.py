@@ -487,6 +487,7 @@ class CreateTtnRecordRequest(BaseModel):
     driver_manual_name: str = ""
     driver_manual_docs: str = ""
     ttn_date: str = ""
+    title: str = ""
     vehicle_line: str = ""
     carrier_snapshot: str = ""
     load_address: str = ""
@@ -514,6 +515,7 @@ class CreateTtnRecordRequest(BaseModel):
     fbs_source_id: int = 0
     fbs_supply_id: str = ""
     group_id: str = ""
+    supply_name: str = ""
 
 
 
@@ -526,6 +528,7 @@ class UpdateTtnRecordRequest(BaseModel):
     driver_manual_name: str = ""
     driver_manual_docs: str = ""
     ttn_date: str = ""
+    title: str = ""
     vehicle_line: str = ""
     carrier_snapshot: str = ""
     load_address: str = ""
@@ -552,6 +555,7 @@ class UpdateTtnRecordRequest(BaseModel):
     fbs_source_id: int = 0
     fbs_supply_id: str = ""
     group_id: str = ""
+    supply_name: str = ""
 
 
 
@@ -21892,6 +21896,48 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         }
 
 
+    def _ttn_lookup_fbs_supply_name(
+        repo,
+        *,
+        user_id: int,
+        platform: str,
+        source_id: int,
+        supply_id: str,
+    ) -> str:
+        """Resolve local FBS supply display name for TTN title defaults."""
+        plat = str(platform or "").strip().lower()
+        sid = str(supply_id or "").strip()
+        try:
+            src = int(source_id or 0)
+        except (TypeError, ValueError):
+            src = 0
+        if not plat or not sid or src <= 0:
+            return ""
+        table = ""
+        if plat in ("ozon", "ozon_fbs"):
+            table = "ozon_fbs_supplies"
+        elif plat in ("wb", "wildberries", "wb_fbs"):
+            table = "wb_fbs_supplies"
+        if not table:
+            return ""
+        try:
+            with repo._connect() as conn:
+                row = conn.execute(
+                    repo._sql(
+                        f"""
+                        SELECT name FROM {table}
+                        WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                        """
+                    ),
+                    (user_id, src, sid),
+                ).fetchone()
+            if not row:
+                return ""
+            data = repo._row_to_dict(row) if hasattr(repo, "_row_to_dict") else dict(row)
+            return str((data or {}).get("name") or "").strip()
+        except Exception:
+            return ""
+
     @app.get("/api/supply-ttn-records")
     def list_ttn_records(request: Request, group_id: str = "") -> list[dict[str, object]]:
         user = _require_user(request)
@@ -21921,6 +21967,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         if not _can_view_supplies(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         from datetime import datetime as _dtt
+        from . import ttn_title as ttn_title_mod
         repository._ensure_supply_tables()
         raw_date = str(payload.ttn_date or "").strip()
         if raw_date and len(raw_date) == 10 and raw_date[4] == "-":
@@ -21939,16 +21986,45 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         except (TypeError, ValueError):
             src = 0
         sid = str(payload.fbs_supply_id or "").strip()
+        supply_name = str(payload.supply_name or "").strip()
+        if not supply_name and plat and src > 0 and sid:
+            supply_name = _ttn_lookup_fbs_supply_name(
+                repository, user_id=owner_id, platform=plat, source_id=src, supply_id=sid
+            )
         existing_id = 0
         if plat and src > 0 and sid:
             existing_id = repository.find_ttn_record_id_by_fbs(
                 user_id=owner_id, platform=plat, source_id=src, supply_id=sid
             )
+        title_in = str(payload.title or "").strip()
         if existing_id:
+            existing = repository.get_supply_ttn_record(
+                user_id=owner_id, record_id=existing_id
+            ) or {}
+            keep_title = str((existing or {}).get("title") or "").strip()
+            title = title_in or keep_title
+            if not title:
+                title = ttn_title_mod.resolve_ttn_title_for_create(
+                    repository,
+                    user_id=owner_id,
+                    title="",
+                    doc_number=str((existing or {}).get("doc_number") or "1"),
+                    ttn_date=ttn_date,
+                    supply_name=supply_name,
+                    fbs_platform=plat,
+                )
+            elif title_in:
+                existing_titles = ttn_title_mod.list_existing_ttn_titles(
+                    repository, user_id=owner_id
+                )
+                title = ttn_title_mod.unique_ttn_title(
+                    title_in, existing_titles, exclude=keep_title
+                )
             ok = repository.update_supply_ttn_record(
                 user_id=owner_id,
                 record_id=existing_id,
                 ttn_date=ttn_date,
+                title=title,
                 legal_entity_id=payload.legal_entity_id,
                 contractor_id=payload.contractor_id,
                 shipper_type=payload.shipper_type,
@@ -21987,10 +22063,20 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                 raise HTTPException(status_code=404, detail="ТН не найдена")
             return {"ok": True, "id": existing_id, "updated": True}
         doc_number = str(repository.next_ttn_number())
+        title = ttn_title_mod.resolve_ttn_title_for_create(
+            repository,
+            user_id=owner_id,
+            title=title_in,
+            doc_number=doc_number,
+            ttn_date=ttn_date,
+            supply_name=supply_name,
+            fbs_platform=plat,
+        )
         return repository.create_supply_ttn_record(
             user_id=owner_id,
             doc_number=doc_number,
             ttn_date=ttn_date,
+            title=title,
             legal_entity_id=payload.legal_entity_id,
             contractor_id=payload.contractor_id,
             shipper_type=payload.shipper_type,
@@ -22032,6 +22118,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         if not _can_view_supplies(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         from datetime import datetime as _dtt
+        from . import ttn_title as ttn_title_mod
         raw_date = str(payload.ttn_date or "").strip()
         if raw_date and len(raw_date) == 10 and raw_date[4] == "-":
             try:
@@ -22040,10 +22127,47 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                 ttn_date = raw_date
         else:
             ttn_date = raw_date
+        owner_id = _supply_owner_id(user)
+        existing = repository.get_supply_ttn_record(user_id=owner_id, record_id=record_id) or {}
+        keep_title = str((existing or {}).get("title") or "").strip()
+        title_in = str(payload.title or "").strip()
+        title = title_in or keep_title
+        if title_in:
+            existing_titles = ttn_title_mod.list_existing_ttn_titles(repository, user_id=owner_id)
+            title = ttn_title_mod.unique_ttn_title(title_in, existing_titles, exclude=keep_title)
+        elif not title:
+            plat = str(payload.fbs_platform or (existing or {}).get("fbs_platform") or "").strip().lower()
+            supply_name = str(payload.supply_name or "").strip()
+            if not supply_name and plat:
+                try:
+                    src = int(payload.fbs_source_id or (existing or {}).get("fbs_source_id") or 0)
+                except (TypeError, ValueError):
+                    src = 0
+                sid = str(
+                    payload.fbs_supply_id or (existing or {}).get("fbs_supply_id") or ""
+                ).strip()
+                if src > 0 and sid:
+                    supply_name = _ttn_lookup_fbs_supply_name(
+                        repository,
+                        user_id=owner_id,
+                        platform=plat,
+                        source_id=src,
+                        supply_id=sid,
+                    )
+            title = ttn_title_mod.resolve_ttn_title_for_create(
+                repository,
+                user_id=owner_id,
+                title="",
+                doc_number=str((existing or {}).get("doc_number") or "1"),
+                ttn_date=ttn_date or str((existing or {}).get("ttn_date") or ""),
+                supply_name=supply_name,
+                fbs_platform=plat,
+            )
         ok = repository.update_supply_ttn_record(
-            user_id=_supply_owner_id(user),
+            user_id=owner_id,
             record_id=record_id,
             ttn_date=ttn_date,
+            title=title,
             legal_entity_id=payload.legal_entity_id,
             contractor_id=payload.contractor_id,
             shipper_type=payload.shipper_type,

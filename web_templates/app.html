@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=387" />
+  <link rel="stylesheet" href="/static/style.css?v=388" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -4294,21 +4294,23 @@
             <div class="supplies-table-wrap">
               <table id="ttnTable" class="supplies-main-table ttn-table">
                 <colgroup id="ttnColgroup">
-                  <col data-col="0" style="width:8%" />
-                  <col data-col="1" style="width:12%" />
-                  <col data-col="2" style="width:18%" />
-                  <col data-col="3" style="width:22%" />
-                  <col data-col="4" style="width:28%" />
-                  <col data-col="5" style="width:12%" />
+                  <col data-col="0" style="width:6%" />
+                  <col data-col="1" style="width:18%" />
+                  <col data-col="2" style="width:10%" />
+                  <col data-col="3" style="width:14%" />
+                  <col data-col="4" style="width:18%" />
+                  <col data-col="5" style="width:22%" />
+                  <col data-col="6" style="width:12%" />
                 </colgroup>
                 <thead>
                   <tr>
                     <th data-col="0">№<span class="col-resize-handle"></span></th>
-                    <th data-col="1">Дата<span class="col-resize-handle"></span></th>
-                    <th data-col="2">Юр. лицо<span class="col-resize-handle"></span></th>
-                    <th data-col="3">Грузополучатель<span class="col-resize-handle"></span></th>
-                    <th data-col="4">Водитель<span class="col-resize-handle"></span></th>
-                    <th data-col="5">Действия</th>
+                    <th data-col="1">Название<span class="col-resize-handle"></span></th>
+                    <th data-col="2">Дата<span class="col-resize-handle"></span></th>
+                    <th data-col="3">Юр. лицо<span class="col-resize-handle"></span></th>
+                    <th data-col="4">Грузополучатель<span class="col-resize-handle"></span></th>
+                    <th data-col="5">Водитель<span class="col-resize-handle"></span></th>
+                    <th data-col="6">Действия</th>
                   </tr>
                 </thead>
                 <tbody id="ttnTbody"></tbody>
@@ -4377,6 +4379,12 @@
           </div>
           <div class="ttn-modal-body">
             <div class="ttn-form-grid">
+              <div class="ttn-field ttn-field-span-2">
+                <label class="small" for="ttnCreateTitle">Название</label>
+                <input id="ttnCreateTitle" class="ttn-input" type="text"
+                       placeholder="ТН N от ДД.ММ.ГГГГ или ТН {поставка}"
+                       autocomplete="off" maxlength="255" />
+              </div>
               <div class="ttn-field ttn-field-span-2">
                 <label class="small" for="ttnCreateDate">Дата ТН</label>
                 <input id="ttnCreateDate" class="ttn-input" type="date" />
@@ -7825,8 +7833,8 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=181"></script>
+  <script src="/static/ozon_fbs.js?v=182"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=36"></script>
-  <script src="/static/app.js?v=662"></script>
+  <script src="/static/app.js?v=663"></script>
 </body>
 </html>

@@ -20105,6 +20105,7 @@ window.onTtnDriverChange = onTtnDriverChange;
 let _ttnFbsSupplyOptions = [];
 let _ttnFbsAutofillToken = 0;
 let _ttnSelectedFbsMeta = null; // {platform, source_id, supply_id}
+let _ttnSelectedFbsSupplyName = "";
 /** True while the TN modal was opened from WB/Ozon FBS delivery. */
 let _ttnOpenedFromFbsTab = ""; // "" | "wb" | "ozon"
 /** @deprecated use _ttnOpenedFromFbsTab */
@@ -20294,6 +20295,7 @@ async function onTtnFbsSupplyChange() {
   const hint = document.getElementById("ttnFbsSupplyHint");
   if (!raw) {
     _ttnSelectedFbsMeta = null;
+    _ttnSelectedFbsSupplyName = "";
     if (hint) hint.textContent = "Подставляются количество мест и масса из выбранной поставки FBS. Вид тары укажите вручную.";
     return;
   }
@@ -20321,6 +20323,15 @@ async function onTtnFbsSupplyChange() {
     if (weightEl) weightEl.value = data.weight != null ? String(data.weight) : "";
     const packingFromWh = String(data.packing_type || "").trim();
     if (packingFromWh) _ttnSetPackingValue(packingFromWh);
+    const supplyName = String(data.supply_name || "").trim();
+    _ttnSelectedFbsSupplyName = supplyName;
+    const titleEl = document.getElementById("ttnCreateTitle");
+    if (titleEl && !String(titleEl.value || "").trim() && supplyName) {
+      const base = supplyName.toUpperCase().startsWith("ТН ")
+        ? supplyName
+        : `ТН ${supplyName}`;
+      titleEl.value = base;
+    }
     const warnings = Array.isArray(data.warnings) ? data.warnings.filter(Boolean) : [];
     if (hint) {
       const packingHint = packingFromWh
@@ -20613,6 +20624,7 @@ function renderTtnTable() {
   if (sq) {
     rows = rows.filter((r) =>
       String(r.doc_number || "").toLowerCase().includes(sq) ||
+      (r.title || "").toLowerCase().includes(sq) ||
       (r.le_short || "").toLowerCase().includes(sq) ||
       (r.c_name || "").toLowerCase().includes(sq) ||
       (r.d_full || "").toLowerCase().includes(sq) ||
@@ -20623,7 +20635,7 @@ function renderTtnTable() {
   }
   rows = _ttnClusterRowsByGroup(rows);
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">ТН не найдены</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">ТН не найдены</td></tr>';
     return;
   }
   tbody.innerHTML = "";
@@ -20636,8 +20648,10 @@ function renderTtnTable() {
       tr.className = "ttn-row-from-wb";
     }
     const num = r.doc_number || r.id;
+    const title = String(r.title || "").trim();
     tr.innerHTML = `
       <td>${esc(String(num))}</td>
+      <td title="${esc(title)}">${esc(title)}</td>
       <td>${esc(r.ttn_date || "")}</td>
       <td>${esc(r.le_short || "")}</td>
       <td>${esc(r.c_name || "")}</td>
@@ -20849,6 +20863,7 @@ window.deleteTtnRecord = deleteTtnRecord;
 
 function _ttnEmptyFormState() {
   return {
+    title: "",
     date: "",
     shipper: "",
     consignee: "",
@@ -20889,6 +20904,7 @@ function _ttnEmptyFormState() {
     optionalOpen: false,
     fbsMeta: null,
     fbsKey: "",
+    supplyName: "",
     loaderAutofill: "",
     receiverAutofill: "",
   };
@@ -20904,6 +20920,7 @@ function _ttnCaptureFormState() {
       }
     : null;
   return {
+    title: document.getElementById("ttnCreateTitle")?.value || "",
     date: document.getElementById("ttnCreateDate")?.value || "",
     shipper: document.getElementById("ttnCreateShipper")?.value || "",
     consignee: document.getElementById("ttnCreateConsignee")?.value || "",
@@ -20944,6 +20961,7 @@ function _ttnCaptureFormState() {
     optionalOpen: !!(optional && optional.classList.contains("is-open")),
     fbsMeta,
     fbsKey: document.getElementById("ttnCreateFbsSupply")?.value || "",
+    supplyName: String(_ttnSelectedFbsSupplyName || ""),
     loaderAutofill: String(_ttnLoaderAutofill || ""),
     receiverAutofill: String(_ttnReceiverAutofill || ""),
   };
@@ -21037,6 +21055,7 @@ async function _ttnApplyFormState(state) {
     _ttnSetManualModeUi("packing", false);
     _ttnSetManualModeUi("cargo", false);
 
+    setVal("ttnCreateTitle", s.title || "");
     setVal("ttnCreateDate", s.date || _ttnDateToInputValue(""));
     _ttnSetSsValue("ttnCreateShipperWrap", s.shipper || "");
     _ttnSetSsValue("ttnCreateConsigneeWrap", s.consignee || "");
@@ -21166,6 +21185,7 @@ async function _ttnApplyFormState(state) {
           supply_id: String(s.fbsMeta.supply_id || ""),
         }
       : null;
+    _ttnSelectedFbsSupplyName = String(s.supplyName || "").trim();
     const preferFbs = _ttnSelectedFbsMeta
       ? `${_ttnSelectedFbsMeta.platform}:${_ttnSelectedFbsMeta.source_id}:${_ttnSelectedFbsMeta.supply_id}`
       : (s.fbsKey || "");
@@ -21216,6 +21236,7 @@ function _ttnStateFromRecord(record, mode) {
   const dId = Number(record.driver_id || 0);
   const manualDriver = dId <= 0 && !!(record.driver_manual_name);
   return {
+    title: String(record.title || "").trim(),
     date: _ttnDateToInputValue(record.ttn_date),
     shipper: shipRef,
     consignee: consRef,
@@ -21256,6 +21277,7 @@ function _ttnStateFromRecord(record, mode) {
     optionalOpen: false,
     fbsMeta,
     fbsKey: fbsMeta ? `${fbsMeta.platform}:${fbsMeta.source_id}:${fbsMeta.supply_id}` : "",
+    supplyName: String(record.supply_name || "").trim(),
     loaderAutofill: _ttnPartyShortName(shipRef),
     receiverAutofill: _ttnPartyShortName(consRef),
   };
@@ -21338,6 +21360,7 @@ function _ttnBuildPayloadFromState(state, groupId) {
     driver_manual_name: manualName,
     driver_manual_docs: manualDocs,
     ttn_date: s.date || "",
+    title: String(s.title || "").trim(),
     vehicle_line: vehicleLine,
     carrier_snapshot: carrierSnapshot,
     load_address: loadAddress,
@@ -21363,6 +21386,7 @@ function _ttnBuildPayloadFromState(state, groupId) {
     fbs_platform: s.fbsMeta?.platform || "",
     fbs_source_id: s.fbsMeta?.source_id || 0,
     fbs_supply_id: s.fbsMeta?.supply_id || "",
+    supply_name: String(s.supplyName || "").trim(),
     group_id: String(groupId || ""),
   };
   return { payload };
@@ -21803,6 +21827,7 @@ window.openCopyTtnModal = openCopyTtnModal;
 function _forceCloseCreateTtnModal() {
   _ttnOpenedFromFbsTab = "";
   _ttnOpenedFromWbFbs = false;
+  _ttnSelectedFbsSupplyName = "";
   _ttnManualDriverMode = false;
   _ttnManualVehicleMode = false;
   _ttnManualLoadMode = false;
@@ -22241,8 +22266,8 @@ async function saveCertEdit() {
 }
 
 // ── Resizable columns ──
-const TTN_COL_WIDTHS_KEY = "logistics_ttn_col_widths_v1";
-const TTN_DEFAULT_WIDTHS = [8, 12, 18, 22, 28, 12];
+const TTN_COL_WIDTHS_KEY = "logistics_ttn_col_widths_v2";
+const TTN_DEFAULT_WIDTHS = [6, 18, 10, 14, 18, 22, 12];
 let _ttnColResizerInited = false;
 
 function initTtnColumnResizer() {

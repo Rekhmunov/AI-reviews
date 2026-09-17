@@ -8500,6 +8500,7 @@ class ReviewRepository:
             "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS fbs_source_id INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS fbs_supply_id TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS group_id TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS title TEXT NOT NULL DEFAULT ''",
         ):
             conn.execute(_ttn_col_sql)
         # Contour.Logistics / Diadoc EDO settings + sent document tracking (Ozon).
@@ -11076,6 +11077,7 @@ class ReviewRepository:
             rows = conn.execute(
                 self._sql("""
                     SELECT t.id, t.user_id, t.doc_number, t.ttn_date, t.created_at,
+                           COALESCE(t.title, '') AS title,
                            t.legal_entity_id, t.contractor_id,
                            COALESCE(t.shipper_type, 'le') AS shipper_type,
                            COALESCE(t.consignee_type, 'contractor') AS consignee_type,
@@ -11231,6 +11233,7 @@ class ReviewRepository:
         fbs_source_id: int = 0,
         fbs_supply_id: str = "",
         group_id: str = "",
+        title: str = "",
     ) -> dict[str, Any]:
         now = _utc_now()
         shipper_type = "contractor" if str(shipper_type or "").strip() == "contractor" else "le"
@@ -11240,11 +11243,12 @@ class ReviewRepository:
             _cust_type = ""
         _cust_id = int(customer_party_id or 0) if _cust_type else 0
         _group_id = str(group_id or "").strip()
+        _title = str(title or "").strip()
         with self._connect() as conn:
             rid = self._insert_and_get_id(
                 conn,
                 "INSERT INTO supply_ttn_records ("
-                "user_id, doc_number, ttn_date, legal_entity_id, contractor_id, "
+                "user_id, doc_number, ttn_date, title, legal_entity_id, contractor_id, "
                 "shipper_type, consignee_type, driver_id, "
                 "driver_manual_name, driver_manual_docs, vehicle_line, carrier_snapshot, "
                 "load_address, unload_address, cargo_description, cargo_places, cargo_weight, "
@@ -11254,11 +11258,12 @@ class ReviewRepository:
                 "loading_datetime, loader_name, unloading_datetime, receiver_name, "
                 "redirect_info, carrier_marks, freight_cost, "
                 "fbs_platform, fbs_source_id, fbs_supply_id, group_id, created_at"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     user_id,
                     (doc_number or "").strip(),
                     (ttn_date or "").strip(),
+                    _title,
                     legal_entity_id,
                     contractor_id,
                     shipper_type,
@@ -11337,6 +11342,7 @@ class ReviewRepository:
         fbs_source_id: int = 0,
         fbs_supply_id: str = "",
         group_id: str = "",
+        title: str = "",
     ) -> bool:
         shipper_type = "contractor" if str(shipper_type or "").strip() == "contractor" else "le"
         consignee_type = "le" if str(consignee_type or "").strip() == "le" else "contractor"
@@ -11345,11 +11351,12 @@ class ReviewRepository:
             _cust_type = ""
         _cust_id = int(customer_party_id or 0) if _cust_type else 0
         _group_id = str(group_id or "").strip()
+        _title = str(title or "").strip()
         with self._connect() as conn:
             result = conn.execute(
                 self._sql(
                     "UPDATE supply_ttn_records SET "
-                    "ttn_date = ?, legal_entity_id = ?, contractor_id = ?, "
+                    "ttn_date = ?, title = ?, legal_entity_id = ?, contractor_id = ?, "
                     "shipper_type = ?, consignee_type = ?, driver_id = ?, "
                     "driver_manual_name = ?, driver_manual_docs = ?, vehicle_line = ?, "
                     "carrier_snapshot = ?, load_address = ?, unload_address = ?, "
@@ -11364,6 +11371,7 @@ class ReviewRepository:
                 ),
                 (
                     (ttn_date or "").strip(),
+                    _title,
                     legal_entity_id,
                     contractor_id,
                     shipper_type,
