@@ -46,7 +46,7 @@ def test_ttn_prefill_is_local_only() -> None:
     assert "Настройки → Склады" in prefill
     assert "Назначьте водителя" in prefill
     assert 'fbs_platform": "ozon"' in prefill
-    assert "COUNT(DISTINCT container_id)" in prefill
+    assert "local_ozon_places_count" in prefill
     assert '@app.get("/api/ozon-fbs/supplies/{supply_id}/ttn-prefill")' in WEB
     assert "oz_sup.build_ttn_prefill" in WEB
     assert 'platform="ozon"' in OZ.split("def _list_supplies_tab_response", 1)[1].split(
@@ -62,4 +62,4 @@ def test_ttn_prefill_is_local_only() -> None:
 
 def test_cache_bump_for_ozon_form_ttn() -> None:
     assert "ozon_fbs.js?v=180" in HTML
-    assert "app.js?v=652" in HTML
+    assert "app.js?v=653" in HTML

@@ -1854,6 +1854,11 @@ def build_ttn_prefill(
         ttn_cargo.product_weight_index(products),
         ttn_cargo.weight_lines_from_wb_orders(orders),
     )
+    packing_type = ""
+    if warehouse:
+        packing_type = ttn_cargo.normalize_packing_type(
+            warehouse.get("default_packing_type")
+        )
 
     ttn_date = _ttn_date_from_created(created_at)
     record = {
@@ -1876,6 +1881,7 @@ def build_ttn_prefill(
         "cargo_description": "Постельное белье/наматрасник",
         "cargo_places": places_text,
         "cargo_weight": str(weight_info.get("weight") or ""),
+        "packing_type": packing_type,
         "fbs_platform": "wb",
         "fbs_source_id": src,
         "fbs_supply_id": sid,

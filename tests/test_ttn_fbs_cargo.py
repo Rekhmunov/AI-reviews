@@ -6,6 +6,7 @@ import unittest
 
 from review_processor.ttn_fbs_cargo import (
     format_places,
+    normalize_packing_type,
     places_from_ozon_containers,
     places_from_wb_trbx,
     product_weight_index,
@@ -66,6 +67,41 @@ class TtnFbsCargoTests(unittest.TestCase):
         )
         self.assertEqual(format_places(4), "4")
         self.assertEqual(format_places(None), "")
+
+    def test_places_honors_bound_to_open_supply(self) -> None:
+        """enrich_containers_for_supply_modal sets bound_to_open_supply."""
+        self.assertEqual(
+            places_from_ozon_containers(
+                {
+                    "items": [
+                        {
+                            "container_id": 11,
+                            "bound_supply_id": "S1",
+                            "bound_to_open_supply": True,
+                        },
+                        {
+                            "container_id": 12,
+                            "bound_supply_id": "S2",
+                            "bound_to_open_supply": False,
+                        },
+                        {
+                            "container_id": 13,
+                            "bound_supply_id": "S1",
+                            "bound_to_open_supply": True,
+                        },
+                    ]
+                },
+                supply_id="S1",
+            ),
+            2,
+        )
+
+    def test_normalize_packing_type(self) -> None:
+        self.assertEqual(normalize_packing_type("паллеты"), "Паллеты")
+        self.assertEqual(normalize_packing_type("Короба"), "Короба")
+        self.assertEqual(normalize_packing_type("Рулоны"), "Рулоны")
+        self.assertEqual(normalize_packing_type(""), "")
+        self.assertEqual(normalize_packing_type("другое"), "")
 
     def test_ozon_qty_lines(self) -> None:
         lines = weight_lines_from_ozon_orders(

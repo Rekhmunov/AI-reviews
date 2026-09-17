@@ -163,7 +163,11 @@ def places_from_ozon_containers(
                 or row.get("local_supply_id")
                 or ""
             ).strip()
+            # enrich_containers_for_supply_modal sets bound_to_open_supply;
+            # older callers may still use bound_to_this_supply.
             bound = row.get("bound_to_this_supply")
+            if bound is None and "bound_to_open_supply" in row:
+                bound = row.get("bound_to_open_supply")
             if bound is False:
                 continue
             if row_sid and row_sid != sid and bound is not True:
@@ -178,6 +182,67 @@ def places_from_ozon_containers(
             continue
         count += 1
     return count
+
+
+def local_ozon_places_count(
+    repo: Any,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+) -> int:
+    """Distinct local GM binds for an Ozon FBS supply (no live Ozon call)."""
+    sid = str(supply_id or "").strip()
+    try:
+        src = int(source_id or 0)
+        uid = int(user_id or 0)
+    except (TypeError, ValueError):
+        return 0
+    if uid <= 0 or src <= 0 or not sid:
+        return 0
+    try:
+        with repo._connect() as conn:
+            crow = conn.execute(
+                repo._sql(
+                    """
+                    SELECT COUNT(DISTINCT container_id) AS n
+                    FROM ozon_fbs_postings
+                    WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                      AND COALESCE(container_id, 0) > 0
+                    """
+                ),
+                (uid, src, sid),
+            ).fetchone()
+        try:
+            return max(
+                0,
+                int(
+                    (
+                        crow["n"]
+                        if crow and hasattr(crow, "keys")
+                        else (crow[0] if crow else 0)
+                    )
+                    or 0
+                ),
+            )
+        except (TypeError, ValueError, KeyError, IndexError):
+            return 0
+    except Exception:
+        return 0
+
+
+TTN_PACKING_OPTIONS = ("Короба", "Паллеты", "Рулоны")
+
+
+def normalize_packing_type(value: object) -> str:
+    """Map free text to one of Короба/Паллеты/Рулоны (or empty)."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    for label in TTN_PACKING_OPTIONS:
+        if label.casefold() == raw.casefold():
+            return label
+    return ""
 
 
 def format_places(value: int | None) -> str:

@@ -2664,27 +2664,11 @@ def build_ttn_prefill(
         warnings.append("Назначьте водителя в карточке поставки.")
 
     # Local cargo places = distinct GM binds on supply postings (no live Ozon).
-    places = 0
+    places = ttn_cargo.local_ozon_places_count(
+        repo, user_id=user_id, source_id=src, supply_id=sid
+    )
     orders: list[dict[str, Any]] = []
     with repo._connect() as conn:
-        crow = conn.execute(
-            repo._sql(
-                """
-                SELECT COUNT(DISTINCT container_id) AS n
-                FROM ozon_fbs_postings
-                WHERE user_id = ? AND source_id = ? AND supply_id = ?
-                  AND COALESCE(container_id, 0) > 0
-                """
-            ),
-            (user_id, src, sid),
-        ).fetchone()
-        try:
-            places = int(
-                (crow["n"] if crow and hasattr(crow, "keys") else (crow[0] if crow else 0))
-                or 0
-            )
-        except (TypeError, ValueError):
-            places = 0
         orows = conn.execute(
             repo._sql(
                 """
@@ -2709,6 +2693,11 @@ def build_ttn_prefill(
         ttn_cargo.weight_lines_from_ozon_orders(orders),
     )
     places_text = str(places) if places else ""
+    packing_type = ""
+    if warehouse:
+        packing_type = ttn_cargo.normalize_packing_type(
+            warehouse.get("default_packing_type")
+        )
 
     ttn_date = _ttn_date_from_created(created_at)
     record = {
@@ -2731,6 +2720,7 @@ def build_ttn_prefill(
         "cargo_description": "Постельное белье/наматрасник",
         "cargo_places": places_text,
         "cargo_weight": str(weight_info.get("weight") or ""),
+        "packing_type": packing_type,
         "fbs_platform": "ozon",
         "fbs_source_id": src,
         "fbs_supply_id": sid,

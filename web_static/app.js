@@ -3766,6 +3766,17 @@ function _readNewWarehouseAddrFields() {
   };
 }
 
+function _warehousePackingOptionsHtml(selected) {
+  const cur = String(selected || "").trim();
+  const labels = ["Короба", "Паллеты", "Рулоны"];
+  const opts = ['<option value="">— не указана —</option>'];
+  for (const label of labels) {
+    const sel = label === cur ? " selected" : "";
+    opts.push(`<option value="${esc(label)}"${sel}>${esc(label)}</option>`);
+  }
+  return opts.join("");
+}
+
 function _clearNewWarehouseFormFields() {
   [
     "newWarehouseName",
@@ -3774,6 +3785,8 @@ function _clearNewWarehouseFormFields() {
   ].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ""; });
   const sel = document.getElementById("newWarehouseContractor");
   if (sel) sel.value = "";
+  const packing = document.getElementById("newWarehousePacking");
+  if (packing) packing.value = "";
 }
 
 function _warehousePartyRef(item) {
@@ -3975,7 +3988,7 @@ async function renderSupplyWarehousesTbody() {
   await _loadWarehouseFbsSourcesCatalog();
   tbody.innerHTML = "";
   if (!_supplyWarehousesCache.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">Склады не добавлены</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">Склады не добавлены</td></tr>';
     requestAnimationFrame(initAllSettingResizers);
     return;
   }
@@ -3994,11 +4007,13 @@ async function renderSupplyWarehousesTbody() {
         contractorLabel = c?.name || "";
       }
     }
+    const packingLabel = String(w.default_packing_type || "").trim();
     tr.innerHTML = `<td>${i+1}</td>
       <td class="editable-cell">${esc(contractorLabel)}</td>
       <td class="editable-cell">${esc(w.warehouse_name||"")}</td>
       <td class="editable-cell">${esc(warehouseAddressLine(w))}</td>
       <td class="editable-cell small">${esc(_warehouseFbsSourcesSummary(w.fbs_sources))}</td>
+      <td class="editable-cell">${esc(packingLabel)}</td>
       <td>
         <div class="sst-edit-actions">
           <button class="secondary small-btn icon-btn" onclick="startEditWarehouse(${w.id})" title="Редактировать">✏</button>
@@ -4023,11 +4038,14 @@ async function startEditWarehouse(id) {
   cells[1].innerHTML = `<input class="edit-inline-input" data-field="name" value="${esc(item.warehouse_name||"")}" />`;
   cells[2].innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
   if (cells[3]) cells[3].innerHTML = `<span class="small" style="color:#64748b">ниже</span>`;
+  if (cells[4]) {
+    cells[4].innerHTML = `<select class="edit-inline-input" data-field="packing">${_warehousePackingOptionsHtml(item.default_packing_type || "")}</select>`;
+  }
   const addrRow = document.createElement("tr");
   addrRow.className = "wh-addr-edit-row";
   addrRow.dataset.forId = String(id);
   addrRow.style.background = "#f8fafc";
-  addrRow.innerHTML = `<td colspan="6" style="padding:12px 8px;border-top:none;white-space:normal">
+  addrRow.innerHTML = `<td colspan="7" style="padding:12px 8px;border-top:none;white-space:normal">
     <div class="small" style="margin-bottom:8px;color:#64748b">Адрес доставки (поля эТрН)</div>
     ${_warehouseAddrEditInputsHtml(item)}
     <div class="small" style="margin:12px 0 8px;color:#64748b">Источники FBS (для автозаполнения ТН)</div>
@@ -4055,6 +4073,7 @@ async function saveEditWarehouse(id) {
     address: item?.address || "",
     contractor_id: party.contractor_id,
     legal_entity_id: party.legal_entity_id,
+    default_packing_type: tr.querySelector("[data-field='packing']")?.value.trim() || "",
   };
   _WH_ADDR_FIELDS.forEach(([key]) => {
     payload[key] = addrRow?.querySelector(`[data-wh-addr="${key}"]`)?.value.trim() || "";
@@ -4089,6 +4108,7 @@ async function saveSupplyWarehouse() {
     address: "",
     contractor_id: party.contractor_id,
     legal_entity_id: party.legal_entity_id,
+    default_packing_type: document.getElementById("newWarehousePacking")?.value.trim() || "",
     ..._readNewWarehouseAddrFields(),
     fbs_sources: _readWarehouseFbsSourcesFromDom(document.getElementById("newWarehouseFbsSources")),
   };
@@ -20288,11 +20308,16 @@ async function onTtnFbsSupplyChange() {
     // Always apply (including empty) so a failed lookup does not leave stale autofill.
     if (placesEl) placesEl.value = data.places_text != null ? String(data.places_text) : "";
     if (weightEl) weightEl.value = data.weight != null ? String(data.weight) : "";
+    const packingFromWh = String(data.packing_type || "").trim();
+    if (packingFromWh) _ttnSetPackingValue(packingFromWh);
     const warnings = Array.isArray(data.warnings) ? data.warnings.filter(Boolean) : [];
     if (hint) {
+      const packingHint = packingFromWh
+        ? ` Упаковка: ${packingFromWh}.`
+        : " Вид тары укажите вручную.";
       hint.textContent = warnings.length
         ? warnings.join(" ")
-        : `Заполнено из поставки «${data.supply_name || supplyId}». Вид тары укажите вручную.`;
+        : `Заполнено из поставки «${data.supply_name || supplyId}».${packingHint}`;
     }
   } catch (e) {
     if (token !== _ttnFbsAutofillToken) return;
@@ -21907,7 +21932,7 @@ const _SST_ACTIONS_COL_W = 180;
 const _SST_MIN_COL_W = 56;
 const _SST_TABLES = [
   { thead: "supplyDriversThead",         key: "sst_drivers_v2" },
-  { thead: "supplyWarehousesThead",       key: "sst_warehouses_v3" },
+  { thead: "supplyWarehousesThead",       key: "sst_warehouses_v4" },
   { thead: "supplyLegalEntitiesThead",    key: "sst_legal_v2" },
   { thead: "supplyProductionsThead",      key: "sst_productions_v2" },
   { thead: "supplyContractorsThead",      key: "sst_contractors_v2" },

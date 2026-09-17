@@ -8295,6 +8295,11 @@ class ReviewRepository:
             "ALTER TABLE supply_warehouses "
             "ADD COLUMN IF NOT EXISTS fbs_sources_json TEXT NOT NULL DEFAULT '[]'"
         )
+        # Default TTN packing (Короба / Паллеты / Рулоны) for this warehouse.
+        conn.execute(
+            "ALTER TABLE supply_warehouses "
+            "ADD COLUMN IF NOT EXISTS default_packing_type TEXT NOT NULL DEFAULT ''"
+        )
         # Legal entities catalog (short name → full name lookup)
         conn.execute(
             """
@@ -9792,6 +9797,14 @@ class ReviewRepository:
             d["legal_entity_name"] = str(d.get("legal_entity_name") or "").strip()
             d["fbs_sources"] = self._normalize_warehouse_fbs_sources(d.get("fbs_sources_json"))
             d.pop("fbs_sources_json", None)
+            try:
+                from . import ttn_fbs_cargo as ttn_cargo
+
+                d["default_packing_type"] = ttn_cargo.normalize_packing_type(
+                    d.get("default_packing_type")
+                )
+            except Exception:
+                d["default_packing_type"] = str(d.get("default_packing_type") or "").strip()
             result.append(d)
         return result
 
@@ -9813,12 +9826,19 @@ class ReviewRepository:
         contractor_id: int | None = None,
         legal_entity_id: int | None = None,
         fbs_sources: list[dict[str, Any]] | None = None,
+        default_packing_type: str = "",
     ) -> dict[str, Any]:
         now = _utc_now()
         fbs_json = json.dumps(
             self._normalize_warehouse_fbs_sources(fbs_sources or []),
             ensure_ascii=False,
         )
+        try:
+            from . import ttn_fbs_cargo as ttn_cargo
+
+            packing = ttn_cargo.normalize_packing_type(default_packing_type)
+        except Exception:
+            packing = str(default_packing_type or "").strip()
         addr = self._normalize_production_addr_fields(
             addr_index=addr_index,
             addr_region_code=addr_region_code,
@@ -9843,9 +9863,10 @@ class ReviewRepository:
                 conn,
                 "INSERT INTO supply_warehouses ("
                 "user_id, warehouse_name, address, contractor_id, legal_entity_id, fbs_sources_json, "
+                "default_packing_type, "
                 "addr_index, addr_region_code, addr_district, addr_city, addr_settlement, "
                 "addr_street, addr_house, addr_corpus, addr_flat, created_at"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     user_id,
                     warehouse_name.strip(),
@@ -9853,6 +9874,7 @@ class ReviewRepository:
                     cid,
                     lid,
                     fbs_json,
+                    packing,
                     addr["addr_index"],
                     addr["addr_region_code"],
                     addr["addr_district"],
@@ -9872,12 +9894,14 @@ class ReviewRepository:
                 "address": address_val,
                 "contractor_id": cid,
                 "legal_entity_id": lid,
+                "default_packing_type": packing,
                 **addr,
             }
         d = self._row_to_dict(row)
         d["address"] = self.warehouse_address_line(d)
         d["contractor_id"] = cid
         d["legal_entity_id"] = lid
+        d["default_packing_type"] = packing
         d["fbs_sources"] = self._normalize_warehouse_fbs_sources(d.get("fbs_sources_json"))
         d.pop("fbs_sources_json", None)
         return d
@@ -9901,6 +9925,7 @@ class ReviewRepository:
         contractor_id: int | None = None,
         legal_entity_id: int | None = None,
         fbs_sources: list[dict[str, Any]] | None = None,
+        default_packing_type: str = "",
     ) -> bool:
         addr = self._normalize_production_addr_fields(
             addr_index=addr_index,
@@ -9915,6 +9940,12 @@ class ReviewRepository:
         )
         composed = self.compose_production_address_line(addr)
         address_val = composed or str(address or "").strip()
+        try:
+            from . import ttn_fbs_cargo as ttn_cargo
+
+            packing = ttn_cargo.normalize_packing_type(default_packing_type)
+        except Exception:
+            packing = str(default_packing_type or "").strip()
         with self._connect() as conn:
             cid, lid = self._resolve_warehouse_party_ids(
                 user_id=user_id,
@@ -9936,7 +9967,7 @@ class ReviewRepository:
             result = conn.execute(
                 self._sql(
                     "UPDATE supply_warehouses SET warehouse_name = ?, address = ?, contractor_id = ?, "
-                    "legal_entity_id = ?, fbs_sources_json = ?, "
+                    "legal_entity_id = ?, fbs_sources_json = ?, default_packing_type = ?, "
                     "addr_index = ?, addr_region_code = ?, addr_district = ?, addr_city = ?, "
                     "addr_settlement = ?, addr_street = ?, addr_house = ?, addr_corpus = ?, addr_flat = ? "
                     "WHERE user_id = ? AND id = ?"
@@ -9947,6 +9978,7 @@ class ReviewRepository:
                     cid,
                     lid,
                     fbs_json,
+                    packing,
                     addr["addr_index"],
                     addr["addr_region_code"],
                     addr["addr_district"],

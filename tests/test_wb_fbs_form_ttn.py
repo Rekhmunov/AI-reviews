@@ -75,7 +75,7 @@ def test_ttn_prefill_is_local_only() -> None:
 
 
 def test_cache_bump_for_form_ttn() -> None:
-    assert "app.js?v=652" in HTML
+    assert "app.js?v=653" in HTML
     assert "style.css?v=381" in HTML
     assert "_ttnParseFbsPreferValue" in JS
     assert "keepMeta: !!preferFbs || !!_ttnOpenedFromFbsTab || !!_ttnOpenedFromWbFbs" in JS

@@ -814,6 +814,7 @@ class CreateSupplyWarehouseRequest(BaseModel):
     addr_corpus: str = ""
     addr_flat: str = ""
     fbs_sources: list[dict[str, object]] | None = None
+    default_packing_type: str = ""
 
 
 class UpdateSupplyWarehouseRequest(BaseModel):
@@ -831,6 +832,7 @@ class UpdateSupplyWarehouseRequest(BaseModel):
     addr_corpus: str = ""
     addr_flat: str = ""
     fbs_sources: list[dict[str, object]] | None = None
+    default_packing_type: str = ""
 
 
 class CreateSupplyLegalEntityRequest(BaseModel):
@@ -19784,6 +19786,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                 addr_corpus=payload.addr_corpus,
                 addr_flat=payload.addr_flat,
                 fbs_sources=list(payload.fbs_sources or []),
+                default_packing_type=payload.default_packing_type,
             )
         except Exception as ex:
             msg = str(ex).lower()
@@ -19816,6 +19819,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             addr_corpus=payload.addr_corpus,
             addr_flat=payload.addr_flat,
             fbs_sources=list(payload.fbs_sources or []),
+            default_packing_type=payload.default_packing_type,
         )
         if not ok:
             raise HTTPException(status_code=404, detail="Склад не найден")
@@ -21778,7 +21782,14 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                     source_id=int(source_id),
                     supply_id=sid,
                 )
-                listed = oz_ct.list_containers(client, warehouse_id=wh_id)
+                # Delivering supplies often have SC-accepted GMs; include them.
+                # Use a generous lookback so older formed GMs still count.
+                listed = oz_ct.list_containers(
+                    client,
+                    warehouse_id=wh_id,
+                    lookback_days=30,
+                    include_sc_accepted=True,
+                )
                 try:
                     listed = oz_ct.enrich_containers_for_supply_modal(
                         repository,
@@ -21795,6 +21806,15 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                 )
             except Exception as exc:
                 warnings.append(f"Не удалось получить грузоместа Ozon: {exc}")
+            # Live list can miss binds (lookback / API gaps) — keep local COUNT.
+            local_places = ttn_cargo.local_ozon_places_count(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                supply_id=sid,
+            )
+            if not places and local_places > 0:
+                places = local_places
             try:
                 detail = oz_sup.get_supply_detail(
                     repository,
@@ -21814,6 +21834,18 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             weight_info = ttn_cargo.sum_weight_for_lines(
                 weight_index, ttn_cargo.weight_lines_from_ozon_orders(orders)
             )
+
+        packing_type = ""
+        try:
+            wh_row = repository.find_warehouse_for_fbs_source(
+                user_id=owner_id, platform=plat, source_id=int(source_id)
+            )
+            if isinstance(wh_row, dict):
+                packing_type = ttn_cargo.normalize_packing_type(
+                    wh_row.get("default_packing_type")
+                )
+        except Exception:
+            packing_type = ""
 
         if weight_info.get("missing_articles"):
             miss = ", ".join(weight_info["missing_articles"][:8])
@@ -21838,6 +21870,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             "places_text": ttn_cargo.format_places(places),
             "weight_kg": weight_info.get("weight_kg"),
             "weight": weight_info.get("weight") or "",
+            "packing_type": packing_type,
             "missing_articles": weight_info.get("missing_articles") or [],
             "warnings": warnings,
         }

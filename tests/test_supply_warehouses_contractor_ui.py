@@ -35,7 +35,7 @@ def test_warehouses_js_party_edit_and_create() -> None:
     assert 'optgroup label="Контрагенты"' in js
     assert 'optgroup label="Юр. лица"' in js
     assert 'data-field="party_ref"' in js
-    assert "sst_warehouses_v3" in js
+    assert "sst_warehouses_v4" in js
     create_payload = js.split("async function saveSupplyWarehouse", 1)[1].split(
         "async function deleteSupplyWarehouse", 1
     )[0]
@@ -46,7 +46,7 @@ def test_warehouses_js_party_edit_and_create() -> None:
     )[0]
     assert "contractor_id" in edit_payload
     assert "legal_entity_id" in edit_payload
-    assert "app.js?v=624" in HTML.read_text(encoding="utf-8")
+    assert "app.js?v=653" in HTML.read_text(encoding="utf-8")
 
 
 def test_warehouses_api_and_schema_party_ids() -> None:
