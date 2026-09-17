@@ -40,8 +40,8 @@ def test_logistics_title_picker_and_panes() -> None:
     assert "function initLogisticsSection" in js
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
-    assert "app.js?v=654" in html
-    assert "style.css?v=382" in html
+    assert "app.js?v=655" in html
+    assert "style.css?v=383" in html
     assert "ttn-modal-card" in html
     assert "ttn-form-grid" in html
     assert 'max-width:560px' not in html.split('id="createTtnModal"')[1].split("<!-- ── Планирование")[0]
@@ -73,6 +73,28 @@ def test_ttn_row_actions_print_and_kebab_menu() -> None:
     assert ".ttn-row-menu" in css
     assert ".ttn-row-menu-item" in css
     assert ".ttn-row-menu.open" in css
+
+
+def test_ttn_row_colors_by_fbs_origin() -> None:
+    """Ozon FBS → soft blue; WB FBS → soft purple; logistics/copy → default."""
+    js = JS.read_text(encoding="utf-8")
+    css = CSS.read_text(encoding="utf-8")
+    html = HTML.read_text(encoding="utf-8")
+    render = js.split("function renderTtnTable", 1)[1].split("\nfunction ", 1)[0]
+    assert "fbs_platform" in render
+    assert "ttn-row-from-ozon" in render
+    assert "ttn-row-from-wb" in render
+    assert ".ttn-row-from-ozon" in css
+    assert ".ttn-row-from-wb" in css
+    assert "#eff6ff" in css  # soft blue
+    assert "#f5f3ff" in css  # soft purple
+    open_modal = js.split("async function _openTtnModal", 1)[1].split(
+        "async function openCreateTtnModal", 1
+    )[0]
+    assert 'mode === "copy"' in open_modal
+    assert "_ttnSelectedFbsMeta = null" in open_modal
+    assert "app.js?v=655" in html
+    assert "style.css?v=383" in html
 
 
 def test_ttn_table_columns_resizable_with_persistence() -> None:

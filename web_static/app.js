@@ -20573,6 +20573,12 @@ function renderTtnTable() {
   tbody.innerHTML = "";
   rows.forEach((r) => {
     const tr = document.createElement("tr");
+    const plat = String(r.fbs_platform || "").trim().toLowerCase();
+    if (plat === "ozon" || plat === "ozon_fbs") {
+      tr.className = "ttn-row-from-ozon";
+    } else if (plat === "wb" || plat === "wildberries" || plat === "wb_fbs") {
+      tr.className = "ttn-row-from-wb";
+    }
     const num = r.doc_number || r.id;
     tr.innerHTML = `
       <td>${esc(String(num))}</td>
@@ -20916,6 +20922,10 @@ async function _openTtnModal(mode, record) {
         source_id: Number(record.fbs_source_id || 0),
         supply_id: String(record.fbs_supply_id || ""),
       };
+    }
+    // Copy from Logistics → ТН: new заявка without FBS origin (plain row color).
+    if (mode === "copy" && !_ttnOpenedFromFbsTab && !_ttnOpenedFromWbFbs) {
+      _ttnSelectedFbsMeta = null;
     }
     setVal("ttnCreateDocs", String(record.accompanying_docs || "").trim() || TTN_DEFAULT_DOCS);
     setVal("ttnCreateNotes", record.notes || "");
