@@ -61,5 +61,5 @@ def test_ttn_prefill_is_local_only() -> None:
 
 
 def test_cache_bump_for_ozon_form_ttn() -> None:
-    assert "ozon_fbs.js?v=180" in HTML
-    assert "app.js?v=653" in HTML
+    assert "ozon_fbs.js?v=181" in HTML
+    assert "app.js?v=654" in HTML

@@ -14451,15 +14451,22 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         owner_id = _supply_owner_id(user)
         if not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id")
-        _ozon_fbs_source_credentials(owner_id, int(source_id))
+        _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
+        client = ozon_fbs_mod.OzonFbsClient(client_id=client_id, api_key=api_key)
         tab_key = str(tab or "").strip()
         if tab_key == "awaiting_deliver":
             return oz_sup.list_awaiting_deliver_supplies(
-                repository, user_id=owner_id, source_id=int(source_id)
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                client=client,
             )
         if tab_key == "delivering":
             return oz_sup.list_delivering_supplies(
-                repository, user_id=owner_id, source_id=int(source_id)
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                client=client,
             )
         return {
             "items": [],

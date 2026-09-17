@@ -2284,11 +2284,13 @@ def _list_supplies_tab_response(
     source_id: int,
     tab: str,
     adopt_info: dict[str, Any],
+    client: Any | None = None,
 ) -> dict[str, Any]:
     items = _build_supply_items_for_tab(
         repo, user_id=user_id, source_id=source_id, tab=tab
     )
-    if tab == oz.TAB_DELIVERING and items:
+    # TTN + GM row tones on delivery-stage supply tabs.
+    if tab in {oz.TAB_AWAITING_DELIVER, oz.TAB_DELIVERING} and items:
         ttn_map = repo.map_ttn_ids_for_fbs_supplies(
             user_id=user_id,
             platform="ozon",
@@ -2303,6 +2305,20 @@ def _list_supplies_tab_response(
                 src = 0
             it["source_id"] = src
             it["ttn_id"] = int(ttn_map.get((src, sid)) or 0)
+        if client is not None:
+            try:
+                enrich_ozon_supply_items_row_tones(
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    items=items,
+                    client=client,
+                )
+            except Exception:
+                for it in items:
+                    it.setdefault("row_tone", "")
+                    it.setdefault("gm_has_formed", False)
+                    it.setdefault("gm_all_accepted", False)
     counts = dict(oz._tab_counts(repo, user_id=user_id, source_id=source_id) or {})
     try:
         counts["open_supplies"] = count_open_supplies(
@@ -2319,8 +2335,125 @@ def _list_supplies_tab_response(
     }
 
 
+def resolve_fbs_supply_row_tone(
+    *,
+    gm_statuses: list[str] | None = None,
+    ttn_id: int = 0,
+) -> str:
+    """Row highlight for delivery tabs.
+
+    - ``warn`` (pale-red): any GM not yet accepted at SC (e.g. «Сформировано»)
+    - ``ok`` (green): all GMs accepted at SC **and** TTN formed
+    - ``""``: accepted without TTN, or no GMs
+    Formed / unaccepted GMs always beat green.
+    """
+    statuses = [
+        str(st or "").strip().lower()
+        for st in (gm_statuses or [])
+        if str(st or "").strip()
+    ]
+    if not statuses:
+        return ""
+    sc_accepted = frozenset({"acceptance_in_progress", "finished"})
+    if any(st not in sc_accepted for st in statuses):
+        return "warn"
+    if int(ttn_id or 0) > 0:
+        return "ok"
+    return ""
+
+
+def enrich_ozon_supply_items_row_tones(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    items: list[dict[str, Any]],
+    client: Any,
+) -> None:
+    """Attach ``row_tone`` / GM flags using live carriage list (cached) + local binds."""
+    from . import ozon_fbs_containers as oz_ct
+
+    if not items:
+        return
+    lookback_days = 30
+    listed_by_wh: dict[int, dict[str, Any]] = {}
+    status_by_wh: dict[int, dict[int, str]] = {}
+    sc_accepted = frozenset({"acceptance_in_progress", "finished"})
+
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        sid = str(it.get("supply_id") or "").strip()
+        try:
+            ttn_id = int(it.get("ttn_id") or 0)
+        except (TypeError, ValueError):
+            ttn_id = 0
+        gm_statuses: list[str] = []
+        try:
+            local_counts = oz_ct._active_local_order_counts_by_container(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                supply_id=sid,
+            )
+            cids = [cid for cid in local_counts.keys() if int(cid or 0) > 0]
+            if cids:
+                wh_id, _wh_name = oz_ct.resolve_supply_warehouse_id(
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    supply_id=sid,
+                )
+                wh = int(wh_id or 0)
+                if wh > 0 and wh not in listed_by_wh:
+                    listed_by_wh[wh] = oz_ct._list_containers_cached(
+                        client,
+                        user_id=user_id,
+                        source_id=source_id,
+                        warehouse_id=wh,
+                        lookback_days=lookback_days,
+                        include_sc_accepted=True,
+                    )
+                    st_map: dict[int, str] = {}
+                    for raw in (listed_by_wh[wh].get("items") or []):
+                        if not isinstance(raw, dict):
+                            continue
+                        try:
+                            cid = int(raw.get("container_id") or 0)
+                        except (TypeError, ValueError):
+                            cid = 0
+                        if cid <= 0:
+                            continue
+                        st = str(raw.get("status") or "").strip().lower()
+                        if st:
+                            st_map[cid] = st
+                    status_by_wh[wh] = st_map
+                st_map = status_by_wh.get(wh, {}) if wh > 0 else {}
+                for cid in cids:
+                    st = st_map.get(int(cid), "")
+                    if st:
+                        gm_statuses.append(st)
+                    else:
+                        # Bound locally but missing from live list → treat as formed.
+                        gm_statuses.append("formed")
+        except Exception:
+            gm_statuses = []
+
+        has_formed = any(st not in sc_accepted for st in gm_statuses) if gm_statuses else False
+        all_accepted = bool(gm_statuses) and all(st in sc_accepted for st in gm_statuses)
+        it["gm_has_formed"] = has_formed
+        it["gm_all_accepted"] = all_accepted
+        it["row_tone"] = resolve_fbs_supply_row_tone(
+            gm_statuses=gm_statuses, ttn_id=ttn_id
+        )
+
+
 def list_awaiting_deliver_supplies(
-    repo: ReviewRepository, *, user_id: int, source_id: int
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    client: Any | None = None,
 ) -> dict[str, Any]:
     """Supplies shown on «Ожидают отгрузки».
 
@@ -2336,11 +2469,16 @@ def list_awaiting_deliver_supplies(
         source_id=source_id,
         tab=oz.TAB_AWAITING_DELIVER,
         adopt_info=adopt_info,
+        client=client,
     )
 
 
 def list_delivering_supplies(
-    repo: ReviewRepository, *, user_id: int, source_id: int
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    client: Any | None = None,
 ) -> dict[str, Any]:
     """Supplies shown on «Доставляются» (read-only drill-down in UI)."""
     ensure_ozon_fbs_supply_schema(repo)
@@ -2353,6 +2491,7 @@ def list_delivering_supplies(
         source_id=source_id,
         tab=oz.TAB_DELIVERING,
         adopt_info=adopt_info,
+        client=client,
     )
 
 

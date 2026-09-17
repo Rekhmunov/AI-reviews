@@ -4290,6 +4290,8 @@ def _list_supplies_for_orders_tab(
         )
 
     if tab_key == TAB_DELIVERY and items:
+        from .ozon_fbs_supplies import resolve_fbs_supply_row_tone
+
         ttn_map = repo.map_ttn_ids_for_fbs_supplies(
             user_id=user_id,
             platform="wb",
@@ -4303,6 +4305,24 @@ def _list_supplies_for_orders_tab(
                 src = 0
             sid = str(it.get("supply_id") or "").strip()
             it["ttn_id"] = int(ttn_map.get((src, sid)) or 0)
+            # WB has no SC status for TRBX: boxes without scanDt ≈ «сформировано»;
+            # scanDt set ≈ accepted at WB warehouse.
+            try:
+                boxes_count = int(it.get("boxes_count") or 0)
+            except (TypeError, ValueError):
+                boxes_count = 0
+            scanned = bool(it.get("scan_dt"))
+            if boxes_count > 0 and not scanned:
+                gm_statuses = ["formed"]
+            elif boxes_count > 0 and scanned:
+                gm_statuses = ["acceptance_in_progress"]
+            else:
+                gm_statuses = []
+            it["gm_has_formed"] = boxes_count > 0 and not scanned
+            it["gm_all_accepted"] = boxes_count > 0 and scanned
+            it["row_tone"] = resolve_fbs_supply_row_tone(
+                gm_statuses=gm_statuses, ttn_id=int(it.get("ttn_id") or 0)
+            )
 
     return {
         "items": items,

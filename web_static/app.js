@@ -39957,7 +39957,11 @@ function renderWbFbsSuppliesTable() {
     const nameClick = canOpenDetail
       ? ` role="button" tabindex="0" onclick="openWbFbsSupplyDetailModal('${_wbFbsEsc(sid)}')" onkeydown="if(event.key==='Enter')openWbFbsSupplyDetailModal('${_wbFbsEsc(sid)}')"`
       : "";
-    return `<tr>
+    const tone = String(s.row_tone || "").trim();
+    const rowCls = (!isAssembly && tone === "warn")
+      ? " class=\"fbs-supply-row-warn\""
+      : ((!isAssembly && tone === "ok") ? " class=\"fbs-supply-row-ok\"" : "");
+    return `<tr${rowCls}>
       <td><input type="checkbox" class="wb-fbs-row-cb" data-supply-id="${_wbFbsEsc(sid)}" ${checked} onchange="onWbFbsCheckboxChange()" /></td>
       <td>
         <div class="${nameCls}"${nameClick}>${_wbFbsEsc(s.name || ("Поставка " + sid))}</div>

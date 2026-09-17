@@ -1116,7 +1116,11 @@
       const nameTitle = openBlocked ? ` title="${esc(openTip)}"` : "";
       const nameTab = openBlocked ? "" : ' tabindex="0"';
       const nameAria = openBlocked ? ' aria-disabled="true"' : ' role="button"';
-      return `<tr>
+      const tone = String(s.row_tone || "").trim();
+      const rowCls = tone === "warn"
+        ? " class=\"fbs-supply-row-warn\""
+        : (tone === "ok" ? " class=\"fbs-supply-row-ok\"" : "");
+      return `<tr${rowCls}>
         <td><input type="checkbox" class="wb-fbs-row-cb" data-supply-id="${esc(sid)}" ${checked} onchange="onOzonFbsCheckboxChange()" /></td>
         <td>
           <div class="${nameCls}" data-supply-open="1"${nameAria}${nameTab}${nameTitle}

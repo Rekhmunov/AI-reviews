@@ -11192,6 +11192,19 @@ button.wb-fbs-select-all-link:disabled {
 .wb-fbs-table tbody tr:nth-child(odd) td { background: #fff; }
 .wb-fbs-table tbody tr:nth-child(even) td { background: #fafbfd; }
 .wb-fbs-table tbody tr:hover td { background: rgba(239, 246, 255, 0.72) !important; }
+/* Delivery tabs: pale-red = GM formed; green = GM accepted + TTN. */
+.wb-fbs-table tbody tr.fbs-supply-row-warn td {
+  background: #fff1f2 !important;
+}
+.wb-fbs-table tbody tr.fbs-supply-row-ok td {
+  background: #f0fdf4 !important;
+}
+.wb-fbs-table tbody tr.fbs-supply-row-warn:hover td {
+  background: #ffe4e6 !important;
+}
+.wb-fbs-table tbody tr.fbs-supply-row-ok:hover td {
+  background: #dcfce7 !important;
+}
 .wb-fbs-order-id {
   font-weight: 700;
   color: #0f172a;
