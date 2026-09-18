@@ -22113,38 +22113,24 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         supply_id: str,
     ) -> str:
         """Resolve local FBS supply display name for TTN title defaults."""
-        plat = str(platform or "").strip().lower()
-        sid = str(supply_id or "").strip()
         try:
-            src = int(source_id or 0)
-        except (TypeError, ValueError):
-            src = 0
-        if not plat or not sid or src <= 0:
-            return ""
-        table = ""
-        if plat in ("ozon", "ozon_fbs"):
-            table = "ozon_fbs_supplies"
-        elif plat in ("wb", "wildberries", "wb_fbs"):
-            table = "wb_fbs_supplies"
-        if not table:
-            return ""
-        try:
-            with repo._connect() as conn:
-                row = conn.execute(
-                    repo._sql(
-                        f"""
-                        SELECT name FROM {table}
-                        WHERE user_id = ? AND source_id = ? AND supply_id = ?
-                        """
-                    ),
-                    (user_id, src, sid),
-                ).fetchone()
-            if not row:
-                return ""
-            data = repo._row_to_dict(row) if hasattr(repo, "_row_to_dict") else dict(row)
-            return str((data or {}).get("name") or "").strip()
+            return repo.lookup_fbs_supply_name(
+                user_id=user_id,
+                platform=platform,
+                source_id=source_id,
+                supply_id=supply_id,
+            )
         except Exception:
             return ""
+
+    @app.get("/api/supply-ttn-records/next-manual-title")
+    def ttn_next_manual_title(request: Request) -> dict[str, object]:
+        """Peek the next daily number for the create-form title. Does not consume it."""
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        repository._ensure_supply_tables()
+        return {"number": repository.peek_next_ttn_number()}
 
     @app.get("/api/supply-ttn-records")
     def list_ttn_records(request: Request, group_id: str = "") -> list[dict[str, object]]:

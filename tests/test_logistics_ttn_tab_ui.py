@@ -40,8 +40,8 @@ def test_logistics_title_picker_and_panes() -> None:
     assert "function initLogisticsSection" in js
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
-    assert "app.js?v=671" in html
-    assert "style.css?v=396" in html
+    assert "app.js?v=672" in html
+    assert "style.css?v=397" in html
     assert "ttn-modal-card" in html
     assert "ttn-form-grid" in html
     assert 'max-width:560px' not in html.split('id="createTtnModal"')[1].split("<!-- ── Планирование")[0]
@@ -86,8 +86,14 @@ def test_ttn_row_colors_by_fbs_origin() -> None:
     assert "ttn-row-from-wb" in render
     assert ".ttn-row-from-ozon" in css
     assert ".ttn-row-from-wb" in css
-    assert "#eff6ff" in css  # soft blue
-    assert "#f5f3ff" in css  # soft purple
+    ozon_rule = css.split("#ttnTable tbody tr.ttn-row-from-ozon td", 1)[1].split("}", 1)[0]
+    wb_rule = css.split("#ttnTable tbody tr.ttn-row-from-wb td", 1)[1].split("}", 1)[0]
+    ozon_hover = css.split("#ttnTable tbody tr.ttn-row-from-ozon:hover td", 1)[1].split("}", 1)[0]
+    wb_hover = css.split("#ttnTable tbody tr.ttn-row-from-wb:hover td", 1)[1].split("}", 1)[0]
+    assert "#bfdbfe" in ozon_rule
+    assert "#ddd6fe" in wb_rule
+    assert "#93c5fd" in ozon_hover
+    assert "#c4b5fd" in wb_hover
     open_modal = js.split("async function _openTtnModal", 1)[1].split(
         "async function openCreateTtnModal", 1
     )[0]
@@ -96,8 +102,8 @@ def test_ttn_row_colors_by_fbs_origin() -> None:
     state_from = js.split("function _ttnStateFromRecord", 1)[1].split("\nfunction ", 1)[0]
     assert 'mode === "copy"' in state_from
     assert "fbsMeta = null" in state_from
-    assert "app.js?v=671" in html
-    assert "style.css?v=396" in html
+    assert "app.js?v=672" in html
+    assert "style.css?v=397" in html
 
 
 def test_ttn_table_columns_resizable_with_persistence() -> None:

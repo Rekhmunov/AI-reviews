@@ -80,3 +80,32 @@ def suggest_fbs_ttn_title(repo, *, user_id: int, supply_name: str, keep_title: s
     base = format_fbs_ttn_title_base(supply_name=supply_name)
     existing = list_existing_ttn_titles(repo, user_id=user_id)
     return unique_ttn_title(base, existing)
+
+
+def title_for_blank_record(
+    *,
+    doc_number: str,
+    ttn_date: str,
+    supply_name: str = "",
+    fbs_platform: str = "",
+    existing: set[str] | None = None,
+) -> str:
+    """Default title for a saved row that still has an empty name."""
+    taken = existing or set()
+    plat = str(fbs_platform or "").strip().lower()
+    if plat:
+        base = format_fbs_ttn_title_base(supply_name=supply_name)
+        return unique_ttn_title(base, taken)
+    raw_num = str(doc_number or "").strip()
+    date = str(ttn_date or "").strip() or "—"
+    try:
+        n = int(raw_num)
+    except ValueError:
+        n = 0
+    if n > 0 and raw_num == str(n):
+        base = format_manual_ttn_title(n=n, ttn_date=date)
+    elif raw_num:
+        base = f"ТН {raw_num} от {date}"
+    else:
+        base = format_manual_ttn_title(n=1, ttn_date=date)
+    return unique_ttn_title(base, taken)
