@@ -15814,6 +15814,18 @@ function supplyStockBulkClear(kind, scope) {
 }
 window.supplyStockBulkClear = supplyStockBulkClear;
 
+function _sbAdjPhotoHtml(row) {
+  const isProduct = String(row.item_type || "") === "product";
+  const photoUrl = isProduct ? String(row.photo_url || "").trim() : "";
+  if (photoUrl) {
+    return `<img class="wb-fbs-product-photo" src="${esc(photoUrl)}" alt="" width="${SB_PRODUCT_THUMB_PX}" height="${SB_PRODUCT_THUMB_PX}" loading="lazy" onerror="this.hidden=true;var ph=this.nextElementSibling;if(ph) ph.hidden=false"><span class="wb-fbs-product-ph" aria-hidden="true" hidden></span>`;
+  }
+  if (isProduct) {
+    return `<span class="wb-fbs-product-ph" aria-hidden="true"></span>`;
+  }
+  return `<span class="sb-adj-photo-empty" aria-hidden="true"></span>`;
+}
+
 function _sbRenderStockRowHtml(row, opts) {
   const qtyLabel = String(opts?.qtyLabel || "Количество");
   const qtyPlaceholder = String(opts?.qtyPlaceholder || "0");
@@ -15834,6 +15846,7 @@ function _sbRenderStockRowHtml(row, opts) {
     <label class="sb-adj-check-cell">
       <input type="checkbox" class="sb-adj-check" aria-label="Выбрать: ${esc(row.name || "")}" />
     </label>
+    <div class="sb-adj-photo">${_sbAdjPhotoHtml(row)}</div>
     <div class="sb-adj-name">
       <span class="sb-adj-name-text">${esc(row.name || "")}</span>
       <span class="sb-adj-name-meta">${typeLabel} · ${unit}</span>

@@ -40,8 +40,13 @@ def test_adj_modal_columns_resizable_and_persisted() -> None:
     assert 'data-sb-adj-resize="qty"' in APP_HTML
     assert 'data-sb-adj-resize="comment"' in APP_HTML
 
+    assert "--sb-adj-photo-w:" in STYLE
     assert "--sb-adj-name-w:" in STYLE
-    assert "grid-template-columns: 36px var(--sb-adj-name-w) var(--sb-adj-qty-w) var(--sb-adj-comment-w);" in STYLE
+    assert (
+        "grid-template-columns: 36px var(--sb-adj-photo-w) "
+        "minmax(140px, var(--sb-adj-name-w)) var(--sb-adj-qty-w) "
+        "minmax(100px, var(--sb-adj-comment-w));"
+    ) in STYLE
     assert ".sb-adj-col-resize" in STYLE
 
     assert 'SB_ADJ_COL_WIDTHS_KEY = "supply_stock_adj_col_widths_v1"' in APP_JS
@@ -50,6 +55,15 @@ def test_adj_modal_columns_resizable_and_persisted() -> None:
     assert APP_JS.count("initSupplyStockAdjColumnResizer();") >= 2
 
 
+def test_adj_modals_have_product_photo_column() -> None:
+    assert APP_HTML.count('class="sb-adj-col sb-adj-col-photo"') == 2
+    assert "function _sbAdjPhotoHtml(row)" in APP_JS
+    assert 'row.photo_url' in APP_JS
+    assert '<div class="sb-adj-photo">${_sbAdjPhotoHtml(row)}</div>' in APP_JS
+    assert "sb-adj-photo-empty" in APP_JS
+    assert ".sb-adj-list .sb-adj-photo .wb-fbs-product-photo" in STYLE
+
+
 def test_cache_bump_align_adj_cols() -> None:
-    assert "style.css?v=360" in APP_HTML
-    assert "app.js?v=624" in APP_HTML
+    assert "style.css?v=400" in APP_HTML
+    assert "app.js?v=675" in APP_HTML
