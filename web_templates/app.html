@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=394" />
+  <link rel="stylesheet" href="/static/style.css?v=395" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -7545,7 +7545,18 @@
       <div class="sb-sheet-header">
         <div class="sb-sheet-title-row">
           <h3 id="supplyBalancesVisibilityTitle" class="sb-sheet-title">Вывод в таблице</h3>
-          <button type="button" class="icon-btn secondary" onclick="closeSupplyBalancesVisibilityModal()" aria-label="Закрыть">✕</button>
+          <div class="sb-sheet-title-actions">
+            <button type="button" class="icon-btn secondary" id="supplyBalancesMinAutoBtn"
+                    onclick="openSupplyBalancesMinAutoModal()"
+                    title="Автоматический мин. остаток"
+                    aria-label="Автоматический мин. остаток">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/>
+                <path d="M12 3.5v2.2M12 18.3v2.2M3.5 12h2.2M18.3 12h2.2M6.1 6.1l1.6 1.6M16.3 16.3l1.6 1.6M17.9 6.1l-1.6 1.6M7.7 16.3l-1.6 1.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              </svg>
+            </button>
+            <button type="button" class="icon-btn secondary" onclick="closeSupplyBalancesVisibilityModal()" aria-label="Закрыть">✕</button>
+          </div>
         </div>
         <p class="sb-sheet-lead">Выберите, какие позиции показывать в таблице. Задайте мин. остаток при необходимости. Перетащите строку, чтобы изменить порядок во вкладке Остатки. По умолчанию включены все.</p>
         <div class="sb-sheet-toolbar">
@@ -7561,6 +7572,41 @@
       <div class="sb-sheet-footer">
         <button type="button" class="secondary" onclick="closeSupplyBalancesVisibilityModal()">Отмена</button>
         <button type="button" onclick="saveSupplyBalancesVisibility()">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Auto min stock: opened from the gear inside Вывод. Does not close Вывод. -->
+  <div id="supplyBalancesMinAutoModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+       aria-labelledby="supplyBalancesMinAutoTitle">
+    <div class="modal-card sb-sheet-modal sb-min-auto-modal">
+      <div class="sb-sheet-header">
+        <div class="sb-sheet-title-row">
+          <h3 id="supplyBalancesMinAutoTitle" class="sb-sheet-title">Автоматический мин. остаток</h3>
+          <button type="button" class="icon-btn secondary" onclick="closeSupplyBalancesMinAutoModal()" aria-label="Закрыть">✕</button>
+        </div>
+        <p class="sb-sheet-lead">Если включено, после 00:00 по Москве в поле «Мин.» записывается количество продаж за выбранное число дней. Если выключено, ночной пересчёт не выполняется.</p>
+      </div>
+      <div class="sb-min-auto-body">
+        <div class="sb-min-auto-toggle">
+          <div class="sb-min-auto-toggle-copy">
+            <label class="sb-min-auto-label" for="supplyBalancesMinAutoEnabled">Автоматическая установка</label>
+            <p class="sb-min-auto-hint" id="supplyBalancesMinAutoHint">Числа появятся в «Мин.» после полуночи, не сразу после включения.</p>
+          </div>
+          <label class="switch" title="Включить или выключить">
+            <input type="checkbox" id="supplyBalancesMinAutoEnabled" aria-describedby="supplyBalancesMinAutoHint" />
+            <span class="slider"></span>
+          </label>
+        </div>
+        <label class="sb-min-auto-days" for="supplyBalancesMinAutoDays">
+          <span>Дней продаж</span>
+          <input type="number" id="supplyBalancesMinAutoDays" min="1" max="366" step="1" value="14" inputmode="numeric" />
+        </label>
+        <p id="supplyBalancesMinAutoErr" class="sb-doc-err" hidden></p>
+      </div>
+      <div class="sb-sheet-footer">
+        <button type="button" class="secondary" onclick="closeSupplyBalancesMinAutoModal()">Отмена</button>
+        <button type="button" id="supplyBalancesMinAutoSaveBtn" onclick="saveSupplyBalancesMinAuto()">Сохранить</button>
       </div>
     </div>
   </div>
@@ -7965,6 +8011,6 @@
 
   <script src="/static/ozon_fbs.js?v=185"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=36"></script>
-  <script src="/static/app.js?v=669"></script>
+  <script src="/static/app.js?v=670"></script>
 </body>
 </html>

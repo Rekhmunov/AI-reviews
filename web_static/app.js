@@ -17621,6 +17621,7 @@ window.openSupplyBalancesVisibilityModal = openSupplyBalancesVisibilityModal;
 
 function closeSupplyBalancesVisibilityModal() {
   setModalVisibility("supplyBalancesVisibilityModal", false);
+  setModalVisibility("supplyBalancesMinAutoModal", false);
 }
 window.closeSupplyBalancesVisibilityModal = closeSupplyBalancesVisibilityModal;
 
@@ -17933,6 +17934,79 @@ async function saveSupplyBalancesVisibility() {
   }
 }
 window.saveSupplyBalancesVisibility = saveSupplyBalancesVisibility;
+
+let _sbMinAutoSaving = false;
+
+function _sbSetMinAutoErr(message) {
+  const err = document.getElementById("supplyBalancesMinAutoErr");
+  if (!err) return;
+  const text = String(message || "").trim();
+  err.textContent = text;
+  err.hidden = !text;
+  const daysEl = document.getElementById("supplyBalancesMinAutoDays");
+  if (daysEl) daysEl.classList.toggle("is-error", !!text && text.indexOf("дней") !== -1);
+}
+
+async function openSupplyBalancesMinAutoModal() {
+  _sbSetMinAutoErr("");
+  setModalVisibility("supplyBalancesMinAutoModal", true);
+  const enabledEl = document.getElementById("supplyBalancesMinAutoEnabled");
+  const daysEl = document.getElementById("supplyBalancesMinAutoDays");
+  try {
+    const res = await fetch("/api/supply-balances/min-auto");
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Ошибка загрузки");
+    if (enabledEl) enabledEl.checked = !!data.enabled;
+    if (daysEl) {
+      const days = Number(data.days);
+      daysEl.value = Number.isFinite(days) && days >= 1 ? String(Math.round(days)) : "14";
+    }
+  } catch (e) {
+    _sbSetMinAutoErr(String(e.message || e));
+  }
+}
+window.openSupplyBalancesMinAutoModal = openSupplyBalancesMinAutoModal;
+
+function closeSupplyBalancesMinAutoModal() {
+  if (_sbMinAutoSaving) return;
+  setModalVisibility("supplyBalancesMinAutoModal", false);
+  _sbSetMinAutoErr("");
+}
+window.closeSupplyBalancesMinAutoModal = closeSupplyBalancesMinAutoModal;
+
+async function saveSupplyBalancesMinAuto() {
+  if (_sbMinAutoSaving) return;
+  const enabledEl = document.getElementById("supplyBalancesMinAutoEnabled");
+  const daysEl = document.getElementById("supplyBalancesMinAutoDays");
+  const saveBtn = document.getElementById("supplyBalancesMinAutoSaveBtn");
+  const days = Number(String(daysEl?.value || "").trim());
+  if (!Number.isFinite(days) || days < 1 || days > 366 || Math.round(days) !== days) {
+    _sbSetMinAutoErr("Укажите число дней от 1 до 366");
+    if (daysEl) daysEl.focus();
+    return;
+  }
+  _sbSetMinAutoErr("");
+  _sbMinAutoSaving = true;
+  if (saveBtn) saveBtn.disabled = true;
+  try {
+    const res = await fetch("/api/supply-balances/min-auto", {
+      method: "PUT",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ enabled: !!enabledEl?.checked, days: Math.round(days) }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Ошибка сохранения");
+    _sbMinAutoSaving = false;
+    if (saveBtn) saveBtn.disabled = false;
+    closeSupplyBalancesMinAutoModal();
+  } catch (e) {
+    _sbSetMinAutoErr(String(e.message || e));
+  } finally {
+    _sbMinAutoSaving = false;
+    if (saveBtn) saveBtn.disabled = false;
+  }
+}
+window.saveSupplyBalancesMinAuto = saveSupplyBalancesMinAuto;
 
 /** Group ledger rows by movement_date, preserving newest-first order. */
 function _sbGroupMovementsByDay(items) {
