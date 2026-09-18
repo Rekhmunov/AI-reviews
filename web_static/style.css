@@ -6119,9 +6119,8 @@ body.sst-col-resizing * {
 }
 .supplies-date-panel-row input[type="date"] { width: 130px; }
 
-/* ── Supplies → Settings: unified table layout (all tabs) ───────────────
-   Wide tables scroll horizontally inside .table-wrap; action column stays
-   sticky on the right so Сохранить / Отмена never leave the viewport. */
+/* ── Supplies → Settings: tables fit the pane; text wraps.
+   Column px widths are ratios. The actions column is compact, not a fixed slab. */
 #section-supplies-settings,
 #section-supplies-settings [id^="supplies-settings-pane-"] {
   min-width: 0;
@@ -6130,7 +6129,6 @@ body.sst-col-resizing * {
 #section-supplies-settings .panel {
   min-width: 0;
   max-width: 100%;
-  /* Keep decorative clipping, but do not swallow the table scrollport. */
   overflow: visible;
 }
 #section-supplies-settings .table-wrap {
@@ -6143,10 +6141,9 @@ body.sst-col-resizing * {
   border-radius: 8px;
 }
 #section-supplies-settings .supply-sources-table {
-  /* JS sets an explicit px width from column sum so .table-wrap can scroll. */
-  width: max-content;
-  min-width: 100%;
-  max-width: none;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
@@ -6166,9 +6163,8 @@ body.sst-col-resizing * {
 #section-supplies-settings [id^="supplies-settings-pane-"]:not(#supplies-settings-pane-sources)
   .supply-sources-table thead th {
   vertical-align: middle;
-  padding-right: 14px; /* room for resize handle */
+  padding-right: 14px;
 }
-/* Sub-rows for structured address / carrier / signature editors */
 #section-supplies-settings .supply-sources-table tr.le-addr-edit-row td,
 #section-supplies-settings .supply-sources-table tr[id^="le-sig-row-"] td,
 #section-supplies-settings .supply-sources-table tr.prod-addr-edit-row td,
@@ -6176,45 +6172,41 @@ body.sst-col-resizing * {
 #section-supplies-settings .supply-sources-table tr.driver-docs-edit-row td,
 #section-supplies-settings .supply-sources-table tr.driver-carrier-edit-row td,
 #section-supplies-settings .supply-sources-table tr.driver-vehicles-edit-row td,
-#section-supplies-settings .supply-sources-table tr.driver-fio-edit-row td {
+#section-supplies-settings .supply-sources-table tr.driver-fio-edit-row td,
+#section-supplies-settings .supply-sources-table tr.sst-edit-panel-row td,
+#section-supplies-settings .supply-sources-table td[colspan] {
   white-space: normal !important;
   overflow: visible;
   text-overflow: clip;
+  position: static;
+  width: auto;
+  min-width: 0;
   max-width: none;
+  box-shadow: none;
   vertical-align: top;
+  background: #f8fafc;
 }
-/* Sticky actions — all tabs except Sources (wide Включить/Удалить). */
 #section-supplies-settings [id^="supplies-settings-pane-"]:not(#supplies-settings-pane-sources)
   .supply-sources-table th.sst-actions-col,
 #section-supplies-settings [id^="supplies-settings-pane-"]:not(#supplies-settings-pane-sources)
-  .supply-sources-table td:last-child {
-  position: sticky;
-  right: 0;
-  z-index: 3;
-  width: 180px;
-  min-width: 180px;
-  max-width: 180px;
-  box-sizing: border-box;
-  text-align: center;
-  white-space: nowrap !important;
+  .supply-sources-table td:last-child:not([colspan]) {
+  text-align: right;
+  white-space: normal !important;
   overflow: visible;
   text-overflow: clip;
   overflow-wrap: normal;
   word-break: normal;
   vertical-align: middle;
   background: #ffffff;
-  box-shadow: -6px 0 10px -6px rgba(15, 23, 42, 0.14);
-  padding-right: 10px;
+  padding-right: 8px;
 }
 #section-supplies-settings [id^="supplies-settings-pane-"]:not(#supplies-settings-pane-sources)
   .supply-sources-table thead th.sst-actions-col {
-  z-index: 4;
   background: #f8fafc;
+  text-align: right;
 }
-/* ГТД: столбец действий как остальные — можно сужать, кнопки переносятся.
-   Специфичность выше sticky-правила с min/max 180px. */
 #section-supplies-settings #supplies-settings-pane-gtd .supply-sources-table th.sst-actions-col,
-#section-supplies-settings #supplies-settings-pane-gtd .supply-sources-table td:last-child {
+#section-supplies-settings #supplies-settings-pane-gtd .supply-sources-table td:last-child:not([colspan]) {
   width: auto;
   min-width: 56px;
   max-width: none;
@@ -6240,16 +6232,22 @@ body.sst-col-resizing * {
 #section-supplies-settings .supply-sources-table .sst-edit-actions {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-end;
   gap: 4px;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
 }
-#section-supplies-settings .supply-sources-table .sst-edit-actions .small-btn {
+#section-supplies-settings .supply-sources-table .sst-edit-actions .small-btn.icon-btn {
   flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
 }
 #supplies-settings-pane-sources .supply-sources-table {
   width: 100%;
   min-width: 720px;
+  max-width: none;
   table-layout: fixed;
 }
 #supplies-settings-pane-sources .supply-sources-table td:last-child {
@@ -8055,6 +8053,70 @@ tr.sst-edit-panel-row > td {
 .sst-edit-actions .sst-btn-save:hover {
   background: #dcfce7;
   border-color: #4ade80;
+}
+.sst-form-actions {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #e2e8f0;
+}
+.sst-form-actions .small {
+  margin-right: auto;
+}
+.sst-add-form.source-form {
+  margin-top: 16px;
+  padding: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+}
+.sst-add-form .sst-inline-edit {
+  border-top: none;
+  background: #fff;
+}
+.sst-add-form .sst-inline-edit-panel {
+  max-width: none;
+}
+.sst-add-vehicle-btn {
+  margin-top: 12px;
+}
+.driver-vehicle-block-head .sst-veh-remove {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  color: #b91c1c;
+  border-color: #fca5a5;
+  background: #fff;
+}
+.driver-vehicle-block-head .sst-veh-remove:hover {
+  background: #fef2f2;
+  border-color: #f87171;
+}
+.driver-public-link-box {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 720px;
+}
+.driver-public-link-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.driver-public-link-row input {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+#driverPublicLinkInfo {
+  color: #64748b;
+}
+.driver-vehicle-block .sst-edit-grid,
+.driver-vehicle-block .worker-form-grid {
+  margin: 0;
 }
 
 @media (max-width: 900px) {

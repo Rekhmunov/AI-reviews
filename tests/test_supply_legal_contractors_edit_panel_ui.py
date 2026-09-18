@@ -50,7 +50,22 @@ def test_edit_panel_styles_present() -> None:
         assert token in css
 
 
-def test_asset_cache_bumped() -> None:
+def test_driver_form_and_settings_tables_fit() -> None:
     html = HTML.read_text(encoding="utf-8")
-    assert "app.js?v=672" in html
-    assert "style.css?v=397" in html
+    js = JS.read_text(encoding="utf-8")
+    css = CSS.read_text(encoding="utf-8")
+    form = html.split('id="addDriverForm"', 1)[1].split('id="supplies-settings-pane-warehouses"', 1)[0]
+    assert "sst-edit-section" in form
+    assert 'id="newDriverLastName"' in form
+    assert 'id="newDriverVehiclesList"' in form
+    assert "driver-edit-panel" in js
+    assert 'table.style.width = "100%"' in js
+    apply = js[js.find("function _sstApplyWidths") : js.find("function _sstCollectWidths")]
+    assert 'col.style.width = `${pct}%`' in apply
+    settings_css = css.split("Supplies → Settings: tables fit", 1)[1].split("Date range calendar", 1)[0]
+    assert "min-width: 180px" not in settings_css
+    assert "position: sticky" not in settings_css
+    assert "width: max-content" not in settings_css
+    html = HTML.read_text(encoding="utf-8")
+    assert "app.js?v=673" in html
+    assert "style.css?v=398" in html

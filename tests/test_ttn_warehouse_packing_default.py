@@ -80,4 +80,4 @@ def test_ttn_prefill_and_cargo_use_warehouse_packing() -> None:
     )[0]
     assert "packing_type" in change
     assert "_ttnSetPackingValue" in change
-    assert "app.js?v=672" in HTML.read_text(encoding="utf-8")
+    assert "app.js?v=673" in HTML.read_text(encoding="utf-8")
