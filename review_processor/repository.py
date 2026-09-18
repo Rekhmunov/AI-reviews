@@ -14612,6 +14612,39 @@ class ReviewRepository:
             "updated_at": str(d.get("updated_at") or ""),
         }
 
+    def list_enabled_supply_balance_min_auto(self) -> list[dict[str, Any]]:
+        """Owners with the nightly switch on. One query, tables ensured once."""
+        with self._connect() as conn:
+            self._ensure_supply_balances_tables(conn)
+            rows = conn.execute(
+                self._sql(
+                    "SELECT user_id, days, last_applied_date "
+                    "FROM supply_balance_min_auto WHERE enabled = ?"
+                ),
+                (self._bool_db(True),),
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            d = self._row_to_dict(row)
+            try:
+                user_id = int(d.get("user_id") or 0)
+                days = int(d.get("days") or 14)
+            except (TypeError, ValueError):
+                continue
+            if user_id <= 0:
+                continue
+            if days < 1 or days > 366:
+                days = 14
+            out.append(
+                {
+                    "user_id": user_id,
+                    "enabled": True,
+                    "days": days,
+                    "last_applied_date": str(d.get("last_applied_date") or "").strip(),
+                }
+            )
+        return out
+
     def set_supply_balance_min_auto(
         self,
         *,
