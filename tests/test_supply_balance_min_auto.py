@@ -9,6 +9,7 @@ from review_processor.repository import ReviewRepository
 from review_processor.supply_balance_min_auto import (
     apply_min_qty_from_sales,
     clamp_min_auto_days,
+    run_due_min_auto,
     sales_window,
     save_min_auto_settings,
     sold_to_min_qty,
@@ -146,6 +147,42 @@ def test_enable_waits_for_next_midnight_and_off_keeps_mins() -> None:
     assert repo.written is None
     skipped = apply_min_qty_from_sales(repo, user_id=3, today_iso="2026-09-19")
     assert skipped["reason"] == "disabled"
+
+
+def test_nightly_job_skips_owners_already_done_today() -> None:
+    repo = _Repo()
+    repo.enabled_rows = [
+        {"user_id": 3, "days": 14, "last_applied_date": "2026-09-18"},
+        {"user_id": 4, "days": 7, "last_applied_date": "2026-09-17"},
+    ]
+    repo.settings_by_user = {
+        4: {"enabled": True, "days": 7, "last_applied_date": "2026-09-17"},
+    }
+
+    def _get(*, user_id):
+        return dict(repo.settings_by_user[user_id])
+
+    def _list_enabled():
+        return list(repo.enabled_rows)
+
+    repo.get_supply_balance_min_auto = _get  # type: ignore[method-assign]
+    repo.list_enabled_supply_balance_min_auto = _list_enabled  # type: ignore[method-assign]
+    called = {"users": False}
+
+    def _list_users(**kwargs):
+        called["users"] = True
+        return []
+
+    repo.list_users = _list_users  # type: ignore[method-assign]
+    applied = run_due_min_auto(repo, today_iso="2026-09-18")
+    assert applied == 1
+    assert called["users"] is False
+    assert repo.marked == "2026-09-18"
+    assert {(row["item_type"], row["item_id"]) for row in repo.written} == {
+        ("material", 10),
+        ("product", 20),
+        ("product", 21),
+    }
 
 
 def test_apply_sql_updates_min_qty_only() -> None:

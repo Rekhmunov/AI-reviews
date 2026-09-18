@@ -248,20 +248,25 @@ def save_min_auto_settings(
 
 
 def run_due_min_auto(repository: Any, *, today_iso: str | None = None) -> int:
-    """Apply for every owner whose switch is on and whose day is not done."""
+    """Apply only for owners whose switch is on and whose day is not done.
+
+    Does not walk every tenant. Owners who never enabled the switch are not read.
+    """
     today = str(today_iso or moscow_today())
     try:
-        users = repository.list_users(owner_only=True) or []
+        rows = repository.list_enabled_supply_balance_min_auto() or []
     except Exception as exc:
-        _log.warning("supply min-auto: list owners failed: %s", exc)
+        _log.warning("supply min-auto: list enabled failed: %s", exc)
         return 0
     applied = 0
-    for user in users:
+    for row in rows:
         try:
-            user_id = int(user.get("id") or 0)
+            user_id = int(row.get("user_id") or 0)
         except (TypeError, ValueError):
             continue
         if user_id <= 0:
+            continue
+        if _already_applied(str(row.get("last_applied_date") or ""), today):
             continue
         try:
             result = apply_min_qty_from_sales(
