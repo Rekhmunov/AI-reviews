@@ -141,8 +141,8 @@ def test_cache_bump_for_driver_modal() -> None:
     html = HTML.read_text(encoding="utf-8")
     css = CSS.read_text(encoding="utf-8")
     js = JS.read_text(encoding="utf-8")
-    assert "app.js?v=667" in html
-    assert "style.css?v=391" in html
+    assert "app.js?v=668" in html
+    assert "style.css?v=392" in html
     assert "#wbFbsDriverModal," in css or "#wbFbsDriverModal" in css
     assert "#wbFbsDriverModal," in css
     assert "z-index: 1450" in css

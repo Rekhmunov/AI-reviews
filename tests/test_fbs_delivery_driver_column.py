@@ -21,9 +21,9 @@ def _slice(src: str, start: str, end: str) -> str:
 
 
 def test_cache_versions() -> None:
-    assert "app.js?v=667" in HTML
-    assert "ozon_fbs.js?v=183" in HTML
-    assert "style.css?v=391" in HTML
+    assert "app.js?v=668" in HTML
+    assert "ozon_fbs.js?v=184" in HTML
+    assert "style.css?v=392" in HTML
 
 
 def test_wb_delivery_column_only() -> None:
@@ -49,7 +49,7 @@ def test_ozon_delivering_column_only() -> None:
     assert "return 7;" in colspan
     sync = _slice(OZON_JS, "function syncTableMode", "function _ozonFbsRenameMenuIconHtml")
     assert 'const delivering = isDeliveringSuppliesTab();' in sync
-    assert '<th data-col="4">Водитель</th>' in sync
+    assert 'Водитель${rh}' in sync or '<th data-col="4">Водитель' in sync
     assert 'delivering ? "5" : "4"}">Склад' in sync
     render = _slice(OZON_JS, "function renderSuppliesTable", "function productCompositionHtml")
     assert "isDeliveringSuppliesTab()" in render

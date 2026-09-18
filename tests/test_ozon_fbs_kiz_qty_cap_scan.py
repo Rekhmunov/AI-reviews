@@ -83,4 +83,4 @@ def test_filters_do_not_scope_dup_checks() -> None:
 
 
 def test_cache_bump() -> None:
-    assert "ozon_fbs.js?v=183" in HTML
+    assert "ozon_fbs.js?v=184" in HTML
