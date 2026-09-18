@@ -26455,6 +26455,7 @@ async function runWbFbsKizCirculationChz() {
 let _supplyGtdState = {
   items: [],
   kizQuery: "",
+  cabinetKiz: "",
   busy: false,
   editId: 0,
   deleteId: 0,
@@ -26536,6 +26537,38 @@ async function _supplyGtdPostForm(url, fd, errEl, btn, busyLabel) {
   return result;
 }
 
+function _supplyGtdRenderCabinetHit(hit) {
+  const box = document.getElementById("supplyGtdCabinetHit");
+  if (!box) return;
+  const kiz = String(hit?.kiz_short || "").trim();
+  _supplyGtdState.cabinetKiz = kiz;
+  _supplyGtdState.cabinetHit = kiz ? hit : null;
+  if (!kiz) {
+    box.hidden = true;
+    box.innerHTML = "";
+    return;
+  }
+  const kind = String(hit.cis_status_kind || "unchecked");
+  const label = String(hit.cis_status_label || "Не проверен");
+  const name = String(hit.product_name || "").trim();
+  const canReturn = kind === "withdrawn";
+  const action = canReturn ? "Ввести в оборот" : "Открыть в Работа с ЧЗ";
+  const hint = canReturn
+    ? "Код сохранён в базе. Можно вернуть его в оборот."
+    : "Код сохранён в базе. Откройте его в «Работа с ЧЗ», чтобы сменить статус.";
+  box.hidden = false;
+  box.innerHTML = `
+    <p class="supply-gtd-cabinet-hit-text">
+      <strong>База ЧЗ:</strong>
+      <code>${_supplyGtdEsc(kiz)}</code>
+      · <span class="wb-fbs-kiz-circ-cis-st is-${_supplyGtdEsc(kind)}">${_supplyGtdEsc(label)}</span>
+      ${name ? ` · ${_supplyGtdEsc(name)}` : ""}
+      <span class="small" style="display:block;margin-top:4px;color:#64748b">${_supplyGtdEsc(hint)}</span>
+    </p>
+    <button type="button" onclick="openSupplyChzCabinetFromSearch()">${_supplyGtdEsc(action)}</button>
+  `;
+}
+
 function renderSupplyGtdTable(items) {
   const tbody = document.getElementById("supplyGtdTbody");
   if (!tbody) return;
@@ -26587,21 +26620,35 @@ async function loadSupplyGtdList(kizQuery) {
     if (!res.ok) throw new Error(_supplyGtdDetailError(data, `Ошибка ${res.status}`));
     _supplyGtdState.items = Array.isArray(data.items) ? data.items : [];
     renderSupplyGtdTable(_supplyGtdState.items);
+    _supplyGtdRenderCabinetHit(data.cabinet_kiz);
     if (q) {
-      _supplyGtdSetSearchInfo(
-        data.kiz_resolved === false
-          ? "Не похоже на КИЗ — покажите полный код"
-          : (_supplyGtdState.items.length
-            ? `Найдено ГТД: ${_supplyGtdState.items.length}`
-            : "КИЗ в базе ГТД не найден"),
-        _supplyGtdState.items.length > 0
-      );
+      const inGtd = _supplyGtdState.items.length > 0;
+      const inCab = Boolean(data.cabinet_kiz && data.cabinet_kiz.kiz_short);
+      let info = "";
+      let ok = false;
+      if (data.kiz_resolved === false && !inCab) {
+        info = "Не похоже на КИЗ — покажите полный код";
+      } else if (inGtd && inCab) {
+        info = `Найдено ГТД: ${_supplyGtdState.items.length} · код есть в базе ЧЗ`;
+        ok = true;
+      } else if (inGtd) {
+        info = `Найдено ГТД: ${_supplyGtdState.items.length}`;
+        ok = true;
+      } else if (inCab) {
+        info = "В ГТД нет, код найден в базе ЧЗ";
+        ok = true;
+      } else {
+        info = "КИЗ не найден ни в ГТД, ни в базе ЧЗ";
+      }
+      _supplyGtdSetSearchInfo(info, ok);
       _supplyGtdSetInfo("");
     } else {
+      _supplyGtdRenderCabinetHit(null);
       _supplyGtdSetSearchInfo("");
       _supplyGtdSetInfo(`Загружено ГТД: ${_supplyGtdState.items.length}`, true);
     }
   } catch (e) {
+    _supplyGtdRenderCabinetHit(null);
     renderSupplyGtdTable([]);
     _supplyGtdSetInfo(String(e.message || e), false);
   }
@@ -27948,6 +27995,7 @@ const _supplyChzCabState = {
   selected: new Set(),
   kindFilter: "",
   search: "",
+  focusKiz: "",
   offset: 0,
   limit: 20000,
   hasMore: false,
@@ -28174,6 +28222,7 @@ async function _supplyChzCabFetch(reset) {
       limit: String(_supplyChzCabState.limit),
     });
     if (_supplyChzCabState.kindFilter) params.set("status_kind", _supplyChzCabState.kindFilter);
+    if (_supplyChzCabState.focusKiz) params.set("kiz", _supplyChzCabState.focusKiz);
     const res = await fetch(`/api/supply-chz/cabinet/kiz?${params}`, { headers: jsonHeaders() });
     const data = await res.json().catch(() => ({}));
     if (seq !== _supplyChzCabListSeq || _supplyChzCabState.busy) return;
@@ -28211,14 +28260,16 @@ function _supplyChzCabDefaultDates() {
   if (toEl && !toEl.value) toEl.value = fmt(to);
 }
 
-async function openSupplyChzCabinetModal() {
-  _supplyChzCabState.selected = new Set();
+async function openSupplyChzCabinetModal(focus) {
+  const focusKiz = typeof focus === "string" ? String(focus || "").trim() : "";
+  _supplyChzCabState.selected = focusKiz ? new Set([focusKiz]) : new Set();
   _supplyChzCabState.kindFilter = "";
-  _supplyChzCabState.search = "";
+  _supplyChzCabState.search = focusKiz;
+  _supplyChzCabState.focusKiz = focusKiz;
   _supplyChzCabState.hasMore = false;
   _supplyChzCabState.offset = 0;
   const search = document.getElementById("supplyChzCabSearch");
-  if (search) search.value = "";
+  if (search) search.value = focusKiz;
   document.querySelectorAll("#supplyChzCabStatusChips .wb-fbs-kiz-circ-chip").forEach((el) => {
     el.classList.toggle("is-active", (el.getAttribute("data-kind") || "") === "");
   });
@@ -28232,6 +28283,16 @@ async function openSupplyChzCabinetModal() {
   } catch (err) {
     alert(err?.message || String(err));
   }
+}
+
+function openSupplyChzCabinetFromSearch() {
+  const hit = _supplyGtdState.cabinetHit || {};
+  const ks = String(hit.kiz_short || _supplyGtdState.cabinetKiz || "").trim();
+  if (!ks) return;
+  const wantReturn = String(hit.cis_status_kind || "") === "withdrawn";
+  openSupplyChzCabinetModal(ks).then(() => {
+    if (wantReturn) runSupplyChzCabinetOp("return");
+  });
 }
 
 function closeSupplyChzCabinetModal() {
@@ -28275,6 +28336,7 @@ function onSupplyChzCabinetSearchInput() {
 function resetSupplyChzCabinetFilters() {
   _supplyChzCabState.kindFilter = "";
   _supplyChzCabState.search = "";
+  _supplyChzCabState.focusKiz = "";
   _supplyChzCabState.selected = new Set();
   const search = document.getElementById("supplyChzCabSearch");
   if (search) search.value = "";
@@ -28678,6 +28740,7 @@ async function runSupplyChzCabinetOp(op) {
 }
 
 window.openSupplyChzCabinetModal = openSupplyChzCabinetModal;
+window.openSupplyChzCabinetFromSearch = openSupplyChzCabinetFromSearch;
 window.closeSupplyChzCabinetModal = closeSupplyChzCabinetModal;
 window.refreshSupplyChzCabinetTable = refreshSupplyChzCabinetTable;
 window.loadMoreSupplyChzCabinet = loadMoreSupplyChzCabinet;
