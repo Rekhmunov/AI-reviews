@@ -685,6 +685,28 @@ class SupplyGtdChzSubmitRequest(BaseModel):
     documents: list[SupplyGtdChzSubmitDocument] = Field(default_factory=list)
 
 
+class SupplyChzCabinetExportRequest(BaseModel):
+    token: str = ""
+    date_from: str = ""
+    date_to: str = ""
+
+
+class SupplyChzCabinetCisStatusRequest(BaseModel):
+    token: str = ""
+    kiz_shorts: list[str] = Field(default_factory=list)
+
+
+class SupplyChzCabinetPrepareRequest(BaseModel):
+    op: str = ""
+    kiz_shorts: list[str] = Field(default_factory=list)
+
+
+class SupplyChzCabinetSubmitRequest(BaseModel):
+    token: str = ""
+    op: str = ""
+    documents: list[SupplyGtdChzSubmitDocument] = Field(default_factory=list)
+
+
 class ProductCategoryItemRequest(BaseModel):
     id: int | None = None
     name: str = ""
@@ -11915,6 +11937,129 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not run or int(run.get("gtd_id") or 0) != int(gtd_id):
             raise HTTPException(status_code=404, detail="Прогон не найден")
         return {"ok": True, "run": run}
+
+    # ── Настройки → Маркировка и ГТД → Работа с ЧЗ (весь кабинет) ─────────
+
+    @app.get("/api/supply-chz/cabinet/kiz")
+    def list_supply_chz_cabinet_kiz(
+        request: Request,
+        offset: int = 0,
+        limit: int = 20000,
+        status_kind: str | None = None,
+    ) -> dict[str, object]:
+        from . import supply_chz_cabinet as cab
+
+        user = _require_user(request)
+        if not _can_view_supply_gtd(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        return cab.list_cabinet_kiz(
+            repository,
+            user_id=_supply_owner_id(user),
+            offset=int(offset or 0),
+            limit=int(limit or 20000),
+            status_kind=str(status_kind or ""),
+        )
+
+    @app.post("/api/supply-chz/cabinet/export")
+    def supply_chz_cabinet_export(
+        request: Request, payload: SupplyChzCabinetExportRequest
+    ) -> dict[str, object]:
+        from . import supply_chz_cabinet as cab
+
+        user = _require_user(request)
+        if not _can_view_supply_gtd(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        try:
+            return cab.start_cabinet_export(
+                repository,
+                user_id=_supply_owner_id(user),
+                token=str(payload.token or ""),
+                date_from=str(payload.date_from or ""),
+                date_to=str(payload.date_to or ""),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/supply-chz/cabinet/runs/{run_id}")
+    def supply_chz_cabinet_run(request: Request, run_id: int) -> dict[str, object]:
+        from . import supply_chz_cabinet as cab
+
+        user = _require_user(request)
+        if not _can_view_supply_gtd(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        run = cab.get_run(
+            repository, user_id=_supply_owner_id(user), run_id=int(run_id)
+        )
+        if not run:
+            raise HTTPException(status_code=404, detail="Прогон не найден")
+        return {"ok": True, "run": run}
+
+    @app.post("/api/supply-chz/cabinet/cis-status")
+    def supply_chz_cabinet_cis_status(
+        request: Request, payload: SupplyChzCabinetCisStatusRequest
+    ) -> dict[str, object]:
+        from . import supply_chz_cabinet as cab
+
+        user = _require_user(request)
+        if not _can_view_supply_gtd(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        keys = [str(k).strip() for k in (payload.kiz_shorts or []) if str(k or "").strip()]
+        try:
+            return cab.refresh_cabinet_cis_statuses(
+                repository,
+                user_id=_supply_owner_id(user),
+                token=str(payload.token or ""),
+                kiz_shorts=keys or None,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/supply-chz/cabinet/prepare")
+    def supply_chz_cabinet_prepare(
+        request: Request, payload: SupplyChzCabinetPrepareRequest
+    ) -> dict[str, object]:
+        from . import supply_chz_cabinet as cab
+
+        user = _require_user(request)
+        if not _can_view_supply_gtd(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        keys = [str(k).strip() for k in (payload.kiz_shorts or []) if str(k or "").strip()]
+        try:
+            return cab.prepare_cabinet_documents(
+                repository,
+                user_id=_supply_owner_id(user),
+                op=str(payload.op or ""),
+                kiz_shorts=keys,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/supply-chz/cabinet/submit")
+    def supply_chz_cabinet_submit(
+        request: Request, payload: SupplyChzCabinetSubmitRequest
+    ) -> dict[str, object]:
+        from . import supply_chz_cabinet as cab
+
+        user = _require_user(request)
+        if not _can_view_supply_gtd(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        docs = [d.model_dump() for d in (payload.documents or [])]
+        try:
+            return cab.submit_cabinet_documents(
+                repository,
+                user_id=_supply_owner_id(user),
+                token=str(payload.token or ""),
+                op=str(payload.op or ""),
+                documents=docs,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # ── WB FBS → Честный знак: вывод / возврат КИЗ (new block) ─────────────
 

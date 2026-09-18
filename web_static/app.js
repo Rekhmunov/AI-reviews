@@ -27930,6 +27930,759 @@ window.closeSupplyGtdChzLogModal = closeSupplyGtdChzLogModal;
 window.runSupplyGtdChzCisStatus = runSupplyGtdChzCisStatus;
 window.runSupplyGtdChzOp = runSupplyGtdChzOp;
 
+const SUPPLY_CHZ_CAB_COL_WIDTHS_KEY = "supply_chz_cabinet_col_widths_v1";
+const SUPPLY_CHZ_CAB_DEFAULT_COL_WIDTHS = {
+  check: 44,
+  kiz: 160,
+  name: 220,
+  gtin: 140,
+  status: 140,
+  doc: 160,
+  error: 200,
+  updated: 140,
+};
+const SUPPLY_CHZ_CAB_STATUS_CHUNK = 200;
+
+const _supplyChzCabState = {
+  items: [],
+  selected: new Set(),
+  kindFilter: "",
+  search: "",
+  offset: 0,
+  limit: 20000,
+  hasMore: false,
+  total: 0,
+  busy: false,
+  lastLog: "",
+  lastRunId: 0,
+};
+
+function _supplyChzCabLoadColWidths() {
+  const defaults = { ...SUPPLY_CHZ_CAB_DEFAULT_COL_WIDTHS };
+  try {
+    const raw = JSON.parse(localStorage.getItem(SUPPLY_CHZ_CAB_COL_WIDTHS_KEY) || "null");
+    if (!raw || typeof raw !== "object") return defaults;
+    for (const [k, v] of Object.entries(raw)) {
+      const n = Number(v);
+      if (Number.isFinite(n) && n >= 40) defaults[k] = Math.round(n);
+    }
+  } catch (_e) { /* ignore */ }
+  return defaults;
+}
+
+function _supplyChzCabSaveColWidths(widths) {
+  try {
+    localStorage.setItem(SUPPLY_CHZ_CAB_COL_WIDTHS_KEY, JSON.stringify(widths));
+  } catch (_e) { /* ignore */ }
+}
+
+function _supplyChzCabApplyColWidths() {
+  const table = document.getElementById("supplyChzCabTable");
+  const colgroup = document.getElementById("supplyChzCabColgroup");
+  if (!table || !colgroup) return;
+  const widths = _supplyChzCabLoadColWidths();
+  let total = 0;
+  Array.from(colgroup.querySelectorAll("col")).forEach((col) => {
+    const key = col.getAttribute("data-col") || "";
+    const w = Number(widths[key] || SUPPLY_CHZ_CAB_DEFAULT_COL_WIDTHS[key] || 100);
+    col.style.width = `${w}px`;
+    total += w;
+  });
+  table.style.tableLayout = "fixed";
+  table.style.width = `${total}px`;
+  table.style.minWidth = `${total}px`;
+}
+
+let _supplyChzCabColResizeInited = false;
+function initSupplyChzCabinetColumnResizer() {
+  const table = document.getElementById("supplyChzCabTable");
+  if (!table) return;
+  _supplyChzCabApplyColWidths();
+  if (_supplyChzCabColResizeInited) return;
+  _supplyChzCabColResizeInited = true;
+  let dragging = null;
+  table.addEventListener("mousedown", (e) => {
+    const handle = e.target?.closest?.(".col-resize-handle");
+    if (!handle) return;
+    const th = handle.closest("th");
+    if (!th) return;
+    const key = th.getAttribute("data-col") || "";
+    if (!key || key === "check") return;
+    e.preventDefault();
+    const col = document.querySelector(`#supplyChzCabColgroup col[data-col="${CSS.escape(key)}"]`);
+    dragging = {
+      key,
+      startX: e.clientX,
+      startW: col ? (parseInt(col.style.width, 10) || th.offsetWidth || 100) : th.offsetWidth || 100,
+      col,
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.classList.add("is-col-resizing");
+  });
+  window.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    const next = Math.max(40, Math.round(dragging.startW + (e.clientX - dragging.startX)));
+    if (dragging.col) dragging.col.style.width = `${next}px`;
+    let total = 0;
+    document.querySelectorAll("#supplyChzCabColgroup col").forEach((col) => {
+      total += parseInt(col.style.width, 10) || 100;
+    });
+    table.style.width = `${total}px`;
+    table.style.minWidth = `${total}px`;
+  });
+  window.addEventListener("mouseup", () => {
+    if (!dragging) return;
+    const widths = _supplyChzCabLoadColWidths();
+    if (dragging.col) {
+      widths[dragging.key] = parseInt(dragging.col.style.width, 10) || widths[dragging.key];
+    }
+    _supplyChzCabSaveColWidths(widths);
+    dragging = null;
+    document.body.style.cursor = "";
+    document.body.classList.remove("is-col-resizing");
+  });
+}
+
+function _supplyChzCabVisibleItems() {
+  const q = String(_supplyChzCabState.search || "").trim().toLowerCase();
+  if (!q) return _supplyChzCabState.items;
+  return _supplyChzCabState.items.filter((it) => {
+    if (String(it.kiz_short || "").toLowerCase().includes(q)) return true;
+    if (String(it.gtin || "").toLowerCase().includes(q)) return true;
+    return _supplyGtdChzProductName(it).toLowerCase().includes(q);
+  });
+}
+
+function _supplyChzCabUpdateActionButtons() {
+  const byKey = new Map(_supplyChzCabState.items.map((it) => [it.kiz_short, it]));
+  let canWithdraw = false;
+  let canReturn = false;
+  for (const ks of _supplyChzCabState.selected) {
+    const it = byKey.get(ks);
+    if (_supplyGtdChzRowOpReady(it, "withdraw")) canWithdraw = true;
+    if (_supplyGtdChzRowOpReady(it, "return")) canReturn = true;
+  }
+  const wBtn = document.getElementById("supplyChzCabWithdrawBtn");
+  const rBtn = document.getElementById("supplyChzCabReturnBtn");
+  const exportBtn = document.getElementById("supplyChzCabExportBtn");
+  const statusBtn = document.getElementById("supplyChzCabStatusBtn");
+  if (wBtn) wBtn.disabled = _supplyChzCabState.busy || !canWithdraw;
+  if (rBtn) rBtn.disabled = _supplyChzCabState.busy || !canReturn;
+  if (exportBtn) exportBtn.disabled = _supplyChzCabState.busy;
+  if (statusBtn) statusBtn.disabled = _supplyChzCabState.busy;
+}
+
+function _supplyChzCabRenderMeta() {
+  const counts = document.getElementById("supplyChzCabCounts");
+  const sel = document.getElementById("supplyChzCabSelectedInfo");
+  const visible = _supplyChzCabVisibleItems();
+  if (counts) {
+    if (_supplyChzCabState.busy && !_supplyChzCabState.items.length) {
+      counts.textContent = "Загрузка…";
+    } else {
+      const total = _supplyChzCabState.total;
+      const shown = visible.length;
+      if (_supplyChzCabState.kindFilter || _supplyChzCabState.search) {
+        counts.textContent = `КИЗ: ${total} · показано ${shown}`;
+      } else if (shown && shown < total) {
+        counts.textContent = `КИЗ: ${total} · загружено ${shown}`;
+      } else {
+        counts.textContent = `КИЗ: ${total}`;
+      }
+    }
+  }
+  if (sel) {
+    sel.textContent = _supplyChzCabState.selected.size
+      ? `Выбрано: ${_supplyChzCabState.selected.size}`
+      : "";
+  }
+  const moreWrap = document.getElementById("supplyChzCabLoadMoreWrap");
+  const more = document.getElementById("supplyChzCabLoadMoreBtn");
+  const showMore = Boolean(_supplyChzCabState.hasMore) && !_supplyChzCabState.busy;
+  if (moreWrap) moreWrap.hidden = !showMore;
+  if (more) {
+    more.hidden = !showMore;
+    more.disabled = _supplyChzCabState.busy;
+  }
+  const all = document.getElementById("supplyChzCabSelectAll");
+  if (all) {
+    const visKeys = visible.map((it) => it.kiz_short).filter(Boolean);
+    all.checked = visKeys.length > 0
+      && visKeys.every((k) => _supplyChzCabState.selected.has(k));
+    all.indeterminate = !all.checked
+      && visKeys.some((k) => _supplyChzCabState.selected.has(k));
+  }
+  _supplyChzCabUpdateActionButtons();
+}
+
+function _supplyChzCabRenderTable() {
+  const tbody = document.getElementById("supplyChzCabTbody");
+  if (!tbody) return;
+  const items = _supplyChzCabVisibleItems();
+  if (!items.length) {
+    tbody.innerHTML = `<tr><td colspan="8" class="wb-fbs-empty">${
+      _supplyChzCabState.busy ? "Загрузка…" : "Нет КИЗ. Укажите даты и нажмите «Выгрузить коды маркировки»."
+    }</td></tr>`;
+    _supplyChzCabRenderMeta();
+    return;
+  }
+  const parts = new Array(items.length);
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    const ks = String(it.kiz_short || "");
+    const kind = String(it.cis_status_kind || "unchecked");
+    const label = String(it.cis_status_label || "Не проверен");
+    const checked = _supplyChzCabState.selected.has(ks) ? "checked" : "";
+    const productName = _supplyGtdChzProductName(it) || "—";
+    const doc = it.last_doc_id
+      ? `${_supplyGtdChzEsc(it.last_op_status || "—")} · ${_supplyGtdChzEsc(it.last_doc_id)}`
+      : "—";
+    const err = String(it.cis_status_error || it.last_op_error || "").trim() || "—";
+    const checkedAt = String(it.cis_checked_at || "").replace("T", " ").slice(0, 19) || "—";
+    parts[i] = `<tr data-kiz="${_supplyGtdChzEsc(ks)}">
+      <td><input type="checkbox" data-kiz="${_supplyGtdChzEsc(ks)}" ${checked}
+                 aria-label="Выбрать КИЗ"
+                 onchange="toggleSupplyChzCabinetRow(this.dataset.kiz, this.checked)" /></td>
+      <td><code style="font-size:12px">${_supplyGtdChzEsc(ks)}</code></td>
+      <td title="${_supplyGtdChzEsc(productName)}">${_supplyGtdChzEsc(productName)}</td>
+      <td>${_supplyGtdChzEsc(it.gtin || "—")}</td>
+      <td><span class="wb-fbs-kiz-circ-cis-st is-${_supplyGtdChzEsc(kind)}">${_supplyGtdChzEsc(label)}</span></td>
+      <td>${doc}</td>
+      <td title="${_supplyGtdChzEsc(err)}">${_supplyGtdChzEsc(err)}</td>
+      <td>${_supplyGtdChzEsc(checkedAt)}</td>
+    </tr>`;
+  }
+  tbody.innerHTML = parts.join("");
+  _supplyChzCabRenderMeta();
+}
+
+async function _supplyChzCabFetch(reset) {
+  if (_supplyChzCabState.busy) return;
+  if (reset) {
+    _supplyChzCabState.offset = 0;
+    _supplyChzCabState.items = [];
+  }
+  _supplyChzCabState.busy = true;
+  _supplyChzCabRenderMeta();
+  try {
+    const params = new URLSearchParams({
+      offset: String(_supplyChzCabState.offset),
+      limit: String(_supplyChzCabState.limit),
+    });
+    if (_supplyChzCabState.kindFilter) params.set("status_kind", _supplyChzCabState.kindFilter);
+    const res = await fetch(`/api/supply-chz/cabinet/kiz?${params}`, { headers: jsonHeaders() });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(_supplyGtdChzApiError(res, data, "Не удалось загрузить КИЗ"));
+    const batch = Array.isArray(data.items) ? data.items : [];
+    _supplyChzCabState.items = reset ? batch : _supplyChzCabState.items.concat(batch);
+    _supplyChzCabState.total = Number(data.total || 0);
+    _supplyChzCabState.hasMore = Boolean(data.has_more);
+    _supplyChzCabState.offset = _supplyChzCabState.items.length;
+    const alive = new Set(_supplyChzCabState.items.map((it) => it.kiz_short));
+    _supplyChzCabState.selected = new Set(
+      [..._supplyChzCabState.selected].filter((k) => alive.has(k)),
+    );
+    _supplyChzCabRenderTable();
+  } finally {
+    _supplyChzCabState.busy = false;
+    _supplyChzCabRenderMeta();
+  }
+}
+
+function _supplyChzCabDefaultDates() {
+  const to = new Date();
+  const from = new Date(to.getTime() - 24 * 60 * 60 * 1000);
+  const fmt = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+  const fromEl = document.getElementById("supplyChzCabDateFrom");
+  const toEl = document.getElementById("supplyChzCabDateTo");
+  if (fromEl && !fromEl.value) fromEl.value = fmt(from);
+  if (toEl && !toEl.value) toEl.value = fmt(to);
+}
+
+async function openSupplyChzCabinetModal() {
+  _supplyChzCabState.selected = new Set();
+  _supplyChzCabState.kindFilter = "";
+  _supplyChzCabState.search = "";
+  const search = document.getElementById("supplyChzCabSearch");
+  if (search) search.value = "";
+  document.querySelectorAll("#supplyChzCabStatusChips .wb-fbs-kiz-circ-chip").forEach((el) => {
+    el.classList.toggle("is-active", (el.getAttribute("data-kind") || "") === "");
+  });
+  _supplyChzCabDefaultDates();
+  const modal = document.getElementById("supplyChzCabinetModal");
+  if (modal) modal.classList.remove("hidden");
+  initSupplyChzCabinetColumnResizer();
+  try {
+    await _supplyGtdChzEnsureProductsCache();
+    await _supplyChzCabFetch(true);
+  } catch (err) {
+    alert(err?.message || String(err));
+  }
+}
+
+function closeSupplyChzCabinetModal() {
+  document.getElementById("supplyChzCabinetModal")?.classList.add("hidden");
+}
+
+async function refreshSupplyChzCabinetTable() {
+  if (_supplyChzCabState.busy) return;
+  try {
+    await _supplyChzCabFetch(true);
+  } catch (err) {
+    alert(err?.message || String(err));
+  }
+}
+
+async function loadMoreSupplyChzCabinet() {
+  if (_supplyChzCabState.busy || !_supplyChzCabState.hasMore) return;
+  try {
+    await _supplyChzCabFetch(false);
+  } catch (err) {
+    alert(err?.message || String(err));
+  }
+}
+
+function setSupplyChzCabinetKindFilter(kind) {
+  _supplyChzCabState.kindFilter = String(kind || "");
+  document.querySelectorAll("#supplyChzCabStatusChips .wb-fbs-kiz-circ-chip").forEach((el) => {
+    el.classList.toggle(
+      "is-active",
+      (el.getAttribute("data-kind") || "") === _supplyChzCabState.kindFilter,
+    );
+  });
+  refreshSupplyChzCabinetTable();
+}
+
+function onSupplyChzCabinetSearchInput() {
+  _supplyChzCabState.search = document.getElementById("supplyChzCabSearch")?.value || "";
+  _supplyChzCabRenderTable();
+}
+
+function resetSupplyChzCabinetFilters() {
+  _supplyChzCabState.kindFilter = "";
+  _supplyChzCabState.search = "";
+  _supplyChzCabState.selected = new Set();
+  const search = document.getElementById("supplyChzCabSearch");
+  if (search) search.value = "";
+  document.querySelectorAll("#supplyChzCabStatusChips .wb-fbs-kiz-circ-chip").forEach((el) => {
+    el.classList.toggle("is-active", (el.getAttribute("data-kind") || "") === "");
+  });
+  refreshSupplyChzCabinetTable();
+}
+
+function toggleSupplyChzCabinetSelectAll(checked) {
+  for (const it of _supplyChzCabVisibleItems()) {
+    const ks = String(it.kiz_short || "");
+    if (!ks) continue;
+    if (checked) _supplyChzCabState.selected.add(ks);
+    else _supplyChzCabState.selected.delete(ks);
+  }
+  _supplyChzCabRenderTable();
+}
+
+function toggleSupplyChzCabinetRow(kiz, checked) {
+  const ks = String(kiz || "");
+  if (!ks) return;
+  if (checked) _supplyChzCabState.selected.add(ks);
+  else _supplyChzCabState.selected.delete(ks);
+  _supplyChzCabRenderMeta();
+}
+
+function _supplyChzCabAppendLog(msg) {
+  const line = String(msg || "");
+  _supplyChzCabState.lastLog = _supplyChzCabState.lastLog
+    ? `${_supplyChzCabState.lastLog}\n${line}`
+    : line;
+  const body = document.getElementById("supplyChzCabLogBody");
+  if (body) {
+    body.textContent = _supplyChzCabState.lastLog || "";
+    body.scrollTop = body.scrollHeight;
+  }
+}
+
+function _supplyChzCabReplaceLog(text) {
+  _supplyChzCabState.lastLog = String(text || "");
+  const body = document.getElementById("supplyChzCabLogBody");
+  if (body) {
+    body.textContent = _supplyChzCabState.lastLog || "";
+    body.scrollTop = body.scrollHeight;
+  }
+}
+
+function _supplyChzCabEnsureLogOpen() {
+  document.getElementById("supplyChzCabLogModal")?.classList.remove("hidden");
+  const body = document.getElementById("supplyChzCabLogBody");
+  if (body) {
+    body.textContent = _supplyChzCabState.lastLog || "";
+    body.scrollTop = body.scrollHeight;
+  }
+}
+
+function _supplyChzCabSetProgress({
+  visible = true,
+  text = "",
+  done = 0,
+  total = 0,
+} = {}) {
+  const wrap = document.getElementById("supplyChzCabLogProgress");
+  const textEl = document.getElementById("supplyChzCabLogProgressText");
+  const bar = document.getElementById("supplyChzCabLogProgressBar");
+  if (!wrap || !textEl || !bar) return;
+  if (!visible) {
+    wrap.classList.add("hidden");
+    textEl.textContent = "—";
+    bar.style.width = "0%";
+    return;
+  }
+  wrap.classList.remove("hidden");
+  const tot = Math.max(0, Number(total) || 0);
+  const dn = Math.max(0, Number(done) || 0);
+  const pct = tot > 0 ? Math.min(100, Math.round((Math.min(dn, tot) / tot) * 100)) : 0;
+  textEl.textContent = text || "Идёт выгрузка…";
+  bar.style.width = `${pct}%`;
+}
+
+async function openSupplyChzCabinetLogModal() {
+  const body = document.getElementById("supplyChzCabLogBody");
+  document.getElementById("supplyChzCabLogModal")?.classList.remove("hidden");
+  if (body) body.textContent = _supplyChzCabState.lastLog || "Загрузка…";
+  const runId = _supplyChzCabState.lastRunId;
+  if (!runId) {
+    if (body) body.textContent = _supplyChzCabState.lastLog || "Лог пуст";
+    return;
+  }
+  try {
+    const res = await fetch(`/api/supply-chz/cabinet/runs/${runId}`, { headers: jsonHeaders() });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.run?.log_text) {
+      const serverLog = String(data.run.log_text);
+      const prefix = _supplyChzCabState.lastLog;
+      if (!prefix || !prefix.includes(serverLog)) {
+        _supplyChzCabReplaceLog(prefix ? `${prefix}\n——\n${serverLog}` : serverLog);
+      }
+    }
+  } catch (_err) { /* keep client log */ }
+  if (body) body.textContent = _supplyChzCabState.lastLog || "Лог пуст";
+}
+
+function closeSupplyChzCabinetLogModal() {
+  document.getElementById("supplyChzCabLogModal")?.classList.add("hidden");
+}
+
+async function _supplyChzCabWaitForRun(runId, { label = "Выгрузка", clientPrefix = "" } = {}) {
+  const id = Number(runId) || 0;
+  if (!id) throw new Error(`${label}: нет run_id`);
+  _supplyChzCabState.lastRunId = id;
+  const prefix = String(clientPrefix || "").trim();
+  let lastServerLog = "";
+  for (let i = 0; i < 1350; i++) {
+    await new Promise((r) => setTimeout(r, 2000));
+    const res = await fetch(`/api/supply-chz/cabinet/runs/${id}`, { headers: jsonHeaders() });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(_supplyGtdChzApiError(res, data, `${label}: ошибка статуса`));
+    const run = data.run || {};
+    const serverLog = String(run.log_text || "");
+    if (serverLog && serverLog !== lastServerLog) {
+      _supplyChzCabReplaceLog(prefix ? `${prefix}\n——\n${serverLog}` : serverLog);
+      lastServerLog = serverLog;
+      const lines = serverLog.split("\n").filter(Boolean);
+      const page = (serverLog.match(/Страница (\d+)/g) || []).length;
+      _supplyChzCabSetProgress({
+        visible: true,
+        text: lines[lines.length - 1] || "Идёт выгрузка…",
+        done: page || 1,
+        total: Math.max(page + 1, 2),
+      });
+    }
+    const st = String(run.status || "").trim();
+    if (st && st !== "running") return run;
+  }
+  throw new Error(`${label}: превышено время ожидания`);
+}
+
+function _supplyChzCabReadDates() {
+  const dateFrom = String(document.getElementById("supplyChzCabDateFrom")?.value || "").trim();
+  const dateTo = String(document.getElementById("supplyChzCabDateTo")?.value || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
+    throw new Error("Укажите даты «с» и «по»");
+  }
+  if (dateFrom > dateTo) throw new Error("Дата «с» позже даты «по»");
+  return { dateFrom, dateTo };
+}
+
+async function runSupplyChzCabinetExport() {
+  if (_supplyChzCabState.busy) return;
+  let dates;
+  try {
+    dates = _supplyChzCabReadDates();
+  } catch (err) {
+    alert(err?.message || String(err));
+    return;
+  }
+  _supplyChzCabState.busy = true;
+  _supplyChzCabUpdateActionButtons();
+  _supplyChzCabState.lastLog = "";
+  _supplyChzCabEnsureLogOpen();
+  _supplyChzCabSetProgress({
+    visible: true,
+    text: "Подготовка выгрузки…",
+    done: 0,
+    total: 1,
+  });
+  await _supplyGtdChzYieldUi();
+  try {
+    _supplyChzCabAppendLog(
+      `Выгрузка кодов ${dates.dateFrom}…${dates.dateTo}, все статусы`,
+    );
+    _supplyChzCabAppendLog("ЧЗ: авторизация УКЭП… (окно CryptoPro — не сворачивайте браузер)");
+    await _supplyGtdChzYieldUi();
+    const auth = await _chzObtainToken("");
+    if (!auth?.token) throw new Error("Токен ЧЗ не получен после подписи УКЭП");
+    _supplyChzCabAppendLog("Токен получен. Запрос списка кодов в фоне…");
+    const res = await fetch("/api/supply-chz/cabinet/export", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        token: auth.token,
+        date_from: dates.dateFrom,
+        date_to: dates.dateTo,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(_supplyGtdChzApiError(res, data, "Не удалось запустить выгрузку"));
+    if (data.log_text) _supplyChzCabAppendLog(String(data.log_text));
+    const run = await _supplyChzCabWaitForRun(data.run_id, {
+      label: "Выгрузка кодов",
+      clientPrefix: _supplyChzCabState.lastLog || "",
+    });
+    if (String(run.status || "") === "error") {
+      throw new Error(
+        (run.log_text || "").split("\n").filter(Boolean).slice(-1)[0]
+          || "Ошибка выгрузки кодов",
+      );
+    }
+    _supplyChzCabSetProgress({
+      visible: true,
+      text: `Готово: кодов ${Number(run.ok_count || 0)}, ошибок ${Number(run.err_count || 0)}`,
+      done: 1,
+      total: 1,
+    });
+    _supplyChzCabAppendLog(
+      `Готово: кодов ${Number(run.ok_count || 0)}, ошибок ${Number(run.err_count || 0)}`,
+    );
+  } catch (err) {
+    const msg = String(err?.message || err || "");
+    _supplyChzCabAppendLog(`Ошибка: ${msg}`);
+    _supplyChzCabSetProgress({ visible: true, text: `Ошибка: ${msg}`, done: 0, total: 1 });
+    alert(msg);
+  } finally {
+    _supplyChzCabState.busy = false;
+    _supplyChzCabUpdateActionButtons();
+  }
+  try {
+    await _supplyChzCabFetch(true);
+  } catch (err) {
+    _supplyChzCabAppendLog(`Обновление таблицы: ${err?.message || err}`);
+  }
+}
+
+async function _supplyChzCabCollectAllShorts() {
+  if (
+    !_supplyChzCabState.kindFilter
+    && !_supplyChzCabState.hasMore
+    && _supplyChzCabState.items.length
+  ) {
+    return _supplyChzCabState.items
+      .map((it) => String(it.kiz_short || "").trim())
+      .filter(Boolean);
+  }
+  const out = [];
+  let offset = 0;
+  for (let page = 0; page < 50; page++) {
+    const params = new URLSearchParams({ offset: String(offset), limit: "20000" });
+    const res = await fetch(`/api/supply-chz/cabinet/kiz?${params}`, { headers: jsonHeaders() });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(_supplyGtdChzApiError(res, data, "Не удалось собрать КИЗ"));
+    const batch = Array.isArray(data.items) ? data.items : [];
+    for (const it of batch) {
+      const ks = String(it.kiz_short || "").trim();
+      if (ks) out.push(ks);
+    }
+    if (!data.has_more || !batch.length) break;
+    offset += batch.length;
+  }
+  return out;
+}
+
+async function runSupplyChzCabinetCisStatus() {
+  if (_supplyChzCabState.busy) return;
+  const selected = [..._supplyChzCabState.selected];
+  _supplyChzCabState.busy = true;
+  _supplyChzCabUpdateActionButtons();
+  _supplyChzCabEnsureLogOpen();
+  _supplyChzCabSetProgress({ visible: true, text: "Подготовка…", done: 0, total: 0 });
+  await _supplyGtdChzYieldUi();
+  try {
+    _supplyChzCabAppendLog(
+      selected.length
+        ? `Статусы ЧЗ: выбранных ${selected.length}`
+        : "Статусы ЧЗ: все выгруженные коды (чанками)",
+    );
+    _supplyChzCabAppendLog("ЧЗ: авторизация УКЭП…");
+    await _supplyGtdChzYieldUi();
+    const auth = await _chzObtainToken("");
+    if (!auth?.token) throw new Error("Токен ЧЗ не получен после подписи УКЭП");
+    let codes = selected;
+    if (!codes.length) {
+      _supplyChzCabAppendLog("Собираю список КИЗ…");
+      codes = await _supplyChzCabCollectAllShorts();
+    }
+    if (!codes.length) throw new Error("Нет КИЗ для проверки. Сначала выгрузите коды.");
+    const chunkSize = SUPPLY_CHZ_CAB_STATUS_CHUNK;
+    const totalChunks = Math.max(1, Math.ceil(codes.length / chunkSize));
+    let found = 0;
+    let errors = 0;
+    let processed = 0;
+    for (let i = 0; i < codes.length; i += chunkSize) {
+      const part = codes.slice(i, i + chunkSize);
+      const n = Math.floor(i / chunkSize) + 1;
+      _supplyChzCabSetProgress({
+        visible: true,
+        done: processed,
+        total: codes.length,
+        text: `Чанк ${n}/${totalChunks} · запрос ${part.length} КИЗ…`,
+      });
+      _supplyChzCabAppendLog(`Чанк ${n}/${totalChunks}: запрос ${part.length} КИЗ…`);
+      await _supplyGtdChzYieldUi();
+      const res = await fetch("/api/supply-chz/cabinet/cis-status", {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ token: auth.token, kiz_shorts: part }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(_supplyGtdChzApiError(res, data, "Ошибка статусов"));
+      _supplyChzCabState.lastRunId = Number(data.run_id || 0);
+      found += Number(data.found || 0);
+      errors += Number(data.errors || 0);
+      processed += part.length;
+      _supplyChzCabSetProgress({
+        visible: true,
+        done: processed,
+        total: codes.length,
+        text: `Чанк ${n}/${totalChunks} · найдено ${found}, ошибок ${errors}`,
+      });
+      _supplyChzCabAppendLog(
+        `Чанк ${n}/${totalChunks}: готово · найдено +${data.found || 0}, ошибок +${data.errors || 0}`,
+      );
+    }
+    _supplyChzCabAppendLog(`Готово: найдено ${found}, ошибок ${errors}`);
+  } catch (err) {
+    const msg = String(err?.message || err || "");
+    _supplyChzCabAppendLog(`Ошибка: ${msg}`);
+    _supplyChzCabSetProgress({ visible: true, text: `Ошибка: ${msg}` });
+    alert(msg);
+  } finally {
+    _supplyChzCabState.busy = false;
+    _supplyChzCabUpdateActionButtons();
+  }
+  try {
+    await _supplyChzCabFetch(true);
+  } catch (err) {
+    _supplyChzCabAppendLog(`Обновление таблицы: ${err?.message || err}`);
+  }
+}
+
+async function runSupplyChzCabinetOp(op) {
+  const selected = [..._supplyChzCabState.selected];
+  if (_supplyChzCabState.busy) return;
+  if (!selected.length) {
+    alert("Выберите КИЗ");
+    return;
+  }
+  const opLabel = op === "withdraw" ? "Вывод из оборота" : "Ввод в оборот";
+  _supplyChzCabState.busy = true;
+  _supplyChzCabUpdateActionButtons();
+  _supplyChzCabEnsureLogOpen();
+  try {
+    _supplyChzCabAppendLog(`${opLabel}: подготовка (${selected.length} КИЗ)…`);
+    const prepRes = await fetch("/api/supply-chz/cabinet/prepare", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ op, kiz_shorts: selected }),
+    });
+    const prep = await prepRes.json().catch(() => ({}));
+    if (!prepRes.ok) throw new Error(_supplyGtdChzApiError(prepRes, prep, "Ошибка prepare"));
+    for (const s of prep.skipped || []) {
+      _supplyChzCabAppendLog(`Пропуск ${s.kiz_short}: ${s.reason}`);
+    }
+    const docs = Array.isArray(prep.documents) ? prep.documents : [];
+    if (!docs.length) throw new Error("Нет документов для передачи в ЧЗ");
+    _supplyChzCabAppendLog(`К передаче: ${docs.length} док., eligible ${prep.eligible || 0}`);
+    _supplyChzCabAppendLog("ЧЗ: авторизация УКЭП…");
+    const preferred = prep.settings?.cert_thumbprint || "";
+    const auth = await _chzObtainToken(preferred);
+    const signed = [];
+    for (let i = 0; i < docs.length; i++) {
+      const doc = docs[i];
+      const payloadB64 = String(doc.sign_payload_b64 || "");
+      if (!payloadB64) throw new Error(`Нет payload для ${doc.title || doc.doc_type}`);
+      _supplyChzCabAppendLog(`Подпись ${i + 1}/${docs.length}: ${doc.title || doc.doc_type}`);
+      const sigB64 = await _signDetachedCadesBes(_b64ToBytes(payloadB64), auth.thumbprint);
+      signed.push({
+        doc_type: doc.doc_type,
+        product_group: doc.product_group || "",
+        title: doc.title || "",
+        kiz_shorts: doc.kiz_shorts || [],
+        product_document_b64: payloadB64,
+        sign_payload_b64: payloadB64,
+        signature_base64: sigB64,
+      });
+    }
+    _supplyChzCabAppendLog("Отправка в True API…");
+    const subRes = await fetch("/api/supply-chz/cabinet/submit", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ token: auth.token, op, documents: signed }),
+    });
+    const sub = await subRes.json().catch(() => ({}));
+    if (!subRes.ok) throw new Error(_supplyGtdChzApiError(subRes, sub, "Ошибка submit"));
+    if (sub.log_text) _supplyChzCabAppendLog(sub.log_text);
+    _supplyChzCabState.lastRunId = Number(sub.run_id || 0);
+    _supplyChzCabAppendLog(`Итого: отправлено ${sub.submitted || 0}, ошибок ${sub.failed || 0}`);
+  } catch (err) {
+    _supplyChzCabAppendLog(`Ошибка: ${err?.message || err}`);
+    alert(err?.message || String(err));
+  } finally {
+    _supplyChzCabState.busy = false;
+    _supplyChzCabUpdateActionButtons();
+  }
+  try {
+    await _supplyChzCabFetch(true);
+  } catch (err) {
+    _supplyChzCabAppendLog(`Обновление таблицы: ${err?.message || err}`);
+  }
+}
+
+window.openSupplyChzCabinetModal = openSupplyChzCabinetModal;
+window.closeSupplyChzCabinetModal = closeSupplyChzCabinetModal;
+window.refreshSupplyChzCabinetTable = refreshSupplyChzCabinetTable;
+window.loadMoreSupplyChzCabinet = loadMoreSupplyChzCabinet;
+window.setSupplyChzCabinetKindFilter = setSupplyChzCabinetKindFilter;
+window.onSupplyChzCabinetSearchInput = onSupplyChzCabinetSearchInput;
+window.resetSupplyChzCabinetFilters = resetSupplyChzCabinetFilters;
+window.toggleSupplyChzCabinetSelectAll = toggleSupplyChzCabinetSelectAll;
+window.toggleSupplyChzCabinetRow = toggleSupplyChzCabinetRow;
+window.openSupplyChzCabinetLogModal = openSupplyChzCabinetLogModal;
+window.closeSupplyChzCabinetLogModal = closeSupplyChzCabinetLogModal;
+window.runSupplyChzCabinetExport = runSupplyChzCabinetExport;
+window.runSupplyChzCabinetCisStatus = runSupplyChzCabinetCisStatus;
+window.runSupplyChzCabinetOp = runSupplyChzCabinetOp;
+
 window.loadSupplyChzSettings = loadSupplyChzSettings;
 window.saveSupplyChzSettings = saveSupplyChzSettings;
 window.clearSupplyChzWbAnalyticsKey = clearSupplyChzWbAnalyticsKey;

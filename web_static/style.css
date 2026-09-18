@@ -17092,6 +17092,78 @@ button.wb-fbs-kiz-add:disabled {
   }
 }
 
+/* Кабинет ЧЗ: тот же размер, что у модалки «Работа с ЧЗ» по ГТД */
+#supplyChzCabinetModal.modal-overlay {
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 12px 8px;
+}
+#supplyChzCabinetModal .supply-gtd-chz-modal.modal-card,
+#supplyChzCabinetModal .supply-gtd-chz-modal {
+  width: min(1120px, calc(100vw - 16px));
+  max-width: min(1120px, calc(100vw - 16px));
+  height: calc(100vh - 24px);
+  height: calc(100dvh - 24px);
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
+  margin: 0 auto;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden !important;
+}
+#supplyChzCabinetModal .wb-fbs-kiz-circ-header {
+  flex: 0 0 auto;
+  min-height: auto;
+  max-height: none;
+  overflow: visible;
+}
+#supplyChzCabinetModal .wb-fbs-kiz-circ-body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+#supplyChzCabinetModal .wb-fbs-kiz-circ-table-wrap,
+#supplyChzCabinetModal .table-wrap.wb-fbs-kiz-circ-table-wrap {
+  flex: 1 1 0;
+  min-height: 0 !important;
+  overflow-x: auto !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+#supplyChzCabinetModal .wb-fbs-kiz-circ-load-more-wrap {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 12px 16px 16px;
+  border-top: 1px solid #e2e8f0;
+  background: #fff;
+}
+#supplyChzCabinetModal .wb-fbs-kiz-circ-load-more-wrap[hidden] {
+  display: none !important;
+}
+#supplyChzCabinetModal .wb-fbs-kiz-circ-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+@media (max-width: 900px) {
+  #supplyChzCabinetModal .supply-gtd-chz-modal {
+    width: 100%;
+    max-width: 100%;
+    height: calc(100vh - 16px);
+    height: calc(100dvh - 16px);
+    max-height: calc(100vh - 16px);
+    max-height: calc(100dvh - 16px);
+  }
+}
+
 .wb-fbs-kiz-circ-cis-err {
   margin-top: 4px;
   font-size: 12px;
@@ -18283,6 +18355,8 @@ button.wb-fbs-kiz-add:disabled {
   #ozonFbsMoveAwaitingModal,
   #supplyGtdChzModal,
   #supplyGtdChzLogModal,
+  #supplyChzCabinetModal,
+  #supplyChzCabLogModal,
   #supplyStockAsOfModal,
   #supplyStockMovementsModal,
   #supplyBalancesVisibilityModal,
@@ -18346,7 +18420,10 @@ button.wb-fbs-kiz-add:disabled {
   #ozonFbsMoveAwaitingModal > .modal-card,
   #supplyGtdChzModal > .modal-card,
   #supplyGtdChzModal > .supply-gtd-chz-modal,
-  #supplyGtdChzLogModal > .modal-card {
+  #supplyGtdChzLogModal > .modal-card,
+  #supplyChzCabinetModal > .modal-card,
+  #supplyChzCabinetModal > .supply-gtd-chz-modal,
+  #supplyChzCabLogModal > .modal-card {
     width: 100% !important;
     max-width: 100% !important;
     height: 100dvh !important;
@@ -18356,23 +18433,28 @@ button.wb-fbs-kiz-add:disabled {
   }
 
   /* Full-height sheet: шапка фиксирована, скролл только у таблицы */
-  #supplyGtdChzModal.modal-overlay {
+  #supplyGtdChzModal.modal-overlay,
+  #supplyChzCabinetModal.modal-overlay {
     padding: 0 !important;
     overflow: hidden !important;
   }
-  #supplyGtdChzModal .supply-gtd-chz-modal .wb-fbs-kiz-circ-header {
+  #supplyGtdChzModal .supply-gtd-chz-modal .wb-fbs-kiz-circ-header,
+  #supplyChzCabinetModal .supply-gtd-chz-modal .wb-fbs-kiz-circ-header {
     flex: 0 0 auto;
     max-height: none;
     overflow: visible;
   }
   #supplyGtdChzModal .supply-gtd-chz-modal .wb-fbs-kiz-circ-table-wrap,
-  #supplyGtdChzModal .table-wrap.wb-fbs-kiz-circ-table-wrap {
+  #supplyGtdChzModal .table-wrap.wb-fbs-kiz-circ-table-wrap,
+  #supplyChzCabinetModal .supply-gtd-chz-modal .wb-fbs-kiz-circ-table-wrap,
+  #supplyChzCabinetModal .table-wrap.wb-fbs-kiz-circ-table-wrap {
     min-height: 0 !important;
     flex: 1 1 0;
     overflow-x: auto !important;
     overflow-y: auto !important;
   }
-  #supplyGtdChzModal .supply-gtd-chz-modal .wb-fbs-kiz-circ-load-more-wrap {
+  #supplyGtdChzModal .supply-gtd-chz-modal .wb-fbs-kiz-circ-load-more-wrap,
+  #supplyChzCabinetModal .supply-gtd-chz-modal .wb-fbs-kiz-circ-load-more-wrap {
     flex: 0 0 auto;
   }
 
