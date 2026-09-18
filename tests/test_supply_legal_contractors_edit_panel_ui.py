@@ -62,10 +62,12 @@ def test_driver_form_and_settings_tables_fit() -> None:
     assert 'table.style.width = "100%"' in js
     apply = js[js.find("function _sstApplyWidths") : js.find("function _sstCollectWidths")]
     assert 'col.style.width = `${pct}%`' in apply
+    assert "supplyGtdThead" in apply
+    assert "220" in apply
     settings_css = css.split("Supplies → Settings: tables fit", 1)[1].split("Date range calendar", 1)[0]
     assert "min-width: 180px" not in settings_css
     assert "position: sticky" not in settings_css
     assert "width: max-content" not in settings_css
     html = HTML.read_text(encoding="utf-8")
-    assert "app.js?v=673" in html
-    assert "style.css?v=398" in html
+    assert "app.js?v=674" in html
+    assert "style.css?v=399" in html

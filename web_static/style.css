@@ -6211,10 +6211,17 @@ body.sst-col-resizing * {
   min-width: 56px;
   max-width: none;
   white-space: normal !important;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  overflow: visible;
+  overflow-wrap: normal;
+  word-break: normal;
   vertical-align: middle;
+}
+#section-supplies-settings #supplies-settings-pane-gtd .supply-sources-table .sst-edit-actions .small-btn:not(.icon-btn) {
+  white-space: nowrap;
+  width: auto;
+  height: auto;
+  min-height: 32px;
+  padding: 6px 10px;
 }
 #section-supplies-settings #supplies-settings-pane-gtd .supply-sources-table .sst-edit-actions {
   flex-wrap: wrap;
