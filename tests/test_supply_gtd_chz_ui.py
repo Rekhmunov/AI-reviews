@@ -92,4 +92,4 @@ def test_gtd_chz_search_covers_name_and_gtin() -> None:
 
 
 def test_asset_version_bumped() -> None:
-    assert "app.js?v=668" in APP_HTML
+    assert "app.js?v=669" in APP_HTML
