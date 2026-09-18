@@ -11655,11 +11655,23 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         user = _require_user(request)
         if not _can_view_supply_gtd(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
-        return gtd_mod.list_gtd_documents(
+        out = gtd_mod.list_gtd_documents(
             repository,
             user_id=_supply_owner_id(user),
             kiz_scan=kiz,
         )
+        scan = str(kiz or "").strip()
+        if scan:
+            from . import supply_chz_cabinet as cab
+
+            out["cabinet_kiz"] = cab.lookup_cabinet_kiz(
+                repository,
+                user_id=_supply_owner_id(user),
+                kiz_scan=scan,
+            )
+        else:
+            out["cabinet_kiz"] = None
+        return out
 
     @app.get("/api/supply-gtd/lookup")
     def lookup_supply_gtd_by_kiz(request: Request, kiz: str) -> dict[str, object]:
@@ -11946,6 +11958,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         offset: int = 0,
         limit: int = 20000,
         status_kind: str | None = None,
+        kiz: str | None = None,
     ) -> dict[str, object]:
         from . import supply_chz_cabinet as cab
 
@@ -11958,6 +11971,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             offset=int(offset or 0),
             limit=int(limit or 20000),
             status_kind=str(status_kind or ""),
+            kiz=str(kiz or ""),
         )
 
     @app.post("/api/supply-chz/cabinet/export")

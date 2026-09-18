@@ -110,5 +110,10 @@ def test_cabinet_modal_matches_gtd_chz_size_and_tools() -> None:
     assert "/api/supply-chz/cabinet/export" in APP_JS
     assert "function resetSupplyChzCabinetFilters" in APP_JS
     assert "Выбрано:" in APP_JS
-    assert "app.js?v=665" in APP_HTML
-    assert "style.css?v=389" in APP_HTML
+    assert "def lookup_cabinet_kiz" in (ROOT / "review_processor" / "supply_chz_cabinet.py").read_text(encoding="utf-8")
+    assert "cabinet_kiz" in WEB
+    assert 'id="supplyGtdCabinetHit"' in APP_HTML
+    assert "openSupplyChzCabinetFromSearch" in APP_JS
+    assert "Ввести в оборот" in APP_JS
+    assert "app.js?v=666" in APP_HTML
+    assert "style.css?v=390" in APP_HTML

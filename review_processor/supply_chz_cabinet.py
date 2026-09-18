@@ -447,6 +447,7 @@ def list_cabinet_kiz(
     offset: int = 0,
     limit: int = 20000,
     status_kind: str = "",
+    kiz: str = "",
 ) -> dict[str, Any]:
     ensure_supply_chz_cabinet_tables(repo)
     name_by_gtin = gtd_chz._load_product_name_by_gtin(repo, user_id=user_id)
@@ -459,6 +460,10 @@ def list_cabinet_kiz(
     )
     where = "WHERE user_id = ?"
     params: list[Any] = [user_id]
+    kiz_exact = str(kiz or "").strip()
+    if kiz_exact:
+        where += " AND kiz_short = ?"
+        params.append(kiz_exact[:200])
     filter_sql = ""
     if kind_filter:
         filter_sql = f" AND ({kind_expr}) = ?"
@@ -561,6 +566,40 @@ def list_cabinet_kiz(
         "kind_counts": kind_counts,
         "items": items,
     }
+
+
+def lookup_cabinet_kiz(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    kiz_scan: str,
+) -> dict[str, Any] | None:
+    """Find one stored cabinet code by a scanned or pasted КИЗ.
+
+    Tries the normalized short code first, then the raw scan, so a code
+    saved from ``/cises/search`` is found later from Маркировка и ГТД.
+    """
+    scan = str(kiz_scan or "").strip()
+    if not scan:
+        return None
+    keys: list[str] = []
+    short = gtd_mod.kiz_short_from_raw(scan)
+    if short:
+        keys.append(short)
+    compact = "".join(scan.split())
+    head = compact.split("\x1d", 1)[0].split("\u001d", 1)[0]
+    for candidate in (scan, compact, head):
+        text = str(candidate or "").strip()[:200]
+        if text and text not in keys:
+            keys.append(text)
+    for key in keys:
+        found = list_cabinet_kiz(
+            repo, user_id=user_id, offset=0, limit=1, status_kind="", kiz=key
+        )
+        items = found.get("items") or []
+        if items:
+            return items[0]
+    return None
 
 
 def _load_codes(
