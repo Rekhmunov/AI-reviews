@@ -2289,6 +2289,11 @@ def _list_supplies_tab_response(
     items = _build_supply_items_for_tab(
         repo, user_id=user_id, source_id=source_id, tab=tab
     )
+    # Driver column is only on «Доставляются», not «Ожидают отгрузки».
+    if str(tab or "").strip() == oz.TAB_DELIVERING and items:
+        _attach_supply_drivers_to_items(
+            repo, user_id=user_id, source_id=source_id, items=items
+        )
     # TTN + GM row tones on delivery-stage supply tabs.
     if tab in {oz.TAB_AWAITING_DELIVER, oz.TAB_DELIVERING} and items:
         ttn_map = repo.map_ttn_ids_for_fbs_supplies(
@@ -2977,6 +2982,70 @@ def get_supply_driver(
         "vehicle_number": plate,
         "has_driver": did > 0 and bool(name),
     }
+
+
+def _attach_supply_drivers_to_items(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    items: list[dict[str, Any]],
+) -> None:
+    """Fill driver fields on «Доставляются» rows from ``ozon_fbs_supply_driver``.
+
+    One query for the page. Missing rows stay unassigned (``has_driver`` false).
+    """
+    try:
+        src = int(source_id or 0)
+    except (TypeError, ValueError):
+        src = 0
+    supply_ids: list[str] = []
+    for it in items:
+        it["driver_id"] = 0
+        it["driver_name"] = ""
+        it["vehicle_number"] = ""
+        it["has_driver"] = False
+        it["source_id"] = src
+        sid = str(it.get("supply_id") or "").strip()
+        if sid:
+            supply_ids.append(sid)
+    if src <= 0 or not supply_ids:
+        return
+    unique_ids = sorted(set(supply_ids))
+    placeholders = ", ".join("?" for _ in unique_ids)
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT source_id, supply_id, driver_id, driver_name, vehicle_number
+                FROM ozon_fbs_supply_driver
+                WHERE user_id = ? AND source_id = ? AND supply_id IN ({placeholders})
+                """
+            ),
+            tuple([int(user_id), src, *unique_ids]),
+        ).fetchall()
+    by_sid: dict[str, dict[str, Any]] = {}
+    for row in rows or []:
+        d = repo._row_to_dict(row)
+        if not isinstance(d, dict):
+            continue
+        sid = str(d.get("supply_id") or "").strip()
+        if sid:
+            by_sid[sid] = d
+    for it in items:
+        sid = str(it.get("supply_id") or "").strip()
+        d = by_sid.get(sid)
+        if not d:
+            continue
+        try:
+            did = int(d.get("driver_id") or 0)
+        except (TypeError, ValueError):
+            did = 0
+        name = str(d.get("driver_name") or "").strip()
+        it["driver_id"] = did
+        it["driver_name"] = name
+        it["vehicle_number"] = str(d.get("vehicle_number") or "").strip()
+        it["has_driver"] = did > 0 and bool(name)
 
 
 def get_supply_driver_payload(

@@ -1375,6 +1375,74 @@ def get_supply_driver(
     }
 
 
+def _attach_supply_drivers_to_items(
+    repo: ReviewRepository, *, user_id: int, items: list[dict[str, Any]]
+) -> None:
+    """Fill driver fields on delivery supply rows from ``wb_fbs_supply_driver``.
+
+    One query for the page. Missing rows stay unassigned (``has_driver`` false).
+    """
+    for it in items:
+        it["driver_id"] = 0
+        it["driver_name"] = ""
+        it["vehicle_number"] = ""
+        it["has_driver"] = False
+    pairs: list[tuple[int, str]] = []
+    for it in items:
+        sid = str(it.get("supply_id") or "").strip()
+        try:
+            src = int(it.get("source_id") or 0)
+        except (TypeError, ValueError):
+            src = 0
+        if sid and src > 0:
+            pairs.append((src, sid))
+    if not pairs:
+        return
+    supply_ids = sorted({sid for _, sid in pairs})
+    placeholders = ", ".join("?" for _ in supply_ids)
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT source_id, supply_id, driver_id, driver_name, vehicle_number
+                FROM wb_fbs_supply_driver
+                WHERE user_id = ? AND supply_id IN ({placeholders})
+                """
+            ),
+            tuple([int(user_id), *supply_ids]),
+        ).fetchall()
+    by_key: dict[tuple[int, str], dict[str, Any]] = {}
+    for row in rows or []:
+        d = repo._row_to_dict(row)
+        if not isinstance(d, dict):
+            continue
+        sid = str(d.get("supply_id") or "").strip()
+        try:
+            src = int(d.get("source_id") or 0)
+        except (TypeError, ValueError):
+            src = 0
+        if sid and src > 0:
+            by_key[(src, sid)] = d
+    for it in items:
+        sid = str(it.get("supply_id") or "").strip()
+        try:
+            src = int(it.get("source_id") or 0)
+        except (TypeError, ValueError):
+            src = 0
+        d = by_key.get((src, sid))
+        if not d:
+            continue
+        try:
+            did = int(d.get("driver_id") or 0)
+        except (TypeError, ValueError):
+            did = 0
+        name = str(d.get("driver_name") or "").strip()
+        it["driver_id"] = did
+        it["driver_name"] = name
+        it["vehicle_number"] = str(d.get("vehicle_number") or "").strip()
+        it["has_driver"] = did > 0 and bool(name)
+
+
 def get_supply_driver_payload(
     repo: ReviewRepository, *, user_id: int, source_id: int, supply_id: str
 ) -> dict[str, Any]:
@@ -4300,6 +4368,7 @@ def _list_supplies_for_orders_tab(
         )
 
     if tab_key == TAB_DELIVERY and items:
+        _attach_supply_drivers_to_items(repo, user_id=user_id, items=items)
         from .ozon_fbs_supplies import resolve_fbs_supply_row_tone
 
         ttn_map = repo.map_ttn_ids_for_fbs_supplies(
