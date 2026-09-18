@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=397" />
+  <link rel="stylesheet" href="/static/style.css?v=398" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -4936,135 +4936,147 @@
               <h4 class="no-margin">Водители</h4>
               <button onclick="toggleAddDriverForm(true)">+ Добавить водителя</button>
             </div>
-            <div id="driverPublicLinkBox" class="driver-public-link-box" style="margin-top:12px">
-              <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
-                <input id="driverPublicLinkInput" type="text" readonly style="flex:1;min-width:220px" value="" placeholder="Загрузка ссылки…" />
+            <div id="driverPublicLinkBox" class="driver-public-link-box">
+              <label class="wfg-label" for="driverPublicLinkInput">Ссылка для страницы водителя</label>
+              <div class="driver-public-link-row">
+                <input id="driverPublicLinkInput" type="text" readonly value="" placeholder="Загрузка ссылки…" />
                 <button type="button" class="secondary" onclick="copyDriverPublicLink()">Копировать</button>
               </div>
-              <div id="driverPublicLinkInfo" class="small" style="margin-top:6px;color:#64748b"></div>
+              <div id="driverPublicLinkInfo" class="small"></div>
             </div>
-            <div id="addDriverForm" class="source-form hidden" style="margin-top:12px">
-              <div class="worker-form-grid">
-                <div class="wfg-field">
-                  <label class="wfg-label" for="newDriverLastName">Фамилия</label>
-                  <input id="newDriverLastName" type="text" placeholder="Иванов" autocomplete="off" />
+            <div id="addDriverForm" class="source-form sst-add-form hidden">
+              <div class="sst-inline-edit">
+                <div class="sst-inline-edit-panel">
+                  <section class="sst-edit-section">
+                    <h5 class="sst-edit-section-title">Водитель</h5>
+                    <div class="sst-edit-grid">
+                      <div class="wfg-field">
+                        <label class="wfg-label" for="newDriverLastName">Фамилия</label>
+                        <input id="newDriverLastName" type="text" placeholder="Иванов" autocomplete="off" />
+                      </div>
+                      <div class="wfg-field">
+                        <label class="wfg-label" for="newDriverFirstName">Имя</label>
+                        <input id="newDriverFirstName" type="text" placeholder="Иван" autocomplete="off" />
+                      </div>
+                      <div class="wfg-field">
+                        <label class="wfg-label" for="newDriverMiddleName">Отчество</label>
+                        <input id="newDriverMiddleName" type="text" placeholder="Иванович" autocomplete="off" />
+                      </div>
+                      <div class="wfg-field">
+                        <label class="wfg-label" for="newDriverPhone">Телефон</label>
+                        <input id="newDriverPhone" type="tel" maxlength="32" placeholder="+7 900 123-45-67" autocomplete="off" />
+                      </div>
+                      <div class="wfg-field">
+                        <label class="wfg-label" for="newDriverAccessPin">ПИН</label>
+                        <input id="newDriverAccessPin" type="text" inputmode="numeric" maxlength="8" placeholder="4–8 цифр" autocomplete="off" />
+                      </div>
+                      <div class="wfg-field wfg-span-3">
+                        <label class="wfg-label" for="newDriverInPerson">В лице</label>
+                        <input id="newDriverInPerson" type="text" placeholder="Дательный падеж" autocomplete="off" />
+                      </div>
+                    </div>
+                  </section>
+                  <section class="sst-edit-section">
+                    <h5 class="sst-edit-section-title">Документы <span class="sst-edit-section-hint">поля эТрН СвВодит</span></h5>
+                    <div class="sst-edit-grid">
+                      <div class="wfg-field">
+                        <label class="wfg-label" for="newDriverVuSeries">Серия ВУ</label>
+                        <input id="newDriverVuSeries" type="text" inputmode="numeric" maxlength="20" placeholder="9900" autocomplete="off" />
+                      </div>
+                      <div class="wfg-field">
+                        <label class="wfg-label" for="newDriverVuNumber">Номер ВУ</label>
+                        <input id="newDriverVuNumber" type="text" inputmode="numeric" maxlength="20" placeholder="123456" autocomplete="off" />
+                      </div>
+                      <div class="wfg-field wfg-span-2">
+                        <label class="wfg-label" for="newDriverVuIssuer">Кем выдан</label>
+                        <input id="newDriverVuIssuer" type="text" maxlength="255" placeholder="ГИБДД …" autocomplete="off" />
+                      </div>
+                      <div class="wfg-field">
+                        <label class="wfg-label" for="newDriverVuDate">Дата выдачи ВУ</label>
+                        <input id="newDriverVuDate" type="text" placeholder="01.02.2018" autocomplete="off" />
+                      </div>
+                      <div class="wfg-field">
+                        <label class="wfg-label" for="newDriverInnFl">ИНН физлица</label>
+                        <input id="newDriverInnFl" type="text" inputmode="numeric" maxlength="12" placeholder="123456789012" autocomplete="off" />
+                      </div>
+                    </div>
+                  </section>
+                  <section class="sst-edit-section">
+                    <h5 class="sst-edit-section-title">Перевозчик <span class="sst-edit-section-hint">поля эТрН</span></h5>
+                    <div class="sst-edit-grid">
+                      <div class="wfg-field wfg-span-2">
+                        <label class="wfg-label" for="newDriverCarrierName">Наименование</label>
+                        <input id="newDriverCarrierName" type="text" placeholder='ООО "Перевозчик"' autocomplete="off" />
+                      </div>
+                      <div class="wfg-field">
+                        <label class="wfg-label" for="newDriverCarrierInn">ИНН</label>
+                        <input id="newDriverCarrierInn" type="text" inputmode="numeric" maxlength="12" placeholder="7701234567" autocomplete="off" />
+                      </div>
+                      <div class="wfg-field">
+                        <label class="wfg-label" for="newDriverCarrierKpp">КПП</label>
+                        <input id="newDriverCarrierKpp" type="text" inputmode="numeric" maxlength="9" placeholder="770101001" autocomplete="off" />
+                      </div>
+                      <div class="wfg-field">
+                        <label class="wfg-label" for="newDriverCarrierPhone">Телефон</label>
+                        <input id="newDriverCarrierPhone" type="tel" maxlength="32" placeholder="+7 …" autocomplete="off" />
+                      </div>
+                      <div class="wfg-field wfg-span-2">
+                        <label class="wfg-label" for="newDriverCarrierFnsId">FNSId</label>
+                        <input id="newDriverCarrierFnsId" type="text" maxlength="80" placeholder="2BM-…" autocomplete="off" />
+                      </div>
+                      <div class="wfg-field">
+                        <label class="wfg-label" for="newDriverCarrierAddrIndex">Индекс</label>
+                        <input id="newDriverCarrierAddrIndex" type="text" inputmode="numeric" maxlength="6" placeholder="101000" autocomplete="off" />
+                      </div>
+                      <div class="wfg-field">
+                        <label class="wfg-label" for="newDriverCarrierAddrRegion">Код региона</label>
+                        <input id="newDriverCarrierAddrRegion" type="text" inputmode="numeric" maxlength="2" placeholder="77" autocomplete="off" />
+                      </div>
+                      <div class="wfg-field">
+                        <label class="wfg-label" for="newDriverCarrierAddrDistrict">Район</label>
+                        <input id="newDriverCarrierAddrDistrict" type="text" autocomplete="off" />
+                      </div>
+                      <div class="wfg-field">
+                        <label class="wfg-label" for="newDriverCarrierAddrCity">Город</label>
+                        <input id="newDriverCarrierAddrCity" type="text" placeholder="Москва" autocomplete="off" />
+                      </div>
+                      <div class="wfg-field">
+                        <label class="wfg-label" for="newDriverCarrierAddrSettlement">Нас. пункт</label>
+                        <input id="newDriverCarrierAddrSettlement" type="text" autocomplete="off" />
+                      </div>
+                      <div class="wfg-field wfg-span-2">
+                        <label class="wfg-label" for="newDriverCarrierAddrStreet">Улица</label>
+                        <input id="newDriverCarrierAddrStreet" type="text" placeholder="ул. Ленина" autocomplete="off" />
+                      </div>
+                      <div class="wfg-field">
+                        <label class="wfg-label" for="newDriverCarrierAddrHouse">Дом</label>
+                        <input id="newDriverCarrierAddrHouse" type="text" placeholder="1" autocomplete="off" />
+                      </div>
+                      <div class="wfg-field">
+                        <label class="wfg-label" for="newDriverCarrierAddrCorpus">Корпус</label>
+                        <input id="newDriverCarrierAddrCorpus" type="text" autocomplete="off" />
+                      </div>
+                      <div class="wfg-field">
+                        <label class="wfg-label" for="newDriverCarrierAddrFlat">Квартира / офис</label>
+                        <input id="newDriverCarrierAddrFlat" type="text" autocomplete="off" />
+                      </div>
+                      <div class="wfg-field wfg-span-2">
+                        <label class="wfg-label" for="newDriverCarrierAddrFias">ФИАС</label>
+                        <input id="newDriverCarrierAddrFias" type="text" maxlength="36" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off" />
+                      </div>
+                    </div>
+                  </section>
+                  <section class="sst-edit-section">
+                    <h5 class="sst-edit-section-title">Транспорт <span class="sst-edit-section-hint">эТрН СвТС</span></h5>
+                    <div id="newDriverVehiclesList" class="driver-vehicles-list"></div>
+                    <button type="button" class="secondary sst-add-vehicle-btn" onclick="addDriverVehicleRow('newDriverVehiclesList')">Добавить автомобиль</button>
+                  </section>
+                  <div class="sst-edit-actions sst-form-actions">
+                    <span id="addDriverInfo" class="small"></span>
+                    <button type="button" class="secondary" onclick="toggleAddDriverForm(false)">Отмена</button>
+                    <button type="button" onclick="saveSupplyDriver()">Сохранить</button>
+                  </div>
                 </div>
-                <div class="wfg-field">
-                  <label class="wfg-label" for="newDriverFirstName">Имя</label>
-                  <input id="newDriverFirstName" type="text" placeholder="Иван" autocomplete="off" />
-                </div>
-                <div class="wfg-field">
-                  <label class="wfg-label" for="newDriverMiddleName">Отчество</label>
-                  <input id="newDriverMiddleName" type="text" placeholder="Иванович" autocomplete="off" />
-                </div>
-                <div class="wfg-field">
-                  <label class="wfg-label" for="newDriverPhone">Телефон</label>
-                  <input id="newDriverPhone" type="tel" maxlength="32" placeholder="+7 900 123-45-67" autocomplete="off" />
-                </div>
-                <div class="wfg-field">
-                  <label class="wfg-label" for="newDriverAccessPin">ПИН (для страницы водителя)</label>
-                  <input id="newDriverAccessPin" type="text" inputmode="numeric" maxlength="8" placeholder="4–8 цифр" autocomplete="off" />
-                </div>
-                <div class="wfg-field">
-                  <label class="wfg-label" for="newDriverInPerson">В лице</label>
-                  <input id="newDriverInPerson" type="text" placeholder="Дательный падеж" autocomplete="off" />
-                </div>
-              </div>
-              <p class="small" style="margin:16px 0 8px;color:#64748b">Документы водителя (поля эТрН СвВодит)</p>
-              <div class="worker-form-grid">
-                <div class="wfg-field">
-                  <label class="wfg-label" for="newDriverVuSeries">Серия ВУ</label>
-                  <input id="newDriverVuSeries" type="text" inputmode="numeric" maxlength="20" placeholder="9900" autocomplete="off" />
-                </div>
-                <div class="wfg-field">
-                  <label class="wfg-label" for="newDriverVuNumber">Номер ВУ</label>
-                  <input id="newDriverVuNumber" type="text" inputmode="numeric" maxlength="20" placeholder="123456" autocomplete="off" />
-                </div>
-                <div class="wfg-field">
-                  <label class="wfg-label" for="newDriverVuIssuer">Кем выдан</label>
-                  <input id="newDriverVuIssuer" type="text" maxlength="255" placeholder="ГИБДД …" autocomplete="off" />
-                </div>
-                <div class="wfg-field">
-                  <label class="wfg-label" for="newDriverVuDate">Дата выдачи ВУ</label>
-                  <input id="newDriverVuDate" type="text" placeholder="01.02.2018" autocomplete="off" />
-                </div>
-                <div class="wfg-field">
-                  <label class="wfg-label" for="newDriverInnFl">ИНН физлица</label>
-                  <input id="newDriverInnFl" type="text" inputmode="numeric" maxlength="12" placeholder="123456789012" autocomplete="off" />
-                </div>
-              </div>
-              <p class="small" style="margin:16px 0 8px;color:#64748b">Перевозчик (поля эТрН)</p>
-              <div class="worker-form-grid">
-                <div class="wfg-field" style="grid-column:span 2">
-                  <label class="wfg-label" for="newDriverCarrierName">Наименование</label>
-                  <input id="newDriverCarrierName" type="text" placeholder='ООО "Перевозчик"' autocomplete="off" />
-                </div>
-                <div class="wfg-field">
-                  <label class="wfg-label" for="newDriverCarrierInn">ИНН</label>
-                  <input id="newDriverCarrierInn" type="text" inputmode="numeric" maxlength="12" placeholder="7701234567" autocomplete="off" />
-                </div>
-                <div class="wfg-field">
-                  <label class="wfg-label" for="newDriverCarrierKpp">КПП</label>
-                  <input id="newDriverCarrierKpp" type="text" inputmode="numeric" maxlength="9" placeholder="770101001" autocomplete="off" />
-                </div>
-                <div class="wfg-field">
-                  <label class="wfg-label" for="newDriverCarrierPhone">Телефон</label>
-                  <input id="newDriverCarrierPhone" type="tel" maxlength="32" placeholder="+7 …" autocomplete="off" />
-                </div>
-                <div class="wfg-field" style="grid-column:span 2">
-                  <label class="wfg-label" for="newDriverCarrierFnsId">FNSId</label>
-                  <input id="newDriverCarrierFnsId" type="text" maxlength="80" placeholder="2BM-…" autocomplete="off" />
-                </div>
-                <div class="wfg-field">
-                  <label class="wfg-label" for="newDriverCarrierAddrIndex">Индекс</label>
-                  <input id="newDriverCarrierAddrIndex" type="text" inputmode="numeric" maxlength="6" placeholder="101000" autocomplete="off" />
-                </div>
-                <div class="wfg-field">
-                  <label class="wfg-label" for="newDriverCarrierAddrRegion">Код региона</label>
-                  <input id="newDriverCarrierAddrRegion" type="text" inputmode="numeric" maxlength="2" placeholder="77" autocomplete="off" />
-                </div>
-                <div class="wfg-field">
-                  <label class="wfg-label" for="newDriverCarrierAddrDistrict">Район</label>
-                  <input id="newDriverCarrierAddrDistrict" type="text" placeholder="" autocomplete="off" />
-                </div>
-                <div class="wfg-field">
-                  <label class="wfg-label" for="newDriverCarrierAddrCity">Город</label>
-                  <input id="newDriverCarrierAddrCity" type="text" placeholder="Москва" autocomplete="off" />
-                </div>
-                <div class="wfg-field">
-                  <label class="wfg-label" for="newDriverCarrierAddrSettlement">Нас. пункт</label>
-                  <input id="newDriverCarrierAddrSettlement" type="text" placeholder="" autocomplete="off" />
-                </div>
-                <div class="wfg-field">
-                  <label class="wfg-label" for="newDriverCarrierAddrStreet">Улица</label>
-                  <input id="newDriverCarrierAddrStreet" type="text" placeholder="ул. Ленина" autocomplete="off" />
-                </div>
-                <div class="wfg-field">
-                  <label class="wfg-label" for="newDriverCarrierAddrHouse">Дом</label>
-                  <input id="newDriverCarrierAddrHouse" type="text" placeholder="1" autocomplete="off" />
-                </div>
-                <div class="wfg-field">
-                  <label class="wfg-label" for="newDriverCarrierAddrCorpus">Корпус</label>
-                  <input id="newDriverCarrierAddrCorpus" type="text" placeholder="" autocomplete="off" />
-                </div>
-                <div class="wfg-field">
-                  <label class="wfg-label" for="newDriverCarrierAddrFlat">Квартира / офис</label>
-                  <input id="newDriverCarrierAddrFlat" type="text" placeholder="" autocomplete="off" />
-                </div>
-                <div class="wfg-field">
-                  <label class="wfg-label" for="newDriverCarrierAddrFias">ФИАС</label>
-                  <input id="newDriverCarrierAddrFias" type="text" maxlength="36" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off" />
-                </div>
-              </div>
-              <div style="margin-top:16px">
-                <label class="wfg-label" style="display:block;margin-bottom:6px">Сведения о транспортном средстве (эТрН СвТС)</label>
-                <div id="newDriverVehiclesList" class="driver-vehicles-list"></div>
-                <button type="button" class="secondary" style="font-size:12px;padding:4px 10px;margin-top:8px" onclick="addDriverVehicleRow('newDriverVehiclesList')">+ Добавить автомобиль</button>
-              </div>
-              <div class="row" style="margin-top:16px;gap:8px">
-                <button onclick="saveSupplyDriver()">Сохранить</button>
-                <button class="secondary" onclick="toggleAddDriverForm(false)">Отмена</button>
-                <span id="addDriverInfo" class="small"></span>
               </div>
             </div>
           </div>
@@ -5080,7 +5092,7 @@
                   <th data-col="docs" style="width:140px">Документы</th>
                   <th data-col="carrier" style="width:160px">Перевозчик</th>
                   <th data-col="veh" style="width:200px">Автомобили</th>
-                  <th class="sst-actions-col" data-col="acts" style="width:160px"></th>
+                  <th class="sst-actions-col" data-col="acts" style="width:112px"></th>
                 </tr></thead>
                 <tbody id="supplyDriversTbody"></tbody>
               </table>
@@ -5155,15 +5167,15 @@
                   <input id="newWhAddrFlat" type="text" placeholder="" autocomplete="off" />
                 </div>
               </div>
-                            <div class="wfg-field" style="grid-column:1 / -1;margin-top:12px">
-                <label class="wfg-label">Источники FBS (для автозаполнения ТН)</label>
+              <section class="sst-edit-section">
+                <h5 class="sst-edit-section-title">Источники FBS <span class="sst-edit-section-hint">для автозаполнения ТН</span></h5>
                 <div id="newWarehouseFbsSources" class="warehouse-fbs-sources"></div>
-                <div class="small" style="color:#64748b;margin-top:6px">Привяжите кабинеты WB FBS / Ozon FBS, поставки которых отгружаются с этого склада.</div>
-              </div>
-<div class="row" style="margin-top:16px;gap:8px">
-                <button onclick="saveSupplyWarehouse()">Сохранить</button>
-                <button class="secondary" onclick="toggleAddWarehouseForm(false)">Отмена</button>
+                <p class="sst-edit-section-hint" style="display:block;margin:8px 0 0">Привяжите кабинеты WB FBS / Ozon FBS, поставки которых отгружаются с этого склада.</p>
+              </section>
+              <div class="sst-edit-actions sst-form-actions">
                 <span id="addWarehouseInfo" class="small"></span>
+                <button type="button" class="secondary" onclick="toggleAddWarehouseForm(false)">Отмена</button>
+                <button type="button" onclick="saveSupplyWarehouse()">Сохранить</button>
               </div>
             </div>
           </div>
@@ -5177,7 +5189,7 @@
                   <th data-col="addr" style="width:280px">Адрес</th>
                   <th data-col="fbs" style="width:200px">FBS</th>
                   <th data-col="packing" style="width:120px">Упаковка</th>
-                  <th class="sst-actions-col" data-col="acts" style="width:160px"></th>
+                  <th class="sst-actions-col" data-col="acts" style="width:112px"></th>
                 </tr></thead>
                 <tbody id="supplyWarehousesTbody"></tbody>
               </table>
@@ -5305,7 +5317,7 @@
                   <th data-col="basis" style="width:140px">Основание</th>
                   <th data-col="addr" style="width:280px">Адрес</th>
                   <th data-col="phone" style="width:120px">Телефон</th>
-                  <th class="sst-actions-col" data-col="acts" style="width:180px"></th>
+                  <th class="sst-actions-col" data-col="acts" style="width:112px"></th>
                 </tr></thead>
                 <tbody id="supplyLegalEntitiesTbody"></tbody>
               </table>
@@ -5389,7 +5401,7 @@
                   <th data-col="head" style="width:150px">Начальник</th>
                   <th data-col="addr" style="width:320px">Адрес производства</th>
                   <th data-col="lc" style="width:180px">Контактное лицо</th>
-                  <th class="sst-actions-col" data-col="acts" style="width:180px"></th>
+                  <th class="sst-actions-col" data-col="acts" style="width:112px"></th>
                 </tr></thead>
                 <tbody id="supplyProductionsTbody"></tbody>
               </table>
@@ -5497,7 +5509,7 @@
                   <th data-col="basis" style="width:130px">Основание</th>
                   <th data-col="addr" style="width:240px">Адрес</th>
                   <th data-col="phone" style="width:110px">Телефон</th>
-                  <th class="sst-actions-col" data-col="acts" style="width:180px"></th>
+                  <th class="sst-actions-col" data-col="acts" style="width:112px"></th>
                 </tr></thead>
                 <tbody id="supplyContractorsTbody"></tbody>
               </table>
@@ -5664,7 +5676,7 @@
                     <th data-col="loaded" style="width:160px">Загружено</th>
                     <th data-col="note" style="width:220px">Примечание</th>
                     <th data-col="file" style="width:180px">Файл</th>
-                    <th class="sst-actions-col" data-col="acts" style="width:180px"></th>
+                    <th class="sst-actions-col" data-col="acts" style="width:112px"></th>
                   </tr>
                 </thead>
                 <tbody id="supplyGtdTbody"></tbody>
@@ -8007,6 +8019,6 @@
 
   <script src="/static/ozon_fbs.js?v=185"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=36"></script>
-  <script src="/static/app.js?v=672"></script>
+  <script src="/static/app.js?v=673"></script>
 </body>
 </html>

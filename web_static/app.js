@@ -2937,9 +2937,9 @@ function addDriverVehicleRow(listId, value = "") {
   row.innerHTML = `
     <div class="driver-vehicle-block-head">
       <span class="small" style="color:#64748b;font-weight:600">Сведения о ТС</span>
-      <button type="button" class="secondary icon-btn" style="min-width:28px;height:28px;padding:0;color:#b91c1c;border-color:#fca5a5;font-size:16px" onclick="this.closest('.driver-vehicle-block').remove()" title="Удалить">✕</button>
+      <button type="button" class="secondary icon-btn sst-veh-remove" onclick="this.closest('.driver-vehicle-block').remove()" title="Удалить" aria-label="Удалить автомобиль">✕</button>
     </div>
-    <div class="worker-form-grid">
+    <div class="sst-edit-grid">
       <div class="wfg-field">
         <label class="wfg-label">Марка</label>
         <input class="drv-veh-model" type="text" value="${esc(v.model)}" placeholder="MAN / GAZelle" autocomplete="off" />
@@ -3058,9 +3058,9 @@ function _readNewDriverDocFields() {
 }
 
 function _driverDocsEditInputsHtml(item) {
-  return `<div class="worker-form-grid" style="margin:0">
+  return `<div class="sst-edit-grid">
     ${_DRIVER_DOC_FIELDS.map(([key, label]) => `
-      <div class="wfg-field">
+      <div class="wfg-field${key === "doc_vu_issuer" ? " wfg-span-2" : ""}">
         <label class="wfg-label">${label}</label>
         <input class="edit-inline-input" data-drv-doc="${key}" value="${esc(item[key] || "")}" autocomplete="off" />
       </div>`).join("")}
@@ -3162,9 +3162,10 @@ function _clearNewDriverCarrierFields() {
 }
 
 function _carrierEditInputsHtml(item) {
-  return `<div class="worker-form-grid" style="margin:0">
+  const span2 = new Set(["carrier_name", "carrier_fns_id", "carrier_addr_street", "carrier_addr_fias"]);
+  return `<div class="sst-edit-grid">
     ${_CARRIER_FIELDS.map(([key, label]) => `
-      <div class="wfg-field"${(key === "carrier_name" || key === "carrier_fns_id") ? ' style="grid-column:span 2"' : ""}>
+      <div class="wfg-field${span2.has(key) ? " wfg-span-2" : ""}">
         <label class="wfg-label">${label}</label>
         <input class="edit-inline-input" data-carrier="${key}" value="${esc(item[key] || "")}" autocomplete="off" />
       </div>`).join("")}
@@ -3196,9 +3197,9 @@ function renderSupplyDriversTable() {
       <td class="editable-cell-vehicles">${_driverVehiclesHtml(vehicles)}</td>
       <td>
         <div class="sst-edit-actions">
-          <button class="secondary small-btn" onclick="startEditDriver(${d.id})">✏</button>
-          <button class="secondary small-btn" style="color:#b91c1c;border-color:#fca5a5"
-            onclick="deleteSupplyDriver(${d.id})" title="Удалить">🗑</button>
+          <button type="button" class="secondary small-btn icon-btn" onclick="startEditDriver(${d.id})" title="Редактировать" aria-label="Редактировать">✏</button>
+          <button type="button" class="secondary small-btn icon-btn" style="color:#b91c1c;border-color:#fca5a5"
+            onclick="deleteSupplyDriver(${d.id})" title="Удалить" aria-label="Удалить">🗑</button>
         </div>
       </td>
     `;
@@ -3305,94 +3306,85 @@ async function saveSupplyDriver() {
 }
 
 async function startEditDriver(id) {
+  if (document.querySelector("#supplyDriversTbody tr.driver-edit-panel, #supplyDriversTbody tr.sst-editing")) {
+    await loadSupplyDrivers();
+  }
   const item = _supplyDriversCache.find((x) => x.id === id);
   if (!item) return;
   const tr = document.querySelector(`#supplyDriversTbody tr[data-id="${id}"]`);
   if (!tr) return;
-  document.querySelectorAll("#supplyDriversTbody tr.driver-carrier-edit-row, #supplyDriversTbody tr.driver-docs-edit-row, #supplyDriversTbody tr.driver-vehicles-edit-row, #supplyDriversTbody tr.driver-fio-edit-row").forEach((r) => r.remove());
+  document.querySelectorAll("#supplyDriversTbody tr.driver-edit-panel, #supplyDriversTbody tr.driver-carrier-edit-row, #supplyDriversTbody tr.driver-docs-edit-row, #supplyDriversTbody tr.driver-vehicles-edit-row, #supplyDriversTbody tr.driver-fio-edit-row").forEach((r) => r.remove());
+  tr.classList.add("sst-editing");
   const cells = tr.querySelectorAll(".editable-cell");
   const fio = _normalizeDriverFioObj(item);
-  cells[0].innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
-  cells[1].innerHTML = `<input class="edit-inline-input" data-field="phone" value="${esc(item.phone||"")}" placeholder="+7 …" />`;
-  cells[2].innerHTML = `<input class="edit-inline-input" data-field="access_pin" value="${esc(item.access_pin||"")}" placeholder="4–8 цифр" inputmode="numeric" maxlength="8" />`;
-  cells[3].innerHTML = `<input class="edit-inline-input" data-field="inp" value="${esc(item.in_person||"")}" />`;
-  cells[4].innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
-  if (cells[5]) cells[5].innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
-  let vehicles = [];
-  try { vehicles = JSON.parse(item.vehicles_json || "[]"); } catch(_) {}
+  const title = driverFullNameLine(fio) || "Водитель";
+  if (cells[0]) cells[0].innerHTML = `<span class="sst-editing-label">${esc(title)}</span>`;
+  for (let i = 1; i < cells.length; i++) {
+    cells[i].innerHTML = `<span class="sst-editing-dash">—</span>`;
+  }
   const vCell = tr.querySelector(".editable-cell-vehicles");
-  if (vCell) vCell.innerHTML = `<span class="small" style="color:#64748b">поля ниже</span>`;
-  const fioRow = document.createElement("tr");
-  fioRow.className = "driver-fio-edit-row";
-  fioRow.dataset.forId = String(id);
-  fioRow.style.background = "#f8fafc";
-  fioRow.innerHTML = `<td colspan="9" style="padding:12px 8px;border-top:none;white-space:normal">
-    <div class="small" style="margin-bottom:8px;color:#64748b">ФИО водителя (поля эТрН СвВодит)</div>
-    <div class="worker-form-grid" style="margin:0">
-      <div class="wfg-field"><label class="wfg-label">Фамилия</label>
-        <input class="edit-inline-input" data-drv-fio="last_name" value="${esc(fio.last_name)}" autocomplete="off" /></div>
-      <div class="wfg-field"><label class="wfg-label">Имя</label>
-        <input class="edit-inline-input" data-drv-fio="first_name" value="${esc(fio.first_name)}" autocomplete="off" /></div>
-      <div class="wfg-field"><label class="wfg-label">Отчество</label>
-        <input class="edit-inline-input" data-drv-fio="middle_name" value="${esc(fio.middle_name)}" autocomplete="off" /></div>
-    </div>
-  </td>`;
-  tr.after(fioRow);
-  const docsRow = document.createElement("tr");
-  docsRow.className = "driver-docs-edit-row";
-  docsRow.dataset.forId = String(id);
-  docsRow.style.background = "#f8fafc";
-  docsRow.innerHTML = `<td colspan="9" style="padding:12px 8px;border-top:none;white-space:normal">
-    <div class="small" style="margin-bottom:8px;color:#64748b">Документы водителя (поля эТрН СвВодит)</div>
-    ${_driverDocsEditInputsHtml(item)}
-  </td>`;
-  fioRow.after(docsRow);
-  const vehiclesRow = document.createElement("tr");
-  vehiclesRow.className = "driver-vehicles-edit-row";
-  vehiclesRow.dataset.forId = String(id);
-  vehiclesRow.style.background = "#f8fafc";
+  if (vCell) vCell.innerHTML = `<span class="sst-editing-dash">—</span>`;
+  let vehicles = [];
+  try { vehicles = JSON.parse(item.vehicles_json || "[]"); } catch (_) {}
   const listId = `editDriverVehicles_${id}`;
-  vehiclesRow.innerHTML = `<td colspan="9" style="padding:12px 8px;border-top:none;white-space:normal">
-    <div class="small" style="margin-bottom:8px;color:#64748b">Сведения о транспортном средстве (поля эТрН СвТС)</div>
-    <div id="${listId}" class="driver-vehicles-list"></div>
-    <button type="button" class="secondary" style="font-size:12px;padding:4px 10px;margin-top:8px" onclick="addDriverVehicleRow('${listId}')">+ Добавить автомобиль</button>
-  </td>`;
-  docsRow.after(vehiclesRow);
-  vehicles.forEach(v => addDriverVehicleRow(listId, v));
+  const panelRow = document.createElement("tr");
+  panelRow.className = "sst-edit-panel-row driver-edit-panel";
+  panelRow.dataset.forId = String(id);
+  panelRow.innerHTML = `<td colspan="9"><div class="sst-inline-edit"><div class="sst-inline-edit-panel">
+    <section class="sst-edit-section">
+      <h5 class="sst-edit-section-title">Водитель</h5>
+      <div class="sst-edit-grid">
+        <div class="wfg-field"><label class="wfg-label">Фамилия</label>
+          <input class="edit-inline-input" data-drv-fio="last_name" value="${esc(fio.last_name)}" autocomplete="off" /></div>
+        <div class="wfg-field"><label class="wfg-label">Имя</label>
+          <input class="edit-inline-input" data-drv-fio="first_name" value="${esc(fio.first_name)}" autocomplete="off" /></div>
+        <div class="wfg-field"><label class="wfg-label">Отчество</label>
+          <input class="edit-inline-input" data-drv-fio="middle_name" value="${esc(fio.middle_name)}" autocomplete="off" /></div>
+        <div class="wfg-field"><label class="wfg-label">Телефон</label>
+          <input class="edit-inline-input" data-field="phone" value="${esc(item.phone || "")}" placeholder="+7 …" autocomplete="off" /></div>
+        <div class="wfg-field"><label class="wfg-label">ПИН</label>
+          <input class="edit-inline-input" data-field="access_pin" value="${esc(item.access_pin || "")}" placeholder="4–8 цифр" inputmode="numeric" maxlength="8" autocomplete="off" /></div>
+        <div class="wfg-field wfg-span-3"><label class="wfg-label">В лице</label>
+          <input class="edit-inline-input" data-field="inp" value="${esc(item.in_person || "")}" placeholder="Дательный падеж" autocomplete="off" /></div>
+      </div>
+    </section>
+    <section class="sst-edit-section">
+      <h5 class="sst-edit-section-title">Документы <span class="sst-edit-section-hint">поля эТрН СвВодит</span></h5>
+      ${_driverDocsEditInputsHtml(item)}
+    </section>
+    <section class="sst-edit-section">
+      <h5 class="sst-edit-section-title">Перевозчик <span class="sst-edit-section-hint">поля эТрН</span></h5>
+      ${_carrierEditInputsHtml(item)}
+    </section>
+    <section class="sst-edit-section">
+      <h5 class="sst-edit-section-title">Транспорт <span class="sst-edit-section-hint">эТрН СвТС</span></h5>
+      <div id="${listId}" class="driver-vehicles-list"></div>
+      <button type="button" class="secondary sst-add-vehicle-btn" onclick="addDriverVehicleRow('${listId}')">Добавить автомобиль</button>
+    </section>
+    <div class="sst-edit-actions sst-form-actions">
+      <button type="button" class="secondary" onclick="loadSupplyDrivers()">Отмена</button>
+      <button type="button" class="sst-btn-save" onclick="saveEditDriver(${id})">Сохранить</button>
+    </div>
+  </div></div></td>`;
+  tr.after(panelRow);
+  vehicles.forEach((v) => addDriverVehicleRow(listId, v));
   if (!vehicles.length) addDriverVehicleRow(listId, "");
-  const carrierRow = document.createElement("tr");
-  carrierRow.className = "driver-carrier-edit-row";
-  carrierRow.dataset.forId = String(id);
-  carrierRow.style.background = "#f8fafc";
-  carrierRow.innerHTML = `<td colspan="9" style="padding:12px 8px;border-top:none;white-space:normal">
-    <div class="small" style="margin-bottom:8px;color:#64748b">Перевозчик (поля эТрН)</div>
-    ${_carrierEditInputsHtml(item)}
-  </td>`;
-  vehiclesRow.after(carrierRow);
-  const actionCell = tr.cells[tr.cells.length - 1];
-  actionCell.innerHTML = `<div class="sst-edit-actions">
-    <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditDriver(${id})">Сохранить</button>
-    <button class="secondary small-btn" onclick="loadSupplyDrivers()">Отмена</button>
-  </div>`;
-  fioRow.querySelector('[data-drv-fio="last_name"]')?.focus();
+  panelRow.querySelector('[data-drv-fio="last_name"]')?.focus();
 }
 
 async function saveEditDriver(id) {
-  const tr = document.querySelector(`#supplyDriversTbody tr[data-id="${id}"]`);
-  if (!tr) return;
+  const panel = document.querySelector(`#supplyDriversTbody tr.driver-edit-panel[data-for-id="${id}"]`);
+  if (!panel) return;
   const item = _supplyDriversCache.find((x) => x.id === id);
-  const carrierRow = document.querySelector(`#supplyDriversTbody tr.driver-carrier-edit-row[data-for-id="${id}"]`);
-  const docsRow = document.querySelector(`#supplyDriversTbody tr.driver-docs-edit-row[data-for-id="${id}"]`);
-  const fioRow = document.querySelector(`#supplyDriversTbody tr.driver-fio-edit-row[data-for-id="${id}"]`);
   const fio = {
-    last_name: fioRow?.querySelector('[data-drv-fio="last_name"]')?.value.trim() || "",
-    first_name: fioRow?.querySelector('[data-drv-fio="first_name"]')?.value.trim() || "",
-    middle_name: fioRow?.querySelector('[data-drv-fio="middle_name"]')?.value.trim() || "",
+    last_name: panel.querySelector('[data-drv-fio="last_name"]')?.value.trim() || "",
+    first_name: panel.querySelector('[data-drv-fio="first_name"]')?.value.trim() || "",
+    middle_name: panel.querySelector('[data-drv-fio="middle_name"]')?.value.trim() || "",
   };
   const name = driverFullNameLine(fio);
-  const phone = tr.querySelector("[data-field='phone']")?.value.trim() || "";
-  const accessPin = tr.querySelector("[data-field='access_pin']")?.value.trim() || "";
-  const inp = tr.querySelector("[data-field='inp']")?.value.trim() || "";
+  const phone = panel.querySelector("[data-field='phone']")?.value.trim() || "";
+  const accessPin = panel.querySelector("[data-field='access_pin']")?.value.trim() || "";
+  const inp = panel.querySelector("[data-field='inp']")?.value.trim() || "";
   const vehicles = _collectVehicles(`editDriverVehicles_${id}`);
   if (!name) return;
   const payload = {
@@ -3408,10 +3400,10 @@ async function saveEditDriver(id) {
     carrier: item?.carrier || "",
   };
   _DRIVER_DOC_FIELDS.forEach(([key]) => {
-    payload[key] = docsRow?.querySelector(`[data-drv-doc="${key}"]`)?.value.trim() || "";
+    payload[key] = panel.querySelector(`[data-drv-doc="${key}"]`)?.value.trim() || "";
   });
   _CARRIER_FIELDS.forEach(([key]) => {
-    payload[key] = carrierRow?.querySelector(`[data-carrier="${key}"]`)?.value.trim() || "";
+    payload[key] = panel.querySelector(`[data-carrier="${key}"]`)?.value.trim() || "";
   });
   await fetch(`/api/supply-drivers/${id}`, { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify(payload) }).catch(() => null);
   await loadSupplyDrivers();
@@ -4053,11 +4045,11 @@ async function startEditWarehouse(id) {
   </td>`;
   tr.after(addrRow);
   await _renderWarehouseFbsSourcesChecklist("editWarehouseFbsSources", item.fbs_sources || []);
-  const actionCell = tr.cells[tr.cells.length - 1];
-  actionCell.innerHTML = `<div class="sst-edit-actions">
-    <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditWarehouse(${id})">Сохранить</button>
-    <button class="secondary small-btn" onclick="loadSupplyWarehouses()">Отмена</button>
-  </div>`;
+  const actions = document.createElement("div");
+  actions.className = "sst-edit-actions sst-form-actions";
+  actions.innerHTML = `<button type="button" class="secondary" onclick="loadSupplyWarehouses()">Отмена</button>
+    <button type="button" class="sst-btn-save" onclick="saveEditWarehouse(${id})">Сохранить</button>`;
+  addrRow.querySelector("td")?.appendChild(actions);
 }
 
 async function saveEditWarehouse(id) {
@@ -4276,7 +4268,7 @@ async function renderSupplyLegalEntitiesTbody() {
     tr.innerHTML = `<td>${i+1}</td><td class="editable-cell">${esc(e.short_name||"")}${fbsHint}</td><td class="editable-cell">${esc(e.full_name||"")}</td><td class="editable-cell">${esc(e.requisites||"")}</td><td class="editable-cell">${esc(e.signatories||"")}</td><td class="editable-cell">${esc(e.in_person||"")}</td><td class="editable-cell">${esc(e.basis||"")}</td><td class="editable-cell">${esc(legalEntityAddressLine(e))}</td><td class="editable-cell">${esc(e.phone||"")}</td>
       <td>
         <div class="sst-edit-actions">
-          <button class="secondary small-btn" onclick="startEditLegalEntity(${e.id})">✏</button>
+          <button type="button" class="secondary small-btn icon-btn" onclick="startEditLegalEntity(${e.id})" title="Редактировать" aria-label="Редактировать">✏</button>
           <button class="secondary small-btn icon-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deleteSupplyLegalEntity(${e.id})" title="Удалить">🗑</button>
         </div>
       </td>`;
@@ -4313,11 +4305,11 @@ async function startEditLegalEntity(id) {
     { takenBy: _legalEntityFbsTakenMap(id) },
   );
   loadEditLegalSig(id);
-
-  tr.cells[tr.cells.length - 1].innerHTML = `<div class="sst-edit-actions">
-    <button class="secondary small-btn sst-btn-save" onclick="saveEditLegalEntity(${id})">Сохранить</button>
-    <button class="secondary small-btn" onclick="loadSupplyLegalEntities()">Отмена</button>
-  </div>`;
+  const actions = document.createElement("div");
+  actions.className = "sst-edit-actions sst-form-actions";
+  actions.innerHTML = `<button type="button" class="secondary" onclick="loadSupplyLegalEntities()">Отмена</button>
+    <button type="button" class="sst-btn-save" onclick="saveEditLegalEntity(${id})">Сохранить</button>`;
+  panelRow.querySelector(".sst-inline-edit-panel")?.appendChild(actions);
   panelRow.querySelector("[data-field='short']")?.focus();
 }
 
@@ -18838,7 +18830,7 @@ function renderSupplyProductionsTbody() {
       <td class="editable-cell">${esc(p.load_contact||"")}</td>
       <td>
         <div class="sst-edit-actions">
-          <button class="secondary small-btn" onclick="startEditProduction(${p.id})">✏</button>
+          <button type="button" class="secondary small-btn icon-btn" onclick="startEditProduction(${p.id})" title="Редактировать" aria-label="Редактировать">✏</button>
           <button class="secondary small-btn icon-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deleteSupplyProduction(${p.id})" title="Удалить">🗑</button>
         </div>
       </td>`;
@@ -18867,10 +18859,11 @@ async function startEditProduction(id) {
     ${_productionAddrEditInputsHtml(item)}
   </td>`;
   tr.after(addrRow);
-  tr.cells[tr.cells.length-1].innerHTML = `<div class="sst-edit-actions">
-    <button class="secondary small-btn" style="color:#16a34a;border-color:#86efac" onclick="saveEditProduction(${id})">Сохранить</button>
-    <button class="secondary small-btn" onclick="loadSupplyProductions()">Отмена</button>
-  </div>`;
+  const actions = document.createElement("div");
+  actions.className = "sst-edit-actions sst-form-actions";
+  actions.innerHTML = `<button type="button" class="secondary" onclick="loadSupplyProductions()">Отмена</button>
+    <button type="button" class="sst-btn-save" onclick="saveEditProduction(${id})">Сохранить</button>`;
+  addrRow.querySelector("td")?.appendChild(actions);
 }
 
 async function saveEditProduction(id) {
@@ -19006,7 +18999,7 @@ function renderSupplyContractorsTbody() {
       <td class="editable-cell">${esc(c.phone || "")}</td>
       <td>
         <div class="sst-edit-actions">
-          <button class="secondary small-btn" onclick="startEditContractor(${c.id})">✏</button>
+          <button type="button" class="secondary small-btn icon-btn" onclick="startEditContractor(${c.id})" title="Редактировать" aria-label="Редактировать">✏</button>
           <button class="secondary small-btn icon-btn" style="color:#b91c1c;border-color:#fca5a5" onclick="deleteSupplyContractor(${c.id})" title="Удалить">🗑</button>
         </div>
       </td>`;
@@ -19037,11 +19030,11 @@ async function startEditContractor(id) {
   panelRow.dataset.forId = String(id);
   panelRow.innerHTML = `<td colspan="10">${_sstPartyEditPanelHtml(item, "ctr")}</td>`;
   tr.after(panelRow);
-
-  tr.cells[tr.cells.length - 1].innerHTML = `<div class="sst-edit-actions">
-    <button class="secondary small-btn sst-btn-save" onclick="saveEditContractor(${id})">Сохранить</button>
-    <button class="secondary small-btn" onclick="loadSupplyContractors()">Отмена</button>
-  </div>`;
+  const actions = document.createElement("div");
+  actions.className = "sst-edit-actions sst-form-actions";
+  actions.innerHTML = `<button type="button" class="secondary" onclick="loadSupplyContractors()">Отмена</button>
+    <button type="button" class="sst-btn-save" onclick="saveEditContractor(${id})">Сохранить</button>`;
+  panelRow.querySelector(".sst-inline-edit-panel")?.appendChild(actions);
   panelRow.querySelector("[data-field='name']")?.focus();
 }
 
@@ -22911,7 +22904,7 @@ window.closeSupplyDetailsModal = closeSupplyDetailsModal;
 window.saveSupplyManualFields = saveSupplyManualFields;
 // ── Settings tables: resizable columns ───────────────────────────────────
 
-const _SST_ACTIONS_COL_W = 180;
+const _SST_ACTIONS_COL_W = 112;
 const _SST_MIN_COL_W = 56;
 const _SST_TABLES = [
   { thead: "supplyDriversThead",         key: "sst_drivers_v2" },
@@ -22926,9 +22919,13 @@ const _sstInited = new Set();
 
 function _sstParseWidthPx(el) {
   if (!el) return 0;
+  const fromData = parseInt(String(el.dataset?.sstW || ""), 10);
+  if (Number.isFinite(fromData) && fromData > 0) return fromData;
   const raw = String(el.style.width || "").trim();
-  const n = parseInt(raw, 10);
-  if (Number.isFinite(n) && n > 0) return n;
+  if (!raw.endsWith("%")) {
+    const n = parseInt(raw, 10);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
   const attr = parseInt(String(el.getAttribute("width") || ""), 10);
   if (Number.isFinite(attr) && attr > 0) return attr;
   return el.offsetWidth || 120;
@@ -22938,28 +22935,36 @@ function _sstIsActsCol(th) {
   return !!(th && (th.classList.contains("sst-actions-col") || th.dataset.col === "acts"));
 }
 
-/** GTD acts column behaves like other columns (resize + wrap). */
-function _sstActsLocked(th) {
-  if (!_sstIsActsCol(th)) return false;
-  const thead = th.closest("thead");
-  return thead?.id !== "supplyGtdThead";
+/** Actions column is resizable like the rest; it is not pinned to a fixed width. */
+function _sstActsLocked(_th) {
+  return false;
 }
 
-/** Actions column width: per-th data-acts-w → style width → default 180. */
+/** Actions column width: stored weight → style px → compact default. */
 function _sstActsColWidth(th) {
   const fromData = parseInt(String(th?.dataset?.actsW || ""), 10);
   if (Number.isFinite(fromData) && fromData >= _SST_MIN_COL_W) return fromData;
-  const fromStyle = parseInt(String(th?.style?.width || ""), 10);
-  if (Number.isFinite(fromStyle) && fromStyle >= _SST_MIN_COL_W) return fromStyle;
+  const stored = parseInt(String(th?.dataset?.sstW || ""), 10);
+  if (Number.isFinite(stored) && stored >= _SST_MIN_COL_W) return stored;
+  const raw = String(th?.style?.width || "").trim();
+  if (raw && !raw.endsWith("%")) {
+    const fromStyle = parseInt(raw, 10);
+    if (Number.isFinite(fromStyle) && fromStyle >= _SST_MIN_COL_W) return fromStyle;
+  }
   return _SST_ACTIONS_COL_W;
 }
 
 function _sstDefaultWidth(th) {
   if (_sstIsActsCol(th)) return _sstActsColWidth(th);
-  const fromStyle = parseInt(String(th.style.width || ""), 10);
-  if (Number.isFinite(fromStyle) && fromStyle > 0) return fromStyle;
+  const stored = parseInt(String(th?.dataset?.sstW || ""), 10);
+  if (Number.isFinite(stored) && stored > 0) return stored;
+  const raw = String(th.style.width || "").trim();
+  if (raw && !raw.endsWith("%")) {
+    const fromStyle = parseInt(raw, 10);
+    if (Number.isFinite(fromStyle) && fromStyle > 0) return fromStyle;
+  }
   if (th.dataset.col === "num") return 44;
-  return Math.max(_SST_MIN_COL_W, th.offsetWidth || 140);
+  return 140;
 }
 
 function _sstEnsureColgroup(table, ths) {
@@ -22978,35 +22983,41 @@ function _sstEnsureColgroup(table, ths) {
   return colgroup;
 }
 
-/** Apply widths via <col> + th; table width = sum → horizontal scroll when needed. */
+/** Apply column ratios as % of the pane. Saved px values are weights, not a scroll width. */
 function _sstApplyWidths(table, ths, widthsByCol) {
   if (!table || !ths?.length) return;
   const colgroup = _sstEnsureColgroup(table, ths);
-  let total = 0;
-  ths.forEach((th, i) => {
+  const weights = ths.map((th, i) => {
     const isActs = _sstIsActsCol(th);
     if (isActs) th.classList.add("sst-actions-col");
-    const lockedActs = isActs && _sstActsLocked(th);
     const colKey = th.dataset.col || `c${i}`;
-    const actsW = isActs ? _sstActsColWidth(th) : 0;
-    let w = lockedActs
-      ? actsW
-      : (Number(widthsByCol[colKey]) || _sstDefaultWidth(th));
-    w = Math.max(lockedActs ? actsW : _SST_MIN_COL_W, Math.round(w));
+    const floor = th.dataset.col === "num" ? 40 : (isActs ? 96 : _SST_MIN_COL_W);
+    let w = Number(widthsByCol[colKey]) || _sstDefaultWidth(th);
+    w = Math.max(floor, Math.round(w));
+    return { th, i, colKey, w };
+  });
+  const sum = weights.reduce((acc, item) => acc + item.w, 0) || 1;
+  let used = 0;
+  weights.forEach(({ th, i, colKey, w }, idx) => {
+    const pct = idx === weights.length - 1
+      ? Math.max(0, 100 - used)
+      : Math.round((w / sum) * 1000) / 10;
+    if (idx !== weights.length - 1) used += pct;
     const col = colgroup.children[i];
     if (col) {
-      col.style.width = `${w}px`;
+      col.style.width = `${pct}%`;
       col.dataset.col = colKey;
+      col.dataset.sstW = String(w);
     }
-    th.style.width = `${w}px`;
-    th.style.minWidth = `${w}px`;
-    if (lockedActs) th.style.maxWidth = `${w}px`;
-    else th.style.maxWidth = "";
-    total += w;
+    th.dataset.sstW = String(w);
+    th.style.width = `${pct}%`;
+    th.style.minWidth = "0";
+    th.style.maxWidth = "";
   });
   table.style.tableLayout = "fixed";
-  table.style.width = `${total}px`;
-  table.style.minWidth = `${total}px`;
+  table.style.width = "100%";
+  table.style.minWidth = "0";
+  table.style.maxWidth = "100%";
 }
 
 function _sstCollectWidths(ths) {
