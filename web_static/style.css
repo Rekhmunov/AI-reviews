@@ -11777,6 +11777,35 @@ button.wb-fbs-select-all-link:disabled {
 .fbs-supply-driver-label {
   display: none;
 }
+/* «В доставке» / «Доставляются»: user column widths, text wraps inside the cell. */
+.wb-fbs-table.fbs-col-wrap td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.wb-fbs-table.fbs-col-wrap .wb-fbs-supply-name,
+.wb-fbs-table.fbs-col-wrap .wb-fbs-supply-qr,
+.wb-fbs-table.fbs-col-wrap .wb-fbs-wh-name,
+.wb-fbs-table.fbs-col-wrap .fbs-supply-driver,
+.wb-fbs-table.fbs-col-wrap .wb-fbs-order-meta,
+.wb-fbs-table.fbs-col-wrap .wb-fbs-wh-address {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.wb-fbs-table.fbs-col-wrap .wb-fbs-wh-address {
+  display: block;
+  -webkit-line-clamp: unset;
+}
+.wb-fbs-table.fbs-col-wrap .wb-fbs-supply-status {
+  display: inline-block;
+  white-space: normal;
+  max-width: 100%;
+  height: auto;
+  box-sizing: border-box;
+}
 .wb-fbs-wh-address {
   color: #64748b;
   font-size: 14px;

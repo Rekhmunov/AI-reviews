@@ -33324,6 +33324,8 @@ function _wbFbsSyncTableMode() {
   if (table) {
     table.classList.toggle("wb-fbs-table--supplies", supplies);
     table.classList.toggle("wb-fbs-table--assembly", wbFbsState.tab === "assembly");
+    // Wrap cell text only on «В доставке», where columns are user-resizable.
+    table.classList.toggle("fbs-col-wrap", wbFbsState.tab === "delivery");
   }
   if (search) {
     search.placeholder = supplies

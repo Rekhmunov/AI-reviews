@@ -810,17 +810,26 @@
     if (table) {
       table.classList.toggle("wb-fbs-table--supplies", supplies);
       table.classList.toggle("wb-fbs-table--assembly", supplies);
+      // Wrap cell text only on «Доставляются», where columns are user-resizable.
+      table.classList.toggle("fbs-col-wrap", isDeliveringSuppliesTab());
     }
     if (search) {
       search.placeholder = supplies
         ? "Поиск по поставке, складу или номеру отправления…"
         : "Поиск по отправлению, артикулу, ШК…";
     }
-    if (!colgroup || !thead) return;
-    if (!modeChanged && colgroup.children.length) return;
+    if (!colgroup || !thead) {
+      initDeliveringColumnResizer();
+      return;
+    }
+    if (!modeChanged && colgroup.children.length) {
+      initDeliveringColumnResizer();
+      return;
+    }
     if (supplies) {
       const showActions = true;
       const delivering = isDeliveringSuppliesTab();
+      const rh = delivering ? '<span class="col-resize-handle"></span>' : "";
       colgroup.innerHTML = `
         <col data-fixed="1" class="wb-fbs-col-check" style="width:40px" />
         <col data-col="0" class="wb-fbs-col-supply" style="width:26%" />
@@ -833,14 +842,15 @@
       `;
       thead.innerHTML = `
         <th class="wb-fbs-th-check"><input type="checkbox" id="ozonFbsSelectAll" onchange="toggleSelectAllOzonFbs(this.checked)" title="Выбрать все на странице" /></th>
-        <th data-col="0">Поставка</th>
-        <th data-col="1">ID поставки</th>
-        <th data-col="2">Заказы</th>
-        <th data-col="3">Этап сборки</th>
-        ${delivering ? '<th data-col="4">Водитель</th>' : ""}
-        <th data-col="${delivering ? "5" : "4"}">Склад</th>
+        <th data-col="0">Поставка${rh}</th>
+        <th data-col="1">ID поставки${rh}</th>
+        <th data-col="2">Заказы${rh}</th>
+        <th data-col="3">Этап сборки${rh}</th>
+        ${delivering ? `<th data-col="4">Водитель${rh}</th>` : ""}
+        <th data-col="${delivering ? "5" : "4"}">Склад${rh}</th>
         ${showActions ? '<th class="wb-fbs-th-act"></th>' : ""}
       `;
+      initDeliveringColumnResizer();
     } else {
       const showAct = !!state.lookupMode;
       colgroup.innerHTML = `
@@ -1429,6 +1439,115 @@
         tbody.innerHTML = `<tr><td colspan="${colspan()}" class="wb-fbs-empty" style="color:#b91c1c">${esc(e.message)}</td></tr>`;
       }
     }
+  }
+
+  const DELIVERING_COL_WIDTHS_PREFIX = "ozon_fbs_delivering_col_widths_v1";
+  const DELIVERING_DEFAULT_WIDTHS = [26, 16, 14, 14, 16, 14];
+  let deliveringColResizerInited = false;
+
+  function deliveringColWidthsKey() {
+    const email = String(document.querySelector(".sidebar-user-email")?.textContent || "")
+      .trim()
+      .toLowerCase();
+    return email
+      ? `${DELIVERING_COL_WIDTHS_PREFIX}:${email}`
+      : DELIVERING_COL_WIDTHS_PREFIX;
+  }
+
+  function deliveringResizableCols() {
+    return Array.from(document.querySelectorAll("#ozonFbsColgroup col")).filter(
+      (c) => !c.dataset.fixed
+    );
+  }
+
+  function applyDeliveringColWidths(widths) {
+    deliveringResizableCols().forEach((col, i) => {
+      if (widths[i] !== undefined) col.style.width = `${widths[i]}%`;
+    });
+  }
+
+  function getDeliveringColWidths() {
+    return deliveringResizableCols().map(
+      (col, i) => parseFloat(col.style.width) || DELIVERING_DEFAULT_WIDTHS[i] || 10
+    );
+  }
+
+  function initDeliveringColumnResizer() {
+    const table = document.getElementById("ozonFbsOrdersTable");
+    if (!table || !isDeliveringSuppliesTab()) return;
+    let widths = DELIVERING_DEFAULT_WIDTHS.slice();
+    try {
+      const saved = JSON.parse(localStorage.getItem(deliveringColWidthsKey()) || "null");
+      if (Array.isArray(saved) && saved.length === widths.length) {
+        widths = saved.map((n, i) => {
+          const v = Number(n);
+          return Number.isFinite(v) && v > 0 ? v : widths[i];
+        });
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    applyDeliveringColWidths(widths);
+    if (deliveringColResizerInited) return;
+    deliveringColResizerInited = true;
+
+    let startX = 0;
+    let colIdx = 0;
+    let startWidths = [];
+    let activeHandle = null;
+
+    function onMouseMove(e) {
+      const tableEl = document.getElementById("ozonFbsOrdersTable");
+      if (!tableEl || !isDeliveringSuppliesTab()) return;
+      const tableW = tableEl.offsetWidth || 1;
+      const deltaPct = ((e.clientX - startX) / tableW) * 100;
+      const newWidths = startWidths.slice();
+      const minPct = 8;
+      const nextIdx = colIdx < newWidths.length - 1 ? colIdx + 1 : colIdx - 1;
+      let newCur = Math.max(minPct, startWidths[colIdx] + deltaPct);
+      let newNext = Math.max(minPct, startWidths[nextIdx] - deltaPct);
+      if (newNext < minPct) {
+        newCur = startWidths[colIdx] + (startWidths[nextIdx] - minPct);
+        newNext = minPct;
+      }
+      newWidths[colIdx] = Math.round(newCur * 10) / 10;
+      newWidths[nextIdx] = Math.round(newNext * 10) / 10;
+      applyDeliveringColWidths(newWidths);
+    }
+
+    function onMouseUp() {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      if (activeHandle) activeHandle.classList.remove("dragging");
+      activeHandle = null;
+      if (!isDeliveringSuppliesTab()) return;
+      try {
+        localStorage.setItem(deliveringColWidthsKey(), JSON.stringify(getDeliveringColWidths()));
+      } catch (_) {
+        /* ignore */
+      }
+    }
+
+    table.addEventListener("mousedown", (e) => {
+      if (!isDeliveringSuppliesTab()) return;
+      const handle = e.target?.closest?.(".col-resize-handle");
+      if (!handle || !table.contains(handle)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const th = handle.parentElement;
+      colIdx = parseInt(th.getAttribute("data-col") || "0", 10);
+      startX = e.clientX;
+      startWidths = getDeliveringColWidths();
+      if (!startWidths.length || colIdx < 0 || colIdx >= startWidths.length) return;
+      activeHandle = handle;
+      document.addEventListener("mousemove", onMouseMove);
+      document.addEventListener("mouseup", onMouseUp);
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      handle.classList.add("dragging");
+    });
   }
 
   const COL_WIDTHS_PREFIX = "ozon_fbs_col_widths_v2";

@@ -158,5 +158,5 @@ def test_packaging_exemplar_com_and_keyboard_scan_wired() -> None:
     assert "onkeydown=\"onOzonFbsPackagingExemplarKizKey(event" in OZON_JS
 
 def test_cache_bump() -> None:
-    assert "ozon_fbs.js?v=183" in APP_HTML
-    assert "style.css?v=391" in APP_HTML
+    assert "ozon_fbs.js?v=184" in APP_HTML
+    assert "style.css?v=392" in APP_HTML
