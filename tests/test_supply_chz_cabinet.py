@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from review_processor.supply_chz_cabinet import emission_period_bounds, kiz_from_search_row
+from review_processor.supply_chz_cabinet import (
+    emission_period_bounds,
+    initial_search_cursor,
+    kiz_from_search_row,
+    product_groups_from_settings,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_HTML = (ROOT / "web_templates" / "app.html").read_text(encoding="utf-8")
@@ -14,6 +19,18 @@ APP_JS = (ROOT / "web_static" / "app.js").read_text(encoding="utf-8")
 WEB = (ROOT / "review_processor" / "web.py").read_text(encoding="utf-8")
 API = (ROOT / "review_processor" / "chz_true_api.py").read_text(encoding="utf-8")
 CSS = (ROOT / "web_static" / "style.css").read_text(encoding="utf-8")
+
+
+def test_initial_search_cursor_is_day_after_period_end() -> None:
+    assert initial_search_cursor("2026-01-05T23:59:59.000Z") == (
+        "2026-01-06T00:00:00.000Z",
+        "0",
+    )
+
+
+def test_product_groups_split() -> None:
+    assert product_groups_from_settings({"product_group": "lp, shoes"}) == ["lp", "shoes"]
+    assert product_groups_from_settings({"product_group": "lp"}) == ["lp"]
 
 
 def test_emission_period_bounds_inclusive_days() -> None:
@@ -93,5 +110,5 @@ def test_cabinet_modal_matches_gtd_chz_size_and_tools() -> None:
     assert "/api/supply-chz/cabinet/export" in APP_JS
     assert "function resetSupplyChzCabinetFilters" in APP_JS
     assert "Выбрано:" in APP_JS
-    assert "app.js?v=664" in APP_HTML
+    assert "app.js?v=665" in APP_HTML
     assert "style.css?v=389" in APP_HTML

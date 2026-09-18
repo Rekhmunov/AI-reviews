@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import re
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -103,6 +103,25 @@ def emission_period_bounds(date_from: str, date_to: str) -> tuple[str, str]:
     if a > b:
         raise ValueError("Дата «с» позже даты «по»")
     return (f"{a}T00:00:00.000Z", f"{b}T23:59:59.000Z")
+
+
+def initial_search_cursor(date_to_iso: str) -> tuple[str, str]:
+    """Cursor for the first ``/cises/search`` page.
+
+    The API starts the page *after* ``lastEmissionDate``. Passing the period
+    end itself skips that day, and an empty ``sgtin`` is rejected. Working
+    clients send the next calendar day and a zero sgtin.
+    """
+    day = str(date_to_iso or "")[:10]
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+        raise ValueError("Некорректная дата курсора выгрузки")
+    nxt = datetime.strptime(day, "%Y-%m-%d") + timedelta(days=1)
+    return (nxt.strftime("%Y-%m-%dT00:00:00.000Z"), "0")
+
+
+def product_groups_from_settings(settings: dict[str, Any] | None) -> list[str]:
+    raw = str((settings or {}).get("product_group") or "")
+    return [part.strip() for part in raw.split(",") if part.strip()]
 
 
 def kiz_from_search_row(row: dict[str, Any]) -> tuple[str, str, str, str]:
@@ -287,19 +306,21 @@ def _run_export(
     date_from_iso: str,
     date_to_iso: str,
     participant_inn: str,
+    product_groups: list[str],
     log: list[str],
 ) -> None:
     saved = errors = pages = 0
-    last_dt = ""
-    last_sgtin = ""
+    last_dt, last_sgtin = initial_search_cursor(date_to_iso)
     seen_cursor = ""
+    groups = [str(g or "").strip() for g in (product_groups or []) if str(g or "").strip()]
     try:
         for page_no in range(1, MAX_PAGES + 1):
             pages = page_no
             gtd_chz._append_log(
                 log,
                 f"Страница {page_no}: запрос кодов "
-                f"({date_from_iso[:10]}…{date_to_iso[:10]}, все статусы)…",
+                f"({date_from_iso[:10]}…{date_to_iso[:10]}, все статусы, "
+                f"группа {', '.join(groups) or '—'})…",
             )
             _update_run(repo, run_id=run_id, log_text="\n".join(log), ok_count=saved, err_count=errors)
             payload = client.cises_search(
@@ -308,6 +329,7 @@ def _run_export(
                 per_page=PAGE_SIZE,
                 last_emission_date=last_dt,
                 sgtin=last_sgtin,
+                product_groups=groups or None,
             )
             rows = list(payload.get("result") or [])
             if not rows:
@@ -326,7 +348,7 @@ def _run_export(
                     gtd_chz._append_log(log, f"Строка не сохранена: {exc}")
             last = rows[-1]
             last_dt = str(last.get("emissionDate") or last.get("emission_date") or "").strip()
-            last_sgtin = str(last.get("sgtin") or "").strip()
+            last_sgtin = str(last.get("sgtin") or last.get("cis") or "").strip()
             gtd_chz._append_log(
                 log,
                 f"Страница {page_no}: получено {len(rows)}, сохранено {page_saved}, "
@@ -334,7 +356,7 @@ def _run_export(
             )
             _update_run(repo, run_id=run_id, log_text="\n".join(log), ok_count=saved, err_count=errors)
             cursor = f"{last_dt}|{last_sgtin}"
-            if payload.get("isLastPage") or len(rows) < PAGE_SIZE:
+            if payload.get("isLastPage"):
                 gtd_chz._append_log(log, "Последняя страница")
                 break
             if not last_dt or not last_sgtin or cursor == seen_cursor:
@@ -382,9 +404,11 @@ def start_cabinet_export(
     client = kiz_circ.chz_client_from_settings(settings)
     client.set_token(token_s)
     inn = str(settings.get("participant_inn") or "").strip()
+    groups = product_groups_from_settings(settings)
     run_id = _start_run(repo, user_id=user_id, op="export", requested=0)
     log = [
         f"Выгрузка кодов маркировки {date_from}…{date_to}, все статусы",
+        f"Товарная группа: {', '.join(groups) or '—'}",
         "Запущено в фоне — смотрите лог, не закрывайте вкладку",
     ]
     _update_run(repo, run_id=run_id, log_text="\n".join(log))
@@ -399,6 +423,7 @@ def start_cabinet_export(
                 date_from_iso=iso_from,
                 date_to_iso=iso_to,
                 participant_inn=inn,
+                product_groups=groups,
                 log=list(log),
             )
         except Exception:
@@ -646,6 +671,19 @@ def refresh_cabinet_cis_statuses(
                     kiz_circ.parse_cises_info_item(x if isinstance(x, dict) else None)
                     for x in rows_api
                 ]
+                nf = sum(
+                    1
+                    for p in parsed
+                    if "не найден" in str(p.get("error") or "").lower()
+                    or p.get("error_code") == "404"
+                )
+                if pg and parsed and nf == len(parsed) == len(part):
+                    gtd_chz._append_log(log, f"pg={pg}: все «не найден» — повтор без pg")
+                    rows_api = client.cises_info(part, product_group="")
+                    parsed = [
+                        kiz_circ.parse_cises_info_item(x if isinstance(x, dict) else None)
+                        for x in rows_api
+                    ]
             except ChzTrueApiError as exc:
                 errors += len(part)
                 gtd_chz._append_log(log, f"Ошибка API: {exc}")
@@ -664,12 +702,20 @@ def refresh_cabinet_cis_statuses(
             by_key: dict[str, dict[str, str]] = {}
             for idx, p in enumerate(parsed):
                 req = part[idx] if idx < len(part) else ""
-                for k in {req, str(p.get("cis") or "").strip()}:
+                keys = {req, str(p.get("cis") or "").strip()}
+                for k in list(keys):
                     if k:
+                        keys.add(k.split("\x1d", 1)[0])
+                for k in keys:
+                    if k and k not in by_key:
                         by_key[k] = p
-                        by_key[k.split("\x1d", 1)[0]] = p
             for ks in part:
                 hit = by_key.get(ks)
+                if not hit:
+                    for k, p in by_key.items():
+                        if k.startswith(ks) or ks.startswith(k):
+                            hit = p
+                            break
                 if not hit:
                     missing += 1
                     _upsert_status(

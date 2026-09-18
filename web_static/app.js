@@ -27953,6 +27953,7 @@ const _supplyChzCabState = {
   hasMore: false,
   total: 0,
   busy: false,
+  loading: false,
   lastLog: "",
   lastRunId: 0,
 };
@@ -28098,7 +28099,9 @@ function _supplyChzCabRenderMeta() {
   }
   const moreWrap = document.getElementById("supplyChzCabLoadMoreWrap");
   const more = document.getElementById("supplyChzCabLoadMoreBtn");
-  const showMore = Boolean(_supplyChzCabState.hasMore) && !_supplyChzCabState.busy;
+  const showMore = Boolean(_supplyChzCabState.hasMore)
+    && !_supplyChzCabState.busy
+    && !_supplyChzCabState.loading;
   if (moreWrap) moreWrap.hidden = !showMore;
   if (more) {
     more.hidden = !showMore;
@@ -28156,22 +28159,24 @@ function _supplyChzCabRenderTable() {
   _supplyChzCabRenderMeta();
 }
 
+let _supplyChzCabListSeq = 0;
+
 async function _supplyChzCabFetch(reset) {
   if (_supplyChzCabState.busy) return;
-  if (reset) {
-    _supplyChzCabState.offset = 0;
-    _supplyChzCabState.items = [];
-  }
-  _supplyChzCabState.busy = true;
+  const seq = ++_supplyChzCabListSeq;
+  const offset = reset ? 0 : _supplyChzCabState.offset;
+  if (reset) _supplyChzCabState.offset = 0;
+  _supplyChzCabState.loading = true;
   _supplyChzCabRenderMeta();
   try {
     const params = new URLSearchParams({
-      offset: String(_supplyChzCabState.offset),
+      offset: String(offset),
       limit: String(_supplyChzCabState.limit),
     });
     if (_supplyChzCabState.kindFilter) params.set("status_kind", _supplyChzCabState.kindFilter);
     const res = await fetch(`/api/supply-chz/cabinet/kiz?${params}`, { headers: jsonHeaders() });
     const data = await res.json().catch(() => ({}));
+    if (seq !== _supplyChzCabListSeq || _supplyChzCabState.busy) return;
     if (!res.ok) throw new Error(_supplyGtdChzApiError(res, data, "Не удалось загрузить КИЗ"));
     const batch = Array.isArray(data.items) ? data.items : [];
     _supplyChzCabState.items = reset ? batch : _supplyChzCabState.items.concat(batch);
@@ -28184,8 +28189,10 @@ async function _supplyChzCabFetch(reset) {
     );
     _supplyChzCabRenderTable();
   } finally {
-    _supplyChzCabState.busy = false;
-    _supplyChzCabRenderMeta();
+    if (seq === _supplyChzCabListSeq) {
+      _supplyChzCabState.loading = false;
+      _supplyChzCabRenderMeta();
+    }
   }
 }
 
@@ -28208,6 +28215,8 @@ async function openSupplyChzCabinetModal() {
   _supplyChzCabState.selected = new Set();
   _supplyChzCabState.kindFilter = "";
   _supplyChzCabState.search = "";
+  _supplyChzCabState.hasMore = false;
+  _supplyChzCabState.offset = 0;
   const search = document.getElementById("supplyChzCabSearch");
   if (search) search.value = "";
   document.querySelectorAll("#supplyChzCabStatusChips .wb-fbs-kiz-circ-chip").forEach((el) => {
@@ -28239,7 +28248,7 @@ async function refreshSupplyChzCabinetTable() {
 }
 
 async function loadMoreSupplyChzCabinet() {
-  if (_supplyChzCabState.busy || !_supplyChzCabState.hasMore) return;
+  if (_supplyChzCabState.busy || _supplyChzCabState.loading || !_supplyChzCabState.hasMore) return;
   try {
     await _supplyChzCabFetch(false);
   } catch (err) {
