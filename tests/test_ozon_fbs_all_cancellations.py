@@ -31,7 +31,7 @@ def test_all_cancellations_ui_wired() -> None:
     assert 'id="ozonFbsAllCancellationsModal"' in html
     assert 'id="ozonFbsAllCancellationsSearch"' in html
     assert "ozon_fbs.js?v=185" in html
-    assert "style.css?v=395" in html
+    assert "style.css?v=396" in html
 
     assert "function openOzonFbsAllCancellationsModal" in js
     assert "function _ozonFbsSyncOwnerOnlyAllCancellationsBtn" in js
