@@ -845,7 +845,7 @@
         <th data-col="0">Поставка${rh}</th>
         <th data-col="1">ID поставки${rh}</th>
         <th data-col="2">Заказы${rh}</th>
-        <th data-col="3">Этап сборки${rh}</th>
+        <th data-col="3">${delivering ? "Этап сборки/Статус ТН" : "Этап сборки"}${rh}</th>
         ${delivering ? `<th data-col="4">Водитель${rh}</th>` : ""}
         <th data-col="${delivering ? "5" : "4"}">Склад${rh}</th>
         ${showActions ? '<th class="wb-fbs-th-act"></th>' : ""}
@@ -1100,6 +1100,16 @@
     }
   }
 
+  function _ozonFbsSupplyStageCell(supply) {
+    const status = String(supply?.status_label || "Сборка заказов");
+    const stage = `<span class="wb-fbs-supply-status is-assembly">${esc(status)}</span>`;
+    if (!isDeliveringSuppliesTab()) return stage;
+    const formed = Number(supply?.ttn_id || 0) > 0;
+    const ttnLabel = formed ? "Сформирована" : "Несформирована";
+    const ttnCls = formed ? "is-done" : "is-ttn-none";
+    return `<div class="fbs-supply-status-stack">${stage}<span class="wb-fbs-supply-status ${ttnCls}">${esc(ttnLabel)}</span></div>`;
+  }
+
   function renderSuppliesTable(items) {
     const tbody = document.getElementById("ozonFbsOrdersTbody");
     if (!tbody) return;
@@ -1122,7 +1132,6 @@
         ? `<div class="wb-fbs-order-meta">от ${esc(fmtDate(created))}</div>`
         : "";
       const ordersCount = Number(s.order_count || 0);
-      const status = String(s.status_label || "Сборка заказов");
       const actionsTd = `<td class="wb-fbs-td-act">${_ozonFbsSupplyRowActionsHtml(s)}</td>`;
       const nameCls = openBlocked
         ? "wb-fbs-supply-name is-link is-disabled"
@@ -1153,7 +1162,7 @@
           <div class="wb-fbs-supply-orders">${esc(ordersCount)}</div>
           <div class="wb-fbs-order-meta">отправлений</div>
         </td>
-        <td><span class="wb-fbs-supply-status is-assembly">${esc(status)}</span></td>
+        <td>${_ozonFbsSupplyStageCell(s)}</td>
         ${driverCell}
         <td class="wb-fbs-td-wh">
           <div class="wb-fbs-wh-name" title="${esc(s.warehouse_label || "")}">${esc(s.warehouse_label || "—")}</div>

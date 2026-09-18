@@ -32,5 +32,5 @@ def test_cancelled_kiz_edit_handlers_are_guarded() -> None:
 
 def test_readonly_kiz_input_styles_and_cache_bump() -> None:
     assert ".wb-fbs-kiz-code-input[readonly]" in CSS
-    assert "ozon_fbs.js?v=184" in HTML
-    assert "style.css?v=392" in HTML
+    assert "ozon_fbs.js?v=185" in HTML
+    assert "style.css?v=393" in HTML
