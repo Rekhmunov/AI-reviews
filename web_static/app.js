@@ -21415,7 +21415,7 @@ function _ttnRenderTabsBar() {
     const active = idx === _ttnActiveTabIdx ? " is-active" : "";
     return `<div class="ttn-tab${active}" role="tab" aria-selected="${idx === _ttnActiveTabIdx ? "true" : "false"}"
       data-ttn-tab="${idx}" onclick="ttnSwitchTab(${idx})">
-      <span class="ttn-tab-label">ТН${idx + 1}</span>
+      <span class="ttn-tab-label">ТН<span class="ttn-tab-num">${idx + 1}</span></span>
       <button type="button" class="ttn-tab-close" title="Удалить ТН" aria-label="Удалить ТН${idx + 1}"
         onclick="event.stopPropagation(); ttnDeleteTab(${idx})">✕</button>
     </div>`;
