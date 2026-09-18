@@ -12107,6 +12107,18 @@ button.wb-fbs-select-all-link:disabled {
   color: #166534;
   border-color: #86efac;
 }
+.wb-fbs-supply-status.is-ttn-none {
+  background: #f8fafc;
+  color: #475569;
+  border-color: #cbd5e1;
+}
+.fbs-supply-status-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
 .wb-fbs-badge.pvz {
   background: #f1f5f9;
   color: #334155;
