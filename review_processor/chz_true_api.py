@@ -287,6 +287,66 @@ class ChzTrueApiClient:
                 return [x for x in rows if isinstance(x, dict)]
         return []
 
+    def cises_search(
+        self,
+        *,
+        date_from: str,
+        date_to: str,
+        per_page: int = 1000,
+        last_emission_date: str = "",
+        sgtin: str = "",
+        product_groups: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """List cabinet CIS by emission period (True API v4 ``POST /cises/search``).
+
+        No ``states`` filter — all statuses. Pagination continues from the last
+        row's ``emissionDate`` + ``sgtin``.
+        """
+        filt: dict[str, Any] = {
+            "emissionDatePeriod": {
+                "from": str(date_from or "").strip(),
+                "to": str(date_to or "").strip(),
+            }
+        }
+        groups = [str(g or "").strip() for g in (product_groups or []) if str(g or "").strip()]
+        if groups:
+            filt["productGroups"] = groups
+        page: dict[str, Any] = {"perPage": max(1, min(int(per_page or 1000), 1000))}
+        last_dt = str(last_emission_date or "").strip()
+        last_sgtin = str(sgtin or "").strip()
+        if last_dt and last_sgtin:
+            page["lastEmissionDate"] = last_dt
+            page["sgtin"] = last_sgtin
+        data = self._request(
+            "POST",
+            "/cises/search",
+            body={"filter": filt, "pagination": page},
+            auth=True,
+            base=self.v4_base(),
+        )
+        if isinstance(data, list):
+            return {"result": [x for x in data if isinstance(x, dict)], "isLastPage": True}
+        if not isinstance(data, dict):
+            return {"result": [], "isLastPage": True}
+        err = str(
+            data.get("error_message")
+            or data.get("errorMessage")
+            or data.get("message")
+            or ""
+        ).strip()
+        rows = data.get("result")
+        if err and not isinstance(rows, list):
+            raise ChzTrueApiError(err)
+        if not isinstance(rows, list):
+            rows = data.get("cises") or data.get("data") or []
+        last = data.get("isLastPage")
+        if last is None:
+            last = data.get("is_last_page")
+        return {
+            "result": [x for x in rows if isinstance(x, dict)] if isinstance(rows, list) else [],
+            "isLastPage": bool(last) if last is not None else False,
+        }
+
 
 def _unwrap_doc_info_payload(
     data: Any, *, document_id: str = ""
