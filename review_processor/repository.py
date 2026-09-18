@@ -11073,6 +11073,10 @@ class ReviewRepository:
     # ── Supply TTN Records CRUD (Logistics catalog) ──
 
     def list_supply_ttn_records(self, *, user_id: int) -> list[dict[str, Any]]:
+        try:
+            self.ensure_blank_ttn_titles(user_id=user_id)
+        except Exception:
+            pass
         with self._connect() as conn:
             rows = conn.execute(
                 self._sql("""
@@ -11481,6 +11485,156 @@ class ReviewRepository:
                 (user_id, cert_id),
             )
         return bool(result.rowcount)
+
+    def peek_next_ttn_number(self) -> int:
+        """Next daily TTN number without consuming the counter."""
+        today = _utc_now()[:10]
+        with self._connect() as conn:
+            row = conn.execute(
+                self._sql("SELECT n FROM ttn_counter WHERE date = ?"),
+                (today,),
+            ).fetchone()
+        if not row:
+            return 1
+        try:
+            current = int(row["n"])
+        except (KeyError, TypeError, ValueError):
+            try:
+                current = int(row[0])
+            except (TypeError, ValueError, IndexError):
+                current = 0
+        return max(1, current + 1)
+
+    def list_ttn_rows_missing_title(self, *, user_id: int) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                self._sql(
+                    """
+                    SELECT id, doc_number, ttn_date,
+                           COALESCE(fbs_platform, '') AS fbs_platform,
+                           COALESCE(fbs_source_id, 0) AS fbs_source_id,
+                           COALESCE(fbs_supply_id, '') AS fbs_supply_id
+                    FROM supply_ttn_records
+                    WHERE user_id = ? AND TRIM(COALESCE(title, '')) = ''
+                    ORDER BY id ASC
+                    """
+                ),
+                (user_id,),
+            ).fetchall()
+        return [self._row_to_dict(r) for r in rows]
+
+    def set_supply_ttn_title(self, *, user_id: int, record_id: int, title: str) -> bool:
+        """Write a title only while the stored name is still blank."""
+        clean = str(title or "").strip()
+        try:
+            rid = int(record_id or 0)
+        except (TypeError, ValueError):
+            rid = 0
+        if not clean or rid <= 0:
+            return False
+        with self._connect() as conn:
+            result = conn.execute(
+                self._sql(
+                    """
+                    UPDATE supply_ttn_records
+                    SET title = ?
+                    WHERE user_id = ? AND id = ? AND TRIM(COALESCE(title, '')) = ''
+                    """
+                ),
+                (clean[:255], user_id, rid),
+            )
+        return bool(result.rowcount)
+
+    def lookup_fbs_supply_name(
+        self,
+        *,
+        user_id: int,
+        platform: str,
+        source_id: int,
+        supply_id: str,
+    ) -> str:
+        plat = str(platform or "").strip().lower()
+        sid = str(supply_id or "").strip()
+        try:
+            src = int(source_id or 0)
+        except (TypeError, ValueError):
+            src = 0
+        if not plat or not sid or src <= 0:
+            return ""
+        if plat in ("ozon", "ozon_fbs"):
+            table = "ozon_fbs_supplies"
+        elif plat in ("wb", "wildberries", "wb_fbs"):
+            table = "wb_fbs_supplies"
+        else:
+            return ""
+        try:
+            with self._connect() as conn:
+                row = conn.execute(
+                    self._sql(
+                        f"""
+                        SELECT name FROM {table}
+                        WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                        """
+                    ),
+                    (int(user_id), src, sid),
+                ).fetchone()
+            if not row:
+                return ""
+            data = self._row_to_dict(row)
+            return str((data or {}).get("name") or "").strip()
+        except Exception:
+            return ""
+
+    def ensure_blank_ttn_titles(self, *, user_id: int) -> int:
+        """Fill saved TTN rows that have no display name. Does not touch named rows."""
+        from . import ttn_title as ttn_title_mod
+
+        blanks = self.list_ttn_rows_missing_title(user_id=user_id)
+        if not blanks:
+            return 0
+        existing: set[str] = set()
+        with self._connect() as conn:
+            rows = conn.execute(
+                self._sql(
+                    "SELECT COALESCE(title, '') AS title FROM supply_ttn_records WHERE user_id = ?"
+                ),
+                (user_id,),
+            ).fetchall()
+        for row in rows:
+            data = self._row_to_dict(row)
+            title = str((data or {}).get("title") or "").strip()
+            if title:
+                existing.add(title)
+        updated = 0
+        for row in blanks:
+            plat = str(row.get("fbs_platform") or "").strip().lower()
+            supply_name = ""
+            if plat:
+                try:
+                    src = int(row.get("fbs_source_id") or 0)
+                except (TypeError, ValueError):
+                    src = 0
+                supply_name = self.lookup_fbs_supply_name(
+                    user_id=user_id,
+                    platform=plat,
+                    source_id=src,
+                    supply_id=str(row.get("fbs_supply_id") or ""),
+                )
+            title = ttn_title_mod.title_for_blank_record(
+                doc_number=str(row.get("doc_number") or ""),
+                ttn_date=str(row.get("ttn_date") or ""),
+                supply_name=supply_name,
+                fbs_platform=plat,
+                existing=existing,
+            )
+            try:
+                rid = int(row.get("id") or 0)
+            except (TypeError, ValueError):
+                rid = 0
+            if self.set_supply_ttn_title(user_id=user_id, record_id=rid, title=title):
+                existing.add(title)
+                updated += 1
+        return updated
 
     def next_ttn_number(self) -> int:
         """Return next sequential TTN number for today; resets to 1 each new day."""

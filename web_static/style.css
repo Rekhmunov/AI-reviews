@@ -19241,18 +19241,18 @@ body.ttn-col-resizing {
   overflow: visible;
   white-space: normal;
 }
-/* Soft origin tint: Ozon FBS / WB FBS; logistics-native rows stay default. */
+/* Origin tint: Ozon blue / WB violet. Clear enough to scan, not loud. */
 #ttnTable tbody tr.ttn-row-from-ozon td {
-  background: #eff6ff !important;
+  background: #bfdbfe !important;
 }
 #ttnTable tbody tr.ttn-row-from-wb td {
-  background: #f5f3ff !important;
+  background: #ddd6fe !important;
 }
 #ttnTable tbody tr.ttn-row-from-ozon:hover td {
-  background: #dbeafe !important;
+  background: #93c5fd !important;
 }
 #ttnTable tbody tr.ttn-row-from-wb:hover td {
-  background: #ede9fe !important;
+  background: #c4b5fd !important;
 }
 
 /* TTN table row actions: print + kebab menu */

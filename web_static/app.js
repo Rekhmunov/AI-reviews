@@ -20380,6 +20380,7 @@ async function onTtnFbsSupplyChange() {
   if (!raw) {
     _ttnSelectedFbsMeta = null;
     _ttnSelectedFbsSupplyName = "";
+    _ttnRestoreManualTitleIfTemplate();
     if (hint) hint.textContent = "Подставляются количество мест и масса из выбранной поставки FBS. Вид тары укажите вручную.";
     return;
   }
@@ -20409,13 +20410,7 @@ async function onTtnFbsSupplyChange() {
     if (packingFromWh) _ttnSetPackingValue(packingFromWh);
     const supplyName = String(data.supply_name || "").trim();
     _ttnSelectedFbsSupplyName = supplyName;
-    const titleEl = document.getElementById("ttnCreateTitle");
-    if (titleEl && !String(titleEl.value || "").trim() && supplyName) {
-      const base = supplyName.toUpperCase().startsWith("ТН ")
-        ? supplyName
-        : `ТН ${supplyName}`;
-      titleEl.value = base;
-    }
+    _ttnApplyFbsTitleIfTemplate(supplyName);
     const warnings = Array.isArray(data.warnings) ? data.warnings.filter(Boolean) : [];
     if (hint) {
       const packingHint = packingFromWh
@@ -20945,6 +20940,102 @@ window.deleteTtnRecord = deleteTtnRecord;
 
 // ── Multi-TTN tabs / drafts / route ─────────────────────────────────────────
 
+function _ttnFormatManualTitle(n, isoOrDisplay) {
+  const num = Math.max(1, parseInt(n, 10) || 1);
+  const raw = String(isoOrDisplay || "").trim();
+  let date = "";
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) date = `${iso[3]}.${iso[2]}.${iso[1]}`;
+  else if (/^\d{2}\.\d{2}\.\d{4}$/.test(raw)) date = raw;
+  else date = "—";
+  return `ТН ${num} от ${date}`;
+}
+
+function _ttnFormatFbsTitle(supplyName) {
+  const name = String(supplyName || "").trim() || "Поставка";
+  if (name.toUpperCase().startsWith("ТН ")) return name;
+  return `ТН ${name}`;
+}
+
+function _ttnRestoreManualTitleIfTemplate() {
+  const st = _ttnTabs[_ttnActiveTabIdx]?.state;
+  if (!st || !st.titleFromTemplate) return;
+  const n = Number(st.templateNumber || 0);
+  if (!n) return;
+  const iso = document.getElementById("ttnCreateDate")?.value || st.date || _ttnDateToInputValue("");
+  const title = _ttnFormatManualTitle(n, iso);
+  st.title = title;
+  const el = document.getElementById("ttnCreateTitle");
+  if (el) el.value = title;
+}
+
+function _ttnApplyFbsTitleIfTemplate(supplyName) {
+  const name = String(supplyName || "").trim();
+  if (!name) return;
+  const titleEl = document.getElementById("ttnCreateTitle");
+  if (!titleEl) return;
+  const st = _ttnTabs[_ttnActiveTabIdx]?.state;
+  const current = String(titleEl.value || "").trim();
+  const fromTemplate = !!(st && st.titleFromTemplate);
+  if (current && !fromTemplate) return;
+  const base = _ttnFormatFbsTitle(name);
+  titleEl.value = base;
+  if (st) {
+    st.title = base;
+    st.titleFromTemplate = true;
+    st.supplyName = name;
+  }
+}
+
+function _ttnSyncManualTitleDate() {
+  const st = _ttnTabs[_ttnActiveTabIdx]?.state;
+  if (!st || !st.titleFromTemplate) return;
+  if (_ttnSelectedFbsMeta) return;
+  const n = Number(st.templateNumber || 0);
+  if (!n) return;
+  const iso = document.getElementById("ttnCreateDate")?.value || st.date;
+  const title = _ttnFormatManualTitle(n, iso);
+  st.title = title;
+  if (iso) st.date = iso;
+  const el = document.getElementById("ttnCreateTitle");
+  if (el) el.value = title;
+}
+
+async function _ttnEnsureDefaultTitles() {
+  if (!_ttnTabs.length) return;
+  const needsManual = _ttnTabs.some((t) => {
+    const s = t.state || {};
+    if (String(s.title || "").trim()) return false;
+    return !String(s.fbsMeta?.platform || "").trim();
+  });
+  let n = 0;
+  if (needsManual) {
+    try {
+      const res = await fetch("/api/supply-ttn-records/next-manual-title").catch(() => null);
+      const data = await res?.json().catch(() => ({}));
+      n = Number(data && data.number) || 0;
+    } catch (_) { n = 0; }
+    if (!n) n = 1;
+  }
+  const todayIso = _ttnDateToInputValue("");
+  for (const t of _ttnTabs) {
+    const s = t.state || (t.state = _ttnEmptyFormState());
+    if (String(s.title || "").trim()) continue;
+    const plat = String(s.fbsMeta?.platform || "").trim();
+    const supplyName = String(s.supplyName || "").trim();
+    if (plat) {
+      s.title = _ttnFormatFbsTitle(supplyName || "Поставка");
+      s.titleFromTemplate = true;
+      continue;
+    }
+    if (!s.date) s.date = todayIso;
+    s.templateNumber = n;
+    s.title = _ttnFormatManualTitle(n, s.date);
+    s.titleFromTemplate = true;
+    n += 1;
+  }
+}
+
 function _ttnEmptyFormState() {
   return {
     title: "",
@@ -20991,6 +21082,8 @@ function _ttnEmptyFormState() {
     supplyName: "",
     loaderAutofill: "",
     receiverAutofill: "",
+    titleFromTemplate: false,
+    templateNumber: 0,
   };
 }
 
@@ -21005,6 +21098,8 @@ function _ttnCaptureFormState() {
     : null;
   return {
     title: document.getElementById("ttnCreateTitle")?.value || "",
+    titleFromTemplate: !!(_ttnTabs[_ttnActiveTabIdx]?.state?.titleFromTemplate),
+    templateNumber: Number(_ttnTabs[_ttnActiveTabIdx]?.state?.templateNumber || 0),
     date: document.getElementById("ttnCreateDate")?.value || "",
     shipper: document.getElementById("ttnCreateShipper")?.value || "",
     consignee: document.getElementById("ttnCreateConsignee")?.value || "",
@@ -21319,8 +21414,36 @@ function _ttnStateFromRecord(record, mode) {
   }
   const dId = Number(record.driver_id || 0);
   const manualDriver = dId <= 0 && !!(record.driver_manual_name);
+  let title = String(record.title || "").trim();
+  let titleFromTemplate = false;
+  let templateNumber = 0;
+  if (!title) {
+    const plat = String(record.fbs_platform || "").trim();
+    const supplyName = String(record.supply_name || "").trim();
+    if (plat) {
+      title = _ttnFormatFbsTitle(supplyName || "Поставка");
+      titleFromTemplate = true;
+    } else {
+      const rawNum = String(record.doc_number || "").trim();
+      const num = parseInt(rawNum, 10);
+      const dateRaw = String(record.ttn_date || "").trim();
+      if (rawNum && String(num) === rawNum && num > 0) {
+        title = _ttnFormatManualTitle(num, dateRaw);
+        templateNumber = num;
+        titleFromTemplate = true;
+      } else if (rawNum) {
+        const dateDisp = /^\d{2}\.\d{2}\.\d{4}$/.test(dateRaw)
+          ? dateRaw
+          : (_ttnDatetimeFromInputValue(_ttnDateToInputValue(dateRaw)) || "—");
+        title = `ТН ${rawNum} от ${dateDisp}`;
+        titleFromTemplate = true;
+      }
+    }
+  }
   return {
-    title: String(record.title || "").trim(),
+    title,
+    titleFromTemplate,
+    templateNumber,
     date: _ttnDateToInputValue(record.ttn_date),
     shipper: shipRef,
     consignee: consRef,
@@ -21558,8 +21681,17 @@ function _ttnBindFormDirtyTracking() {
   const modal = document.getElementById("createTtnModal");
   if (!modal || modal.dataset.ttnDirtyBound === "1") return;
   modal.dataset.ttnDirtyBound = "1";
-  modal.addEventListener("input", () => _ttnOnFormChanged());
-  modal.addEventListener("change", () => _ttnOnFormChanged());
+  modal.addEventListener("input", (ev) => {
+    if (ev.target && ev.target.id === "ttnCreateTitle") {
+      const st = _ttnTabs[_ttnActiveTabIdx]?.state;
+      if (st) st.titleFromTemplate = false;
+    }
+    _ttnOnFormChanged();
+  });
+  modal.addEventListener("change", (ev) => {
+    if (ev.target && ev.target.id === "ttnCreateDate") _ttnSyncManualTitleDate();
+    _ttnOnFormChanged();
+  });
 }
 
 function _ttnLoadPartyNameForState(state) {
@@ -21687,10 +21819,16 @@ async function ttnAddTabFromSource(sourceIdx) {
   _ttnPersistActiveTabState();
   const src = _ttnTabs[sourceIdx]?.state || _ttnCaptureFormState();
   const cloned = _ttnCloneStateClearLoad(src);
+  if (!cloned.fbsMeta && (cloned.titleFromTemplate || !String(cloned.title || "").trim())) {
+    cloned.title = "";
+    cloned.titleFromTemplate = false;
+    cloned.templateNumber = 0;
+  }
   _ttnTabs.push({ id: null, state: cloned });
   _ttnActiveTabIdx = _ttnTabs.length - 1;
   _ttnEditingId = null;
-  await _ttnApplyFormState(cloned);
+  await _ttnEnsureDefaultTitles();
+  await _ttnApplyFormState(_ttnTabs[_ttnActiveTabIdx]?.state || cloned);
   _ttnFormDirty = true;
   _ttnRenderTabsBar();
   _ttnScheduleDraftSave();
@@ -21846,6 +21984,8 @@ async function _openTtnModal(mode, record, opts = {}) {
   }
 
   _ttnEditingId = _ttnTabs[_ttnActiveTabIdx]?.id || null;
+  await _ttnEnsureDefaultTitles();
+  initialState = _ttnTabs[_ttnActiveTabIdx]?.state || initialState;
   await _ttnApplyFormState(initialState || _ttnEmptyFormState());
 
   // If vehicle line from record is custom (not in driver list), _ttnStateFromRecord may need
