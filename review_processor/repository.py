@@ -14188,6 +14188,18 @@ class ReviewRepository:
             "ALTER TABLE supply_balance_visibility "
             "ADD COLUMN IF NOT EXISTS min_qty DOUBLE PRECISION"
         )
+        # Nightly auto min stock (Поставки → Остатки → Вывод). One row per owner.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS supply_balance_min_auto (
+                user_id BIGINT PRIMARY KEY,
+                enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                days INTEGER NOT NULL DEFAULT 14,
+                last_applied_date TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
         # Append-only stock ledger (Поставки → Остатки). Balance = SUM(qty).
         conn.execute(
             """
@@ -14562,6 +14574,134 @@ class ReviewRepository:
                         item_id,
                         self._bool_db(visible),
                         sort_order,
+                        min_qty,
+                    ),
+                )
+                saved += 1
+        return saved
+
+    def get_supply_balance_min_auto(self, *, user_id: int) -> dict[str, Any]:
+        """Auto min-stock settings. Missing row = off, 14 days, never applied."""
+        with self._connect() as conn:
+            self._ensure_supply_balances_tables(conn)
+            row = conn.execute(
+                self._sql(
+                    "SELECT enabled, days, last_applied_date, updated_at "
+                    "FROM supply_balance_min_auto WHERE user_id = ?"
+                ),
+                (int(user_id),),
+            ).fetchone()
+        if not row:
+            return {
+                "enabled": False,
+                "days": 14,
+                "last_applied_date": "",
+                "updated_at": "",
+            }
+        d = self._row_to_dict(row)
+        try:
+            days = int(d.get("days") or 14)
+        except (TypeError, ValueError):
+            days = 14
+        if days < 1 or days > 366:
+            days = 14
+        return {
+            "enabled": bool(d.get("enabled")),
+            "days": days,
+            "last_applied_date": str(d.get("last_applied_date") or "").strip(),
+            "updated_at": str(d.get("updated_at") or ""),
+        }
+
+    def set_supply_balance_min_auto(
+        self,
+        *,
+        user_id: int,
+        enabled: bool,
+        days: int,
+        last_applied_date: str,
+    ) -> None:
+        now = _utc_now()
+        with self._connect() as conn:
+            self._ensure_supply_balances_tables(conn)
+            conn.execute(
+                self._sql(
+                    "INSERT INTO supply_balance_min_auto "
+                    "(user_id, enabled, days, last_applied_date, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?) "
+                    "ON CONFLICT (user_id) DO UPDATE SET "
+                    "enabled = EXCLUDED.enabled, "
+                    "days = EXCLUDED.days, "
+                    "last_applied_date = EXCLUDED.last_applied_date, "
+                    "updated_at = EXCLUDED.updated_at"
+                ),
+                (
+                    int(user_id),
+                    self._bool_db(bool(enabled)),
+                    int(days),
+                    str(last_applied_date or "").strip(),
+                    now,
+                ),
+            )
+
+    def mark_supply_balance_min_auto_applied(
+        self, *, user_id: int, last_applied_date: str
+    ) -> None:
+        """Stamp the Moscow date after a successful nightly write. Does not change enabled/days."""
+        now = _utc_now()
+        with self._connect() as conn:
+            self._ensure_supply_balances_tables(conn)
+            conn.execute(
+                self._sql(
+                    "UPDATE supply_balance_min_auto "
+                    "SET last_applied_date = ?, updated_at = ? "
+                    "WHERE user_id = ? AND enabled = ?"
+                ),
+                (
+                    str(last_applied_date or "").strip(),
+                    now,
+                    int(user_id),
+                    self._bool_db(True),
+                ),
+            )
+
+    def apply_supply_balance_min_qty_only(
+        self, *, user_id: int, items: list[dict[str, Any]]
+    ) -> int:
+        """Write min_qty only. Existing visible/sort_order stay as the user set them.
+
+        New rows get visible=TRUE and a high sort_order so they do not jump
+        ahead of a saved order.
+        """
+        saved = 0
+        with self._connect() as conn:
+            self._ensure_supply_balances_tables(conn)
+            for item in items or []:
+                item_type = str(item.get("item_type") or "").strip().lower()
+                if item_type not in {"material", "product"}:
+                    continue
+                try:
+                    item_id = int(item.get("item_id") or 0)
+                except (TypeError, ValueError):
+                    continue
+                if item_id <= 0:
+                    continue
+                min_qty = self._parse_supply_balance_min_qty(item.get("min_qty"))
+                if min_qty is None:
+                    min_qty = 0.0
+                conn.execute(
+                    self._sql(
+                        "INSERT INTO supply_balance_visibility "
+                        "(user_id, item_type, item_id, visible, sort_order, min_qty) "
+                        "VALUES (?, ?, ?, ?, ?, ?) "
+                        "ON CONFLICT (user_id, item_type, item_id) "
+                        "DO UPDATE SET min_qty = EXCLUDED.min_qty"
+                    ),
+                    (
+                        int(user_id),
+                        item_type,
+                        item_id,
+                        self._bool_db(True),
+                        10**9,
                         min_qty,
                     ),
                 )

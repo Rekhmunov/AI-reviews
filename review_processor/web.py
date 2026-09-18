@@ -31,6 +31,7 @@ from .repository import ReviewRepository
 from .service import MarketplaceSyncError, ReviewAutomationService, _normalize_timestamp, _parse_ozon_message_text, _wb_image_url
 from .models import ReviewInput
 from .stock_service import StockScheduler, sync_stock_source
+from . import supply_balance_min_auto as supply_min_auto
 from . import wb_fbs as wb_fbs_mod
 from . import ozon_fbs as ozon_fbs_mod
 from . import supply_source_identity as supply_identity
@@ -977,6 +978,11 @@ class SupplyBalanceVisibilityRequest(BaseModel):
     items: list[dict[str, object]] = Field(default_factory=list)
 
 
+class SupplyBalanceMinAutoRequest(BaseModel):
+    enabled: bool = False
+    days: int = 14
+
+
 class SupplyStockReceiptRequest(BaseModel):
     date: str = Field(default="", max_length=20)
     comment: str = Field(default="", max_length=500)
@@ -1422,6 +1428,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     failed_login_attempts: dict[str, list[float]] = {}
     stock_scheduler = StockScheduler(repository)
     wb_fbs_scheduler = wb_fbs_mod.WbFbsScheduler(repository)
+    supply_min_auto_scheduler = supply_min_auto.MinAutoScheduler(repository)
 
     def _client_ip(request: Request) -> str:
         forwarded = str(request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
@@ -8529,6 +8536,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             wb_fbs_scheduler.start()
         except Exception as _exc:
             _log.warning("restore_auto_sync_on_startup: wb_fbs_scheduler start failed: %s", _exc)
+        try:
+            supply_min_auto_scheduler.start()
+        except Exception as _exc:
+            _log.warning(
+                "restore_auto_sync_on_startup: supply_min_auto_scheduler start failed: %s",
+                _exc,
+            )
 
     # ── Stock module endpoints ────────────────────────────────────────────────
 
@@ -20981,6 +20995,41 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         )
         return {"ok": True, "saved": saved}
 
+    @app.get("/api/supply-balances/min-auto")
+    def get_supply_balance_min_auto(request: Request) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supply_stock(user):
+            raise HTTPException(status_code=403, detail="Нет доступа к остаткам")
+        owner_id = _supply_owner_id(user)
+        settings = repository.get_supply_balance_min_auto(user_id=owner_id)
+        return {
+            "enabled": bool(settings.get("enabled")),
+            "days": int(settings.get("days") or 14),
+            "last_applied_date": str(settings.get("last_applied_date") or ""),
+        }
+
+    @app.put("/api/supply-balances/min-auto")
+    def save_supply_balance_min_auto_route(
+        request: Request, payload: SupplyBalanceMinAutoRequest
+    ) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supply_stock(user):
+            raise HTTPException(status_code=403, detail="Нет доступа к остаткам")
+        owner_id = _supply_owner_id(user)
+        try:
+            saved = supply_min_auto.save_min_auto_settings(
+                repository,
+                user_id=owner_id,
+                enabled=bool(payload.enabled),
+                days=payload.days,
+                today_iso=_moscow_today(),
+            )
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail="Укажите число дней от 1 до 366"
+            ) from None
+        return {"ok": True, **saved}
+
     @app.get("/api/supply-balances/movements-report")
     def get_supply_balance_movements_report(
         request: Request,
@@ -23192,6 +23241,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         auto_sync_stop_event.set()
         stock_scheduler.stop()
         wb_fbs_scheduler.stop()
+        supply_min_auto_scheduler.stop()
         worker = auto_sync_worker.get("thread")
         if isinstance(worker, threading.Thread) and worker.is_alive():
             worker.join(timeout=1.5)
