@@ -22991,7 +22991,9 @@ function _sstApplyWidths(table, ths, widthsByCol) {
     const isActs = _sstIsActsCol(th);
     if (isActs) th.classList.add("sst-actions-col");
     const colKey = th.dataset.col || `c${i}`;
-    const floor = th.dataset.col === "num" ? 40 : (isActs ? 96 : _SST_MIN_COL_W);
+    const isGtd = table.tHead?.id === "supplyGtdThead";
+    const actsFloor = isGtd ? 220 : 96;
+    const floor = th.dataset.col === "num" ? 40 : (isActs ? actsFloor : _SST_MIN_COL_W);
     let w = Number(widthsByCol[colKey]) || _sstDefaultWidth(th);
     w = Math.max(floor, Math.round(w));
     return { th, i, colKey, w };
