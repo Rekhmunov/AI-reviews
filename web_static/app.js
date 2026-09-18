@@ -17662,15 +17662,17 @@ function renderSupplyBalancesVisibilityList() {
           <div class="sb-vis-name">${esc(row.name || "")}</div>
           <div class="sb-vis-sub">${esc(row.unit || "шт")} · ${typeLabel}</div>
         </div>
-        <label class="sb-vis-min" title="Минимальный остаток">
-          <span>Мин.</span>
-          <input type="number" min="0" step="any" inputmode="decimal"
-            data-vis-min-input="${esc(key)}" value="${esc(minVal)}" placeholder="—"
-            oninput="onSupplyBalanceMinQtyInput('${esc(row.item_type)}', ${Number(row.item_id)}, this.value)"
-            onclick="event.stopPropagation()" onmousedown="event.stopPropagation()" />
-        </label>
-        <button type="button" class="sb-vis-eye ${on ? "" : "is-off"}" title="${on ? "Скрыть" : "Показать"}"
-          onclick="toggleSupplyBalanceVisibility('${esc(row.item_type)}', ${Number(row.item_id)})">${on ? "Вкл" : "Выкл"}</button>
+        <div class="sb-vis-controls">
+          <label class="sb-vis-min" title="Минимальный остаток">
+            <span>Мин.</span>
+            <input type="number" min="0" step="any" inputmode="decimal"
+              data-vis-min-input="${esc(key)}" value="${esc(minVal)}" placeholder="—"
+              oninput="onSupplyBalanceMinQtyInput('${esc(row.item_type)}', ${Number(row.item_id)}, this.value)"
+              onclick="event.stopPropagation()" onmousedown="event.stopPropagation()" />
+          </label>
+          <button type="button" class="sb-vis-eye ${on ? "" : "is-off"}" title="${on ? "Скрыть" : "Показать"}"
+            onclick="toggleSupplyBalanceVisibility('${esc(row.item_type)}', ${Number(row.item_id)})">${on ? "Вкл" : "Выкл"}</button>
+        </div>
       </div>`;
     }).join("");
   };
@@ -17937,6 +17939,13 @@ window.saveSupplyBalancesVisibility = saveSupplyBalancesVisibility;
 
 let _sbMinAutoSaving = false;
 
+function onSupplyBalancesMinAutoToggle() {
+  const enabledEl = document.getElementById("supplyBalancesMinAutoEnabled");
+  const stateEl = document.getElementById("supplyBalancesMinAutoState");
+  if (stateEl) stateEl.textContent = enabledEl?.checked ? "Вкл" : "Выкл";
+}
+window.onSupplyBalancesMinAutoToggle = onSupplyBalancesMinAutoToggle;
+
 function _sbSetMinAutoErr(message) {
   const err = document.getElementById("supplyBalancesMinAutoErr");
   if (!err) return;
@@ -17957,6 +17966,7 @@ async function openSupplyBalancesMinAutoModal() {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || "Ошибка загрузки");
     if (enabledEl) enabledEl.checked = !!data.enabled;
+    onSupplyBalancesMinAutoToggle();
     if (daysEl) {
       const days = Number(data.days);
       daysEl.value = Number.isFinite(days) && days >= 1 ? String(Math.round(days)) : "14";

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=395" />
+  <link rel="stylesheet" href="/static/style.css?v=396" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -7546,15 +7546,10 @@
         <div class="sb-sheet-title-row">
           <h3 id="supplyBalancesVisibilityTitle" class="sb-sheet-title">Вывод в таблице</h3>
           <div class="sb-sheet-title-actions">
-            <button type="button" class="icon-btn secondary" id="supplyBalancesMinAutoBtn"
+            <button type="button" id="supplyBalancesMinAutoBtn" class="secondary icon-btn"
                     onclick="openSupplyBalancesMinAutoModal()"
                     title="Автоматический мин. остаток"
-                    aria-label="Автоматический мин. остаток">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/>
-                <path d="M12 3.5v2.2M12 18.3v2.2M3.5 12h2.2M18.3 12h2.2M6.1 6.1l1.6 1.6M16.3 16.3l1.6 1.6M17.9 6.1l-1.6 1.6M7.7 16.3l-1.6 1.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-              </svg>
-            </button>
+                    aria-label="Автоматический мин. остаток">⚙</button>
             <button type="button" class="icon-btn secondary" onclick="closeSupplyBalancesVisibilityModal()" aria-label="Закрыть">✕</button>
           </div>
         </div>
@@ -7588,20 +7583,21 @@
         <p class="sb-sheet-lead">Если включено, после 00:00 по Москве в поле «Мин.» записывается количество продаж за выбранное число дней. Если выключено, ночной пересчёт не выполняется.</p>
       </div>
       <div class="sb-min-auto-body">
-        <div class="sb-min-auto-toggle">
-          <div class="sb-min-auto-toggle-copy">
-            <label class="sb-min-auto-label" for="supplyBalancesMinAutoEnabled">Автоматическая установка</label>
-            <p class="sb-min-auto-hint" id="supplyBalancesMinAutoHint">Числа появятся в «Мин.» после полуночи, не сразу после включения.</p>
+        <div class="wb-fbs-auto-sync-row">
+          <div class="wb-fbs-auto-sync-label">
+            <span>Автоматическая установка</span>
+            <span id="supplyBalancesMinAutoState" class="wb-fbs-auto-sync-state">Выкл</span>
           </div>
           <label class="switch" title="Включить или выключить">
-            <input type="checkbox" id="supplyBalancesMinAutoEnabled" aria-describedby="supplyBalancesMinAutoHint" />
+            <input type="checkbox" id="supplyBalancesMinAutoEnabled" onchange="onSupplyBalancesMinAutoToggle()" />
             <span class="slider"></span>
           </label>
         </div>
-        <label class="sb-min-auto-days" for="supplyBalancesMinAutoDays">
-          <span>Дней продаж</span>
+        <div class="wb-fbs-auto-sync-field">
+          <label for="supplyBalancesMinAutoDays">Дней продаж</label>
           <input type="number" id="supplyBalancesMinAutoDays" min="1" max="366" step="1" value="14" inputmode="numeric" />
-        </label>
+          <span class="wb-fbs-auto-sync-field-hint">После 00:00 по Москве продажи за эти дни записываются в поле «Мин.».</span>
+        </div>
         <p id="supplyBalancesMinAutoErr" class="sb-doc-err" hidden></p>
       </div>
       <div class="sb-sheet-footer">
@@ -8011,6 +8007,6 @@
 
   <script src="/static/ozon_fbs.js?v=185"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=36"></script>
-  <script src="/static/app.js?v=670"></script>
+  <script src="/static/app.js?v=671"></script>
 </body>
 </html>

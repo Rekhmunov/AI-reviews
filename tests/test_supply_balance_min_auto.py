@@ -226,6 +226,7 @@ def test_visibility_modal_has_gear_and_settings_modal() -> None:
         'id="supplyBalancesMinAutoModal"', 1
     )[0]
     assert 'id="supplyBalancesMinAutoBtn"' in vis
+    assert ">⚙</button>" in vis
     assert "openSupplyBalancesMinAutoModal()" in vis
     assert "Автоматический мин. остаток" in vis
     panel = HTML.split('id="supplyBalancesFilterPanel"', 1)[1].split(
@@ -236,11 +237,13 @@ def test_visibility_modal_has_gear_and_settings_modal() -> None:
         'id="supplyStockReceiptModal"', 1
     )[0]
     assert 'id="supplyBalancesMinAutoEnabled"' in modal
+    assert "wb-fbs-auto-sync-row" in modal
+    assert 'id="supplyBalancesMinAutoState"' in modal
     assert 'for="supplyBalancesMinAutoDays"' in modal
     assert "Дней продаж" in modal
     assert "после 00:00" in modal
-    assert "style.css?v=395" in HTML
-    assert "app.js?v=670" in HTML
+    assert "style.css?v=396" in HTML
+    assert "app.js?v=671" in HTML
     assert "/api/supply-balances/min-auto" in APP_JS
     assert "function saveSupplyBalancesMinAuto" in APP_JS
     assert "supply_min_auto_scheduler.start()" in WEB
