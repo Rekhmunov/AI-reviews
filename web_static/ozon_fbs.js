@@ -541,6 +541,7 @@
 
   function colspan() {
     if (!isSuppliesTab()) return state.lookupMode ? 5 : 4;
+    if (isDeliveringSuppliesTab()) return 8;
     return 7;
   }
 
@@ -819,13 +820,15 @@
     if (!modeChanged && colgroup.children.length) return;
     if (supplies) {
       const showActions = true;
+      const delivering = isDeliveringSuppliesTab();
       colgroup.innerHTML = `
         <col data-fixed="1" class="wb-fbs-col-check" style="width:40px" />
         <col data-col="0" class="wb-fbs-col-supply" style="width:26%" />
         <col data-col="1" class="wb-fbs-col-qr" style="width:16%" />
         <col data-col="2" class="wb-fbs-col-orders" style="width:14%" />
-        <col data-col="3" class="wb-fbs-col-status" style="width:16%" />
-        <col data-col="4" class="wb-fbs-col-wh" style="width:22%" />
+        <col data-col="3" class="wb-fbs-col-status" style="width:${delivering ? "14%" : "16%"}" />
+        ${delivering ? '<col data-col="4" class="wb-fbs-col-driver" style="width:16%" />' : ""}
+        <col data-col="${delivering ? "5" : "4"}" class="wb-fbs-col-wh" style="width:${delivering ? "14%" : "22%"}" />
         ${showActions ? '<col data-fixed="1" class="wb-fbs-col-act" style="width:48px" />' : ""}
       `;
       thead.innerHTML = `
@@ -834,7 +837,8 @@
         <th data-col="1">ID поставки</th>
         <th data-col="2">Заказы</th>
         <th data-col="3">Этап сборки</th>
-        <th data-col="4">Склад</th>
+        ${delivering ? '<th data-col="4">Водитель</th>' : ""}
+        <th data-col="${delivering ? "5" : "4"}">Склад</th>
         ${showActions ? '<th class="wb-fbs-th-act"></th>' : ""}
       `;
     } else {
@@ -1120,6 +1124,10 @@
       const rowCls = tone === "warn"
         ? " class=\"fbs-supply-row-warn\""
         : (tone === "ok" ? " class=\"fbs-supply-row-ok\"" : "");
+      const driverLabel = _ozonFbsSupplyDriverLabel(s);
+      const driverCell = isDeliveringSuppliesTab()
+        ? `<td class="wb-fbs-td-driver"><div class="fbs-supply-driver-label">Водитель</div><div class="fbs-supply-driver${_ozonFbsDriverHasAssignment(s) ? "" : " is-empty"}" title="${esc(driverLabel)}">${esc(driverLabel)}</div></td>`
+        : "";
       return `<tr${rowCls}>
         <td><input type="checkbox" class="wb-fbs-row-cb" data-supply-id="${esc(sid)}" ${checked} onchange="onOzonFbsCheckboxChange()" /></td>
         <td>
@@ -1136,7 +1144,8 @@
           <div class="wb-fbs-order-meta">отправлений</div>
         </td>
         <td><span class="wb-fbs-supply-status is-assembly">${esc(status)}</span></td>
-        <td>
+        ${driverCell}
+        <td class="wb-fbs-td-wh">
           <div class="wb-fbs-wh-name" title="${esc(s.warehouse_label || "")}">${esc(s.warehouse_label || "—")}</div>
         </td>
         ${actionsTd}
@@ -5742,6 +5751,12 @@
     return Boolean(row.has_driver) || (did > 0 && !!name);
   }
 
+  function _ozonFbsSupplyDriverLabel(supply) {
+    if (!_ozonFbsDriverHasAssignment(supply)) return "не назначен";
+    const name = String(supply?.driver_name || "").trim();
+    return name || "не назначен";
+  }
+
   function _ozonFbsSyncDriverBtn() {
     const btn = document.getElementById("ozonFbsSupplyDetailDriverBtn");
     if (!btn) return;
@@ -5951,6 +5966,14 @@
         supplyDetailState.supply.driver_name = String(data.driver_name || "").trim();
         supplyDetailState.supply.vehicle_number = String(data.vehicle_number || plate).trim();
         supplyDetailState.supply.has_driver = true;
+      }
+      const listRow = (state.items || []).find((it) => String(it?.supply_id || "").trim() === sid);
+      if (listRow && isDeliveringSuppliesTab()) {
+        listRow.driver_id = Number(data.driver_id || driverId);
+        listRow.driver_name = String(data.driver_name || "").trim();
+        listRow.vehicle_number = String(data.vehicle_number || plate).trim();
+        listRow.has_driver = _ozonFbsDriverHasAssignment(listRow);
+        renderSuppliesTable(state.items);
       }
       _ozonFbsSyncDriverBtn();
       _ozonFbsSyncMoveDeliveringEnabled();

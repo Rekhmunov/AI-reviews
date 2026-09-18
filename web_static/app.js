@@ -32996,7 +32996,7 @@ const WB_FBS_COL_WIDTHS_PREFIX = "wb_fbs_col_widths_v3";
 const WB_FBS_COL_WIDTHS_ORDERS_V2 = "wb_fbs_col_widths_v2"; // migrate orders widths
 const WB_FBS_DEFAULT_WIDTHS_ORDERS = [24, 56, 20]; // order, product, warehouse
 const WB_FBS_DEFAULT_WIDTHS_SUPPLIES_ASSEMBLY = [26, 16, 14, 16, 24];
-const WB_FBS_DEFAULT_WIDTHS_SUPPLIES_DELIVERY = [20, 14, 14, 14, 14, 18];
+const WB_FBS_DEFAULT_WIDTHS_SUPPLIES_DELIVERY = [18, 12, 12, 12, 12, 16, 18];
 let _wbFbsColResizerInited = false;
 
 function _wbFbsColWidthsMode() {
@@ -33297,7 +33297,7 @@ function _wbFbsHasRowActions() {
 }
 
 function _wbFbsColspan() {
-  if (wbFbsState.tab === "delivery") return 8;
+  if (wbFbsState.tab === "delivery") return 9;
   if (wbFbsState.tab === "assembly") return 6;
   return _wbFbsHasRowActions() ? 5 : 4;
 }
@@ -33367,7 +33367,8 @@ function _wbFbsSyncTableMode() {
       <col data-col="2" class="wb-fbs-col-status" />
       <col data-col="3" class="wb-fbs-col-scan" />
       <col data-col="4" class="wb-fbs-col-orders" />
-      <col data-col="5" class="wb-fbs-col-wh" />
+      <col data-col="5" class="wb-fbs-col-driver" />
+      <col data-col="6" class="wb-fbs-col-wh" />
       <col data-fixed="1" class="wb-fbs-col-act" style="width:48px" />
     `;
     thead.innerHTML = `
@@ -33377,7 +33378,8 @@ function _wbFbsSyncTableMode() {
       <th data-col="2">Статус<span class="col-resize-handle"></span></th>
       <th data-col="3">Время сканирования QR-кода поставки<span class="col-resize-handle"></span></th>
       <th data-col="4">Заказы и грузоместа<span class="col-resize-handle"></span></th>
-      <th data-col="5">Склад<span class="col-resize-handle"></span></th>
+      <th data-col="5">Водитель<span class="col-resize-handle"></span></th>
+      <th data-col="6">Склад<span class="col-resize-handle"></span></th>
       <th class="wb-fbs-th-act"></th>
     `;
     initWbFbsColumnResizer();
@@ -34881,6 +34883,12 @@ function _wbFbsDriverHasAssignment(supply) {
   return Boolean(row.has_driver) || (did > 0 && !!name);
 }
 
+function _wbFbsSupplyDriverLabel(supply) {
+  if (!_wbFbsDriverHasAssignment(supply)) return "не назначен";
+  const name = String(supply?.driver_name || "").trim();
+  return name || "не назначен";
+}
+
 /** KIZ gate for portal: only when the supply has active KIZ-required orders. */
 function _wbFbsNeedsKizForPortal(supply) {
   const orders = Array.isArray(supply?.orders) ? supply.orders : [];
@@ -35288,6 +35296,14 @@ async function saveWbFbsDriver() {
       wbFbsDetailState.supply.driver_name = String(data.driver_name || "").trim();
       wbFbsDetailState.supply.vehicle_number = String(data.vehicle_number || plate).trim();
       wbFbsDetailState.supply.has_driver = true;
+    }
+    const listRow = (wbFbsState.items || []).find((it) => String(it?.supply_id || "").trim() === sid);
+    if (listRow && wbFbsState.tab === "delivery") {
+      listRow.driver_id = Number(data.driver_id || driverId);
+      listRow.driver_name = String(data.driver_name || "").trim();
+      listRow.vehicle_number = String(data.vehicle_number || plate).trim();
+      listRow.has_driver = _wbFbsDriverHasAssignment(listRow);
+      renderWbFbsSuppliesTable();
     }
     _wbFbsSyncDriverBtn();
     _wbFbsDriverSetInfo("Сохранено", "ok");
@@ -41620,6 +41636,10 @@ function renderWbFbsSuppliesTable() {
     const midCells = isAssembly
       ? `${ordersCell}${statusCell}`
       : `${statusCell}${scanCell}${ordersCell}`;
+    const driverLabel = _wbFbsSupplyDriverLabel(s);
+    const driverCell = wbFbsState.tab === "delivery"
+      ? `<td class="wb-fbs-td-driver"><div class="fbs-supply-driver-label">Водитель</div><div class="fbs-supply-driver${_wbFbsDriverHasAssignment(s) ? "" : " is-empty"}" title="${_wbFbsEsc(driverLabel)}">${_wbFbsEsc(driverLabel)}</div></td>`
+      : "";
     const canOpenDetail = isAssembly || wbFbsState.tab === "delivery";
     const nameCls = canOpenDetail ? "wb-fbs-supply-name is-link" : "wb-fbs-supply-name";
     const nameClick = canOpenDetail
@@ -41638,7 +41658,8 @@ function renderWbFbsSuppliesTable() {
       </td>
       <td><div class="wb-fbs-supply-qr" title="${_wbFbsEsc(sid)}">${_wbFbsEsc(sid || "—")}</div></td>
       ${midCells}
-      <td>
+      ${driverCell}
+      <td class="wb-fbs-td-wh">
         <div class="wb-fbs-wh-name" title="${_wbFbsEsc(s.warehouse_label || "")}">${_wbFbsEsc(s.warehouse_label || "—")}</div>
         ${s.warehouse_sub
           ? `<div class="wb-fbs-wh-address" title="${_wbFbsEsc(s.warehouse_sub)}">${_wbFbsEsc(s.warehouse_sub)}</div>`

@@ -11761,6 +11761,22 @@ button.wb-fbs-select-all-link:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.fbs-supply-driver {
+  font-weight: 600;
+  color: #0f172a;
+  font-size: 16px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fbs-supply-driver.is-empty {
+  font-weight: 500;
+  color: #64748b;
+}
+.fbs-supply-driver-label {
+  display: none;
+}
 .wb-fbs-wh-address {
   color: #64748b;
   font-size: 14px;
@@ -19234,4 +19250,24 @@ body.ttn-col-resizing {
   background: #f8fafc !important;
   color: #0f172a !important;
   box-shadow: none !important;
+}
+
+@media (max-width: 720px) {
+  .fbs-supply-driver-label {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.35;
+    color: #64748b;
+  }
+  #section-supplies-wb-fbs #wbFbsOrdersTable.wb-fbs-table--supplies tbody td.wb-fbs-td-driver,
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies tbody td.wb-fbs-td-driver {
+    display: block;
+    grid-column: 1 / -1;
+    padding-top: 8px !important;
+  }
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies tbody td.wb-fbs-td-wh {
+    display: none;
+  }
 }
