@@ -20,9 +20,9 @@ def _slice(src: str, start: str, end: str) -> str:
 
 
 def test_cache_versions() -> None:
-    assert "app.js?v=678" in HTML
+    assert "app.js?v=679" in HTML
     assert "ozon_fbs.js?v=186" in HTML
-    assert "style.css?v=402" in HTML
+    assert "style.css?v=403" in HTML
 
 
 def test_wb_delivery_wrap_class_keeps_existing_resizer() -> None:

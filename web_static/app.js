@@ -14713,7 +14713,70 @@ function _sbSyncOrderCategoryOptions() {
   const valid = current.filter((v) => opts.some((o) => o.value === v));
   supplyBalancesOrderState.categories = valid;
   _sbApplyCategoryFiltersToSelect(sel, valid);
+  _sbSyncOrderCategoryButton();
 }
+
+function _sbOrderCategoryButtonLabel(categories) {
+  const selected = _sbNormalizeCategoryFilters(categories);
+  if (!selected.length) return "Все";
+  const sel = document.getElementById("supplyBalancesOrderCategoryFilter");
+  const labels = selected.map((value) => {
+    const opt = sel
+      ? Array.from(sel.options || []).find((item) => String(item.value || "") === value)
+      : null;
+    return opt ? String(opt.textContent || "").trim() || value : value;
+  });
+  return labels.join(", ");
+}
+
+function _sbSyncOrderCategoryButton() {
+  const btn = document.getElementById("supplyBalancesOrderCategoryBtn");
+  const text = document.getElementById("supplyBalancesOrderCategoryBtnText");
+  const selected = _sbNormalizeCategoryFilters(supplyBalancesOrderState.categories);
+  if (text) text.textContent = _sbOrderCategoryButtonLabel(selected);
+  if (!btn) return;
+  btn.classList.toggle("is-active", selected.length > 0);
+  btn.title = selected.length
+    ? _sbOrderCategoryButtonLabel(selected)
+    : "Все категории. Несколько: удерживайте Ctrl";
+}
+
+function setSupplyBalancesOrderCategoryMenuOpen(open) {
+  const panel = document.getElementById("supplyBalancesOrderCategoryPanel");
+  const btn = document.getElementById("supplyBalancesOrderCategoryBtn");
+  if (!panel || !btn) return;
+  const next = !!open;
+  panel.hidden = !next;
+  btn.setAttribute("aria-expanded", next ? "true" : "false");
+}
+window.setSupplyBalancesOrderCategoryMenuOpen = setSupplyBalancesOrderCategoryMenuOpen;
+
+function toggleSupplyBalancesOrderCategoryMenu() {
+  const panel = document.getElementById("supplyBalancesOrderCategoryPanel");
+  if (!panel) return;
+  setSupplyBalancesOrderCategoryMenuOpen(panel.hidden);
+}
+window.toggleSupplyBalancesOrderCategoryMenu = toggleSupplyBalancesOrderCategoryMenu;
+
+let _sbOrderCatOutsideBound = false;
+function _sbBindOrderCategoryOutsideClose() {
+  if (_sbOrderCatOutsideBound) return;
+  _sbOrderCatOutsideBound = true;
+  document.addEventListener("pointerdown", (ev) => {
+    const panel = document.getElementById("supplyBalancesOrderCategoryPanel");
+    const wrap = document.querySelector("#supplyBalancesOrderModal .sb-order-cat-wrap");
+    if (!panel || panel.hidden || !wrap) return;
+    if (wrap.contains(ev.target)) return;
+    setSupplyBalancesOrderCategoryMenuOpen(false);
+  });
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Escape") return;
+    const panel = document.getElementById("supplyBalancesOrderCategoryPanel");
+    if (!panel || panel.hidden) return;
+    setSupplyBalancesOrderCategoryMenuOpen(false);
+  });
+}
+_sbBindOrderCategoryOutsideClose();
 
 function _sbOrderFilteredRows() {
   const belowMode = String(supplyBalancesOrderState.belowMode || "below");
@@ -14813,6 +14876,7 @@ function onSupplyBalancesOrderFiltersChange() {
   const catEl = document.getElementById("supplyBalancesOrderCategoryFilter");
   supplyBalancesOrderState.belowMode = String(belowEl?.value || "below");
   supplyBalancesOrderState.categories = _sbReadCategoryFiltersFromSelect(catEl);
+  _sbSyncOrderCategoryButton();
   _sbOrderSetErr("");
   renderSupplyBalancesOrderTable();
 }
@@ -14838,12 +14902,14 @@ function openSupplyBalancesOrderModal() {
   supplyBalancesOrderState.categories = [];
   if (belowEl) belowEl.value = supplyBalancesOrderState.belowMode;
   _sbSyncOrderCategoryOptions();
+  setSupplyBalancesOrderCategoryMenuOpen(false);
   setModalVisibility("supplyBalancesOrderModal", true);
   renderSupplyBalancesOrderTable();
 }
 window.openSupplyBalancesOrderModal = openSupplyBalancesOrderModal;
 
 function closeSupplyBalancesOrderModal() {
+  setSupplyBalancesOrderCategoryMenuOpen(false);
   setModalVisibility("supplyBalancesOrderModal", false);
 }
 window.closeSupplyBalancesOrderModal = closeSupplyBalancesOrderModal;

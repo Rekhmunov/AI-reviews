@@ -53,6 +53,10 @@ def test_order_modal_filters_and_table() -> None:
     assert "supplyBalancesOrderDownloadBtn" in APP_JS
     assert 'id="supplyBalancesOrderTotalQty"' in APP_HTML
     assert "Итого к заказу" in APP_HTML
+    assert 'id="supplyBalancesOrderCategoryBtn"' in APP_HTML
+    assert 'id="supplyBalancesOrderCategoryPanel"' in APP_HTML
+    assert "sb-order-cat-panel" in APP_HTML
+    assert "toggleSupplyBalancesOrderCategoryMenu()" in APP_HTML
     assert 'multiple size="6"' in APP_HTML
     assert 'id="supplyBalancesOrderCategoryFilter" multiple' in APP_HTML
     assert "supplyBalancesOrderState.categories = []" in APP_JS
@@ -63,5 +67,5 @@ def test_order_modal_filters_and_table() -> None:
 
 
 def test_cache_bump_order_feature() -> None:
-    assert "style.css?v=402" in APP_HTML
-    assert "app.js?v=678" in APP_HTML
+    assert "style.css?v=403" in APP_HTML
+    assert "app.js?v=679" in APP_HTML

@@ -39,5 +39,5 @@ def test_trbx_created_count_above_info() -> None:
 
 
 def test_cache_bump() -> None:
-    assert "app.js?v=678" in HTML
-    assert "style.css?v=402" in HTML
+    assert "app.js?v=679" in HTML
+    assert "style.css?v=403" in HTML

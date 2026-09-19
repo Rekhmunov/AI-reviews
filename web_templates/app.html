@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=402" />
+  <link rel="stylesheet" href="/static/style.css?v=403" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -7936,14 +7936,26 @@
               <option value="all">Все позиции</option>
             </select>
           </label>
-          <label class="sb-doc-field" for="supplyBalancesOrderCategoryFilter">
-            <span>Категории</span>
-            <select id="supplyBalancesOrderCategoryFilter" multiple size="6"
-                    title="Несколько категорий: удерживайте Ctrl"
-                    onchange="onSupplyBalancesOrderFiltersChange()">
-              <option value="__materials__">Материалы</option>
-            </select>
-          </label>
+          <div class="sb-doc-field sb-order-cat">
+            <span id="supplyBalancesOrderCategoryLabel">Категории</span>
+            <div class="sb-order-cat-wrap">
+              <button type="button" class="sb-order-cat-btn" id="supplyBalancesOrderCategoryBtn"
+                      aria-haspopup="listbox" aria-expanded="false"
+                      aria-controls="supplyBalancesOrderCategoryPanel"
+                      onclick="toggleSupplyBalancesOrderCategoryMenu()">
+                <span id="supplyBalancesOrderCategoryBtnText">Все</span>
+                <span class="sb-order-cat-caret" aria-hidden="true"></span>
+              </button>
+              <div id="supplyBalancesOrderCategoryPanel" class="sb-order-cat-panel" hidden>
+                <select id="supplyBalancesOrderCategoryFilter" multiple size="6"
+                        aria-labelledby="supplyBalancesOrderCategoryLabel"
+                        title="Несколько категорий: удерживайте Ctrl"
+                        onchange="onSupplyBalancesOrderFiltersChange()">
+                  <option value="__materials__">Материалы</option>
+                </select>
+              </div>
+            </div>
+          </div>
         </div>
         <div id="supplyBalancesOrderErr" class="sb-doc-err" hidden></div>
         <div class="sb-order-table-wrap">
@@ -8028,6 +8040,6 @@
 
   <script src="/static/ozon_fbs.js?v=186"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=37"></script>
-  <script src="/static/app.js?v=678"></script>
+  <script src="/static/app.js?v=679"></script>
 </body>
 </html>
