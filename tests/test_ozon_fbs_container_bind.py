@@ -129,6 +129,134 @@ class ContainerBindLocalTests(unittest.TestCase):
         self.assertFalse(set_local.call_args.kwargs["synced"])
         self.assertTrue(set_local.call_args.kwargs["sync_error"])
 
+    def test_bind_clears_barcode_when_composition_misses_posting(self) -> None:
+        """List was read and the posting is absent: drop barcode and refresh status."""
+        repo = MagicMock()
+        client = MagicMock()
+        client.carriage_container_get.return_value = {
+            "container": {
+                "container_id": 10,
+                "status": "new",
+                "available_actions": ["fill"],
+                "posting_numbers": ["other-1"],
+            }
+        }
+        client.carriage_container_fill.return_value = {"ok": True}
+        client.get_posting.return_value = {
+            "status": "cancelled",
+            "cancellation": {"cancel_reason": "Покупатель отменил"},
+        }
+        with (
+            patch.object(ct, "_set_local_container_bind") as set_local,
+            patch.object(
+                ct.oz,
+                "refresh_posting_status_only",
+                return_value={"status": "cancelled", "tab": "cancelled"},
+            ) as refresh,
+        ):
+            set_local.return_value = {
+                "posting_number": "1-1-1",
+                "container_id": None,
+                "container_barcode": "",
+                "container_synced": False,
+                "container_sync_error": "",
+            }
+            out = ct.bind_posting_to_container(
+                client,
+                repo,
+                user_id=1,
+                source_id=2,
+                posting_number="1-1-1",
+                container_id=10,
+            )
+        self.assertFalse(out["synced"])
+        self.assertEqual(out["error"], "")
+        self.assertIsNone(out["container_id"])
+        self.assertTrue(out["cancelled"])
+        self.assertEqual(out["cancel_reason_label"], "Покупатель отменил")
+        self.assertTrue(out["status_checked"])
+        self.assertIsNone(set_local.call_args.kwargs["container_id"])
+        client.get_posting.assert_called_once()
+        refresh.assert_called_once()
+
+    def test_bind_keeps_barcode_when_fill_task_still_pending(self) -> None:
+        repo = MagicMock()
+        client = MagicMock()
+        client.carriage_container_get.return_value = {
+            "container": {
+                "container_id": 10,
+                "status": "new",
+                "available_actions": ["fill"],
+                "posting_numbers": ["other-1"],
+            }
+        }
+        client.carriage_container_fill.return_value = {"task_id": 55}
+        with (
+            patch.object(
+                ct,
+                "_wait_container_task",
+                return_value={
+                    "ok": True,
+                    "status": "pending",
+                    "error_message": "",
+                    "timed_out": True,
+                },
+            ),
+            patch.object(ct, "_set_local_container_bind") as set_local,
+        ):
+            set_local.return_value = {
+                "posting_number": "1-1-1",
+                "container_id": 10,
+                "container_barcode": "10",
+                "container_synced": False,
+                "container_sync_error": "",
+            }
+            out = ct.bind_posting_to_container(
+                client,
+                repo,
+                user_id=1,
+                source_id=2,
+                posting_number="1-1-1",
+                container_id=10,
+            )
+        self.assertFalse(out["synced"])
+        self.assertEqual(out["error"], "")
+        self.assertNotIn("cancelled", out)
+        self.assertEqual(set_local.call_args.kwargs["container_id"], 10)
+        client.get_posting.assert_not_called()
+
+    def test_bind_keeps_barcode_when_posting_list_unavailable(self) -> None:
+        repo = MagicMock()
+        client = MagicMock()
+        client.carriage_container_get.return_value = {
+            "container": {
+                "container_id": 10,
+                "status": "new",
+                "available_actions": ["fill"],
+            }
+        }
+        client.carriage_container_fill.return_value = {"ok": True}
+        with patch.object(ct, "_set_local_container_bind") as set_local:
+            set_local.return_value = {
+                "posting_number": "1-1-1",
+                "container_id": 10,
+                "container_barcode": "10",
+                "container_synced": True,
+                "container_sync_error": "",
+            }
+            out = ct.bind_posting_to_container(
+                client,
+                repo,
+                user_id=1,
+                source_id=2,
+                posting_number="1-1-1",
+                container_id=10,
+            )
+        self.assertTrue(out["synced"])
+        self.assertEqual(out["error"], "")
+        self.assertEqual(set_local.call_args.kwargs["container_id"], 10)
+        client.get_posting.assert_not_called()
+
     def test_bind_rejects_approved_container(self) -> None:
         repo = MagicMock()
         client = MagicMock()
@@ -568,6 +696,7 @@ class ContainerReconcileTests(unittest.TestCase):
             patch.object(ct, "_list_containers_cached", return_value={"items": []}),
             patch.object(ct, "_fetch_container_postings", return_value=(None, [], False)),
             patch.object(ct, "_set_local_container_bind") as set_local,
+            patch.object(ct, "_refresh_dropped_posting_status") as refresh_status,
         ):
             out = ct.reconcile_supply_container_binds(
                 client,
@@ -580,6 +709,7 @@ class ContainerReconcileTests(unittest.TestCase):
         self.assertEqual(out["changes"][0]["action"], "cleared")
         set_local.assert_called_once()
         self.assertIsNone(set_local.call_args.kwargs["container_id"])
+        refresh_status.assert_not_called()
 
     def test_reconcile_skips_dirty_posting(self) -> None:
         repo = MagicMock()
@@ -728,6 +858,81 @@ class ContainerReconcileTests(unittest.TestCase):
         self.assertEqual(out["binds"]["A-1"]["container_id"], 10)
         self.assertTrue(out["binds"]["A-1"]["container_synced"])
         self.assertEqual(out["binds"]["B-1"]["container_id"], 10)
+
+    def test_reconcile_clears_missing_posting_and_checks_status(self) -> None:
+        repo = MagicMock()
+        client = MagicMock()
+        supply = {"posting_numbers": ["A-1"]}
+        with (
+            patch.object(ct.oz_sup, "get_supply", return_value=supply),
+            patch.object(
+                ct,
+                "load_container_bind_map",
+                side_effect=[
+                    {
+                        "A-1": {
+                            "container_id": 10,
+                            "container_barcode": "10",
+                            "container_synced": True,
+                            "container_sync_error": "",
+                        }
+                    },
+                    {
+                        "A-1": {
+                            "container_id": None,
+                            "container_barcode": "",
+                            "container_synced": False,
+                            "container_sync_error": "",
+                        }
+                    },
+                ],
+            ),
+            patch.object(ct, "resolve_supply_warehouse_id", return_value=(100, "WH")),
+            patch.object(
+                ct,
+                "_list_containers_cached",
+                return_value={"items": [{"container_id": 10}]},
+            ),
+            patch.object(
+                ct,
+                "_fetch_container_postings",
+                return_value=({"container_id": 10}, ["B-1"], True),
+            ),
+            patch.object(ct, "_set_local_container_bind") as set_local,
+            patch.object(
+                ct,
+                "_load_cancelled_postings_map",
+                return_value={"A-1": False},
+            ),
+            patch.object(
+                ct,
+                "_refresh_dropped_posting_status",
+                return_value={
+                    "cancelled": True,
+                    "cancel_reason_label": "Отменено",
+                    "status": "cancelled",
+                    "tab": "cancelled",
+                    "status_checked": True,
+                },
+            ) as refresh_status,
+        ):
+            out = ct.reconcile_supply_container_binds(
+                client,
+                repo,
+                user_id=1,
+                source_id=2,
+                supply_id="S1",
+            )
+        self.assertTrue(out["ok"])
+        self.assertEqual(len(out["changes"]), 1)
+        change = out["changes"][0]
+        self.assertEqual(change["action"], "cleared")
+        self.assertEqual(change["posting_number"], "A-1")
+        self.assertTrue(change["cancelled"])
+        self.assertTrue(change["status_checked"])
+        self.assertIsNone(set_local.call_args.kwargs["container_id"])
+        refresh_status.assert_called_once()
+        self.assertEqual(refresh_status.call_args.kwargs["posting_number"], "A-1")
 
 
 if __name__ == "__main__":

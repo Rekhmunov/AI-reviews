@@ -197,9 +197,15 @@
       ? (window.ozonFbsKizState?.rows || [])
       : (window.ozonFbsPickState?.rows || []);
     if (!rows.length || !binds || typeof binds !== "object") return 0;
+    const changeByPn = new Map();
+    for (const ch of changes || []) {
+      const key = String(ch?.posting_number || "").trim();
+      if (key) changeByPn.set(key, ch);
+    }
     let touched = 0;
     const touchedPns = [];
     const statusCheckPns = [];
+    const cancelledQuiet = [];
     for (const row of rows) {
       const pn = String(row?.posting_number || "").trim();
       if (!pn || state.dirtyPostings.has(pn)) continue;
@@ -243,7 +249,20 @@
       touched += 1;
       touchedPns.push(pn);
       if (gmClearedByPortal) {
-        statusCheckPns.push(pn);
+        const ch = changeByPn.get(pn);
+        if (ch && ch.status_checked) {
+          if (ch.cancelled) {
+            const label = String(ch.cancel_reason_label || "Отменено").trim() || "Отменено";
+            row.cancelled = true;
+            row.cancel_reason_label = label;
+            row.tab = "cancelled";
+            row.status = String(ch.status || "cancelled");
+            row.container_sync_error = "";
+            cancelledQuiet.push({ pn, label });
+          }
+        } else {
+          statusCheckPns.push(pn);
+        }
       }
     }
     if (touched > 0) {
@@ -253,6 +272,11 @@
       // Peer may have saved KIZ/ШК in the same burst as GM bind — pull fill
       // counters into the open modal (status is local-DB, cheap).
       scheduleSupplyStatusRefresh();
+    }
+    if (cancelledQuiet.length && typeof window._ozonFbsApplyCancelledQuiet === "function") {
+      for (const item of cancelledQuiet) {
+        try { window._ozonFbsApplyCancelledQuiet(item.pn, item.label); } catch (_e) { /* ignore */ }
+      }
     }
     // Background: only the postings Ozon dropped from GM — no toasts, no modal.
     // Defer status lookups during an active scan burst so focus/DOM stay free.
@@ -1058,9 +1082,19 @@
     row.container_synced = !!data.container_synced || !!data.synced;
     row.container_sync_error = String(data.error || data.container_sync_error || "").trim();
     if (row.container_barcode) state.usedInSession = true;
-    const pn = String(row.posting_number || "").trim();
-    if (pn && row.container_synced && !row.container_sync_error) {
-      clearContainerDirty(pn);
+    const pn = String(row.posting_number || data.posting_number || "").trim();
+    // Bind request finished (confirmed, rejected, or error text). Reconcile may see it.
+    if (pn) clearContainerDirty(pn);
+    if (data.cancelled && pn) {
+      const label = String(data.cancel_reason_label || "Отменено").trim() || "Отменено";
+      row.cancelled = true;
+      row.cancel_reason_label = label;
+      row.tab = "cancelled";
+      row.status = String(data.status || "cancelled");
+      row.container_sync_error = "";
+      if (typeof window._ozonFbsApplyCancelledQuiet === "function") {
+        try { window._ozonFbsApplyCancelledQuiet(pn, label); } catch (_e) { /* ignore */ }
+      }
     }
     // Keep supply-detail green/neutral tone in sync with GM binds.
     syncSupplyDetailContainerBind(pn, row);
@@ -1206,7 +1240,10 @@
 
   async function runBindAndRefresh(mode, postingNumber, containerId, barcode, previousId) {
     const row = findRow(mode, postingNumber);
-    if (!row) return;
+    if (!row) {
+      clearContainerDirty(postingNumber);
+      return;
+    }
     try {
       const data = await bindPosting(postingNumber, containerId, barcode, previousId);
       applyBindResult(row, data);
@@ -1221,7 +1258,10 @@
       row.container_synced = false;
       row.container_sync_error = String(e.message || e);
       state.usedInSession = true;
-      markContainerDirty(postingNumber);
+    } finally {
+      // Request finished: success, hard error, or network fail. Do not keep
+      // the in-flight skip, or reconcile never sees a later cargo drop.
+      clearContainerDirty(postingNumber);
     }
     // Same posting cell only — avoid second full-table rebuild when Ozon fill returns.
     refreshContainerRow(mode, postingNumber);
@@ -1384,6 +1424,7 @@
           return false;
         }
       }
+      markContainerDirty(postingNumber);
       try {
         const data = await bindPosting(
           postingNumber,
@@ -1401,7 +1442,8 @@
         row.container_barcode = nextBarcode;
         row.container_synced = false;
         row.container_sync_error = String(e.message || e);
-        markContainerDirty(postingNumber);
+      } finally {
+        clearContainerDirty(postingNumber);
       }
       updateContainerCounters();
       if (!options.skipRerender) {

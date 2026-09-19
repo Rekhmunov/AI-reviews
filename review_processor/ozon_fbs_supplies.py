@@ -5956,8 +5956,8 @@ def remove_cancelled_posting_from_supply(
 
     Only cancelled postings still linked to ``supply_id`` may be removed.
     Clears ``supply_id`` and drops the number from ``posting_numbers_json``.
-    After this the posting is no longer in KIZ/pick modals and is not stocked
-    when the supply moves to «Доставляются».
+    Stock is written off here (the row leaves the warehouse). Moving the
+    supply to «Доставляются» does not stock cancelled rows that stay linked.
     """
     ensure_ozon_fbs_supply_schema(repo)
     oz.ensure_ozon_fbs_tables(repo)
@@ -5972,7 +5972,8 @@ def remove_cancelled_posting_from_supply(
         row = conn.execute(
             repo._sql(
                 """
-                SELECT posting_number, supply_id, tab, status
+                SELECT posting_number, supply_id, tab, status,
+                       offer_id, sku, quantity, products_json
                 FROM ozon_fbs_postings
                 WHERE user_id = ? AND source_id = ? AND posting_number = ?
                 """
@@ -6023,11 +6024,20 @@ def remove_cancelled_posting_from_supply(
         sid,
         pn,
     )
+    ship = dict(posting)
+    # Reconcile treats cancelled as leave-as-is. Fake delivering so the
+    # manual delete writes the line off, same as a shipped posting.
+    ship["tab"] = oz.TAB_DELIVERING
+    ship["status"] = oz.TAB_DELIVERING
+    stock_stats = _reconcile_ozon_fbs_stock_after_local_move(
+        repo, user_id=user_id, postings=[ship]
+    )
     return {
         "ok": True,
         "supply_id": sid,
         "posting_number": pn,
         "removed": True,
+        "stock": stock_stats,
         "message": f"Отправление {pn} удалено из поставки",
     }
 
@@ -6041,10 +6051,13 @@ def move_supply_to_delivering(
 ) -> dict[str, Any]:
     """Locally move a supply from «Ожидают отгрузки» to «Доставляются».
 
-    No Ozon API calls. Sets postings ``status``/``tab`` to ``delivering`` and
-    immediately reconciles the stock ledger (списание с Остатки). Sync later
-    will not regress these rows while Ozon is still ``awaiting_deliver``;
-    when Ozon advances to delivering/delivered, status moves forward as usual.
+    No Ozon API calls. Sets non-cancelled awaiting postings ``status``/``tab``
+    to ``delivering`` and reconciles their stock (списание с Остатки).
+    Cancelled rows that stay linked to the supply are not stocked — stock
+    moves only when the operator deletes that cancelled order by hand.
+    Sync later will not regress moved rows while Ozon is still
+    ``awaiting_deliver``; when Ozon advances to delivering/delivered, status
+    moves forward as usual.
     """
     ensure_ozon_fbs_supply_schema(repo)
     oz.ensure_ozon_fbs_tables(repo)
@@ -6078,21 +6091,8 @@ def move_supply_to_delivering(
             (user_id, source_id, sid, oz.TAB_AWAITING_DELIVER),
         ).fetchall()
         to_move = [repo._row_to_dict(r) for r in rows]
-        cancelled_rows = conn.execute(
-            repo._sql(
-                """
-                SELECT posting_number, tab, offer_id, sku, quantity, products_json
-                FROM ozon_fbs_postings
-                WHERE user_id = ? AND source_id = ? AND supply_id = ?
-                  AND tab = ?
-                ORDER BY posting_number
-                """
-            ),
-            (user_id, source_id, sid, oz.TAB_CANCELLED),
-        ).fetchall()
-        cancelled_for_stock = [repo._row_to_dict(r) for r in cancelled_rows]
         if not to_move:
-            # Already moved / empty on awaiting — still ship frozen cancelled stock.
+            # Already moved / empty on awaiting. Cancelled rows stay unstocked.
             already = conn.execute(
                 repo._sql(
                     """
@@ -6108,24 +6108,13 @@ def move_supply_to_delivering(
                 or 0
             )
             stock_stats = {"shipped": 0, "reversed": 0, "skipped": 0, "ok": 0, "settled": 0}
-            if cancelled_for_stock:
-                stock_postings = []
-                for row in cancelled_for_stock:
-                    ship = dict(row)
-                    # Reconcile as delivering for stock only; keep tab=cancelled in DB.
-                    ship["tab"] = oz.TAB_DELIVERING
-                    ship["status"] = oz.TAB_DELIVERING
-                    stock_postings.append(ship)
-                stock_stats = _reconcile_ozon_fbs_stock_after_local_move(
-                    repo, user_id=user_id, postings=stock_postings
-                )
             return {
                 "ok": True,
                 "supply_id": sid,
                 "moved": 0,
                 "already_delivering": already_n,
                 "stock": stock_stats,
-                "cancelled_stocked": len(cancelled_for_stock),
+                "cancelled_stocked": 0,
                 "message": (
                     "Поставка уже в «Доставляются»"
                     if already_n
@@ -6163,15 +6152,8 @@ def move_supply_to_delivering(
         row["tab"] = oz.TAB_DELIVERING
         row["status"] = oz.TAB_DELIVERING
 
-    stock_postings = list(to_move)
-    for row in cancelled_for_stock:
-        ship = dict(row)
-        ship["tab"] = oz.TAB_DELIVERING
-        ship["status"] = oz.TAB_DELIVERING
-        stock_postings.append(ship)
-
     stock_stats = _reconcile_ozon_fbs_stock_after_local_move(
-        repo, user_id=user_id, postings=stock_postings
+        repo, user_id=user_id, postings=list(to_move)
     )
     _log.info(
         "ozon fbs move-to-delivering user=%s source=%s supply=%s moved=%s "
@@ -6180,7 +6162,7 @@ def move_supply_to_delivering(
         source_id,
         sid,
         len(to_move),
-        len(cancelled_for_stock),
+        0,
         stock_stats,
     )
     return {
@@ -6189,7 +6171,7 @@ def move_supply_to_delivering(
         "moved": len(to_move),
         "already_delivering": 0,
         "stock": stock_stats,
-        "cancelled_stocked": len(cancelled_for_stock),
+        "cancelled_stocked": 0,
         "message": f"Перенесено в «Доставляются»: {len(to_move)} отпр.",
     }
 

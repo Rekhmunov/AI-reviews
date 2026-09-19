@@ -1,4 +1,4 @@
-"""Ozon FBS: operator removes one cancelled posting from a supply (no stock)."""
+"""Ozon FBS: operator removes one cancelled posting from a supply (stocks it)."""
 
 from __future__ import annotations
 
@@ -95,6 +95,51 @@ def test_remove_cancelled_posting_clears_supply_link(monkeypatch) -> None:
     assert len(repo.updates) == 1
     assert repo.set_numbers_calls == [["PN-1", "PN-2"]]
     assert repo.posting["supply_id"] == ""
+
+
+def test_remove_cancelled_posting_stocks_as_delivering(monkeypatch) -> None:
+    repo = _FakeRepo(
+        {
+            "posting_number": "PN-CX",
+            "supply_id": "OZ-1",
+            "tab": oz.TAB_CANCELLED,
+            "status": "cancelled",
+            "offer_id": "ART",
+            "sku": 11,
+            "quantity": 2,
+            "products_json": "[]",
+        },
+        supply_numbers=["PN-CX"],
+    )
+    stocked: list[list[dict]] = []
+    monkeypatch.setattr(oz_sup, "ensure_ozon_fbs_supply_schema", lambda r: None)
+    monkeypatch.setattr(oz, "ensure_ozon_fbs_tables", lambda r: None)
+    monkeypatch.setattr(
+        oz_sup,
+        "get_supply",
+        lambda r, **kw: {"supply_id": "OZ-1", "posting_numbers": ["PN-CX"]},
+    )
+    monkeypatch.setattr(oz_sup, "_set_supply_posting_numbers", lambda *a, **kw: None)
+
+    def _stock(repo_arg, *, user_id, postings):
+        stocked.append(list(postings))
+        return {"shipped": 1, "reversed": 0, "skipped": 0, "ok": 0, "settled": 0}
+
+    monkeypatch.setattr(oz_sup, "_reconcile_ozon_fbs_stock_after_local_move", _stock)
+    out = oz_sup.remove_cancelled_posting_from_supply(
+        repo, user_id=1, source_id=5, supply_id="OZ-1", posting_number="PN-CX"
+    )
+    assert out["removed"] is True
+    assert len(stocked) == 1
+    assert len(stocked[0]) == 1
+    row = stocked[0][0]
+    assert row["posting_number"] == "PN-CX"
+    assert row["offer_id"] == "ART"
+    assert row["sku"] == 11
+    assert row["quantity"] == 2
+    assert row["tab"] == oz.TAB_DELIVERING
+    assert row["status"] == oz.TAB_DELIVERING
+    assert len(repo.updates) == 1
 
 
 def test_remove_rejects_non_cancelled(monkeypatch) -> None:

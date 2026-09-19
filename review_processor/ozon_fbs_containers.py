@@ -992,12 +992,15 @@ def _confirm_fill_on_ozon(
     container_id: int,
     posting_number: str,
     fill_resp: Any,
-) -> tuple[bool, str]:
+) -> tuple[bool, str, bool]:
     """Mark synced only after Ozon task completes or portal lists the posting.
 
-    Like WB KIZ verification: HTTP 200 alone is not enough for green UI.
-    Timeout / lag without a hard failure leaves synced=False and empty error
-    (pending confirmation) so the operator sees incomplete, not «error».
+    Returns ``(synced, error, rejected)``.
+
+    ``rejected`` is True only when the cargo posting list was read and this
+    posting is absent, and we are not still waiting on a fill task. The caller
+    then drops the local barcode and checks posting status. A pending task, an
+    unread list, or a hard task error is not a rejection: the barcode stays.
     """
     task_id = _fill_response_task_id(fill_resp)
     if task_id > 0:
@@ -1011,25 +1014,88 @@ def _confirm_fill_on_ozon(
                     task_info.get("error_message")
                     or "Ошибка заполнения грузоместа на Ozon"
                 ).strip(),
+                False,
             )
         if not task_info.get("timed_out"):
-            return True, ""
+            return True, "", False
         confirmed = _posting_confirmed_in_container(
             client, container_id=container_id, posting_number=posting_number
         )
         if confirmed is True:
-            return True, ""
-        return False, ""
+            return True, "", False
+        # Fill task still pending. Do not treat a miss as a rejection.
+        return False, "", False
 
     confirmed = _posting_confirmed_in_container(
         client, container_id=container_id, posting_number=posting_number
     )
     if confirmed is True:
-        return True, ""
+        return True, "", False
     if confirmed is False:
-        return False, ""
+        return False, "", True
     # No task_id and posting list unavailable — keep prior HTTP-accept behavior.
-    return True, ""
+    return True, "", False
+
+
+def _refresh_dropped_posting_status(
+    client: oz.OzonFbsClient,
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_number: str,
+) -> dict[str, Any]:
+    """Ask Ozon for status after a definitive cargo-place miss. Never raises.
+
+    Writes ``status`` / ``tab`` only. ``status_checked`` is False when the
+    posting could not be read, so the open modal can retry later.
+    """
+    blank = {
+        "cancelled": False,
+        "cancel_reason_label": "",
+        "status": "",
+        "tab": "",
+        "status_checked": False,
+    }
+    pn = str(posting_number or "").strip()
+    if not pn:
+        return blank
+    try:
+        remote = client.get_posting(pn)
+    except Exception as exc:
+        _log.warning("ozon posting status after cargo miss pn=%s: %s", pn, exc)
+        return blank
+    if not isinstance(remote, dict):
+        return blank
+    remote_status = str(remote.get("status") or "").strip()
+    updated: dict[str, Any] | None = None
+    if remote_status:
+        try:
+            updated = oz.refresh_posting_status_only(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                posting_number=pn,
+                remote_status=remote_status,
+            )
+        except Exception as exc:
+            _log.warning("ozon posting status write pn=%s: %s", pn, exc)
+            updated = None
+    status = str((updated or {}).get("status") or remote_status or "").strip().lower()
+    tab = str((updated or {}).get("tab") or "").strip().lower()
+    if not tab and status:
+        tab = oz.compute_tab(status)
+    label = oz.cancel_reason_label_from_posting(remote)
+    cancelled = oz.is_cancelled_posting(status=status, tab=tab)
+    if cancelled and not label:
+        label = "Отменено"
+    return {
+        "cancelled": bool(cancelled),
+        "cancel_reason_label": label if cancelled else "",
+        "status": status,
+        "tab": tab,
+        "status_checked": True,
+    }
 
 
 def bind_posting_to_container(
@@ -1067,7 +1133,9 @@ def bind_posting_to_container(
     prev = int(previous_container_id or 0)
     sync_error = ""
     synced = False
+    rejected = False
     fill_task_id = 0
+    status_info: dict[str, Any] = {}
     try:
         if prev > 0 and prev != cid:
             try:
@@ -1085,7 +1153,7 @@ def bind_posting_to_container(
             container_id=cid, posting_numbers=[pn]
         )
         fill_task_id = _fill_response_task_id(fill_resp)
-        synced, sync_error = _confirm_fill_on_ozon(
+        synced, sync_error, rejected = _confirm_fill_on_ozon(
             client,
             container_id=cid,
             posting_number=pn,
@@ -1094,17 +1162,39 @@ def bind_posting_to_container(
     except Exception as exc:
         sync_error = _friendly_ozon_error(exc)
         synced = False
+        rejected = False
         _log.warning("ozon container fill cid=%s pn=%s: %s", cid, pn, sync_error)
-    local = _set_local_container_bind(
-        repo,
-        user_id=user_id,
-        source_id=source_id,
-        posting_number=pn,
-        container_id=cid,
-        container_barcode=barcode,
-        synced=synced,
-        sync_error=sync_error,
-    )
+    if rejected:
+        # Composition was read and the posting is not in the cargo place.
+        # Drop the optimistic barcode in this same response, then ask status.
+        local = _set_local_container_bind(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            posting_number=pn,
+            container_id=None,
+            container_barcode="",
+            synced=False,
+            sync_error="",
+        )
+        status_info = _refresh_dropped_posting_status(
+            client,
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            posting_number=pn,
+        )
+    else:
+        local = _set_local_container_bind(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            posting_number=pn,
+            container_id=cid,
+            container_barcode=barcode,
+            synced=synced,
+            sync_error=sync_error,
+        )
     try:
         from . import fbs_audit
         from . import ozon_fbs_ops_log as ops_log
@@ -1129,9 +1219,19 @@ def bind_posting_to_container(
             action=ops_log.ACTION_CONTAINER_BIND,
             message=(
                 f"ГМ bind {pn} → {cid}"
-                + (f" · Ozon OK task={fill_task_id}" if synced and fill_task_id else (
-                    " · Ozon OK" if synced else f" · Ozon FAIL: {sync_error or 'error'}"
-                ))
+                + (
+                    f" · Ozon OK task={fill_task_id}"
+                    if synced and fill_task_id
+                    else (
+                        " · Ozon OK"
+                        if synced
+                        else (
+                            " · Ozon FAIL: not in container"
+                            if rejected
+                            else f" · Ozon FAIL: {sync_error or 'error'}"
+                        )
+                    )
+                )
             ),
             level=ops_log.LEVEL_WARN if not synced else ops_log.LEVEL_INFO,
             source_id=source_id,
@@ -1140,6 +1240,7 @@ def bind_posting_to_container(
                 "container_id": cid,
                 "container_barcode": barcode,
                 "synced": synced,
+                "rejected": rejected,
                 "task_id": fill_task_id or None,
                 "error": sync_error,
                 "previous_container_id": prev or None,
@@ -1159,9 +1260,10 @@ def bind_posting_to_container(
     return {
         "ok": True,
         "synced": synced,
-        "error": sync_error,
+        "error": "" if rejected else sync_error,
         "task_id": fill_task_id or None,
         **local,
+        **status_info,
     }
 
 
@@ -1528,6 +1630,16 @@ def reconcile_supply_container_binds(
                 action="cleared",
                 reason="На портале Ozon заказ не в грузоместе",
             )
+            if changes:
+                changes[-1].update(
+                    _refresh_dropped_posting_status(
+                        client,
+                        repo,
+                        user_id=user_id,
+                        source_id=source_id,
+                        posting_number=pn,
+                    )
+                )
             continue
 
         action = "adopted" if local_cid <= 0 else "updated"

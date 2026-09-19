@@ -229,10 +229,10 @@ def test_move_to_delivering_ships_stock_for_frozen_cancelled(monkeypatch) -> Non
     )
     assert out["ok"] is True
     assert out["moved"] == 1
-    assert out["cancelled_stocked"] == 1
+    assert out["cancelled_stocked"] == 0
     assert len(reconcile_calls) == 1
     pns = {p["posting_number"] for p in reconcile_calls[0]}
-    assert pns == {"P-1", "P-CX"}
+    assert pns == {"P-1"}
     assert all(p["tab"] == oz.TAB_DELIVERING for p in reconcile_calls[0])
 
 
