@@ -9743,10 +9743,12 @@
    * - plain rows → «Товары без КИЗ» is-ok
    * - driver assigned
    * Missing scan group is not required. Cancelled postings are ignored.
+   * Tenant owner skips these gates. Already-delivering supplies stay blocked.
    */
   function _ozonFbsCanMoveToDelivering() {
     if (isDeliveringSuppliesTab() || isSupplyDetailReadOnly()) return false;
     if (!_ozonFbsSupplyActionsReady()) return false;
+    if (_ozonFbsIsTenantOwner()) return true;
     const supply = supplyDetailState.supply;
     const orders = Array.isArray(supply?.orders) ? supply.orders : [];
     const needsKiz = orders.some((o) => o && o.kiz_required && !_ozonFbsRowIsCancelled(o));

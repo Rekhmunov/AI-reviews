@@ -40,7 +40,7 @@ def test_row_is_cancelled_checks_status_tab() -> None:
 
 
 def test_asset_cache_bumped() -> None:
-    assert "ozon_fbs.js?v=185" in HTML
+    assert "ozon_fbs.js?v=186" in HTML
     assert "ozon_fbs_container_bind.js?v=37" in HTML
 
 

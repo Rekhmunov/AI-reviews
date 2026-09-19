@@ -47,4 +47,4 @@ def test_move_delivering_requires_green_kiz_and_pick() -> None:
     assert "_ozonFbsSyncMoveDeliveringEnabled()" in js
     assert "if (!_ozonFbsCanMoveToDelivering())" in js
     assert "выполните все условия" in js
-    assert "ozon_fbs.js?v=185" in html
+    assert "ozon_fbs.js?v=186" in html

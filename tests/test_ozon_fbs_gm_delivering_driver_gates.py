@@ -34,6 +34,7 @@ def test_move_delivering_requires_gm_confirm_and_driver() -> None:
     assert "_ozonFbsDriverHasAssignment(supply)" in can
     assert "_ozonFbsKizToneFromSupply" in can
     assert "_ozonFbsPickToneFromSupply" in can
+    assert "_ozonFbsIsTenantOwner()" in can
     assert "function _ozonFbsGmConfirmOkForMove" in JS
     assert "_ozonFbsSupplyHasGmBinds()" in JS
 
@@ -63,7 +64,7 @@ def test_move_delivering_hover_checklist() -> None:
 
 
 def test_asset_cache_bumped() -> None:
-    assert "ozon_fbs.js?v=185" in HTML
+    assert "ozon_fbs.js?v=186" in HTML
     assert "ozon_fbs_container_bind.js?v=37" in HTML
     assert "style.css?v=400" in HTML
     assert "display: none" in CSS[

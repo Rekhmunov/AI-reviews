@@ -138,4 +138,4 @@ def test_ui_title_field_and_table_column() -> None:
     assert "logistics_ttn_col_widths_v2" in JS
     assert "app.js?v=675" in HTML
     assert "style.css?v=400" in HTML
-    assert "ozon_fbs.js?v=185" in HTML
+    assert "ozon_fbs.js?v=186" in HTML
