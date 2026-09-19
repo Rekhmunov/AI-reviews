@@ -14989,19 +14989,29 @@ async function _sbBuildSimpleXlsxBlob(rows) {
   });
 }
 
+function _sbOrderBoxesQty(qty, boxQty) {
+  const n = Number(qty);
+  if (!Number.isFinite(n)) return 0;
+  const box = Math.floor(Number(boxQty));
+  if (!Number.isFinite(box) || box <= 0) return n;
+  const units = Math.ceil(n / box - 1e-9);
+  if (!Number.isFinite(units) || units < 1) return n;
+  return units * box;
+}
+
 async function exportSupplyBalancesOrderXlsx() {
   _sbOrderSetErr("");
   document.querySelectorAll("#supplyBalancesOrderTbody input[data-order-key]").forEach((input) => {
     onSupplyBalancesOrderQtyInput(input);
   });
   const rows = _sbOrderFilteredRows();
-  const out = [["Товар", "Заказ"]];
+  const out = [["Товар", "Заказ", "Заказ (короба)"]];
   for (const row of rows) {
     const key = _sbOrderRowKey(row);
     const qty = Number(supplyBalancesOrderState.qtys[key] || 0);
     if (!Number.isFinite(qty) || qty <= 0) continue;
     const name = String(row.name || "").trim() || "Без названия";
-    out.push([name, qty]);
+    out.push([name, qty, _sbOrderBoxesQty(qty, row.box_qty)]);
   }
   if (out.length <= 1) {
     _sbOrderSetErr("Нет строк с количеством к заказу больше 0");

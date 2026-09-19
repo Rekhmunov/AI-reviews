@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 STYLE = (ROOT / "web_static" / "style.css").read_text(encoding="utf-8")
 APP_JS = (ROOT / "web_static" / "app.js").read_text(encoding="utf-8")
 APP_HTML = (ROOT / "web_templates" / "app.html").read_text(encoding="utf-8")
+WEB = (ROOT / "review_processor" / "web.py").read_text(encoding="utf-8")
 
 
 def _mobile_balances_block() -> str:
@@ -47,7 +48,9 @@ def test_order_modal_filters_and_table() -> None:
     assert "function exportSupplyBalancesOrderXlsx(" in APP_JS
     assert "_sbOrderDefaultQty" in APP_JS
     assert "_sbBuildSimpleXlsxBlob" in APP_JS
-    assert '["Товар", "Заказ"]' in APP_JS or "[[\"Товар\", \"Заказ\"]]" in APP_JS
+    assert '["Товар", "Заказ", "Заказ (короба)"]' in APP_JS
+    assert "function _sbOrderBoxesQty(" in APP_JS
+    assert "_sbOrderBoxesQty(qty, row.box_qty)" in APP_JS
     assert "zakaz_ostatki_" in APP_JS
     assert 'viewMode !== "balance"' in APP_JS
     assert "supplyBalancesOrderDownloadBtn" in APP_JS
@@ -66,6 +69,14 @@ def test_order_modal_filters_and_table() -> None:
     assert "_sbSelectedCategoryFilters()[0]" not in APP_JS[APP_JS.find("function openSupplyBalancesOrderModal"):APP_JS.find("function closeSupplyBalancesOrderModal")]
 
 
+def test_order_excel_box_column_uses_product_box_qty() -> None:
+    start = WEB.find("def get_supply_balances")
+    chunk = WEB[start:start + 12000]
+    assert "def _product_box_qty" in chunk
+    assert '"box_qty": box_qty' in chunk
+    assert "return value if value > 0 else None" in chunk
+
+
 def test_cache_bump_order_feature() -> None:
     assert "style.css?v=403" in APP_HTML
-    assert "app.js?v=679" in APP_HTML
+    assert "app.js?v=680" in APP_HTML

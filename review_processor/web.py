@@ -20471,6 +20471,15 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             )
             return {"min_qty": min_qty, "below_min": below}
 
+        def _product_box_qty(raw: object) -> int | None:
+            if raw is None or raw == "":
+                return None
+            try:
+                value = int(raw)
+            except (TypeError, ValueError):
+                return None
+            return value if value > 0 else None
+
         materials = repository.list_feedback_materials(user_id=owner_id)
         products = repository.list_product_photos(user_id=owner_id)
         fbs_barcodes = repository.get_wb_fbs_barcodes_by_product_id(user_id=owner_id)
@@ -20522,6 +20531,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                 barcodes.append(ozon_sku)
             balance = bal_by_date[as_of_date].get(("product", pid_item))
             product_category = str(p.get("product_category") or "").strip()
+            box_qty = _product_box_qty(p.get("box_qty"))
             row = {
                 "item_type": "product",
                 "item_id": pid_item,
@@ -20531,6 +20541,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                 "wb_nmid": wb_nmid,
                 "ozon_sku": ozon_sku,
                 "product_category": product_category,
+                "box_qty": box_qty,
                 "photo_url": (
                     f"/api/products/photo/{pid_item}"
                     if p.get("photo_path")

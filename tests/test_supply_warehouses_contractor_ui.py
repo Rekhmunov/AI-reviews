@@ -46,7 +46,7 @@ def test_warehouses_js_party_edit_and_create() -> None:
     )[0]
     assert "contractor_id" in edit_payload
     assert "legal_entity_id" in edit_payload
-    assert "app.js?v=679" in HTML.read_text(encoding="utf-8")
+    assert "app.js?v=680" in HTML.read_text(encoding="utf-8")
 
 
 def test_warehouses_api_and_schema_party_ids() -> None:
