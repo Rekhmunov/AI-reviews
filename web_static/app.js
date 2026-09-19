@@ -15033,7 +15033,7 @@ async function loadSupplyBalancesData() {
       const belowCount = supplyBalancesState.rows.filter((r) => r.below_min).length;
       const belowNote = belowCount ? ` · ниже минимума: ${belowCount}` : "";
       _sbSetStatus(
-        `Позиций: ${supplyBalancesState.rows.length}. Остаток на ${asOfLabel} (только просмотр)${histNote}${belowNote}`
+        `Позиций: ${supplyBalancesState.rows.length}. Остаток на ${asOfLabel}. Нажмите цифру, чтобы скорректировать${histNote}${belowNote}`
       );
     } else {
       _sbSetStatus("Нет видимых материалов и товаров. Добавьте их в Настройки или включите в «Вывод в таблице».");
@@ -15169,7 +15169,148 @@ function _sbProductCardHtml(row) {
   </div>`;
 }
 
-function _sbRenderItemRow(row, dates, asOf) {
+function _sbParseQtyInput(raw) {
+  const text = String(raw ?? "").trim().replace(/\s+/g, "").replace(",", ".");
+  if (!text || text === "—" || text === "-" || text === "+") return null;
+  const n = Number(text);
+  return Number.isFinite(n) ? n : null;
+}
+
+function _sbQtySame(a, b) {
+  const missing = (v) => v === null || v === undefined || v === "";
+  if (missing(a) && missing(b)) return true;
+  if (missing(a) || missing(b)) return false;
+  const na = Number(a);
+  const nb = Number(b);
+  if (!Number.isFinite(na) || !Number.isFinite(nb)) return false;
+  return Math.abs(na - nb) < 1e-6;
+}
+
+function initSupplyBalancesInlineQtyEdit() {
+  const table = document.getElementById("supplyBalancesTable");
+  if (!table || table.dataset.qtyEditBound === "1") return;
+  table.dataset.qtyEditBound = "1";
+  table.addEventListener("click", (event) => {
+    const btn = event.target.closest("button.sb-qty-edit");
+    if (!btn || !table.contains(btn)) return;
+    event.preventDefault();
+    _sbBeginInlineQtyEdit(btn);
+  });
+}
+
+function _sbBeginInlineQtyEdit(btn) {
+  if (supplyBalancesState.viewMode !== "balance") return;
+  const table = btn.closest("table");
+  if (table && table.querySelector(".sb-qty-input")) return;
+  const wrap = btn.closest(".sb-qty-wrap");
+  const td = btn.closest("td");
+  const tr = btn.closest("tr");
+  if (!wrap || !td || !tr) return;
+  const date = String(td.getAttribute("data-sb-date") || "");
+  const asOf = String(supplyBalancesState.asOf || supplyBalancesState.today || "");
+  if (!date || date !== asOf) return;
+  const itemType = String(tr.getAttribute("data-sb-type") || "");
+  const itemId = Number(tr.getAttribute("data-sb-id") || 0);
+  if (!itemType || !itemId) return;
+  const qtyAttr = btn.getAttribute("data-sb-qty");
+  const current = qtyAttr === null || qtyAttr === "" ? null : Number(qtyAttr);
+  const input = document.createElement("input");
+  input.type = "text";
+  input.inputMode = "decimal";
+  input.className = "sb-qty-input";
+  input.setAttribute("aria-label", "Новый остаток");
+  input.autocomplete = "off";
+  input.value = current === null || !Number.isFinite(current) ? "" : _sbQtyText(current);
+  btn.replaceWith(input);
+  input.focus();
+  input.select();
+  let done = false;
+  const restore = () => {
+    done = true;
+    renderSupplyBalancesTable();
+  };
+  const commit = async () => {
+    if (done) return;
+    const text = String(input.value || "").trim();
+    if (!text) {
+      restore();
+      return;
+    }
+    const parsed = _sbParseQtyInput(text);
+    if (parsed === null || parsed < 0) {
+      _sbSetStatus("Укажите число 0 или больше", "error");
+      window.setTimeout(() => input.focus(), 0);
+      return;
+    }
+    if (_sbQtySame(parsed, current)) {
+      restore();
+      return;
+    }
+    done = true;
+    input.disabled = true;
+    try {
+      await _sbSaveInlineStockAdjustment({
+        itemType,
+        itemId,
+        date,
+        qty: parsed,
+      });
+    } catch (err) {
+      done = false;
+      input.disabled = false;
+      _sbSetStatus(String(err && err.message ? err.message : err), "error");
+      window.setTimeout(() => input.focus(), 0);
+    }
+  };
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      commit();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      restore();
+    }
+  });
+  input.addEventListener("blur", () => {
+    commit();
+  });
+}
+
+async function _sbSaveInlineStockAdjustment({ itemType, itemId, date, qty }) {
+  _sbSetStatus("Сохранение корректировки...", "summary");
+  const res = await fetch("/api/supply-balances/adjustment", {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify({
+      mode: "adjustment",
+      quantity_mode: "absolute",
+      date,
+      comment: "",
+      production_id: Number(supplyBalancesState.productionId || 0) || 0,
+      items: [{
+        item_type: itemType,
+        item_id: itemId,
+        qty,
+      }],
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail = data && data.detail ? data.detail : "Ошибка сохранения";
+    throw new Error(typeof detail === "string" ? detail : "Ошибка сохранения");
+  }
+  await loadSupplyBalancesData();
+  const info = document.getElementById("supplyBalancesInfo");
+  if (info && info.classList.contains("is-error")) return;
+  const saved = Number(data.saved || 0);
+  const label = _sbFormatDateLabel(data.date || date);
+  _sbSetStatus(
+    saved > 0 ? `Корректировка сохранена · ${label}` : (data.message || "Изменений нет"),
+    "ok",
+  );
+}
+
+function _sbRenderItemRow(row, dates, asOf, opts) {
   const type = String(row.item_type || "");
   const itemId = Number(row.item_id || 0);
   const unit = esc(row.unit || "шт");
@@ -15194,6 +15335,7 @@ function _sbRenderItemRow(row, dates, asOf) {
   const categoryKey = type === "material"
     ? "__materials__"
     : String(row.product_category || "").trim();
+  const canEditAsOf = !!(opts && opts.editable);
   const cells = dates.map((d) => {
     const raw = values[d];
     const isAsOf = d === asOf;
@@ -15205,9 +15347,13 @@ function _sbRenderItemRow(row, dates, asOf) {
     const minHint = isAsOf && minLabel
       ? `<span class="sb-min-hint${belowMin ? " is-below" : ""}">${esc(minLabel)}</span>`
       : "";
+    const qtyKnown = raw !== null && raw !== undefined && raw !== "" && Number.isFinite(Number(raw));
+    const qtyHtml = canEditAsOf && isAsOf
+      ? `<button type="button" class="${qtyClass} sb-qty-edit" data-sb-qty="${qtyKnown ? esc(String(Number(raw))) : ""}" title="Изменить остаток" aria-label="Изменить остаток">${esc(_sbQtyText(raw))}</button>`
+      : `<span class="${qtyClass}">${esc(_sbQtyText(raw))}</span>`;
     return `<td class="${isAsOf ? "sb-col-today" : "sb-col-date"}" data-sb-date="${esc(d)}">
       <div class="sb-qty-wrap">
-        <span class="${qtyClass}">${esc(_sbQtyText(raw))}</span>
+        ${qtyHtml}
         <span class="sb-unit">${unit}</span>
       </div>
       ${minHint}
@@ -15431,6 +15577,7 @@ function renderSupplyBalancesTable() {
     renderSupplyBalancesMovementsTable();
     return;
   }
+  initSupplyBalancesInlineQtyEdit();
 
   const dates = supplyBalancesState.dates.slice();
   const asOf = supplyBalancesState.viewMode === "sales"
@@ -15494,11 +15641,15 @@ function renderSupplyBalancesTable() {
   const parts = [];
   if (materials.length) {
     parts.push(`<tr class="sb-group-row"><td class="sb-col-name" colspan="${dates.length + 1}">Материалы</td></tr>`);
-    materials.forEach((row) => parts.push(_sbRenderItemRow(row, dates, asOf)));
+    materials.forEach((row) => parts.push(_sbRenderItemRow(row, dates, asOf, {
+      editable: supplyBalancesState.viewMode === "balance",
+    })));
   }
   if (products.length) {
     parts.push(`<tr class="sb-group-row"><td class="sb-col-name" colspan="${dates.length + 1}">Товары</td></tr>`);
-    products.forEach((row) => parts.push(_sbRenderItemRow(row, dates, asOf)));
+    products.forEach((row) => parts.push(_sbRenderItemRow(row, dates, asOf, {
+      editable: supplyBalancesState.viewMode === "balance",
+    })));
   }
   tbody.innerHTML = parts.join("");
   initSupplyBalancesColumnResizer();

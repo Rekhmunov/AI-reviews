@@ -15621,12 +15621,12 @@ button.wb-fbs-kiz-add:disabled {
 .supply-balances-table .sb-qty-input {
   width: 100%;
   max-width: 112px;
-  min-height: 36px;
-  padding: 6px 10px;
+  min-height: 40px;
+  padding: 8px 12px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   background: #fff;
-  font-size: 14px;
+  font-size: 16px;
   text-align: left;
   font-variant-numeric: tabular-nums;
   color: #0f172a;
@@ -15651,6 +15651,42 @@ button.wb-fbs-kiz-add:disabled {
 }
 .supply-balances-table .sb-qty-ro.is-below-min,
 .supply-balances-table .sb-qty-ro.is-negative {
+  color: #b91c1c;
+}
+.supply-balances-table button.sb-qty-edit {
+  margin: 0;
+  min-height: 40px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  color: #0f172a;
+  font: inherit;
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  text-align: left;
+  cursor: pointer;
+}
+.supply-balances-table button.sb-qty-edit:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+.supply-balances-table button.sb-qty-edit:active {
+  background: #e2e8f0;
+}
+.supply-balances-table button.sb-qty-edit:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 1px;
+}
+.supply-balances-table button.sb-qty-edit:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.supply-balances-table button.sb-qty-edit.is-below-min,
+.supply-balances-table button.sb-qty-edit.is-negative {
   color: #b91c1c;
 }
 .supply-balances-table .sb-min-hint {
@@ -16525,7 +16561,8 @@ button.wb-fbs-kiz-add:disabled {
   #section-supplies-balances .supply-balances-table .sb-qty-wrap {
     justify-content: flex-start;
   }
-  #section-supplies-balances .supply-balances-table .sb-qty-ro {
+  #section-supplies-balances .supply-balances-table .sb-qty-ro,
+  #section-supplies-balances .supply-balances-table button.sb-qty-edit {
     font-size: 18px;
     font-weight: 700;
     font-variant-numeric: tabular-nums;

@@ -39,8 +39,8 @@ def test_ttn_fbs_supply_picker_and_endpoints() -> None:
     assert "fbs_platform" in REPO
     assert "fbs_source_id" in REPO
     assert "fbs_supply_id" in REPO
-    assert "app.js?v=676" in HTML
-    assert "style.css?v=400" in HTML
+    assert "app.js?v=677" in HTML
+    assert "style.css?v=401" in HTML
     web = WEB
     api = web.split("def list_ttn_fbs_supplies", 1)[1].split("\n    @app.", 1)[0]
     assert "_ttn_fbs_created_ts" in api

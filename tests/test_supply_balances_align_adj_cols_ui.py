@@ -65,5 +65,18 @@ def test_adj_modals_have_product_photo_column() -> None:
 
 
 def test_cache_bump_align_adj_cols() -> None:
-    assert "style.css?v=400" in APP_HTML
-    assert "app.js?v=676" in APP_HTML
+    assert "style.css?v=401" in APP_HTML
+    assert "app.js?v=677" in APP_HTML
+
+
+def test_balance_as_of_qty_is_inline_adjustment() -> None:
+    assert "function _sbBeginInlineQtyEdit(" in APP_JS
+    assert "async function _sbSaveInlineStockAdjustment(" in APP_JS
+    assert 'mode: "adjustment"' in APP_JS
+    assert 'quantity_mode: "absolute"' in APP_JS
+    assert 'editable: supplyBalancesState.viewMode === "balance"' in APP_JS
+    assert "button.sb-qty-edit" in APP_JS
+    assert "if (supplyBalancesState.viewMode !== \"balance\") return;" in APP_JS
+    # History columns and sales stay read-only spans; only the selected date is a button.
+    assert "canEditAsOf && isAsOf" in APP_JS
+    assert "class=\"sb-qty-edit\"" in STYLE or "button.sb-qty-edit" in STYLE
