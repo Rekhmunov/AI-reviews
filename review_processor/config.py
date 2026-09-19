@@ -21,8 +21,9 @@ class AppConfig:
     app_env: str
     db_url: str | None
     self_registration_enabled: bool
-    # When False: skip marketplace chat sync and hide chat UI refresh.
-    # Reviews and questions are unaffected. Re-enable via FEEDPILOT_SYNC_CHATS_ENABLED=1.
+    # When False: skip marketplace chat sync. Reviews and questions are unaffected.
+    # The chats page is still owner-only; see ``user_is_tenant_owner``.
+    # Re-disable via FEEDPILOT_SYNC_CHATS_ENABLED=0.
     sync_chats_enabled: bool
 
     @property
@@ -31,8 +32,12 @@ class AppConfig:
 
 
 def sync_chats_enabled() -> bool:
-    """Runtime check for chat channel sync (default off)."""
-    return _env_bool("FEEDPILOT_SYNC_CHATS_ENABLED", False)
+    """Marketplace chat sync. On unless ``FEEDPILOT_SYNC_CHATS_ENABLED=0``.
+
+    Reviews and questions are unaffected. The chats section is shown only to
+    the tenant owner even when sync is on.
+    """
+    return _env_bool("FEEDPILOT_SYNC_CHATS_ENABLED", True)
 
 
 def load_app_config() -> AppConfig:

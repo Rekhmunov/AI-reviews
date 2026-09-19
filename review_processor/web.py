@@ -1328,6 +1328,24 @@ TENANT_ROLE_OWNER = "admin"
 TENANT_ROLE_MANAGER = "feedback_manager"
 # All roles that are treated as "manager" (can have granular permissions configured)
 TENANT_MANAGER_ROLES = {"feedback_manager", "production_manager", "manager"}
+
+
+def user_is_tenant_owner(user: dict[str, object]) -> bool:
+    """Account owner (admin/user whose id is the tenant owner id). Not a manager."""
+    role = str(user.get("role") or "")
+    try:
+        user_id = int(user.get("id") or 0)
+    except (TypeError, ValueError):
+        return False
+    owner_raw = user.get("owner_user_id")
+    if owner_raw is None:
+        owner_id = user_id
+    else:
+        try:
+            owner_id = int(owner_raw)
+        except (TypeError, ValueError):
+            owner_id = user_id
+    return role in ROLE_CAN_ACCESS_SETTINGS and user_id > 0 and owner_id == user_id
 SESSION_TTL_SECONDS = 30 * 24 * 60 * 60
 CSRF_COOKIE_NAME = "csrf_token"
 # Remembers the cabinet public driver-page token so /ozon-fbs/driver can open
@@ -1767,9 +1785,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if bool(row.get("can_questions")) and account_id not in seen["question"]:
                 seen["question"].add(account_id)
                 scope["question"].append(account_id)
-            if bool(row.get("can_chats")) and account_id not in seen["chat"]:
-                seen["chat"].add(account_id)
-                scope["chat"].append(account_id)
+            # Chats stay owner-only; manager can_chats is ignored for now.
         return scope
 
     def _manager_owner_account_ids(owner_user_id: int) -> set[int]:
@@ -1796,13 +1812,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=403, detail="Нет доступа к этому кабинету отзывов")
 
     def _require_manager_scope_for_conversation(user: dict[str, object], conversation_uid: str) -> None:
-        if str(user.get("role") or "").strip().lower() not in TENANT_MANAGER_ROLES:
-            return
-        scope = _manager_allowed_conversation_accounts(user) or {"question": [], "chat": []}
         conversation = repository.get_conversation(user_id=_tenant_owner_id(user), conversation_uid=conversation_uid)
         if conversation is None:
             raise HTTPException(status_code=404, detail="Диалог не найден")
         kind = str(conversation.get("kind") or "").strip().lower()
+        if kind == "chat" and not user_is_tenant_owner(user):
+            raise HTTPException(status_code=403, detail="Чаты доступны только основному пользователю")
+        if str(user.get("role") or "").strip().lower() not in TENANT_MANAGER_ROLES:
+            return
+        scope = _manager_allowed_conversation_accounts(user) or {"question": [], "chat": []}
         if kind not in {"question", "chat"}:
             raise HTTPException(status_code=403, detail="Нет доступа к этому типу диалога")
         allowed = set(scope.get(kind, []))
@@ -2975,6 +2993,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             normalized_kind = kind_key
         else:
             raise HTTPException(status_code=400, detail="Тип должен быть: вопрос, чат или все")
+        if normalized_kind == "chat" and not user_is_tenant_owner(user):
+            raise HTTPException(status_code=403, detail="Чаты доступны только основному пользователю")
         status_key = (status or "").strip().lower()
         if not status_key or status_key == "all":
             normalized_status = None
@@ -4986,12 +5006,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         user_id = int(user.get("id") or 0)
 
         chats_on = sync_chats_enabled()
+        owner_sees_chats = user_is_tenant_owner(user)
         if role in ROLE_CAN_ACCESS_SETTINGS:
             return {
                 "can_view_feedback": True,
                 "can_view_reviews": True,
                 "can_view_questions": True,
-                "can_view_chats": chats_on,
+                "can_view_chats": owner_sees_chats,
                 "can_view_supplies": True,
                 "can_view_any_supply": True,
                 "can_view_salary": True,
@@ -5001,7 +5022,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         _perms = repository.list_manager_permissions(manager_user_id=user_id)
         can_view_reviews = any(bool(p.get("can_reviews")) for p in _perms)
         can_view_questions = any(bool(p.get("can_questions")) for p in _perms)
-        can_view_chats = any(bool(p.get("can_chats")) for p in _perms) and chats_on
+        can_view_chats = False
         can_view_feedback = can_view_reviews or can_view_questions or can_view_chats
 
         can_view_supplies = bool(user.get("can_supplies"))
@@ -23497,22 +23518,19 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
         can_view_feedback = True
         can_view_reviews = True
         can_view_questions = True
-        can_view_chats = True
     elif repository is not None:
         _perms = repository.list_manager_permissions(manager_user_id=user_id)
         can_view_reviews = any(bool(p.get("can_reviews")) for p in _perms)
         can_view_questions = any(bool(p.get("can_questions")) for p in _perms)
-        can_view_chats = any(bool(p.get("can_chats")) for p in _perms)
-        can_view_feedback = can_view_reviews or can_view_questions or can_view_chats
+        can_view_feedback = can_view_reviews or can_view_questions
     else:
         can_view_feedback = True
         can_view_reviews = True
         can_view_questions = True
-        can_view_chats = True
-    # Hide chats UI while chat marketplace sync is globally disabled.
-    if not chats_sync_on:
-        can_view_chats = False
-        can_view_feedback = can_view_reviews or can_view_questions or can_view_chats
+    # Chats page is owner-only. Managers keep reviews and questions.
+    can_view_chats = bool(is_tenant_owner)
+    if can_view_chats:
+        can_view_feedback = True
     can_view_salary = is_tenant_owner or bool(user.get("can_salary"))
     can_view_salary_settings = is_tenant_owner or bool(user.get("can_salary_settings"))
     can_view_salary_report = is_tenant_owner or bool(user.get("can_salary_report"))

@@ -545,8 +545,8 @@ function isTenantOwner() {
 }
 
 function isChatSyncEnabled() {
-  // Marketplace chat sync kill-switch (reviews/questions unaffected).
-  return Boolean(getPermissions().sync_chats_enabled) && Boolean(getPermissions().can_view_chats);
+  // Chats section is owner-only. Marketplace sync is a separate server flag.
+  return Boolean(getPermissions().can_view_chats) && isTenantOwner();
 }
 
 function canViewSection(section) {
@@ -18436,7 +18436,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const channelMap = [
     { section: "section-reviews",       nav: "nav-reviews",       can: permissions.can_view_reviews },
     { section: "section-conversations", nav: "nav-conversations",  can: permissions.can_view_questions },
-    { section: "section-chats",         nav: "nav-chats",          can: permissions.can_view_chats },
+    { section: "section-chats",         nav: "nav-chats",          can: permissions.can_view_chats && isTenantOwner() },
   ];
   for (const ch of channelMap) {
     if (!ch.can) {
