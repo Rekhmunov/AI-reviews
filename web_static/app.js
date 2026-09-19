@@ -18376,11 +18376,6 @@ async function openSupplyStockMovementsModal(itemType, itemId) {
     const unit = String(data.unit || "шт");
     const balText = _sbQtyText(data.balance);
     const daysN = Number(data.days || 10) || 10;
-    const dateFrom = String(data.date_from || "").trim();
-    const dateTo = String(data.date_to || "").trim();
-    const periodText = dateFrom && dateTo
-      ? `${dateFrom} — ${dateTo}`
-      : `последние ${daysN} дн.`;
     if (title) title.textContent = name || "Журнал движений";
     if (lead) {
       const truncNote = data.truncated
@@ -18390,9 +18385,7 @@ async function openSupplyStockMovementsModal(itemType, itemId) {
       const basisNote = basisN > 0
         ? ` Добавлены более ранние приходы/корректировки (${basisN}), из которых сложился текущий остаток.`
         : "";
-      lead.textContent =
-        `Текущий остаток: ${balText} ${unit}. За последние ${daysN} дн. (${periodText}). ` +
-        `Дни свёрнуты — раскройте, чтобы увидеть движения.${basisNote}${truncNote}`;
+      lead.textContent = `Текущий остаток: ${balText} ${unit}.${basisNote}${truncNote}`;
     }
     const items = Array.isArray(data.items) ? data.items : [];
     if (!items.length) {

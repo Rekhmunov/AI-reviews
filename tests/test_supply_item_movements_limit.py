@@ -19,8 +19,9 @@ def test_item_movements_ui_requests_last_10_days() -> None:
     assert 'days: "10"' in _MODAL_FN
     assert 'limit: "1000"' not in _MODAL_FN
     assert 'limit: "100"' not in _MODAL_FN
-    assert "За последние" in _MODAL_FN
-    assert "data.date_from" in _MODAL_FN
+    assert "За последние" not in _MODAL_FN
+    assert "Дни свёрнуты" not in _MODAL_FN
+    assert "Текущий остаток:" in _MODAL_FN
     assert "data.days" in _MODAL_FN
 
 
@@ -42,4 +43,4 @@ def test_item_movements_api_uses_day_window() -> None:
     assert "outside_window" in WEB_PY
     assert "movement_date <=" in REPO_PY
     assert "date_from: str = \"\"" in REPO_PY or 'date_from: str = ""' in REPO_PY
-    assert "app.js?v=554" in APP_HTML
+    assert "app.js?v=681" in APP_HTML
