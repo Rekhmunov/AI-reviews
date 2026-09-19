@@ -2904,6 +2904,7 @@ def build_ttn_prefill(
             val = existing_record.get(key)
             if val not in (None, ""):
                 record[key] = val
+    ttn_cargo.apply_fbs_customer_shipper_default(record)
     from . import ttn_title as ttn_title_mod
 
     record["title"] = ttn_title_mod.suggest_fbs_ttn_title(

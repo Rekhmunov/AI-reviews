@@ -295,3 +295,32 @@ def resolve_shipper_load_place(
         except Exception:
             addr = ""
     return wid, addr
+
+
+def apply_fbs_customer_shipper_default(record: dict[str, Any]) -> None:
+    """Section 1а defaults to the shipper legal entity on a new FBS TTN form.
+
+    A saved customer (party or free-text snapshot) is left as-is. Logistics
+    TTNs never pass through this helper.
+    """
+    if not isinstance(record, dict):
+        return
+    if str(record.get("customer_services") or "").strip():
+        return
+    party_type = str(record.get("customer_party_type") or "").strip()
+    try:
+        party_id = int(record.get("customer_party_id") or 0)
+    except (TypeError, ValueError):
+        party_id = 0
+    if party_type and party_id > 0:
+        return
+    if str(record.get("shipper_type") or "le").strip() != "le":
+        return
+    try:
+        shipper_id = int(record.get("legal_entity_id") or 0)
+    except (TypeError, ValueError):
+        shipper_id = 0
+    if shipper_id <= 0:
+        return
+    record["customer_party_type"] = "le"
+    record["customer_party_id"] = shipper_id
