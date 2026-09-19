@@ -14659,7 +14659,7 @@ window.toggleSupplyBalancesBelowMin = toggleSupplyBalancesBelowMin;
 
 const supplyBalancesOrderState = {
   belowMode: "below", // below | all
-  category: "",
+  categories: [], // empty = all categories; independent from the main stock filter
   qtys: Object.create(null),
 };
 
@@ -14701,31 +14701,51 @@ function _sbOrderSetErr(msg) {
 function _sbSyncOrderCategoryOptions() {
   const sel = document.getElementById("supplyBalancesOrderCategoryFilter");
   if (!sel) return;
-  const current = String(supplyBalancesOrderState.category || sel.value || "");
+  const current = _sbNormalizeCategoryFilters(supplyBalancesOrderState.categories);
   const cats = Array.isArray(supplyBalancesState.categories)
     ? supplyBalancesState.categories.map((c) => String(c || "").trim()).filter(Boolean)
     : [];
-  const opts = [
-    { value: "", label: "Все" },
-    { value: "__materials__", label: "Материалы" },
-  ];
+  const opts = [{ value: "__materials__", label: "Материалы" }];
   cats.forEach((name) => opts.push({ value: name, label: name }));
   sel.innerHTML = opts.map((o) =>
     `<option value="${esc(o.value)}">${esc(o.label)}</option>`
   ).join("");
-  const ok = opts.some((o) => o.value === current);
-  supplyBalancesOrderState.category = ok ? current : "";
-  sel.value = supplyBalancesOrderState.category;
+  const valid = current.filter((v) => opts.some((o) => o.value === v));
+  supplyBalancesOrderState.categories = valid;
+  _sbApplyCategoryFiltersToSelect(sel, valid);
 }
 
 function _sbOrderFilteredRows() {
   const belowMode = String(supplyBalancesOrderState.belowMode || "below");
-  const category = String(supplyBalancesOrderState.category || "");
+  const categories = _sbNormalizeCategoryFilters(supplyBalancesOrderState.categories);
   const rows = Array.isArray(supplyBalancesState.rows) ? supplyBalancesState.rows : [];
   return rows.filter((row) => {
     if (belowMode === "below" && !row.below_min) return false;
-    return _sbRowMatchesCategoryValue(row, category);
+    return _sbDataRowMatchesCategoryFilters(row, categories);
   });
+}
+
+function _sbOrderQtyOfRow(row) {
+  const key = _sbOrderRowKey(row);
+  let orderQty = supplyBalancesOrderState.qtys[key];
+  if (orderQty === undefined || orderQty === null || orderQty === "") {
+    orderQty = _sbOrderDefaultQty(row);
+  }
+  const n = Number(orderQty);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.round(n * 1000) / 1000;
+}
+
+function _sbOrderVisibleTotal() {
+  const rows = _sbOrderFilteredRows();
+  const sum = rows.reduce((acc, row) => acc + _sbOrderQtyOfRow(row), 0);
+  return Math.round(sum * 1000) / 1000;
+}
+
+function _sbRefreshOrderTotal() {
+  const el = document.getElementById("supplyBalancesOrderTotalQty");
+  if (!el) return;
+  el.textContent = _sbQtyText(_sbOrderVisibleTotal());
 }
 
 function _sbReadOrderQtyInput(input) {
@@ -14741,6 +14761,7 @@ function onSupplyBalancesOrderQtyInput(input) {
   const key = String(input?.getAttribute("data-order-key") || "");
   if (!key) return;
   supplyBalancesOrderState.qtys[key] = _sbReadOrderQtyInput(input);
+  _sbRefreshOrderTotal();
 }
 window.onSupplyBalancesOrderQtyInput = onSupplyBalancesOrderQtyInput;
 
@@ -14751,6 +14772,7 @@ function renderSupplyBalancesOrderTable() {
   if (!rows.length) {
     tbody.innerHTML =
       `<tr><td class="sb-empty-cell" colspan="4">Нет позиций по выбранным фильтрам</td></tr>`;
+    _sbRefreshOrderTotal();
     return;
   }
   tbody.innerHTML = rows.map((row) => {
@@ -14783,13 +14805,14 @@ function renderSupplyBalancesOrderTable() {
       </td>
     </tr>`;
   }).join("");
+  _sbRefreshOrderTotal();
 }
 
 function onSupplyBalancesOrderFiltersChange() {
   const belowEl = document.getElementById("supplyBalancesOrderBelowFilter");
   const catEl = document.getElementById("supplyBalancesOrderCategoryFilter");
   supplyBalancesOrderState.belowMode = String(belowEl?.value || "below");
-  supplyBalancesOrderState.category = String(catEl?.value || "");
+  supplyBalancesOrderState.categories = _sbReadCategoryFiltersFromSelect(catEl);
   _sbOrderSetErr("");
   renderSupplyBalancesOrderTable();
 }
@@ -14809,13 +14832,12 @@ function openSupplyBalancesOrderModal() {
   }
   supplyBalancesOrderState.qtys = Object.create(null);
   const belowEl = document.getElementById("supplyBalancesOrderBelowFilter");
-  const catEl = document.getElementById("supplyBalancesOrderCategoryFilter");
-  // Default shortlist: below minimum (main ordering use-case).
+  // Default shortlist: below minimum. Category filter stays inside this modal
+  // and does not copy the main stock-table selection.
   supplyBalancesOrderState.belowMode = "below";
-  supplyBalancesOrderState.category = _sbSelectedCategoryFilters()[0] || "";
+  supplyBalancesOrderState.categories = [];
   if (belowEl) belowEl.value = supplyBalancesOrderState.belowMode;
   _sbSyncOrderCategoryOptions();
-  if (catEl) catEl.value = supplyBalancesOrderState.category;
   setModalVisibility("supplyBalancesOrderModal", true);
   renderSupplyBalancesOrderTable();
 }

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=401" />
+  <link rel="stylesheet" href="/static/style.css?v=402" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -7937,9 +7937,10 @@
             </select>
           </label>
           <label class="sb-doc-field" for="supplyBalancesOrderCategoryFilter">
-            <span>Категория</span>
-            <select id="supplyBalancesOrderCategoryFilter" onchange="onSupplyBalancesOrderFiltersChange()">
-              <option value="">Все</option>
+            <span>Категории</span>
+            <select id="supplyBalancesOrderCategoryFilter" multiple size="6"
+                    title="Несколько категорий: удерживайте Ctrl"
+                    onchange="onSupplyBalancesOrderFiltersChange()">
               <option value="__materials__">Материалы</option>
             </select>
           </label>
@@ -7958,6 +7959,12 @@
             <tbody id="supplyBalancesOrderTbody">
               <tr><td class="sb-empty-cell" colspan="4">Нет данных</td></tr>
             </tbody>
+            <tfoot>
+              <tr class="sb-order-total">
+                <td colspan="3">Итого к заказу</td>
+                <td class="sb-order-num" id="supplyBalancesOrderTotalQty">0</td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       </div>
@@ -8021,6 +8028,6 @@
 
   <script src="/static/ozon_fbs.js?v=186"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=37"></script>
-  <script src="/static/app.js?v=677"></script>
+  <script src="/static/app.js?v=678"></script>
 </body>
 </html>

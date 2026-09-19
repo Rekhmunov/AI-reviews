@@ -14365,6 +14365,16 @@ button.wb-fbs-kiz-add:disabled {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+  align-items: start;
+}
+.sb-order-filters .sb-doc-field select[multiple] {
+  min-height: 160px;
+  max-height: 220px;
+  padding: 4px 8px;
+  line-height: 1.35;
+}
+.sb-order-filters .sb-doc-field select[multiple] option {
+  padding: 4px 8px;
 }
 .sb-order-table-wrap {
   min-height: 220px;
@@ -14428,6 +14438,16 @@ button.wb-fbs-kiz-add:disabled {
   outline: 2px solid #93c5fd;
   outline-offset: 1px;
   border-color: #60a5fa;
+}
+.sb-order-total td {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  background: #f8fafc;
+  font-weight: 600;
+  color: #0f172a;
+  border-bottom: 0;
+  font-variant-numeric: tabular-nums;
 }
 
 .sb-toolbar-primary {

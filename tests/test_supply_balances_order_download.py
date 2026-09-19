@@ -51,8 +51,17 @@ def test_order_modal_filters_and_table() -> None:
     assert "zakaz_ostatki_" in APP_JS
     assert 'viewMode !== "balance"' in APP_JS
     assert "supplyBalancesOrderDownloadBtn" in APP_JS
+    assert 'id="supplyBalancesOrderTotalQty"' in APP_HTML
+    assert "Итого к заказу" in APP_HTML
+    assert 'multiple size="6"' in APP_HTML
+    assert 'id="supplyBalancesOrderCategoryFilter" multiple' in APP_HTML
+    assert "supplyBalancesOrderState.categories = []" in APP_JS
+    assert "_sbDataRowMatchesCategoryFilters(row, categories)" in APP_JS
+    assert "_sbReadCategoryFiltersFromSelect(catEl)" in APP_JS
+    assert "_sbRefreshOrderTotal" in APP_JS
+    assert "_sbSelectedCategoryFilters()[0]" not in APP_JS[APP_JS.find("function openSupplyBalancesOrderModal"):APP_JS.find("function closeSupplyBalancesOrderModal")]
 
 
 def test_cache_bump_order_feature() -> None:
-    assert "style.css?v=307" in APP_HTML
-    assert "app.js?v=553" in APP_HTML
+    assert "style.css?v=402" in APP_HTML
+    assert "app.js?v=678" in APP_HTML
