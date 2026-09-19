@@ -4774,6 +4774,43 @@ class ReviewRepository:
             }
         return result
 
+    def get_chat_sync_states_for_account(
+        self,
+        *,
+        user_id: int,
+        source: str,
+        account_id: int,
+    ) -> dict[str, dict[str, Any]]:
+        """Map external chat id -> stored last_message_at for one account.
+
+        Used by Ozon auto-sync to skip history calls for chats that already
+        have a timestamp, and to bootstrap chats the list endpoint cannot date.
+        """
+        sql = self._sql(
+            """
+            SELECT external_conversation_id,
+                   last_message_at
+            FROM conversation_items
+            WHERE user_id = ?
+              AND source = ?
+              AND account_id = ?
+              AND kind = 'chat'
+            """
+        )
+        with self._connect() as conn:
+            rows = conn.execute(sql, (user_id, source, account_id)).fetchall()
+        result: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            d = self._row_to_dict(row)
+            ext = str(d.get("external_conversation_id") or "").strip()
+            if not ext:
+                continue
+            result[ext] = {
+                "external_conversation_id": ext,
+                "last_message_at": d.get("last_message_at"),
+            }
+        return result
+
     def update_review_processing_result(
         self,
         *,
@@ -5330,6 +5367,45 @@ class ReviewRepository:
                 (customer_name, _utc_now(), user_id, conversation_uid),
             )
         return result.rowcount > 0
+
+    def advance_conversation_last_message(
+        self,
+        *,
+        user_id: int,
+        conversation_uid: str,
+        last_message_at: str | None = None,
+        message_text: str | None = None,
+    ) -> bool:
+        """Move last_message_at forward and refresh the preview text.
+
+        Used when Ozon history is loaded on chat open, so a newer buyer
+        message can beat last_sent_at and return the chat to «Новые».
+        """
+        ts = str(last_message_at or "").strip()
+        text = str(message_text or "").strip()
+        if not ts and not text:
+            return False
+        now = _utc_now()
+        with self._connect() as conn:
+            result = conn.execute(
+                self._sql("""
+                UPDATE conversation_items
+                SET last_message_at = CASE
+                        WHEN ? = '' THEN last_message_at
+                        WHEN last_message_at IS NULL OR TRIM(last_message_at::text) = '' THEN ?
+                        WHEN ? > last_message_at::text THEN ?
+                        ELSE last_message_at
+                    END,
+                    message_text = CASE
+                        WHEN ? != '' THEN ?
+                        ELSE message_text
+                    END,
+                    updated_at = ?
+                WHERE user_id = ? AND conversation_uid = ?
+                """),
+                (ts, ts, ts, ts, text, text, now, user_id, conversation_uid),
+            )
+        return bool(result.rowcount)
 
     def mark_conversation_answered(self, *, user_id: int, conversation_uid: str) -> bool:
         """Set last_sent_at = now, manually_closed_at = now and status = 'answered_manual'.

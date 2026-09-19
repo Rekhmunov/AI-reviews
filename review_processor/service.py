@@ -276,11 +276,29 @@ class OzonMarketplaceClient:
         )
         if not chats or not enrich_with_events:
             return chats
+        self.enrich_chats_with_history(
+            chats,
+            stop_requested=stop_requested,
+            page_progress_callback=page_progress_callback,
+        )
+        return chats
 
-        # Enrich each chat with its last message to determine last_sender.
-        # Ozon /v3/chat/history returns messages newest-first (direction=Backward).
-        # user.type = "Customer" → buyer, "Seller" → seller.
+    def enrich_chats_with_history(
+        self,
+        chats: list[dict[str, object]],
+        *,
+        stop_requested: Callable[[], bool] | None = None,
+        page_progress_callback: Callable[[int, int], None] | None = None,
+        history_limit: int = 100,
+    ) -> None:
+        """Fill last message, sender and history from /v3/chat/history.
+
+        History is newest-first (direction=Backward). One request per chat.
+        Mutates the given chat rows in place. Failures on a single chat are
+        skipped so the rest of the sync still saves.
+        """
         total = len(chats)
+        limit = max(1, min(int(history_limit or 100), 1000))
         for idx, chat in enumerate(chats):
             _raise_if_stop_requested(stop_requested, source="ozon")
             if idx > 0:
@@ -296,29 +314,36 @@ class OzonMarketplaceClient:
             try:
                 hist_body = self._request_json(
                     path=self.chats_history_path,
-                    payload={"chat_id": ext_id, "limit": 20, "direction": "Backward"},
+                    payload={"chat_id": ext_id, "limit": limit, "direction": "Backward"},
                 )
-                messages = hist_body.get("messages") or []
+                messages = hist_body.get("messages")
+                if not isinstance(messages, list):
+                    nested = hist_body.get("result")
+                    messages = nested.get("messages") if isinstance(nested, dict) else None
                 if not isinstance(messages, list):
                     continue
                 history_rows: list[dict[str, object]] = []
                 last_sender_type: str = ""
                 last_msg_ts: str = ""
+                newest_text: str = ""
                 buyer_user_id: str = ""
                 order_number: str = ""
                 for msg in messages:
                     if not isinstance(msg, dict):
                         continue
                     user_info = msg.get("user") or {}
-                    user_type = str(user_info.get("type") or "").lower()
-                    msg_ts = str(msg.get("created_at") or "")
+                    user_type = _ozon_user_kind(user_info.get("type"))
+                    msg_ts = _ozon_chat_timestamp(msg.get("created_at"))
                     msg_id = str(msg.get("message_id") or "")
                     msg_text = _parse_ozon_message_text(
                         msg.get("data"), bool(msg.get("is_image"))
                     )
+                    if not last_msg_ts and msg_ts:
+                        last_msg_ts = msg_ts
                     if not last_sender_type and user_type:
                         last_sender_type = user_type
-                        last_msg_ts = msg_ts
+                    if not newest_text and msg_text:
+                        newest_text = msg_text
                     # Extract buyer user_id and order_number for customer_name
                     if user_type == "customer":
                         uid = str(user_info.get("id") or "").strip()
@@ -338,13 +363,17 @@ class OzonMarketplaceClient:
                             "created_at": msg_ts,
                             "operator_name": operator,
                         })
-                # Map Ozon user type to our sender labels
+                # Map Ozon user type to our sender labels.
+                # Always take the history timestamp: /v3/chat/list has no
+                # last-message time, and a stale created_at must not win.
                 if last_sender_type == "customer":
                     chat["last_sender"] = "client"
                 elif last_sender_type in ("seller", "crm"):
                     chat["last_sender"] = "seller"
-                if last_msg_ts and not chat.get("last_message_at"):
+                if last_msg_ts:
                     chat["last_message_at"] = last_msg_ts
+                if newest_text:
+                    chat["message_text"] = newest_text
                 # Ozon API does not provide buyer name — use order_number or user_id
                 if not chat.get("customer_name"):
                     if order_number:
@@ -356,7 +385,6 @@ class OzonMarketplaceClient:
                     meta["_ozon_history"] = history_rows
             except Exception:
                 continue
-        return chats
 
     def _fetch_conversation_stream(
         self,
@@ -3286,6 +3314,63 @@ class ReviewAutomationService:
         if since_date:
             since_iso_filter = _normalize_timestamp(since_date)
 
+        # Ozon list has no message text and no last-message time. Auto-sync
+        # therefore pulls /v3/chat/history for unread chats and for a bounded
+        # batch of chats we have not timestamped yet. WB keeps its own events path.
+        ozon_stale_ids: set[str] = set()
+        ozon_stale_since = ""
+        ozon_skipped_old: set[str] = set()
+        ozon_saved_ids: set[str] = set()
+        if (
+            not full_sync
+            and str(source).lower() == "ozon"
+            and hasattr(client, "enrich_chats_with_history")
+            and account_id is not None
+        ):
+            ozon_stale_since = str(since_iso_filter or "")[:10]
+            states: dict[str, dict[str, object]] = {}
+            try:
+                acct = self.repository.get_marketplace_account(
+                    user_id=user_id,
+                    account_id=int(account_id),
+                    include_secrets=False,
+                )
+                extra = acct.get("extra") if isinstance(acct, dict) else {}
+                ozon_stale_ids = _ozon_stale_chat_ids(extra, ozon_stale_since)
+            except Exception:
+                ozon_stale_ids = set()
+            try:
+                states = self.repository.get_chat_sync_states_for_account(
+                    user_id=user_id,
+                    source=source,
+                    account_id=int(account_id),
+                )
+            except Exception as exc:
+                _log.warning("sync_chats ozon: chat state lookup failed: %s", exc)
+                states = {}
+            need_history = select_ozon_chats_for_history(
+                enriched_rows,
+                states,
+                known_stale_ids=ozon_stale_ids,
+            )
+            if need_history:
+                _log.info(
+                    "sync_chats ozon auto-sync: fetching history for %d/%d chats",
+                    len(need_history),
+                    len(enriched_rows),
+                )
+                try:
+                    client.enrich_chats_with_history(  # type: ignore[attr-defined]
+                        need_history,
+                        stop_requested=stop_requested,
+                    )
+                except MarketplaceSyncError as exc:
+                    if bool(exc.details.get("cancelled")):
+                        raise
+                    _log.warning("sync_chats ozon auto-sync: history fetch failed: %s", exc)
+                except Exception as exc:
+                    _log.warning("sync_chats ozon auto-sync: history fetch failed: %s", exc)
+
         loaded = 0
         _log.debug(
             "sync_chats: full_sync=%s, total rows from WB=%d, since_iso_filter=%s",
@@ -3307,6 +3392,8 @@ class ReviewAutomationService:
                     "sync_chats: SKIP chat %s – last_msg_at=%s < since_filter=%s",
                     ext_id, last_msg_at, since_iso_filter,
                 )
+                if ozon_stale_since:
+                    ozon_skipped_old.add(ext_id)
                 continue
 
             last_sender = str(row.get("last_sender") or "").strip().lower()
@@ -3368,6 +3455,8 @@ class ReviewAutomationService:
                 buyer_has_unread=buyer_has_unread,
             )
             loaded += 1
+            if ozon_stale_since:
+                ozon_saved_ids.add(ext_id)
 
             # For auto-sync: save incremental event texts to conversation_messages.
             # wb_events_row is only populated on full_sync (manual button), but
@@ -3504,6 +3593,22 @@ class ReviewAutomationService:
                     )
                 except Exception:
                     pass
+
+        if ozon_stale_since and account_id is not None:
+            updated_stale = (ozon_stale_ids - ozon_saved_ids) | ozon_skipped_old
+            if updated_stale != ozon_stale_ids:
+                stale_list = sorted(updated_stale)
+                if len(stale_list) > OZON_CHAT_STALE_IDS_CAP:
+                    stale_list = stale_list[-OZON_CHAT_STALE_IDS_CAP:]
+                try:
+                    self.repository.update_marketplace_account_extra_field(
+                        user_id=user_id,
+                        account_id=int(account_id),
+                        key=OZON_CHAT_STALE_IDS_KEY,
+                        value={"since": ozon_stale_since, "ids": stale_list},
+                    )
+                except Exception as exc:
+                    _log.warning("sync_chats ozon: failed to store stale chat ids: %s", exc)
 
         # After processing all chats: fix any chats that are in "Answered" bucket
         # but have a buyer message in conversation_messages that is newer than
@@ -6204,6 +6309,95 @@ def _parse_ozon_message_text(data_parts: object, is_image: bool) -> str:
     if is_image and not text_parts:
         return "[Фото]"
     return " ".join(text_parts)
+
+
+# Auto-sync must not walk every Ozon chat every minute (10 req / 10 s).
+# Unread chats go first; chats we have never timestamped are bootstrapped
+# in a bounded batch so already-read threads become visible without a
+# manual full sync.
+OZON_CHAT_HISTORY_MAX_PER_SYNC = 120
+OZON_CHAT_HISTORY_BOOTSTRAP_PER_SYNC = 80
+OZON_CHAT_STALE_IDS_KEY = "_ozon_chat_before_since"
+OZON_CHAT_STALE_IDS_CAP = 4000
+
+
+def _ozon_user_kind(raw: object) -> str:
+    """Normalize Ozon chat user.type. Docs sometimes use a Cyrillic 'С'."""
+    text = str(raw or "").strip().lower().replace("\u0441", "c")
+    if text in {"customer", "buyer"}:
+        return "customer"
+    if text in {"seller", "crm"}:
+        return "seller"
+    return text
+
+
+def _ozon_chat_timestamp(value: object) -> str:
+    """ISO timestamp comparable with repository ``_utc_now()`` (+00:00)."""
+    raw = _normalize_timestamp(value) or ""
+    if raw.endswith("Z"):
+        return raw[:-1] + "+00:00"
+    return raw
+
+
+def _ozon_stale_chat_ids(extra: object, since_key: str) -> set[str]:
+    """Chat ids already known to be older than the sync window.
+
+    Keeps the bootstrap batch from re-downloading the same old threads
+    every minute after the date filter skips them.
+    """
+    if not since_key or not isinstance(extra, Mapping):
+        return set()
+    raw = extra.get(OZON_CHAT_STALE_IDS_KEY)
+    if not isinstance(raw, Mapping):
+        return set()
+    if str(raw.get("since") or "") != since_key:
+        return set()
+    ids = raw.get("ids")
+    if not isinstance(ids, list):
+        return set()
+    return {str(item).strip() for item in ids if str(item).strip()}
+
+
+def select_ozon_chats_for_history(
+    rows: list[dict[str, object]],
+    states: Mapping[str, Mapping[str, object]] | None = None,
+    *,
+    known_stale_ids: set[str] | None = None,
+    max_calls: int = OZON_CHAT_HISTORY_MAX_PER_SYNC,
+    bootstrap_budget: int = OZON_CHAT_HISTORY_BOOTSTRAP_PER_SYNC,
+) -> list[dict[str, object]]:
+    """Pick Ozon chats whose /v3/chat/history must be fetched this cycle.
+
+    Unread chats always win (new buyer text and a real last_message_at).
+    Remaining slots bootstrap chats that are not in the DB yet, or are
+    stored without last_message_at — /v3/chat/list does not send either
+    the text or the time, so those rows stay hidden until history lands.
+    """
+    known = known_stale_ids or set()
+    stored = states or {}
+    unread_rows: list[dict[str, object]] = []
+    bootstrap_rows: list[dict[str, object]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        ext = str(row.get("external_id") or "").strip()
+        if not ext:
+            continue
+        unread = _to_positive_int(row.get("unread_count"), default=0)
+        state = stored.get(ext)
+        has_ts = bool(str((state or {}).get("last_message_at") or "").strip()) if isinstance(state, Mapping) else False
+        if unread > 0:
+            unread_rows.append(row)
+            continue
+        if has_ts or ext in known:
+            continue
+        bootstrap_rows.append(row)
+    cap = max(0, int(max_calls))
+    selected = unread_rows[:cap]
+    room = min(max(0, int(bootstrap_budget)), cap - len(selected))
+    if room > 0:
+        selected.extend(bootstrap_rows[:room])
+    return selected
 
 
 def _normalize_timestamp(value: object) -> str | None:

@@ -28,7 +28,7 @@ from .auth import create_session_token, hash_password, verify_password
 _log = logging.getLogger(__name__)
 from .config import AppConfig, load_app_config, sync_chats_enabled
 from .repository import ReviewRepository
-from .service import MarketplaceSyncError, ReviewAutomationService, _normalize_timestamp, _parse_ozon_message_text, _wb_image_url
+from .service import MarketplaceSyncError, ReviewAutomationService, _normalize_timestamp, _ozon_chat_timestamp, _ozon_user_kind, _parse_ozon_message_text, _wb_image_url
 from .models import ReviewInput
 from .stock_service import StockScheduler, sync_stock_source
 from . import supply_balance_min_auto as supply_min_auto
@@ -3361,16 +3361,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             conversation_uid=conversation_uid,
             limit=limit,
         )
-        # For WB chats: fetch events from WB API when:
+        # Fetch marketplace history when:
         # - messages table is empty (first load), OR
-        # - refresh=1 parameter passed (force reload of full history), OR
-        # - conversation.last_message_at is newer than the newest message in DB
-        #   (buyer sent a new message AFTER our reply), OR
-        # - no inbound (buyer) messages in DB at all — buyer wrote BEFORE our reply
-        #   and auto-sync never saved their message text, OR
-        # - unread_count > 0 means buyer has messages we haven't shown yet
+        # - refresh=1 parameter passed (force reload), OR
+        # - conversation.last_message_at is newer than the newest message in DB, OR
+        # - no inbound (buyer) messages in DB at all, OR
+        # - unread_count > 0 means the buyer has messages we have not shown yet.
+        # WB and Ozon share these triggers. WB then reads /seller/events;
+        # Ozon reads /v3/chat/history.
+        _conv_source = str(conversation.get("source") or "")
         _should_refresh = not messages or bool(refresh)
-        if not _should_refresh and messages and str(conversation.get("source") or "") == "wb":
+        if not _should_refresh and messages and _conv_source in {"wb", "ozon"}:
             conv_last_msg = str(conversation.get("last_message_at") or "").strip()
             db_newest = str(messages[-1].get("created_at") or "").strip() if messages else ""
             # If conversation updated more recently than newest DB message → refresh
@@ -3382,12 +3383,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 has_inbound = any(str(m.get("direction") or "") == "inbound" for m in messages)
                 if not has_inbound:
                     _should_refresh = True
-            # If WB still reports unread messages → buyer has messages not yet in DB
+            # Unread means the marketplace still has buyer messages not in this thread
             if not _should_refresh:
                 unread = int(conversation.get("unread_count") or 0)
                 if unread > 0:
                     _should_refresh = True
-        if _should_refresh and str(conversation.get("source") or "") == "wb":
+        if _should_refresh and _conv_source == "wb":
             try:
                 account_id = conversation.get("account_id")
                 ext_id = str(conversation.get("external_conversation_id") or "")
@@ -3492,8 +3493,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                             )
             except Exception:
                 pass
-        # For Ozon chats: fetch history from /v3/chat/history when empty or refresh=1
-        if _should_refresh and str(conversation.get("source") or "") == "ozon":
+        # For Ozon chats: fetch history from /v3/chat/history when empty, refresh=1,
+        # or the same unread / newer-than-stored triggers as WB.
+        if _should_refresh and _conv_source == "ozon":
             try:
                 account_id = conversation.get("account_id")
                 ext_id = str(conversation.get("external_conversation_id") or "")
@@ -3510,20 +3512,31 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                     path=client.chats_history_path,  # type: ignore[attr-defined]
                                     payload={"chat_id": ext_id, "limit": 100, "direction": "Backward"},
                                 )
-                                ozon_msgs = hist_body.get("messages") or []
+                                ozon_msgs = hist_body.get("messages")
+                                if not isinstance(ozon_msgs, list):
+                                    nested = hist_body.get("result") if isinstance(hist_body, dict) else None
+                                    ozon_msgs = nested.get("messages") if isinstance(nested, dict) else None
+                                if not isinstance(ozon_msgs, list):
+                                    ozon_msgs = []
                                 history_ozon: list[dict[str, object]] = []
                                 buyer_uid_web: str = ""
                                 order_num_web: str = ""
+                                newest_ts = ""
+                                newest_text = ""
                                 for msg in ozon_msgs:
                                     if not isinstance(msg, dict):
                                         continue
                                     user_info = msg.get("user") or {}
-                                    user_type = str(user_info.get("type") or "").lower()
+                                    user_type = _ozon_user_kind(user_info.get("type"))
                                     msg_id = str(msg.get("message_id") or "").strip()
-                                    msg_ts = str(msg.get("created_at") or "")
+                                    msg_ts = _ozon_chat_timestamp(msg.get("created_at"))
                                     msg_text = _parse_ozon_message_text(
                                         msg.get("data"), bool(msg.get("is_image"))
                                     )
+                                    if msg_ts and not newest_ts:
+                                        newest_ts = msg_ts
+                                    if msg_text and not newest_text:
+                                        newest_text = msg_text
                                     if user_type == "customer":
                                         uid = str(user_info.get("id") or "").strip()
                                         if uid and not buyer_uid_web:
@@ -3565,6 +3578,23 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                         conversation_uid=conversation_uid,
                                         messages=history_ozon,
                                     )
+                                if newest_ts or newest_text:
+                                    try:
+                                        repository.advance_conversation_last_message(
+                                            user_id=owner_uid,
+                                            conversation_uid=conversation_uid,
+                                            last_message_at=newest_ts or None,
+                                            message_text=newest_text or None,
+                                        )
+                                    except Exception:
+                                        pass
+                                try:
+                                    repository.move_chat_to_new_if_buyer_replied(
+                                        user_id=owner_uid,
+                                        conversation_uid=conversation_uid,
+                                    )
+                                except Exception:
+                                    pass
                                 messages = repository.list_conversation_messages(
                                     user_id=owner_uid,
                                     conversation_uid=conversation_uid,
