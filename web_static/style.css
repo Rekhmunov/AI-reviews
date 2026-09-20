@@ -17856,12 +17856,21 @@ button.sb-order-cat-btn[aria-expanded="true"] .sb-order-cat-caret {
   }
 
   #section-supplies-ozon-fbs .supplies-actions > #ozonFbsSyncBtn {
-    flex: 1 1 100%;
+    flex: 1 1 calc(100% - 112px);
+    min-width: 0;
     min-height: 44px;
-    font-size: 15px;
+    font-size: 16px;
   }
 
-  #section-supplies-ozon-fbs .supplies-actions > #ozonFbsStopBtn.icon-btn {
+  #section-supplies-ozon-fbs .supplies-actions > #ozonFbsSyncBtn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  #section-supplies-ozon-fbs .supplies-actions > #ozonFbsStopBtn.icon-btn,
+  #section-supplies-ozon-fbs .supplies-actions > .icon-btn {
+    flex: 0 0 44px;
+    width: 44px;
     min-width: 44px;
     min-height: 44px;
   }
@@ -17871,7 +17880,15 @@ button.sb-order-cat-btn[aria-expanded="true"] .sb-order-cat-caret {
   }
 
   #section-supplies-ozon-fbs .wb-fbs-toolbar-right {
+    display: flex;
+    flex-wrap: wrap;
     width: 100%;
+    gap: 8px;
+  }
+
+  #section-supplies-ozon-fbs .wb-fbs-toolbar-right > button.secondary {
+    flex: 1 1 100%;
+    min-height: 44px;
   }
 
   #section-supplies-ozon-fbs .wb-fbs-search {
@@ -17912,14 +17929,15 @@ button.sb-order-cat-btn[aria-expanded="true"] .sb-order-cat-caret {
   }
 
   #section-supplies-ozon-fbs .wb-fbs-sync-info-source-row {
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.4;
     padding: 6px 0;
+    overflow-wrap: anywhere;
   }
 
   #section-supplies-ozon-fbs .wb-fbs-sync-info-source-name {
     display: block;
-    font-size: 13px;
+    font-size: 14px;
     margin-bottom: 2px;
   }
 
@@ -17996,31 +18014,53 @@ button.sb-order-cat-btn[aria-expanded="true"] .sb-order-cat-caret {
     border-radius: 12px;
     background: #fff;
     box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
-  }
-
-  #section-supplies-ozon-fbs #ozonFbsOrdersTable:not(.wb-fbs-table--supplies) tbody tr {
-    grid-template-columns: 44px 1fr;
-    grid-template-areas:
-      "check posting"
-      "product product";
     gap: 8px 12px;
     align-items: start;
   }
 
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable:not(.wb-fbs-table--supplies) tbody tr {
+    grid-template-columns: 44px minmax(0, 1fr);
+    grid-template-areas:
+      "check posting"
+      "product product";
+  }
+
   #section-supplies-ozon-fbs #ozonFbsOrdersTable:not(.wb-fbs-table--supplies) tbody tr:has(td.wb-fbs-sd-col-act) {
-    grid-template-columns: 44px 1fr 44px;
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
     grid-template-areas:
       "check posting act"
       "product product product";
   }
 
-  #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies tbody tr {
-    grid-template-columns: 44px 1fr auto;
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies:not(.fbs-col-wrap) tbody tr {
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
     grid-template-areas:
-      "check supply status"
-      "orders orders orders";
-    gap: 8px 12px;
-    align-items: start;
+      "check supply act"
+      "qr qr qr"
+      "orders orders orders"
+      "status status status"
+      "wh wh wh";
+  }
+
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies.fbs-col-wrap tbody tr {
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    grid-template-areas:
+      "check supply act"
+      "qr qr qr"
+      "status status status"
+      "orders orders orders"
+      "driver driver driver"
+      "wh wh wh";
+  }
+
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable tbody tr.fbs-supply-row-warn {
+    background: #fff1f2;
+    border-color: #fecdd3;
+  }
+
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable tbody tr.fbs-supply-row-ok {
+    background: #f0fdf4;
+    border-color: #bbf7d0;
   }
 
   #section-supplies-ozon-fbs #ozonFbsOrdersTable tbody tr:hover td {
@@ -18035,67 +18075,66 @@ button.sb-order-cat-btn[aria-expanded="true"] .sb-order-cat-caret {
     text-align: left !important;
     width: auto !important;
     max-width: none !important;
-    vertical-align: top !important;
-  }
-
-  #section-supplies-ozon-fbs #ozonFbsOrdersTable:not(.wb-fbs-table--supplies) tbody td:nth-child(1) {
-    grid-area: check;
-    align-self: start;
-    padding-top: 2px !important;
-  }
-
-  #section-supplies-ozon-fbs #ozonFbsOrdersTable:not(.wb-fbs-table--supplies) tbody td:nth-child(2) {
-    grid-area: posting;
     min-width: 0;
+    vertical-align: top !important;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 
-  #section-supplies-ozon-fbs #ozonFbsOrdersTable:not(.wb-fbs-table--supplies) tbody td:nth-child(3) {
-    grid-area: product;
-    border-top: 1px solid #f1f5f9;
-    padding-top: 12px !important;
-  }
-
-  #section-supplies-ozon-fbs #ozonFbsOrdersTable:not(.wb-fbs-table--supplies) tbody td:nth-child(4) {
-    display: none;
-  }
-
-  #section-supplies-ozon-fbs #ozonFbsOrdersTable:not(.wb-fbs-table--supplies) tbody td.wb-fbs-sd-col-act {
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable tbody td.wb-fbs-td-check { grid-area: check; align-self: start; padding-top: 2px !important; }
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable tbody td.wb-fbs-td-order { grid-area: posting; }
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable tbody td.wb-fbs-td-supply { grid-area: supply; }
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable tbody td.wb-fbs-td-product { grid-area: product; }
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable tbody td.wb-fbs-td-qr { grid-area: qr; }
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable tbody td.wb-fbs-td-orders { grid-area: orders; }
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable tbody td.wb-fbs-td-status { grid-area: status; }
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable tbody td.wb-fbs-td-driver { grid-area: driver; }
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable tbody td.wb-fbs-td-wh { grid-area: wh; }
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable tbody td.wb-fbs-td-act,
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable tbody td.wb-fbs-sd-col-act {
     grid-area: act;
-    align-self: start;
     justify-self: end;
   }
 
-  #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies tbody td:nth-child(1) {
-    grid-area: check;
-    align-self: start;
-  }
-
-  #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies tbody td:nth-child(2) {
-    grid-area: supply;
-    min-width: 0;
-  }
-
-  #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies tbody td:nth-child(3) {
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable:not(.wb-fbs-table--supplies) tbody td.wb-fbs-td-wh {
     display: none;
   }
 
-  #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies tbody td:nth-child(4) {
-    grid-area: orders;
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies tbody td.wb-fbs-td-product,
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies tbody td.wb-fbs-td-qr,
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies tbody td.wb-fbs-td-orders,
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies tbody td.wb-fbs-td-status,
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies tbody td.wb-fbs-td-driver,
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies tbody td.wb-fbs-td-wh,
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable:not(.wb-fbs-table--supplies) tbody td.wb-fbs-td-product {
+    border-top: 1px solid #f1f5f9 !important;
     padding-top: 8px !important;
-    border-top: 1px solid #f1f5f9;
   }
 
-  #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies tbody td:nth-child(5) {
-    grid-area: status;
-    align-self: start;
-    text-align: right;
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies tbody td.wb-fbs-td-qr::before,
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies tbody td.wb-fbs-td-orders::before,
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies tbody td.wb-fbs-td-wh::before {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.35;
+    color: #64748b;
   }
 
-  #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies tbody td:nth-child(6) {
-    display: none;
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies tbody td.wb-fbs-td-qr::before { content: "ID поставки"; }
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies tbody td.wb-fbs-td-orders::before { content: "Заказы"; }
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies tbody td.wb-fbs-td-wh::before { content: "Склад"; }
+
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable .fbs-supply-status-stack {
+    align-items: flex-start;
+    max-width: 100%;
+  }
+
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable .wb-fbs-supply-status {
+    max-width: 100%;
+    height: auto;
+    white-space: normal;
   }
 
   #section-supplies-ozon-fbs #ozonFbsOrdersTable tbody tr td.wb-fbs-empty {
@@ -18136,7 +18175,7 @@ button.sb-order-cat-btn[aria-expanded="true"] .sb-order-cat-caret {
 
   #section-supplies-ozon-fbs .wb-fbs-product-sub,
   #section-supplies-ozon-fbs .wb-fbs-barcode {
-    font-size: 13px;
+    font-size: 14px;
   }
 
   .ozon-fbs-mobile-wh,
@@ -18144,7 +18183,7 @@ button.sb-order-cat-btn[aria-expanded="true"] .sb-order-cat-caret {
   .ozon-fbs-mobile-meta {
     display: block;
     margin-top: 4px;
-    font-size: 12px;
+    font-size: 14px;
     color: #64748b;
     line-height: 1.35;
     word-break: break-word;
@@ -18152,7 +18191,12 @@ button.sb-order-cat-btn[aria-expanded="true"] .sb-order-cat-caret {
 
   .ozon-fbs-mobile-supply-id {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-size: 11px;
+    font-size: 14px;
+  }
+
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies .ozon-fbs-mobile-supply-id,
+  #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies .ozon-fbs-mobile-meta {
+    display: none;
   }
 
   #section-supplies-ozon-fbs .wb-fbs-tabs-row {
@@ -18167,9 +18211,23 @@ button.sb-order-cat-btn[aria-expanded="true"] .sb-order-cat-caret {
   }
 
   #section-supplies-ozon-fbs .wb-fbs-tab {
+    flex: 0 0 auto;
     min-height: 44px;
-    padding: 8px 10px;
-    font-size: 13px;
+    padding: 8px 12px;
+    font-size: 14px;
+  }
+
+  #section-supplies-ozon-fbs .ozon-fbs-packaging-actions {
+    width: 100%;
+    margin-left: 0;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  #section-supplies-ozon-fbs .ozon-fbs-packaging-actions > button {
+    width: 100%;
+    min-height: 44px;
+    margin: 0;
   }
 
   #section-supplies-ozon-fbs .wb-fbs-supply-name {
@@ -18393,28 +18451,21 @@ button.sb-order-cat-btn[aria-expanded="true"] .sb-order-cat-caret {
     vertical-align: top !important;
   }
 
-  #ozonFbsSupplyDetailModal .wb-fbs-sd-table tbody td:nth-child(1) {
-    grid-area: check;
-    align-self: start;
-    padding-top: 2px !important;
+  #ozonFbsSupplyDetailModal .wb-fbs-sd-table tbody tr:not(:has(.wb-fbs-sd-td-check)) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "posting"
+      "product";
   }
 
-  #ozonFbsSupplyDetailModal .wb-fbs-sd-table tbody td:nth-child(2) {
-    grid-area: posting;
-    min-width: 0;
-  }
-
-  #ozonFbsSupplyDetailModal .wb-fbs-sd-table tbody td:nth-child(3) {
+  #ozonFbsSupplyDetailModal .wb-fbs-sd-td-check { grid-area: check; align-self: start; }
+  #ozonFbsSupplyDetailModal .wb-fbs-sd-td-order { grid-area: posting; min-width: 0; }
+  #ozonFbsSupplyDetailModal .wb-fbs-sd-td-product {
     grid-area: product;
-    border-top: 1px solid #f1f5f9;
-    padding-top: 12px !important;
+    border-top: 1px solid #f1f5f9 !important;
+    padding-top: 8px !important;
   }
-
-  #ozonFbsSupplyDetailModal .wb-fbs-sd-table tbody td:nth-child(4) {
-    grid-area: act;
-    align-self: start;
-    text-align: center;
-  }
+  #ozonFbsSupplyDetailModal .wb-fbs-sd-col-act { grid-area: act; justify-self: end; }
 
   #ozonFbsSupplyDetailModal .wb-fbs-sd-table tbody tr td.wb-fbs-empty {
     display: block !important;
@@ -19879,10 +19930,7 @@ body.ttn-col-resizing {
   }
   #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies tbody td.wb-fbs-td-driver {
     display: block;
-    grid-column: 1 / -1;
+    grid-area: driver;
     padding-top: 8px !important;
-  }
-  #section-supplies-ozon-fbs #ozonFbsOrdersTable.wb-fbs-table--supplies tbody td.wb-fbs-td-wh {
-    display: none;
   }
 }

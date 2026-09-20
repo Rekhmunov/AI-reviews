@@ -116,4 +116,4 @@ def test_cabinet_modal_matches_gtd_chz_size_and_tools() -> None:
     assert "openSupplyChzCabinetFromSearch" in APP_JS
     assert "Ввести в оборот" in APP_JS
     assert "app.js?v=683" in APP_HTML
-    assert "style.css?v=404" in APP_HTML
+    assert "style.css?v=405" in APP_HTML

@@ -1150,8 +1150,8 @@
         ? `<td class="wb-fbs-td-driver"><div class="fbs-supply-driver-label">Водитель</div><div class="fbs-supply-driver${_ozonFbsDriverHasAssignment(s) ? "" : " is-empty"}" title="${esc(driverLabel)}">${esc(driverLabel)}</div></td>`
         : "";
       return `<tr${rowCls}>
-        <td><input type="checkbox" class="wb-fbs-row-cb" data-supply-id="${esc(sid)}" ${checked} onchange="onOzonFbsCheckboxChange()" /></td>
-        <td>
+        <td class="wb-fbs-td-check"><input type="checkbox" class="wb-fbs-row-cb" data-supply-id="${esc(sid)}" ${checked} onchange="onOzonFbsCheckboxChange()" /></td>
+        <td class="wb-fbs-td-supply">
           <div class="${nameCls}" data-supply-open="1"${nameAria}${nameTab}${nameTitle}
                onclick="openOzonFbsSupplyDetailModal('${esc(sid)}')"
                onkeydown="if(event.key==='Enter')openOzonFbsSupplyDetailModal('${esc(sid)}')">${esc(s.name || ("Поставка " + sid))}</div>
@@ -1159,12 +1159,12 @@
           <div class="ozon-fbs-mobile-supply-id" title="ID поставки">${esc(sid)}</div>
           <div class="ozon-fbs-mobile-meta">${esc(s.warehouse_label || "—")}</div>
         </td>
-        <td><div class="wb-fbs-supply-qr" title="${esc(sid)}">${esc(sid || "—")}</div></td>
-        <td>
+        <td class="wb-fbs-td-qr"><div class="wb-fbs-supply-qr" title="${esc(sid)}">${esc(sid || "—")}</div></td>
+        <td class="wb-fbs-td-orders">
           <div class="wb-fbs-supply-orders">${esc(ordersCount)}</div>
           <div class="wb-fbs-order-meta">отправлений</div>
         </td>
-        <td>${_ozonFbsSupplyStageCell(s)}</td>
+        <td class="wb-fbs-td-status">${_ozonFbsSupplyStageCell(s)}</td>
         ${driverCell}
         <td class="wb-fbs-td-wh">
           <div class="wb-fbs-wh-name" title="${esc(s.warehouse_label || "")}">${esc(s.warehouse_label || "—")}</div>
@@ -1293,15 +1293,15 @@
         }
       }
       return `<tr data-posting="${pn}">
-      <td><input type="checkbox" class="wb-fbs-row-cb" data-posting="${pn}" ${checked} onchange="onOzonFbsCheckboxChange()" /></td>
-      <td>
+      <td class="wb-fbs-td-check"><input type="checkbox" class="wb-fbs-row-cb" data-posting="${pn}" ${checked} onchange="onOzonFbsCheckboxChange()" /></td>
+      <td class="wb-fbs-td-order">
         <div class="wb-fbs-order-id">${formatOzonPostingNumberHtml(pnRaw)}</div>
         <div class="wb-fbs-order-meta">от ${esc(fmtDate(created))}</div>
         ${exemplarBadge}
         ${badges.length ? `<div class="wb-fbs-badges">${badges.join("")}</div>` : ""}
         ${whLabel && whLabel !== "—" ? `<div class="ozon-fbs-mobile-wh">${esc(whLabel)}${whId ? " · ID " + esc(whId) : ""}</div>` : ""}
       </td>
-      <td>
+      <td class="wb-fbs-td-product">
         <div class="wb-fbs-product">
           ${photo}
           <div class="wb-fbs-product-text">
@@ -1312,7 +1312,7 @@
           </div>
         </div>
       </td>
-      <td>
+      <td class="wb-fbs-td-wh">
         <div class="wb-fbs-wh-name" title="${esc(whLabel)}">${esc(whLabel)}</div>
         <div class="wb-fbs-order-meta">${whId ? "ID " + esc(whId) : ""}</div>
       </td>
@@ -3487,7 +3487,7 @@
       const rowCls = cancelLabel || _ozonFbsRowIsCancelled(o) ? "wb-fbs-sd-click-row is-cancelled" : "wb-fbs-sd-click-row";
       const checkCell = readOnly
         ? ""
-        : `<td><input type="checkbox" class="wb-fbs-sd-cb" data-posting="${esc(pn)}" ${checked}
+        : `<td class="wb-fbs-sd-td-check"><input type="checkbox" class="wb-fbs-sd-cb" data-posting="${esc(pn)}" ${checked}
                    onchange="onOzonFbsSupplyDetailCheckboxChange()" /></td>`;
       const sdMenuKey = _ozonFbsPostingMenuKey(`sd_${pn}`);
       const removeCancelledSd = _ozonFbsRowIsCancelled(o) || cancelLabel
@@ -3513,12 +3513,12 @@
         </td>`;
       return `<tr class="${rowCls}">
         ${checkCell}
-        <td>
+        <td class="wb-fbs-sd-td-order">
           <div class="wb-fbs-sd-order-id">${formatOzonPostingNumberHtml(pn)}</div>
           <div class="wb-fbs-order-meta">от ${esc(fmtDate(created))}</div>
           ${badges.length ? `<div class="wb-fbs-badges">${badges.join("")}</div>` : ""}
         </td>
-        <td>
+        <td class="wb-fbs-sd-td-product">
           <div class="wb-fbs-product">
             ${photo}
             <div class="wb-fbs-product-text">
