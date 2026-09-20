@@ -14481,13 +14481,12 @@ function _sbRefreshBalanceStatus() {
   );
   const asOfLabel = _sbFormatDateLabel(supplyBalancesState.asOf);
   const total = rows.reduce((acc, r) => acc + _sbOrderCurrentQty(r), 0);
-  const histNote = supplyBalancesState.showHistory ? " · история дат" : "";
-  const belowCount = rowsAll.filter((r) => r.below_min).length;
-  const belowNote = belowCount ? ` · ниже минимума: ${belowCount}` : "";
-  _sbSetStatus(
-    `Позиций: ${rows.length}. Остаток на ${asOfLabel}: ${_sbQtyText(total)} шт.${histNote}${belowNote}`,
-    "summary"
-  );
+  const parts = [
+    `Позиций: ${rows.length}`,
+    `Остаток на ${asOfLabel}: ${_sbQtyText(total)} шт.`,
+  ];
+  if (supplyBalancesState.showHistory) parts.push("история дат");
+  _sbSetStatus(parts.join(" | "), "summary");
 }
 
 function _sbLoadColWidths() {
