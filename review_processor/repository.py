@@ -31,6 +31,31 @@ def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def supply_window_sold_qty(rows: list[dict[str, Any]]) -> float:
+    """Gross FBS shipments in a journal window (positive = sold).
+
+    Counts ``fbs_ship`` only. Returns (``fbs_reverse``), receipts and
+    adjustments are not included, and rows pulled in from before the
+    window (``outside_window``) are skipped. This is the same total as
+    the red per-day sales figures in the movement modal.
+    """
+    sold = 0.0
+    for row in rows or []:
+        if not isinstance(row, Mapping):
+            continue
+        if row.get("outside_window"):
+            continue
+        if str(row.get("kind") or "").strip().lower() != "fbs_ship":
+            continue
+        try:
+            qty = float(row.get("qty") or 0)
+        except (TypeError, ValueError):
+            continue
+        if qty < 0:
+            sold += -qty
+    return sold
+
+
 def _normalize_product_barcodes(raw: object) -> list[str]:
     """Trim, dedupe, drop empty product barcodes (ШК)."""
     items: list[object]

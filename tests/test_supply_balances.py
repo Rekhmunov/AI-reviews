@@ -229,3 +229,18 @@ def test_sum_supply_stock_sales_period_and_marketplace_filter() -> None:
     assert params[2] == "2026-08-01"
     assert params[3] == "2026-08-28"
 
+
+def test_supply_window_sold_qty_is_ships_only() -> None:
+    from review_processor.repository import supply_window_sold_qty
+
+    rows = [
+        {"kind": "fbs_ship", "qty": -1},
+        {"kind": "fbs_ship", "qty": -2},
+        {"kind": "fbs_reverse", "qty": 2},
+        {"kind": "adjustment", "qty": -5},
+        {"kind": "receipt", "qty": 100},
+        {"kind": "fbs_ship", "qty": -9, "outside_window": True},
+    ]
+    assert supply_window_sold_qty(rows) == 3.0
+    assert supply_window_sold_qty([]) == 0.0
+

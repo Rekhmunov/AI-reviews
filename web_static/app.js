@@ -18337,6 +18337,16 @@ function _sbDayReceiptAndSold(items) {
   return { receipt, sold };
 }
 
+/** Same total as the red per-day sales figures, ignoring rows from before the window. */
+function _sbWindowSoldQty(items) {
+  let sold = 0;
+  for (const m of items || []) {
+    if (m && m.outside_window) continue;
+    sold += _sbDayReceiptAndSold([m]).sold;
+  }
+  return sold;
+}
+
 function _sbRenderMovementsByDay(items, unit) {
   return _sbGroupMovementsByDay(items).map((group) => {
     const { receipt, sold } = _sbDayReceiptAndSold(group.items);
@@ -18411,7 +18421,8 @@ async function openSupplyStockMovementsModal(itemType, itemId) {
       const basisNote = basisN > 0
         ? ` Добавлены более ранние приходы/корректировки (${basisN}), из которых сложился текущий остаток.`
         : "";
-      const soldText = _sbQtyText(data.sold);
+      const windowItems = Array.isArray(data.items) ? data.items : [];
+      const soldText = _sbQtyText(_sbWindowSoldQty(windowItems));
       lead.replaceChildren(
         document.createTextNode(`Текущий остаток: ${balText} ${unit}.${basisNote}${truncNote}`),
         document.createElement("br"),

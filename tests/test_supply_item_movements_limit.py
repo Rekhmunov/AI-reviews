@@ -24,7 +24,7 @@ def test_item_movements_ui_requests_last_14_days() -> None:
     assert "Дни свёрнуты" not in _MODAL_FN
     assert "Текущий остаток:" in _MODAL_FN
     assert "Продалось за 14 дней:" in _MODAL_FN
-    assert "data.sold" in _MODAL_FN
+    assert "_sbWindowSoldQty(" in _MODAL_FN
     assert "data.days" in _MODAL_FN
 
 
@@ -36,7 +36,8 @@ _MOVEMENTS_API = WEB_PY.split('@app.get("/api/supply-balances/movements")', 1)[1
 def test_item_movements_api_uses_day_window() -> None:
     assert "days: int = 14" in _MOVEMENTS_API
     assert "days: int = 10" not in _MOVEMENTS_API
-    assert "sum_supply_stock_sales(" in _MOVEMENTS_API
+    assert "sum_supply_stock_sales(" not in _MOVEMENTS_API
+    assert "supply_window_sold_qty(" in _MOVEMENTS_API
     assert '"sold": sold' in _MOVEMENTS_API
     assert "date_from: str = \"\"" in WEB_PY or 'date_from: str = ""' in WEB_PY
     assert "date_to: str = \"\"" in WEB_PY or 'date_to: str = ""' in WEB_PY
@@ -54,4 +55,4 @@ def test_item_movements_api_uses_day_window() -> None:
     assert "outside_window" in WEB_PY
     assert "movement_date <=" in REPO_PY
     assert "date_from: str = \"\"" in REPO_PY or 'date_from: str = ""' in REPO_PY
-    assert "app.js?v=685" in APP_HTML
+    assert "app.js?v=686" in APP_HTML

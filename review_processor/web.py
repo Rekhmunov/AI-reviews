@@ -21278,8 +21278,8 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         """Read-only ledger journal for one Остатки row.
 
         Default window: last ``days`` calendar days (inclusive), Moscow today.
-        ``sold`` is net FBS sales in that same window (ship minus reverse),
-        not the sum of receipts, adjustments, or the current balance.
+        ``sold`` is the sum of FBS shipments in that window. Returns are
+        not subtracted, so it matches the red per-day sales totals.
         """
         user = _require_user(request)
         if not _can_view_supply_stock(user):
@@ -21348,17 +21348,6 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             user_id=owner_id, production_id=pid, as_of=today
         )
         balance = bal_map.get((itype, iid))
-        sold_map = repository.sum_supply_stock_sales(
-            user_id=owner_id,
-            production_id=pid,
-            date_from=from_s,
-            date_to=to_s,
-        )
-        sold_raw = sold_map.get((itype, iid))
-        try:
-            sold = float(sold_raw) if sold_raw is not None else 0.0
-        except (TypeError, ValueError):
-            sold = 0.0
         rows = repository.list_supply_stock_movements_for_item(
             user_id=owner_id,
             production_id=pid,
@@ -21401,6 +21390,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             )
             if basis_rows:
                 rows = list(rows) + basis_rows
+        sold = repository.supply_window_sold_qty(rows)
         kind_labels = {
             "opening": "Начальный остаток",
             "receipt": "Приход",
