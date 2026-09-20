@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from review_processor.ozon_fbs_supplies import resolve_fbs_supply_row_tone
+from review_processor.ozon_fbs_supplies import (
+    ozon_supply_list_row_tone,
+    resolve_fbs_supply_row_tone,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 OZ = ROOT / "review_processor" / "ozon_fbs_supplies.py"
@@ -41,6 +44,39 @@ def test_resolve_row_tone_priority() -> None:
         == "ok"
     )
     assert resolve_fbs_supply_row_tone(gm_statuses=[], ttn_id=5) == ""
+
+
+def test_ozon_list_tone_red_without_cargo_and_driver() -> None:
+    assert (
+        ozon_supply_list_row_tone(
+            gm_statuses=[], ttn_id=0, has_cargo=False, has_driver=False
+        )
+        == "warn"
+    )
+    assert (
+        ozon_supply_list_row_tone(
+            gm_statuses=[], ttn_id=0, has_cargo=True, has_driver=False
+        )
+        == ""
+    )
+    assert (
+        ozon_supply_list_row_tone(
+            gm_statuses=[], ttn_id=0, has_cargo=False, has_driver=True
+        )
+        == ""
+    )
+    assert (
+        ozon_supply_list_row_tone(
+            gm_statuses=["formed"], ttn_id=0, has_cargo=True, has_driver=True
+        )
+        == "warn"
+    )
+    assert (
+        ozon_supply_list_row_tone(
+            gm_statuses=["finished"], ttn_id=5, has_cargo=True, has_driver=True
+        )
+        == "ok"
+    )
 
 
 def test_ozon_enrich_skips_unknown_gm_as_formed() -> None:

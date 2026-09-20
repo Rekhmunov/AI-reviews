@@ -2367,6 +2367,26 @@ def resolve_fbs_supply_row_tone(
     return ""
 
 
+def ozon_supply_list_row_tone(
+    *,
+    gm_statuses: list[str] | None = None,
+    ttn_id: int = 0,
+    has_cargo: bool = False,
+    has_driver: bool = False,
+) -> str:
+    """Ozon supply-list color. Used only for «Доставляются».
+
+    Same pale-red / green as ``resolve_fbs_supply_row_tone``, plus pale-red
+    when the supply has neither cargo places nor a driver yet.
+    """
+    tone = resolve_fbs_supply_row_tone(gm_statuses=gm_statuses, ttn_id=ttn_id)
+    if tone:
+        return tone
+    if not has_cargo and not has_driver:
+        return "warn"
+    return ""
+
+
 def enrich_ozon_supply_items_row_tones(
     repo: ReviewRepository,
     *,
@@ -2394,6 +2414,7 @@ def enrich_ozon_supply_items_row_tones(
         except (TypeError, ValueError):
             ttn_id = 0
         gm_statuses: list[str] = []
+        cids: list[int] = []
         try:
             local_counts = oz_ct._active_local_order_counts_by_container(
                 repo,
@@ -2444,13 +2465,17 @@ def enrich_ozon_supply_items_row_tones(
                             gm_statuses.append(st)
         except Exception:
             gm_statuses = []
+            cids = []
 
         has_formed = any(st not in sc_accepted for st in gm_statuses) if gm_statuses else False
         all_accepted = bool(gm_statuses) and all(st in sc_accepted for st in gm_statuses)
         it["gm_has_formed"] = has_formed
         it["gm_all_accepted"] = all_accepted
-        it["row_tone"] = resolve_fbs_supply_row_tone(
-            gm_statuses=gm_statuses, ttn_id=ttn_id
+        it["row_tone"] = ozon_supply_list_row_tone(
+            gm_statuses=gm_statuses,
+            ttn_id=ttn_id,
+            has_cargo=bool(cids),
+            has_driver=bool(it.get("has_driver")),
         )
 
 
