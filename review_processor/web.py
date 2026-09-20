@@ -21390,7 +21390,9 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             )
             if basis_rows:
                 rows = list(rows) + basis_rows
-        sold = repository.supply_window_sold_qty(rows)
+        from .repository import supply_window_sold_qty
+
+        sold = supply_window_sold_qty(rows)
         kind_labels = {
             "opening": "Начальный остаток",
             "receipt": "Приход",

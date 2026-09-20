@@ -37,7 +37,8 @@ def test_item_movements_api_uses_day_window() -> None:
     assert "days: int = 14" in _MOVEMENTS_API
     assert "days: int = 10" not in _MOVEMENTS_API
     assert "sum_supply_stock_sales(" not in _MOVEMENTS_API
-    assert "supply_window_sold_qty(" in _MOVEMENTS_API
+    assert "supply_window_sold_qty(rows)" in _MOVEMENTS_API
+    assert "repository.supply_window_sold_qty" not in _MOVEMENTS_API
     assert '"sold": sold' in _MOVEMENTS_API
     assert "date_from: str = \"\"" in WEB_PY or 'date_from: str = ""' in WEB_PY
     assert "date_to: str = \"\"" in WEB_PY or 'date_to: str = ""' in WEB_PY
