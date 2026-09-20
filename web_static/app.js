@@ -14463,6 +14463,33 @@ function _sbRefreshSalesPeriodStatus() {
   }
 }
 
+/** Balance view status: as-of date + sum of currently filtered rows. */
+function _sbRefreshBalanceStatus() {
+  if (supplyBalancesState.viewMode !== "balance") return;
+  const rowsAll = Array.isArray(supplyBalancesState.rows) ? supplyBalancesState.rows : [];
+  if (!rowsAll.length) {
+    _sbSetStatus("Нет видимых материалов и товаров. Добавьте их в Настройки или включите в «Вывод в таблице».");
+    return;
+  }
+  const filters = _sbSelectedCategoryFilters();
+  const q = supplyBalancesState.search;
+  const belowOnly = !!supplyBalancesState.filterBelowMin;
+  const rows = rowsAll.filter((r) =>
+    _sbDataRowMatchesCategoryFilters(r, filters)
+    && _sbDataRowMatchesSearch(r, q)
+    && (!belowOnly || !!r.below_min)
+  );
+  const asOfLabel = _sbFormatDateLabel(supplyBalancesState.asOf);
+  const total = rows.reduce((acc, r) => acc + _sbOrderCurrentQty(r), 0);
+  const histNote = supplyBalancesState.showHistory ? " · история дат" : "";
+  const belowCount = rowsAll.filter((r) => r.below_min).length;
+  const belowNote = belowCount ? ` · ниже минимума: ${belowCount}` : "";
+  _sbSetStatus(
+    `Позиций: ${rows.length}. Остаток на ${asOfLabel}: ${_sbQtyText(total)} шт.${histNote}${belowNote}`,
+    "summary"
+  );
+}
+
 function _sbLoadColWidths() {
   try {
     const raw = JSON.parse(localStorage.getItem(SB_COL_WIDTHS_KEY) || "null");
@@ -15125,17 +15152,7 @@ async function loadSupplyBalancesData() {
     _sbUpdateBelowMinBtn();
     _sbSyncCategoryFilterOptions();
     renderSupplyBalancesTable();
-    if (supplyBalancesState.rows.length) {
-      const asOfLabel = _sbFormatDateLabel(supplyBalancesState.asOf);
-      const histNote = supplyBalancesState.showHistory ? " · история дат" : "";
-      const belowCount = supplyBalancesState.rows.filter((r) => r.below_min).length;
-      const belowNote = belowCount ? ` · ниже минимума: ${belowCount}` : "";
-      _sbSetStatus(
-        `Позиций: ${supplyBalancesState.rows.length}. Остаток на ${asOfLabel}. Нажмите цифру, чтобы скорректировать${histNote}${belowNote}`
-      );
-    } else {
-      _sbSetStatus("Нет видимых материалов и товаров. Добавьте их в Настройки или включите в «Вывод в таблице».");
-    }
+    _sbRefreshBalanceStatus();
   } catch (e) {
     _sbSetStatus(String(e.message || e), "error");
   }
@@ -15601,6 +15618,7 @@ function applySupplyBalancesSearchFilter() {
   }
   _sbUpdateBelowMinBtn();
   _sbRefreshSalesPeriodStatus();
+  _sbRefreshBalanceStatus();
 }
 
 function renderSupplyBalancesMovementsTable() {

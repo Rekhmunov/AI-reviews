@@ -73,5 +73,5 @@ def test_open_ttn_modal_prefers_load_warehouse_key() -> None:
 
 
 def test_cache_bump() -> None:
-    html = HTML if "app.js?v=686" in HTML else (ROOT / "web_templates" / "app.html").read_text(encoding="utf-8")
-    assert "app.js?v=686" in html
+    html = HTML if "app.js?v=687" in HTML else (ROOT / "web_templates" / "app.html").read_text(encoding="utf-8")
+    assert "app.js?v=687" in html
