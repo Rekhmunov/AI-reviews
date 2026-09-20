@@ -2294,8 +2294,8 @@ def _list_supplies_tab_response(
         _attach_supply_drivers_to_items(
             repo, user_id=user_id, source_id=source_id, items=items
         )
-    # TTN + GM row tones on delivery-stage supply tabs.
-    if tab in {oz.TAB_AWAITING_DELIVER, oz.TAB_DELIVERING} and items:
+    # TTN + GM row tones only on «Доставляются», not «Ожидают отгрузки».
+    if str(tab or "").strip() == oz.TAB_DELIVERING and items:
         ttn_map = repo.map_ttn_ids_for_fbs_supplies(
             user_id=user_id,
             platform="ozon",

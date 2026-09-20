@@ -64,7 +64,11 @@ def test_ozon_backend_enriches_tones() -> None:
     assert "enrich_ozon_supply_items_row_tones" in oz.split(
         "def _list_supplies_tab_response", 1
     )[1].split("def resolve_fbs_supply_row_tone", 1)[0]
-    assert 'tab in {oz.TAB_AWAITING_DELIVER, oz.TAB_DELIVERING}' in oz
+    block = oz.split("def _list_supplies_tab_response", 1)[1].split(
+        "def resolve_fbs_supply_row_tone", 1
+    )[0]
+    assert 'str(tab or "").strip() == oz.TAB_DELIVERING and items:' in block
+    assert "TAB_AWAITING_DELIVER, oz.TAB_DELIVERING" not in block
     api = web.split("def ozon_fbs_list_supplies", 1)[1].split("\n    @app.", 1)[0]
     assert "OzonFbsClient" in api
     assert "client=client" in api
@@ -89,12 +93,18 @@ def test_ui_row_classes_and_cache_bump() -> None:
     assert "fbs-supply-row-warn" in oz_js
     assert "fbs-supply-row-ok" in oz_js
     assert "row_tone" in oz_js
+    render = oz_js.split("function renderSuppliesTable", 1)[1].split(
+        "function productCompositionHtml", 1
+    )[0]
+    assert "isDeliveringSuppliesTab()\n        ? String(s.row_tone" in render
+    assert "fbs-supply-row-warn" in render
+    assert "fbs-supply-row-ok" in render
     assert "fbs-supply-row-warn" in app_js
     assert "fbs-supply-row-ok" in app_js
     assert ".fbs-supply-row-warn" in css
     assert ".fbs-supply-row-ok" in css
     assert "#fff1f2" in css
     assert "#f0fdf4" in css
-    assert "ozon_fbs.js?v=186" in html
+    assert "ozon_fbs.js?v=187" in html
     assert "app.js?v=681" in html
     assert "style.css?v=403" in html

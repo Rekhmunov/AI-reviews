@@ -1139,7 +1139,9 @@
       const nameTitle = openBlocked ? ` title="${esc(openTip)}"` : "";
       const nameTab = openBlocked ? "" : ' tabindex="0"';
       const nameAria = openBlocked ? ' aria-disabled="true"' : ' role="button"';
-      const tone = String(s.row_tone || "").trim();
+      const tone = isDeliveringSuppliesTab()
+        ? String(s.row_tone || "").trim()
+        : "";
       const rowCls = tone === "warn"
         ? " class=\"fbs-supply-row-warn\""
         : (tone === "ok" ? " class=\"fbs-supply-row-ok\"" : "");
