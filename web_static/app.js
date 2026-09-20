@@ -18358,7 +18358,7 @@ async function openSupplyStockMovementsModal(itemType, itemId) {
       item_type: itype,
       item_id: String(iid),
       // Last N calendar days (not a row-count window) so high-volume SKUs keep history.
-      days: "10",
+      days: "14",
     });
     if (pid) params.set("production_id", String(pid));
     const res = await fetch(`/api/supply-balances/movements?${params.toString()}`);
@@ -18375,7 +18375,7 @@ async function openSupplyStockMovementsModal(itemType, itemId) {
     const name = String(data.name || "");
     const unit = String(data.unit || "шт");
     const balText = _sbQtyText(data.balance);
-    const daysN = Number(data.days || 10) || 10;
+    const daysN = Number(data.days || 14) || 14;
     if (title) title.textContent = name || "Журнал движений";
     if (lead) {
       const truncNote = data.truncated
@@ -18385,7 +18385,12 @@ async function openSupplyStockMovementsModal(itemType, itemId) {
       const basisNote = basisN > 0
         ? ` Добавлены более ранние приходы/корректировки (${basisN}), из которых сложился текущий остаток.`
         : "";
-      lead.textContent = `Текущий остаток: ${balText} ${unit}.${basisNote}${truncNote}`;
+      const soldText = _sbQtyText(data.sold);
+      lead.replaceChildren(
+        document.createTextNode(`Текущий остаток: ${balText} ${unit}.${basisNote}${truncNote}`),
+        document.createElement("br"),
+        document.createTextNode(`Продалось за 14 дней: ${soldText} ${unit}`),
+      );
     }
     const items = Array.isArray(data.items) ? data.items : [];
     if (!items.length) {

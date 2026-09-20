@@ -66,7 +66,7 @@ def test_adj_modals_have_product_photo_column() -> None:
 
 def test_cache_bump_align_adj_cols() -> None:
     assert "style.css?v=405" in APP_HTML
-    assert "app.js?v=683" in APP_HTML
+    assert "app.js?v=684" in APP_HTML
 
 
 def test_balance_as_of_qty_is_inline_adjustment() -> None:
