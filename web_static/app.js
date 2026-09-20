@@ -42122,7 +42122,15 @@ function renderWbFbsSuppliesTable() {
         <div class="wb-fbs-supply-orders">${_wbFbsEsc(ordersCount)}</div>
         <div class="wb-fbs-order-meta">${_wbFbsEsc(boxesLabel)}</div>
       </td>`;
-    const statusCell = `<td><span class="wb-fbs-supply-status ${statusClass}">${_wbFbsEsc(status)}</span></td>`;
+    const statusBadge = `<span class="wb-fbs-supply-status ${statusClass}">${_wbFbsEsc(status)}</span>`;
+    const statusCell = wbFbsState.tab === "delivery"
+      ? (() => {
+          const formed = Number(s.ttn_id || 0) > 0;
+          const ttnLabel = formed ? "Сформирована" : "Несформирована";
+          const ttnCls = formed ? "is-done" : "is-ttn-none";
+          return `<td><div class="fbs-supply-status-stack">${statusBadge}<span class="wb-fbs-supply-status ${ttnCls}">${_wbFbsEsc(ttnLabel)}</span></div></td>`;
+        })()
+      : `<td>${statusBadge}</td>`;
     const scanCell = isAssembly
       ? ""
       : `<td><div class="wb-fbs-order-meta">${_wbFbsEsc(_wbFbsFmtDateTime(s.scan_dt))}</div></td>`;
