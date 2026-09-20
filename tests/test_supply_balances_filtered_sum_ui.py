@@ -19,6 +19,10 @@ def test_balance_status_sums_filtered_rows() -> None:
     assert "_sbDataRowMatchesCategoryFilters" in fn
     assert "_sbOrderCurrentQty" in fn
     assert 'viewMode !== "balance"' in fn
+    assert 'parts.join(" | ")' in fn
+    assert "ниже минимума" not in fn
+    assert "belowNote" not in fn
+    assert "belowCount" not in fn
 
 
 def test_balance_status_recalculates_on_filter() -> None:
@@ -31,4 +35,4 @@ def test_balance_status_recalculates_on_filter() -> None:
     )[0]
     assert "_sbRefreshBalanceStatus();" in load
     assert "Нажмите цифру" not in load
-    assert "app.js?v=687" in APP_HTML
+    assert "app.js?v=688" in APP_HTML
