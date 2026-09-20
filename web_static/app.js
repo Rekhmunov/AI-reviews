@@ -36049,10 +36049,10 @@ function renderWbFbsSupplyDetail(data) {
     const stickerHtml = _wbFbsKizStickerHtml(o);
     const checkCell = readOnly
       ? ""
-      : `<td><input type="checkbox" class="wb-fbs-sd-cb" data-order-id="${oid}" ${checked} onchange="onWbFbsDetailCheckboxChange()" /></td>`;
+      : `<td class="wb-fbs-sd-td-check"><input type="checkbox" class="wb-fbs-sd-cb" data-order-id="${oid}" ${checked} onchange="onWbFbsDetailCheckboxChange()" /></td>`;
     const actCell = readOnly
       ? ""
-      : `<td>
+      : `<td class="wb-fbs-sd-td-act">
         <div class="wb-fbs-row-menu-wrap">
           <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
                   onclick="toggleWbFbsRowMenu(event, '${safeKey}')" aria-haspopup="menu">⋮</button>
@@ -36067,13 +36067,13 @@ function renderWbFbsSupplyDetail(data) {
       </td>`;
     return `<tr class="wb-fbs-sd-click-row">
       ${checkCell}
-      <td>
+      <td class="wb-fbs-sd-td-order">
         <div class="wb-fbs-sd-order-id">${_wbFbsEsc(oid)}</div>
         <div class="wb-fbs-sd-sticker">${stickerHtml}</div>
         <div class="wb-fbs-order-meta">от ${_wbFbsEsc(o.created_date || "—")}</div>
         ${badges.length ? `<div class="wb-fbs-badges">${badges.join("")}</div>` : ""}
       </td>
-      <td>
+      <td class="wb-fbs-sd-td-product">
         <div class="wb-fbs-product">
           ${photo}
           <div class="wb-fbs-product-text">
@@ -42118,7 +42118,7 @@ function renderWbFbsSuppliesTable() {
       ? "1 грузоместо"
       : (boxesCount > 1 && boxesCount < 5 ? `${boxesCount} грузоместа` : `${boxesCount} грузомест`);
     const ordersCell = `
-      <td>
+      <td class="wb-fbs-td-orders">
         <div class="wb-fbs-supply-orders">${_wbFbsEsc(ordersCount)}</div>
         <div class="wb-fbs-order-meta">${_wbFbsEsc(boxesLabel)}</div>
       </td>`;
@@ -42128,12 +42128,12 @@ function renderWbFbsSuppliesTable() {
           const formed = Number(s.ttn_id || 0) > 0;
           const ttnLabel = formed ? "Сформирована" : "Несформирована";
           const ttnCls = formed ? "is-done" : "is-ttn-none";
-          return `<td><div class="fbs-supply-status-stack">${statusBadge}<span class="wb-fbs-supply-status ${ttnCls}">${_wbFbsEsc(ttnLabel)}</span></div></td>`;
+          return `<td class="wb-fbs-td-status"><div class="fbs-supply-status-stack">${statusBadge}<span class="wb-fbs-supply-status ${ttnCls}">${_wbFbsEsc(ttnLabel)}</span></div></td>`;
         })()
-      : `<td>${statusBadge}</td>`;
+      : `<td class="wb-fbs-td-status">${statusBadge}</td>`;
     const scanCell = isAssembly
       ? ""
-      : `<td><div class="wb-fbs-order-meta">${_wbFbsEsc(_wbFbsFmtDateTime(s.scan_dt))}</div></td>`;
+      : `<td class="wb-fbs-td-scan"><div class="wb-fbs-order-meta">${_wbFbsEsc(_wbFbsFmtDateTime(s.scan_dt))}</div></td>`;
     // Assembly column order matches portal: orders before stage.
     const midCells = isAssembly
       ? `${ordersCell}${statusCell}`
@@ -42152,13 +42152,13 @@ function renderWbFbsSuppliesTable() {
       ? " class=\"fbs-supply-row-warn\""
       : ((!isAssembly && tone === "ok") ? " class=\"fbs-supply-row-ok\"" : "");
     return `<tr${rowCls}>
-      <td><input type="checkbox" class="wb-fbs-row-cb" data-supply-id="${_wbFbsEsc(sid)}" ${checked} onchange="onWbFbsCheckboxChange()" /></td>
-      <td>
+      <td class="wb-fbs-td-check"><input type="checkbox" class="wb-fbs-row-cb" data-supply-id="${_wbFbsEsc(sid)}" ${checked} onchange="onWbFbsCheckboxChange()" /></td>
+      <td class="wb-fbs-td-supply">
         <div class="${nameCls}"${nameClick}>${_wbFbsEsc(s.name || ("Поставка " + sid))}</div>
         ${createdMeta}
         ${badges.length ? `<div class="wb-fbs-badges">${badges.join("")}</div>` : ""}
       </td>
-      <td><div class="wb-fbs-supply-qr" title="${_wbFbsEsc(sid)}">${_wbFbsEsc(sid || "—")}</div></td>
+      <td class="wb-fbs-td-qr"><div class="wb-fbs-supply-qr" title="${_wbFbsEsc(sid)}">${_wbFbsEsc(sid || "—")}</div></td>
       ${midCells}
       ${driverCell}
       <td class="wb-fbs-td-wh">
@@ -42167,7 +42167,7 @@ function renderWbFbsSuppliesTable() {
           ? `<div class="wb-fbs-wh-address" title="${_wbFbsEsc(s.warehouse_sub)}">${_wbFbsEsc(s.warehouse_sub)}</div>`
           : ""}
       </td>
-      ${isAssembly ? "" : `<td>${_wbFbsSupplyRowActionsHtml(s)}</td>`}
+      ${isAssembly ? "" : `<td class="wb-fbs-td-act">${_wbFbsSupplyRowActionsHtml(s)}</td>`}
     </tr>`;
   }).join("");
   const selAll = document.getElementById("wbFbsSelectAll");
@@ -42223,7 +42223,7 @@ function renderWbFbsOrdersTable() {
       ? `<div class="wb-fbs-cancel-reason wb-fbs-cancel-reason--sold" title="${_wbFbsEsc(finishedStatus)}">${_wbFbsEsc(finishedStatus)}</div>`
       : "";
     const statusUnderSkuHtml = cancelBadgeHtml || finishedStatusHtml;
-    const actionsTd = showActions ? `<td>${_wbFbsRowActionsHtml(oid)}</td>` : "";
+    const actionsTd = showActions ? `<td class="wb-fbs-td-act">${_wbFbsRowActionsHtml(oid)}</td>` : "";
     // Same QR sticker under order id as in supply-detail modal (last 4 digits larger).
     const hasSticker = !!(
       String(o.sticker_part_a || "").trim()
@@ -42234,14 +42234,14 @@ function renderWbFbsOrdersTable() {
       ? `<div class="wb-fbs-order-sticker">${_wbFbsKizStickerHtml(o)}</div>`
       : "";
     return `<tr>
-      <td><input type="checkbox" class="wb-fbs-row-cb" data-order-id="${oid}" ${checked} onchange="onWbFbsCheckboxChange()" /></td>
-      <td>
+      <td class="wb-fbs-td-check"><input type="checkbox" class="wb-fbs-row-cb" data-order-id="${oid}" ${checked} onchange="onWbFbsCheckboxChange()" /></td>
+      <td class="wb-fbs-td-order">
         <div class="wb-fbs-order-id">${_wbFbsEsc(oid)}</div>
         ${stickerBlock}
         <div class="wb-fbs-order-meta">от ${_wbFbsEsc(_wbFbsFmtDate(o.created_at_wb))}</div>
         ${badges.length ? `<div class="wb-fbs-badges">${badges.join("")}</div>` : ""}
       </td>
-      <td>
+      <td class="wb-fbs-td-product">
         <div class="wb-fbs-product">
           ${photo}
           <div class="wb-fbs-product-text">
@@ -42252,7 +42252,7 @@ function renderWbFbsOrdersTable() {
           </div>
         </div>
       </td>
-      <td>
+      <td class="wb-fbs-td-wh">
         <div class="wb-fbs-wh-name" title="${_wbFbsEsc(o.warehouse_label || "")}">${_wbFbsEsc(o.warehouse_label || "—")}</div>
         ${o.warehouse_address
           ? `<div class="wb-fbs-wh-address" title="${_wbFbsEsc(o.warehouse_address)}">${_wbFbsEsc(o.warehouse_address)}</div>`

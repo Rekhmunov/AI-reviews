@@ -20,7 +20,7 @@ def _slice(src: str, start: str, end: str) -> str:
 
 
 def test_cache_version() -> None:
-    assert "app.js?v=682" in HTML
+    assert "app.js?v=683" in HTML
 
 
 def test_delivery_status_header_unchanged() -> None:
@@ -40,7 +40,7 @@ def test_delivery_tab_second_badge_uses_saved_ttn() -> None:
     assert "is-ttn-none" in fn
     assert "fbs-supply-status-stack" in fn
     # Assembly and every other tab keep a single status badge.
-    assert ': `<td>${statusBadge}</td>`;' in fn
+    assert ': `<td class="wb-fbs-td-status">${statusBadge}</td>`;' in fn
     # Existing delivery status colour is unchanged.
     assert 'isAssembly\n      ? "is-assembly"\n      : (s.scan_dt ? "is-scanned" : "is-ship")' in fn
 

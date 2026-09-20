@@ -43,4 +43,4 @@ def test_item_movements_api_uses_day_window() -> None:
     assert "outside_window" in WEB_PY
     assert "movement_date <=" in REPO_PY
     assert "date_from: str = \"\"" in REPO_PY or 'date_from: str = ""' in REPO_PY
-    assert "app.js?v=682" in APP_HTML
+    assert "app.js?v=683" in APP_HTML
