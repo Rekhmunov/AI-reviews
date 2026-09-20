@@ -18320,21 +18320,47 @@ function _sbRenderMovementRow(m, unit) {
   </div>`;
 }
 
+/** Day header: receipts/additions and FBS sales separately, not their difference. */
+function _sbDayReceiptAndSold(items) {
+  let receipt = 0;
+  let sold = 0;
+  for (const m of items || []) {
+    const q = Number(m && m.qty);
+    if (!Number.isFinite(q) || q === 0) continue;
+    const kind = String((m && m.kind) || "").trim().toLowerCase();
+    if (q > 0 && (kind === "receipt" || kind === "opening" || kind === "adjustment")) {
+      receipt += q;
+    } else if (q < 0 && kind === "fbs_ship") {
+      sold += -q;
+    }
+  }
+  return { receipt, sold };
+}
+
 function _sbRenderMovementsByDay(items, unit) {
   return _sbGroupMovementsByDay(items).map((group) => {
-    const net = group.items.reduce((sum, m) => {
-      const q = Number(m.qty);
-      return Number.isFinite(q) ? sum + q : sum;
-    }, 0);
-    const netClass = net < 0 ? "is-neg" : (net > 0 ? "is-pos" : "is-zero");
-    const netText = net > 0 ? `+${_sbQtyText(net)}` : _sbQtyText(net);
+    const { receipt, sold } = _sbDayReceiptAndSold(group.items);
+    const parts = [];
+    if (receipt > 1e-9) {
+      parts.push(
+        `<span class="sb-movements-day-net is-pos">+${esc(_sbQtyText(receipt))} <span>${esc(unit)}</span></span>`,
+      );
+    }
+    if (sold > 1e-9) {
+      parts.push(
+        `<span class="sb-movements-day-net is-neg">-${esc(_sbQtyText(sold))} <span>${esc(unit)}</span></span>`,
+      );
+    }
+    const nets = parts.length
+      ? `<span class="sb-movements-day-nets">${parts.join("")}</span>`
+      : "";
     const rows = group.items.map((m) => _sbRenderMovementRow(m, unit)).join("");
     return `<details class="sb-movements-day">
       <summary class="sb-movements-day-summary">
         <span class="sb-movements-day-chevron" aria-hidden="true"></span>
         <span class="sb-movements-day-date">${esc(_sbFormatDateLabel(group.date))}</span>
         <span class="sb-movements-day-count">${esc(_sbMovementsCountLabel(group.items.length))}</span>
-        <span class="sb-movements-day-net ${netClass}">${esc(netText)} <span>${esc(unit)}</span></span>
+        ${nets}
       </summary>
       <div class="sb-movements-day-body">${rows}</div>
     </details>`;

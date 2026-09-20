@@ -15907,12 +15907,19 @@ button.sb-order-cat-btn[aria-expanded="true"] .sb-order-cat-caret {
   font-size: 14px;
   color: #64748b;
 }
+.sb-movements-day-nets {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 12px;
+  justify-self: end;
+}
 .sb-movements-day-net {
   font-size: 15px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  justify-self: end;
 }
 .sb-movements-day-net span {
   font-size: 13px;
@@ -16998,9 +17005,11 @@ button.sb-order-cat-btn[aria-expanded="true"] .sb-order-cat-caret {
     gap: 8px;
     padding: 12px 16px;
   }
-  #supplyStockMovementsModal .sb-movements-day-net {
+  #supplyStockMovementsModal .sb-movements-day-nets {
     grid-column: 2 / -1;
     justify-self: start;
+    justify-content: flex-start;
+    gap: 12px;
   }
   #supplyStockMovementsModal .sb-movements-row {
     grid-template-columns: minmax(0, 1fr);
