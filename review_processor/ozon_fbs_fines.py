@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -24,8 +25,40 @@ SLOT_TYPE_LABEL = "Отгрузка в нерекомендованный сло
 _EPS = Decimal("0.01")
 _SYNC_LOG_KEEP = 300
 
+# In-memory job state — nginx ~60s proxy timeout cannot wait for multi-day
+# accrual sync; POST returns immediately and UI polls /sync/status.
+_fines_sync_lock = threading.Lock()
+_fines_sync_state: dict[int, dict[str, Any]] = {}
+
+
+def _is_fatal_ozon_auth_error(exc: BaseException) -> bool:
+    """True when further day retries are pointless (bad/deactivated key)."""
+    msg = str(exc or "").lower()
+    if "api-key is deactivated" in msg or "api-key is missing a required role" in msg:
+        return True
+    if "ozon http 403" in msg and ("deactivated" in msg or "required role" in msg):
+        return True
+    return False
+
 
 def ensure_ozon_fbs_fines_tables(repo: ReviewRepository) -> None:
+    """Create fines tables; ignore concurrent CREATE type races on Postgres."""
+    try:
+        _ensure_ozon_fbs_fines_tables_inner(repo)
+    except Exception as exc:
+        # Concurrent CREATE TABLE IF NOT EXISTS can still race on pg_type.
+        text = str(exc)
+        if (
+            "pg_type_typname_nsp_index" in text
+            or "already exists" in text.lower()
+            or type(exc).__name__ == "UniqueViolation"
+        ):
+            _log.info("ozon fines tables ensure race ignored: %s", text[:200])
+            return
+        raise
+
+
+def _ensure_ozon_fbs_fines_tables_inner(repo: ReviewRepository) -> None:
     with repo._connect() as conn:
         conn.execute(
             """
@@ -509,6 +542,14 @@ def sync_range(
             _log.warning("ozon fines sync day failed user=%s day=%s err=%s", user_id, day, exc)
             errors.append(msg)
             append_sync_log(repo, user_id=user_id, message=msg, level="error")
+            if _is_fatal_ozon_auth_error(exc):
+                abort_msg = (
+                    "Синхронизация остановлена: ключ Ozon отклонён (403). "
+                    "Проверьте Api-Key в настройках штрафов."
+                )
+                append_sync_log(repo, user_id=user_id, message=abort_msg, level="error")
+                errors.append(abort_msg)
+                break
         day += timedelta(days=1)
 
     summary = (
@@ -532,6 +573,115 @@ def sync_range(
         "errors": errors,
         "summary": summary,
     }
+
+
+def get_sync_status(*, user_id: int) -> dict[str, Any]:
+    with _fines_sync_lock:
+        st = dict(_fines_sync_state.get(int(user_id)) or {})
+    return {
+        "in_progress": bool(st.get("in_progress")),
+        "message": str(st.get("message") or ""),
+        "error": str(st.get("error") or ""),
+        "date_from": str(st.get("date_from") or ""),
+        "date_to": str(st.get("date_to") or ""),
+        "result": st.get("result"),
+    }
+
+
+def start_sync_thread(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    date_from: date,
+    date_to: date,
+) -> tuple[bool, str, dict[str, Any]]:
+    """Start background fines sync. Returns (ok, message, status_payload)."""
+    if date_to < date_from:
+        raise ValueError("Дата «по» не может быть раньше даты «с»")
+    if (date_to - date_from).days > 92:
+        raise ValueError("Интервал синхронизации не больше 92 дней за раз")
+    # Validate credentials early so the HTTP response can surface the error.
+    _credentials(repo, user_id=user_id)
+
+    uid = int(user_id)
+    with _fines_sync_lock:
+        cur = _fines_sync_state.get(uid) or {}
+        if cur.get("in_progress"):
+            status = {
+                "in_progress": True,
+                "message": str(cur.get("message") or ""),
+                "error": str(cur.get("error") or ""),
+                "date_from": str(cur.get("date_from") or ""),
+                "date_to": str(cur.get("date_to") or ""),
+                "result": cur.get("result"),
+            }
+            return False, "Синхронизация штрафов уже запущена", status
+        _fines_sync_state[uid] = {
+            "in_progress": True,
+            "message": f"Запуск {date_from.isoformat()} … {date_to.isoformat()}",
+            "error": "",
+            "date_from": date_from.isoformat(),
+            "date_to": date_to.isoformat(),
+            "result": None,
+        }
+
+    try:
+        append_sync_log(
+            repo,
+            user_id=uid,
+            message=(
+                f"Фоновая синхронизация запущена "
+                f"{date_from.isoformat()} … {date_to.isoformat()}"
+            ),
+            level="info",
+        )
+    except Exception:
+        _log.exception("ozon fines sync start log failed user=%s", uid)
+
+    def _run() -> None:
+        try:
+            result = sync_range(
+                repo,
+                user_id=uid,
+                date_from=date_from,
+                date_to=date_to,
+            )
+            with _fines_sync_lock:
+                _fines_sync_state[uid] = {
+                    "in_progress": False,
+                    "message": str(result.get("summary") or "Готово"),
+                    "error": "",
+                    "date_from": date_from.isoformat(),
+                    "date_to": date_to.isoformat(),
+                    "result": result,
+                }
+        except Exception as exc:
+            _log.exception("ozon fines background sync failed user=%s", uid)
+            try:
+                append_sync_log(
+                    repo,
+                    user_id=uid,
+                    message=f"Сбой синхронизации: {exc}",
+                    level="error",
+                )
+            except Exception:
+                pass
+            with _fines_sync_lock:
+                _fines_sync_state[uid] = {
+                    "in_progress": False,
+                    "message": str(exc),
+                    "error": str(exc),
+                    "date_from": date_from.isoformat(),
+                    "date_to": date_to.isoformat(),
+                    "result": None,
+                }
+
+    threading.Thread(
+        target=_run,
+        name=f"ozon-fines-sync-{uid}",
+        daemon=True,
+    ).start()
+    return True, "Синхронизация запущена", get_sync_status(user_id=uid)
 
 
 def _status_for_net(net: Decimal) -> str:

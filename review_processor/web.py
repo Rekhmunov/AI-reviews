@@ -13953,7 +13953,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 status_code=400, detail="Некорректный формат даты (YYYY-MM-DD)"
             ) from exc
         try:
-            return oz_fines.sync_range(
+            ok, message, status = oz_fines.start_sync_thread(
                 repository,
                 user_id=owner_id,
                 date_from=date_from,
@@ -13963,6 +13963,23 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
+        # Always return quickly — work continues in a daemon thread so nginx
+        # proxy_read_timeout (~60s) cannot 504 a multi-day accrual crawl.
+        return {
+            "ok": bool(ok),
+            "async": True,
+            "message": message,
+            "already_running": not ok,
+            **status,
+        }
+
+    @app.get("/api/ozon-fbs/fines/sync/status")
+    def get_ozon_fbs_fines_sync_status(request: Request) -> dict[str, object]:
+        from . import ozon_fbs_fines as oz_fines
+
+        user = _require_user(request)
+        owner_id = _require_ozon_fbs_fines_owner(user)
+        return oz_fines.get_sync_status(user_id=owner_id)
 
     @app.get("/api/ozon-fbs/fines/units")
     def get_ozon_fbs_fines_units(

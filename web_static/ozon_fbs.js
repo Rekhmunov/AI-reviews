@@ -13332,6 +13332,7 @@
     syncing: false,
     units: [],
     summary: null,
+    _pollTimer: null,
   };
 
   function _ozonFbsFinesIso(daysAgo) {
@@ -13505,6 +13506,8 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
       await loadOzonFbsFinesSyncLog();
+      // Background job — poll status + log until done (avoids nginx 504).
+      await _ozonFbsFinesPollUntilIdle({ showAlertOnError: true });
       await loadOzonFbsFinesUnits();
     } catch (e) {
       await loadOzonFbsFinesSyncLog();
@@ -13513,6 +13516,31 @@
       finesState.syncing = false;
       if (btn) btn.disabled = false;
     }
+  }
+
+  async function _ozonFbsFinesFetchStatus() {
+    const res = await fetch("/api/ozon-fbs/fines/sync/status", { headers: jsonHeaders() });
+    if (!res.ok) return { in_progress: false };
+    return res.json().catch(() => ({ in_progress: false }));
+  }
+
+  async function _ozonFbsFinesPollUntilIdle(opts) {
+    const showAlertOnError = Boolean(opts && opts.showAlertOnError);
+    const maxRounds = 600; // ~15 min at 1.5s
+    for (let i = 0; i < maxRounds; i += 1) {
+      const st = await _ozonFbsFinesFetchStatus();
+      if (!st || !st.in_progress) {
+        await loadOzonFbsFinesSyncLog();
+        if (showAlertOnError && st && st.error) {
+          alert(String(st.error));
+        }
+        return st || { in_progress: false };
+      }
+      await loadOzonFbsFinesSyncLog();
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    await loadOzonFbsFinesSyncLog();
+    return { in_progress: false, error: "Таймаут ожидания синхронизации" };
   }
 
   async function openOzonFbsFinesModal() {
@@ -13532,6 +13560,24 @@
     }
     await loadOzonFbsFinesSyncLog();
     await loadOzonFbsFinesUnits();
+    // Resume UI lock if a background sync is still running.
+    try {
+      const st = await _ozonFbsFinesFetchStatus();
+      if (st && st.in_progress && !finesState.syncing) {
+        const btn = document.getElementById("ozonFbsFinesSyncBtn");
+        finesState.syncing = true;
+        if (btn) btn.disabled = true;
+        _ozonFbsFinesPollUntilIdle({ showAlertOnError: false })
+          .then(async () => {
+            await loadOzonFbsFinesUnits();
+          })
+          .catch(() => {})
+          .finally(() => {
+            finesState.syncing = false;
+            if (btn) btn.disabled = false;
+          });
+      }
+    } catch (_e) { /* ignore */ }
   }
 
   function closeOzonFbsFinesModal() {
