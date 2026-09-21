@@ -54,4 +54,4 @@ def test_cache_bump_for_btn_counts() -> None:
     html = HTML.read_text(encoding="utf-8")
     assert "app.js?v=691" in html
     assert "ozon_fbs.js?v=191" in html
-    assert "style.css?v=409" in html
+    assert "style.css?v=410" in html

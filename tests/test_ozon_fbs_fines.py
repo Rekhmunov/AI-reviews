@@ -66,8 +66,11 @@ def test_ui_replaces_shipment_quality_with_fines() -> None:
     assert "is-closed" in OZON_JS
     assert ".ozon-fbs-fines-row.is-closed" in STYLE
     assert ".ozon-fbs-shipment-quality-body" not in STYLE
+    assert "#ozonFbsFinesModal .ozon-fbs-fines-modal" in STYLE
+    assert 'grid-template-areas:' in STYLE
+    assert '"from to settings"' in STYLE
     assert "ozon_fbs.js?v=191" in APP_HTML
-    assert "style.css?v=409" in APP_HTML
+    assert "style.css?v=410" in APP_HTML
 
 
 def test_api_paths_present_in_web() -> None:
