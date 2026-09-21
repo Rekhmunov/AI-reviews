@@ -126,7 +126,7 @@ def save_settings(
     client_id: str | None = None,
     api_key: str | None = None,
 ) -> dict[str, Any]:
-    """Update settings. Empty api_key keeps previous key. None client_id keeps previous."""
+    """Update settings. None/blank api_key keeps previous key. None client_id keeps previous."""
     ensure_ozon_fbs_fines_tables(repo)
     current = get_settings(repo, user_id=user_id)
     next_client = (
@@ -146,11 +146,10 @@ def save_settings(
             prev_enc = str(
                 row["api_key_encrypted"] if hasattr(row, "keys") else row[0] or ""
             )
-        if api_key is None:
+        if api_key is None or not str(api_key).strip():
             next_enc = prev_enc
         else:
-            clean = str(api_key).strip()
-            next_enc = encrypt_secret(clean) if clean else ""
+            next_enc = encrypt_secret(str(api_key).strip()) or ""
         conn.execute(
             repo._sql(
                 """
@@ -393,6 +392,7 @@ def upsert_event(
 
 def _fetch_day_accruals(client: OzonFbsClient, day: date, *, max_pages: int = 200) -> list[dict[str, Any]]:
     all_rows: list[dict[str, Any]] = []
+    seen_ids: set[int] = set()
     last_id: str | None = None
     for _ in range(max_pages):
         body: dict[str, Any] = {"date": day.isoformat()}
@@ -402,15 +402,24 @@ def _fetch_day_accruals(client: OzonFbsClient, day: date, *, max_pages: int = 20
         chunk = data.get("accruals") if isinstance(data, dict) else None
         if not isinstance(chunk, list) or not chunk:
             break
+        new_count = 0
         for item in chunk:
-            if isinstance(item, dict):
-                all_rows.append(item)
+            if not isinstance(item, dict):
+                continue
+            try:
+                aid = int(item.get("accrual_id") or 0)
+            except (TypeError, ValueError):
+                aid = 0
+            if aid and aid in seen_ids:
+                continue
+            if aid:
+                seen_ids.add(aid)
+            all_rows.append(item)
+            new_count += 1
         new_last = str(data.get("last_id") or "") if isinstance(data, dict) else ""
-        if not new_last or new_last == last_id or len(chunk) < 1000:
-            if len(chunk) < 1000:
-                break
-            if not new_last or new_last == last_id:
-                break
+        # Stop when cursor does not advance or page brought no new accrual_ids.
+        if not new_last or new_last == last_id or new_count == 0:
+            break
         last_id = new_last
     return all_rows
 

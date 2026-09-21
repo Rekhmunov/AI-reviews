@@ -79,3 +79,14 @@ def test_default_sync_window() -> None:
     assert isinstance(d0, date) and isinstance(d1, date)
     assert d1 >= d0
     assert (d1 - d0).days == 14
+
+
+def test_fetch_day_stops_on_stable_cursor_not_page_size() -> None:
+    """Pagination must not assume fixed page size of 1000."""
+    src = (ROOT / "review_processor" / "ozon_fbs_fines.py").read_text(encoding="utf-8")
+    start = src.find("def _fetch_day_accruals(")
+    end = src.find("\ndef sync_range(", start)
+    chunk = src[start:end]
+    assert "len(chunk) < 1000" not in chunk
+    assert "new_count == 0" in chunk
+    assert "new_last == last_id" in chunk
