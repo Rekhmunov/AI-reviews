@@ -20,7 +20,7 @@ def _slice(src: str, start: str, end: str) -> str:
 
 def test_cache_versions() -> None:
     assert "app.js?v=691" in HTML
-    assert "style.css?v=410" in HTML
+    assert "style.css?v=411" in HTML
 
 
 def test_cell_hooks_do_not_change_status_logic() -> None:

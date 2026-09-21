@@ -41,7 +41,7 @@ def test_logistics_title_picker_and_panes() -> None:
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
     assert "app.js?v=691" in html
-    assert "style.css?v=410" in html
+    assert "style.css?v=411" in html
     assert "ttn-modal-card" in html
     assert "ttn-form-grid" in html
     assert 'max-width:560px' not in html.split('id="createTtnModal"')[1].split("<!-- ── Планирование")[0]
@@ -103,7 +103,7 @@ def test_ttn_row_colors_by_fbs_origin() -> None:
     assert 'mode === "copy"' in state_from
     assert "fbsMeta = null" in state_from
     assert "app.js?v=691" in html
-    assert "style.css?v=410" in html
+    assert "style.css?v=411" in html
 
 
 def test_ttn_table_columns_resizable_with_persistence() -> None:

@@ -70,7 +70,7 @@ def test_ui_replaces_shipment_quality_with_fines() -> None:
     assert 'grid-template-areas:' in STYLE
     assert '"from to settings"' in STYLE
     assert "ozon_fbs.js?v=191" in APP_HTML
-    assert "style.css?v=410" in APP_HTML
+    assert "style.css?v=411" in APP_HTML
 
 
 def test_api_paths_present_in_web() -> None:

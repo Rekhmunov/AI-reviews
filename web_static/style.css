@@ -9824,21 +9824,23 @@ tr.dnd-over td {
 @media (max-width: 900px) {
   /* Full-bleed like other Ozon FBS modals */
   #ozonFbsFinesModal.modal-overlay {
-    padding: 0;
+    padding: 0 !important;
     align-items: stretch;
-    justify-content: stretch;
+    justify-content: flex-start;
   }
+  #ozonFbsFinesModal > .modal-card.ozon-fbs-fines-modal,
   #ozonFbsFinesModal .ozon-fbs-fines-modal.wb-fbs-supply-detail-modal,
   #ozonFbsFinesModal .ozon-fbs-fines-modal {
-    width: 100%;
-    max-width: 100%;
-    height: 100vh;
-    height: 100dvh;
-    max-height: 100vh;
-    max-height: 100dvh;
-    margin: 0;
-    border-radius: 0;
-    box-shadow: none;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    max-height: 100vh !important;
+    max-height: 100dvh !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
   }
   #ozonFbsFinesModal .ozon-fbs-fines-header {
     padding: 16px;
@@ -9946,24 +9948,26 @@ tr.dnd-over td {
   /* Nested settings / events — full-bleed sheet */
   #ozonFbsFinesSettingsModal.modal-overlay,
   #ozonFbsFinesEventsModal.modal-overlay {
-    padding: 0;
+    padding: 0 !important;
     align-items: stretch;
-    justify-content: stretch;
+    justify-content: flex-start;
   }
+  #ozonFbsFinesSettingsModal > .modal-card.ozon-fbs-fines-settings-modal,
+  #ozonFbsFinesEventsModal > .modal-card.ozon-fbs-fines-events-modal,
   #ozonFbsFinesSettingsModal .ozon-fbs-fines-settings-modal,
   #ozonFbsFinesEventsModal .ozon-fbs-fines-events-modal {
-    width: 100%;
-    max-width: 100%;
-    height: 100vh;
-    height: 100dvh;
-    max-height: 100vh;
-    max-height: 100dvh;
-    margin: 0;
-    border-radius: 0;
-    box-shadow: none;
-    padding: 16px;
-    padding-top: max(16px, env(safe-area-inset-top, 0px));
-    padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    max-height: 100vh !important;
+    max-height: 100dvh !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    padding: 16px !important;
+    padding-top: max(16px, env(safe-area-inset-top, 0px)) !important;
+    padding-bottom: max(16px, env(safe-area-inset-bottom, 0px)) !important;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -18819,6 +18823,7 @@ button.sb-order-cat-btn[aria-expanded="true"] .sb-order-cat-caret {
 
   /* OZON modals */
   #ozonFbsSupplyDetailModal .wb-fbs-supply-detail-modal,
+  #ozonFbsFinesModal .ozon-fbs-fines-modal,
   #ozonFbsSyncSettingsModal .ozon-fbs-sync-settings-modal,
   #wbFbsAutoSyncModal .wb-fbs-ops-settings-modal {
     width: 100%;
@@ -18826,6 +18831,12 @@ button.sb-order-cat-btn[aria-expanded="true"] .sb-order-cat-caret {
     height: 100dvh;
     max-height: 100dvh;
     border-radius: 0;
+  }
+
+  #ozonFbsFinesModal.modal-overlay {
+    padding: 0;
+    align-items: stretch;
+    justify-content: flex-start;
   }
 
   #ozonFbsSyncSettingsModal .ozon-fbs-sync-settings-header,
