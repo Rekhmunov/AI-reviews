@@ -169,20 +169,21 @@ class BuildSupportRowsTests(unittest.TestCase):
 
 
 class UiReplaceTests(unittest.TestCase):
-    def test_quality_button_replaces_sticker_lookup(self) -> None:
+    def test_fines_button_replaces_shipment_quality_ui(self) -> None:
         html = (ROOT / "web_templates" / "app.html").read_text(encoding="utf-8")
         js = (ROOT / "web_static" / "ozon_fbs.js").read_text(encoding="utf-8")
-        self.assertIn('id="ozonFbsShipmentQualityBtn"', html)
-        self.assertIn("Качество отгрузок", html)
-        self.assertIn('id="ozonFbsShipmentQualityModal"', html)
-        self.assertIn("Загрузить отчет качества отгрузок по ФБС", html)
-        self.assertIn("Сформировать отчет для поддержки", html)
+        self.assertIn('id="ozonFbsFinesBtn"', html)
+        self.assertIn("Штрафы", html)
+        self.assertIn('id="ozonFbsFinesModal"', html)
+        self.assertNotIn('id="ozonFbsShipmentQualityBtn"', html)
+        self.assertNotIn("Качество отгрузок", html)
         self.assertNotIn('id="ozonFbsStickerLookupBtn"', html)
         self.assertNotIn('id="ozonFbsStickerLookupModal"', html)
-        self.assertIn("_ozonFbsSyncOwnerOnlyShipmentQualityBtn", js)
-        self.assertIn("/api/ozon-fbs/shipment-quality/support-report", js)
-        self.assertIn("ozon_fbs.js?v=189", html)
-        self.assertIn("style.css?v=", html)
+        self.assertIn("_ozonFbsSyncOwnerOnlyFinesBtn", js)
+        self.assertIn("function openOzonFbsFinesModal", js)
+        self.assertIn("/api/ozon-fbs/fines/sync", js)
+        self.assertIn("ozon_fbs.js?v=190", html)
+        self.assertIn("style.css?v=408", html)
 
 
 if __name__ == "__main__":

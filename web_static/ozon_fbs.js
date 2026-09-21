@@ -4866,7 +4866,7 @@
     _ozonFbsSyncOwnerOnlyGear();
     _ozonFbsSyncCancelledBtn();
     _ozonFbsSyncOwnerOnlyAllCancellationsBtn();
-    _ozonFbsSyncOwnerOnlyShipmentQualityBtn();
+    _ozonFbsSyncOwnerOnlyFinesBtn();
     syncTableMode();
     initColumnResizer();
     ozonFbsSupplyDetailColResizer.init();
@@ -4945,12 +4945,17 @@
     btn.style.display = can ? "" : "none";
   }
 
-  function _ozonFbsSyncOwnerOnlyShipmentQualityBtn() {
-    const btn = document.getElementById("ozonFbsShipmentQualityBtn");
+  function _ozonFbsSyncOwnerOnlyFinesBtn() {
+    const btn = document.getElementById("ozonFbsFinesBtn");
     if (!btn) return;
     const can = typeof isTenantOwner === "function" && isTenantOwner();
     btn.hidden = !can;
     btn.style.display = can ? "" : "none";
+  }
+
+  function _ozonFbsSyncOwnerOnlyShipmentQualityBtn() {
+    // Legacy alias — shipment quality replaced by fines.
+    _ozonFbsSyncOwnerOnlyFinesBtn();
   }
 
   function _ozonFbsSyncSettingsSetInfo(text, kind) {
@@ -13319,18 +13324,364 @@
   }
 
   function openOzonFbsStickerLookupModal() {
-    // Replaced by «Качество отгрузок» (owner-only). Keep no-op for old callers.
-    openOzonFbsShipmentQualityModal();
+    openOzonFbsFinesModal();
   }
 
   function closeOzonFbsStickerLookupModal() {
-    closeOzonFbsShipmentQualityModal();
+    closeOzonFbsFinesModal();
   }
 
-  const shipmentQualityState = {
-    file: null,
-    generating: false,
+  const finesState = {
+    status: "open",
+    loading: false,
+    syncing: false,
+    units: [],
+    summary: null,
   };
+
+  function _ozonFbsFinesIso(daysAgo) {
+    const d = new Date();
+    d.setHours(12, 0, 0, 0);
+    d.setDate(d.getDate() - (daysAgo || 0));
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
+  function _ozonFbsFinesEsc(s) {
+    return String(s || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function _ozonFbsFinesMoney(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return String(v || "—");
+    return n.toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function _ozonFbsFinesStatusLabel(st) {
+    if (st === "closed") return "Сторно";
+    if (st === "over") return "Перекос";
+    return "Открыт";
+  }
+
+  function renderOzonFbsFinesList() {
+    const list = document.getElementById("ozonFbsFinesList");
+    const summaryEl = document.getElementById("ozonFbsFinesSummary");
+    if (summaryEl) {
+      const s = finesState.summary || {};
+      summaryEl.textContent =
+        `Открытых: ${s.open_count || 0} · остаток ${ _ozonFbsFinesMoney(s.open_remainder || 0) } ₽` +
+        ` · сторно: ${s.closed_count || 0}`;
+    }
+    if (!list) return;
+    const units = Array.isArray(finesState.units) ? finesState.units : [];
+    if (finesState.loading) {
+      list.innerHTML = `<div class="ozon-fbs-fines-empty">Загрузка…</div>`;
+      return;
+    }
+    if (!units.length) {
+      list.innerHTML = `<div class="ozon-fbs-fines-empty">Нет списаний по выбранному фильтру. Синхронизируйте период.</div>`;
+      return;
+    }
+    list.innerHTML = units.map((u) => {
+      const st = String(u.status || "open");
+      const cls = st === "closed" ? " is-closed" : st === "over" ? " is-over" : " is-open";
+      const unitRaw = String(u.unit_number || "");
+      const unit = _ozonFbsFinesEsc(unitRaw);
+      return (
+        `<button type="button" class="ozon-fbs-fines-row${cls}" role="listitem" ` +
+        `data-unit="${unit}">` +
+        `<div class="ozon-fbs-fines-row-main">` +
+        `<span class="ozon-fbs-fines-unit">${unit}</span>` +
+        `<span class="ozon-fbs-fines-badge">${_ozonFbsFinesEsc(_ozonFbsFinesStatusLabel(st))}</span>` +
+        `</div>` +
+        `<div class="ozon-fbs-fines-row-meta">` +
+        `<span>Штраф ${_ozonFbsFinesMoney(u.fine_sum)} ₽</span>` +
+        `<span>Сторно ${_ozonFbsFinesMoney(u.storno_sum)} ₽</span>` +
+        `<span>Остаток ${_ozonFbsFinesMoney(u.net_sum)} ₽</span>` +
+        `<span>${_ozonFbsFinesEsc(u.first_fine_date || "—")}` +
+        `${u.last_storno_date ? " → " + _ozonFbsFinesEsc(u.last_storno_date) : ""}</span>` +
+        `</div>` +
+        `</button>`
+      );
+    }).join("");
+    list.querySelectorAll(".ozon-fbs-fines-row[data-unit]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        openOzonFbsFinesUnitEvents(btn.getAttribute("data-unit") || "");
+      });
+    });
+  }
+
+  function renderOzonFbsFinesSyncLog(items) {
+    const el = document.getElementById("ozonFbsFinesSyncLog");
+    if (!el) return;
+    const rows = Array.isArray(items) ? items : [];
+    if (!rows.length) {
+      el.innerHTML = `<div class="ozon-fbs-fines-empty">Лог пуст</div>`;
+      return;
+    }
+    el.innerHTML = rows.map((item) => {
+      const level = String(item.level || "info");
+      return (
+        `<div class="ozon-fbs-fines-log-row is-${_ozonFbsFinesEsc(level)}">` +
+        `<span class="ozon-fbs-fines-log-time">${_ozonFbsFinesEsc(String(item.created_at || "").slice(11, 19))}</span>` +
+        `<span class="ozon-fbs-fines-log-msg">${_ozonFbsFinesEsc(item.message)}</span>` +
+        `</div>`
+      );
+    }).join("");
+    el.scrollTop = el.scrollHeight;
+  }
+
+  async function loadOzonFbsFinesSyncLog() {
+    try {
+      const res = await fetch("/api/ozon-fbs/fines/sync-log?limit=120", { headers: jsonHeaders() });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      renderOzonFbsFinesSyncLog(data.items || []);
+    } catch (_) {
+      /* keep previous log */
+    }
+  }
+
+  async function loadOzonFbsFinesUnits() {
+    finesState.loading = true;
+    renderOzonFbsFinesList();
+    try {
+      const params = new URLSearchParams({
+        status: finesState.status || "open",
+        limit: "500",
+      });
+      const res = await fetch(`/api/ozon-fbs/fines/units?${params}`, { headers: jsonHeaders() });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      finesState.units = Array.isArray(data.units) ? data.units : [];
+      finesState.summary = data.summary || null;
+    } catch (e) {
+      finesState.units = [];
+      finesState.summary = null;
+      const list = document.getElementById("ozonFbsFinesList");
+      if (list) {
+        list.innerHTML = `<div class="ozon-fbs-fines-empty is-error">${_ozonFbsFinesEsc(e.message || e)}</div>`;
+      }
+      finesState.loading = false;
+      return;
+    }
+    finesState.loading = false;
+    renderOzonFbsFinesList();
+  }
+
+  function setOzonFbsFinesStatusFilter(status) {
+    const next = String(status || "open");
+    finesState.status = next;
+    document.querySelectorAll(".ozon-fbs-fines-filter").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.getAttribute("data-fines-status") === next);
+    });
+    loadOzonFbsFinesUnits().catch(() => {});
+  }
+
+  async function syncOzonFbsFines() {
+    if (finesState.syncing) return;
+    if (typeof isTenantOwner === "function" && !isTenantOwner()) {
+      alert("Штрафы доступны только главному пользователю");
+      return;
+    }
+    const fromEl = document.getElementById("ozonFbsFinesDateFrom");
+    const toEl = document.getElementById("ozonFbsFinesDateTo");
+    const dateFrom = String(fromEl?.value || "").trim();
+    const dateTo = String(toEl?.value || "").trim();
+    if (!dateFrom || !dateTo) {
+      alert("Укажите интервал дат");
+      return;
+    }
+    const btn = document.getElementById("ozonFbsFinesSyncBtn");
+    finesState.syncing = true;
+    if (btn) btn.disabled = true;
+    try {
+      const res = await fetch("/api/ozon-fbs/fines/sync", {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ date_from: dateFrom, date_to: dateTo }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      await loadOzonFbsFinesSyncLog();
+      await loadOzonFbsFinesUnits();
+    } catch (e) {
+      await loadOzonFbsFinesSyncLog();
+      alert(String(e.message || e));
+    } finally {
+      finesState.syncing = false;
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  async function openOzonFbsFinesModal() {
+    if (typeof isTenantOwner === "function" && !isTenantOwner()) {
+      alert("Штрафы доступны только главному пользователю");
+      return;
+    }
+    const fromEl = document.getElementById("ozonFbsFinesDateFrom");
+    const toEl = document.getElementById("ozonFbsFinesDateTo");
+    if (fromEl && !fromEl.value) fromEl.value = _ozonFbsFinesIso(14);
+    if (toEl && !toEl.value) toEl.value = _ozonFbsFinesIso(0);
+    setOzonFbsFinesStatusFilter(finesState.status || "open");
+    if (typeof setModalVisibility === "function") {
+      setModalVisibility("ozonFbsFinesModal", true);
+    } else {
+      document.getElementById("ozonFbsFinesModal")?.classList.remove("hidden");
+    }
+    await loadOzonFbsFinesSyncLog();
+    await loadOzonFbsFinesUnits();
+  }
+
+  function closeOzonFbsFinesModal() {
+    closeOzonFbsFinesSettingsModal();
+    closeOzonFbsFinesEventsModal();
+    if (typeof setModalVisibility === "function") {
+      setModalVisibility("ozonFbsFinesModal", false);
+    } else {
+      document.getElementById("ozonFbsFinesModal")?.classList.add("hidden");
+    }
+  }
+
+  async function openOzonFbsFinesSettingsModal() {
+    if (typeof isTenantOwner === "function" && !isTenantOwner()) return;
+    const info = document.getElementById("ozonFbsFinesSettingsInfo");
+    if (info) { info.hidden = true; info.textContent = ""; }
+    try {
+      const res = await fetch("/api/ozon-fbs/fines/settings", { headers: jsonHeaders() });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      const cid = document.getElementById("ozonFbsFinesClientId");
+      const key = document.getElementById("ozonFbsFinesApiKey");
+      const hint = document.getElementById("ozonFbsFinesSettingsKeyHint");
+      if (cid) cid.value = String(data.client_id || "");
+      if (key) key.value = "";
+      if (hint) {
+        hint.textContent = data.has_api_key
+          ? `Текущий ключ: ${data.api_key_masked || "сохранён"}`
+          : "Ключ ещё не сохранён";
+      }
+    } catch (e) {
+      if (info) {
+        info.hidden = false;
+        info.textContent = String(e.message || e);
+      }
+    }
+    if (typeof setModalVisibility === "function") {
+      setModalVisibility("ozonFbsFinesSettingsModal", true);
+    } else {
+      document.getElementById("ozonFbsFinesSettingsModal")?.classList.remove("hidden");
+    }
+  }
+
+  function closeOzonFbsFinesSettingsModal() {
+    if (typeof setModalVisibility === "function") {
+      setModalVisibility("ozonFbsFinesSettingsModal", false);
+    } else {
+      document.getElementById("ozonFbsFinesSettingsModal")?.classList.add("hidden");
+    }
+  }
+
+  async function saveOzonFbsFinesSettings() {
+    const cid = document.getElementById("ozonFbsFinesClientId");
+    const key = document.getElementById("ozonFbsFinesApiKey");
+    const info = document.getElementById("ozonFbsFinesSettingsInfo");
+    const body = { client_id: String(cid?.value || "").trim() };
+    const apiKey = String(key?.value || "").trim();
+    if (apiKey) body.api_key = apiKey;
+    try {
+      const res = await fetch("/api/ozon-fbs/fines/settings", {
+        method: "PUT",
+        headers: jsonHeaders(),
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      if (key) key.value = "";
+      const hint = document.getElementById("ozonFbsFinesSettingsKeyHint");
+      if (hint) {
+        hint.textContent = data.has_api_key
+          ? `Текущий ключ: ${data.api_key_masked || "сохранён"}`
+          : "Ключ ещё не сохранён";
+      }
+      if (info) {
+        info.hidden = false;
+        info.textContent = "Сохранено";
+        info.classList.add("is-ok");
+      }
+      setTimeout(() => closeOzonFbsFinesSettingsModal(), 400);
+    } catch (e) {
+      if (info) {
+        info.hidden = false;
+        info.textContent = String(e.message || e);
+        info.classList.remove("is-ok");
+      }
+    }
+  }
+
+  async function openOzonFbsFinesUnitEvents(unitNumber) {
+    const unit = String(unitNumber || "").trim();
+    if (!unit) return;
+    const lead = document.getElementById("ozonFbsFinesEventsLead");
+    const list = document.getElementById("ozonFbsFinesEventsList");
+    if (lead) lead.textContent = unit;
+    if (list) list.innerHTML = `<div class="ozon-fbs-fines-empty">Загрузка…</div>`;
+    if (typeof setModalVisibility === "function") {
+      setModalVisibility("ozonFbsFinesEventsModal", true);
+    } else {
+      document.getElementById("ozonFbsFinesEventsModal")?.classList.remove("hidden");
+    }
+    try {
+      const res = await fetch(
+        `/api/ozon-fbs/fines/units/${encodeURIComponent(unit)}/events`,
+        { headers: jsonHeaders() }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      const events = Array.isArray(data.events) ? data.events : [];
+      if (!list) return;
+      if (!events.length) {
+        list.innerHTML = `<div class="ozon-fbs-fines-empty">Нет событий</div>`;
+        return;
+      }
+      list.innerHTML = events.map((ev) => {
+        const kind = String(ev.kind || "");
+        const cls = kind === "storno" ? " is-storno" : " is-fine";
+        return (
+          `<div class="ozon-fbs-fines-event${cls}">` +
+          `<span>${_ozonFbsFinesEsc(ev.event_date)}</span>` +
+          `<span>${kind === "storno" ? "Сторно" : "Штраф"}</span>` +
+          `<span>${_ozonFbsFinesMoney(ev.amount)} ₽</span>` +
+          `<span class="ozon-fbs-fines-event-id">#${_ozonFbsFinesEsc(ev.accrual_id)}</span>` +
+          `</div>`
+        );
+      }).join("");
+    } catch (e) {
+      if (list) {
+        list.innerHTML = `<div class="ozon-fbs-fines-empty is-error">${_ozonFbsFinesEsc(e.message || e)}</div>`;
+      }
+    }
+  }
+
+  function closeOzonFbsFinesEventsModal() {
+    if (typeof setModalVisibility === "function") {
+      setModalVisibility("ozonFbsFinesEventsModal", false);
+    } else {
+      document.getElementById("ozonFbsFinesEventsModal")?.classList.add("hidden");
+    }
+  }
+
+  // Legacy aliases after shipment-quality removal
+  function openOzonFbsShipmentQualityModal() { openOzonFbsFinesModal(); }
+  function closeOzonFbsShipmentQualityModal() { closeOzonFbsFinesModal(); }
+  function pickOzonFbsShipmentQualityFile() {}
+  function generateOzonFbsShipmentQualityReport() {}
 
   const allCancellationsState = {
     loading: false,
@@ -13560,140 +13911,19 @@
     }
   }
 
-  function _ozonFbsShipmentQualitySetInfo(text, ok) {
-    const el = document.getElementById("ozonFbsShipmentQualityInfo");
-    if (!el) return;
-    el.textContent = String(text || "");
-    el.classList.remove("is-ok", "is-error");
-    if (text && ok === true) el.classList.add("is-ok");
-    if (text && ok === false) el.classList.add("is-error");
-  }
-
-  function _ozonFbsShipmentQualitySyncGenerateBtn() {
-    const btn = document.getElementById("ozonFbsShipmentQualityGenerateBtn");
-    if (!btn) return;
-    btn.disabled = !shipmentQualityState.file || !!shipmentQualityState.generating;
-  }
-
-  function pickOzonFbsShipmentQualityFile() {
-    const input = document.getElementById("ozonFbsShipmentQualityFile");
-    if (!input) return;
-    input.value = "";
-    input.onchange = () => {
-      const file = input.files && input.files[0] ? input.files[0] : null;
-      if (!file) return;
-      const name = String(file.name || "").toLowerCase();
-      if (!/\.(xlsx|xlsm|xltx|xltm)$/.test(name)) {
-        shipmentQualityState.file = null;
-        _ozonFbsShipmentQualitySetInfo("Нужен файл Excel (.xlsx)", false);
-        _ozonFbsShipmentQualitySyncGenerateBtn();
-        return;
-      }
-      shipmentQualityState.file = file;
-      _ozonFbsShipmentQualitySetInfo(`Загружен файл: ${file.name}`, true);
-      _ozonFbsShipmentQualitySyncGenerateBtn();
-    };
-    input.click();
-  }
-
-  async function generateOzonFbsShipmentQualityReport() {
-    if (shipmentQualityState.generating) return;
-    if (typeof isTenantOwner === "function" && !isTenantOwner()) {
-      _ozonFbsShipmentQualitySetInfo(
-        "Качество отгрузок доступно только главному пользователю",
-        false
-      );
-      return;
-    }
-    const sourceId = state.sourceId;
-    const file = shipmentQualityState.file;
-    if (!sourceId) {
-      _ozonFbsShipmentQualitySetInfo("Выберите источник OZON ФБС", false);
-      return;
-    }
-    if (!file) {
-      _ozonFbsShipmentQualitySetInfo("Сначала загрузите отчёт качества", false);
-      return;
-    }
-    shipmentQualityState.generating = true;
-    _ozonFbsShipmentQualitySyncGenerateBtn();
-    _ozonFbsShipmentQualitySetInfo("Формируем отчёт…");
-    try {
-      const body = new FormData();
-      body.append("file", file, file.name || "rating.xlsx");
-      const headers = { ...jsonHeaders() };
-      delete headers["Content-Type"];
-      delete headers["content-type"];
-      const res = await fetch(
-        `/api/ozon-fbs/shipment-quality/support-report?source_id=${encodeURIComponent(sourceId)}`,
-        { method: "POST", body, headers }
-      );
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
-      }
-      const blob = await res.blob();
-      const cd = String(res.headers.get("Content-Disposition") || "");
-      let fname = "ozon-fbs-shipment-quality-support.xlsx";
-      const m = /filename\*=UTF-8''([^;]+)|filename="([^"]+)"/i.exec(cd);
-      if (m) {
-        try {
-          fname = decodeURIComponent(m[1] || m[2] || fname);
-        } catch (_e) {
-          fname = m[1] || m[2] || fname;
-        }
-      }
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = fname;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      _ozonFbsShipmentQualitySetInfo("Отчёт для поддержки скачан", true);
-    } catch (e) {
-      _ozonFbsShipmentQualitySetInfo(String(e.message || e), false);
-    } finally {
-      shipmentQualityState.generating = false;
-      _ozonFbsShipmentQualitySyncGenerateBtn();
-    }
-  }
-
-  function openOzonFbsShipmentQualityModal() {
-    if (typeof isTenantOwner === "function" && !isTenantOwner()) {
-      alert("Качество отгрузок доступно только главному пользователю");
-      return;
-    }
-    if (!state.sourceId) {
-      alert("Выберите источник Ozon FBS");
-      return;
-    }
-    if (typeof setModalVisibility === "function") {
-      setModalVisibility("ozonFbsShipmentQualityModal", true);
-    } else {
-      document.getElementById("ozonFbsShipmentQualityModal")?.classList.remove("hidden");
-    }
-    _ozonFbsShipmentQualitySetInfo(
-      shipmentQualityState.file
-        ? `Загружен файл: ${shipmentQualityState.file.name}`
-        : ""
-    );
-    _ozonFbsShipmentQualitySyncGenerateBtn();
-  }
-
-  function closeOzonFbsShipmentQualityModal() {
-    if (typeof setModalVisibility === "function") {
-      setModalVisibility("ozonFbsShipmentQualityModal", false);
-    } else {
-      document.getElementById("ozonFbsShipmentQualityModal")?.classList.add("hidden");
-    }
-  }
-
   window.openOzonFbsAllCancellationsModal = openOzonFbsAllCancellationsModal;
   window.closeOzonFbsAllCancellationsModal = closeOzonFbsAllCancellationsModal;
   window.toggleOzonFbsAllCancellationsSupply = toggleOzonFbsAllCancellationsSupply;
   window.onOzonFbsAllCancellationsSearchInput = onOzonFbsAllCancellationsSearchInput;
+  window.openOzonFbsFinesModal = openOzonFbsFinesModal;
+  window.closeOzonFbsFinesModal = closeOzonFbsFinesModal;
+  window.syncOzonFbsFines = syncOzonFbsFines;
+  window.setOzonFbsFinesStatusFilter = setOzonFbsFinesStatusFilter;
+  window.openOzonFbsFinesSettingsModal = openOzonFbsFinesSettingsModal;
+  window.closeOzonFbsFinesSettingsModal = closeOzonFbsFinesSettingsModal;
+  window.saveOzonFbsFinesSettings = saveOzonFbsFinesSettings;
+  window.openOzonFbsFinesUnitEvents = openOzonFbsFinesUnitEvents;
+  window.closeOzonFbsFinesEventsModal = closeOzonFbsFinesEventsModal;
   window.openOzonFbsShipmentQualityModal = openOzonFbsShipmentQualityModal;
   window.closeOzonFbsShipmentQualityModal = closeOzonFbsShipmentQualityModal;
   window.pickOzonFbsShipmentQualityFile = pickOzonFbsShipmentQualityFile;

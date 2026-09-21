@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=407" />
+  <link rel="stylesheet" href="/static/style.css?v=408" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2891,11 +2891,11 @@
                       hidden>
                 Все отмены
               </button>
-              <button type="button" id="ozonFbsShipmentQualityBtn" class="secondary"
-                      onclick="openOzonFbsShipmentQualityModal()"
-                      title="Отчёт качества отгрузок FBS для поддержки"
+              <button type="button" id="ozonFbsFinesBtn" class="secondary"
+                      onclick="openOzonFbsFinesModal()"
+                      title="Штрафы: отгрузка в нерекомендованный слот"
                       hidden>
-                Качество отгрузок
+                Штрафы
               </button>
               <input id="ozonFbsSearchFilter" class="wb-fbs-search" type="search"
                      placeholder="Поиск по отправлению, артикулу, ШК…"
@@ -3081,33 +3081,103 @@
           </div>
         </div>
 
-        <div id="ozonFbsShipmentQualityModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
-             aria-labelledby="ozonFbsShipmentQualityTitle">
-          <div class="modal-card wb-fbs-kiz-modal" style="max-width:560px">
-            <div class="wb-fbs-kiz-header">
-              <div class="wb-fbs-kiz-header-main">
-                <h3 id="ozonFbsShipmentQualityTitle" class="wb-fbs-kiz-title">Качество отгрузок</h3>
-                <p class="wb-fbs-kiz-sub">
-                  Загрузите отчёт Ozon FBS (general_fbs_rfbs_rating.xlsx) и сформируйте файл для поддержки:
-                  номер отправления и дата переноса поставки в «Доставляются».
-                </p>
+        <div id="ozonFbsFinesModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsFinesTitle">
+          <div class="modal-card wb-fbs-supply-detail-modal ozon-fbs-fines-modal">
+            <div class="wb-fbs-sd-header ozon-fbs-fines-header">
+              <div class="wb-fbs-sd-title-row">
+                <h3 id="ozonFbsFinesTitle" class="wb-fbs-sd-title">Штрафы</h3>
+                <button type="button" class="icon-btn secondary wb-fbs-sd-close"
+                        onclick="closeOzonFbsFinesModal()" aria-label="Закрыть">✕</button>
               </div>
-              <button type="button" class="icon-btn secondary" onclick="closeOzonFbsShipmentQualityModal()" aria-label="Закрыть">✕</button>
+              <p class="ozon-fbs-fines-lead">Отгрузка в нерекомендованный слот — списания и сторно</p>
+              <div class="ozon-fbs-fines-toolbar">
+                <label class="ozon-fbs-fines-date-field">
+                  <span>С</span>
+                  <input type="date" id="ozonFbsFinesDateFrom" aria-label="Дата с" />
+                </label>
+                <label class="ozon-fbs-fines-date-field">
+                  <span>По</span>
+                  <input type="date" id="ozonFbsFinesDateTo" aria-label="Дата по" />
+                </label>
+                <button type="button" id="ozonFbsFinesSyncBtn" onclick="syncOzonFbsFines()">Синхронизировать</button>
+                <div class="ozon-fbs-fines-filters" role="group" aria-label="Фильтр статуса">
+                  <button type="button" class="secondary ozon-fbs-fines-filter is-active"
+                          data-fines-status="open" onclick="setOzonFbsFinesStatusFilter('open')">Открытые</button>
+                  <button type="button" class="secondary ozon-fbs-fines-filter"
+                          data-fines-status="closed" onclick="setOzonFbsFinesStatusFilter('closed')">Сторно</button>
+                  <button type="button" class="secondary ozon-fbs-fines-filter"
+                          data-fines-status="all" onclick="setOzonFbsFinesStatusFilter('all')">Все</button>
+                </div>
+                <button type="button" id="ozonFbsFinesSettingsBtn" class="icon-btn secondary"
+                        title="Настройки API" aria-label="Настройки API"
+                        onclick="openOzonFbsFinesSettingsModal()">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" stroke="currentColor" stroke-width="2"/>
+                    <path d="M19.4 13a7.8 7.8 0 0 0 .1-2l2-1.2-2-3.4-2.3.6a7.7 7.7 0 0 0-1.7-1L15 4h-4l-.5 2a7.7 7.7 0 0 0-1.7 1l-2.3-.6-2 3.4 2 1.2a7.8 7.8 0 0 0 0 2l-2 1.2 2 3.4 2.3-.6a7.7 7.7 0 0 0 1.7 1l.5 2h4l.5-2a7.7 7.7 0 0 0 1.7-1l2.3.6 2-3.4-2-1.2Z"
+                          stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                  </svg>
+                </button>
+              </div>
+              <div id="ozonFbsFinesSummary" class="ozon-fbs-fines-summary" aria-live="polite"></div>
             </div>
-            <div class="ozon-fbs-shipment-quality-body">
-              <input id="ozonFbsShipmentQualityFile" type="file" accept=".xlsx,.xlsm,.xltx,.xltm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden />
-              <button type="button" id="ozonFbsShipmentQualityUploadBtn" class="secondary"
-                      onclick="pickOzonFbsShipmentQualityFile()">
-                Загрузить отчет качества отгрузок по ФБС
-              </button>
-              <div id="ozonFbsShipmentQualityInfo" class="wb-fbs-kiz-info" aria-live="polite"></div>
-              <button type="button" id="ozonFbsShipmentQualityGenerateBtn"
-                      onclick="generateOzonFbsShipmentQualityReport()" disabled>
-                Сформировать отчет для поддержки
-              </button>
+            <div class="ozon-fbs-fines-body">
+              <div class="ozon-fbs-fines-log-panel">
+                <div class="ozon-fbs-fines-panel-title">Лог синхронизации</div>
+                <div id="ozonFbsFinesSyncLog" class="ozon-fbs-fines-sync-log" aria-live="polite"></div>
+              </div>
+              <div class="ozon-fbs-fines-list-panel">
+                <div class="ozon-fbs-fines-panel-title">Списания</div>
+                <div id="ozonFbsFinesList" class="ozon-fbs-fines-list" role="list"></div>
+              </div>
             </div>
-            <div class="wb-fbs-collect-mgt-footer" style="margin-top:16px">
-              <button type="button" class="secondary" onclick="closeOzonFbsShipmentQualityModal()">Закрыть</button>
+          </div>
+        </div>
+
+        <div id="ozonFbsFinesSettingsModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsFinesSettingsTitle"
+             onclick="if(event.target===this)closeOzonFbsFinesSettingsModal()">
+          <div class="modal-card ozon-fbs-fines-settings-modal">
+            <div class="ozon-fbs-fines-settings-header">
+              <h3 id="ozonFbsFinesSettingsTitle" class="ozon-fbs-fines-settings-title">Настройки API</h3>
+              <button type="button" class="icon-btn secondary" onclick="closeOzonFbsFinesSettingsModal()"
+                      aria-label="Закрыть">✕</button>
+            </div>
+            <p class="ozon-fbs-fines-settings-lead">
+              Ключ Seller API с доступом к Finance / Admin read only (методы accrual).
+              Пустой Api-Key сохраняет текущий ключ.
+            </p>
+            <label class="ozon-fbs-fines-settings-field" for="ozonFbsFinesClientId">
+              <span>Client-Id</span>
+              <input type="text" id="ozonFbsFinesClientId" autocomplete="off" />
+            </label>
+            <label class="ozon-fbs-fines-settings-field" for="ozonFbsFinesApiKey">
+              <span>Api-Key</span>
+              <input type="password" id="ozonFbsFinesApiKey" autocomplete="new-password"
+                     placeholder="Оставьте пустым, чтобы не менять" />
+            </label>
+            <p id="ozonFbsFinesSettingsKeyHint" class="ozon-fbs-fines-settings-hint"></p>
+            <p id="ozonFbsFinesSettingsInfo" class="ozon-fbs-fines-settings-info" hidden></p>
+            <div class="ozon-fbs-fines-settings-actions">
+              <button type="button" class="secondary" onclick="closeOzonFbsFinesSettingsModal()">Отмена</button>
+              <button type="button" onclick="saveOzonFbsFinesSettings()">Сохранить</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="ozonFbsFinesEventsModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsFinesEventsTitle"
+             onclick="if(event.target===this)closeOzonFbsFinesEventsModal()">
+          <div class="modal-card ozon-fbs-fines-events-modal">
+            <div class="ozon-fbs-fines-settings-header">
+              <h3 id="ozonFbsFinesEventsTitle" class="ozon-fbs-fines-settings-title">События</h3>
+              <button type="button" class="icon-btn secondary" onclick="closeOzonFbsFinesEventsModal()"
+                      aria-label="Закрыть">✕</button>
+            </div>
+            <p id="ozonFbsFinesEventsLead" class="ozon-fbs-fines-settings-lead"></p>
+            <div id="ozonFbsFinesEventsList" class="ozon-fbs-fines-events-list"></div>
+            <div class="ozon-fbs-fines-settings-actions">
+              <button type="button" class="secondary" onclick="closeOzonFbsFinesEventsModal()">Закрыть</button>
             </div>
           </div>
         </div>
@@ -8062,7 +8132,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=189"></script>
+  <script src="/static/ozon_fbs.js?v=190"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=37"></script>
   <script src="/static/app.js?v=691"></script>
 </body>

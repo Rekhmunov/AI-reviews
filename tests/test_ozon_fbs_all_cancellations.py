@@ -23,22 +23,22 @@ def test_all_cancellations_ui_wired() -> None:
 
     assert 'id="ozonFbsAllCancellationsBtn"' in html
     assert "Все отмены" in html
-    # Left of shipment quality inside Ozon FBS toolbar-right.
+    # Left of fines inside Ozon FBS toolbar-right.
     ozon_block = html.split('id="ozonFbsAllCancellationsBtn"', 1)[1].split(
         'id="ozonFbsSearchFilter"', 1
     )[0]
-    assert 'id="ozonFbsShipmentQualityBtn"' in ozon_block
+    assert 'id="ozonFbsFinesBtn"' in ozon_block
     assert 'id="ozonFbsAllCancellationsModal"' in html
     assert 'id="ozonFbsAllCancellationsSearch"' in html
-    assert "ozon_fbs.js?v=189" in html
-    assert "style.css?v=407" in html
+    assert "ozon_fbs.js?v=190" in html
+    assert "style.css?v=408" in html
 
     assert "function openOzonFbsAllCancellationsModal" in js
     assert "function _ozonFbsSyncOwnerOnlyAllCancellationsBtn" in js
     assert "/api/ozon-fbs/cancellations/delivering" in js
     assert "window.openOzonFbsAllCancellationsModal" in js
     assert "_ozonFbsSyncOwnerOnlyAllCancellationsBtn()" in js
-    assert js.count("const shipmentQualityState = {") == 1
+    assert js.count("const finesState = {") == 1
     # Double-quoted onclick + JSON.stringify(sid) breaks HTML attributes
     # (onclick="fn("id")" → handler never runs, supplies won't expand).
     assert "onclick='toggleOzonFbsAllCancellationsSupply(${JSON.stringify(sid)})'" in js

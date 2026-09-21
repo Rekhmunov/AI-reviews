@@ -1259,6 +1259,18 @@ class OzonFbsSyncSettingsRequest(BaseModel):
     lookback_days: int = Field(default=3, ge=1, le=30)
 
 
+class OzonFbsFinesSettingsRequest(BaseModel):
+    """Finance API credentials for slot fines sync (owner only)."""
+
+    client_id: str | None = Field(default=None, max_length=64)
+    api_key: str | None = Field(default=None, max_length=2000)
+
+
+class OzonFbsFinesSyncRequest(BaseModel):
+    date_from: str = Field(min_length=10, max_length=10)
+    date_to: str = Field(min_length=10, max_length=10)
+
+
 class WbFbsAutoSyncSettingsRequest(BaseModel):
     enabled: bool = False
     # Preferred: minutes (10, 30, 60, …). Legacy clients may still send hours.
@@ -13953,6 +13965,129 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 )
             },
         )
+
+    def _require_ozon_fbs_fines_owner(user: dict[str, object]) -> int:
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        if not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Штрафы доступны только главному пользователю",
+            )
+        return _supply_owner_id(user)
+
+    @app.get("/api/ozon-fbs/fines/settings")
+    def get_ozon_fbs_fines_settings(request: Request) -> dict[str, object]:
+        from . import ozon_fbs_fines as oz_fines
+
+        user = _require_user(request)
+        owner_id = _require_ozon_fbs_fines_owner(user)
+        return oz_fines.get_settings(repository, user_id=owner_id)
+
+    @app.put("/api/ozon-fbs/fines/settings")
+    def put_ozon_fbs_fines_settings(
+        request: Request, payload: OzonFbsFinesSettingsRequest
+    ) -> dict[str, object]:
+        from . import ozon_fbs_fines as oz_fines
+
+        user = _require_user(request)
+        owner_id = _require_ozon_fbs_fines_owner(user)
+        return oz_fines.save_settings(
+            repository,
+            user_id=owner_id,
+            client_id=payload.client_id,
+            api_key=payload.api_key,
+        )
+
+    @app.post("/api/ozon-fbs/fines/sync")
+    def post_ozon_fbs_fines_sync(
+        request: Request, payload: OzonFbsFinesSyncRequest
+    ) -> dict[str, object]:
+        from datetime import date as date_cls
+
+        from . import ozon_fbs_fines as oz_fines
+
+        user = _require_user(request)
+        owner_id = _require_ozon_fbs_fines_owner(user)
+        try:
+            date_from = date_cls.fromisoformat(str(payload.date_from).strip()[:10])
+            date_to = date_cls.fromisoformat(str(payload.date_to).strip()[:10])
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail="Некорректный формат даты (YYYY-MM-DD)"
+            ) from exc
+        try:
+            return oz_fines.sync_range(
+                repository,
+                user_id=owner_id,
+                date_from=date_from,
+                date_to=date_to,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    @app.get("/api/ozon-fbs/fines/units")
+    def get_ozon_fbs_fines_units(
+        request: Request,
+        status: str = "open",
+        fine_date_from: str | None = None,
+        fine_date_to: str | None = None,
+        limit: int = 500,
+    ) -> dict[str, object]:
+        from datetime import date as date_cls
+
+        from . import ozon_fbs_fines as oz_fines
+
+        user = _require_user(request)
+        owner_id = _require_ozon_fbs_fines_owner(user)
+        d_from = None
+        d_to = None
+        try:
+            if fine_date_from:
+                d_from = date_cls.fromisoformat(str(fine_date_from).strip()[:10])
+            if fine_date_to:
+                d_to = date_cls.fromisoformat(str(fine_date_to).strip()[:10])
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail="Некорректный формат даты фильтра"
+            ) from exc
+        return oz_fines.list_units(
+            repository,
+            user_id=owner_id,
+            status=status,
+            fine_date_from=d_from,
+            fine_date_to=d_to,
+            limit=limit,
+        )
+
+    @app.get("/api/ozon-fbs/fines/units/{unit_number}/events")
+    def get_ozon_fbs_fines_unit_events(
+        request: Request, unit_number: str
+    ) -> dict[str, object]:
+        from . import ozon_fbs_fines as oz_fines
+
+        user = _require_user(request)
+        owner_id = _require_ozon_fbs_fines_owner(user)
+        events = oz_fines.list_unit_events(
+            repository, user_id=owner_id, unit_number=unit_number
+        )
+        return {"unit_number": unit_number, "events": events}
+
+    @app.get("/api/ozon-fbs/fines/sync-log")
+    def get_ozon_fbs_fines_sync_log(
+        request: Request, limit: int = 100
+    ) -> dict[str, object]:
+        from . import ozon_fbs_fines as oz_fines
+
+        user = _require_user(request)
+        owner_id = _require_ozon_fbs_fines_owner(user)
+        return {
+            "items": oz_fines.list_sync_log(
+                repository, user_id=owner_id, limit=limit
+            )
+        }
 
     @app.get("/api/ozon-fbs/postings/find")
     def ozon_fbs_posting_find(
