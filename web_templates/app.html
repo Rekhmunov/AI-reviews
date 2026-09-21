@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=406" />
+  <link rel="stylesheet" href="/static/style.css?v=407" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -7640,6 +7640,14 @@
             <input type="date" id="supplyStockReceiptDate" aria-label="Дата" title="Дата" />
           </label>
           <div class="sb-sheet-search-end">
+            <button type="button" id="supplyStockReceiptImportBtn"
+                    class="secondary sb-receipt-import-btn"
+                    title="Импорт из заказа по остаткам"
+                    aria-label="Импорт из заказа по остаткам"
+                    onclick="triggerSupplyStockReceiptImport()">Импорт</button>
+            <input type="file" id="supplyStockReceiptImportFile" hidden
+                   accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                   onchange="onSupplyStockReceiptImportFile(event)" />
             <button type="button" id="supplyStockReceiptFilterBtn"
                     class="icon-btn secondary sb-bulk-filter-btn sb-receipt-filter-btn"
                     title="Массовые действия" aria-label="Массовые действия"
@@ -7727,6 +7735,23 @@
       <div class="sb-receipt-scan-qty-actions">
         <button type="button" id="supplyStockReceiptScanQtyAddBtn"
                 onclick="confirmSupplyStockReceiptScanQty()">Добавить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Receipt import result (above receipt) -->
+  <div id="supplyStockReceiptImportResultModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+       aria-labelledby="supplyStockReceiptImportResultTitle"
+       onclick="if(event.target===this)closeSupplyStockReceiptImportResultModal()">
+    <div class="modal-card sb-receipt-import-result-modal">
+      <div class="sb-receipt-import-result-header">
+        <h4 id="supplyStockReceiptImportResultTitle" class="sb-receipt-import-result-title">Импорт</h4>
+        <button type="button" class="icon-btn secondary" onclick="closeSupplyStockReceiptImportResultModal()"
+                aria-label="Закрыть">✕</button>
+      </div>
+      <div id="supplyStockReceiptImportResultBody" class="sb-receipt-import-result-body"></div>
+      <div class="sb-receipt-import-result-actions">
+        <button type="button" onclick="closeSupplyStockReceiptImportResultModal()">Понятно</button>
       </div>
     </div>
   </div>
@@ -8039,6 +8064,6 @@
 
   <script src="/static/ozon_fbs.js?v=189"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=37"></script>
-  <script src="/static/app.js?v=690"></script>
+  <script src="/static/app.js?v=691"></script>
 </body>
 </html>

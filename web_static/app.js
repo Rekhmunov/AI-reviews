@@ -16677,6 +16677,192 @@ async function openSupplyStockReceiptModal() {
 }
 window.openSupplyStockReceiptModal = openSupplyStockReceiptModal;
 
+function _sbNormImportArticle(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function _sbIsOrderImportHeaderRow(cells) {
+  const a = String(cells?.[0] ?? "").trim().toLowerCase();
+  const b = String(cells?.[1] ?? "").trim().toLowerCase();
+  const c = String(cells?.[2] ?? "").trim().toLowerCase();
+  return a === "товар" || b === "артикул" || c.startsWith("заказ");
+}
+
+/** Parse order Excel rows: col B = article, col C = qty (Заказ короба). */
+function _sbCollectOrderImportQtys(tableRows) {
+  const byArticle = new Map();
+  const errors = [];
+  let dataRows = 0;
+  const rows = Array.isArray(tableRows) ? tableRows : [];
+  rows.forEach((cells, idx) => {
+    if (!Array.isArray(cells) || !cells.length) return;
+    if (idx === 0 && _sbIsOrderImportHeaderRow(cells)) return;
+    const articleRaw = String(cells[1] ?? "").trim();
+    const qtyRaw = String(cells[2] ?? "").trim().replace(/\s/g, "").replace(",", ".");
+    if (!articleRaw && !qtyRaw) return;
+    dataRows += 1;
+    if (!articleRaw) {
+      errors.push(`Строка ${idx + 1}: пустой артикул`);
+      return;
+    }
+    if (!qtyRaw) {
+      errors.push(`«${articleRaw}»: пустое количество`);
+      return;
+    }
+    const qty = Number(qtyRaw);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      errors.push(`«${articleRaw}»: количество должно быть больше 0`);
+      return;
+    }
+    const key = _sbNormImportArticle(articleRaw);
+    const prev = byArticle.get(key);
+    if (prev) {
+      byArticle.set(key, { article: prev.article, qty: prev.qty + qty });
+    } else {
+      byArticle.set(key, { article: articleRaw, qty });
+    }
+  });
+  return { byArticle, errors, dataRows };
+}
+
+function _sbBuildReceiptArticleIndex() {
+  const map = new Map(); // norm article → [{item_type, item_id, article}]
+  for (const item of _sbVisibleCatalogItems()) {
+    if (String(item.item_type || "") !== "product") continue;
+    const article = String(item.supplier_article || "").trim();
+    if (!article) continue;
+    const key = _sbNormImportArticle(article);
+    const list = map.get(key) || [];
+    list.push({
+      item_type: "product",
+      item_id: Number(item.item_id || 0),
+      article,
+    });
+    map.set(key, list);
+  }
+  return map;
+}
+
+function triggerSupplyStockReceiptImport() {
+  const input = document.getElementById("supplyStockReceiptImportFile");
+  if (!input) return;
+  input.value = "";
+  input.click();
+}
+window.triggerSupplyStockReceiptImport = triggerSupplyStockReceiptImport;
+
+function closeSupplyStockReceiptImportResultModal() {
+  setModalVisibility("supplyStockReceiptImportResultModal", false);
+}
+window.closeSupplyStockReceiptImportResultModal = closeSupplyStockReceiptImportResultModal;
+
+function showSupplyStockReceiptImportResult(result) {
+  const body = document.getElementById("supplyStockReceiptImportResultBody");
+  if (!body) return;
+  const imported = Number(result?.imported || 0);
+  const errList = Array.isArray(result?.errors) ? result.errors : [];
+  const parts = [
+    `<p class="sb-receipt-import-result-ok">Импортировано: ${imported}</p>`,
+  ];
+  if (errList.length) {
+    parts.push(`<p class="sb-receipt-import-result-err">Ошибок: ${errList.length}</p>`);
+    const shown = errList.slice(0, 20);
+    const more = errList.length - shown.length;
+    parts.push(
+      `<ul class="sb-receipt-import-result-errors">${shown
+        .map((msg) => `<li>${esc(String(msg || ""))}</li>`)
+        .join("")}${more > 0 ? `<li>…и ещё ${more}</li>` : ""}</ul>`
+    );
+  } else {
+    parts.push(`<p>Ошибок нет</p>`);
+  }
+  body.innerHTML = parts.join("");
+  setModalVisibility("supplyStockReceiptImportResultModal", true);
+}
+window.showSupplyStockReceiptImportResult = showSupplyStockReceiptImportResult;
+
+function applySupplyStockReceiptImport(byArticle) {
+  const list = document.getElementById("supplyStockReceiptList");
+  const index = _sbBuildReceiptArticleIndex();
+  const errors = [];
+  let imported = 0;
+  if (!list) {
+    return { imported: 0, errors: ["Список товаров не загружен"] };
+  }
+  for (const [, entry] of byArticle) {
+    const matches = index.get(_sbNormImportArticle(entry.article)) || [];
+    if (!matches.length) {
+      errors.push(`«${entry.article}»: товар не найден в списке`);
+      continue;
+    }
+    if (matches.length > 1) {
+      errors.push(`«${entry.article}»: несколько товаров с таким артикулом`);
+      continue;
+    }
+    const match = matches[0];
+    const row = list.querySelector(
+      `.sb-adj-row[data-sb-type="${match.item_type}"][data-sb-id="${match.item_id}"]`
+    );
+    const qtyEl = row?.querySelector(".sb-adj-qty");
+    if (!qtyEl) {
+      errors.push(`«${entry.article}»: строка в модалке не найдена`);
+      continue;
+    }
+    qtyEl.value = String(entry.qty);
+    imported += 1;
+  }
+  return { imported, errors };
+}
+
+async function onSupplyStockReceiptImportFile(event) {
+  const input = event?.target;
+  const file = input?.files?.[0];
+  if (input) input.value = "";
+  if (!file) return;
+  const name = String(file.name || "").toLowerCase();
+  if (!name.endsWith(".xlsx")) {
+    showSupplyStockReceiptImportResult({
+      imported: 0,
+      errors: ["Нужен файл Excel (.xlsx) из «Заказ по остаткам»"],
+    });
+    return;
+  }
+  const btn = document.getElementById("supplyStockReceiptImportBtn");
+  if (btn) btn.disabled = true;
+  try {
+    const buf = await file.arrayBuffer();
+    const tableRows = await _bindParseXlsxRows(buf);
+    if (!tableRows || !tableRows.length) {
+      showSupplyStockReceiptImportResult({
+        imported: 0,
+        errors: ["Не удалось прочитать файл или он пустой"],
+      });
+      return;
+    }
+    const parsed = _sbCollectOrderImportQtys(tableRows);
+    if (!parsed.byArticle.size && !parsed.errors.length) {
+      showSupplyStockReceiptImportResult({
+        imported: 0,
+        errors: ["В файле нет строк с артикулом и количеством"],
+      });
+      return;
+    }
+    const applied = applySupplyStockReceiptImport(parsed.byArticle);
+    showSupplyStockReceiptImportResult({
+      imported: applied.imported,
+      errors: [...parsed.errors, ...applied.errors],
+    });
+  } catch (e) {
+    showSupplyStockReceiptImportResult({
+      imported: 0,
+      errors: [String(e.message || e || "Ошибка импорта")],
+    });
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+window.onSupplyStockReceiptImportFile = onSupplyStockReceiptImportFile;
+
 function _sbBulkPanelIds(kind) {
   if (kind === "adj") {
     return {
@@ -16747,6 +16933,7 @@ function closeSupplyStockReceiptModal(opts) {
   if (!force && _sbStockDocListHasEnteredQty("supplyStockReceiptList")) {
     if (!confirm("Уверены? Введённые количества будут потеряны.")) return;
   }
+  closeSupplyStockReceiptImportResultModal();
   if (_sbReceiptScanHighlightTimer) {
     clearTimeout(_sbReceiptScanHighlightTimer);
     _sbReceiptScanHighlightTimer = null;

@@ -14775,6 +14775,29 @@ button.sb-order-cat-btn[aria-expanded="true"] .sb-order-cat-caret {
 #supplyStockAdjustmentModal .sb-sheet-search-end {
   gap: 8px;
 }
+.sb-adj-modal .sb-receipt-import-btn {
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.sb-adj-modal .sb-receipt-import-btn:hover {
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+.sb-adj-modal .sb-receipt-import-btn:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 1px;
+}
+.sb-adj-modal .sb-receipt-import-btn:active {
+  background: #f1f5f9;
+}
+.sb-adj-modal .sb-receipt-import-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 .sb-adj-modal .sb-bulk-filter-btn {
   flex: 0 0 auto;
   width: 40px;
@@ -14837,9 +14860,66 @@ button.sb-order-cat-btn[aria-expanded="true"] .sb-order-cat-caret {
 #supplyStockReceiptScanQtyModal {
   z-index: 1300;
 }
+#supplyStockReceiptImportResultModal {
+  z-index: 1310;
+}
 #supplyStockReceiptScanQtyModal .sb-receipt-scan-qty-modal {
   width: min(400px, calc(100vw - 32px));
   padding: 20px;
+}
+.sb-receipt-import-result-modal {
+  width: min(420px, calc(100vw - 32px));
+  padding: 20px;
+}
+.sb-receipt-import-result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.sb-receipt-import-result-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+}
+.sb-receipt-import-result-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 16px;
+  font-size: 15px;
+  line-height: 1.45;
+  color: #334155;
+}
+.sb-receipt-import-result-body p {
+  margin: 0;
+}
+.sb-receipt-import-result-ok {
+  color: #166534;
+}
+.sb-receipt-import-result-err {
+  color: #b91c1c;
+}
+.sb-receipt-import-result-errors {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  max-height: 160px;
+  overflow: auto;
+  font-size: 14px;
+  color: #b91c1c;
+}
+.sb-receipt-import-result-errors li {
+  margin: 0 0 4px;
+}
+.sb-receipt-import-result-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+.sb-receipt-import-result-actions button {
+  min-height: 40px;
 }
 .sb-receipt-scan-qty-header {
   display: flex;
@@ -16852,6 +16932,10 @@ button.sb-order-cat-btn[aria-expanded="true"] .sb-order-cat-caret {
     flex-wrap: nowrap;
     align-items: center;
     gap: 8px;
+  }
+  #supplyStockReceiptModal .sb-receipt-import-btn {
+    min-height: 44px;
+    padding: 8px 12px;
   }
   #supplyStockAdjustmentModal .sb-sheet-search-end {
     display: flex;
