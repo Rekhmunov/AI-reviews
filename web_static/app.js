@@ -15025,19 +15025,39 @@ function _sbOrderBoxesQty(qty, boxQty) {
   return units * box;
 }
 
+/** How many whole boxes the rounded order fills. Empty when multiplicity is missing. */
+function _sbOrderBoxCount(boxesQty, boxQty) {
+  const packed = Number(boxesQty);
+  const box = Math.floor(Number(boxQty));
+  if (!Number.isFinite(packed) || !Number.isFinite(box) || box <= 0) return "";
+  const count = packed / box;
+  if (!Number.isFinite(count)) return "";
+  const rounded = Math.round(count);
+  if (Math.abs(count - rounded) < 1e-6) return rounded;
+  return Math.round(count * 1000) / 1000;
+}
+
 async function exportSupplyBalancesOrderXlsx() {
   _sbOrderSetErr("");
   document.querySelectorAll("#supplyBalancesOrderTbody input[data-order-key]").forEach((input) => {
     onSupplyBalancesOrderQtyInput(input);
   });
   const rows = _sbOrderFilteredRows();
-  const out = [["Товар", "Заказ", "Заказ (короба)"]];
+  const out = [["Товар", "Артикул", "Заказ (короба)", "Короба", "Склад"]];
   for (const row of rows) {
     const key = _sbOrderRowKey(row);
     const qty = Number(supplyBalancesOrderState.qtys[key] || 0);
     if (!Number.isFinite(qty) || qty <= 0) continue;
     const name = String(row.name || "").trim() || "Без названия";
-    out.push([name, qty, _sbOrderBoxesQty(qty, row.box_qty)]);
+    const article = String(row.supplier_article || "").trim();
+    const boxesQty = _sbOrderBoxesQty(qty, row.box_qty);
+    out.push([
+      name,
+      article,
+      boxesQty,
+      _sbOrderBoxCount(boxesQty, row.box_qty),
+      "Склад ФБС",
+    ]);
   }
   if (out.length <= 1) {
     _sbOrderSetErr("Нет строк с количеством к заказу больше 0");

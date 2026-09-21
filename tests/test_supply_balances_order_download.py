@@ -48,9 +48,15 @@ def test_order_modal_filters_and_table() -> None:
     assert "function exportSupplyBalancesOrderXlsx(" in APP_JS
     assert "_sbOrderDefaultQty" in APP_JS
     assert "_sbBuildSimpleXlsxBlob" in APP_JS
-    assert '["Товар", "Заказ", "Заказ (короба)"]' in APP_JS
+    assert '["Товар", "Артикул", "Заказ (короба)", "Короба", "Склад"]' in APP_JS
+    assert '["Товар", "Заказ", "Заказ (короба)"]' not in APP_JS
     assert "function _sbOrderBoxesQty(" in APP_JS
+    assert "function _sbOrderBoxCount(" in APP_JS
     assert "_sbOrderBoxesQty(qty, row.box_qty)" in APP_JS
+    assert "_sbOrderBoxCount(boxesQty, row.box_qty)" in APP_JS
+    assert "row.supplier_article" in APP_JS[APP_JS.find("function exportSupplyBalancesOrderXlsx"):APP_JS.find("window.exportSupplyBalancesOrderXlsx")]
+    assert "Склад ФБС" in APP_JS
+    assert "Отметьте фильтры, при необходимости поправьте количество к заказу и скачайте Excel." not in APP_HTML
     assert "zakaz_ostatki_" in APP_JS
     assert 'viewMode !== "balance"' in APP_JS
     assert "supplyBalancesOrderDownloadBtn" in APP_JS
@@ -79,4 +85,4 @@ def test_order_excel_box_column_uses_product_box_qty() -> None:
 
 def test_cache_bump_order_feature() -> None:
     assert "style.css?v=406" in APP_HTML
-    assert "app.js?v=688" in APP_HTML
+    assert "app.js?v=689" in APP_HTML
