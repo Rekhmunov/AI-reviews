@@ -10843,23 +10843,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             driver_id = int(body.get("driver_id") or 0)
         except (TypeError, ValueError):
             driver_id = 0
-        # «В доставке»: only tenant owner may change the driver.
-        # Trust the UI tab when opening from «На сборке» — a supply can still have
-        # leftover delivery-tab rows and must remain editable for operators there.
-        posting_tab = str(body.get("posting_tab") or body.get("tab") or "").strip()
-        if posting_tab == "assembly":
-            in_delivery = False
-        elif posting_tab == "delivery":
-            in_delivery = True
-        else:
-            in_delivery = wb_fbs_mod.supply_is_in_delivery(
-                repository, user_id=owner_id, source_id=source_id, supply_id=sid
-            )
-        if in_delivery and not _is_wb_fbs_tenant_owner(user):
-            raise HTTPException(
-                status_code=403,
-                detail="В «В доставке» водителя может менять только главный пользователь",
-            )
         try:
             return wb_fbs_mod.set_supply_driver(
                 repository,
@@ -14800,16 +14783,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             driver_id = int(body.get("driver_id") or 0)
         except (TypeError, ValueError):
             driver_id = 0
-        # In «Доставляются» only the tenant owner may change the driver.
-        posting_tab = str(body.get("posting_tab") or "").strip()
-        in_delivering = posting_tab == "delivering" or oz_sup.supply_is_in_delivering(
-            repository, user_id=owner_id, source_id=source_id, supply_id=sid
-        )
-        if in_delivering and not _is_wb_fbs_tenant_owner(user):
-            raise HTTPException(
-                status_code=403,
-                detail="В «Доставляются» водителя может менять только главный пользователь",
-            )
         try:
             return oz_sup.set_supply_driver(
                 repository,

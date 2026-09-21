@@ -452,8 +452,8 @@
   }
 
   function _ozonFbsCanOpenDriverWhileReadOnly() {
-    // Same gate as КИЗ/без КИЗ: in «Доставляются» only the tenant owner may open/edit.
-    return _ozonFbsIsTenantOwner();
+    // Delivering detail is otherwise read-only, but any FBS user may still set the driver.
+    return true;
   }
 
   function _ozonFbsDriverLockedAsToneOnly() {
@@ -471,7 +471,7 @@
     Object.keys(defaults).forEach((id) => {
       const el = document.getElementById(id);
       if (!el) return;
-      // Driver uses its own lock: managers see green status but cannot open.
+      // Driver uses its own lock (unlocked for all users in delivering).
       const locked =
         id === "ozonFbsSupplyDetailDriverBtn" ? _ozonFbsDriverLockedAsToneOnly() : !!toneOnly;
       if (locked) {
@@ -480,12 +480,7 @@
         if (!el.classList.contains("is-wait-orders")) {
           el.setAttribute("aria-disabled", "true");
           el.tabIndex = -1;
-          el.setAttribute(
-            "title",
-            id === "ozonFbsSupplyDetailDriverBtn"
-              ? "Водитель: только просмотр. В «Доставляются» менять может главный пользователь"
-              : tip
-          );
+          el.setAttribute("title", tip);
         }
       } else {
         el.classList.remove("is-tone-only");
@@ -5984,10 +5979,6 @@
   }
 
   async function openOzonFbsDriverModal() {
-    if (_ozonFbsDriverLockedAsToneOnly()) {
-      alert("В «Доставляются» водителя может менять только главный пользователь");
-      return;
-    }
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
     if (!sid || !sourceId) {
@@ -6045,13 +6036,6 @@
   }
 
   async function saveOzonFbsDriver() {
-    if (_ozonFbsDriverLockedAsToneOnly()) {
-      _ozonFbsDriverSetInfo(
-        "В «Доставляются» водителя может менять только главный пользователь",
-        "error"
-      );
-      return;
-    }
     const sid = String(driverModalState.supplyId || supplyDetailState.supplyId || "").trim();
     const sourceId = driverModalState.sourceId || supplyDetailState.sourceId || state.sourceId;
     const driverSel = document.getElementById("ozonFbsDriverSelect");

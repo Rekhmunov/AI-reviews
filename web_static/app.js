@@ -34854,7 +34854,8 @@ const _WB_FBS_SD_READONLY_BANNER =
   "Состав поставки изменению не подлежит — отправления уже в доставке.";
 
 function _wbFbsCanOpenDriverWhileReadOnly() {
-  return isTenantOwner();
+  // Delivery detail is otherwise read-only, but any FBS user may still set the driver.
+  return true;
 }
 
 function _wbFbsDriverLockedAsToneOnly() {
@@ -34880,12 +34881,7 @@ function _wbFbsSyncSupplyDetailToneOnlySplits(toneOnly) {
       if (!el.classList.contains("is-wait-orders")) {
         el.setAttribute("aria-disabled", "true");
         el.tabIndex = -1;
-        el.setAttribute(
-          "title",
-          id === "wbFbsSupplyDetailDriverBtn"
-            ? "Водитель: только просмотр. В «В доставке» менять может главный пользователь"
-            : tip
-        );
+        el.setAttribute("title", tip);
       }
     } else {
       el.classList.remove("is-tone-only");
@@ -35728,11 +35724,6 @@ function onWbFbsDriverChange() {
 window.onWbFbsDriverChange = onWbFbsDriverChange;
 
 async function openWbFbsDriverModal() {
-  // «В доставке»: only tenant owner may open/edit. Operators stay blocked.
-  if (_wbFbsDriverLockedAsToneOnly()) {
-    alert("В «В доставке» водителя может менять только главный пользователь");
-    return;
-  }
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   const sourceId = wbFbsState.sourceId;
   if (!sid || !sourceId) {
@@ -35814,13 +35805,6 @@ function closeWbFbsDriverModal() {
 window.closeWbFbsDriverModal = closeWbFbsDriverModal;
 
 async function saveWbFbsDriver() {
-  if (_wbFbsDriverLockedAsToneOnly()) {
-    _wbFbsDriverSetInfo(
-      "В «В доставке» водителя может менять только главный пользователь",
-      "error"
-    );
-    return;
-  }
   const sid = String(wbFbsDriverModalState.supplyId || wbFbsDetailState.supplyId || "").trim();
   const sourceId = wbFbsDriverModalState.sourceId || wbFbsState.sourceId;
   const driverSel = document.getElementById("wbFbsDriverSelect");

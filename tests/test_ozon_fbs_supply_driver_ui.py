@@ -69,28 +69,30 @@ def test_driver_js_wires_catalog_vehicles_and_green_btn() -> None:
     assert "Нет гос. номеров у водителя" in js
 
 
-def test_driver_locked_in_delivering_for_non_owner() -> None:
+def test_driver_editable_in_delivering_for_any_user() -> None:
     js = JS.read_text(encoding="utf-8")
     web = WEB.read_text(encoding="utf-8")
-    sup = SUP.read_text(encoding="utf-8")
     assert "function _ozonFbsDriverLockedAsToneOnly" in js
     assert "function _ozonFbsCanOpenDriverWhileReadOnly" in js
-    assert "_ozonFbsIsTenantOwner()" in js
-    assert "В «Доставляются» водителя может менять только главный пользователь" in js
+    can_open = js.split("function _ozonFbsCanOpenDriverWhileReadOnly", 1)[1].split(
+        "function _ozonFbsDriverLockedAsToneOnly", 1
+    )[0]
+    assert "return true;" in can_open
+    assert "_ozonFbsIsTenantOwner()" not in can_open
+    assert "В «Доставляются» водителя может менять только главный пользователь" not in js
     tone = js[
         js.index("function _ozonFbsSyncSupplyDetailToneOnlySplits") :
         js.index("function _ozonFbsSyncSupplyDetailToneOnlySplits") + 1800
     ]
     assert "ozonFbsSupplyDetailDriverBtn" in tone
-    assert "def supply_is_in_delivering" in sup
-    assert "CREATE TABLE IF NOT EXISTS ozon_fbs_supply_driver" in sup
+    assert "главный пользователь" not in tone
     put = web[
         web.index('@app.put("/api/ozon-fbs/supplies/{supply_id}/driver")') :
         web.index('@app.put("/api/ozon-fbs/supplies/{supply_id}/driver")') + 1600
     ]
-    assert "supply_is_in_delivering" in put
-    assert "_is_wb_fbs_tenant_owner(user)" in put
-    assert "В «Доставляются» водителя может менять только главный пользователь" in put
+    assert "_is_wb_fbs_tenant_owner(user)" not in put
+    assert "только главный пользователь" not in put
+    assert "set_supply_driver(" in put
 
 
 def test_driver_api_routes_exist() -> None:
@@ -101,5 +103,5 @@ def test_driver_api_routes_exist() -> None:
 
 def test_cache_bump_for_driver_modal() -> None:
     html = HTML.read_text(encoding="utf-8")
-    assert "ozon_fbs.js?v=188" in html
+    assert "ozon_fbs.js?v=189" in html
     assert "style.css?v=406" in html

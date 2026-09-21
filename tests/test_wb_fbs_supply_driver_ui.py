@@ -52,29 +52,36 @@ def test_driver_js_wires_catalog_vehicles_and_green_btn() -> None:
     assert 'classList.toggle("is-ok"' in js
 
 
-def test_driver_locked_in_delivery_for_non_owner() -> None:
+def test_driver_editable_in_delivery_for_any_user() -> None:
     js = JS.read_text(encoding="utf-8")
     web = WEB.read_text(encoding="utf-8")
     wb = WB.read_text(encoding="utf-8")
     assert "function _wbFbsDriverLockedAsToneOnly" in js
     assert "function _wbFbsCanOpenDriverWhileReadOnly" in js
-    assert "isTenantOwner()" in js
+    can_open = js.split("function _wbFbsCanOpenDriverWhileReadOnly", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+    assert "return true;" in can_open
+    assert "isTenantOwner()" not in can_open
     open_fn = js.split("async function openWbFbsDriverModal", 1)[1].split(
         "\nasync function ", 1
     )[0]
-    # Delivery: operators are blocked from opening (owner-only).
-    assert 'alert("В «В доставке» водителя может менять только главный пользователь")' in open_fn
-    assert "_wbFbsDriverLockedAsToneOnly()" in open_fn.split("alert(", 1)[0]
+    assert "только главный пользователь" not in open_fn
+    assert "_wbFbsDriverLockedAsToneOnly()" not in open_fn
     assert "Дождитесь загрузки заказов" in open_fn
+    save_fn = js.split("async function saveWbFbsDriver", 1)[1].split(
+        "\nasync function ", 1
+    )[0]
+    assert "только главный пользователь" not in save_fn
     assert "def supply_is_in_delivery" in wb
     assert "CREATE TABLE IF NOT EXISTS wb_fbs_supply_driver" in wb
     put = web[
         web.index('@app.put("/api/wb-fbs/supplies/{supply_id}/driver")') :
-        web.index('@app.put("/api/wb-fbs/supplies/{supply_id}/driver")') + 2200
+        web.index('@app.put("/api/wb-fbs/supplies/{supply_id}/driver")') + 1600
     ]
-    assert 'posting_tab == "assembly"' in put
-    assert "in_delivery = False" in put
-    assert "_is_wb_fbs_tenant_owner(user)" in put
+    assert "_is_wb_fbs_tenant_owner(user)" not in put
+    assert "только главный пользователь" not in put
+    assert "set_supply_driver(" in put
 
 
 def test_driver_assembly_uses_opened_tab_snapshot() -> None:
@@ -141,7 +148,7 @@ def test_cache_bump_for_driver_modal() -> None:
     html = HTML.read_text(encoding="utf-8")
     css = CSS.read_text(encoding="utf-8")
     js = JS.read_text(encoding="utf-8")
-    assert "app.js?v=689" in html
+    assert "app.js?v=690" in html
     assert "style.css?v=406" in html
     assert "#wbFbsDriverModal," in css or "#wbFbsDriverModal" in css
     assert "#wbFbsDriverModal," in css
