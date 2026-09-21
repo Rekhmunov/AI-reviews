@@ -4953,11 +4953,6 @@
     btn.style.display = can ? "" : "none";
   }
 
-  function _ozonFbsSyncOwnerOnlyShipmentQualityBtn() {
-    // Legacy alias — shipment quality replaced by fines.
-    _ozonFbsSyncOwnerOnlyFinesBtn();
-  }
-
   function _ozonFbsSyncSettingsSetInfo(text, kind) {
     const el = document.getElementById("ozonFbsSyncSettingsInfo");
     if (!el) return;
@@ -13677,12 +13672,6 @@
     }
   }
 
-  // Legacy aliases after shipment-quality removal
-  function openOzonFbsShipmentQualityModal() { openOzonFbsFinesModal(); }
-  function closeOzonFbsShipmentQualityModal() { closeOzonFbsFinesModal(); }
-  function pickOzonFbsShipmentQualityFile() {}
-  function generateOzonFbsShipmentQualityReport() {}
-
   const allCancellationsState = {
     loading: false,
     supplies: [],
@@ -13924,10 +13913,6 @@
   window.saveOzonFbsFinesSettings = saveOzonFbsFinesSettings;
   window.openOzonFbsFinesUnitEvents = openOzonFbsFinesUnitEvents;
   window.closeOzonFbsFinesEventsModal = closeOzonFbsFinesEventsModal;
-  window.openOzonFbsShipmentQualityModal = openOzonFbsShipmentQualityModal;
-  window.closeOzonFbsShipmentQualityModal = closeOzonFbsShipmentQualityModal;
-  window.pickOzonFbsShipmentQualityFile = pickOzonFbsShipmentQualityFile;
-  window.generateOzonFbsShipmentQualityReport = generateOzonFbsShipmentQualityReport;
   window.openOzonFbsStickerLookupModal = openOzonFbsStickerLookupModal;
   window.closeOzonFbsStickerLookupModal = closeOzonFbsStickerLookupModal;
   window.onOzonFbsStickerLookupScanKey = onOzonFbsStickerLookupScanKey;

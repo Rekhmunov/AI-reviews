@@ -56,22 +56,29 @@ def test_ui_replaces_shipment_quality_with_fines() -> None:
     assert 'id="ozonFbsFinesEventsModal"' in APP_HTML
     assert "ozonFbsShipmentQualityBtn" not in APP_HTML
     assert "Качество отгрузок" not in APP_HTML
+    assert "ozon-fbs-shipment-quality" not in APP_HTML
     assert "wb-fbs-supply-detail-modal ozon-fbs-fines-modal" in APP_HTML
     assert "function openOzonFbsFinesModal(" in OZON_JS
     assert "function syncOzonFbsFines(" in OZON_JS
     assert "_ozonFbsSyncOwnerOnlyFinesBtn" in OZON_JS
+    assert "openOzonFbsShipmentQualityModal" not in OZON_JS
+    assert "_ozonFbsSyncOwnerOnlyShipmentQualityBtn" not in OZON_JS
     assert "is-closed" in OZON_JS
     assert ".ozon-fbs-fines-row.is-closed" in STYLE
-    assert "ozon_fbs.js?v=190" in APP_HTML
-    assert "style.css?v=408" in APP_HTML
+    assert ".ozon-fbs-shipment-quality-body" not in STYLE
+    assert "ozon_fbs.js?v=191" in APP_HTML
+    assert "style.css?v=409" in APP_HTML
 
 
 def test_api_paths_present_in_web() -> None:
     web = (ROOT / "review_processor" / "web.py").read_text(encoding="utf-8")
-    assert '/api/ozon-fbs/fines/settings"' in web or "/api/ozon-fbs/fines/settings" in web
+    assert "/api/ozon-fbs/fines/settings" in web
     assert "/api/ozon-fbs/fines/sync" in web
     assert "/api/ozon-fbs/fines/units" in web
     assert "_require_ozon_fbs_fines_owner" in web
+    assert "/api/ozon-fbs/shipment-quality/" not in web
+    assert "ozon_fbs_shipment_quality" not in web
+    assert not (ROOT / "review_processor" / "ozon_fbs_shipment_quality.py").exists()
 
 
 def test_default_sync_window() -> None:

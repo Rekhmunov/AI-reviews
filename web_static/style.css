@@ -9583,17 +9583,6 @@ tr.dnd-over td {
   gap: 16px;
   padding: 16px 24px;
 }
-.ozon-fbs-shipment-quality-body {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 4px 0 0;
-}
-.ozon-fbs-shipment-quality-body > button {
-  width: 100%;
-  min-height: 44px;
-  justify-content: center;
-}
 
 /* Ozon FBS fines modal */
 #ozonFbsFinesModal { z-index: 1200; }
