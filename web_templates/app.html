@@ -3100,8 +3100,6 @@
                 <button type="button" id="ozonFbsFinesSyncBtn" onclick="syncOzonFbsFines()">Синхронизировать</button>
                 <button type="button" id="ozonFbsFinesImportBtn" class="secondary"
                         onclick="triggerOzonFbsFinesImport()">Импорт</button>
-                <input type="file" id="ozonFbsFinesImportFile" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                       hidden onchange="onOzonFbsFinesImportFileChange(event)" />
                 <div class="ozon-fbs-fines-toolbar-icons">
                   <div class="ozon-fbs-fines-filter-wrap">
                     <button type="button" id="ozonFbsFinesFilterBtn" class="icon-btn secondary"
@@ -3134,6 +3132,8 @@
                   </button>
                 </div>
               </div>
+              <input type="file" id="ozonFbsFinesImportFile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                     hidden onchange="onOzonFbsFinesImportFileChange(event)" />
               <div id="ozonFbsFinesSummary" class="ozon-fbs-fines-summary" aria-live="polite"></div>
             </div>
             <div class="ozon-fbs-fines-body">

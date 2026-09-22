@@ -908,24 +908,30 @@ def parse_accruals_report_rows(file_bytes: bytes) -> list[dict[str, Any]]:
         ws = wb[wb.sheetnames[0]]
         header_idx: dict[str, int] = {}
         out: list[dict[str, Any]] = []
-        for i, row in enumerate(ws.iter_rows(values_only=True)):
+        type_i = id_i = date_i = sum_i = -1
+        for row in ws.iter_rows(values_only=True):
             if not row:
                 continue
             if not header_idx:
-                # Find header row by known column titles.
                 cells = [str(c or "").strip() for c in row]
                 if "Тип начисления" in cells and "ID начисления" in cells:
                     header_idx = {name: idx for idx, name in enumerate(cells) if name}
+                    required = (
+                        "Тип начисления",
+                        "ID начисления",
+                        "Дата начисления",
+                        "Сумма итого, руб.",
+                    )
+                    missing = [name for name in required if name not in header_idx]
+                    if missing:
+                        raise ValueError(
+                            "В файле нет нужных колонок (ID / Дата / Тип / Сумма)"
+                        )
+                    type_i = header_idx["Тип начисления"]
+                    id_i = header_idx["ID начисления"]
+                    date_i = header_idx["Дата начисления"]
+                    sum_i = header_idx["Сумма итого, руб."]
                 continue
-            try:
-                type_i = header_idx["Тип начисления"]
-                id_i = header_idx["ID начисления"]
-                date_i = header_idx["Дата начисления"]
-                sum_i = header_idx["Сумма итого, руб."]
-            except KeyError as exc:
-                raise ValueError(
-                    "В файле нет нужных колонок (ID / Дата / Тип / Сумма)"
-                ) from exc
             if max(type_i, id_i, date_i, sum_i) >= len(row):
                 continue
             type_label = str(row[type_i] or "").strip()
@@ -978,36 +984,40 @@ def parse_accruals_report_rows(file_bytes: bytes) -> list[dict[str, Any]]:
         wb.close()
 
 
-def _event_exists_by_signature(
-    repo: ReviewRepository,
-    *,
-    user_id: int,
-    unit_number: str,
-    event_date: date,
-    amount: Decimal,
-) -> bool:
-    """True if sync or prior import already stored the same economic event."""
+def _load_existing_amount_keys(
+    repo: ReviewRepository, *, user_id: int, units: set[str]
+) -> set[tuple[str, str]]:
+    """Set of (unit_number, amount_str) already stored for these units."""
     ensure_ozon_fbs_fines_tables(repo)
+    clean = sorted({str(u).strip() for u in units if str(u).strip()})
+    if not clean:
+        return set()
+    out: set[tuple[str, str]] = set()
+    # Chunk IN lists to keep query size bounded.
     with repo._connect() as conn:
-        row = conn.execute(
-            repo._sql(
-                """
-                SELECT 1 FROM ozon_fbs_fines_events
-                WHERE user_id = ?
-                  AND unit_number = ?
-                  AND event_date = ?
-                  AND amount = ?
-                LIMIT 1
-                """
-            ),
-            (
-                int(user_id),
-                str(unit_number).strip(),
-                event_date.isoformat(),
-                f"{amount:.2f}",
-            ),
-        ).fetchone()
-    return row is not None
+        for i in range(0, len(clean), 500):
+            chunk = clean[i : i + 500]
+            placeholders = ", ".join(["?"] * len(chunk))
+            rows = conn.execute(
+                repo._sql(
+                    f"""
+                    SELECT unit_number, amount
+                    FROM ozon_fbs_fines_events
+                    WHERE user_id = ?
+                      AND unit_number IN ({placeholders})
+                    """
+                ),
+                (int(user_id), *chunk),
+            ).fetchall()
+            for row in rows:
+                d = dict(row) if hasattr(row, "keys") else {
+                    "unit_number": row[0],
+                    "amount": row[1],
+                }
+                unit = str(d.get("unit_number") or "").strip()
+                amt = _parse_amount(d.get("amount")).quantize(Decimal("0.01"))
+                out.add((unit, f"{amt:.2f}"))
+    return out
 
 
 def import_accruals_report(
@@ -1019,10 +1029,13 @@ def import_accruals_report(
 ) -> dict[str, Any]:
     """Merge slot fine/storno from Excel without duplicating API sync events.
 
-    Matching key for skip: unit_number + event_date + amount.
+    Skip when the same unit_number + amount already exists (any date/source).
     New storno against an existing synced fine closes the unit (net≈0 → green).
     """
     rows = parse_accruals_report_rows(file_bytes)
+    units = {str(r["unit_number"]) for r in rows}
+    existing = _load_existing_amount_keys(repo, user_id=user_id, units=units)
+
     inserted = 0
     skipped = 0
     fines_new = 0
@@ -1033,13 +1046,8 @@ def import_accruals_report(
         event_date: date = row["event_date"]
         amount: Decimal = row["amount"]
         kind = str(row["kind"])
-        if _event_exists_by_signature(
-            repo,
-            user_id=user_id,
-            unit_number=unit,
-            event_date=event_date,
-            amount=amount,
-        ):
+        key = (unit, f"{amount:.2f}")
+        if key in existing:
             skipped += 1
             continue
         aid = _excel_synthetic_accrual_id(
@@ -1061,12 +1069,14 @@ def import_accruals_report(
         )
         if is_new:
             inserted += 1
+            existing.add(key)
             if kind == "storno":
                 storno_new += 1
             else:
                 fines_new += 1
         else:
             skipped += 1
+            existing.add(key)
 
     name = str(filename or "отчёт").strip() or "отчёт"
     summary = (

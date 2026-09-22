@@ -150,6 +150,15 @@ def test_status_closes_when_storno_offsets_fine() -> None:
     assert fines._status_for_net(Decimal("-36.99")) == "open"
 
 
+def test_import_dedup_is_unit_and_amount_not_date() -> None:
+    """Synced fine on day A must block Excel fine on day B with same amount."""
+    src = (ROOT / "review_processor" / "ozon_fbs_fines.py").read_text(encoding="utf-8")
+    assert "def _load_existing_amount_keys(" in src
+    assert "Skip when the same unit_number + amount already exists" in src
+    assert "_event_exists_by_signature" not in src
+
+
+
 def test_fatal_auth_error_detection() -> None:
     assert fines._is_fatal_ozon_auth_error(
         RuntimeError('Ozon HTTP 403: {"code":7,"message":"Api-key is deactivated, use another one"}')

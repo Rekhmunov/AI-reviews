@@ -14052,7 +14052,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         owner_id = _require_ozon_fbs_fines_owner(user)
         name = str(file.filename or "").strip()
         lower = name.lower()
-        if lower and not (lower.endswith(".xlsx") or lower.endswith(".xls")):
+        if lower and not lower.endswith(".xlsx"):
             raise HTTPException(
                 status_code=400, detail="Нужен файл Excel (.xlsx) отчёта по начислениям"
             )
