@@ -142,5 +142,5 @@ def test_ui_row_classes_and_cache_bump() -> None:
     assert "#fff1f2" in css
     assert "#f0fdf4" in css
     assert "ozon_fbs.js?v=193" in html
-    assert "app.js?v=692" in html
-    assert "style.css?v=412" in html
+    assert "app.js?v=693" in html
+    assert "style.css?v=413" in html

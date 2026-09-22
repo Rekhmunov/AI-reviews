@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=412" />
+  <link rel="stylesheet" href="/static/style.css?v=413" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -4344,6 +4344,8 @@
             <div class="supplies-top-controls">
               <div class="supplies-actions">
                 <button onclick="openCreateTtnModal()">+ Создать ТН</button>
+                <button type="button" id="ttnPrintSelectedBtn" class="secondary"
+                        onclick="printSelectedTtnRecords()" disabled>Печать выбранных</button>
               </div>
               <div class="supplies-actions">
                 <div class="ss-wrap" id="ttnLegalFilterWrap">
@@ -4379,17 +4381,25 @@
             <div class="supplies-table-wrap">
               <table id="ttnTable" class="supplies-main-table ttn-table">
                 <colgroup id="ttnColgroup">
-                  <col data-col="0" style="width:6%" />
-                  <col data-col="1" style="width:18%" />
+                  <col data-col="0" style="width:8%" />
+                  <col data-col="1" style="width:16%" />
                   <col data-col="2" style="width:10%" />
                   <col data-col="3" style="width:14%" />
-                  <col data-col="4" style="width:18%" />
+                  <col data-col="4" style="width:16%" />
                   <col data-col="5" style="width:22%" />
-                  <col data-col="6" style="width:12%" />
+                  <col data-col="6" style="width:14%" />
                 </colgroup>
                 <thead>
                   <tr>
-                    <th data-col="0">№<span class="col-resize-handle"></span></th>
+                    <th data-col="0" class="ttn-num-col" title="Выбрать все отфильтрованные">
+                      <label class="ttn-row-check ttn-select-all-label">
+                        <input type="checkbox" id="ttnSelectAll"
+                               aria-label="Выбрать все отфильтрованные ТН"
+                               onchange="toggleTtnSelectAll(this.checked)" />
+                      </label>
+                      <span class="ttn-num-col-label">№</span>
+                      <span class="col-resize-handle"></span>
+                    </th>
                     <th data-col="1">Название<span class="col-resize-handle"></span></th>
                     <th data-col="2">Дата<span class="col-resize-handle"></span></th>
                     <th data-col="3">Юр. лицо<span class="col-resize-handle"></span></th>
@@ -8149,6 +8159,6 @@
 
   <script src="/static/ozon_fbs.js?v=193"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=37"></script>
-  <script src="/static/app.js?v=692"></script>
+  <script src="/static/app.js?v=693"></script>
 </body>
 </html>

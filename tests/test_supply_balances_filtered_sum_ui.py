@@ -35,4 +35,4 @@ def test_balance_status_recalculates_on_filter() -> None:
     )[0]
     assert "_sbRefreshBalanceStatus();" in load
     assert "Нажмите цифру" not in load
-    assert "app.js?v=692" in APP_HTML
+    assert "app.js?v=693" in APP_HTML

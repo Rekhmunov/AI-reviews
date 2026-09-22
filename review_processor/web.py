@@ -22285,12 +22285,16 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
 
     @app.get("/api/supply-ttn-records/next-manual-title")
     def ttn_next_manual_title(request: Request) -> dict[str, object]:
-        """Peek the next daily number for the create-form title. Does not consume it."""
+        """Peek the next free logistics TN number for the create-form title. Does not allocate."""
         user = _require_user(request)
         if not _can_view_supplies(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
         repository._ensure_supply_tables()
-        return {"number": repository.peek_next_ttn_number()}
+        return {
+            "number": repository.peek_next_supply_ttn_doc_number(
+                user_id=_supply_owner_id(user)
+            )
+        }
 
     @app.get("/api/supply-ttn-records")
     def list_ttn_records(request: Request, group_id: str = "") -> list[dict[str, object]]:
@@ -22416,7 +22420,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             if not ok:
                 raise HTTPException(status_code=404, detail="ТН не найдена")
             return {"ok": True, "id": existing_id, "updated": True}
-        doc_number = str(repository.next_ttn_number())
+        doc_number = str(repository.allocate_next_supply_ttn_doc_number(user_id=owner_id))
         title = ttn_title_mod.resolve_ttn_title_for_create(
             repository,
             user_id=owner_id,
@@ -22716,6 +22720,77 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         if not record:
             raise HTTPException(status_code=404, detail="Не найдено")
         return record
+
+    def _build_ttn_catalog_batch_html(records: list[dict]) -> str:
+        """Combine several logistics TN HTML docs with page breaks for mass print."""
+        import re as _re
+
+        bodies: list[str] = []
+        for rec in records:
+            full = _build_ttn_catalog_html(rec)
+            m = _re.search(r"<body[^>]*>(.*)</body>", full, flags=_re.I | _re.S)
+            bodies.append(m.group(1).strip() if m else full)
+        pages = []
+        for i, body in enumerate(bodies):
+            style = "page-break-before:always;" if i else ""
+            pages.append(f'<div class="ttn-print-page" style="{style}">{body}</div>')
+        joined = "\n".join(pages)
+        return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<title>ТН — печать ({len(records)})</title>
+<style>
+  @page {{ size: 210mm 297mm; margin: 12mm 12mm 12mm 16mm; }}
+  body {{ font-family: "Times New Roman", serif; font-size: 10pt; line-height: 1.3; color: #000; }}
+  h1 {{ text-align: center; font-size: 13pt; margin: 0 0 4pt; }}
+  .sub {{ text-align: center; font-size: 8pt; margin: 0 0 10pt; color: #333; }}
+  table.meta {{ width: 100%; border-collapse: collapse; margin-bottom: 8pt; }}
+  table.meta td {{ border: 1px solid #000; padding: 4pt 6pt; vertical-align: top; }}
+  .label {{ font-size: 8pt; color: #444; margin-bottom: 2pt; }}
+  .sig {{ margin-top: 14pt; }}
+  .sig td {{ padding-top: 14pt; }}
+  .ttn-print-page {{ break-inside: avoid; }}
+</style></head>
+<body>
+{joined}
+</body></html>"""
+
+    @app.get("/api/supply-ttn-records/print-html")
+    def get_ttn_catalog_print_html(request: Request):
+        """Mass-print HTML for selected logistics TNs (``?ids=1&ids=2`` or ``?ids=1,2``)."""
+        from fastapi.responses import HTMLResponse
+
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        parsed: list[int] = []
+        for raw in request.query_params.getlist("ids"):
+            for part in str(raw or "").replace(";", ",").split(","):
+                part = part.strip()
+                if not part:
+                    continue
+                try:
+                    parsed.append(int(part))
+                except (TypeError, ValueError):
+                    continue
+        # Deduplicate preserving order
+        seen: set[int] = set()
+        ordered: list[int] = []
+        for rid in parsed:
+            if rid <= 0 or rid in seen:
+                continue
+            seen.add(rid)
+            ordered.append(rid)
+        if not ordered:
+            raise HTTPException(status_code=400, detail="Не выбраны ТН")
+        if len(ordered) > 100:
+            raise HTTPException(status_code=400, detail="Слишком много ТН для печати (макс. 100)")
+        owner_id = _supply_owner_id(user)
+        all_recs = repository.list_supply_ttn_records(user_id=owner_id)
+        by_id = {int(r.get("id") or 0): r for r in all_recs}
+        records = [by_id[i] for i in ordered if i in by_id]
+        if not records:
+            raise HTTPException(status_code=404, detail="ТН не найдены")
+        return HTMLResponse(content=_build_ttn_catalog_batch_html(records))
 
     @app.get("/api/supply-ttn-records/{record_id}/html")
     def get_ttn_catalog_html(request: Request, record_id: int):

@@ -135,7 +135,13 @@ def test_ui_title_field_and_table_column() -> None:
     assert 'colspan="7"' in JS.split("function renderTtnTable", 1)[1].split(
         "window.renderTtnTable", 1
     )[0]
-    assert "logistics_ttn_col_widths_v2" in JS
-    assert "app.js?v=692" in HTML
-    assert "style.css?v=412" in HTML
+    assert "logistics_ttn_col_widths_v3" in JS
+    assert "app.js?v=693" in HTML
+    assert "style.css?v=413" in HTML
     assert "ozon_fbs.js?v=193" in HTML
+    assert 'id="ttnSelectAll"' in HTML
+    assert "function printSelectedTtnRecords" in JS
+    assert "logistics_ttn_col_widths_v3" in JS
+    assert "peek_next_supply_ttn_doc_number" in WEB
+    assert "allocate_next_supply_ttn_doc_number" in WEB
+    assert "allocate_next_supply_ttn_doc_number" in REPO

@@ -20,7 +20,7 @@ def _slice(src: str, start: str, end: str) -> str:
 
 
 def test_cache_version() -> None:
-    assert "app.js?v=692" in HTML
+    assert "app.js?v=693" in HTML
 
 
 def test_delivery_status_header_unchanged() -> None:
