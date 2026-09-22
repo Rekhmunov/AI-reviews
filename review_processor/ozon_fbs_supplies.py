@@ -2791,15 +2791,14 @@ def build_ttn_prefill(
             "Склад для этого источника не привязан. Отметьте кабинет в Настройки → Склады."
         )
 
-    # Load dropdown for LE = warehouses of that LE (not LE card address).
+    # п.8: 1 склад → склад; 0 складов → юр.адрес; несколько → пусто.
     load_warehouse_id, load_address = ttn_cargo.resolve_shipper_load_place(
         repo,
         user_id=user_id,
         legal_entity_id=legal_entity_id,
         exclude_warehouse_id=warehouse_id,
+        legal_address=str((shipper or {}).get("address") or "").strip(),
     )
-    if not load_address and shipper:
-        load_address = str(shipper.get("address") or "").strip()
 
     driver_id = int(driver.get("driver_id") or 0)
     vehicle_number = str(driver.get("vehicle_number") or "").strip()

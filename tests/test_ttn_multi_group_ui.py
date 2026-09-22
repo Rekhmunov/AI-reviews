@@ -29,7 +29,7 @@ def test_multi_ttn_html_has_tabs_route_and_driver_column() -> None:
     # Overlay click must not close create modal.
     overlay_line = html.split('id="createTtnModal"', 1)[1].split(">", 1)[0]
     assert "closeCreateTtnModal" not in overlay_line
-    assert "app.js?v=691" in html
+    assert "app.js?v=692" in html
     assert "style.css?v=412" in html
 
 
@@ -65,11 +65,23 @@ def test_route_empty_load_address_stays_blank() -> None:
     route_fn = js.split("function _ttnBuildRouteText", 1)[1].split("\nfunction ", 1)[0]
     assert 'addr || "—"' not in route_fn
     assert "addr || '—'" not in route_fn
-    assert "${addr}" in route_fn
     assert "пустое оставляем пустым" in route_fn
+    assert "_ttnPartyPhone" in route_fn or "function _ttnPartyPhone" in js
+    assert "if (phone) lines.push(phone)" in route_fn
+    assert "${places} мест" in route_fn or "`${places} мест`" in route_fn
     route_btn = html.split('id="ttnRouteBtn"', 1)[1].split("</button>", 1)[0]
     assert "disabled" not in route_btn
     assert "openTtnRouteModal()" in route_btn
+
+
+def test_route_includes_party_phone() -> None:
+    js = JS.read_text(encoding="utf-8")
+    assert "function _ttnPartyPhone" in js
+    phone_fn = js.split("function _ttnPartyPhone", 1)[1].split("\nfunction ", 1)[0]
+    assert 'e?.phone' in phone_fn or "e.phone" in phone_fn
+    assert "c?.phone" in phone_fn or "c.phone" in phone_fn
+    assert "_supplyLegalEntitiesCache" in phone_fn
+    assert "_supplyContractorsCache" in phone_fn
 
 
 def test_multi_ttn_css_tabs() -> None:

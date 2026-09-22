@@ -257,19 +257,26 @@ def resolve_shipper_load_place(
     user_id: int,
     legal_entity_id: int,
     exclude_warehouse_id: int = 0,
+    legal_address: str = "",
 ) -> tuple[int, str]:
-    """Warehouse under shipper LE for TTN «Место погрузки» dropdown.
+    """Warehouse / legal address for TTN «Место погрузки» default.
 
-    Load options for legal entities are warehouses linked to the LE — not the
-    LE card address. Prefer a warehouse other than the marketplace unload one.
+    Priority:
+    - exactly one usable warehouse → that warehouse;
+    - no warehouses → legal address (LE card);
+    - several warehouses → empty (operator chooses).
+
+    ``exclude_warehouse_id`` drops the marketplace unload warehouse from the
+    auto-pick pool when the shipper LE also owns that SC warehouse.
     """
     le_id = int(legal_entity_id or 0)
+    legal = str(legal_address or "").strip()
     if le_id <= 0:
-        return 0, ""
+        return 0, legal
     try:
         rows = repo.list_supply_warehouses(user_id=user_id) or []
     except Exception:
-        return 0, ""
+        return 0, legal
     ex = int(exclude_warehouse_id or 0)
     candidates: list[dict[str, Any]] = []
     for w in rows:
@@ -282,11 +289,16 @@ def resolve_shipper_load_place(
             continue
         candidates.append(w)
     if not candidates:
-        return 0, ""
+        return 0, legal
     preferred = [w for w in candidates if int(w.get("id") or 0) != ex]
-    pool = preferred or candidates
-    pool.sort(key=lambda w: str(w.get("warehouse_name") or "").casefold())
-    pick = pool[0]
+    # One own warehouse (+ optional excluded SC) → auto-pick the own one.
+    # Several own warehouses → leave empty (do not fall back to legal).
+    if len(preferred) > 1:
+        return 0, ""
+    if len(preferred) == 0:
+        # Only the excluded SC warehouse is linked — treat as no load warehouse.
+        return 0, legal if len(candidates) == 1 else ""
+    pick = preferred[0]
     wid = int(pick.get("id") or 0)
     addr = str(pick.get("address") or "").strip()
     if not addr:

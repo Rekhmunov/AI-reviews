@@ -40,7 +40,7 @@ def test_logistics_title_picker_and_panes() -> None:
     assert "function initLogisticsSection" in js
     assert 'section === "supplies-poa"' in js and "initLogisticsSection" in js
     assert '"logisticsTab"' in js
-    assert "app.js?v=691" in html
+    assert "app.js?v=692" in html
     assert "style.css?v=412" in html
     assert "ttn-modal-card" in html
     assert "ttn-form-grid" in html
@@ -102,7 +102,7 @@ def test_ttn_row_colors_by_fbs_origin() -> None:
     state_from = js.split("function _ttnStateFromRecord", 1)[1].split("\nfunction ", 1)[0]
     assert 'mode === "copy"' in state_from
     assert "fbsMeta = null" in state_from
-    assert "app.js?v=691" in html
+    assert "app.js?v=692" in html
     assert "style.css?v=412" in html
 
 
@@ -353,10 +353,16 @@ def test_ttn_load_unload_places_from_party_addresses() -> None:
     assert "_ttnWarehousesForLegalEntity" in helper
     assert "contractorAddressLine" in helper
     assert "warehouseAddressLine" in helper
-    # LE party: warehouses only (not LE card address).
-    assert "not the LE card address" in helper
-    assert "addr:le:" not in helper
-    assert "legalEntityAddressLine" not in helper
+    # LE: warehouses + legal address option for п.8; default prefers sole warehouse.
+    assert "legalEntityAddressLine" in helper
+    assert "addr:le:" in helper
+    assert 'purpose === "load"' in helper or 'forLoad' in helper
+    assert "function _ttnDefaultLoadPlaceKey" in js
+    default_fn = js.split("function _ttnDefaultLoadPlaceKey", 1)[1].split("\nfunction ", 1)[0]
+    assert 'startsWith("w:")' in default_fn
+    assert 'startsWith("addr:")' in default_fn
+    assert '_ttnAddressOptionsForParty(ref, "load")' in js
+    assert '_ttnAddressOptionsForParty(ref, "unload")' in js
     # Warehouse dropdown: name first, then address via " | ".
     assert "${wname} | ${waddr}" in helper or "`${wname} | ${waddr}`" in helper
     assert "${waddr} · ${wname}" not in helper

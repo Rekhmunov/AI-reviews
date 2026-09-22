@@ -16,6 +16,7 @@ def test_resolve_shipper_load_place_helper() -> None:
     assert "def resolve_shipper_load_place" in CARGO
     assert "legal_entity_id" in CARGO
     assert "exclude_warehouse_id" in CARGO
+    assert "legal_address" in CARGO
 
     class _Repo:
         def list_supply_warehouses(self, *, user_id: int):
@@ -32,24 +33,48 @@ def test_resolve_shipper_load_place_helper() -> None:
 
     from review_processor.ttn_fbs_cargo import resolve_shipper_load_place
 
+    # Several own warehouses (after excluding SC) → empty, no legal fallback.
     wid, addr = resolve_shipper_load_place(
-        _Repo(), user_id=1, legal_entity_id=5, exclude_warehouse_id=9
+        _Repo(),
+        user_id=1,
+        legal_entity_id=5,
+        exclude_warehouse_id=9,
+        legal_address="legal-5",
     )
-    # Prefer non-excluded; sort by name → A before B.
-    assert wid == 7
-    assert addr == "addr-a"
+    assert wid == 0
+    assert addr == ""
+
+    # One warehouse after excluding SC → that warehouse.
+    class _RepoOne:
+        def list_supply_warehouses(self, *, user_id: int):
+            return [
+                {"id": 7, "legal_entity_id": 5, "warehouse_name": "A", "address": "addr-a"},
+                {"id": 9, "legal_entity_id": 5, "warehouse_name": "SC", "address": "sc"},
+            ]
+
+        def warehouse_address_line(self, wh):
+            return str(wh.get("address") or "")
 
     wid2, addr2 = resolve_shipper_load_place(
-        _Repo(), user_id=1, legal_entity_id=5, exclude_warehouse_id=0
+        _RepoOne(),
+        user_id=1,
+        legal_entity_id=5,
+        exclude_warehouse_id=9,
+        legal_address="legal-5",
     )
     assert wid2 == 7
     assert addr2 == "addr-a"
 
+    # No warehouses → legal address.
     empty_id, empty_addr = resolve_shipper_load_place(
-        _Repo(), user_id=1, legal_entity_id=404, exclude_warehouse_id=0
+        _Repo(),
+        user_id=1,
+        legal_entity_id=404,
+        exclude_warehouse_id=0,
+        legal_address="legal-only",
     )
     assert empty_id == 0
-    assert empty_addr == ""
+    assert empty_addr == "legal-only"
 
 
 def test_ozon_and_wb_prefill_use_load_warehouse() -> None:
@@ -57,8 +82,9 @@ def test_ozon_and_wb_prefill_use_load_warehouse() -> None:
         block = src.split("def build_ttn_prefill", 1)[1].split("\ndef ", 1)[0]
         assert "resolve_shipper_load_place" in block, label
         assert '"load_warehouse_id": load_warehouse_id' in block, label
-        # Must not only use LE card address for load.
-        assert "shipper.get(\"address\")" in block, label
+        assert "legal_address=" in block, label
+        # Fallback to LE card is inside resolve (not a blind post-fallback).
+        assert 'shipper.get("address")' not in block or "legal_address=" in block, label
 
 
 def test_open_ttn_modal_prefers_load_warehouse_key() -> None:
@@ -70,8 +96,10 @@ def test_open_ttn_modal_prefers_load_warehouse_key() -> None:
     # Legacy recovery: sole LE warehouse when LE card address was stored.
     assert 'startsWith("le:")' in JS
     assert "_ttnWarehousesForLegalEntity" in JS
+    assert "function _ttnDefaultLoadPlaceKey" in JS
+    assert "addr:le:" in JS
 
 
 def test_cache_bump() -> None:
-    html = HTML if "app.js?v=691" in HTML else (ROOT / "web_templates" / "app.html").read_text(encoding="utf-8")
-    assert "app.js?v=691" in html
+    html = HTML if "app.js?v=692" in HTML else (ROOT / "web_templates" / "app.html").read_text(encoding="utf-8")
+    assert "app.js?v=692" in html

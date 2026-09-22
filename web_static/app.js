@@ -20457,8 +20457,12 @@ function _ttnOptionalFieldsFilled() {
   return ids.some((id) => String(document.getElementById(id)?.value || "").trim());
 }
 
-/** Addresses belonging to the selected shipper/consignee for load/unload places. */
-function _ttnAddressOptionsForParty(partyRef) {
+/** Addresses belonging to the selected shipper/consignee for load/unload places.
+ * @param {string} partyRef
+ * @param {"load"|"unload"} [purpose] load = п.8 hierarchy (warehouse → legal); unload unchanged.
+ */
+function _ttnAddressOptionsForParty(partyRef, purpose) {
+  const forLoad = purpose === "load";
   const opts = [];
   const addressByValue = { "": "" };
   const parsed = _ttnParsePartyRef(partyRef);
@@ -20474,7 +20478,7 @@ function _ttnAddressOptionsForParty(partyRef) {
   };
 
   if (parsed.type === "le") {
-    // For legal entities use linked warehouse addresses (not the LE card address).
+    // Warehouses first; for п.8 also offer LE legal address as fallback option.
     const whs = _ttnWarehousesForLegalEntity(parsed.id).slice();
     whs.sort((a, b) => String(a.warehouse_name || "").localeCompare(String(b.warehouse_name || ""), "ru"));
     for (const w of whs) {
@@ -20483,6 +20487,15 @@ function _ttnAddressOptionsForParty(partyRef) {
       const line = waddr || wname;
       const label = waddr ? `${wname} | ${waddr}` : wname;
       addAddr(`w:${w.id}`, label, line);
+    }
+    if (forLoad) {
+      const le = (_supplyLegalEntitiesCache || []).find((x) => Number(x.id) === Number(parsed.id));
+      if (le) {
+        const legalAddr =
+          String(legalEntityAddressLine(le) || "").trim() ||
+          String(le.address || "").trim();
+        if (legalAddr) addAddr(`addr:le:${le.id}`, legalAddr, legalAddr);
+      }
     }
     return { opts, addressByValue };
   }
@@ -20493,24 +20506,45 @@ function _ttnAddressOptionsForParty(partyRef) {
     contractorAddressLine(c) ||
     productionAddressLine(c) ||
     String(c.address || "").trim();
-  if (cardAddr) addAddr(`addr:c:${c.id}`, cardAddr, cardAddr);
-
   const whs = _ttnWarehousesForContractor(parsed.id).slice();
   whs.sort((a, b) => String(a.warehouse_name || "").localeCompare(String(b.warehouse_name || ""), "ru"));
-  for (const w of whs) {
-    const wname = String(w.warehouse_name || "").trim() || `Склад #${w.id}`;
-    const waddr = String(warehouseAddressLine(w) || "").trim();
-    const line = waddr || wname;
-    // Dropdown: warehouse first, then address (same for load #8 and unload #10).
-    const label = waddr ? `${wname} | ${waddr}` : wname;
-    addAddr(`w:${w.id}`, label, line);
+  const addWarehouses = () => {
+    for (const w of whs) {
+      const wname = String(w.warehouse_name || "").trim() || `Склад #${w.id}`;
+      const waddr = String(warehouseAddressLine(w) || "").trim();
+      const line = waddr || wname;
+      // Dropdown: warehouse first, then address (same for load #8 and unload #10).
+      const label = waddr ? `${wname} | ${waddr}` : wname;
+      addAddr(`w:${w.id}`, label, line);
+    }
+  };
+  if (forLoad) {
+    // п.8: warehouses before card so sole warehouse wins default over legal/card.
+    addWarehouses();
+    if (cardAddr) addAddr(`addr:c:${c.id}`, cardAddr, cardAddr);
+  } else {
+    if (cardAddr) addAddr(`addr:c:${c.id}`, cardAddr, cardAddr);
+    addWarehouses();
   }
   return { opts, addressByValue };
 }
 
+/**
+ * Default for п.8 «Место погрузки»:
+ * 1 warehouse → that warehouse; 0 warehouses + legal/card → legal/card; many warehouses → empty.
+ */
+function _ttnDefaultLoadPlaceKey(opts) {
+  const list = Array.isArray(opts) ? opts : [];
+  const wh = list.filter((o) => String(o?.value || "").startsWith("w:"));
+  if (wh.length === 1) return String(wh[0].value);
+  if (wh.length > 1) return "";
+  const card = list.find((o) => String(o?.value || "").startsWith("addr:"));
+  return card ? String(card.value) : "";
+}
+
 function _ttnRefreshLoadPlaceOptions(preferAddrOrKey) {
   const ref = String(document.getElementById("ttnCreateShipper")?.value || "");
-  const { opts, addressByValue } = _ttnAddressOptionsForParty(ref);
+  const { opts, addressByValue } = _ttnAddressOptionsForParty(ref, "load");
   _ttnLoadAddressByValue = addressByValue;
   let placeholder;
   if (!ref) placeholder = "— Сначала выберите грузоотправителя —";
@@ -20532,7 +20566,7 @@ function _ttnRefreshLoadPlaceOptions(preferAddrOrKey) {
       }
     }
   }
-  if (!key && opts.length === 1) key = opts[0].value;
+  if (!key) key = _ttnDefaultLoadPlaceKey(opts);
   _ttnSetSsValue("ttnCreateLoadWrap", key);
   onTtnLoadPresetChange();
   return key;
@@ -20540,7 +20574,7 @@ function _ttnRefreshLoadPlaceOptions(preferAddrOrKey) {
 
 function _ttnRefreshUnloadPlaceOptions(preferAddrOrKey) {
   const ref = String(document.getElementById("ttnCreateConsignee")?.value || "");
-  const { opts, addressByValue } = _ttnAddressOptionsForParty(ref);
+  const { opts, addressByValue } = _ttnAddressOptionsForParty(ref, "unload");
   _ttnUnloadAddressByValue = addressByValue;
   let placeholder;
   if (!ref) placeholder = "— Сначала выберите грузополучателя —";
@@ -22038,7 +22072,7 @@ function _ttnBuildPayloadFromState(state, groupId) {
     loadAddress = String(s.loadAddress || "").trim();
   } else {
     const key = String(s.load || "");
-    const loadMaps = _ttnAddressOptionsForParty(s.shipper || "");
+    const loadMaps = _ttnAddressOptionsForParty(s.shipper || "", "load");
     loadAddress = String(
       (loadMaps.addressByValue && loadMaps.addressByValue[key])
       || _ttnLoadAddressByValue[key]
@@ -22051,7 +22085,7 @@ function _ttnBuildPayloadFromState(state, groupId) {
     unloadAddress = String(s.unloadAddress || "").trim();
   } else {
     const key = String(s.unload || "");
-    const unloadMaps = _ttnAddressOptionsForParty(s.consignee || "");
+    const unloadMaps = _ttnAddressOptionsForParty(s.consignee || "", "unload");
     unloadAddress = String(
       (unloadMaps.addressByValue && unloadMaps.addressByValue[key])
       || _ttnUnloadAddressByValue[key]
@@ -22238,6 +22272,18 @@ function _ttnLoadAddressForState(state) {
   return String(_ttnLoadAddressByValue[key] || s.loadAddress || "").trim();
 }
 
+/** Phone from Настройки → Контрагенты / Юр.лица for the party ref. */
+function _ttnPartyPhone(ref) {
+  const parsed = _ttnParsePartyRef(ref);
+  if (!parsed) return "";
+  if (parsed.type === "le") {
+    const e = (_supplyLegalEntitiesCache || []).find((x) => Number(x.id) === Number(parsed.id));
+    return String(e?.phone || "").trim();
+  }
+  const c = (_supplyContractorsCache || []).find((x) => Number(x.id) === Number(parsed.id));
+  return String(c?.phone || "").trim();
+}
+
 function _ttnBuildRouteText() {
   _ttnPersistActiveTabState();
   // Refresh address maps from active (already applied) — for inactive tabs, resolve from keys if possible.
@@ -22249,15 +22295,20 @@ function _ttnBuildRouteText() {
     if (s.manualLoadMode) {
       addr = String(s.loadAddress || "").trim();
     } else if (s.load) {
-      const { addressByValue } = _ttnAddressOptionsForParty(s.shipper || "");
+      const { addressByValue } = _ttnAddressOptionsForParty(s.shipper || "", "load");
       addr = String(addressByValue[s.load] || s.loadAddress || "").trim();
     } else {
       addr = String(s.loadAddress || "").trim();
     }
     // п.8 (адрес погрузки): пустое оставляем пустым — без «—» и без блокировки кнопки маршрута.
     const party = _ttnLoadPartyNameForState(s);
+    const phone = _ttnPartyPhone(s.shipper || "");
     const places = String(s.places || "").trim() || "0";
-    blocks.push(`${idx + 1}) ${party}\n${addr}\n${places} мест`);
+    const lines = [`${idx + 1}) ${party}`, addr];
+    // Phone from Настройки → контрагенты / юр.лица — строка под адресом.
+    if (phone) lines.push(phone);
+    lines.push(`${places} мест`);
+    blocks.push(lines.join("\n"));
   });
   return blocks.join("\n\n");
 }
