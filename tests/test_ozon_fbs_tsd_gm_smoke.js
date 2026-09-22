@@ -60,7 +60,7 @@ assert(src.includes("TSD_SCAN_MODE_KEY"), "TSD COM localStorage key");
 assert(src.includes("tsdScanModeToggle"), "COM toggle in scan chrome");
 assert(src.includes("looksLikeKizMark"), "marking-vs-sticker detector");
 assert(src.includes("Похоже, вы просканировали маркировку"), "marking-instead-of-sticker copy");
-assert(html.includes("wb_fbs_tsd.js?v=97"), "TSD js cache bumped");
+assert(html.includes("wb_fbs_tsd.js?v=98"), "TSD js cache bumped");
 assert(html.includes("wb_fbs_tsd.css?v=50"), "TSD css cache bumped");
 
 assert(src.includes("return to sticker immediately"), "bind after UI reset per TZ");

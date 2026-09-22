@@ -1247,18 +1247,9 @@
 
   function _tsdScanAckSwallowKeys(event) {
     if (!tsdScanAckOpen()) return;
-    const elapsed = Date.now() - Number(tsdScanAckState.openedAt || 0);
-    // First ~500ms: ignore everything (scanner finishing the same read).
-    if (elapsed < 500) {
-      event.preventDefault();
-      event.stopPropagation();
-      return;
-    }
-    const key = String(event.key || "");
-    if (key === "Enter" || key === "Tab" || key.length === 1) {
-      event.preventDefault();
-      event.stopPropagation();
-    }
+    // Block all keyboard/scanner input while ack is open (parity with desktop).
+    event.preventDefault();
+    event.stopPropagation();
   }
 
   /**
@@ -2274,6 +2265,13 @@
         // Keep outbox for retry unless GM is permanently locked.
         if (isLockedGmError(row.container_sync_error)) {
           outboxRemove("gm", id);
+          if (state.gm.activeId && Number(row.container_id || 0) === Number(state.gm.activeId)) {
+            setActiveGm(null);
+            state.gm.awaitingScan = false;
+            void loadGmContainers(true).then(() => {
+              refreshGmBar();
+            });
+          }
         }
         return;
       }
@@ -2291,7 +2289,16 @@
         row.container_synced = false;
         row.container_sync_error = msg;
       }
-      if (isLockedGmError(msg)) outboxRemove("gm", id);
+      if (isLockedGmError(msg)) {
+        outboxRemove("gm", id);
+        if (state.gm.activeId) {
+          setActiveGm(null);
+          state.gm.awaitingScan = false;
+          void loadGmContainers(true).then(() => {
+            refreshGmBar();
+          });
+        }
+      }
       // Soft status only — do not block / clobber OK scan banners.
       outboxSoftStatus(`ГМ: ${msg}`, "warn");
     }
@@ -6488,9 +6495,8 @@
   }
 
   async function tsdScanComOnScanClosed() {
-    if (state.route.view !== "scan") {
-      await _tsdScanComDisconnect();
-    }
+    // Always release the port when leaving the scan screen (caller still on view=scan).
+    await _tsdScanComDisconnect();
   }
 
   function tsdScanComInitFromStorage() {
