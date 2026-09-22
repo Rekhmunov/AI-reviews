@@ -21177,9 +21177,9 @@ function _populateTtnFilters() {
     .forEach(([id, name]) => driverOpts.push({ value: `d:${id}`, label: name }));
   [...manualNames].sort((a, b) => a.localeCompare(b, "ru"))
     .forEach((name) => driverOpts.push({ value: `m:${name}`, label: name }));
-  ssPopulate("ttnLegalFilterWrap", legalOpts, () => renderTtnTable());
-  ssPopulate("ttnConsigneeFilterWrap", consigneeOpts, () => renderTtnTable());
-  ssPopulate("ttnDriverFilterWrap", driverOpts, () => renderTtnTable());
+  ssPopulate("ttnLegalFilterWrap", legalOpts, () => _ttnOnFilterChange());
+  ssPopulate("ttnConsigneeFilterWrap", consigneeOpts, () => _ttnOnFilterChange());
+  ssPopulate("ttnDriverFilterWrap", driverOpts, () => _ttnOnFilterChange());
 }
 
 function _ttnDriverCarrierCell(r) {
@@ -21272,6 +21272,59 @@ function _ttnFilteredRows() {
 }
 
 let _ttnSelectedIds = new Set();
+const TTN_PAGE_SIZE = 50;
+let _ttnPage = 1;
+
+function _ttnOnFilterChange() {
+  _ttnPage = 1;
+  renderTtnTable();
+}
+window._ttnOnFilterChange = _ttnOnFilterChange;
+
+function _ttnTotalPages(total) {
+  return Math.max(1, Math.ceil(Math.max(0, Number(total) || 0) / TTN_PAGE_SIZE));
+}
+
+function _ttnPageSlice(rows) {
+  const total = (rows || []).length;
+  const pages = _ttnTotalPages(total);
+  if (_ttnPage > pages) _ttnPage = pages;
+  if (_ttnPage < 1) _ttnPage = 1;
+  const start = (_ttnPage - 1) * TTN_PAGE_SIZE;
+  return {
+    total,
+    pages,
+    page: _ttnPage,
+    rows: (rows || []).slice(start, start + TTN_PAGE_SIZE),
+  };
+}
+
+function _ttnSyncPagination(total) {
+  const pages = _ttnTotalPages(total);
+  if (_ttnPage > pages) _ttnPage = pages;
+  const info = document.getElementById("ttnInfo");
+  const pageInfo = document.getElementById("ttnPageInfo");
+  const prevBtn = document.getElementById("ttnPrevBtn");
+  const nextBtn = document.getElementById("ttnNextBtn");
+  if (info) {
+    info.textContent = total
+      ? `Всего: ${total}`
+      : "ТН не найдены";
+  }
+  if (pageInfo) pageInfo.textContent = `${_ttnPage} / ${pages}`;
+  if (prevBtn) prevBtn.disabled = _ttnPage <= 1;
+  if (nextBtn) nextBtn.disabled = _ttnPage >= pages || total === 0;
+}
+
+function ttnChangePage(delta) {
+  const total = _ttnFilteredRows().length;
+  const pages = _ttnTotalPages(total);
+  const next = Math.max(1, Math.min(pages, _ttnPage + Number(delta || 0)));
+  if (next === _ttnPage) return;
+  _ttnPage = next;
+  renderTtnTable();
+}
+window.ttnChangePage = ttnChangePage;
 
 function _ttnSyncSelectAllCheckbox(visibleRows) {
   const master = document.getElementById("ttnSelectAll");
@@ -21296,20 +21349,21 @@ function toggleTtnRowSelected(id, checked) {
   if (rid <= 0) return;
   if (checked) _ttnSelectedIds.add(rid);
   else _ttnSelectedIds.delete(rid);
-  _ttnSyncSelectAllCheckbox(_ttnFilteredRows());
+  const pageRows = _ttnPageSlice(_ttnFilteredRows()).rows;
+  _ttnSyncSelectAllCheckbox(pageRows);
   _ttnSyncPrintSelectedBtn();
 }
 window.toggleTtnRowSelected = toggleTtnRowSelected;
 
 function toggleTtnSelectAll(checked) {
-  const rows = _ttnFilteredRows();
-  for (const r of rows) {
+  // Select-all applies to the current page of filtered rows only («всё, что ниже»).
+  const pageRows = _ttnPageSlice(_ttnFilteredRows()).rows;
+  for (const r of pageRows) {
     const rid = Number(r.id || 0);
     if (rid <= 0) continue;
     if (checked) _ttnSelectedIds.add(rid);
     else _ttnSelectedIds.delete(rid);
   }
-  // Re-render so row checkboxes match; prune stale ids that no longer exist.
   const alive = new Set(_ttnRecords.map((r) => Number(r.id || 0)).filter((id) => id > 0));
   _ttnSelectedIds = new Set([..._ttnSelectedIds].filter((id) => alive.has(id)));
   renderTtnTable();
@@ -21321,15 +21375,17 @@ function renderTtnTable() {
   if (!tbody) return;
   const alive = new Set(_ttnRecords.map((r) => Number(r.id || 0)).filter((id) => id > 0));
   _ttnSelectedIds = new Set([..._ttnSelectedIds].filter((id) => alive.has(id)));
-  const rows = _ttnFilteredRows();
-  _ttnSyncSelectAllCheckbox(rows);
+  const filtered = _ttnFilteredRows();
+  const page = _ttnPageSlice(filtered);
+  _ttnSyncPagination(page.total);
+  _ttnSyncSelectAllCheckbox(page.rows);
   _ttnSyncPrintSelectedBtn();
-  if (!rows.length) {
+  if (!page.total) {
     tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">ТН не найдены</td></tr>';
     return;
   }
   tbody.innerHTML = "";
-  rows.forEach((r) => {
+  page.rows.forEach((r) => {
     const tr = document.createElement("tr");
     const plat = String(r.fbs_platform || "").trim().toLowerCase();
     if (plat === "ozon" || plat === "ozon_fbs") {

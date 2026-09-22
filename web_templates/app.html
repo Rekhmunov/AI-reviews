@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=413" />
+  <link rel="stylesheet" href="/static/style.css?v=414" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -4373,7 +4373,7 @@
                   <input type="hidden" id="ttnDriverFilter" />
                 </div>
                 <input id="ttnSearch" type="search" placeholder="🔍 Поиск..."
-                       autocomplete="off" style="width:160px" oninput="renderTtnTable()" />
+                       autocomplete="off" style="width:160px" oninput="_ttnOnFilterChange()" />
               </div>
             </div>
           </div>
@@ -4391,10 +4391,10 @@
                 </colgroup>
                 <thead>
                   <tr>
-                    <th data-col="0" class="ttn-num-col" title="Выбрать все отфильтрованные">
+                    <th data-col="0" class="ttn-num-col" title="Выбрать все на странице">
                       <label class="ttn-row-check ttn-select-all-label">
                         <input type="checkbox" id="ttnSelectAll"
-                               aria-label="Выбрать все отфильтрованные ТН"
+                               aria-label="Выбрать все ТН на странице"
                                onchange="toggleTtnSelectAll(this.checked)" />
                       </label>
                       <span class="ttn-num-col-label">№</span>
@@ -4410,6 +4410,14 @@
                 </thead>
                 <tbody id="ttnTbody"></tbody>
               </table>
+            </div>
+            <div class="supplies-footer">
+              <span id="ttnInfo" class="small supplies-total"></span>
+              <div class="supplies-pagination">
+                <button type="button" class="secondary" id="ttnPrevBtn" onclick="ttnChangePage(-1)">← Назад</button>
+                <span id="ttnPageInfo" class="small"></span>
+                <button type="button" class="secondary" id="ttnNextBtn" onclick="ttnChangePage(1)">Вперёд →</button>
+              </div>
             </div>
           </div>
         </div>
@@ -8159,6 +8167,6 @@
 
   <script src="/static/ozon_fbs.js?v=193"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=37"></script>
-  <script src="/static/app.js?v=693"></script>
+  <script src="/static/app.js?v=694"></script>
 </body>
 </html>
