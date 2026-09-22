@@ -29,8 +29,8 @@ def test_multi_ttn_html_has_tabs_route_and_driver_column() -> None:
     # Overlay click must not close create modal.
     overlay_line = html.split('id="createTtnModal"', 1)[1].split(">", 1)[0]
     assert "closeCreateTtnModal" not in overlay_line
-    assert "app.js?v=692" in html
-    assert "style.css?v=412" in html
+    assert "app.js?v=694" in html
+    assert "style.css?v=414" in html
 
 
 def test_multi_ttn_js_capture_apply_group_route_overlay() -> None:
@@ -113,16 +113,16 @@ def test_multi_ttn_backend_group_id_present() -> None:
 
 
 def test_ttn_list_clusters_by_group_id() -> None:
-    """Grouped TN rows stay adjacent: newest group first, within group by id ASC."""
+    """Grouped TN rows stay adjacent: highest doc_number first, within group by id ASC."""
     from review_processor.repository import cluster_supply_ttn_records_by_group
 
     rows = [
-        {"id": 1, "group_id": "", "created_at": "2026-09-01T10:00:00"},
-        {"id": 3, "group_id": "g1", "created_at": "2026-09-02T10:01:00"},
-        {"id": 2, "group_id": "g1", "created_at": "2026-09-02T10:00:00"},
-        {"id": 4, "group_id": "", "created_at": "2026-09-03T10:00:00"},
-        {"id": 6, "group_id": "g2", "created_at": "2026-09-04T10:00:00"},
-        {"id": 5, "group_id": "g2", "created_at": "2026-09-02T12:00:00"},
+        {"id": 1, "group_id": "", "doc_number": "1", "created_at": "2026-09-01T10:00:00"},
+        {"id": 3, "group_id": "g1", "doc_number": "3", "created_at": "2026-09-02T10:01:00"},
+        {"id": 2, "group_id": "g1", "doc_number": "2", "created_at": "2026-09-02T10:00:00"},
+        {"id": 4, "group_id": "", "doc_number": "4", "created_at": "2026-09-03T10:00:00"},
+        {"id": 6, "group_id": "g2", "doc_number": "6", "created_at": "2026-09-04T10:00:00"},
+        {"id": 5, "group_id": "g2", "doc_number": "5", "created_at": "2026-09-02T12:00:00"},
     ]
     out = cluster_supply_ttn_records_by_group(rows)
     assert [r["id"] for r in out] == [5, 6, 4, 2, 3, 1]
@@ -133,8 +133,77 @@ def test_ttn_list_clusters_by_group_id() -> None:
     assert g1 == [3, 4]
 
 
+def test_ttn_list_clusters_prefers_doc_number_over_created_at() -> None:
+    from review_processor.repository import cluster_supply_ttn_records_by_group
+
+    rows = [
+        {"id": 10, "group_id": "", "doc_number": "2", "created_at": "2026-09-10T10:00:00"},
+        {"id": 11, "group_id": "", "doc_number": "9", "created_at": "2026-09-01T10:00:00"},
+        {"id": 12, "group_id": "g", "doc_number": "3", "created_at": "2026-09-11T10:00:00"},
+        {"id": 13, "group_id": "g", "doc_number": "4", "created_at": "2026-09-01T10:00:00"},
+    ]
+    out = cluster_supply_ttn_records_by_group(rows)
+    assert [r["id"] for r in out] == [11, 12, 13, 10]
+
+
 def test_ttn_ui_reclusters_after_filters() -> None:
     js = JS.read_text(encoding="utf-8")
     assert "function _ttnClusterRowsByGroup" in js
+    assert "function _ttnDocNumberValue" in js
     render = js.split("function renderTtnTable", 1)[1].split("\nfunction ", 1)[0]
-    assert "_ttnClusterRowsByGroup(rows)" in render
+    assert "_ttnFilteredRows()" in render or "_ttnPageSlice" in render
+    assert "_ttnPageSlice" in render
+    assert "ttn-row-checkbox" in render
+    assert "toggleTtnRowSelected" in js
+    assert "function toggleTtnSelectAll" in js
+    assert "function printSelectedTtnRecords" in js
+    assert "/api/supply-ttn-records/print-html" in js
+    assert "TTN_PAGE_SIZE = 50" in js
+    assert "function ttnChangePage" in js
+    assert "function _ttnOnFilterChange" in js
+    html = HTML.read_text(encoding="utf-8")
+    assert 'id="ttnSelectAll"' in html
+    assert 'id="ttnPrintSelectedBtn"' in html
+    assert 'id="ttnPrevBtn"' in html
+    assert 'id="ttnNextBtn"' in html
+    assert 'id="ttnPageInfo"' in html
+    assert 'id="ttnInfo"' in html
+    assert "ttnChangePage(-1)" in html
+    assert "app.js?v=694" in html
+    assert "style.css?v=414" in html
+    web = WEB.read_text(encoding="utf-8")
+    assert '"/api/supply-ttn-records/print-html"' in web
+    assert "allocate_next_supply_ttn_doc_number" in web
+    assert "peek_next_supply_ttn_doc_number" in web
+    repo = REPO.read_text(encoding="utf-8")
+    assert "def peek_next_supply_ttn_doc_number" in repo
+    assert "def allocate_next_supply_ttn_doc_number" in repo
+    assert "pg_advisory_lock" in repo
+
+
+def test_ttn_select_all_uses_current_page_of_filtered() -> None:
+    js = JS.read_text(encoding="utf-8")
+    select_all = js.split("function toggleTtnSelectAll", 1)[1].split("\nfunction ", 1)[0]
+    assert "_ttnPageSlice(_ttnFilteredRows())" in select_all
+    assert "TTN_PAGE_SIZE" in js
+    # Filter change resets to page 1.
+    assert "_ttnPage = 1" in js.split("function _ttnOnFilterChange", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+
+def test_supply_ttn_doc_number_gap_fill() -> None:
+    """Lowest free positive integer is reused after a gap (delete semantics)."""
+    used = {1, 2, 4, 5}
+
+    def _next(used_set: set[int]) -> int:
+        n = 1
+        while n in used_set:
+            n += 1
+        return n
+
+    assert _next(used) == 3
+    assert _next({1, 2, 3}) == 4
+    assert _next(set()) == 1
+    repo = REPO.read_text(encoding="utf-8")
+    assert "while n in used" in repo.split("def peek_next_supply_ttn_doc_number", 1)[1][:400]
+    assert "while n in used" in repo.split("def allocate_next_supply_ttn_doc_number", 1)[1][:800]

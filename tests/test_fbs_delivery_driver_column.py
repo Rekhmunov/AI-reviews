@@ -21,9 +21,9 @@ def _slice(src: str, start: str, end: str) -> str:
 
 
 def test_cache_versions() -> None:
-    assert "app.js?v=692" in HTML
+    assert "app.js?v=694" in HTML
     assert "ozon_fbs.js?v=193" in HTML
-    assert "style.css?v=412" in HTML
+    assert "style.css?v=414" in HTML
 
 
 def test_wb_delivery_column_only() -> None:

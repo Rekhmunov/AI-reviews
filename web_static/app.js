@@ -21177,9 +21177,9 @@ function _populateTtnFilters() {
     .forEach(([id, name]) => driverOpts.push({ value: `d:${id}`, label: name }));
   [...manualNames].sort((a, b) => a.localeCompare(b, "ru"))
     .forEach((name) => driverOpts.push({ value: `m:${name}`, label: name }));
-  ssPopulate("ttnLegalFilterWrap", legalOpts, () => renderTtnTable());
-  ssPopulate("ttnConsigneeFilterWrap", consigneeOpts, () => renderTtnTable());
-  ssPopulate("ttnDriverFilterWrap", driverOpts, () => renderTtnTable());
+  ssPopulate("ttnLegalFilterWrap", legalOpts, () => _ttnOnFilterChange());
+  ssPopulate("ttnConsigneeFilterWrap", consigneeOpts, () => _ttnOnFilterChange());
+  ssPopulate("ttnDriverFilterWrap", driverOpts, () => _ttnOnFilterChange());
 }
 
 function _ttnDriverCarrierCell(r) {
@@ -21188,6 +21188,15 @@ function _ttnDriverCarrierCell(r) {
 }
 
 /** Keep same group_id adjacent after filters (mirrors backend cluster_supply_ttn_records_by_group). */
+function _ttnDocNumberValue(rec) {
+  const raw = String(rec?.doc_number || "").trim();
+  if (/^\d+$/.test(raw)) {
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : 0;
+  }
+  return 0;
+}
+
 function _ttnClusterRowsByGroup(list) {
   const grouped = new Map();
   const solo = [];
@@ -21203,25 +21212,25 @@ function _ttnClusterRowsByGroup(list) {
   const clusters = [];
   for (const members of grouped.values()) {
     members.sort((a, b) => Number(a.id || 0) - Number(b.id || 0));
-    let maxCreated = "";
+    let maxNum = 0;
     let maxId = 0;
     for (const r of members) {
-      const c = String(r.created_at || "");
-      if (c > maxCreated) maxCreated = c;
+      const n = _ttnDocNumberValue(r);
+      if (n > maxNum) maxNum = n;
       const id = Number(r.id || 0);
       if (id > maxId) maxId = id;
     }
-    clusters.push({ keyCreated: maxCreated, keyId: maxId, members });
+    clusters.push({ keyNum: maxNum, keyId: maxId, members });
   }
   for (const rec of solo) {
     clusters.push({
-      keyCreated: String(rec.created_at || ""),
+      keyNum: _ttnDocNumberValue(rec),
       keyId: Number(rec.id || 0),
       members: [rec],
     });
   }
   clusters.sort((a, b) => {
-    if (a.keyCreated !== b.keyCreated) return a.keyCreated < b.keyCreated ? 1 : -1;
+    if (a.keyNum !== b.keyNum) return b.keyNum - a.keyNum;
     return b.keyId - a.keyId;
   });
   const out = [];
@@ -21229,9 +21238,8 @@ function _ttnClusterRowsByGroup(list) {
   return out;
 }
 
-function renderTtnTable() {
-  const tbody = document.getElementById("ttnTbody");
-  if (!tbody) return;
+/** Visible TN rows after current filters (same order as the table). */
+function _ttnFilteredRows() {
   const lf = (document.getElementById("ttnLegalFilter")?.value || "").trim();
   const cf = (document.getElementById("ttnConsigneeFilter")?.value || "").trim();
   const df = (document.getElementById("ttnDriverFilter")?.value || "").trim();
@@ -21260,13 +21268,124 @@ function renderTtnTable() {
       (r.vehicle_line || "").toLowerCase().includes(sq)
     );
   }
-  rows = _ttnClusterRowsByGroup(rows);
-  if (!rows.length) {
+  return _ttnClusterRowsByGroup(rows);
+}
+
+let _ttnSelectedIds = new Set();
+const TTN_PAGE_SIZE = 50;
+let _ttnPage = 1;
+
+function _ttnOnFilterChange() {
+  _ttnPage = 1;
+  renderTtnTable();
+}
+window._ttnOnFilterChange = _ttnOnFilterChange;
+
+function _ttnTotalPages(total) {
+  return Math.max(1, Math.ceil(Math.max(0, Number(total) || 0) / TTN_PAGE_SIZE));
+}
+
+function _ttnPageSlice(rows) {
+  const total = (rows || []).length;
+  const pages = _ttnTotalPages(total);
+  if (_ttnPage > pages) _ttnPage = pages;
+  if (_ttnPage < 1) _ttnPage = 1;
+  const start = (_ttnPage - 1) * TTN_PAGE_SIZE;
+  return {
+    total,
+    pages,
+    page: _ttnPage,
+    rows: (rows || []).slice(start, start + TTN_PAGE_SIZE),
+  };
+}
+
+function _ttnSyncPagination(total) {
+  const pages = _ttnTotalPages(total);
+  if (_ttnPage > pages) _ttnPage = pages;
+  const info = document.getElementById("ttnInfo");
+  const pageInfo = document.getElementById("ttnPageInfo");
+  const prevBtn = document.getElementById("ttnPrevBtn");
+  const nextBtn = document.getElementById("ttnNextBtn");
+  if (info) {
+    info.textContent = total
+      ? `Всего: ${total}`
+      : "ТН не найдены";
+  }
+  if (pageInfo) pageInfo.textContent = `${_ttnPage} / ${pages}`;
+  if (prevBtn) prevBtn.disabled = _ttnPage <= 1;
+  if (nextBtn) nextBtn.disabled = _ttnPage >= pages || total === 0;
+}
+
+function ttnChangePage(delta) {
+  const total = _ttnFilteredRows().length;
+  const pages = _ttnTotalPages(total);
+  const next = Math.max(1, Math.min(pages, _ttnPage + Number(delta || 0)));
+  if (next === _ttnPage) return;
+  _ttnPage = next;
+  renderTtnTable();
+}
+window.ttnChangePage = ttnChangePage;
+
+function _ttnSyncSelectAllCheckbox(visibleRows) {
+  const master = document.getElementById("ttnSelectAll");
+  if (!master) return;
+  const ids = (visibleRows || []).map((r) => Number(r.id || 0)).filter((id) => id > 0);
+  const selectedCount = ids.filter((id) => _ttnSelectedIds.has(id)).length;
+  master.checked = ids.length > 0 && selectedCount === ids.length;
+  master.indeterminate = selectedCount > 0 && selectedCount < ids.length;
+  master.disabled = ids.length === 0;
+}
+
+function _ttnSyncPrintSelectedBtn() {
+  const btn = document.getElementById("ttnPrintSelectedBtn");
+  if (!btn) return;
+  const n = _ttnSelectedIds.size;
+  btn.disabled = n < 1;
+  btn.textContent = n > 0 ? `Печать выбранных (${n})` : "Печать выбранных";
+}
+
+function toggleTtnRowSelected(id, checked) {
+  const rid = Number(id || 0);
+  if (rid <= 0) return;
+  if (checked) _ttnSelectedIds.add(rid);
+  else _ttnSelectedIds.delete(rid);
+  const pageRows = _ttnPageSlice(_ttnFilteredRows()).rows;
+  _ttnSyncSelectAllCheckbox(pageRows);
+  _ttnSyncPrintSelectedBtn();
+}
+window.toggleTtnRowSelected = toggleTtnRowSelected;
+
+function toggleTtnSelectAll(checked) {
+  // Select-all applies to the current page of filtered rows only («всё, что ниже»).
+  const pageRows = _ttnPageSlice(_ttnFilteredRows()).rows;
+  for (const r of pageRows) {
+    const rid = Number(r.id || 0);
+    if (rid <= 0) continue;
+    if (checked) _ttnSelectedIds.add(rid);
+    else _ttnSelectedIds.delete(rid);
+  }
+  const alive = new Set(_ttnRecords.map((r) => Number(r.id || 0)).filter((id) => id > 0));
+  _ttnSelectedIds = new Set([..._ttnSelectedIds].filter((id) => alive.has(id)));
+  renderTtnTable();
+}
+window.toggleTtnSelectAll = toggleTtnSelectAll;
+
+function renderTtnTable() {
+  const tbody = document.getElementById("ttnTbody");
+  if (!tbody) return;
+  const alive = new Set(_ttnRecords.map((r) => Number(r.id || 0)).filter((id) => id > 0));
+  _ttnSelectedIds = new Set([..._ttnSelectedIds].filter((id) => alive.has(id)));
+  const filtered = _ttnFilteredRows();
+  const page = _ttnPageSlice(filtered);
+  _ttnSyncPagination(page.total);
+  _ttnSyncSelectAllCheckbox(page.rows);
+  _ttnSyncPrintSelectedBtn();
+  if (!page.total) {
     tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">ТН не найдены</td></tr>';
     return;
   }
   tbody.innerHTML = "";
-  rows.forEach((r) => {
+  page.rows.forEach((r) => {
     const tr = document.createElement("tr");
     const plat = String(r.fbs_platform || "").trim().toLowerCase();
     if (plat === "ozon" || plat === "ozon_fbs") {
@@ -21274,10 +21393,19 @@ function renderTtnTable() {
     } else if (plat === "wb" || plat === "wildberries" || plat === "wb_fbs") {
       tr.className = "ttn-row-from-wb";
     }
+    const rid = Number(r.id || 0);
+    const checked = _ttnSelectedIds.has(rid) ? " checked" : "";
     const num = r.doc_number || r.id;
     const title = String(r.title || "").trim();
     tr.innerHTML = `
-      <td>${esc(String(num))}</td>
+      <td class="ttn-num-cell">
+        <label class="ttn-row-check">
+          <input type="checkbox" class="ttn-row-checkbox" data-ttn-id="${rid}"
+                 aria-label="Выбрать ТН ${esc(String(num))}"${checked}
+                 onchange="toggleTtnRowSelected(${rid}, this.checked)" />
+        </label>
+        <span class="ttn-num-value">${esc(String(num))}</span>
+      </td>
       <td title="${esc(title)}">${esc(title)}</td>
       <td>${esc(r.ttn_date || "")}</td>
       <td>${esc(r.le_short || "")}</td>
@@ -21477,6 +21605,55 @@ function printTtnRecord(id) {
   }
 }
 window.printTtnRecord = printTtnRecord;
+
+function printSelectedTtnRecords() {
+  const selected = _ttnSelectedIds;
+  if (!selected.size) {
+    alert("Выберите хотя бы одну ТН");
+    return;
+  }
+  const ordered = [];
+  const seen = new Set();
+  for (const r of _ttnFilteredRows()) {
+    const id = Number(r.id || 0);
+    if (id > 0 && selected.has(id) && !seen.has(id)) {
+      ordered.push(id);
+      seen.add(id);
+    }
+  }
+  // Selected but currently hidden by filter — append by doc_number DESC.
+  const hidden = [];
+  for (const r of _ttnRecords) {
+    const id = Number(r.id || 0);
+    if (id > 0 && selected.has(id) && !seen.has(id)) {
+      hidden.push(r);
+      seen.add(id);
+    }
+  }
+  hidden.sort((a, b) => {
+    const dn = _ttnDocNumberValue(b) - _ttnDocNumberValue(a);
+    if (dn) return dn;
+    return Number(b.id || 0) - Number(a.id || 0);
+  });
+  for (const r of hidden) ordered.push(Number(r.id));
+  if (!ordered.length) {
+    alert("Выберите хотя бы одну ТН");
+    return;
+  }
+  if (ordered.length === 1) {
+    printTtnRecord(ordered[0]);
+    return;
+  }
+  const qs = ordered.map((id) => `ids=${encodeURIComponent(id)}`).join("&");
+  const win = window.open(`/api/supply-ttn-records/print-html?${qs}`, "_blank");
+  if (!win) alert("Разрешите всплывающие окна для печати");
+  if (win) {
+    win.addEventListener("load", () => {
+      try { win.print(); } catch (_e) { /* ignore */ }
+    });
+  }
+}
+window.printSelectedTtnRecords = printSelectedTtnRecords;
 
 async function deleteTtnRecord(id) {
   if (!confirm("Удалить ТН?")) return;
@@ -23055,8 +23232,8 @@ async function saveCertEdit() {
 }
 
 // ── Resizable columns ──
-const TTN_COL_WIDTHS_KEY = "logistics_ttn_col_widths_v2";
-const TTN_DEFAULT_WIDTHS = [6, 18, 10, 14, 18, 22, 12];
+const TTN_COL_WIDTHS_KEY = "logistics_ttn_col_widths_v3";
+const TTN_DEFAULT_WIDTHS = [8, 16, 10, 14, 16, 22, 14];
 let _ttnColResizerInited = false;
 
 function initTtnColumnResizer() {

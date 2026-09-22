@@ -185,7 +185,19 @@ def _date_from_created_at_with_lookback(created_at: object, lookback_days: int) 
 def cluster_supply_ttn_records_by_group(
     records: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Keep same group_id adjacent: groups by max(created_at,id) DESC, within by id ASC."""
+    """Keep same group_id adjacent: groups by max(doc_number,id) DESC, within by id ASC.
+
+    Highest TN numbers stay on top (сквозная нумерация в списке логистики).
+    """
+    def _doc_n(rec: dict[str, Any]) -> int:
+        raw = str((rec or {}).get("doc_number") or "").strip()
+        if raw.isdigit():
+            try:
+                return int(raw)
+            except (TypeError, ValueError):
+                return 0
+        return 0
+
     grouped: dict[str, list[dict[str, Any]]] = {}
     solo: list[dict[str, Any]] = []
     for rec in records:
@@ -194,16 +206,14 @@ def cluster_supply_ttn_records_by_group(
             grouped.setdefault(gid, []).append(rec)
         else:
             solo.append(rec)
-    clusters: list[tuple[tuple[str, int], list[dict[str, Any]]]] = []
+    clusters: list[tuple[tuple[int, int], list[dict[str, Any]]]] = []
     for _gid, members in grouped.items():
         members.sort(key=lambda r: int(r.get("id") or 0))
-        max_created = max(str(r.get("created_at") or "") for r in members)
+        max_num = max((_doc_n(r) for r in members), default=0)
         max_id = max(int(r.get("id") or 0) for r in members)
-        clusters.append(((max_created, max_id), members))
+        clusters.append(((max_num, max_id), members))
     for rec in solo:
-        clusters.append(
-            ((str(rec.get("created_at") or ""), int(rec.get("id") or 0)), [rec])
-        )
+        clusters.append(((_doc_n(rec), int(rec.get("id") or 0)), [rec]))
     clusters.sort(key=lambda c: c[0], reverse=True)
     return [rec for _, members in clusters for rec in members]
 
@@ -11241,7 +11251,13 @@ class ReviewRepository:
                       ON COALESCE(t.consignee_type, 'contractor') = 'contractor' AND c_c.id = t.contractor_id
                     LEFT JOIN supply_drivers d ON d.id = t.driver_id AND t.driver_id > 0
                     WHERE t.user_id = ?
-                    ORDER BY t.created_at DESC, t.id DESC
+                    ORDER BY
+                      CASE
+                        WHEN TRIM(COALESCE(t.doc_number, '')) ~ '^[0-9]+$'
+                        THEN TRIM(t.doc_number)::bigint
+                        ELSE 0
+                      END DESC,
+                      t.id DESC
                 """),
                 (user_id,),
             ).fetchall()
@@ -11588,7 +11604,7 @@ class ReviewRepository:
         return bool(result.rowcount)
 
     def peek_next_ttn_number(self) -> int:
-        """Next daily TTN number without consuming the counter."""
+        """Next daily TTN number without consuming the counter (Ozon combined docs)."""
         today = _utc_now()[:10]
         with self._connect() as conn:
             row = conn.execute(
@@ -11605,6 +11621,67 @@ class ReviewRepository:
             except (TypeError, ValueError, IndexError):
                 current = 0
         return max(1, current + 1)
+
+    def _used_supply_ttn_doc_numbers(self, *, user_id: int, conn=None) -> set[int]:
+        """Positive integer doc_numbers already taken by this owner's logistics TNs."""
+        sql = self._sql(
+            """
+            SELECT doc_number FROM supply_ttn_records
+            WHERE user_id = ?
+              AND TRIM(COALESCE(doc_number, '')) ~ '^[0-9]+$'
+            """
+        )
+        if conn is not None:
+            rows = conn.execute(sql, (int(user_id),)).fetchall()
+        else:
+            with self._connect() as c:
+                rows = c.execute(sql, (int(user_id),)).fetchall()
+        used: set[int] = set()
+        for row in rows or []:
+            raw = ""
+            try:
+                raw = str(row["doc_number"] if isinstance(row, dict) else row[0] or "")
+            except (KeyError, IndexError, TypeError):
+                raw = str(getattr(row, "doc_number", "") or "")
+            raw = raw.strip()
+            if raw.isdigit():
+                try:
+                    used.add(int(raw))
+                except (TypeError, ValueError):
+                    pass
+        return used
+
+    def peek_next_supply_ttn_doc_number(self, *, user_id: int) -> int:
+        """Lowest free positive logistics TN number for the owner (does not allocate)."""
+        used = self._used_supply_ttn_doc_numbers(user_id=user_id)
+        n = 1
+        while n in used:
+            n += 1
+        return n
+
+    def allocate_next_supply_ttn_doc_number(self, *, user_id: int) -> int:
+        """Allocate lowest free positive logistics TN number (reuse gaps after delete).
+
+        Serialised with a per-user advisory lock so concurrent creates do not collide.
+        """
+        uid = int(user_id or 0)
+        if uid <= 0:
+            return 1
+        # Namespace lock key so we do not clash with other advisory locks on user_id.
+        lock_key = (uid & 0x7FFFFFFF) ^ 0x544E4430  # 'TND0'
+        with self._connect() as conn:
+            conn.execute("SELECT pg_advisory_lock(?)", (lock_key,))
+            try:
+                used = self._used_supply_ttn_doc_numbers(user_id=uid, conn=conn)
+                n = 1
+                while n in used:
+                    n += 1
+                return n
+            finally:
+                try:
+                    conn.execute("SELECT pg_advisory_unlock(?)", (lock_key,))
+                except Exception:
+                    pass
 
     def list_ttn_rows_missing_title(self, *, user_id: int) -> list[dict[str, Any]]:
         with self._connect() as conn:
