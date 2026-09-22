@@ -332,7 +332,7 @@ def test_tsd_phone_camera_scan_button() -> None:
     assert "isSecureContext" in js
     assert ".tsd-cam-overlay" in css
     assert "flex: 0 0 56px" in css
-    assert "wb_fbs_tsd.js?v=96" in html
+    assert "wb_fbs_tsd.js?v=97" in html
     # Self-hosted ZXing (CSP blocks CDN script-src on iPhone Safari).
     assert (STATIC / "zxing.min.js").is_file()
     assert "/static/zxing.min.js" in js
@@ -361,7 +361,7 @@ def test_tsd_phone_camera_scan_button() -> None:
     assert "function outboxFlushGmPending" in js
     assert "outboxRememberGmBind(row" in js
     assert 'outboxRemove("gm"' in js
-    assert "wb_fbs_tsd.css?v=49" in html
+    assert "wb_fbs_tsd.css?v=50" in html
     assert "Scan (С КИЗ / Без КИЗ): pin filter" in css
     assert ".tsd-app.is-scan .tsd-filter-wrap:not([hidden])" in css
     assert "margin-left: auto" in css
@@ -379,13 +379,28 @@ def test_tsd_phone_camera_scan_button() -> None:
     cam_fn = js[js.find("function scanCamBtnHtml") : js.find("function scanCamBtnHtml") + 400]
     assert "tsdScanCamBtn" in cam_fn
     assert "tsd-gm-icon-btn" in cam_fn
-    prompt_fn = js[js.find("function scanPromptRowHtml") : js.find("function scanPromptRowHtml") + 350]
+    prompt_fn = js[js.find("function scanPromptRowHtml") : js.find("function scanPromptRowHtml") + 450]
     assert "scanCamBtnHtml()" in prompt_fn
+    assert "scanModeToggleHtml()" in prompt_fn
     assert "tsd-scan-prompt" in prompt_fn
     field_fn = js[js.find("function scanFieldRowHtml") : js.find("function scanFieldRowHtml") + 700]
     assert "tsdScanInput" in field_fn
     assert "tsdScanCamBtn" not in field_fn
     assert ".tsd-scan-prompt-row" in css
+    # COM port mode (parity with desktop KIZ/pick).
+    assert "function deliverTsdComScan" in js
+    assert "navigator.serial" in js
+    assert 'TSD_SCAN_MODE_KEY = "wb_fbs_tsd_scan_input_mode_v1"' in js
+    assert "tsdScanModeToggle" in js
+    assert ".tsd-scan-mode-toggle" in css
+    # Blocking scan-ack modals (parity with desktop showFbsScanAck).
+    assert "function showTsdScanAck" in js
+    assert "function dismissTsdScanAck" in js
+    assert "tsdScanAckOpen()" in enter
+    assert "guardOrderScanRequiresActiveGm" in enter
+    assert "looksLikeKizMark" in enter
+    assert "showTsdScanAck(" in enter
+    assert ".tsd-scan-ack" in css
     # Scan page scrolls as a whole — top chrome is not trapped above a nested list scroller.
     assert "overflow: auto" in css[css.find(".tsd-app.is-scan") : css.find(".tsd-app.is-scan") + 280]
     assert ".tsd-app.is-scan .tsd-scanned" not in css
@@ -416,7 +431,7 @@ def test_tsd_durable_outbox_survives_offline() -> None:
     assert "outboxApplyToLoadedRows(state.route.mode)" in js
     assert "wireOutboxReconnect()" in js
     assert "Нет связи — скан сохранён на устройстве" in js
-    assert "wb_fbs_tsd.js?v=96" in html
+    assert "wb_fbs_tsd.js?v=97" in html
     assert "function outboxSoftStatus" in js
     assert "outboxCache" in js
     # Scan path: UI/focus first, then outbox+network (speed).
@@ -437,3 +452,11 @@ def test_tsd_durable_outbox_survives_offline() -> None:
     assert "function outboxFlushGmPending" in js
     assert "outboxRememberGmBind(row" in js
     assert 'outboxRemove("gm"' in js
+    # Pending Ozon confirm must not clear GM outbox (root cause of «прикрепилось на ТСД, нет на Ozon»).
+    assert "function gmBindConfirmed" in js
+    assert "Pending Ozon confirmation" in js
+    flush = js[
+        js.find("async function outboxFlushGmEntry") : js.find("function outboxFlushGmPending")
+    ]
+    assert "gmBindConfirmed(row)" in flush
+    assert 'outboxRemove("gm", id)' in flush

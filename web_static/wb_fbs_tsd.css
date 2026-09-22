@@ -964,6 +964,13 @@ html, body {
   margin: 0;
 }
 
+.tsd-scan-prompt-tools {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
 .tsd-scan-prompt-row .tsd-scan-cam-btn {
   flex: 0 0 44px;
   width: 44px;
@@ -971,6 +978,101 @@ html, body {
   height: 44px;
   min-height: 44px;
   border-radius: 12px;
+}
+
+/* COM / keyboard toggle — compact, matches desktop scan-mode switch intent. */
+.tsd-scan-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 8px;
+  border: 1px solid var(--tsd-line);
+  border-radius: 12px;
+  background: var(--tsd-surface);
+  color: var(--tsd-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.tsd-scan-mode-toggle:hover {
+  border-color: var(--tsd-accent);
+  color: var(--tsd-ink);
+}
+
+.tsd-scan-mode-toggle:focus-visible {
+  outline: 2px solid var(--tsd-accent);
+  outline-offset: 2px;
+}
+
+.tsd-scan-mode-toggle:active {
+  transform: scale(0.98);
+}
+
+.tsd-scan-mode-toggle.is-com,
+.tsd-scan-mode-toggle[aria-checked="true"] {
+  border-color: var(--tsd-accent);
+  color: var(--tsd-ink);
+  background: color-mix(in srgb, var(--tsd-accent) 12%, var(--tsd-surface));
+}
+
+.tsd-scan-mode-track {
+  position: relative;
+  width: 28px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--tsd-line);
+  flex: 0 0 auto;
+}
+
+.tsd-scan-mode-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--tsd-surface);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.2);
+  transition: transform 0.15s ease;
+}
+
+.tsd-scan-mode-toggle[aria-checked="true"] .tsd-scan-mode-track {
+  background: var(--tsd-accent);
+}
+
+.tsd-scan-mode-toggle[aria-checked="true"] .tsd-scan-mode-thumb {
+  transform: translateX(12px);
+}
+
+.tsd-scan-mode-ico {
+  display: inline-flex;
+  align-items: center;
+  opacity: 0.55;
+}
+
+.tsd-scan-mode-toggle[aria-checked="false"] .tsd-scan-mode-kb,
+.tsd-scan-mode-toggle[aria-checked="true"] .tsd-scan-mode-com {
+  opacity: 1;
+  color: var(--tsd-ink);
+}
+
+.tsd-scan-mode-status {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--tsd-muted);
+}
+
+.tsd-scan-mode-status.is-ok {
+  color: var(--tsd-ok, #15803d);
+}
+
+.tsd-scan-mode-status.is-error {
+  color: var(--tsd-err, #b91c1c);
 }
 
 .tsd-scan-prompt {
@@ -1203,6 +1305,61 @@ html, body {
 
 .tsd-gm-rebind[hidden] {
   display: none !important;
+}
+
+/* Blocking scan-error ack — same job as desktop FBS scan-ack modal. */
+.tsd-scan-ack {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.tsd-scan-ack[hidden] {
+  display: none !important;
+}
+
+.tsd-scan-ack-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.tsd-scan-ack-card {
+  position: relative;
+  z-index: 1;
+  width: min(420px, 100%);
+  max-height: none;
+  overflow: visible;
+  padding: 24px 20px 20px;
+  border-radius: 16px;
+  background: var(--tsd-surface);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+}
+
+.tsd-scan-ack-title {
+  margin: 0 0 12px;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--tsd-ink);
+}
+
+.tsd-scan-ack-text {
+  margin: 0 0 20px;
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--tsd-ink);
+  white-space: pre-wrap;
+}
+
+.tsd-scan-ack-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .tsd-gm-rebind-backdrop {

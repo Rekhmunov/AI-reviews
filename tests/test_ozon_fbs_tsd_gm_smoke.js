@@ -46,9 +46,25 @@ assert(src.includes("Таймаут загрузки грузомест"), "cont
 assert(src.includes("hard GM reset on source change"), "source change hard reset");
 assert(
   src.includes("container_sync_error") &&
-    src.includes("prevId === activeId && !String(row.container_sync_error"),
-  "retry bind when sync_error set"
+    src.includes("gmBindConfirmed(row)"),
+  "retry bind when !synced or sync_error"
 );
+assert(src.includes("Pending Ozon confirmation"), "keep outbox on pending confirm");
+assert(src.includes("function supplyHasFilledCargoPlace"), "GM order-scan guard helper");
+assert(src.includes("function guardOrderScanRequiresActiveGm"), "GM order-scan guard");
+assert(src.includes("Вы пытаетесь просканировать заказ без грузоместа."), "GM guard copy");
+assert(src.includes("function showTsdScanAck"), "TSD scan-ack modal");
+assert(src.includes("function deliverTsdComScan"), "TSD COM deliver");
+assert(src.includes("navigator.serial"), "Web Serial on TSD");
+assert(src.includes("TSD_SCAN_MODE_KEY"), "TSD COM localStorage key");
+assert(src.includes("tsdScanModeToggle"), "COM toggle in scan chrome");
+assert(src.includes("looksLikeKizMark"), "marking-vs-sticker detector");
+assert(src.includes("Похоже, вы просканировали маркировку"), "marking-instead-of-sticker copy");
+assert(html.includes("wb_fbs_tsd.js?v=97"), "TSD js cache bumped");
+assert(html.includes("wb_fbs_tsd.css?v=50"), "TSD css cache bumped");
+
+assert(src.includes("return to sticker immediately"), "bind after UI reset per TZ");
+assert(src.includes("Rebind sheet is modal") || src.includes("Blocking modals / rebind"), "ignore scans while rebind/ack open");
 assert(
   /if\s*\(\s*!isOzon\(\)\s*\|\|\s*!state\.gm\.activeId/.test(src),
   "silent no-op without activeId"
@@ -63,14 +79,10 @@ assert(src.includes("tsd-gm-icon-add"), "green add GM class");
 assert(!src.includes("Сканировать ГМ"), "old GM scan CTA removed");
 assert(src.includes("scanFieldRowHtml"), "GM icons beside scan input");
 assert(html.includes("Без ГМ"), "filter label in HTML");
-
 assert(src.includes("keepOnFail"), "refresh keeps GM cache on transient fail");
 assert(src.includes("Optimistic chrome"), "optimistic badge/counter refresh");
 assert(src.includes("rowGmCode"), "GM full code helper");
 assert(src.includes("tsd-scanned-gm-code"), "GM code class in scanned card");
-
-assert(src.includes("return to sticker immediately"), "bind after UI reset per TZ");
-assert(src.includes("Rebind sheet is modal"), "ignore scans while rebind open");
 
 // Scanned card UX: Отправление + full GM code + one clear-all ×
 assert(src.includes("formatOzonPostingHtml"), "posting highlight helper");

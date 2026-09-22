@@ -76,6 +76,26 @@
   const LS_OUTBOX = "wb_fbs_tsd_outbox_v1";
   /** Active Ozon cargo place (ГМ) per source+supply — survives leave/re-enter and refresh. */
   const LS_ACTIVE_GM = "wb_fbs_tsd_active_gm_v1";
+  /** Keyboard (default) / COM (Web Serial) — same idea as desktop KIZ/pick. */
+  const TSD_SCAN_MODE_KEY = "wb_fbs_tsd_scan_input_mode_v1";
+  const TSD_COM_BAUD = 9600;
+  const TSD_COM_INTER_BYTE_MS = 50;
+  const TSD_COM_DEDUP_MS = 500;
+  const TSD_COM_RECONNECT_MS = 600;
+
+  const tsdScanComState = {
+    preferredCom: false,
+    port: null,
+    reader: null,
+    reading: false,
+    buffer: "",
+    interByteTimer: null,
+    lastRaw: "",
+    lastAt: 0,
+    connectInFlight: false,
+    closing: false,
+    disconnectBound: false,
+  };
 
   function currentSource() {
     return (
@@ -266,6 +286,45 @@
   function gmBoundCount(mode) {
     const rows = mode === "kiz" ? state.kizRows : state.pickRows;
     return (rows || []).filter((r) => Number(r?.container_id || 0) > 0).length;
+  }
+
+  /**
+   * When the supply already has ≥1 filled GM, order sticker scans require an active cargo place.
+   * Mirrors desktop guardOrderScanRequiresActiveGm.
+   */
+  function supplyHasFilledCargoPlace() {
+    if (!isOzon()) return false;
+    const containers = state.gm.containers || [];
+    if (
+      containers.some(
+        (c) => c?.bound_to_open_supply === true && Number(c?.order_count || 0) > 0
+      )
+    ) {
+      return true;
+    }
+    if ((state.kizRows || []).some((r) => Number(r?.container_id || 0) > 0)) return true;
+    if ((state.pickRows || []).some((r) => Number(r?.container_id || 0) > 0)) return true;
+    return false;
+  }
+
+  /** Returns true when the sticker/order scan may proceed. */
+  function guardOrderScanRequiresActiveGm(inputEl) {
+    if (!isOzon() || !gmUiVisible()) return true;
+    if (state.gm.awaitingScan) return true;
+    if (!supplyHasFilledCargoPlace()) return true;
+    if (state.gm.activeId) return true;
+    const msg = "Вы пытаетесь просканировать заказ без грузоместа.";
+    showTsdScanAck(msg, { title: "Нет грузоместа", focusInput: inputEl });
+    beep(false);
+    if (inputEl) {
+      try {
+        inputEl.value = "";
+        inputEl.focus();
+      } catch (_e) {
+        /* ignore */
+      }
+    }
+    return false;
   }
 
   function rowGmCode(row) {
@@ -556,12 +615,34 @@
       title="Сканировать камерой телефона" aria-label="Сканировать камерой телефона">${cameraIconSvg()}</button>`;
   }
 
-  /** Prompt + phone-camera control (camera stays out of the wedge input row). */
+  /** Prompt + COM toggle + phone-camera control (camera stays out of the wedge input row). */
   function scanPromptRowHtml(promptText) {
     return `<div class="tsd-scan-prompt-row">
       <p class="tsd-scan-prompt">${promptText}</p>
-      ${scanCamBtnHtml()}
-    </div>`;
+      <div class="tsd-scan-prompt-tools">
+        ${scanModeToggleHtml()}
+        ${scanCamBtnHtml()}
+      </div>
+    </div>
+    <div class="tsd-scan-mode-status" id="tsdScanModeStatus" hidden></div>`;
+  }
+
+  function scanModeToggleHtml() {
+    const on = !!tsdScanComState.preferredCom;
+    return `<button type="button" id="tsdScanModeToggle" class="tsd-scan-mode-toggle${
+      on ? " is-com" : ""
+    }" role="switch" aria-checked="${on ? "true" : "false"}"
+      aria-label="Режим сканера: клавиатура или COM"
+      title="Выкл — клавиатура. Вкл — COM-порт">
+      <span class="tsd-scan-mode-ico tsd-scan-mode-kb" aria-hidden="true" title="Клавиатура">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <rect x="2" y="6" width="20" height="12" rx="2" stroke="currentColor" stroke-width="2"/>
+          <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </span>
+      <span class="tsd-scan-mode-track" aria-hidden="true"><span class="tsd-scan-mode-thumb"></span></span>
+      <span class="tsd-scan-mode-ico tsd-scan-mode-com" aria-hidden="true" title="COM">COM</span>
+    </button>`;
   }
 
   function scanFieldRowHtml() {
@@ -834,12 +915,26 @@
     row.container_sync_error = String(
       data.error || data.container_sync_error || ""
     ).trim();
+    if (data.cancelled) {
+      const label =
+        String(data.cancel_reason_label || "Отменено").trim() || "Отменено";
+      row.cancelled = true;
+      row.cancel_reason_label = label;
+      row.tab = "cancelled";
+      row.status = String(data.status || "cancelled");
+      row.container_sync_error = "";
+    }
+  }
+
+  /** True when bind finished confirmed on Ozon — only then drop GM outbox. */
+  function gmBindConfirmed(row) {
+    return !!(row && row.container_synced && !String(row.container_sync_error || "").trim());
   }
 
   /**
    * After successful KIZ / product barcode — bind to active GM (Ozon only).
    * Optimistic like web; rebind confirm is awaited.
-   * Phase 2: silent no-op without activeId; retry when sync_error; clear locked GM.
+   * Phase 2: silent no-op without activeId; retry when sync_error or !synced; clear locked GM.
    */
   async function maybeBindGmAfterSuccess(row) {
     // Quiet when no active GM — KIZ/SKU flow must not show GM errors.
@@ -853,8 +948,8 @@
     const prevBarcode = String(row.container_barcode || "").trim();
     const nextBarcode = state.gm.activeBarcode || String(state.gm.activeId);
     const activeId = state.gm.activeId;
-    // Already on this GM without error — no-op (retry only when sync_error set).
-    if (prevId === activeId && !String(row.container_sync_error || "").trim()) {
+    // Already on this GM and Ozon-confirmed — no-op. Retry when !synced or sync_error.
+    if (prevId === activeId && gmBindConfirmed(row)) {
       return true;
     }
     if (prevId && prevId !== activeId) {
@@ -890,15 +985,38 @@
           prevId && prevId !== activeId ? prevId : null
         );
         applyGmBindResult(row, data);
-        if (row.container_sync_error) {
+        if (data && data.cancelled) {
+          outboxRemove("gm", postingNumber);
+          const label =
+            String(data.cancel_reason_label || row.cancel_reason_label || "Отменено").trim() ||
+            "Отменено";
+          showTsdScanAck(
+            `Отправление ${postingNumber} отменено (${label}) — в грузоместо не добавляем`,
+            { title: "Заказ отменён" }
+          );
+        } else if (row.container_sync_error) {
           if (isLockedGmError(row.container_sync_error)) {
             outboxRemove("gm", postingNumber);
+            setActiveGm(null);
+            state.gm.awaitingScan = false;
+            void loadGmContainers(true).then(() => {
+              refreshGmBar();
+            });
+            showTsdScanAck(
+              `Грузоместо ${activeId} уже подтверждено — выберите другое`,
+              { title: "Грузоместо закрыто" }
+            );
+          } else {
+            // Keep outbox for retry; soft status only (do not block next sticker).
+            outboxSoftStatus(`ГМ: ${row.container_sync_error}`, "warn");
           }
-          setBanner(`В ГМ локально, Ozon: ${row.container_sync_error}`, "warn");
-          refreshScanBanner();
-        } else {
+        } else if (gmBindConfirmed(row)) {
           outboxRemove("gm", postingNumber);
           // No toast: on TSD it covers the scan field; GM is already in the hint under input.
+        } else {
+          // Pending Ozon confirmation (synced=false, empty error) — keep outbox + retry.
+          outboxSoftStatus("ГМ локально — ждём подтверждение Ozon", "warn");
+          outboxRescheduleCurrent();
         }
       } catch (e) {
         const msg = String(e.message || e);
@@ -913,20 +1031,20 @@
           void loadGmContainers(true).then(() => {
             refreshGmBar();
           });
-          setBanner(
+          showTsdScanAck(
             `Грузоместо ${activeId} уже подтверждено — выберите другое`,
-            "err"
+            { title: "Грузоместо закрыто" }
           );
         } else {
           // Keep GM outbox entry for online retry.
-          setBanner(`В ГМ локально, Ozon: ${msg}`, "warn");
+          outboxSoftStatus(`ГМ: ${msg}`, "warn");
         }
-        refreshScanBanner();
         refreshGmBar();
       }
       if (state.route.view === "scan" && state.route.mode === modeAtBind) {
         refreshScannedListSection(modeAtBind);
         refreshScanStats(modeAtBind);
+        refreshScanBanner();
       }
     })();
     return true;
@@ -1083,6 +1201,110 @@
     toast._t = setTimeout(() => {
       el.hidden = true;
     }, 2400);
+  }
+
+  /* —— Blocking scan-ack modal (parity with desktop FBS scan ack) —— */
+  const tsdScanAckState = {
+    open: false,
+    focusInputId: null,
+    openedAt: 0,
+  };
+
+  function tsdScanAckOpen() {
+    return !!tsdScanAckState.open;
+  }
+
+  function ensureTsdScanAckDom() {
+    let root = document.getElementById("tsdScanAckModal");
+    if (root) return root;
+    const app = document.getElementById("tsdApp") || document.body;
+    root = document.createElement("div");
+    root.id = "tsdScanAckModal";
+    root.className = "tsd-scan-ack";
+    root.hidden = true;
+    root.setAttribute("role", "dialog");
+    root.setAttribute("aria-modal", "true");
+    root.setAttribute("aria-labelledby", "tsdScanAckTitle");
+    root.innerHTML = `
+      <div class="tsd-scan-ack-backdrop" aria-hidden="true"></div>
+      <div class="tsd-scan-ack-card">
+        <h2 class="tsd-scan-ack-title" id="tsdScanAckTitle">Ошибка скана</h2>
+        <p class="tsd-scan-ack-text" id="tsdScanAckMessage"></p>
+        <div class="tsd-scan-ack-actions">
+          <button type="button" class="tsd-btn tsd-btn-primary" id="tsdScanAckOk">Хорошо</button>
+        </div>
+      </div>`;
+    app.appendChild(root);
+    const ok = root.querySelector("#tsdScanAckOk");
+    if (ok) {
+      ok.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        dismissTsdScanAck();
+      });
+    }
+    return root;
+  }
+
+  function _tsdScanAckSwallowKeys(event) {
+    if (!tsdScanAckOpen()) return;
+    const elapsed = Date.now() - Number(tsdScanAckState.openedAt || 0);
+    // First ~500ms: ignore everything (scanner finishing the same read).
+    if (elapsed < 500) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    const key = String(event.key || "");
+    if (key === "Enter" || key === "Tab" || key.length === 1) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }
+
+  /**
+   * Show blocking ack. Scan/COM must wait until «Хорошо».
+   * @param {string} message
+   * @param {{ title?: string, focusInput?: HTMLElement|null }|null|undefined} opts
+   */
+  function showTsdScanAck(message, opts) {
+    const text = String(message || "Ошибка скана.").trim();
+    const o = opts && typeof opts === "object" ? opts : {};
+    const title = String(o.title || "Ошибка скана").trim() || "Ошибка скана";
+    const root = ensureTsdScanAckDom();
+    const titleEl = document.getElementById("tsdScanAckTitle");
+    const msgEl = document.getElementById("tsdScanAckMessage");
+    if (titleEl) titleEl.textContent = title;
+    if (msgEl) msgEl.textContent = text;
+    const focusEl = o.focusInput || document.getElementById("tsdScanInput");
+    tsdScanAckState.focusInputId = String(focusEl?.id || "") || "tsdScanInput";
+    tsdScanAckState.openedAt = Date.now();
+    tsdScanAckState.open = true;
+    root.hidden = false;
+    document.removeEventListener("keydown", _tsdScanAckSwallowKeys, true);
+    document.addEventListener("keydown", _tsdScanAckSwallowKeys, true);
+    return true;
+  }
+
+  function dismissTsdScanAck() {
+    if (!tsdScanAckOpen()) return;
+    document.removeEventListener("keydown", _tsdScanAckSwallowKeys, true);
+    const root = document.getElementById("tsdScanAckModal");
+    if (root) root.hidden = true;
+    const id = tsdScanAckState.focusInputId;
+    tsdScanAckState.focusInputId = null;
+    tsdScanAckState.openedAt = 0;
+    tsdScanAckState.open = false;
+    const el = id ? document.getElementById(id) : null;
+    if (el) {
+      setTimeout(() => {
+        try {
+          el.focus();
+          el.select?.();
+        } catch (_e) {
+          /* ignore */
+        }
+      }, 40);
+    }
   }
 
   function stopLoadingUi() {
@@ -2044,6 +2266,10 @@
         prev && prev !== cid ? prev : null
       );
       if (row) applyGmBindResult(row, data);
+      if (data && data.cancelled) {
+        outboxRemove("gm", id);
+        return;
+      }
       if (row && row.container_sync_error) {
         // Keep outbox for retry unless GM is permanently locked.
         if (isLockedGmError(row.container_sync_error)) {
@@ -2051,7 +2277,14 @@
         }
         return;
       }
-      outboxRemove("gm", id);
+      // Only drop outbox after Ozon confirmation — pending (synced=false) must retry.
+      if (row && gmBindConfirmed(row)) {
+        outboxRemove("gm", id);
+        return;
+      }
+      if (!row && data && (data.container_synced || data.synced)) {
+        outboxRemove("gm", id);
+      }
     } catch (e) {
       const msg = String((e && e.message) || e);
       if (row) {
@@ -3751,7 +3984,20 @@
   }
 
   function rowIsCancelled(row) {
-    return !!String((row && row.cancel_reason_label) || "").trim();
+    if (!row) return false;
+    if (row.cancelled === true) return true;
+    if (String(row.cancel_reason_label || "").trim()) return true;
+    const tab = String(row.tab || "").toLowerCase();
+    if (tab === "cancelled") return true;
+    const status = String(row.status || "").toLowerCase();
+    return status === "cancelled" || status.startsWith("cancelled");
+  }
+
+  /** Honest Sign / sgtin payload — not a sticker. Used when operator scans КИЗ on sticker step. */
+  function looksLikeKizMark(raw) {
+    const mark = normalizeKizMark(raw);
+    if (!mark || mark.length < 18) return false;
+    return !!gtinFromMark(mark);
   }
 
   function applyOrderFilters(rows, mode) {
@@ -4488,6 +4734,7 @@
     closeGmRebind(false);
     state.gm.awaitingScan = false;
     setBanner(null);
+    void tsdScanComOnScanClosed();
     navigate(`#/s/${sid}`);
   }
 
@@ -5079,6 +5326,7 @@
     const input = document.getElementById("tsdScanInput");
     const clearBtn = document.getElementById("tsdScanClear");
     wireCamScanButton();
+    wireScanModeToggle();
     const syncScanClearBtn = () => {
       if (!clearBtn || !input) return;
       clearBtn.hidden = !String(input.value || "").length;
@@ -5089,6 +5337,10 @@
     if (input) {
       syncScanClearBtn();
       input.addEventListener("keydown", (ev) => {
+        if (tsdScanAckOpen()) {
+          ev.preventDefault();
+          return;
+        }
         if (state.step === "mark" && mode === "kiz" && isGsKeyEvent(ev)) {
           ev.preventDefault();
           insertGsIntoInput(input);
@@ -5101,19 +5353,6 @@
       });
       input.addEventListener("input", () => {
         syncScanClearBtn();
-        if (hasCyrillic(input.value)) {
-          const el = document.querySelector(".tsd-banner");
-          if (!el) {
-            const shell = document.querySelector(".tsd-scan-shell");
-            if (shell) {
-              const ban = document.createElement("div");
-              ban.className = "tsd-banner is-warn";
-              ban.textContent =
-                "Русская раскладка — переключите на EN (или сканируйте ещё раз)";
-              shell.insertBefore(ban, shell.children[1] || null);
-            }
-          }
-        }
       });
     }
     if (clearBtn && input) {
@@ -5272,11 +5511,13 @@
     wireBannerDismiss(main);
     wireScanInput(mode, { keepSearchFocus });
     wireScanFooter(mode);
+    void tsdScanComOnScanOpened();
   }
 
   async function onScanEnter(input) {
     const mode = state.route.mode;
-    // Rebind sheet is modal — ignore wedge input until operator answers.
+    // Blocking modals / rebind — ignore wedge until operator answers.
+    if (tsdScanAckOpen()) return;
     if (isOzon() && state.gm.rebindResolver) return;
     let raw = String(input.value || "");
     if (!normalizeScan(raw)) return;
@@ -5286,10 +5527,12 @@
     if (hasCyrillic(raw)) {
       const mapped = fixRuKeyboardLayout(raw);
       if (hasCyrillic(mapped)) {
-        setBanner("Русская раскладка — переключите на EN", "warn");
+        showTsdScanAck("Русская раскладка — переключите на EN", {
+          title: "Русская раскладка",
+          focusInput: input,
+        });
         beep(false);
         input.value = "";
-        input.focus();
         return;
       }
       raw = mapped;
@@ -5308,6 +5551,15 @@
         }
         focusScanInput();
       } else {
+        // handleGmScan already set banner — escalate unknown GM to modal.
+        const errText = String(state.banner?.text || "").trim();
+        if (errText) {
+          showTsdScanAck(errText, {
+            title: "Грузоместо",
+            focusInput: input,
+          });
+          clearBanner({ silent: true });
+        }
         input.select();
         refreshScanBanner();
       }
@@ -5315,25 +5567,50 @@
     }
 
     if (state.step === "sticker" || !state.pendingOrderId) {
+      if (!guardOrderScanRequiresActiveGm(input)) return;
       const rows = mode === "kiz" ? state.kizRows : state.pickRows;
       const found = findBySticker(rows, raw);
       if (found.ambiguous) {
-        setBanner("Стикер совпал у нескольких заказов — сканируйте QR ещё раз", "err");
-        beep(false);
-        input.select();
-        refreshScanBanner();
-        return;
-      }
-      if (!found.row) {
-        setBanner(
-          mode === "kiz"
-            ? "Стикер не найден среди заказов с КИЗ"
-            : "Стикер не найден среди заказов без КИЗ",
-          "err"
+        showTsdScanAck(
+          "Стикер совпал у нескольких заказов — сканируйте QR ещё раз",
+          { title: "Неоднозначный стикер", focusInput: input }
         );
         beep(false);
         input.select();
-        refreshScanBanner();
+        return;
+      }
+      if (!found.row) {
+        let msg;
+        let title = "Код не найден";
+        if (looksLikeKizMark(raw)) {
+          msg =
+            mode === "kiz"
+              ? "Похоже, вы просканировали маркировку (КИЗ) вместо стикера заказа."
+              : "Похоже, вы просканировали маркировку (КИЗ). Для товаров без КИЗ нужен стикер заказа, затем ШК товара.";
+          title = "Не тот код";
+        } else if (mode === "pick") {
+          msg =
+            "Стикер не найден среди заказов без КИЗ. Возможно, это товар с КИЗ.";
+        } else {
+          msg = "Стикер не найден среди заказов с КИЗ";
+        }
+        showTsdScanAck(msg, { title, focusInput: input });
+        beep(false);
+        input.select();
+        return;
+      }
+      if (rowIsCancelled(found.row)) {
+        const pn = rowDisplayLabel(found.row);
+        const label =
+          String(found.row.cancel_reason_label || "Отменено").trim() || "Отменено";
+        const msg = isOzon()
+          ? `Отправление ${pn} отменено (${label}) — ${
+              mode === "kiz" ? "КИЗ" : "ШК"
+            } менять нельзя`
+          : `Заказ ${pn} отменён (${label}) — сканирование недоступно`;
+        showTsdScanAck(msg, { title: "Заказ отменён", focusInput: input });
+        beep(false);
+        input.value = "";
         return;
       }
       state.pendingOrderId = rowScanId(found.row);
@@ -5352,6 +5629,23 @@
       patchScanAfterSuccess(mode, input);
       return;
     }
+    if (rowIsCancelled(row)) {
+      const pn = rowDisplayLabel(row);
+      const label =
+        String(row.cancel_reason_label || "Отменено").trim() || "Отменено";
+      const msg = isOzon()
+        ? `Отправление ${pn} отменено (${label}) — ${
+            mode === "kiz" ? "КИЗ" : "ШК"
+          } менять нельзя`
+        : `Заказ ${pn} отменён (${label}) — сканирование недоступно`;
+      showTsdScanAck(msg, { title: "Заказ отменён", focusInput: input });
+      beep(false);
+      state.pendingOrderId = null;
+      state.step = "sticker";
+      input.value = "";
+      if (!patchScanCard(mode)) renderScan();
+      return;
+    }
 
     const rowId = rowScanId(row);
     try {
@@ -5359,11 +5653,11 @@
         const mark = normalizeKizMark(raw);
         const check = markMatchesOrder(mark, row);
         if (!check.ok) {
-          setBanner(check.error || "КИЗ не подходит", "err");
-          state.rowErrors[rowId] = check.error || "КИЗ не подходит";
+          const msg = check.error || "КИЗ не подходит";
+          state.rowErrors[rowId] = msg;
+          showTsdScanAck(msg, { title: "КИЗ не подходит", focusInput: input });
           beep(false);
           input.select();
-          refreshScanBanner();
           return;
         }
         delete state.rowErrors[rowId];
@@ -5372,10 +5666,12 @@
           (c) => normalizeKizMark(c) === mark
         );
         if (ownDup) {
-          setBanner(`Этот КИЗ уже в этом ${isOzon() ? "отправлении" : "заказе"}`, "err");
+          showTsdScanAck(
+            `Этот КИЗ уже в этом ${isOzon() ? "отправлении" : "заказе"}`,
+            { title: "Дубль КИЗ", focusInput: input }
+          );
           beep(false);
           input.select();
-          refreshScanBanner();
           return;
         }
         const dup = state.kizRows.find((r) =>
@@ -5385,10 +5681,12 @@
           )
         );
         if (dup) {
-          setBanner(`Этот КИЗ уже в ${isOzon() ? "отпр." : "заказе"} ${rowDisplayLabel(dup)}`, "err");
+          showTsdScanAck(
+            `Этот КИЗ уже в ${isOzon() ? "отпр." : "заказе"} ${rowDisplayLabel(dup)}`,
+            { title: "Дубль КИЗ", focusInput: input }
+          );
           beep(false);
           input.select();
-          refreshScanBanner();
           return;
         }
         // Cap by quantity (default 1): do not grow a second code when slots are
@@ -5398,13 +5696,12 @@
         if (existing.length >= qty) {
           const had = existing.map((x) => x.code).join("; ");
           const entity = isOzon() ? "отправления" : "заказа";
-          setBanner(
+          showTsdScanAck(
             `У ${entity} уже есть КИЗ (${had}). Чтобы заменить — сначала очистите текущий.`,
-            "err"
+            { title: "КИЗ уже есть", focusInput: input }
           );
           beep(false);
           input.select();
-          refreshScanBanner();
           return;
         }
         if (!Array.isArray(row.kiz_codes) || !row.kiz_codes.length) row.kiz_codes = [""];
@@ -5433,10 +5730,12 @@
       } else {
         const check = eanMatchesOrder(raw, row);
         if (!check.ok) {
-          setBanner(check.error || "ШК не подходит", "err");
+          showTsdScanAck(check.error || "ШК не подходит", {
+            title: "ШК не подходит",
+            focusInput: input,
+          });
           beep(false);
           input.select();
-          refreshScanBanner();
           return;
         }
         row.pick_verified = true;
@@ -5454,9 +5753,11 @@
       else schedulePickLocalAutosave(rowId);
       await maybeBindGmAfterSuccess(row);
     } catch (e) {
-      setBanner(e.message || String(e), "err");
+      showTsdScanAck(e.message || String(e), {
+        title: "Ошибка скана",
+        focusInput: input,
+      });
       beep(false);
-      refreshScanBanner();
       input.select();
     }
   }
@@ -5815,9 +6116,391 @@
     window.addEventListener("hashchange", onRoute);
   }
 
+  /* ── TSD scan input mode: keyboard (default) / COM (Web Serial) ─────
+   * Keyboard Enter → onScanEnter. COM feeds the same path via #tsdScanInput.
+   */
+  function _tsdScanComSleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
+  }
+
+  function _tsdScanComSupported() {
+    return typeof navigator !== "undefined" && !!(navigator.serial && navigator.serial.requestPort);
+  }
+
+  function _tsdScanComIsYandexBrowser() {
+    try {
+      return /YaBrowser|Yowser/i.test(String(navigator.userAgent || ""));
+    } catch (_e) {
+      return false;
+    }
+  }
+
+  function _tsdScanComEmptyPortsHint() {
+    if (_tsdScanComIsYandexBrowser()) {
+      return (
+        "COM: в Яндексе список портов пуст. Закройте Chrome полностью " +
+        "(он держит порт), выньте/вставьте сканер и повторите. Надёжнее — Chrome/Edge."
+      );
+    }
+    return (
+      "COM: порт не найден. Закройте другие браузеры/программы с этим COM, " +
+      "переподключите сканер и выберите порт снова."
+    );
+  }
+
+  function _tsdScanComPrefEnabled() {
+    try {
+      return localStorage.getItem(TSD_SCAN_MODE_KEY) === "com";
+    } catch (_e) {
+      return false;
+    }
+  }
+
+  function _tsdScanComSetPref(enabled) {
+    tsdScanComState.preferredCom = !!enabled;
+    try {
+      localStorage.setItem(TSD_SCAN_MODE_KEY, enabled ? "com" : "keyboard");
+    } catch (_e) {
+      /* ignore */
+    }
+  }
+
+  function _tsdScanComSetStatus(text, tone) {
+    const el = document.getElementById("tsdScanModeStatus");
+    if (!el) return;
+    const msg = String(text || "").trim();
+    if (!msg) {
+      el.hidden = true;
+      el.textContent = "";
+      el.classList.remove("is-error", "is-ok");
+      return;
+    }
+    el.hidden = false;
+    el.textContent = msg;
+    el.classList.remove("is-error", "is-ok");
+    if (tone === "error") el.classList.add("is-error");
+    else if (tone === "ok") el.classList.add("is-ok");
+  }
+
+  function _tsdScanComSyncToggleUi() {
+    const on = !!tsdScanComState.preferredCom;
+    const btn = document.getElementById("tsdScanModeToggle");
+    if (!btn) return;
+    btn.setAttribute("aria-checked", on ? "true" : "false");
+    btn.classList.toggle("is-com", on);
+  }
+
+  function wireScanModeToggle() {
+    const btn = document.getElementById("tsdScanModeToggle");
+    if (!btn || btn.dataset.wired === "1") return;
+    btn.dataset.wired = "1";
+    btn.addEventListener("click", (ev) => {
+      void onTsdScanModeToggleClick(ev);
+    });
+    _tsdScanComSyncToggleUi();
+  }
+
+  function deliverTsdComScan(raw) {
+    const value = String(raw || "").replace(/[\r\n]+$/g, "");
+    if (!value.replace(/\s+/g, "")) return false;
+    if (tsdScanAckOpen()) return false;
+    if (isOzon() && state.gm.rebindResolver) return false;
+    if (state.route.view !== "scan") return false;
+    const now = Date.now();
+    if (
+      value === tsdScanComState.lastRaw &&
+      now - tsdScanComState.lastAt < TSD_COM_DEDUP_MS
+    ) {
+      return false;
+    }
+    tsdScanComState.lastRaw = value;
+    tsdScanComState.lastAt = now;
+    const input = document.getElementById("tsdScanInput");
+    if (!input || input.disabled || input.readOnly) return false;
+    input.value = value;
+    void onScanEnter(input);
+    return true;
+  }
+
+  function _tsdScanComFlushBuffer() {
+    if (tsdScanComState.interByteTimer) {
+      clearTimeout(tsdScanComState.interByteTimer);
+      tsdScanComState.interByteTimer = null;
+    }
+    const raw = tsdScanComState.buffer;
+    tsdScanComState.buffer = "";
+    if (!raw) return;
+    deliverTsdComScan(raw);
+  }
+
+  function _tsdScanComOnChunk(text) {
+    if (!text) return;
+    tsdScanComState.buffer += text;
+    const parts = tsdScanComState.buffer.split(/\r\n|\n|\r/);
+    tsdScanComState.buffer = parts.pop() || "";
+    for (const part of parts) {
+      if (String(part || "").replace(/\s+/g, "")) deliverTsdComScan(part);
+    }
+    if (tsdScanComState.interByteTimer) clearTimeout(tsdScanComState.interByteTimer);
+    if (tsdScanComState.buffer) {
+      tsdScanComState.interByteTimer = setTimeout(() => {
+        tsdScanComState.interByteTimer = null;
+        _tsdScanComFlushBuffer();
+      }, TSD_COM_INTER_BYTE_MS);
+    }
+  }
+
+  function _tsdScanComBindDisconnect(port) {
+    if (!port || tsdScanComState.disconnectBound) return;
+    tsdScanComState.disconnectBound = true;
+    try {
+      port.addEventListener("disconnect", () => {
+        if (tsdScanComState.port === port) {
+          tsdScanComState.port = null;
+          tsdScanComState.reader = null;
+        }
+      });
+    } catch (_e) {
+      /* older Chromium */
+    }
+  }
+
+  async function _tsdScanComReleasePort() {
+    if (tsdScanComState.interByteTimer) {
+      clearTimeout(tsdScanComState.interByteTimer);
+      tsdScanComState.interByteTimer = null;
+    }
+    tsdScanComState.buffer = "";
+    const reader = tsdScanComState.reader;
+    tsdScanComState.reader = null;
+    if (reader) {
+      try {
+        await reader.cancel();
+      } catch (_e) {
+        /* ignore */
+      }
+      try {
+        reader.releaseLock();
+      } catch (_e) {
+        /* ignore */
+      }
+    }
+    const port = tsdScanComState.port;
+    tsdScanComState.port = null;
+    tsdScanComState.disconnectBound = false;
+    if (port) {
+      try {
+        await port.close();
+      } catch (_e) {
+        /* ignore */
+      }
+    }
+  }
+
+  function _tsdScanComShouldStayConnected() {
+    return (
+      !!tsdScanComState.preferredCom &&
+      !tsdScanComState.closing &&
+      state.route.view === "scan"
+    );
+  }
+
+  async function _tsdScanComReadLoop() {
+    if (tsdScanComState.reading) return;
+    tsdScanComState.reading = true;
+    const decoder = new TextDecoder("latin1");
+    try {
+      while (_tsdScanComShouldStayConnected()) {
+        let port = tsdScanComState.port;
+        if (!port || !port.readable) {
+          if (!_tsdScanComShouldStayConnected()) break;
+          _tsdScanComSetStatus("COM: переподключение…", "error");
+          const ok = await _tsdScanComConnect({
+            interactive: false,
+            quiet: true,
+            fromReconnect: true,
+          });
+          if (!ok) {
+            await _tsdScanComSleep(TSD_COM_RECONNECT_MS);
+            continue;
+          }
+          port = tsdScanComState.port;
+          if (!port || !port.readable) {
+            await _tsdScanComSleep(TSD_COM_RECONNECT_MS);
+            continue;
+          }
+        }
+
+        const reader = port.readable.getReader();
+        tsdScanComState.reader = reader;
+        let streamEnded = false;
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) {
+              streamEnded = true;
+              break;
+            }
+            if (value && value.length) {
+              _tsdScanComOnChunk(decoder.decode(value, { stream: true }));
+            }
+          }
+        } catch (_e) {
+          streamEnded = true;
+        } finally {
+          try {
+            reader.releaseLock();
+          } catch (_e2) {
+            /* ignore */
+          }
+          if (tsdScanComState.reader === reader) tsdScanComState.reader = null;
+        }
+
+        if (!streamEnded || !_tsdScanComShouldStayConnected()) break;
+        _tsdScanComSetStatus("COM: связь потеряна — переподключение…", "error");
+        await _tsdScanComReleasePort();
+        await _tsdScanComSleep(TSD_COM_RECONNECT_MS);
+      }
+    } finally {
+      tsdScanComState.reading = false;
+    }
+  }
+
+  async function _tsdScanComDisconnect() {
+    tsdScanComState.closing = true;
+    try {
+      await _tsdScanComReleasePort();
+      let spins = 0;
+      while (tsdScanComState.reading && spins < 40) {
+        await _tsdScanComSleep(25);
+        spins += 1;
+      }
+    } finally {
+      tsdScanComState.closing = false;
+    }
+  }
+
+  async function _tsdScanComConnect(opts) {
+    const interactive = !!(opts && opts.interactive);
+    const quiet = !!(opts && opts.quiet);
+    const fromReconnect = !!(opts && opts.fromReconnect);
+    if (!_tsdScanComSupported()) {
+      if (!quiet) _tsdScanComSetStatus("COM недоступен в этом браузере", "error");
+      return false;
+    }
+    if (tsdScanComState.connectInFlight) return false;
+    if (tsdScanComState.closing) return false;
+    tsdScanComState.connectInFlight = true;
+    try {
+      let port = tsdScanComState.port;
+      if (!port) {
+        const ports = await navigator.serial.getPorts();
+        if (ports && ports.length) port = ports[0];
+      }
+      if (!port && interactive) {
+        port = await navigator.serial.requestPort({ filters: [] });
+      }
+      if (!port) {
+        if (!quiet && !fromReconnect) {
+          _tsdScanComSetStatus("COM: выберите порт", "error");
+        }
+        return false;
+      }
+      if (tsdScanComState.port !== port) {
+        try {
+          await port.open({ baudRate: TSD_COM_BAUD });
+        } catch (e) {
+          const msg = String((e && (e.message || e)) || "");
+          if (!/already\s+open/i.test(msg)) {
+            if (quiet || fromReconnect) return false;
+            const busy =
+              /Failed to open|NetworkError|InvalidStateError|Access denied|занят|in use/i.test(
+                msg + " " + String((e && e.name) || "")
+              );
+            _tsdScanComSetStatus(
+              busy
+                ? "COM: порт занят — закройте другие программы с этим портом"
+                : "COM: не удалось открыть порт",
+              "error"
+            );
+            return false;
+          }
+        }
+        tsdScanComState.port = port;
+        _tsdScanComBindDisconnect(port);
+      }
+      _tsdScanComSetStatus("COM подключён", "ok");
+      if (!tsdScanComState.reading) {
+        void _tsdScanComReadLoop();
+      }
+      return true;
+    } catch (e) {
+      if (quiet || fromReconnect) return false;
+      if (e && e.name === "NotFoundError") {
+        _tsdScanComSetStatus(_tsdScanComEmptyPortsHint(), "error");
+      } else {
+        _tsdScanComSetStatus("COM: ошибка подключения", "error");
+      }
+      return false;
+    } finally {
+      tsdScanComState.connectInFlight = false;
+    }
+  }
+
+  async function onTsdScanModeToggleClick(event) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    const next = !tsdScanComState.preferredCom;
+    if (next && !_tsdScanComSupported()) {
+      _tsdScanComSetStatus("COM недоступен в этом браузере", "error");
+      _tsdScanComSetPref(false);
+      _tsdScanComSyncToggleUi();
+      return;
+    }
+    _tsdScanComSetPref(next);
+    _tsdScanComSyncToggleUi();
+    if (!next) {
+      await _tsdScanComDisconnect();
+      _tsdScanComSetStatus("");
+      return;
+    }
+    const ok = await _tsdScanComConnect({ interactive: true });
+    if (!ok) _tsdScanComSyncToggleUi();
+  }
+
+  async function tsdScanComOnScanOpened() {
+    tsdScanComState.preferredCom = _tsdScanComPrefEnabled();
+    _tsdScanComSyncToggleUi();
+    if (!tsdScanComState.preferredCom) {
+      _tsdScanComSetStatus("");
+      return;
+    }
+    if (!_tsdScanComSupported()) {
+      _tsdScanComSetStatus("COM недоступен", "error");
+      return;
+    }
+    const ok = await _tsdScanComConnect({ interactive: false });
+    if (!ok) {
+      _tsdScanComSetStatus("COM: нажмите переключатель для порта", "error");
+    }
+  }
+
+  async function tsdScanComOnScanClosed() {
+    if (state.route.view !== "scan") {
+      await _tsdScanComDisconnect();
+    }
+  }
+
+  function tsdScanComInitFromStorage() {
+    tsdScanComState.preferredCom = _tsdScanComPrefEnabled();
+  }
+
   async function bootApp() {
     bindChrome();
     wireOutboxReconnect();
+    tsdScanComInitFromStorage();
     if (!boot.can_view_wb_fbs_tsd) {
       renderDenied();
       return;

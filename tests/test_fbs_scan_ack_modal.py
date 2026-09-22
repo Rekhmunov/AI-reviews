@@ -46,10 +46,12 @@ def test_ozon_scan_error_ack_call_sites() -> None:
     assert "_fbsScanAckModalOpen()" in oz
     # Cancelled / ambiguous / mismatch / dup / qty + pick paths
     assert "отменено — КИЗ менять нельзя" in oz
-    # TSD/import must not gain this desktop ack family.
+    # TSD/import must not gain this desktop ack family (TSD has showTsdScanAck).
     tsd = (ROOT / "web_static" / "wb_fbs_tsd.js").read_text(encoding="utf-8")
     assert "showFbsScanAck" not in tsd
     assert "fbsStickerNotFoundModal" not in tsd
+    assert "function showTsdScanAck" in tsd
+    assert tsd.count("showTsdScanAck(") >= 8
 
 
 def test_cache_bumps() -> None:
