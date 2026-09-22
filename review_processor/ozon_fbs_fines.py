@@ -849,3 +849,243 @@ def list_unit_events(
 def default_sync_dates() -> tuple[date, date]:
     today = date.today()
     return today - timedelta(days=14), today
+
+
+# --- Excel «Отчёт по начислениям» import ---------------------------------
+
+EXCEL_FINE_TYPE = "Отгрузка в нерекомендованный слот"
+EXCEL_STORNO_TYPE = "Отгрузка в нерекомендованный слот - отмена начисления"
+
+
+def _excel_synthetic_accrual_id(
+    *, unit_number: str, event_date: date, amount: Decimal, kind: str
+) -> int:
+    """Stable negative id so Excel rows never collide with Ozon API accrual_id."""
+    import hashlib
+
+    key = (
+        f"excel|{str(unit_number).strip()}|{event_date.isoformat()}|"
+        f"{amount:.2f}|{kind}"
+    )
+    digest = hashlib.sha1(key.encode("utf-8")).digest()
+    n = int.from_bytes(digest[:8], "big") & 0x7FFFFFFFFFFFFFFF
+    return -n if n else -1
+
+
+def _parse_excel_date(value: Any) -> date | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    # 18.09.2026 or 2026-09-18
+    for fmt in ("%d.%m.%Y", "%Y-%m-%d", "%d.%m.%y"):
+        try:
+            return datetime.strptime(text[:10], fmt).date()
+        except ValueError:
+            continue
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
+
+
+def parse_accruals_report_rows(file_bytes: bytes) -> list[dict[str, Any]]:
+    """Extract only slot fine/storno rows from Ozon accruals Excel report."""
+    import io
+
+    try:
+        from openpyxl import load_workbook
+    except ImportError as exc:
+        raise ValueError("Для импорта нужен пакет openpyxl") from exc
+
+    wb = load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
+    try:
+        ws = wb[wb.sheetnames[0]]
+        header_idx: dict[str, int] = {}
+        out: list[dict[str, Any]] = []
+        for i, row in enumerate(ws.iter_rows(values_only=True)):
+            if not row:
+                continue
+            if not header_idx:
+                # Find header row by known column titles.
+                cells = [str(c or "").strip() for c in row]
+                if "Тип начисления" in cells and "ID начисления" in cells:
+                    header_idx = {name: idx for idx, name in enumerate(cells) if name}
+                continue
+            try:
+                type_i = header_idx["Тип начисления"]
+                id_i = header_idx["ID начисления"]
+                date_i = header_idx["Дата начисления"]
+                sum_i = header_idx["Сумма итого, руб."]
+            except KeyError as exc:
+                raise ValueError(
+                    "В файле нет нужных колонок (ID / Дата / Тип / Сумма)"
+                ) from exc
+            if max(type_i, id_i, date_i, sum_i) >= len(row):
+                continue
+            type_label = str(row[type_i] or "").strip()
+            if type_label == EXCEL_FINE_TYPE:
+                kind = "fine"
+            elif type_label == EXCEL_STORNO_TYPE:
+                kind = "storno"
+            else:
+                continue
+            unit = str(row[id_i] or "").strip()
+            if not unit:
+                continue
+            event_date = _parse_excel_date(row[date_i])
+            if event_date is None:
+                continue
+            amount = _parse_amount(row[sum_i])
+            if isinstance(row[sum_i], float):
+                amount = Decimal(str(round(float(row[sum_i]), 2)))
+            try:
+                amount = amount.quantize(Decimal("0.01"))
+            except InvalidOperation:
+                continue
+            if abs(amount) <= _EPS:
+                continue
+            # Normalize sign by kind (report already uses +/- but be safe).
+            if kind == "fine" and amount > 0:
+                amount = -amount
+            if kind == "storno" and amount < 0:
+                amount = -amount
+            out.append(
+                {
+                    "unit_number": unit,
+                    "event_date": event_date,
+                    "amount": amount,
+                    "kind": kind,
+                    "type_label": type_label,
+                    "raw": {
+                        "source": "excel_import",
+                        "id_nachisleniya": unit,
+                        "type": type_label,
+                        "date": event_date.isoformat(),
+                        "amount": f"{amount:.2f}",
+                    },
+                }
+            )
+        if not header_idx:
+            raise ValueError("Не найден заголовок листа «Начисления»")
+        return out
+    finally:
+        wb.close()
+
+
+def _event_exists_by_signature(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    unit_number: str,
+    event_date: date,
+    amount: Decimal,
+) -> bool:
+    """True if sync or prior import already stored the same economic event."""
+    ensure_ozon_fbs_fines_tables(repo)
+    with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql(
+                """
+                SELECT 1 FROM ozon_fbs_fines_events
+                WHERE user_id = ?
+                  AND unit_number = ?
+                  AND event_date = ?
+                  AND amount = ?
+                LIMIT 1
+                """
+            ),
+            (
+                int(user_id),
+                str(unit_number).strip(),
+                event_date.isoformat(),
+                f"{amount:.2f}",
+            ),
+        ).fetchone()
+    return row is not None
+
+
+def import_accruals_report(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    file_bytes: bytes,
+    filename: str = "",
+) -> dict[str, Any]:
+    """Merge slot fine/storno from Excel without duplicating API sync events.
+
+    Matching key for skip: unit_number + event_date + amount.
+    New storno against an existing synced fine closes the unit (net≈0 → green).
+    """
+    rows = parse_accruals_report_rows(file_bytes)
+    inserted = 0
+    skipped = 0
+    fines_new = 0
+    storno_new = 0
+
+    for row in rows:
+        unit = str(row["unit_number"])
+        event_date: date = row["event_date"]
+        amount: Decimal = row["amount"]
+        kind = str(row["kind"])
+        if _event_exists_by_signature(
+            repo,
+            user_id=user_id,
+            unit_number=unit,
+            event_date=event_date,
+            amount=amount,
+        ):
+            skipped += 1
+            continue
+        aid = _excel_synthetic_accrual_id(
+            unit_number=unit,
+            event_date=event_date,
+            amount=amount,
+            kind=kind,
+        )
+        is_new = upsert_event(
+            repo,
+            user_id=user_id,
+            accrual_id=aid,
+            event_date=event_date,
+            unit_number=unit,
+            amount=amount,
+            currency="RUB",
+            accrued_category=str(row.get("type_label") or "")[:64],
+            raw=dict(row.get("raw") or {}),
+        )
+        if is_new:
+            inserted += 1
+            if kind == "storno":
+                storno_new += 1
+            else:
+                fines_new += 1
+        else:
+            skipped += 1
+
+    name = str(filename or "отчёт").strip() or "отчёт"
+    summary = (
+        f"Импорт «{name}»: слот-строк {len(rows)}, "
+        f"добавлено {inserted} (штрафов {fines_new}, сторно {storno_new}), "
+        f"пропущено как уже есть {skipped}"
+    )
+    append_sync_log(
+        repo,
+        user_id=user_id,
+        message=summary,
+        level="ok" if inserted or not rows else "warn",
+    )
+    return {
+        "ok": True,
+        "rows_slot": len(rows),
+        "inserted": inserted,
+        "skipped": skipped,
+        "fines_new": fines_new,
+        "storno_new": storno_new,
+        "summary": summary,
+    }

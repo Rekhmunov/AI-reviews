@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=411" />
+  <link rel="stylesheet" href="/static/style.css?v=412" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -3090,34 +3090,49 @@
                 <button type="button" class="icon-btn secondary wb-fbs-sd-close"
                         onclick="closeOzonFbsFinesModal()" aria-label="Закрыть">✕</button>
               </div>
-              <p class="ozon-fbs-fines-lead">Отгрузка в нерекомендованный слот — списания и сторно</p>
               <div class="ozon-fbs-fines-toolbar">
                 <label class="ozon-fbs-fines-date-field">
-                  <span>С</span>
                   <input type="date" id="ozonFbsFinesDateFrom" aria-label="Дата с" />
                 </label>
                 <label class="ozon-fbs-fines-date-field">
-                  <span>По</span>
                   <input type="date" id="ozonFbsFinesDateTo" aria-label="Дата по" />
                 </label>
                 <button type="button" id="ozonFbsFinesSyncBtn" onclick="syncOzonFbsFines()">Синхронизировать</button>
-                <div class="ozon-fbs-fines-filters" role="group" aria-label="Фильтр статуса">
-                  <button type="button" class="secondary ozon-fbs-fines-filter is-active"
-                          data-fines-status="open" onclick="setOzonFbsFinesStatusFilter('open')">Открытые</button>
-                  <button type="button" class="secondary ozon-fbs-fines-filter"
-                          data-fines-status="closed" onclick="setOzonFbsFinesStatusFilter('closed')">Сторно</button>
-                  <button type="button" class="secondary ozon-fbs-fines-filter"
-                          data-fines-status="all" onclick="setOzonFbsFinesStatusFilter('all')">Все</button>
+                <button type="button" id="ozonFbsFinesImportBtn" class="secondary"
+                        onclick="triggerOzonFbsFinesImport()">Импорт</button>
+                <input type="file" id="ozonFbsFinesImportFile" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                       hidden onchange="onOzonFbsFinesImportFileChange(event)" />
+                <div class="ozon-fbs-fines-toolbar-icons">
+                  <div class="ozon-fbs-fines-filter-wrap">
+                    <button type="button" id="ozonFbsFinesFilterBtn" class="icon-btn secondary"
+                            title="Фильтр статуса" aria-label="Фильтр статуса"
+                            aria-haspopup="true" aria-expanded="false"
+                            onclick="toggleOzonFbsFinesFilterMenu(event)">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M4 6h16M7 12h10M10 18h4" stroke="currentColor" stroke-width="2"
+                              stroke-linecap="round"/>
+                      </svg>
+                    </button>
+                    <div id="ozonFbsFinesFilterMenu" class="ozon-fbs-fines-filter-menu hidden" role="menu"
+                         aria-label="Фильтр статуса">
+                      <button type="button" class="ozon-fbs-fines-filter is-active" role="menuitem"
+                              data-fines-status="open" onclick="setOzonFbsFinesStatusFilter('open')">Открытые</button>
+                      <button type="button" class="ozon-fbs-fines-filter" role="menuitem"
+                              data-fines-status="closed" onclick="setOzonFbsFinesStatusFilter('closed')">Сторно</button>
+                      <button type="button" class="ozon-fbs-fines-filter" role="menuitem"
+                              data-fines-status="all" onclick="setOzonFbsFinesStatusFilter('all')">Все</button>
+                    </div>
+                  </div>
+                  <button type="button" id="ozonFbsFinesSettingsBtn" class="icon-btn secondary"
+                          title="Настройки API" aria-label="Настройки API"
+                          onclick="openOzonFbsFinesSettingsModal()">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" stroke="currentColor" stroke-width="2"/>
+                      <path d="M19.4 13a7.8 7.8 0 0 0 .1-2l2-1.2-2-3.4-2.3.6a7.7 7.7 0 0 0-1.7-1L15 4h-4l-.5 2a7.7 7.7 0 0 0-1.7 1l-2.3-.6-2 3.4 2 1.2a7.8 7.8 0 0 0 0 2l-2 1.2 2 3.4 2.3-.6a7.7 7.7 0 0 0 1.7 1l.5 2h4l.5-2a7.7 7.7 0 0 0 1.7-1l2.3.6 2-3.4-2-1.2Z"
+                            stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                    </svg>
+                  </button>
                 </div>
-                <button type="button" id="ozonFbsFinesSettingsBtn" class="icon-btn secondary"
-                        title="Настройки API" aria-label="Настройки API"
-                        onclick="openOzonFbsFinesSettingsModal()">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" stroke="currentColor" stroke-width="2"/>
-                    <path d="M19.4 13a7.8 7.8 0 0 0 .1-2l2-1.2-2-3.4-2.3.6a7.7 7.7 0 0 0-1.7-1L15 4h-4l-.5 2a7.7 7.7 0 0 0-1.7 1l-2.3-.6-2 3.4 2 1.2a7.8 7.8 0 0 0 0 2l-2 1.2 2 3.4 2.3-.6a7.7 7.7 0 0 0 1.7 1l.5 2h4l.5-2a7.7 7.7 0 0 0 1.7-1l2.3.6 2-3.4-2-1.2Z"
-                          stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-                  </svg>
-                </button>
               </div>
               <div id="ozonFbsFinesSummary" class="ozon-fbs-fines-summary" aria-live="polite"></div>
             </div>
@@ -8132,7 +8147,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=192"></script>
+  <script src="/static/ozon_fbs.js?v=193"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=37"></script>
   <script src="/static/app.js?v=691"></script>
 </body>

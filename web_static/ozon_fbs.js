@@ -13330,6 +13330,7 @@
     status: "open",
     loading: false,
     syncing: false,
+    importing: false,
     units: [],
     summary: null,
     _pollTimer: null,
@@ -13477,7 +13478,78 @@
     document.querySelectorAll(".ozon-fbs-fines-filter").forEach((btn) => {
       btn.classList.toggle("is-active", btn.getAttribute("data-fines-status") === next);
     });
+    closeOzonFbsFinesFilterMenu();
     loadOzonFbsFinesUnits().catch(() => {});
+  }
+
+  function closeOzonFbsFinesFilterMenu() {
+    const menu = document.getElementById("ozonFbsFinesFilterMenu");
+    const btn = document.getElementById("ozonFbsFinesFilterBtn");
+    if (menu) menu.classList.add("hidden");
+    if (btn) {
+      btn.classList.remove("is-open");
+      btn.setAttribute("aria-expanded", "false");
+    }
+  }
+
+  function toggleOzonFbsFinesFilterMenu(ev) {
+    if (ev && typeof ev.stopPropagation === "function") ev.stopPropagation();
+    const menu = document.getElementById("ozonFbsFinesFilterMenu");
+    const btn = document.getElementById("ozonFbsFinesFilterBtn");
+    if (!menu || !btn) return;
+    const open = menu.classList.contains("hidden");
+    if (open) {
+      menu.classList.remove("hidden");
+      btn.classList.add("is-open");
+      btn.setAttribute("aria-expanded", "true");
+    } else {
+      closeOzonFbsFinesFilterMenu();
+    }
+  }
+
+  function triggerOzonFbsFinesImport() {
+    if (typeof isTenantOwner === "function" && !isTenantOwner()) {
+      alert("Штрафы доступны только главному пользователю");
+      return;
+    }
+    if (finesState.syncing || finesState.importing) return;
+    document.getElementById("ozonFbsFinesImportFile")?.click();
+  }
+
+  async function onOzonFbsFinesImportFileChange(ev) {
+    const input = ev?.target || document.getElementById("ozonFbsFinesImportFile");
+    const file = input?.files && input.files[0];
+    if (!file) return;
+    const syncBtn = document.getElementById("ozonFbsFinesSyncBtn");
+    const importBtn = document.getElementById("ozonFbsFinesImportBtn");
+    finesState.importing = true;
+    if (syncBtn) syncBtn.disabled = true;
+    if (importBtn) importBtn.disabled = true;
+    try {
+      const fd = new FormData();
+      fd.append("file", file, file.name);
+      const headers = typeof withCsrfHeaders === "function" ? withCsrfHeaders() : {};
+      const res = await fetch("/api/ozon-fbs/fines/import", {
+        method: "POST",
+        headers,
+        body: fd,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      await loadOzonFbsFinesSyncLog();
+      await loadOzonFbsFinesUnits();
+      if (data.summary) {
+        /* keep quiet if only skipped; still refresh list */
+      }
+    } catch (e) {
+      await loadOzonFbsFinesSyncLog();
+      alert(String(e.message || e));
+    } finally {
+      finesState.importing = false;
+      if (syncBtn) syncBtn.disabled = false;
+      if (importBtn) importBtn.disabled = false;
+      if (input) input.value = "";
+    }
   }
 
   async function syncOzonFbsFines() {
@@ -13583,6 +13655,7 @@
   function closeOzonFbsFinesModal() {
     closeOzonFbsFinesSettingsModal();
     closeOzonFbsFinesEventsModal();
+    closeOzonFbsFinesFilterMenu();
     if (typeof setModalVisibility === "function") {
       setModalVisibility("ozonFbsFinesModal", false);
     } else {
@@ -13954,6 +14027,15 @@
   window.closeOzonFbsFinesModal = closeOzonFbsFinesModal;
   window.syncOzonFbsFines = syncOzonFbsFines;
   window.setOzonFbsFinesStatusFilter = setOzonFbsFinesStatusFilter;
+  window.toggleOzonFbsFinesFilterMenu = toggleOzonFbsFinesFilterMenu;
+  window.triggerOzonFbsFinesImport = triggerOzonFbsFinesImport;
+  window.onOzonFbsFinesImportFileChange = onOzonFbsFinesImportFileChange;
+
+  document.addEventListener("click", (e) => {
+    const wrap = document.querySelector("#ozonFbsFinesModal .ozon-fbs-fines-filter-wrap");
+    if (!wrap || wrap.contains(e.target)) return;
+    closeOzonFbsFinesFilterMenu();
+  });
   window.openOzonFbsFinesSettingsModal = openOzonFbsFinesSettingsModal;
   window.closeOzonFbsFinesSettingsModal = closeOzonFbsFinesSettingsModal;
   window.saveOzonFbsFinesSettings = saveOzonFbsFinesSettings;

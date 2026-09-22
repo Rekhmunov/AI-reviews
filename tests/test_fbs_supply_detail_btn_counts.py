@@ -53,5 +53,5 @@ def test_ozon_supply_detail_btn_count_helpers() -> None:
 def test_cache_bump_for_btn_counts() -> None:
     html = HTML.read_text(encoding="utf-8")
     assert "app.js?v=691" in html
-    assert "ozon_fbs.js?v=192" in html
-    assert "style.css?v=411" in html
+    assert "ozon_fbs.js?v=193" in html
+    assert "style.css?v=412" in html

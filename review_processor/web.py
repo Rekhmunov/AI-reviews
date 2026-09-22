@@ -14042,6 +14042,37 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             )
         }
 
+    @app.post("/api/ozon-fbs/fines/import")
+    async def post_ozon_fbs_fines_import(
+        request: Request, file: UploadFile = File(...)
+    ) -> dict[str, object]:
+        from . import ozon_fbs_fines as oz_fines
+
+        user = _require_user(request)
+        owner_id = _require_ozon_fbs_fines_owner(user)
+        name = str(file.filename or "").strip()
+        lower = name.lower()
+        if lower and not (lower.endswith(".xlsx") or lower.endswith(".xls")):
+            raise HTTPException(
+                status_code=400, detail="Нужен файл Excel (.xlsx) отчёта по начислениям"
+            )
+        raw = await file.read()
+        if not raw:
+            raise HTTPException(status_code=400, detail="Пустой файл")
+        if len(raw) > 40 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Файл слишком большой (макс. 40 МБ)")
+        try:
+            return oz_fines.import_accruals_report(
+                repository,
+                user_id=owner_id,
+                file_bytes=raw,
+                filename=name,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
     @app.get("/api/ozon-fbs/postings/find")
     def ozon_fbs_posting_find(
         request: Request,
