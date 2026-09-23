@@ -592,6 +592,24 @@ def test_compose_vehicle_line_and_normalize():
     assert ReviewRepository._normalize_vehicles_list(["", None, "X"])[0]["model"] == "X"
 
 
+def test_vehicle_params_parses_capacity_from_type_snapshot():
+    from review_processor.ozon_etrn import _split_vehicle_type_line, _vehicle_params
+
+    clean, cap, vol = _split_vehicle_type_line("седельный тягач, 18,5 т, 86 м3")
+    assert clean == "седельный тягач"
+    assert cap == "18.5"
+    assert vol == "86"
+    params = _vehicle_params(
+        vehicle_fields={
+            "line": "MAN В849ВО37",
+            "type": "седельный тягач, 18.5 т, 86 м³",
+        }
+    )
+    assert params["type"] == "седельный тягач"
+    assert params["capacity_t"] == "18.5"
+    assert params["volume_m3"] == "86"
+
+
 def test_document_compose_helpers_fill_empty_legacy_strings():
     """TTN / заявка / PoA must get one-line strings even if legacy columns are empty."""
     from review_processor.repository import ReviewRepository

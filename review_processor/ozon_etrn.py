@@ -827,6 +827,42 @@ def _match_driver_vehicle(
     return {}
 
 
+def _split_vehicle_type_line(text: str) -> tuple[str, str, str]:
+    """Parse TN «Тип / вместимость» snapshot: ``тип, N т, M м³`` → type, capacity, volume."""
+    raw = str(text or "").strip()
+    if not raw:
+        return "", "", ""
+    cap = ""
+    vol = ""
+    m_cap = re.search(r"(\d{1,5}(?:[.,]\d{1,2})?)\s*т\b", raw, flags=re.IGNORECASE)
+    if m_cap:
+        cap = m_cap.group(1).replace(",", ".")
+    m_vol = re.search(
+        r"(\d{1,4}(?:[.,]\d{1,2})?)\s*м\s*[³3]\b",
+        raw,
+        flags=re.IGNORECASE,
+    )
+    if m_vol:
+        vol = m_vol.group(1).replace(",", ".")
+    clean = raw
+    if m_cap or m_vol:
+        clean = re.sub(
+            r",?\s*\d{1,5}(?:[.,]\d{1,2})?\s*т\b",
+            "",
+            clean,
+            flags=re.IGNORECASE,
+        )
+        clean = re.sub(
+            r",?\s*\d{1,4}(?:[.,]\d{1,2})?\s*м\s*[³3]\b",
+            "",
+            clean,
+            flags=re.IGNORECASE,
+        )
+        clean = re.sub(r"\s*,\s*,+", ",", clean)
+        clean = clean.strip(" ,;")
+    return clean, cap, vol
+
+
 def _vehicle_params(
     *,
     vehicle_json: object = None,
@@ -839,6 +875,8 @@ def _vehicle_params(
     ownership = "1"
     capacity = "20"
     volume = "20"
+    explicit_cap = False
+    explicit_vol = False
 
     fields = vehicle_fields or {}
     if fields:
@@ -851,9 +889,11 @@ def _vehicle_params(
         cap = str(fields.get("capacity_t") or "").strip().replace(",", ".")
         if re.match(r"^\d{1,5}(?:\.\d{1,2})?$", cap or ""):
             capacity = cap
+            explicit_cap = True
         vol = str(fields.get("volume_m3") or "").strip().replace(",", ".")
         if re.match(r"^\d{1,4}(?:\.\d{1,2})?$", vol or ""):
             volume = vol
+            explicit_vol = True
         if not model and not number:
             line = str(fields.get("line") or "").strip()
             if line:
@@ -887,14 +927,28 @@ def _vehicle_params(
     own2 = str(data.get("ownership") or "").strip()
     if own2 in {"1", "2", "3", "4", "5"} and ownership == "1" and not fields.get("ownership"):
         ownership = own2
-    if capacity == "20":
+    if not explicit_cap and capacity == "20":
         cap2 = str(data.get("capacity_t") or "").strip().replace(",", ".")
         if re.match(r"^\d{1,5}(?:\.\d{1,2})?$", cap2 or ""):
             capacity = cap2
-    if volume == "20":
+            explicit_cap = True
+    if not explicit_vol and volume == "20":
         vol2 = str(data.get("volume_m3") or "").strip().replace(",", ".")
         if re.match(r"^\d{1,4}(?:\.\d{1,2})?$", vol2 or ""):
             volume = vol2
+            explicit_vol = True
+
+    # TN catalog stores «тип, N т, M м³» in one type field — peel numbers out.
+    clean_type, parsed_cap, parsed_vol = _split_vehicle_type_line(v_type)
+    if parsed_cap or parsed_vol:
+        if clean_type:
+            v_type = clean_type
+        if parsed_cap and not explicit_cap:
+            capacity = parsed_cap
+            explicit_cap = True
+        if parsed_vol and not explicit_vol:
+            volume = parsed_vol
+            explicit_vol = True
 
     if not model and not number and fallback_line:
         parts = str(fallback_line).strip().split()

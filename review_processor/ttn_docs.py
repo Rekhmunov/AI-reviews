@@ -13,8 +13,10 @@ from .ozon_etrn import (
     _addr_from_warehouse_fields,
     _empty_ru_address,
     _has_structured_address,
+    _match_driver_vehicle,
     _parse_inn_kpp,
     _parse_ru_address,
+    _split_vehicle_type_line,
 )
 from .ozon_zakaz import _fns_participant_id
 
@@ -269,10 +271,27 @@ def collect_ttn_doc_context(
     loader_name = str(record.get("loader_name") or "").strip() or loader_from_catalog
 
     vehicle_line = str(record.get("vehicle_line") or "").strip()
-    vehicle_fields = {
-        "line": vehicle_line,
-        "type": str(record.get("vehicle_type") or "").strip(),
-    }
+    vehicle_type_raw = str(record.get("vehicle_type") or "").strip()
+    vehicle_fields: dict[str, Any] = {"line": vehicle_line}
+    # Prefer structured catalog card for the selected «марка номер».
+    matched = _match_driver_vehicle(driver_row or None, vehicle_line) if driver_row else {}
+    if matched:
+        for key in ("model", "number", "type", "ownership", "capacity_t", "volume_m3", "line"):
+            val = matched.get(key)
+            if val is not None and str(val).strip() != "":
+                vehicle_fields[key] = str(val).strip()
+    # TN form stores «тип, N т, M м³» — override / fill capacity & volume from snapshot.
+    clean_type, cap, vol = _split_vehicle_type_line(vehicle_type_raw)
+    if clean_type:
+        vehicle_fields["type"] = clean_type
+    elif vehicle_type_raw and not vehicle_fields.get("type"):
+        vehicle_fields["type"] = vehicle_type_raw
+    if cap:
+        vehicle_fields["capacity_t"] = cap
+    if vol:
+        vehicle_fields["volume_m3"] = vol
+    if not vehicle_fields.get("type"):
+        vehicle_fields["type"] = vehicle_type_raw
 
     doc_number = str(record.get("doc_number") or record.get("id") or "").strip()
     supply_date = (

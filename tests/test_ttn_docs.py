@@ -125,3 +125,68 @@ def test_ttn_etrn_non_wb_keeps_doc_number_in_infpol():
     oz = _record(fbs_platform="ozon", fbs_supply_id="020-111", doc_number="9")
     ctx = collect_ttn_doc_context(repository=_Repo(), owner_id=1, record=oz)
     assert "infpol_orders_value" not in ctx["item"]
+
+
+def test_ttn_etrn_vehicle_capacity_from_type_line():
+    """Тип / вместимость из ТН → Грузопод / Вместим в эТрН, не дефолт 20/20."""
+    rec = _record(
+        vehicle_line="Газель А123ВС77",
+        vehicle_type="грузовой автомобиль, 1.5 т, 9 м³",
+    )
+    ctx = collect_ttn_doc_context(repository=_Repo(), owner_id=1, record=rec)
+    assert ctx["vehicle_fields"]["capacity_t"] == "1.5"
+    assert ctx["vehicle_fields"]["volume_m3"] == "9"
+    assert ctx["vehicle_fields"]["type"] == "грузовой автомобиль"
+
+    xml_bytes, _ = build_ttn_etrn_xml(repository=_Repo(), owner_id=1, record=rec)
+    root = ET.fromstring(xml_bytes)
+    part = root.find("Документ/СодИнфГО/СвТС/ТС/ПарТС")
+    assert part is not None
+    assert part.attrib.get("Грузопод") == "1.5"
+    assert part.attrib.get("Вместим") == "9"
+    assert part.attrib.get("Тип") == "грузовой автомобиль"
+
+
+def test_ttn_etrn_vehicle_capacity_from_driver_catalog():
+    """Каталог водителя: capacity/volume с карточки ТС, если в vehicle_type нет цифр."""
+    import json
+
+    class _RepoWithDriver(_Repo):
+        def list_supply_drivers(self, user_id=0):
+            return [
+                {
+                    "id": 7,
+                    "full_name": "Петров Пётр Петрович",
+                    "phone": "+79001112233",
+                    "documents": "ВУ 11 22 333444",
+                    "vehicles_json": json.dumps(
+                        [
+                            {
+                                "model": "MAN",
+                                "number": "В849ВО37",
+                                "type": "седельный тягач",
+                                "ownership": "1",
+                                "capacity_t": "18.5",
+                                "volume_m3": "86",
+                                "line": "MAN В849ВО37",
+                            }
+                        ],
+                        ensure_ascii=False,
+                    ),
+                }
+            ]
+
+    rec = _record(
+        driver_id=7,
+        driver_manual_name="",
+        vehicle_line="MAN В849ВО37",
+        vehicle_type="",  # empty snapshot → take from catalog
+    )
+    ctx = collect_ttn_doc_context(repository=_RepoWithDriver(), owner_id=1, record=rec)
+    assert ctx["vehicle_fields"]["capacity_t"] == "18.5"
+    assert ctx["vehicle_fields"]["volume_m3"] == "86"
+    xml_bytes, _ = build_ttn_etrn_xml(repository=_RepoWithDriver(), owner_id=1, record=rec)
+    part = ET.fromstring(xml_bytes).find("Документ/СодИнфГО/СвТС/ТС/ПарТС")
+    assert part is not None
+    assert part.attrib.get("Грузопод") == "18.5"
+    assert part.attrib.get("Вместим") == "86"
