@@ -440,6 +440,14 @@ def start_cabinet_export(
     }
 
 
+def _parse_day_bound(raw: str, *, end: bool = False) -> str:
+    """Normalize ``YYYY-MM-DD`` for emission_date string compare; empty if unset/invalid."""
+    text = str(raw or "").strip()[:10]
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        return ""
+    return f"{text}T23:59:59.999Z" if end else f"{text}T00:00:00.000Z"
+
+
 def list_cabinet_kiz(
     repo: ReviewRepository,
     *,
@@ -448,6 +456,8 @@ def list_cabinet_kiz(
     limit: int = 20000,
     status_kind: str = "",
     kiz: str = "",
+    created_from: str = "",
+    created_to: str = "",
 ) -> dict[str, Any]:
     ensure_supply_chz_cabinet_tables(repo)
     name_by_gtin = gtd_chz._load_product_name_by_gtin(repo, user_id=user_id)
@@ -458,14 +468,36 @@ def list_cabinet_kiz(
         "CASE WHEN cis_status_kind IS NULL OR TRIM(cis_status_kind) = '' "
         f"THEN '{gtd_chz.KIND_EMPTY}' ELSE cis_status_kind END"
     )
+    # «Отменено»: отменённая операция ЧЗ или статус CIS с cancel в коде.
+    cancelled_expr = (
+        "("
+        "LOWER(TRIM(COALESCE(last_op_status, ''))) IN "
+        "('cancelled', 'canceled', 'отменен', 'отменён') "
+        "OR UPPER(TRIM(COALESCE(cis_status, ''))) LIKE '%CANCEL%'"
+        ")"
+    )
     where = "WHERE user_id = ?"
     params: list[Any] = [user_id]
     kiz_exact = str(kiz or "").strip()
     if kiz_exact:
         where += " AND kiz_short = ?"
         params.append(kiz_exact[:200])
+    day_from = _parse_day_bound(created_from, end=False)
+    day_to = _parse_day_bound(created_to, end=True)
+    if day_from and day_to and day_from[:10] > day_to[:10]:
+        raise ValueError("Дата «с» позже даты «по»")
+    # Filter by emission/creation date (not cis_checked_at / updated_at).
+    if day_from:
+        where += " AND emission_date <> '' AND emission_date >= ?"
+        params.append(day_from)
+    if day_to:
+        where += " AND emission_date <> '' AND emission_date <= ?"
+        params.append(day_to)
     filter_sql = ""
-    if kind_filter:
+    if kind_filter == "cancelled":
+        filter_sql = f" AND {cancelled_expr}"
+        params_f = list(params)
+    elif kind_filter:
         filter_sql = f" AND ({kind_expr}) = ?"
         params_f = params + [kind_filter]
     else:
@@ -496,6 +528,19 @@ def list_cabinet_kiz(
             d = repo._row_to_dict(r)
             k = str(d.get("kind") or "").strip() or gtd_chz.KIND_EMPTY
             kind_counts[k] = int(d.get("n") or 0)
+        cancelled_n = int(
+            repo._row_to_dict(
+                conn.execute(
+                    repo._sql(
+                        f"SELECT COUNT(*) AS n FROM supply_chz_cabinet_kiz {where} "
+                        f"AND {cancelled_expr}"
+                    ),
+                    tuple(params),
+                ).fetchone()
+            ).get("n")
+            or 0
+        )
+        kind_counts["cancelled"] = cancelled_n
         filtered_total = int(
             repo._row_to_dict(
                 conn.execute(
@@ -564,6 +609,8 @@ def list_cabinet_kiz(
         "limit": lim,
         "has_more": off + lim < filtered_total,
         "kind_counts": kind_counts,
+        "created_from": str(created_from or "").strip()[:10],
+        "created_to": str(created_to or "").strip()[:10],
         "items": items,
     }
 

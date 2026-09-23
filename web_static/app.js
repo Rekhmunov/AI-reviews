@@ -29114,6 +29114,10 @@ const _supplyChzCabState = {
   kindFilter: "",
   search: "",
   focusKiz: "",
+  createdFrom: "",
+  createdTo: "",
+  kindCounts: {},
+  filtersOpen: false,
   offset: 0,
   limit: 20000,
   hasMore: false,
@@ -29239,6 +29243,33 @@ function _supplyChzCabUpdateActionButtons() {
   if (statusBtn) statusBtn.disabled = _supplyChzCabState.busy;
 }
 
+function _supplyChzCabKindTooltipHtml(counts) {
+  const c = counts && typeof counts === "object" ? counts : {};
+  const n = (key) => Number(c[key] || 0) || 0;
+  const rows = [
+    ["В обороте", n("in_circulation")],
+    ["Выведено", n("withdrawn")],
+    ["Передано", n("transferred")],
+    ["Отменено", n("cancelled")],
+  ];
+  return rows
+    .map(([label, val]) => `<div class="wb-fbs-kiz-circ-count-tip-row"><span>${label}</span><strong>${val}</strong></div>`)
+    .join("");
+}
+
+function _supplyChzCabHasCreatedFilter() {
+  return Boolean(_supplyChzCabState.createdFrom || _supplyChzCabState.createdTo);
+}
+
+function _supplyChzCabSyncCreatedFromInputs() {
+  _supplyChzCabState.createdFrom = String(
+    document.getElementById("supplyChzCabCreatedFrom")?.value || "",
+  ).trim();
+  _supplyChzCabState.createdTo = String(
+    document.getElementById("supplyChzCabCreatedTo")?.value || "",
+  ).trim();
+}
+
 function _supplyChzCabRenderMeta() {
   const counts = document.getElementById("supplyChzCabCounts");
   const sel = document.getElementById("supplyChzCabSelectedInfo");
@@ -29246,15 +29277,37 @@ function _supplyChzCabRenderMeta() {
   if (counts) {
     if (_supplyChzCabState.busy && !_supplyChzCabState.items.length) {
       counts.textContent = "Загрузка…";
+    } else if (_supplyChzCabState.loading && _supplyChzCabState.hasMore && _supplyChzCabHasCreatedFilter()) {
+      const total = _supplyChzCabState.total;
+      const loaded = _supplyChzCabState.items.length;
+      counts.innerHTML =
+        `КИЗ: <span class="wb-fbs-kiz-circ-count-total" tabindex="0">${total}</span>`
+        + ` · загружается ${loaded}…`;
+      const tipHost = counts.querySelector(".wb-fbs-kiz-circ-count-total");
+      if (tipHost) {
+        tipHost.insertAdjacentHTML(
+          "beforeend",
+          `<span class="wb-fbs-kiz-circ-count-tip" role="tooltip">${_supplyChzCabKindTooltipHtml(_supplyChzCabState.kindCounts)}</span>`,
+        );
+      }
     } else {
       const total = _supplyChzCabState.total;
       const shown = visible.length;
+      const loaded = _supplyChzCabState.items.length;
+      let suffix = "";
       if (_supplyChzCabState.kindFilter || _supplyChzCabState.search) {
-        counts.textContent = `КИЗ: ${total} · показано ${shown}`;
-      } else if (shown && shown < total) {
-        counts.textContent = `КИЗ: ${total} · загружено ${shown}`;
-      } else {
-        counts.textContent = `КИЗ: ${total}`;
+        suffix = ` · показано ${shown}`;
+      } else if (loaded && loaded < total) {
+        suffix = ` · загружено ${loaded}`;
+      }
+      counts.innerHTML =
+        `КИЗ: <span class="wb-fbs-kiz-circ-count-total" tabindex="0">${total}</span>${suffix}`;
+      const tipHost = counts.querySelector(".wb-fbs-kiz-circ-count-total");
+      if (tipHost) {
+        tipHost.insertAdjacentHTML(
+          "beforeend",
+          `<span class="wb-fbs-kiz-circ-count-tip" role="tooltip">${_supplyChzCabKindTooltipHtml(_supplyChzCabState.kindCounts)}</span>`,
+        );
       }
     }
   }
@@ -29265,9 +29318,11 @@ function _supplyChzCabRenderMeta() {
   }
   const moreWrap = document.getElementById("supplyChzCabLoadMoreWrap");
   const more = document.getElementById("supplyChzCabLoadMoreBtn");
+  // With creation-date filter we auto-load the full interval; hide manual «Ещё».
   const showMore = Boolean(_supplyChzCabState.hasMore)
     && !_supplyChzCabState.busy
-    && !_supplyChzCabState.loading;
+    && !_supplyChzCabState.loading
+    && !_supplyChzCabHasCreatedFilter();
   if (moreWrap) moreWrap.hidden = !showMore;
   if (more) {
     more.hidden = !showMore;
@@ -29280,6 +29335,16 @@ function _supplyChzCabRenderMeta() {
       && visKeys.every((k) => _supplyChzCabState.selected.has(k));
     all.indeterminate = !all.checked
       && visKeys.some((k) => _supplyChzCabState.selected.has(k));
+  }
+  const filterBtn = document.getElementById("supplyChzCabFiltersBtn");
+  if (filterBtn) {
+    const active = Boolean(
+      _supplyChzCabState.filtersOpen
+      || _supplyChzCabState.kindFilter
+      || _supplyChzCabState.search
+      || _supplyChzCabHasCreatedFilter(),
+    );
+    filterBtn.classList.toggle("is-active", active);
   }
   _supplyChzCabUpdateActionButtons();
 }
@@ -29330,31 +29395,54 @@ let _supplyChzCabListSeq = 0;
 async function _supplyChzCabFetch(reset) {
   if (_supplyChzCabState.busy) return;
   const seq = ++_supplyChzCabListSeq;
-  const offset = reset ? 0 : _supplyChzCabState.offset;
-  if (reset) _supplyChzCabState.offset = 0;
+  let offset = reset ? 0 : _supplyChzCabState.offset;
+  if (reset) {
+    _supplyChzCabState.offset = 0;
+    _supplyChzCabState.items = [];
+  }
   _supplyChzCabState.loading = true;
   _supplyChzCabRenderMeta();
   try {
-    const params = new URLSearchParams({
-      offset: String(offset),
-      limit: String(_supplyChzCabState.limit),
-    });
-    if (_supplyChzCabState.kindFilter) params.set("status_kind", _supplyChzCabState.kindFilter);
-    if (_supplyChzCabState.focusKiz) params.set("kiz", _supplyChzCabState.focusKiz);
-    const res = await fetch(`/api/supply-chz/cabinet/kiz?${params}`, { headers: jsonHeaders() });
-    const data = await res.json().catch(() => ({}));
-    if (seq !== _supplyChzCabListSeq || _supplyChzCabState.busy) return;
-    if (!res.ok) throw new Error(_supplyGtdChzApiError(res, data, "Не удалось загрузить КИЗ"));
-    const batch = Array.isArray(data.items) ? data.items : [];
-    _supplyChzCabState.items = reset ? batch : _supplyChzCabState.items.concat(batch);
-    _supplyChzCabState.total = Number(data.total || 0);
-    _supplyChzCabState.hasMore = Boolean(data.has_more);
-    _supplyChzCabState.offset = _supplyChzCabState.items.length;
-    const alive = new Set(_supplyChzCabState.items.map((it) => it.kiz_short));
-    _supplyChzCabState.selected = new Set(
-      [..._supplyChzCabState.selected].filter((k) => alive.has(k)),
-    );
-    _supplyChzCabRenderTable();
+    // Creation-date filter: page until every matching code is in memory.
+    // Without dates: one page (manual «Ещё» for the rest).
+    for (;;) {
+      if (seq !== _supplyChzCabListSeq || _supplyChzCabState.busy) return;
+      const params = new URLSearchParams({
+        offset: String(offset),
+        limit: String(_supplyChzCabState.limit),
+      });
+      if (_supplyChzCabState.kindFilter) params.set("status_kind", _supplyChzCabState.kindFilter);
+      if (_supplyChzCabState.focusKiz) params.set("kiz", _supplyChzCabState.focusKiz);
+      if (_supplyChzCabState.createdFrom) params.set("created_from", _supplyChzCabState.createdFrom);
+      if (_supplyChzCabState.createdTo) params.set("created_to", _supplyChzCabState.createdTo);
+      const res = await fetch(`/api/supply-chz/cabinet/kiz?${params}`, { headers: jsonHeaders() });
+      const data = await res.json().catch(() => ({}));
+      if (seq !== _supplyChzCabListSeq || _supplyChzCabState.busy) return;
+      if (!res.ok) throw new Error(_supplyGtdChzApiError(res, data, "Не удалось загрузить КИЗ"));
+      const batch = Array.isArray(data.items) ? data.items : [];
+      if (offset === 0) {
+        _supplyChzCabState.items = batch;
+      } else {
+        _supplyChzCabState.items = _supplyChzCabState.items.concat(batch);
+      }
+      _supplyChzCabState.total = Number(data.total || 0);
+      _supplyChzCabState.hasMore = Boolean(data.has_more);
+      _supplyChzCabState.offset = _supplyChzCabState.items.length;
+      if (data.kind_counts && typeof data.kind_counts === "object") {
+        _supplyChzCabState.kindCounts = data.kind_counts;
+      } else if (offset === 0) {
+        _supplyChzCabState.kindCounts = {};
+      }
+      const alive = new Set(_supplyChzCabState.items.map((it) => it.kiz_short));
+      _supplyChzCabState.selected = new Set(
+        [..._supplyChzCabState.selected].filter((k) => alive.has(k)),
+      );
+      _supplyChzCabRenderTable();
+      const fillAll = _supplyChzCabHasCreatedFilter() && _supplyChzCabState.hasMore;
+      if (!fillAll) break;
+      offset = _supplyChzCabState.offset;
+      _supplyChzCabRenderMeta();
+    }
   } finally {
     if (seq === _supplyChzCabListSeq) {
       _supplyChzCabState.loading = false;
@@ -29378,19 +29466,45 @@ function _supplyChzCabDefaultDates() {
   if (toEl && !toEl.value) toEl.value = fmt(to);
 }
 
+function toggleSupplyChzCabinetFiltersPanel(forceOpen) {
+  const panel = document.getElementById("supplyChzCabFilters");
+  const btn = document.getElementById("supplyChzCabFiltersBtn");
+  if (!panel) return;
+  let open;
+  if (forceOpen === true) open = true;
+  else if (forceOpen === false) open = false;
+  else open = panel.hasAttribute("hidden") || panel.classList.contains("hidden");
+  panel.classList.toggle("hidden", !open);
+  if (open) panel.removeAttribute("hidden");
+  else panel.setAttribute("hidden", "");
+  _supplyChzCabState.filtersOpen = open;
+  if (btn) {
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+  _supplyChzCabRenderMeta();
+}
+
 async function openSupplyChzCabinetModal(focus) {
   const focusKiz = typeof focus === "string" ? String(focus || "").trim() : "";
   _supplyChzCabState.selected = focusKiz ? new Set([focusKiz]) : new Set();
   _supplyChzCabState.kindFilter = "";
   _supplyChzCabState.search = focusKiz;
   _supplyChzCabState.focusKiz = focusKiz;
+  _supplyChzCabState.createdFrom = "";
+  _supplyChzCabState.createdTo = "";
+  _supplyChzCabState.kindCounts = {};
   _supplyChzCabState.hasMore = false;
   _supplyChzCabState.offset = 0;
   const search = document.getElementById("supplyChzCabSearch");
   if (search) search.value = focusKiz;
+  const createdFrom = document.getElementById("supplyChzCabCreatedFrom");
+  const createdTo = document.getElementById("supplyChzCabCreatedTo");
+  if (createdFrom) createdFrom.value = "";
+  if (createdTo) createdTo.value = "";
   document.querySelectorAll("#supplyChzCabStatusChips .wb-fbs-kiz-circ-chip").forEach((el) => {
     el.classList.toggle("is-active", (el.getAttribute("data-kind") || "") === "");
   });
+  toggleSupplyChzCabinetFiltersPanel(false);
   _supplyChzCabDefaultDates();
   const modal = document.getElementById("supplyChzCabinetModal");
   if (modal) modal.classList.remove("hidden");
@@ -29451,13 +29565,31 @@ function onSupplyChzCabinetSearchInput() {
   _supplyChzCabRenderTable();
 }
 
+function onSupplyChzCabinetCreatedDateChange() {
+  _supplyChzCabSyncCreatedFromInputs();
+  const from = _supplyChzCabState.createdFrom;
+  const to = _supplyChzCabState.createdTo;
+  if (from && to && from > to) {
+    alert("Дата «с» позже даты «по»");
+    return;
+  }
+  // One bound alone is OK (open-ended range); both empty → all codes.
+  refreshSupplyChzCabinetTable();
+}
+
 function resetSupplyChzCabinetFilters() {
   _supplyChzCabState.kindFilter = "";
   _supplyChzCabState.search = "";
   _supplyChzCabState.focusKiz = "";
+  _supplyChzCabState.createdFrom = "";
+  _supplyChzCabState.createdTo = "";
   _supplyChzCabState.selected = new Set();
   const search = document.getElementById("supplyChzCabSearch");
   if (search) search.value = "";
+  const createdFrom = document.getElementById("supplyChzCabCreatedFrom");
+  const createdTo = document.getElementById("supplyChzCabCreatedTo");
+  if (createdFrom) createdFrom.value = "";
+  if (createdTo) createdTo.value = "";
   document.querySelectorAll("#supplyChzCabStatusChips .wb-fbs-kiz-circ-chip").forEach((el) => {
     el.classList.toggle("is-active", (el.getAttribute("data-kind") || "") === "");
   });
@@ -29864,6 +29996,8 @@ window.refreshSupplyChzCabinetTable = refreshSupplyChzCabinetTable;
 window.loadMoreSupplyChzCabinet = loadMoreSupplyChzCabinet;
 window.setSupplyChzCabinetKindFilter = setSupplyChzCabinetKindFilter;
 window.onSupplyChzCabinetSearchInput = onSupplyChzCabinetSearchInput;
+window.onSupplyChzCabinetCreatedDateChange = onSupplyChzCabinetCreatedDateChange;
+window.toggleSupplyChzCabinetFiltersPanel = toggleSupplyChzCabinetFiltersPanel;
 window.resetSupplyChzCabinetFilters = resetSupplyChzCabinetFilters;
 window.toggleSupplyChzCabinetSelectAll = toggleSupplyChzCabinetSelectAll;
 window.toggleSupplyChzCabinetRow = toggleSupplyChzCabinetRow;

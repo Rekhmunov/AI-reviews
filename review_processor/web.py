@@ -12019,20 +12019,27 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         limit: int = 20000,
         status_kind: str | None = None,
         kiz: str | None = None,
+        created_from: str | None = None,
+        created_to: str | None = None,
     ) -> dict[str, object]:
         from . import supply_chz_cabinet as cab
 
         user = _require_user(request)
         if not _can_view_supply_gtd(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
-        return cab.list_cabinet_kiz(
-            repository,
-            user_id=_supply_owner_id(user),
-            offset=int(offset or 0),
-            limit=int(limit or 20000),
-            status_kind=str(status_kind or ""),
-            kiz=str(kiz or ""),
-        )
+        try:
+            return cab.list_cabinet_kiz(
+                repository,
+                user_id=_supply_owner_id(user),
+                offset=int(offset or 0),
+                limit=int(limit or 20000),
+                status_kind=str(status_kind or ""),
+                kiz=str(kiz or ""),
+                created_from=str(created_from or ""),
+                created_to=str(created_to or ""),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/api/supply-chz/cabinet/export")
     def supply_chz_cabinet_export(

@@ -98,22 +98,55 @@ def test_cabinet_modal_matches_gtd_chz_size_and_tools() -> None:
     assert "supply-gtd-chz-modal" in block
     assert 'id="supplyChzCabDateFrom"' in block
     assert 'id="supplyChzCabDateTo"' in block
+    assert 'id="supplyChzCabCreatedFrom"' in block
+    assert 'id="supplyChzCabCreatedTo"' in block
+    assert 'id="supplyChzCabFiltersBtn"' in block
+    assert "toggleSupplyChzCabinetFiltersPanel()" in block
+    assert 'id="supplyChzCabFilters"' in block
+    assert "hidden" in block[block.find('id="supplyChzCabFilters"') : block.find('id="supplyChzCabFilters"') + 80]
     assert "Выгрузить коды маркировки" in block
     assert 'id="supplyChzCabLogModal"' in block
     assert "resetSupplyChzCabinetFilters()" in block
     assert 'placeholder="КИЗ, GTIN, название…"' in block
     assert "В обороте" in block and "Выведен" in block
+    assert "Отменён" in block
     assert "Не проверен" in block and "Ошибка" in block
     assert "#supplyChzCabinetModal .supply-gtd-chz-modal" in CSS
     assert "min(1120px, calc(100vw - 16px))" in CSS
     assert "function runSupplyChzCabinetExport" in APP_JS
     assert "/api/supply-chz/cabinet/export" in APP_JS
     assert "function resetSupplyChzCabinetFilters" in APP_JS
+    assert "function toggleSupplyChzCabinetFiltersPanel" in APP_JS
+    assert "created_from" in APP_JS
+    assert "wb-fbs-kiz-circ-count-tip" in APP_JS
+    assert "wb-fbs-kiz-circ-count-tip" in CSS
     assert "Выбрано:" in APP_JS
     assert "def lookup_cabinet_kiz" in (ROOT / "review_processor" / "supply_chz_cabinet.py").read_text(encoding="utf-8")
     assert "cabinet_kiz" in WEB
+    assert "created_from" in WEB
     assert 'id="supplyGtdCabinetHit"' in APP_HTML
     assert "openSupplyChzCabinetFromSearch" in APP_JS
     assert "Ввести в оборот" in APP_JS
-    assert "app.js?v=697" in APP_HTML
-    assert "style.css?v=416" in APP_HTML
+    assert "app.js?v=698" in APP_HTML
+    assert "style.css?v=417" in APP_HTML
+
+
+def test_parse_day_bound_for_emission_filter() -> None:
+    from review_processor.supply_chz_cabinet import _parse_day_bound
+
+    assert _parse_day_bound("2026-01-02") == "2026-01-02T00:00:00.000Z"
+    assert _parse_day_bound("2026-01-02", end=True) == "2026-01-02T23:59:59.999Z"
+    assert _parse_day_bound("bad") == ""
+    assert _parse_day_bound("") == ""
+
+
+def test_list_cabinet_kiz_source_has_created_date_and_cancelled() -> None:
+    src = (ROOT / "review_processor" / "supply_chz_cabinet.py").read_text(encoding="utf-8")
+    start = src.find("def list_cabinet_kiz")
+    end = src.find("\ndef lookup_cabinet_kiz", start)
+    body = src[start:end]
+    assert "created_from" in body and "created_to" in body
+    assert "emission_date" in body
+    assert "cancelled" in body
+    assert "LIKE '%CANCEL%'" in body
+    assert 'kind_counts["cancelled"]' in body

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=416" />
+  <link rel="stylesheet" href="/static/style.css?v=417" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -6071,13 +6071,39 @@
                   <button type="button" class="secondary" onclick="refreshSupplyChzCabinetTable()">Обновить</button>
                   <button type="button" class="secondary" id="supplyChzCabLogBtn"
                           onclick="openSupplyChzCabinetLogModal()">Лог</button>
+                  <button
+                    type="button"
+                    id="supplyChzCabFiltersBtn"
+                    class="secondary reviews-filter-icon-btn wb-fbs-kiz-circ-filter-icon-btn"
+                    title="Фильтры"
+                    aria-label="Фильтры"
+                    aria-expanded="false"
+                    aria-controls="supplyChzCabFilters"
+                    onclick="toggleSupplyChzCabinetFiltersPanel()"
+                  >⛃</button>
                 </div>
                 <div class="wb-fbs-kiz-circ-meta">
                   <span id="supplyChzCabCounts" class="wb-fbs-kiz-circ-counts"></span>
                   <span id="supplyChzCabSelectedInfo" class="wb-fbs-kiz-circ-selected-info"></span>
                 </div>
               </div>
-              <div class="wb-fbs-kiz-circ-filters" id="supplyChzCabFilters">
+              <div class="wb-fbs-kiz-circ-filters hidden" id="supplyChzCabFilters" hidden>
+                <div class="wb-fbs-kiz-circ-filter-controls">
+                  <label class="wb-fbs-kiz-circ-field" for="supplyChzCabCreatedFrom">
+                    <span>Создан с</span>
+                    <input type="date" id="supplyChzCabCreatedFrom" onchange="onSupplyChzCabinetCreatedDateChange()" />
+                  </label>
+                  <label class="wb-fbs-kiz-circ-field" for="supplyChzCabCreatedTo">
+                    <span>по</span>
+                    <input type="date" id="supplyChzCabCreatedTo" onchange="onSupplyChzCabinetCreatedDateChange()" />
+                  </label>
+                  <label class="wb-fbs-kiz-circ-field wb-fbs-kiz-circ-search-field" for="supplyChzCabSearch">
+                    <span>Поиск</span>
+                    <input type="search" id="supplyChzCabSearch" placeholder="КИЗ, GTIN, название…" autocomplete="off"
+                           oninput="onSupplyChzCabinetSearchInput()" />
+                  </label>
+                  <button type="button" class="secondary wb-fbs-kiz-circ-reset-btn" onclick="resetSupplyChzCabinetFilters()">Сбросить</button>
+                </div>
                 <div class="wb-fbs-kiz-circ-filter-block">
                   <span class="wb-fbs-kiz-circ-filter-label">Статус КИЗ</span>
                   <div class="wb-fbs-kiz-circ-status-chips" id="supplyChzCabStatusChips" role="group" aria-label="Статусы КИЗ">
@@ -6085,17 +6111,10 @@
                     <button type="button" class="wb-fbs-kiz-circ-chip" data-kind="in_circulation" onclick="setSupplyChzCabinetKindFilter('in_circulation')">В обороте</button>
                     <button type="button" class="wb-fbs-kiz-circ-chip" data-kind="withdrawn" onclick="setSupplyChzCabinetKindFilter('withdrawn')">Выведен</button>
                     <button type="button" class="wb-fbs-kiz-circ-chip" data-kind="transferred" onclick="setSupplyChzCabinetKindFilter('transferred')">Передан</button>
+                    <button type="button" class="wb-fbs-kiz-circ-chip" data-kind="cancelled" onclick="setSupplyChzCabinetKindFilter('cancelled')">Отменён</button>
                     <button type="button" class="wb-fbs-kiz-circ-chip" data-kind="unchecked" onclick="setSupplyChzCabinetKindFilter('unchecked')">Не проверен</button>
                     <button type="button" class="wb-fbs-kiz-circ-chip" data-kind="error" onclick="setSupplyChzCabinetKindFilter('error')">Ошибка</button>
                   </div>
-                </div>
-                <div class="wb-fbs-kiz-circ-filter-controls">
-                  <label class="wb-fbs-kiz-circ-field wb-fbs-kiz-circ-search-field" for="supplyChzCabSearch">
-                    <span>Поиск</span>
-                    <input type="search" id="supplyChzCabSearch" placeholder="КИЗ, GTIN, название…" autocomplete="off"
-                           oninput="onSupplyChzCabinetSearchInput()" />
-                  </label>
-                  <button type="button" class="secondary wb-fbs-kiz-circ-reset-btn" onclick="resetSupplyChzCabinetFilters()">Сбросить</button>
                 </div>
               </div>
             </div>
@@ -8196,6 +8215,6 @@
 
   <script src="/static/ozon_fbs.js?v=197"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=37"></script>
-  <script src="/static/app.js?v=697"></script>
+  <script src="/static/app.js?v=698"></script>
 </body>
 </html>

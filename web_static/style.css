@@ -17706,6 +17706,53 @@ button.sb-order-cat-btn[aria-expanded="true"] .sb-order-cat-caret {
   color: #64748b;
   line-height: 1.35;
 }
+.wb-fbs-kiz-circ-count-total {
+  position: relative;
+  display: inline-block;
+  font-weight: 600;
+  color: #0f172a;
+  cursor: help;
+  border-bottom: 1px dashed #94a3b8;
+}
+.wb-fbs-kiz-circ-count-tip {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 40;
+  min-width: 180px;
+  padding: 8px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  color: #334155;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.4;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+.wb-fbs-kiz-circ-count-tip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.wb-fbs-kiz-circ-count-tip-row + .wb-fbs-kiz-circ-count-tip-row {
+  margin-top: 4px;
+}
+.wb-fbs-kiz-circ-count-tip-row strong {
+  font-weight: 600;
+  color: #0f172a;
+}
+.wb-fbs-kiz-circ-count-total:hover .wb-fbs-kiz-circ-count-tip,
+.wb-fbs-kiz-circ-count-total:focus-visible .wb-fbs-kiz-circ-count-tip {
+  opacity: 1;
+  visibility: visible;
+}
 .wb-fbs-kiz-circ-selected-info {
   font-size: 14px;
   color: #0f172a;
