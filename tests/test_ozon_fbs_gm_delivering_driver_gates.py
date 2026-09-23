@@ -64,7 +64,7 @@ def test_move_delivering_hover_checklist() -> None:
 
 
 def test_asset_cache_bumped() -> None:
-    assert "ozon_fbs.js?v=195" in HTML
+    assert "ozon_fbs.js?v=196" in HTML
     assert "ozon_fbs_container_bind.js?v=37" in HTML
     assert "style.css?v=415" in HTML
     assert "display: none" in CSS[

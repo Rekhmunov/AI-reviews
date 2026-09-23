@@ -81,6 +81,7 @@ def test_ui_replaces_shipment_quality_with_fines() -> None:
     assert "/api/ozon-fbs/fines/sync/status" in OZON_JS
     assert "/api/ozon-fbs/fines/import" in OZON_JS
     assert "/api/ozon-fbs/fines/import-storno" in OZON_JS
+    assert "already_running" in OZON_JS
     assert "ozon-fbs-fines-log-dl" in OZON_JS
     assert "_ozonFbsSyncOwnerOnlyFinesBtn" in OZON_JS
     assert "openOzonFbsShipmentQualityModal" not in OZON_JS
@@ -93,7 +94,7 @@ def test_ui_replaces_shipment_quality_with_fines() -> None:
     assert 'grid-template-areas:' in STYLE
     assert '"from to icons"' in STYLE
     assert "ozon-fbs-fines-filter-menu" in STYLE
-    assert "ozon_fbs.js?v=195" in APP_HTML
+    assert "ozon_fbs.js?v=196" in APP_HTML
     assert "style.css?v=415" in APP_HTML
 
 

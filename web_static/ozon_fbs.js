@@ -13609,6 +13609,9 @@
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      if (data.already_running || data.ok === false) {
+        throw new Error(data.message || "Синхронизация или импорт сторно уже запущены");
+      }
       await loadOzonFbsFinesSyncLog();
       await _ozonFbsFinesPollUntilIdle({ showAlertOnError: true });
       await loadOzonFbsFinesUnits();
@@ -13647,6 +13650,9 @@
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      if (data.already_running || data.ok === false) {
+        throw new Error(data.message || "Синхронизация или импорт сторно уже запущены");
+      }
       await loadOzonFbsFinesSyncLog();
       // Background job — poll status + log until done (avoids nginx 504).
       await _ozonFbsFinesPollUntilIdle({ showAlertOnError: true });

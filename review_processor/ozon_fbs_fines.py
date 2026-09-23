@@ -1321,19 +1321,30 @@ def _parse_ru_ship_date(value: Any, *, default_year: int | None = None) -> date 
         return None
 
 
-def _guess_default_year_from_sheets(sheet_names: list[str]) -> int:
+def _guess_default_year_from_sheets(sheet_names: list[str]) -> int | None:
     years: list[int] = []
     for name in sheet_names:
         m = _SHEET_DATE_RE.match(str(name or "").strip())
         if m and m.group(3):
             y = int(m.group(3))
             years.append(y + 2000 if y < 100 else y)
-    if years:
-        return max(years)
-    return date.today().year
+    return max(years) if years else None
 
 
-def parse_manager_storno_workbook(file_bytes: bytes) -> dict[str, Any]:
+def _guess_year_from_filename(filename: str) -> int | None:
+    """Pull a 20xx year from manager filenames like …10.09.2026….xlsx."""
+    found = re.findall(r"(?:^|[^\d])(20\d{2})(?:[^\d]|$)", str(filename or ""))
+    if not found:
+        return None
+    try:
+        return max(int(y) for y in found)
+    except ValueError:
+        return None
+
+
+def parse_manager_storno_workbook(
+    file_bytes: bytes, *, filename: str = ""
+) -> dict[str, Any]:
     """Parse manager storno Excel (both formats, all sheets).
 
     Format A: header «Номер отправления» | «Дата отгрузки» | …
@@ -1348,7 +1359,11 @@ def parse_manager_storno_workbook(file_bytes: bytes) -> dict[str, Any]:
 
     wb = load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
     try:
-        year_hint = _guess_default_year_from_sheets(list(wb.sheetnames))
+        year_hint = (
+            _guess_default_year_from_sheets(list(wb.sheetnames))
+            or _guess_year_from_filename(filename)
+            or date.today().year
+        )
         sheets_out: list[dict[str, Any]] = []
         entries: list[dict[str, Any]] = []
         seen_units: set[str] = set()
@@ -1580,7 +1595,8 @@ def import_manager_storno(
     date_to: date | None = None,
 ) -> dict[str, Any]:
     """Verify manager storno list via Ozon API; close confirmed; residual Excel."""
-    parsed = parse_manager_storno_workbook(file_bytes)
+    name = str(filename or "сторно").strip() or "сторно"
+    parsed = parse_manager_storno_workbook(file_bytes, filename=name)
     wanted = set(parsed["units"])
     scan_from, scan_to = _storno_scan_window(
         parsed, date_from=date_from, date_to=date_to
@@ -1589,7 +1605,6 @@ def import_manager_storno(
     client_id, api_key = _credentials(repo, user_id=user_id)
     client = OzonFbsClient(client_id=client_id, api_key=api_key, timeout=90)
 
-    name = str(filename or "сторно").strip() or "сторно"
     append_sync_log(
         repo,
         user_id=user_id,
@@ -1648,15 +1663,17 @@ def import_manager_storno(
                     updated += 1
                 if amount > _EPS:
                     confirmed_api.add(unit)
-            append_sync_log(
-                repo,
-                user_id=user_id,
-                message=(
-                    f"Сторно-проверка {day.isoformat()}: "
-                    f"начислений {len(accruals)}, слот по списку {day_hits}"
-                ),
-                level="ok" if day_hits else "info",
-            )
+            # Лог только по дням с попаданием или ошибкой — иначе 30+ пустых строк.
+            if day_hits:
+                append_sync_log(
+                    repo,
+                    user_id=user_id,
+                    message=(
+                        f"Сторно-проверка {day.isoformat()}: "
+                        f"начислений {len(accruals)}, слот по списку {day_hits}"
+                    ),
+                    level="ok",
+                )
         except Exception as exc:
             msg = f"Сторно-проверка {day.isoformat()}: ошибка — {exc}"
             _log.warning(
@@ -1745,7 +1762,8 @@ def start_storno_import_thread(
 ) -> tuple[bool, str, dict[str, Any]]:
     """Background manager-storno import (API crawl can exceed nginx timeout)."""
     # Parse early so HTTP can surface format errors immediately.
-    parsed = parse_manager_storno_workbook(file_bytes)
+    fname = str(filename or "")
+    parsed = parse_manager_storno_workbook(file_bytes, filename=fname)
     scan_from, scan_to = _storno_scan_window(
         parsed, date_from=date_from, date_to=date_to
     )
@@ -1794,7 +1812,6 @@ def start_storno_import_thread(
 
     # Capture bytes for the worker thread.
     payload = bytes(file_bytes)
-    fname = str(filename or "")
 
     def _run() -> None:
         try:
