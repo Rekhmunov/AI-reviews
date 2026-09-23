@@ -20274,6 +20274,14 @@ body.is-col-resizing .wb-fbs-kiz-circ-table th .col-resize-handle {
   text-overflow: ellipsis;
   white-space: nowrap;
   user-select: none;
+  font-size: 12px;
+  letter-spacing: 0.03em;
+}
+#ttnTable th.ttn-sortable {
+  cursor: pointer;
+}
+#ttnTable th.ttn-sortable:hover {
+  background: rgba(219, 234, 254, 0.85);
 }
 #ttnTable th.ttn-num-col {
   text-align: left;
@@ -20281,9 +20289,28 @@ body.is-col-resizing .wb-fbs-kiz-circ-table th .col-resize-handle {
   padding-left: 8px;
   padding-right: 8px;
 }
+#ttnTable .ttn-th-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 8px;
+  min-width: 0;
+  vertical-align: middle;
+}
 #ttnTable th.ttn-num-col .ttn-num-col-label {
   margin-left: 4px;
   vertical-align: middle;
+  font-weight: 600;
+}
+#ttnTable .ttn-sort-icon {
+  font-size: 12px;
+  line-height: 1;
+  color: #94a3b8;
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+#ttnTable th.ttn-sort-active .ttn-sort-icon {
+  color: #2563eb;
 }
 #ttnTable th .col-resize-handle {
   position: absolute;

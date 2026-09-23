@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=415" />
+  <link rel="stylesheet" href="/static/style.css?v=416" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -4396,20 +4396,44 @@
                 </colgroup>
                 <thead>
                   <tr>
-                    <th data-col="0" class="ttn-num-col" title="Выбрать все на странице">
-                      <label class="ttn-row-check ttn-select-all-label">
+                    <th data-col="0" class="ttn-num-col ttn-sortable" data-sort="doc_number"
+                        title="Сортировать по номеру" onclick="toggleTtnSort('doc_number')">
+                      <label class="ttn-row-check ttn-select-all-label" onclick="event.stopPropagation()">
                         <input type="checkbox" id="ttnSelectAll"
                                aria-label="Выбрать все ТН на странице"
                                onchange="toggleTtnSelectAll(this.checked)" />
                       </label>
-                      <span class="ttn-num-col-label">№</span>
-                      <span class="col-resize-handle"></span>
+                      <span class="ttn-th-label">
+                        <span class="ttn-num-col-label">№</span>
+                        <span class="ttn-sort-icon" aria-hidden="true">⇅</span>
+                      </span>
+                      <span class="col-resize-handle" onclick="event.stopPropagation()"></span>
                     </th>
-                    <th data-col="1">Название<span class="col-resize-handle"></span></th>
-                    <th data-col="2">Дата<span class="col-resize-handle"></span></th>
-                    <th data-col="3">Юр. лицо<span class="col-resize-handle"></span></th>
-                    <th data-col="4">Грузополучатель<span class="col-resize-handle"></span></th>
-                    <th data-col="5">Водитель<span class="col-resize-handle"></span></th>
+                    <th data-col="1" class="ttn-sortable" data-sort="title"
+                        title="Сортировать по названию" onclick="toggleTtnSort('title')">
+                      <span class="ttn-th-label">Название <span class="ttn-sort-icon" aria-hidden="true">⇅</span></span>
+                      <span class="col-resize-handle" onclick="event.stopPropagation()"></span>
+                    </th>
+                    <th data-col="2" class="ttn-sortable" data-sort="ttn_date"
+                        title="Сортировать по дате" onclick="toggleTtnSort('ttn_date')">
+                      <span class="ttn-th-label">Дата <span class="ttn-sort-icon" aria-hidden="true">⇅</span></span>
+                      <span class="col-resize-handle" onclick="event.stopPropagation()"></span>
+                    </th>
+                    <th data-col="3" class="ttn-sortable" data-sort="le_short"
+                        title="Сортировать по юр. лицу" onclick="toggleTtnSort('le_short')">
+                      <span class="ttn-th-label">Юр. лицо <span class="ttn-sort-icon" aria-hidden="true">⇅</span></span>
+                      <span class="col-resize-handle" onclick="event.stopPropagation()"></span>
+                    </th>
+                    <th data-col="4" class="ttn-sortable" data-sort="c_name"
+                        title="Сортировать по грузополучателю" onclick="toggleTtnSort('c_name')">
+                      <span class="ttn-th-label">Грузополучатель <span class="ttn-sort-icon" aria-hidden="true">⇅</span></span>
+                      <span class="col-resize-handle" onclick="event.stopPropagation()"></span>
+                    </th>
+                    <th data-col="5" class="ttn-sortable" data-sort="driver"
+                        title="Сортировать по водителю" onclick="toggleTtnSort('driver')">
+                      <span class="ttn-th-label">Водитель <span class="ttn-sort-icon" aria-hidden="true">⇅</span></span>
+                      <span class="col-resize-handle" onclick="event.stopPropagation()"></span>
+                    </th>
                     <th data-col="6">Действия</th>
                   </tr>
                 </thead>
@@ -8172,6 +8196,6 @@
 
   <script src="/static/ozon_fbs.js?v=197"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=37"></script>
-  <script src="/static/app.js?v=696"></script>
+  <script src="/static/app.js?v=697"></script>
 </body>
 </html>

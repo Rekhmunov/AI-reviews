@@ -21187,13 +21187,97 @@ function _ttnDriverCarrierCell(r) {
   return String(driver || "").trim() || "—";
 }
 
-/** Keep same group_id adjacent after filters (mirrors backend cluster_supply_ttn_records_by_group). */
+/** Keep same group_id adjacent after filters; order clusters by active table sort. */
 function _ttnDocNumberValue(rec) {
   const raw = String(rec?.doc_number || "").trim();
   if (/^\d+$/.test(raw)) {
     const n = Number(raw);
     return Number.isFinite(n) ? n : 0;
   }
+  return 0;
+}
+
+const TTN_SORT_KEY = "ttn_table_sort_v1";
+const TTN_SORT_COLS = new Set([
+  "doc_number",
+  "title",
+  "ttn_date",
+  "le_short",
+  "c_name",
+  "driver",
+]);
+
+function _loadTtnSortState() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(TTN_SORT_KEY) || "null");
+    if (
+      raw
+      && TTN_SORT_COLS.has(String(raw.col || ""))
+      && (raw.dir === "asc" || raw.dir === "desc")
+    ) {
+      return { col: String(raw.col), dir: raw.dir };
+    }
+  } catch (_) { /* ignore */ }
+  return { col: "ttn_date", dir: "desc" };
+}
+
+function _saveTtnSortState(state) {
+  try {
+    localStorage.setItem(TTN_SORT_KEY, JSON.stringify(state));
+  } catch (_) { /* ignore */ }
+}
+
+let _ttnSort = _loadTtnSortState();
+
+function _ttnDateSortKey(rec) {
+  const raw = String(rec?.ttn_date || "").trim();
+  if (!raw) return "";
+  // Prefer ISO; convert DD.MM.YYYY without falling back to "today".
+  const iso = _ttnDatetimeToInputValue(raw);
+  if (iso) return iso;
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  return "";
+}
+
+function _ttnSortValue(rec, col) {
+  if (col === "doc_number") return _ttnDocNumberValue(rec);
+  if (col === "ttn_date") return _ttnDateSortKey(rec);
+  if (col === "driver") {
+    return String(_ttnDriverCarrierCell(rec) || "").trim().toLowerCase();
+  }
+  return String(rec?.[col] || "").trim().toLowerCase();
+}
+
+function _ttnClusterSortKey(members, col) {
+  const list = Array.isArray(members) ? members : [];
+  if (!list.length) return col === "doc_number" ? 0 : "";
+  if (col === "doc_number") {
+    return Math.max(...list.map((r) => _ttnDocNumberValue(r)));
+  }
+  if (col === "ttn_date") {
+    let best = "";
+    for (const r of list) {
+      const v = _ttnDateSortKey(r);
+      if (v > best) best = v;
+    }
+    return best;
+  }
+  // Text: use newest member's value so groups stay stable.
+  let lead = list[0];
+  for (const r of list) {
+    if (Number(r.id || 0) >= Number(lead.id || 0)) lead = r;
+  }
+  return _ttnSortValue(lead, col);
+}
+
+function _ttnCompareSortValues(a, b, col) {
+  if (col === "doc_number") {
+    return (Number(a) || 0) - (Number(b) || 0);
+  }
+  const sa = String(a || "");
+  const sb = String(b || "");
+  if (sa < sb) return -1;
+  if (sa > sb) return 1;
   return 0;
 }
 
@@ -21209,34 +21293,77 @@ function _ttnClusterRowsByGroup(list) {
       solo.push(rec);
     }
   }
+  const col = TTN_SORT_COLS.has(_ttnSort?.col) ? _ttnSort.col : "ttn_date";
+  const dir = _ttnSort?.dir === "asc" ? 1 : -1;
   const clusters = [];
   for (const members of grouped.values()) {
     members.sort((a, b) => Number(a.id || 0) - Number(b.id || 0));
-    let maxNum = 0;
     let maxId = 0;
     for (const r of members) {
-      const n = _ttnDocNumberValue(r);
-      if (n > maxNum) maxNum = n;
       const id = Number(r.id || 0);
       if (id > maxId) maxId = id;
     }
-    clusters.push({ keyNum: maxNum, keyId: maxId, members });
+    clusters.push({
+      key: _ttnClusterSortKey(members, col),
+      keyId: maxId,
+      members,
+    });
   }
   for (const rec of solo) {
     clusters.push({
-      keyNum: _ttnDocNumberValue(rec),
+      key: _ttnClusterSortKey([rec], col),
       keyId: Number(rec.id || 0),
       members: [rec],
     });
   }
   clusters.sort((a, b) => {
-    if (a.keyNum !== b.keyNum) return b.keyNum - a.keyNum;
-    return b.keyId - a.keyId;
+    const cmp = _ttnCompareSortValues(a.key, b.key, col);
+    if (cmp) return cmp * dir;
+    return (Number(a.keyId) - Number(b.keyId)) * dir;
   });
   const out = [];
   for (const c of clusters) out.push(...c.members);
   return out;
 }
+
+function _updateTtnSortIcons() {
+  document.querySelectorAll("#ttnTable th.ttn-sortable").forEach((th) => {
+    const col = th.getAttribute("data-sort") || "";
+    const icon = th.querySelector(".ttn-sort-icon");
+    const active = col === _ttnSort.col;
+    th.classList.toggle("ttn-sort-active", active);
+    th.setAttribute("aria-sort", active
+      ? (_ttnSort.dir === "asc" ? "ascending" : "descending")
+      : "none");
+    if (!icon) return;
+    if (!active) {
+      icon.textContent = "⇅";
+      icon.title = "Сортировать";
+    } else if (_ttnSort.dir === "asc") {
+      icon.textContent = "↑";
+      icon.title = "По возрастанию";
+    } else {
+      icon.textContent = "↓";
+      icon.title = "По убыванию";
+    }
+  });
+}
+
+function toggleTtnSort(col) {
+  const key = String(col || "");
+  if (!TTN_SORT_COLS.has(key)) return;
+  if (_ttnSort.col === key) {
+    _ttnSort = { col: key, dir: _ttnSort.dir === "asc" ? "desc" : "asc" };
+  } else {
+    // Date / number: start with newest/highest; text: A→Z.
+    const defaultDir = (key === "ttn_date" || key === "doc_number") ? "desc" : "asc";
+    _ttnSort = { col: key, dir: defaultDir };
+  }
+  _saveTtnSortState(_ttnSort);
+  _ttnPage = 1;
+  renderTtnTable();
+}
+window.toggleTtnSort = toggleTtnSort;
 
 /** Visible TN rows after current filters (same order as the table). */
 function _ttnFilteredRows() {
@@ -21380,6 +21507,7 @@ function renderTtnTable() {
   _ttnSyncPagination(page.total);
   _ttnSyncSelectAllCheckbox(page.rows);
   _ttnSyncPrintSelectedBtn();
+  _updateTtnSortIcons();
   if (!page.total) {
     tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">ТН не найдены</td></tr>';
     return;

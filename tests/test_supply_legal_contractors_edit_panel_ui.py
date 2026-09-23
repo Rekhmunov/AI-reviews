@@ -69,5 +69,5 @@ def test_driver_form_and_settings_tables_fit() -> None:
     assert "position: sticky" not in settings_css
     assert "width: max-content" not in settings_css
     html = HTML.read_text(encoding="utf-8")
-    assert "app.js?v=696" in html
-    assert "style.css?v=415" in html
+    assert "app.js?v=697" in html
+    assert "style.css?v=416" in html

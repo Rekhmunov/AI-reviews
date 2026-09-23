@@ -242,8 +242,8 @@ def test_visibility_modal_has_gear_and_settings_modal() -> None:
     assert 'for="supplyBalancesMinAutoDays"' in modal
     assert "Дней продаж" in modal
     assert "после 00:00" in modal
-    assert "style.css?v=415" in HTML
-    assert "app.js?v=696" in HTML
+    assert "style.css?v=416" in HTML
+    assert "app.js?v=697" in HTML
     assert "/api/supply-balances/min-auto" in APP_JS
     assert "function saveSupplyBalancesMinAuto" in APP_JS
     assert "supply_min_auto_scheduler.start()" in WEB

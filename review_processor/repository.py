@@ -185,9 +185,9 @@ def _date_from_created_at_with_lookback(created_at: object, lookback_days: int) 
 def cluster_supply_ttn_records_by_group(
     records: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Keep same group_id adjacent: groups by max(doc_number,id) DESC, within by id ASC.
+    """Keep same group_id adjacent: groups by max(ttn_date,id) DESC, within by id ASC.
 
-    Highest TN numbers stay on top (сквозная нумерация в списке логистики).
+    Newest transport notes stay on top (default logistics table order).
     """
     def _doc_n(rec: dict[str, Any]) -> int:
         raw = str((rec or {}).get("doc_number") or "").strip()
@@ -198,6 +198,18 @@ def cluster_supply_ttn_records_by_group(
                 return 0
         return 0
 
+    def _date_key(rec: dict[str, Any]) -> str:
+        raw = str((rec or {}).get("ttn_date") or "").strip()
+        if len(raw) >= 10 and raw[4] == "-" and raw[7] == "-":
+            return raw[:10]
+        # DD.MM.YYYY
+        if len(raw) >= 10 and raw[2] == "." and raw[5] == ".":
+            try:
+                return f"{raw[6:10]}-{raw[3:5]}-{raw[0:2]}"
+            except Exception:
+                return ""
+        return raw[:10] if raw else ""
+
     grouped: dict[str, list[dict[str, Any]]] = {}
     solo: list[dict[str, Any]] = []
     for rec in records:
@@ -206,14 +218,17 @@ def cluster_supply_ttn_records_by_group(
             grouped.setdefault(gid, []).append(rec)
         else:
             solo.append(rec)
-    clusters: list[tuple[tuple[int, int], list[dict[str, Any]]]] = []
+    clusters: list[tuple[tuple[str, int, int], list[dict[str, Any]]]] = []
     for _gid, members in grouped.items():
         members.sort(key=lambda r: int(r.get("id") or 0))
-        max_num = max((_doc_n(r) for r in members), default=0)
+        max_date = max((_date_key(r) for r in members), default="")
         max_id = max(int(r.get("id") or 0) for r in members)
-        clusters.append(((max_num, max_id), members))
+        max_num = max((_doc_n(r) for r in members), default=0)
+        clusters.append(((max_date, max_id, max_num), members))
     for rec in solo:
-        clusters.append(((_doc_n(rec), int(rec.get("id") or 0)), [rec]))
+        clusters.append(
+            ((_date_key(rec), int(rec.get("id") or 0), _doc_n(rec)), [rec])
+        )
     clusters.sort(key=lambda c: c[0], reverse=True)
     return [rec for _, members in clusters for rec in members]
 
@@ -11253,9 +11268,13 @@ class ReviewRepository:
                     WHERE t.user_id = ?
                     ORDER BY
                       CASE
-                        WHEN TRIM(COALESCE(t.doc_number, '')) ~ '^[0-9]+$'
-                        THEN TRIM(t.doc_number)::bigint
-                        ELSE 0
+                        WHEN TRIM(COALESCE(t.ttn_date, '')) ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+                        THEN LEFT(TRIM(t.ttn_date), 10)
+                        WHEN TRIM(COALESCE(t.ttn_date, '')) ~ '^[0-9]{2}\\.[0-9]{2}\\.[0-9]{4}'
+                        THEN SUBSTRING(TRIM(t.ttn_date) FROM 7 FOR 4)
+                          || '-' || SUBSTRING(TRIM(t.ttn_date) FROM 4 FOR 2)
+                          || '-' || SUBSTRING(TRIM(t.ttn_date) FROM 1 FOR 2)
+                        ELSE ''
                       END DESC,
                       t.id DESC
                 """),
