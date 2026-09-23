@@ -87,8 +87,8 @@ def test_ttn_etrn_uses_ttn_consignee_not_ozon():
     assert "5001002003" in text
 
 
-def test_ttn_etrn_wb_fbs_infpol_uses_wb_supply_id():
-    """WB FBS ТН → ИнфПол Идентиф = WB-GI-…; НомерТрН остаётся номером ТН."""
+def test_ttn_etrn_wb_fbs_uses_wb_supply_id_as_waybill_number():
+    """WB FBS ТН → НомерТрН и ИнфПол Идентиф = WB-GI-…"""
     rec = _record(
         fbs_platform="wb",
         fbs_source_id=7,
@@ -96,14 +96,17 @@ def test_ttn_etrn_wb_fbs_infpol_uses_wb_supply_id():
         doc_number="15",
     )
     ctx = collect_ttn_doc_context(repository=_Repo(), owner_id=1, record=rec)
-    assert ctx["item"]["supply_order_number"] == "15"
+    assert ctx["item"]["supply_order_number"] == "WB-GI-281870610"
     assert ctx["item"]["infpol_orders_value"] == "WB-GI-281870610"
+    assert ctx["doc_number"] == "15"  # каталожный № ТН не затираем
 
-    xml_bytes, _fname = build_ttn_etrn_xml(repository=_Repo(), owner_id=1, record=rec)
+    xml_bytes, fname = build_ttn_etrn_xml(repository=_Repo(), owner_id=1, record=rec)
+    assert fname.startswith("эТрН №15")  # имя файла по номеру ТН
     root = ET.fromstring(xml_bytes)
     sod = root.find("Документ/СодИнфГО")
     assert sod is not None
-    assert sod.attrib.get("НомерТрН") == "15"
+    assert sod.attrib.get("НомерТрН") == "WB-GI-281870610"
+    assert sod.attrib.get("НомЗак") == "WB-GI-281870610"
     texts = sod.findall("ИнфПол/ТекстИнф")
     by_id = {t.attrib.get("Идентиф"): t.attrib.get("Значение") for t in texts}
     assert by_id.get("Orders") == "WB-GI-281870610"
