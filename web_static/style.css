@@ -9919,7 +9919,8 @@ tr.dnd-over td {
     grid-template-areas:
       "from to icons"
       "sync sync sync"
-      "import import import";
+      "import import import"
+      "storno storno storno";
     gap: 8px;
     align-items: center;
     margin-bottom: 12px;
@@ -9934,6 +9935,12 @@ tr.dnd-over td {
   }
   #ozonFbsFinesImportBtn {
     grid-area: import;
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+  }
+  #ozonFbsFinesStornoImportBtn {
+    grid-area: storno;
     width: 100%;
     min-height: 44px;
     justify-content: center;
