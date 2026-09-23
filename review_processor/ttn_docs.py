@@ -289,6 +289,12 @@ def collect_ttn_doc_context(
         "vehicle_json": None,
         "cargoes_json": None,
     }
+    # эТрН «Дополнительная информация → Идентификатор»: для ТН из ВБ ФБС
+    # подставляем номер поставки WB-GI-… (не номер самой ТН).
+    plat = str(record.get("fbs_platform") or "").strip().lower()
+    fbs_sid = str(record.get("fbs_supply_id") or "").strip()
+    if fbs_sid and plat in ("wb", "wildberries", "wb_fbs"):
+        item["infpol_orders_value"] = fbs_sid
 
     return {
         "item": item,

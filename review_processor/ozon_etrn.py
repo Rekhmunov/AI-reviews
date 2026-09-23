@@ -1393,11 +1393,13 @@ def build_ozon_etrn_xml(
         _el(ident2, "ИННЮЛ", inn)
 
     # ИнфПол must be last in СодИнфГО sequence (table 5.3).
-    # Идентиф=Orders / ORDERS → Значение = номер поставки из основной таблицы ОЗОН.
-    if supply_num:
+    # Идентиф=Orders / ORDERS → Значение = номер поставки (Озон) или override
+    # (например WB-GI-… для ТН из ВБ ФБС в каталоге Логистика).
+    infpol_val = str((item or {}).get("infpol_orders_value") or "").strip() or supply_num
+    if infpol_val:
         inf = _el(sod, "ИнфПол")
-        _el(inf, "ТекстИнф", Идентиф="Orders", Значение=supply_num)
-        _el(inf, "ТекстИнф", Идентиф="ORDERS", Значение=supply_num)
+        _el(inf, "ТекстИнф", Идентиф="Orders", Значение=infpol_val)
+        _el(inf, "ТекстИнф", Идентиф="ORDERS", Значение=infpol_val)
 
     # Подписант is required under Документ (table 5.2).
     signer = _el(doc, "Подписант", СтатПодп="1", Должн="Уполномоченное лицо")

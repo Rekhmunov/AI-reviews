@@ -85,3 +85,40 @@ def test_ttn_etrn_uses_ttn_consignee_not_ozon():
     root = ET.fromstring(xml_bytes)
     assert root.tag == "Файл"
     assert "5001002003" in text
+
+
+def test_ttn_etrn_wb_fbs_infpol_uses_wb_supply_id():
+    """WB FBS ТН → ИнфПол Идентиф = WB-GI-…; НомерТрН остаётся номером ТН."""
+    rec = _record(
+        fbs_platform="wb",
+        fbs_source_id=7,
+        fbs_supply_id="WB-GI-281870610",
+        doc_number="15",
+    )
+    ctx = collect_ttn_doc_context(repository=_Repo(), owner_id=1, record=rec)
+    assert ctx["item"]["supply_order_number"] == "15"
+    assert ctx["item"]["infpol_orders_value"] == "WB-GI-281870610"
+
+    xml_bytes, _fname = build_ttn_etrn_xml(repository=_Repo(), owner_id=1, record=rec)
+    root = ET.fromstring(xml_bytes)
+    sod = root.find("Документ/СодИнфГО")
+    assert sod is not None
+    assert sod.attrib.get("НомерТрН") == "15"
+    texts = sod.findall("ИнфПол/ТекстИнф")
+    by_id = {t.attrib.get("Идентиф"): t.attrib.get("Значение") for t in texts}
+    assert by_id.get("Orders") == "WB-GI-281870610"
+    assert by_id.get("ORDERS") == "WB-GI-281870610"
+
+
+def test_ttn_etrn_non_wb_keeps_doc_number_in_infpol():
+    """Без WB FBS в ИнфПол остаётся номер ТН (как раньше)."""
+    xml_bytes, _ = build_ttn_etrn_xml(repository=_Repo(), owner_id=1, record=_record())
+    root = ET.fromstring(xml_bytes)
+    texts = root.findall("Документ/СодИнфГО/ИнфПол/ТекстИнф")
+    by_id = {t.attrib.get("Идентиф"): t.attrib.get("Значение") for t in texts}
+    assert by_id.get("Orders") == "TN-42"
+    assert by_id.get("ORDERS") == "TN-42"
+    # Ozon-linked catalog TTN must not steal InfPol unless platform is WB.
+    oz = _record(fbs_platform="ozon", fbs_supply_id="020-111", doc_number="9")
+    ctx = collect_ttn_doc_context(repository=_Repo(), owner_id=1, record=oz)
+    assert "infpol_orders_value" not in ctx["item"]
