@@ -70,4 +70,4 @@ def test_driver_form_and_settings_tables_fit() -> None:
     assert "width: max-content" not in settings_css
     html = HTML.read_text(encoding="utf-8")
     assert "app.js?v=695" in html
-    assert "style.css?v=414" in html
+    assert "style.css?v=415" in html

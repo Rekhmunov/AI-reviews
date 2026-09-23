@@ -93,7 +93,7 @@ def test_ttn_prefill_is_local_only() -> None:
 
 def test_cache_bump_for_form_ttn() -> None:
     assert "app.js?v=695" in HTML
-    assert "style.css?v=414" in HTML
+    assert "style.css?v=415" in HTML
     assert "_ttnParseFbsPreferValue" in JS
     assert "keepMeta: !!preferFbs || !!_ttnOpenedFromFbsTab || !!_ttnOpenedFromWbFbs" in JS
     assert "w:${Number(record.warehouse_id)}" in JS

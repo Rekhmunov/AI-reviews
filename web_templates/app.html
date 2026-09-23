@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=414" />
+  <link rel="stylesheet" href="/static/style.css?v=415" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -3100,6 +3100,8 @@
                 <button type="button" id="ozonFbsFinesSyncBtn" onclick="syncOzonFbsFines()">Синхронизировать</button>
                 <button type="button" id="ozonFbsFinesImportBtn" class="secondary"
                         onclick="triggerOzonFbsFinesImport()">Импорт</button>
+                <button type="button" id="ozonFbsFinesStornoImportBtn" class="secondary"
+                        onclick="triggerOzonFbsFinesStornoImport()">Импорт сторно</button>
                 <div class="ozon-fbs-fines-toolbar-icons">
                   <div class="ozon-fbs-fines-filter-wrap">
                     <button type="button" id="ozonFbsFinesFilterBtn" class="icon-btn secondary"
@@ -3134,6 +3136,8 @@
               </div>
               <input type="file" id="ozonFbsFinesImportFile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                      hidden onchange="onOzonFbsFinesImportFileChange(event)" />
+              <input type="file" id="ozonFbsFinesStornoImportFile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                     hidden onchange="onOzonFbsFinesStornoImportFileChange(event)" />
               <div id="ozonFbsFinesSummary" class="ozon-fbs-fines-summary" aria-live="polite"></div>
             </div>
             <div class="ozon-fbs-fines-body">
@@ -8165,7 +8169,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=194"></script>
+  <script src="/static/ozon_fbs.js?v=195"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=37"></script>
   <script src="/static/app.js?v=695"></script>
 </body>

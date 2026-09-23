@@ -14073,6 +14073,96 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except Exception as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
+    @app.post("/api/ozon-fbs/fines/import-storno")
+    async def post_ozon_fbs_fines_import_storno(
+        request: Request,
+        file: UploadFile = File(...),
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> dict[str, object]:
+        """Manager storno Excel → verify via Ozon API → close confirmed units."""
+        from datetime import date as date_cls
+
+        from . import ozon_fbs_fines as oz_fines
+
+        user = _require_user(request)
+        owner_id = _require_ozon_fbs_fines_owner(user)
+        name = str(file.filename or "").strip()
+        lower = name.lower()
+        if lower and not lower.endswith(".xlsx"):
+            raise HTTPException(
+                status_code=400, detail="Нужен файл Excel (.xlsx) со списком сторно"
+            )
+        raw = await file.read()
+        if not raw:
+            raise HTTPException(status_code=400, detail="Пустой файл")
+        if len(raw) > 40 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Файл слишком большой (макс. 40 МБ)")
+
+        parsed_from: date_cls | None = None
+        parsed_to: date_cls | None = None
+        raw_from = str(date_from or "").strip()
+        raw_to = str(date_to or "").strip()
+        try:
+            if raw_from:
+                parsed_from = date_cls.fromisoformat(raw_from[:10])
+            if raw_to:
+                parsed_to = date_cls.fromisoformat(raw_to[:10])
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail="Некорректный формат даты (YYYY-MM-DD)"
+            ) from exc
+        try:
+            ok, message, status = oz_fines.start_storno_import_thread(
+                repository,
+                user_id=owner_id,
+                file_bytes=raw,
+                filename=name,
+                date_from=parsed_from,
+                date_to=parsed_to,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return {
+            "ok": bool(ok),
+            "async": True,
+            "message": message,
+            "already_running": not ok,
+            **status,
+        }
+
+    @app.get("/api/ozon-fbs/fines/sync-log/file/{attachment_id}")
+    def get_ozon_fbs_fines_sync_log_file(
+        request: Request, attachment_id: int
+    ) -> Response:
+        from urllib.parse import quote
+
+        from . import ozon_fbs_fines as oz_fines
+
+        user = _require_user(request)
+        owner_id = _require_ozon_fbs_fines_owner(user)
+        got = oz_fines.get_log_attachment(
+            repository, user_id=owner_id, attachment_id=int(attachment_id)
+        )
+        if got is None:
+            raise HTTPException(status_code=404, detail="Файл не найден")
+        filename, raw = got
+        safe = quote(filename or "residual.xlsx")
+        return Response(
+            content=raw,
+            media_type=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
+            headers={
+                "Content-Disposition": (
+                    f"attachment; filename=\"residual.xlsx\"; "
+                    f"filename*=UTF-8''{safe}"
+                )
+            },
+        )
+
     @app.get("/api/ozon-fbs/postings/find")
     def ozon_fbs_posting_find(
         request: Request,

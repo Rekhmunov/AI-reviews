@@ -13433,10 +13433,16 @@
     }
     el.innerHTML = rows.map((item) => {
       const level = String(item.level || "info");
+      const dlId = item.attachment_id || 0;
+      const dlUrl = String(item.download_url || "").trim();
+      const dl = (dlId && dlUrl)
+        ? `<a class="ozon-fbs-fines-log-dl" href="${_ozonFbsFinesEsc(dlUrl)}" download>Excel</a>`
+        : "";
       return (
         `<div class="ozon-fbs-fines-log-row is-${_ozonFbsFinesEsc(level)}">` +
         `<span class="ozon-fbs-fines-log-time">${_ozonFbsFinesEsc(String(item.created_at || "").slice(11, 19))}</span>` +
         `<span class="ozon-fbs-fines-log-msg">${_ozonFbsFinesEsc(item.message)}</span>` +
+        dl +
         `</div>`
       );
     }).join("");
@@ -13525,15 +13531,21 @@
     document.getElementById("ozonFbsFinesImportFile")?.click();
   }
 
+  function _ozonFbsFinesSetImportBusy(busy) {
+    const syncBtn = document.getElementById("ozonFbsFinesSyncBtn");
+    const importBtn = document.getElementById("ozonFbsFinesImportBtn");
+    const stornoBtn = document.getElementById("ozonFbsFinesStornoImportBtn");
+    if (syncBtn) syncBtn.disabled = !!busy;
+    if (importBtn) importBtn.disabled = !!busy;
+    if (stornoBtn) stornoBtn.disabled = !!busy;
+  }
+
   async function onOzonFbsFinesImportFileChange(ev) {
     const input = ev?.target || document.getElementById("ozonFbsFinesImportFile");
     const file = input?.files && input.files[0];
     if (!file) return;
-    const syncBtn = document.getElementById("ozonFbsFinesSyncBtn");
-    const importBtn = document.getElementById("ozonFbsFinesImportBtn");
     finesState.importing = true;
-    if (syncBtn) syncBtn.disabled = true;
-    if (importBtn) importBtn.disabled = true;
+    _ozonFbsFinesSetImportBusy(true);
     try {
       const fd = new FormData();
       fd.append("file", file, file.name);
@@ -13555,8 +13567,58 @@
       alert(String(e.message || e));
     } finally {
       finesState.importing = false;
-      if (syncBtn) syncBtn.disabled = false;
-      if (importBtn) importBtn.disabled = false;
+      _ozonFbsFinesSetImportBusy(false);
+      if (input) input.value = "";
+    }
+  }
+
+  function triggerOzonFbsFinesStornoImport() {
+    if (typeof isTenantOwner === "function" && !isTenantOwner()) {
+      alert("Штрафы доступны только главному пользователю");
+      return;
+    }
+    if (finesState.syncing || finesState.importing) return;
+    document.getElementById("ozonFbsFinesStornoImportFile")?.click();
+  }
+
+  async function onOzonFbsFinesStornoImportFileChange(ev) {
+    const input = ev?.target || document.getElementById("ozonFbsFinesStornoImportFile");
+    const file = input?.files && input.files[0];
+    if (!file) return;
+    const fromEl = document.getElementById("ozonFbsFinesDateFrom");
+    const toEl = document.getElementById("ozonFbsFinesDateTo");
+    const dateFrom = String(fromEl?.value || "").trim();
+    const dateTo = String(toEl?.value || "").trim();
+    finesState.importing = true;
+    finesState.syncing = true;
+    _ozonFbsFinesSetImportBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file, file.name);
+      if (dateFrom) fd.append("date_from", dateFrom);
+      if (dateTo) fd.append("date_to", dateTo);
+      const headers = typeof withCsrfHeaders === "function" ? withCsrfHeaders() : {};
+      const q = new URLSearchParams();
+      if (dateFrom) q.set("date_from", dateFrom);
+      if (dateTo) q.set("date_to", dateTo);
+      const qs = q.toString() ? `?${q}` : "";
+      const res = await fetch(`/api/ozon-fbs/fines/import-storno${qs}`, {
+        method: "POST",
+        headers,
+        body: fd,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      await loadOzonFbsFinesSyncLog();
+      await _ozonFbsFinesPollUntilIdle({ showAlertOnError: true });
+      await loadOzonFbsFinesUnits();
+    } catch (e) {
+      await loadOzonFbsFinesSyncLog();
+      alert(String(e.message || e));
+    } finally {
+      finesState.importing = false;
+      finesState.syncing = false;
+      _ozonFbsFinesSetImportBusy(false);
       if (input) input.value = "";
     }
   }
@@ -13575,9 +13637,8 @@
       alert("Укажите интервал дат");
       return;
     }
-    const btn = document.getElementById("ozonFbsFinesSyncBtn");
     finesState.syncing = true;
-    if (btn) btn.disabled = true;
+    _ozonFbsFinesSetImportBusy(true);
     try {
       const res = await fetch("/api/ozon-fbs/fines/sync", {
         method: "POST",
@@ -13595,7 +13656,7 @@
       alert(String(e.message || e));
     } finally {
       finesState.syncing = false;
-      if (btn) btn.disabled = false;
+      _ozonFbsFinesSetImportBusy(false);
     }
   }
 
@@ -13641,13 +13702,12 @@
     }
     await loadOzonFbsFinesSyncLog();
     await loadOzonFbsFinesUnits();
-    // Resume UI lock if a background sync is still running.
+    // Resume UI lock if a background sync / storno import is still running.
     try {
       const st = await _ozonFbsFinesFetchStatus();
       if (st && st.in_progress && !finesState.syncing) {
-        const btn = document.getElementById("ozonFbsFinesSyncBtn");
         finesState.syncing = true;
-        if (btn) btn.disabled = true;
+        _ozonFbsFinesSetImportBusy(true);
         _ozonFbsFinesPollUntilIdle({ showAlertOnError: false })
           .then(async () => {
             await loadOzonFbsFinesUnits();
@@ -13655,7 +13715,7 @@
           .catch(() => {})
           .finally(() => {
             finesState.syncing = false;
-            if (btn) btn.disabled = false;
+            _ozonFbsFinesSetImportBusy(false);
           });
       }
     } catch (_e) { /* ignore */ }
@@ -14039,6 +14099,8 @@
   window.toggleOzonFbsFinesFilterMenu = toggleOzonFbsFinesFilterMenu;
   window.triggerOzonFbsFinesImport = triggerOzonFbsFinesImport;
   window.onOzonFbsFinesImportFileChange = onOzonFbsFinesImportFileChange;
+  window.triggerOzonFbsFinesStornoImport = triggerOzonFbsFinesStornoImport;
+  window.onOzonFbsFinesStornoImportFileChange = onOzonFbsFinesStornoImportFileChange;
 
   document.addEventListener("click", (e) => {
     const wrap = document.querySelector("#ozonFbsFinesModal .ozon-fbs-fines-filter-wrap");

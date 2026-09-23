@@ -68,25 +68,33 @@ def test_ui_replaces_shipment_quality_with_fines() -> None:
     assert 'id="ozonFbsFinesFilterBtn"' in APP_HTML
     assert 'id="ozonFbsFinesImportBtn"' in APP_HTML
     assert 'id="ozonFbsFinesImportFile"' in APP_HTML
+    assert 'id="ozonFbsFinesStornoImportBtn"' in APP_HTML
+    assert 'id="ozonFbsFinesStornoImportFile"' in APP_HTML
+    assert "Импорт сторно" in APP_HTML
     assert "function openOzonFbsFinesModal(" in OZON_JS
     assert "function syncOzonFbsFines(" in OZON_JS
     assert "function triggerOzonFbsFinesImport(" in OZON_JS
+    assert "function triggerOzonFbsFinesStornoImport(" in OZON_JS
+    assert "function onOzonFbsFinesStornoImportFileChange(" in OZON_JS
     assert "function toggleOzonFbsFinesFilterMenu(" in OZON_JS
     assert "_ozonFbsFinesPollUntilIdle" in OZON_JS
     assert "/api/ozon-fbs/fines/sync/status" in OZON_JS
     assert "/api/ozon-fbs/fines/import" in OZON_JS
+    assert "/api/ozon-fbs/fines/import-storno" in OZON_JS
+    assert "ozon-fbs-fines-log-dl" in OZON_JS
     assert "_ozonFbsSyncOwnerOnlyFinesBtn" in OZON_JS
     assert "openOzonFbsShipmentQualityModal" not in OZON_JS
     assert "_ozonFbsSyncOwnerOnlyShipmentQualityBtn" not in OZON_JS
     assert "is-closed" in OZON_JS
     assert ".ozon-fbs-fines-row.is-closed" in STYLE
+    assert "ozon-fbs-fines-log-dl" in STYLE
     assert ".ozon-fbs-shipment-quality-body" not in STYLE
     assert "#ozonFbsFinesModal .ozon-fbs-fines-modal" in STYLE
     assert 'grid-template-areas:' in STYLE
     assert '"from to icons"' in STYLE
     assert "ozon-fbs-fines-filter-menu" in STYLE
-    assert "ozon_fbs.js?v=194" in APP_HTML
-    assert "style.css?v=414" in APP_HTML
+    assert "ozon_fbs.js?v=195" in APP_HTML
+    assert "style.css?v=415" in APP_HTML
 
 
 def test_api_paths_present_in_web() -> None:
@@ -95,7 +103,10 @@ def test_api_paths_present_in_web() -> None:
     assert "/api/ozon-fbs/fines/sync" in web
     assert "/api/ozon-fbs/fines/sync/status" in web
     assert "/api/ozon-fbs/fines/import" in web
+    assert "/api/ozon-fbs/fines/import-storno" in web
+    assert "/api/ozon-fbs/fines/sync-log/file/" in web
     assert "start_sync_thread" in web
+    assert "start_storno_import_thread" in web
     assert "/api/ozon-fbs/fines/units" in web
     assert "_require_ozon_fbs_fines_owner" in web
     assert "/api/ozon-fbs/shipment-quality/" not in web
@@ -195,3 +206,102 @@ def test_fetch_day_stops_on_stable_cursor_not_page_size() -> None:
     assert "len(chunk) < 1000" not in chunk
     assert "new_count == 0" in chunk
     assert "new_last == last_id" in chunk
+
+
+def test_parse_manager_storno_headered_format() -> None:
+    sample = Path(
+        "/home/ubuntu/.cursor/projects/workspace/uploads/"
+        "_________10.09.2026____13.09.2026______________d656.xlsx"
+    )
+    if not sample.exists():
+        return
+    parsed = fines.parse_manager_storno_workbook(sample.read_bytes())
+    assert parsed["unit_count"] >= 1600
+    assert len(parsed["sheets"]) >= 10
+    assert any(s.get("format") == "headered" for s in parsed["sheets"])
+    assert all(_looks(u) for u in parsed["units"][:20])
+
+
+def test_parse_manager_storno_bare_format() -> None:
+    sample = Path(
+        "/home/ubuntu/.cursor/projects/workspace/uploads/"
+        "_______________________________2___1__f7f5.xlsx"
+    )
+    if not sample.exists():
+        return
+    parsed = fines.parse_manager_storno_workbook(sample.read_bytes())
+    assert parsed["unit_count"] >= 200
+    assert any(s.get("format") == "bare" for s in parsed["sheets"])
+
+
+def test_build_manager_storno_residual_keeps_layout() -> None:
+    sample = Path(
+        "/home/ubuntu/.cursor/projects/workspace/uploads/"
+        "_________10.09.2026____13.09.2026______________d656.xlsx"
+    )
+    if not sample.exists():
+        return
+    raw = sample.read_bytes()
+    parsed = fines.parse_manager_storno_workbook(raw)
+    # Fail first two units from first non-empty sheet.
+    failed: set[str] = set()
+    for sheet in parsed["sheets"]:
+        for row in sheet.get("rows") or []:
+            failed.add(str(row["unit_number"]))
+            if len(failed) >= 2:
+                break
+        if len(failed) >= 2:
+            break
+    out = fines.build_manager_storno_residual_xlsx(parsed, failed)
+    assert out.startswith(b"PK")
+    residual = fines.parse_manager_storno_workbook(out)
+    assert residual["unit_count"] == len(failed)
+    assert set(residual["units"]) == failed
+    # Same sheet names preserved for sheets that still have rows or headers.
+    assert residual["sheets"]
+
+
+def test_storno_scan_window_expands_sheet_dates() -> None:
+    parsed = {
+        "sheets": [
+            {
+                "name": "28.08",
+                "sheet_date": "2026-08-28",
+                "header": None,
+                "format": "bare",
+                "rows": [
+                    {
+                        "unit_number": "12345-0001-1",
+                        "row_date": "2026-08-28",
+                        "cells": ["12345-0001-1"],
+                    }
+                ],
+            },
+            {
+                "name": "11.09",
+                "sheet_date": "2026-09-11",
+                "header": None,
+                "format": "bare",
+                "rows": [],
+            },
+        ]
+    }
+    d0, d1 = fines._storno_scan_window(
+        parsed, date_from=date(2026, 9, 1), date_to=date(2026, 9, 5)
+    )
+    assert d0 == date(2026, 8, 28)
+    assert d1 >= date(2026, 9, 11)
+
+
+def test_storno_import_helpers_present() -> None:
+    src = (ROOT / "review_processor" / "ozon_fbs_fines.py").read_text(encoding="utf-8")
+    assert "def parse_manager_storno_workbook(" in src
+    assert "def build_manager_storno_residual_xlsx(" in src
+    assert "def import_manager_storno(" in src
+    assert "def start_storno_import_thread(" in src
+    assert "def get_log_attachment(" in src
+    assert "ozon_fbs_fines_log_files" in src
+
+
+def _looks(u: str) -> bool:
+    return fines._looks_like_posting_number(u)

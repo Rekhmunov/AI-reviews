@@ -30,7 +30,7 @@ def test_multi_ttn_html_has_tabs_route_and_driver_column() -> None:
     overlay_line = html.split('id="createTtnModal"', 1)[1].split(">", 1)[0]
     assert "closeCreateTtnModal" not in overlay_line
     assert "app.js?v=695" in html
-    assert "style.css?v=414" in html
+    assert "style.css?v=415" in html
 
 
 def test_multi_ttn_js_capture_apply_group_route_overlay() -> None:
@@ -170,7 +170,7 @@ def test_ttn_ui_reclusters_after_filters() -> None:
     assert 'id="ttnInfo"' in html
     assert "ttnChangePage(-1)" in html
     assert "app.js?v=695" in html
-    assert "style.css?v=414" in html
+    assert "style.css?v=415" in html
     web = WEB.read_text(encoding="utf-8")
     assert '"/api/supply-ttn-records/print-html"' in web
     assert "allocate_next_supply_ttn_doc_number" in web
