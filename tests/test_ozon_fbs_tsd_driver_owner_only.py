@@ -40,6 +40,7 @@ def test_init_section_calls_owner_sync() -> None:
     end = JS.find("function _ozonFbsSyncOwnerOnlyGear", start)
     init = JS[start:end]
     assert "_ozonFbsSyncOwnerOnlyTsdDriverBtns()" in init
+    assert "_ozonFbsSyncOwnerOnlyReturnsBtn()" in init
     assert "can_view_wb_fbs_tsd" not in init
 
 
@@ -66,4 +67,4 @@ def test_driver_page_and_apis_owner_only() -> None:
 
 
 def test_cache_bump() -> None:
-    assert "ozon_fbs.js?v=196" in HTML
+    assert "ozon_fbs.js?v=197" in HTML

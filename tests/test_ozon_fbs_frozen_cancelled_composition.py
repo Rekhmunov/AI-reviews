@@ -246,4 +246,4 @@ def test_status_refresh_ui_keeps_cancelled_in_modals() -> None:
     # Cancelled stay in KIZ/pick modals until pick-list+stickers reset / ⋮ remove.
     assert "будет удалён из модалки" not in js
     assert "function _ozonFbsApplyCancelledQuiet" in js
-    assert "ozon_fbs.js?v=196" in html
+    assert "ozon_fbs.js?v=197" in html

@@ -1713,7 +1713,8 @@
                 Вывод КИЗ
               </button>
               <button type="button" id="wbFbsKizRestoreBtn" class="secondary"
-                      onclick="openWbFbsKizRestoreModal()" title="Журнал возвратов и перепечатка КИЗ">
+                      onclick="openWbFbsKizRestoreModal()" title="Журнал возвратов и перепечатка КИЗ"
+                      hidden>
                 Возвраты
               </button>
               <button type="button" id="wbFbsTsdBtn" class="secondary"
@@ -2872,7 +2873,7 @@
                       onclick="openOzonFbsSyncSettings()" title="Настройки синхронизации Ozon FBS"
                       aria-label="Настройки синхронизации Ozon FBS">⚙</button>
               <button type="button" id="ozonFbsKizCirculationBtn" class="secondary ozon-fbs-stub-btn" disabled title="Скоро">Вывод КИЗ</button>
-              <button type="button" id="ozonFbsKizRestoreBtn" class="secondary ozon-fbs-stub-btn" disabled title="Скоро">Возвраты</button>
+              <button type="button" id="ozonFbsKizRestoreBtn" class="secondary ozon-fbs-stub-btn" disabled title="Скоро" hidden>Возвраты</button>
               <button type="button" id="ozonFbsTsdBtn" class="secondary"
                       onclick="window.location.href='/wb-fbs/tsd'" title="ТСД — сборка на складе"
                       hidden>
@@ -8169,8 +8170,8 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=196"></script>
+  <script src="/static/ozon_fbs.js?v=197"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=37"></script>
-  <script src="/static/app.js?v=695"></script>
+  <script src="/static/app.js?v=696"></script>
 </body>
 </html>

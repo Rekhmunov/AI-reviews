@@ -26067,6 +26067,10 @@ function clearWbFbsReturnsDateFilter() {
 window.clearWbFbsReturnsDateFilter = clearWbFbsReturnsDateFilter;
 
 function openWbFbsKizRestoreModal() {
+  if (typeof isTenantOwner === "function" && !isTenantOwner()) {
+    alert("Возвраты доступны только главному пользователю");
+    return;
+  }
   const sid = _wbFbsReturnsSourceId();
   if (!sid) {
     alert("Выберите источник WB FBS");
@@ -33941,6 +33945,14 @@ function _wbFbsSyncOwnerOnlyKizBtn() {
   btn.style.display = can ? "" : "none";
 }
 
+function _wbFbsSyncOwnerOnlyReturnsBtn() {
+  const btn = document.getElementById("wbFbsKizRestoreBtn");
+  if (!btn) return;
+  const can = _wbFbsCanViewOwnerTabs();
+  btn.hidden = !can;
+  btn.style.display = can ? "" : "none";
+}
+
 function _wbFbsSyncOwnerOnlyCancelledBtn() {
   const btn = document.getElementById("wbFbsSupplyDetailCancelledBtn");
   if (!btn) return;
@@ -33953,6 +33965,7 @@ async function initWbFbsSection() {
   _wbFbsSyncOwnerOnlyTabs();
   _wbFbsSyncOwnerOnlyGear();
   _wbFbsSyncOwnerOnlyKizBtn();
+  _wbFbsSyncOwnerOnlyReturnsBtn();
   _wbFbsSyncOwnerOnlyCancelledBtn();
   initWbFbsColumnResizer();
   _wbFbsSyncTableMode();

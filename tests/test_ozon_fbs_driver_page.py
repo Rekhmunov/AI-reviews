@@ -45,8 +45,8 @@ def test_driver_button_next_to_tsd() -> None:
     assert tsd < driver
     assert "Для водителя" in html
     assert "openOzonFbsDriverPage()" in html
-    assert "ozon_fbs.js?v=196" in html
-    assert "app.js?v=695" in html
+    assert "ozon_fbs.js?v=197" in html
+    assert "app.js?v=696" in html
 
 
 def test_web_routes_and_builder() -> None:

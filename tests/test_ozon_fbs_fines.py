@@ -94,7 +94,7 @@ def test_ui_replaces_shipment_quality_with_fines() -> None:
     assert 'grid-template-areas:' in STYLE
     assert '"from to icons"' in STYLE
     assert "ozon-fbs-fines-filter-menu" in STYLE
-    assert "ozon_fbs.js?v=196" in APP_HTML
+    assert "ozon_fbs.js?v=197" in APP_HTML
     assert "style.css?v=415" in APP_HTML
 
 

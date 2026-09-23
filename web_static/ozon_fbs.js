@@ -4869,9 +4869,18 @@
     }
   }
 
+  function _ozonFbsSyncOwnerOnlyReturnsBtn() {
+    const btn = document.getElementById("ozonFbsKizRestoreBtn");
+    if (!btn) return;
+    const can = typeof isTenantOwner === "function" && isTenantOwner();
+    btn.hidden = !can;
+    btn.style.display = can ? "" : "none";
+  }
+
   async function initSection() {
     if (!canView()) return;
     _ozonFbsSyncOwnerOnlyTsdDriverBtns();
+    _ozonFbsSyncOwnerOnlyReturnsBtn();
     _ozonFbsSyncOwnerOnlyGear();
     _ozonFbsSyncCancelledBtn();
     _ozonFbsSyncOwnerOnlyAllCancellationsBtn();
