@@ -34970,6 +34970,41 @@ function _wbFbsTtnPrintMenuIconHtml() {
   </span>`;
 }
 
+function _wbFbsTtnXmlMenuIconHtml() {
+  return `<span class="wb-fbs-menu-ico" aria-hidden="true">
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M9 3.5v8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+      <path d="M5.5 8.5L9 12l3.5-3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <path d="M3.5 14.5h11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+    </svg>
+  </span>`;
+}
+
+/**
+ * Same Zakaz / eTrN downloads as Логистика → ТН (shared URLs, no forked logic).
+ * closeJs — optional prefix like ``_wbFbsCloseRowMenus()`` before window.open.
+ */
+function ttnLogisticsXmlMenuItemsHtml(ttnId, { closeJs = "", iconHtml = "" } = {}) {
+  const id = Number(ttnId || 0);
+  if (id <= 0) return "";
+  const closePrefix = closeJs ? `${closeJs}; ` : "";
+  const ico = iconHtml || _wbFbsTtnXmlMenuIconHtml();
+  return `
+      <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
+              onclick="${closePrefix}window.open('/api/supply-ttn-records/${id}/zakaz.xml','_blank')"
+              title="Скачать XML заявки (ЭЗЗ) для Контур.Логистики">
+        ${ico}
+        Заявка логисту
+      </button>
+      <button type="button" class="wb-fbs-row-menu-item" role="menuitem"
+              onclick="${closePrefix}window.open('/api/supply-ttn-records/${id}/etrn.xml','_blank')"
+              title="Скачать XML эТрН для Контур.Логистики">
+        ${ico}
+        Накладная эТрН
+      </button>`;
+}
+window.ttnLogisticsXmlMenuItemsHtml = ttnLogisticsXmlMenuItemsHtml;
+
 function _wbFbsSupplyRowActionsHtml(supply) {
   const row = supply && typeof supply === "object" ? supply : { supply_id: supply };
   const sid = String(row.supply_id || "").trim();
@@ -34979,6 +35014,10 @@ function _wbFbsSupplyRowActionsHtml(supply) {
   const safeKey = sid.replace(/[^a-zA-Z0-9_-]/g, "_");
   const src = Number(row.source_id || wbFbsState.sourceId || 0);
   const ttnId = Number(row.ttn_id || 0);
+  const xmlItems = ttnLogisticsXmlMenuItemsHtml(ttnId, {
+    closeJs: "_wbFbsCloseRowMenus()",
+    iconHtml: _wbFbsTtnXmlMenuIconHtml(),
+  });
   const printItem = ttnId > 0
     ? `<button type="button" class="wb-fbs-row-menu-item" role="menuitem"
               onclick="printTtnRecord(${ttnId})">
@@ -35000,6 +35039,7 @@ function _wbFbsSupplyRowActionsHtml(supply) {
         ${_wbFbsTtnMenuIconHtml()}
         Сформировать ТН
       </button>
+      ${xmlItems}
       ${printItem}
     </div>
   </div>`;

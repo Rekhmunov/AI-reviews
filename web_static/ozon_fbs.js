@@ -903,6 +903,14 @@
     const src = Number(row.source_id || state.sourceId || 0);
     if (isDeliveringSuppliesTab()) {
       const ttnId = Number(row.ttn_id || 0);
+      const xmlItems = typeof ttnLogisticsXmlMenuItemsHtml === "function"
+        ? ttnLogisticsXmlMenuItemsHtml(ttnId, {
+            closeJs: "closeOzonFbsRowMenus()",
+            iconHtml: typeof _wbFbsTtnXmlMenuIconHtml === "function"
+              ? _wbFbsTtnXmlMenuIconHtml()
+              : _ozonFbsTtnMenuIconHtml(),
+          })
+        : "";
       const printItem = ttnId > 0
         ? `<button type="button" class="wb-fbs-row-menu-item" role="menuitem"
                   onclick="printTtnRecord(${ttnId})">
@@ -919,6 +927,7 @@
             ${_ozonFbsTtnMenuIconHtml()}
             Сформировать ТН
           </button>
+          ${xmlItems}
           ${printItem}
         </div>
       </div>`;

@@ -23,11 +23,19 @@ def test_delivering_menu_form_and_print_ttn() -> None:
     assert "isDeliveringSuppliesTab()" in menu
     assert "Сформировать ТН" in menu
     assert "Распечатать ТН" in menu
+    assert "ttnLogisticsXmlMenuItemsHtml" in menu
+    assert "Заявка логисту" in APP_JS  # labels come from shared helper in app.js
+    assert "Накладная эТрН" in APP_JS
     assert "_ozonFbsSupplyRowActionsHtml(s)" in JS
     # Actions column shown on delivering (not only awaiting rename).
     sync = JS[JS.find("function syncTableMode") : JS.find("function _ozonFbsRenameMenuIconHtml")]
     assert "const showActions = true" in sync
     assert 'return 7;' in JS[JS.find("function colspan") : JS.find("async function loadSources")]
+    # Logistics → TN buttons still present (copy into FBS, not move).
+    assert "/api/supply-ttn-records/${r.id}/zakaz.xml" in APP_JS
+    assert "/api/supply-ttn-records/${r.id}/etrn.xml" in APP_JS
+    assert 'span>Заявка логисту</span>' in APP_JS
+    assert 'span>Накладная эТрН</span>' in APP_JS
 
 
 def test_ttn_prefill_is_local_only() -> None:
@@ -61,6 +69,6 @@ def test_ttn_prefill_is_local_only() -> None:
 
 
 def test_cache_bump_for_ozon_form_ttn() -> None:
-    assert "ozon_fbs.js?v=193" in HTML
-    assert "app.js?v=694" in HTML
+    assert "ozon_fbs.js?v=194" in HTML
+    assert "app.js?v=695" in HTML
     assert "suggest_fbs_ttn_title" in OZ

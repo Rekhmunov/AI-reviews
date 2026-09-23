@@ -41,9 +41,26 @@ def test_delivery_menu_form_and_print_ttn() -> None:
     menu = JS[JS.find("function _wbFbsSupplyRowActionsHtml") : JS.find("async function wbFbsFormTtn")]
     assert "Сформировать ТН" in menu
     assert "Распечатать ТН" in menu
+    assert "ttnLogisticsXmlMenuItemsHtml" in menu
+    assert "xmlItems" in menu
+    assert "Заявка логисту" in JS
+    assert "Накладная эТрН" in JS
+    assert "/api/supply-ttn-records/${id}/zakaz.xml" in JS
+    assert "/api/supply-ttn-records/${id}/etrn.xml" in JS
     assert "Напечатать QR-код поставки" in menu
     assert '_wbFbsSupplyRowActionsHtml(s)' in JS
     assert 'it["ttn_id"]' in WB
+    # Shared helper — same endpoints as Логистика → ТН.
+    helper = JS.split("function ttnLogisticsXmlMenuItemsHtml", 1)[1].split("\nfunction ", 1)[0]
+    assert "/api/supply-ttn-records/${id}/zakaz.xml" in helper
+    assert "/api/supply-ttn-records/${id}/etrn.xml" in helper
+    assert "Заявка логисту" in helper
+    assert "Накладная эТрН" in helper
+    # Logistics buttons stay in place (copy into FBS, not move).
+    assert "/api/supply-ttn-records/${r.id}/zakaz.xml" in JS
+    assert "/api/supply-ttn-records/${r.id}/etrn.xml" in JS
+    assert 'span>Заявка логисту</span>' in JS
+    assert 'span>Накладная эТрН</span>' in JS
 
 
 def test_ttn_prefill_is_local_only() -> None:
@@ -75,7 +92,7 @@ def test_ttn_prefill_is_local_only() -> None:
 
 
 def test_cache_bump_for_form_ttn() -> None:
-    assert "app.js?v=694" in HTML
+    assert "app.js?v=695" in HTML
     assert "style.css?v=414" in HTML
     assert "_ttnParseFbsPreferValue" in JS
     assert "keepMeta: !!preferFbs || !!_ttnOpenedFromFbsTab || !!_ttnOpenedFromWbFbs" in JS

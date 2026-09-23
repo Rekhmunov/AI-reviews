@@ -19,7 +19,7 @@ def _slice(src: str, start: str, end: str) -> str:
 
 
 def test_cache_versions() -> None:
-    assert "ozon_fbs.js?v=193" in HTML
+    assert "ozon_fbs.js?v=194" in HTML
     assert "style.css?v=414" in HTML
 
 
