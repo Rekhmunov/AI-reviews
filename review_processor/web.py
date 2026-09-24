@@ -8,6 +8,7 @@ import ipaddress
 import io
 import csv
 import logging
+import os
 from pathlib import Path
 import random
 import re
@@ -1372,7 +1373,14 @@ RATE_LIMIT_API_WRITE_PER_MINUTE = 180
 RATE_LIMIT_SYNC_PER_MINUTE = 20
 RATE_LIMIT_LOGIN_PER_10_MIN = 30
 FAILED_LOGIN_LIMIT_PER_15_MIN = 10
-AUTO_SYNC_INTERVAL_SECONDS = 60
+# Gap between auto-sync polls. On a 2 GB VPS prefer 300–900 via env.
+try:
+    AUTO_SYNC_INTERVAL_SECONDS = int(
+        os.environ.get("APP_AUTO_SYNC_INTERVAL_SECONDS", "60") or "60"
+    )
+except (TypeError, ValueError):
+    AUTO_SYNC_INTERVAL_SECONDS = 60
+AUTO_SYNC_INTERVAL_SECONDS = max(60, min(3600, AUTO_SYNC_INTERVAL_SECONDS))
 
 
 def _normalize_role(raw_role: object) -> str:

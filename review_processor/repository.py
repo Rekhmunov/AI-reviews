@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 import hashlib
+import os
 import re
+import threading
+import time
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -26,6 +29,17 @@ DEFAULT_GROUP_PROCESSORS: dict[str, str] = {
 
 TEMPLATE_VARIABLE_KEY_RE = re.compile(r"^%[A-Z0-9_]{2,50}%$")
 
+# Process-wide TTL cache for sync_reviews skip-map. Auto-sync hits this once per
+# account; without a cache a 2 GB VPS reloads ~100k rows several times per poll.
+_CLASSIFICATIONS_CACHE_LOCK = threading.Lock()
+_CLASSIFICATIONS_CACHE: dict[int, tuple[float, dict[str, tuple[str, str]]]] = {}
+try:
+    _CLASSIFICATIONS_CACHE_TTL_SEC = float(
+        os.environ.get("APP_CLASSIFICATIONS_CACHE_TTL_SEC", "300") or "300"
+    )
+except (TypeError, ValueError):
+    _CLASSIFICATIONS_CACHE_TTL_SEC = 300.0
+_CLASSIFICATIONS_CACHE_TTL_SEC = max(0.0, min(3600.0, _CLASSIFICATIONS_CACHE_TTL_SEC))
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
@@ -6197,7 +6211,24 @@ class ReviewRepository:
         """Return {review_uid: (category/group, classified_subgroup)} for all
         already-classified reviews of this user. Used to skip redundant Yandex calls.
         Uses the `category` column (always populated) and json_extract on metadata_json
-        for the subgroup."""
+        for the subgroup.
+
+        Cached briefly in-process so auto-sync (N accounts) does not reload ~100k
+        rows into RAM on every account within the same poll.
+        """
+        try:
+            uid = int(user_id or 0)
+        except (TypeError, ValueError):
+            uid = 0
+        if uid <= 0:
+            return {}
+        now = time.monotonic()
+        if _CLASSIFICATIONS_CACHE_TTL_SEC > 0:
+            with _CLASSIFICATIONS_CACHE_LOCK:
+                hit = _CLASSIFICATIONS_CACHE.get(uid)
+                if hit is not None and (now - float(hit[0])) < _CLASSIFICATIONS_CACHE_TTL_SEC:
+                    return hit[1]
+
         sub_expr = "metadata_json::jsonb->>'classified_subgroup'"
 
         sql = self._sql(f"""
@@ -6210,16 +6241,32 @@ class ReviewRepository:
               AND category != ''
         """)
         with self._connect() as conn:
-            rows = conn.execute(sql, (user_id,)).fetchall()
+            rows = conn.execute(sql, (uid,)).fetchall()
         result: dict[str, tuple[str, str]] = {}
         for row in rows:
             d = self._row_to_dict(row)
-            uid = str(d.get("review_uid") or "").strip()
+            review_uid = str(d.get("review_uid") or "").strip()
             grp = str(d.get("grp") or "").strip()
             sub = str(d.get("sub") or "").strip()
-            if uid and grp:
-                result[uid] = (grp, sub)
+            if review_uid and grp:
+                result[review_uid] = (grp, sub)
+
+        if _CLASSIFICATIONS_CACHE_TTL_SEC > 0:
+            with _CLASSIFICATIONS_CACHE_LOCK:
+                _CLASSIFICATIONS_CACHE[uid] = (now, result)
         return result
+
+    def invalidate_existing_classifications_cache(self, *, user_id: int | None = None) -> None:
+        """Drop cached classification skip-map (all users or one)."""
+        with _CLASSIFICATIONS_CACHE_LOCK:
+            if user_id is None:
+                _CLASSIFICATIONS_CACHE.clear()
+                return
+            try:
+                uid = int(user_id or 0)
+            except (TypeError, ValueError):
+                return
+            _CLASSIFICATIONS_CACHE.pop(uid, None)
 
     # ── Product catalog methods ───────────────────────────────────────────────
 
