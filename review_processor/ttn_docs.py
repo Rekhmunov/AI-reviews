@@ -312,9 +312,42 @@ def collect_ttn_doc_context(
     # (не внутренний номер ТН в каталоге Логистика).
     plat = str(record.get("fbs_platform") or "").strip().lower()
     fbs_sid = str(record.get("fbs_supply_id") or "").strip()
+    cargo_mark_ids: list[str] = []
     if fbs_sid and plat in ("wb", "wildberries", "wb_fbs"):
         item["supply_order_number"] = fbs_sid
         item["infpol_orders_value"] = fbs_sid
+    elif fbs_sid and plat in ("ozon", "ozon_fbs"):
+        # Ozon FBS эТрН (регламент seller-edu): Тип потока = FBS.
+        item["infpol_shipment_flow_type"] = "FBS"
+        try:
+            fbs_src = int(record.get("fbs_source_id") or 0)
+        except (TypeError, ValueError):
+            fbs_src = 0
+        if fbs_src > 0:
+            from . import ttn_fbs_cargo as ttn_cargo
+
+            cargo_mark_ids = ttn_cargo.local_ozon_container_ids(
+                repository,
+                user_id=owner_id,
+                source_id=fbs_src,
+                supply_id=fbs_sid,
+            )
+        if cargo_mark_ids:
+            item["cargo_mark_ids"] = list(cargo_mark_ids)
+
+    cargoes_json = build_ttn_cargoes_json(record)
+    # Места в XML = число ГМ, привязанных к этой поставке (если известны).
+    if cargo_mark_ids:
+        packing = str(record.get("packing_type") or "").strip().lower()
+        if any(token in packing for token in ("короб", "box")) and "палл" not in packing:
+            cargo_type = "BOX"
+        else:
+            cargo_type = "PALLET"
+        cargoes_json = {
+            "version": 2,
+            "groups": [{"type": cargo_type, "count": len(cargo_mark_ids)}],
+            "transport_cargoes": [],
+        }
 
     return {
         "item": item,
@@ -326,7 +359,8 @@ def collect_ttn_doc_context(
         "vehicle_line": vehicle_line,
         "vehicle_json": None,
         "vehicle_fields": vehicle_fields,
-        "cargoes_json": build_ttn_cargoes_json(record),
+        "cargoes_json": cargoes_json,
+        "cargo_mark_ids": list(cargo_mark_ids),
         "load_address": load_address or str(record.get("load_address") or ""),
         "load_addr_fields": load_addr_fields if _has_structured_address(load_addr_fields) else None,
         "delivery_address": delivery_address or str(record.get("unload_address") or ""),
@@ -398,6 +432,7 @@ def build_ttn_etrn_xml(
         vehicle_json=ctx["vehicle_json"],
         vehicle_fields=ctx["vehicle_fields"],
         cargoes_json=ctx["cargoes_json"],
+        cargo_mark_ids=ctx.get("cargo_mark_ids") or None,
         load_address=ctx["load_address"],
         load_addr_fields=ctx["load_addr_fields"],
         delivery_address=ctx["delivery_address"],

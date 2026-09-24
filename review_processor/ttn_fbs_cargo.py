@@ -184,6 +184,63 @@ def places_from_ozon_containers(
     return count
 
 
+def local_ozon_container_ids(
+    repo: Any,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+) -> list[str]:
+    """Distinct GM ``container_id`` values bound to this Ozon FBS supply.
+
+    Only postings of the given supply with ``container_id > 0`` (локальная
+    привязка из модалки «Грузоместа»). Sorted ascending for stable XML.
+    """
+    sid = str(supply_id or "").strip()
+    try:
+        src = int(source_id or 0)
+        uid = int(user_id or 0)
+    except (TypeError, ValueError):
+        return []
+    if uid <= 0 or src <= 0 or not sid:
+        return []
+    try:
+        with repo._connect() as conn:
+            rows = conn.execute(
+                repo._sql(
+                    """
+                    SELECT DISTINCT container_id AS cid
+                    FROM ozon_fbs_postings
+                    WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                      AND COALESCE(container_id, 0) > 0
+                    ORDER BY container_id ASC
+                    """
+                ),
+                (uid, src, sid),
+            ).fetchall()
+    except Exception:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for row in rows or []:
+        try:
+            if row is not None and hasattr(row, "keys"):
+                raw = row["cid"]
+            else:
+                raw = row[0] if row else None
+            cid = int(raw or 0)
+        except (TypeError, ValueError, KeyError, IndexError):
+            continue
+        if cid <= 0:
+            continue
+        key = str(cid)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(key)
+    return out
+
+
 def local_ozon_places_count(
     repo: Any,
     *,
@@ -192,43 +249,11 @@ def local_ozon_places_count(
     supply_id: str,
 ) -> int:
     """Distinct local GM binds for an Ozon FBS supply (no live Ozon call)."""
-    sid = str(supply_id or "").strip()
-    try:
-        src = int(source_id or 0)
-        uid = int(user_id or 0)
-    except (TypeError, ValueError):
-        return 0
-    if uid <= 0 or src <= 0 or not sid:
-        return 0
-    try:
-        with repo._connect() as conn:
-            crow = conn.execute(
-                repo._sql(
-                    """
-                    SELECT COUNT(DISTINCT container_id) AS n
-                    FROM ozon_fbs_postings
-                    WHERE user_id = ? AND source_id = ? AND supply_id = ?
-                      AND COALESCE(container_id, 0) > 0
-                    """
-                ),
-                (uid, src, sid),
-            ).fetchone()
-        try:
-            return max(
-                0,
-                int(
-                    (
-                        crow["n"]
-                        if crow and hasattr(crow, "keys")
-                        else (crow[0] if crow else 0)
-                    )
-                    or 0
-                ),
-            )
-        except (TypeError, ValueError, KeyError, IndexError):
-            return 0
-    except Exception:
-        return 0
+    return len(
+        local_ozon_container_ids(
+            repo, user_id=user_id, source_id=source_id, supply_id=supply_id
+        )
+    )
 
 
 TTN_PACKING_OPTIONS = ("Короба", "Паллеты", "Рулоны")

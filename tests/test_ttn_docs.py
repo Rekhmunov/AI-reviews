@@ -121,10 +121,103 @@ def test_ttn_etrn_non_wb_keeps_doc_number_in_infpol():
     by_id = {t.attrib.get("Идентиф"): t.attrib.get("Значение") for t in texts}
     assert by_id.get("Orders") == "TN-42"
     assert by_id.get("ORDERS") == "TN-42"
-    # Ozon-linked catalog TTN must not steal InfPol unless platform is WB.
-    oz = _record(fbs_platform="ozon", fbs_supply_id="020-111", doc_number="9")
-    ctx = collect_ttn_doc_context(repository=_Repo(), owner_id=1, record=oz)
-    assert "infpol_orders_value" not in ctx["item"]
+    assert "shipment_flow_type" not in by_id
+
+
+def test_ttn_etrn_ozon_fbs_shipment_flow_type_and_cargo_marks():
+    """Ozon FBS ТН → InfPol shipment_flow_type=FBS и Марк = ID ГМ поставки."""
+
+    class _RepoWithGm(_Repo):
+        def _connect(self):
+            return self
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def execute(self, sql, params=()):
+            self._last = (sql, params)
+            return self
+
+        def fetchall(self):
+            # Distinct container_id for this supply only.
+            return [{"cid": 1019563511789384}, {"cid": 1019563511789385}]
+
+        def _sql(self, q):
+            return q
+
+        def _row_to_dict(self, row):
+            return dict(row) if row else {}
+
+    rec = _record(
+        fbs_platform="ozon",
+        fbs_source_id=3,
+        fbs_supply_id="OZ-FBS-3-20260320-ABC",
+        cargo_places="2",
+        packing_type="Короба",
+        doc_number="9",
+    )
+    ctx = collect_ttn_doc_context(repository=_RepoWithGm(), owner_id=1, record=rec)
+    assert ctx["item"].get("infpol_shipment_flow_type") == "FBS"
+    assert ctx["cargo_mark_ids"] == ["1019563511789384", "1019563511789385"]
+
+    xml_bytes, _ = build_ttn_etrn_xml(repository=_RepoWithGm(), owner_id=1, record=rec)
+    root = ET.fromstring(xml_bytes)
+    sod = root.find("Документ/СодИнфГО")
+    assert sod is not None
+    texts = sod.findall("ИнфПол/ТекстИнф")
+    by_id = {t.attrib.get("Идентиф"): t.attrib.get("Значение") for t in texts}
+    assert by_id.get("shipment_flow_type") == "FBS"
+    # Номер ТН в Orders сохраняем (не подменяем локальным OZ-FBS id).
+    assert by_id.get("Orders") == "9"
+
+    op = sod.find("СвГруз/ОпГруз")
+    assert op is not None
+    assert op.attrib.get("КолМестГр") == "2"
+    marks = [m.text for m in op.findall("Марк")]
+    assert marks == ["1019563511789384", "1019563511789385"]
+    assert sod.find("СвПогруз").attrib.get("КолМестПрием") == "2"
+
+
+def test_ttn_etrn_ozon_fbs_without_gm_keeps_absent_mark():
+    """Ozon FBS без привязанных ГМ → Марк=Отсутствует, flow type всё равно FBS."""
+
+    class _RepoEmptyGm(_Repo):
+        def _connect(self):
+            return self
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def execute(self, sql, params=()):
+            return self
+
+        def fetchall(self):
+            return []
+
+        def _sql(self, q):
+            return q
+
+    rec = _record(
+        fbs_platform="ozon",
+        fbs_source_id=3,
+        fbs_supply_id="OZ-FBS-3-X",
+        cargo_places="1",
+    )
+    xml_bytes, _ = build_ttn_etrn_xml(repository=_RepoEmptyGm(), owner_id=1, record=rec)
+    root = ET.fromstring(xml_bytes)
+    by_id = {
+        t.attrib.get("Идентиф"): t.attrib.get("Значение")
+        for t in root.findall("Документ/СодИнфГО/ИнфПол/ТекстИнф")
+    }
+    assert by_id.get("shipment_flow_type") == "FBS"
+    marks = [m.text for m in root.findall("Документ/СодИнфГО/СвГруз/ОпГруз/Марк")]
+    assert marks == ["Отсутствует"]
 
 
 def test_ttn_etrn_vehicle_capacity_from_type_line():

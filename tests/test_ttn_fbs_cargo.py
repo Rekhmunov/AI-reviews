@@ -6,6 +6,7 @@ import unittest
 
 from review_processor.ttn_fbs_cargo import (
     format_places,
+    local_ozon_container_ids,
     normalize_packing_type,
     places_from_ozon_containers,
     places_from_wb_trbx,
@@ -112,6 +113,33 @@ class TtnFbsCargoTests(unittest.TestCase):
             ]
         )
         self.assertEqual(lines, [(["o1", "s1"], 5)])
+
+    def test_local_ozon_container_ids_distinct_sorted(self) -> None:
+        class _Repo:
+            def _connect(self):
+                return self
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def _sql(self, q):
+                return q
+
+            def execute(self, sql, params=()):
+                self.params = params
+                return self
+
+            def fetchall(self):
+                return [{"cid": 20}, {"cid": 10}, {"cid": 20}]
+
+        ids = local_ozon_container_ids(
+            _Repo(), user_id=1, source_id=2, supply_id="OZ-1"
+        )
+        # DISTINCT in SQL + local dedupe; mock returns unsorted duplicates.
+        self.assertEqual(ids, ["20", "10"])
 
 
 if __name__ == "__main__":

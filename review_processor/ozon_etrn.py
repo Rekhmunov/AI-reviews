@@ -8,6 +8,7 @@ Schema references:
 - FNS order ЕД-7-26/1065@ (format 5.01)
 - Diadoc GenerateTitleXml sample (АдресРФ vs АдрРФ, Подписант)
 - Kontur.Logistics InfPol keys (ORDERS / Значение)
+- Ozon FBS InfPol: shipment_flow_type=FBS; cargo place IDs in ОпГруз/Марк
 """
 from __future__ import annotations
 
@@ -1080,6 +1081,33 @@ def _ozon_supply_number(item: dict[str, Any] | None) -> str:
     return str(row.get("supply_order_id") or "").strip()
 
 
+def _normalize_cargo_mark_ids(raw: object) -> list[str]:
+    """Stable unique cargo-place IDs for ``ОпГруз/Марк`` (Ozon FBS container_id)."""
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        parts = [p.strip() for p in re.split(r"[\s,;]+", raw) if p.strip()]
+        values: list[object] = parts
+    elif isinstance(raw, (list, tuple, set)):
+        values = list(raw)
+    else:
+        values = [raw]
+    out: list[str] = []
+    seen: set[str] = set()
+    for val in values:
+        key = str(val or "").strip()
+        if not key or key in seen:
+            continue
+        # Only numeric Ozon container ids (e.g. 1019563511789384).
+        if not re.fullmatch(r"\d{1,20}", key):
+            continue
+        if key == "0":
+            continue
+        seen.add(key)
+        out.append(key)
+    return out
+
+
 def build_ozon_etrn_xml(
     *,
     item: dict[str, Any],
@@ -1102,6 +1130,7 @@ def build_ozon_etrn_xml(
     consignee: dict[str, Any] | None = None,
     cargo_name: str = "",
     cargo_kg: int | float | None = None,
+    cargo_mark_ids: list[str] | None = None,
     now: datetime | None = None,
 ) -> bytes:
     """Build formal eTrN title-1 XML draft bytes (UTF-8)."""
@@ -1162,6 +1191,15 @@ def build_ozon_etrn_xml(
             kg_val = 0
         if kg_val > 0:
             cargo["kg"] = kg_val
+    # Ozon FBS: ID грузомест (container_id) → Марк в описании груза.
+    mark_ids = _normalize_cargo_mark_ids(
+        cargo_mark_ids if cargo_mark_ids is not None else (item or {}).get("cargo_mark_ids")
+    )
+    if mark_ids:
+        cargo["total_places"] = len(mark_ids)
+        if int(cargo.get("pallets") or 0) <= 0 and int(cargo.get("boxes") or 0) <= 0:
+            # Prefer boxes for FBS GM when groups were not typed as pallets.
+            cargo["boxes"] = len(mark_ids)
     fam, imya, otch = _driver_fio_from_fields(driver_fields, driver_name)
     if not fam:
         fam, imya = "Не", "указан"
@@ -1294,6 +1332,7 @@ def build_ozon_etrn_xml(
 
     # --- СвГруз ---
     # КолМестГр = число транспортных грузомест (паллет), если они есть в Ozon.
+    # Ozon FBS: ID каждого ГМ (container_id) → Марк; иначе «Отсутствует».
     sv_gruz = _el(sod, "СвГруз")
     op = _el(
         sv_gruz,
@@ -1305,7 +1344,11 @@ def build_ozon_etrn_xml(
         КолМестГр=str(cargo["total_places"]),
         УчГосСист="0",
     )
-    _el(op, "Марк", "Отсутствует")
+    if mark_ids:
+        for mid in mark_ids:
+            _el(op, "Марк", mid)
+    else:
+        _el(op, "Марк", "Отсутствует")
     _el(op, "ПлМасГруз", МасБрутЗнач=str(cargo["kg"]))
 
     # --- УказГО ---
@@ -1449,11 +1492,16 @@ def build_ozon_etrn_xml(
     # ИнфПол must be last in СодИнфГО sequence (table 5.3).
     # Идентиф=Orders / ORDERS → Значение = номер поставки (Озон) или override
     # (например WB-GI-… для ТН из ВБ ФБС в каталоге Логистика).
+    # Ozon FBS (регламент): shipment_flow_type = FBS.
     infpol_val = str((item or {}).get("infpol_orders_value") or "").strip() or supply_num
-    if infpol_val:
+    infpol_flow = str((item or {}).get("infpol_shipment_flow_type") or "").strip()
+    if infpol_val or infpol_flow:
         inf = _el(sod, "ИнфПол")
-        _el(inf, "ТекстИнф", Идентиф="Orders", Значение=infpol_val)
-        _el(inf, "ТекстИнф", Идентиф="ORDERS", Значение=infpol_val)
+        if infpol_val:
+            _el(inf, "ТекстИнф", Идентиф="Orders", Значение=infpol_val)
+            _el(inf, "ТекстИнф", Идентиф="ORDERS", Значение=infpol_val)
+        if infpol_flow:
+            _el(inf, "ТекстИнф", Идентиф="shipment_flow_type", Значение=infpol_flow)
 
     # Подписант is required under Документ (table 5.2).
     signer = _el(doc, "Подписант", СтатПодп="1", Должн="Уполномоченное лицо")

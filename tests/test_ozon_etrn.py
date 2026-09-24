@@ -49,7 +49,46 @@ def _build(**overrides):
     return build_ozon_etrn_xml(**kwargs)
 
 
-def test_etrn_xml_core_schema_shape():
+def test_normalize_cargo_mark_ids():
+    from review_processor.ozon_etrn import _normalize_cargo_mark_ids
+
+    assert _normalize_cargo_mark_ids(
+        ["1019563511789384", "0", "x", "1019563511789384", 55]
+    ) == ["1019563511789384", "55"]
+    assert _normalize_cargo_mark_ids("101, 102") == ["101", "102"]
+    assert _normalize_cargo_mark_ids(None) == []
+
+
+def test_etrn_cargo_mark_ids_in_xml():
+    root = ET.fromstring(
+        _build(cargo_mark_ids=["1019563511789384", "1019563511789399"])
+    )
+    marks = [m.text for m in root.findall("Документ/СодИнфГО/СвГруз/ОпГруз/Марк")]
+    assert marks == ["1019563511789384", "1019563511789399"]
+    op = root.find("Документ/СодИнфГО/СвГруз/ОпГруз")
+    assert op is not None
+    assert op.attrib.get("КолМестГр") == "2"
+
+
+def test_etrn_infpol_shipment_flow_type():
+    root = ET.fromstring(
+        _build(
+            item={
+                "supply_order_id": 1,
+                "supply_order_number": "9",
+                "supplier_name": "X",
+                "warehouse_name": "W",
+                "supply_date": "2026-09-01",
+                "infpol_shipment_flow_type": "FBS",
+            }
+        )
+    )
+    by_id = {
+        t.attrib.get("Идентиф"): t.attrib.get("Значение")
+        for t in root.findall("Документ/СодИнфГО/ИнфПол/ТекстИнф")
+    }
+    assert by_id.get("shipment_flow_type") == "FBS"
+    assert by_id.get("Orders") == "9"
     root = ET.fromstring(_build())
     assert root.tag == "Файл"
     assert root.attrib["ВерсФорм"] == "5.01"
