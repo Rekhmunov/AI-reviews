@@ -2660,6 +2660,40 @@ def _norm_vehicle_plate(value: object) -> str:
     return re.sub(r"\s+", "", str(value or "").strip()).casefold()
 
 
+def format_ttn_vehicle_type_line(vehicle: dict[str, Any] | None) -> str:
+    """Строка «Тип / вместимость» как в UI ``_ttnFormatVehicleType``."""
+    if not isinstance(vehicle, dict):
+        return ""
+    v_type = str(vehicle.get("type") or "").strip()
+    cap = str(vehicle.get("capacity_t") or "").strip().replace(",", ".")
+    vol = str(vehicle.get("volume_m3") or "").strip().replace(",", ".")
+    parts: list[str] = []
+    if v_type:
+        parts.append(v_type)
+    if cap:
+        parts.append(f"{cap} т")
+    if vol:
+        parts.append(f"{vol} м³")
+    return ", ".join(parts)
+
+
+def resolve_ttn_vehicle_type_from_driver(
+    raw_driver: dict[str, Any] | None,
+    *,
+    vehicle_line: str = "",
+) -> str:
+    """Тип/вместимость с карточки ТС водителя для prefill «Сформировать ТН»."""
+    if not raw_driver:
+        return ""
+    from .ozon_etrn import _match_driver_vehicle
+
+    matched = _match_driver_vehicle(raw_driver, vehicle_line)
+    if not matched:
+        return ""
+    normalized = ReviewRepository._normalize_vehicle(matched) or matched
+    return format_ttn_vehicle_type_line(normalized)
+
+
 def driver_vehicle_plates(vehicles_json: object) -> list[dict[str, str]]:
     """Рег. номера ТС с карточки водителя (Поставки → Настройки → Водители)."""
     from .ozon_etrn import _parse_vehicles_json
@@ -2803,6 +2837,7 @@ def build_ttn_prefill(
     driver_id = int(driver.get("driver_id") or 0)
     vehicle_number = str(driver.get("vehicle_number") or "").strip()
     vehicle_line = vehicle_number
+    vehicle_type = ""
     carrier_snapshot = ""
     if driver_id > 0:
         catalog = list_supply_driver_options(repo, user_id=user_id)
@@ -2829,6 +2864,11 @@ def build_ttn_prefill(
                 carrier_snapshot = repo.driver_carrier_line(raw_driver)
             except Exception:
                 carrier_snapshot = str(raw_driver.get("carrier") or "").strip()
+            # Prefill «Тип / вместимость» с карточки ТС (иначе модалка пустая
+            # до повторного выбора машины — skipTypeSync при apply state).
+            vehicle_type = resolve_ttn_vehicle_type_from_driver(
+                raw_driver, vehicle_line=vehicle_line or vehicle_number
+            )
     else:
         warnings.append("Назначьте водителя в карточке поставки.")
 
@@ -2880,6 +2920,7 @@ def build_ttn_prefill(
         "driver_manual_docs": "",
         "ttn_date": ttn_date,
         "vehicle_line": vehicle_line,
+        "vehicle_type": vehicle_type,
         "carrier_snapshot": carrier_snapshot,
         "load_address": load_address,
         "unload_address": unload_address,
