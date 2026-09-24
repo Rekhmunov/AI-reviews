@@ -49,6 +49,8 @@ def test_ttn_prefill_is_local_only() -> None:
     assert '"loading_datetime": ttn_date' in prefill
     assert '"unloading_datetime": ttn_date' in prefill
     assert "get_supply_driver" in prefill
+    assert "resolve_ttn_vehicle_type_from_driver" in prefill
+    assert '"vehicle_type": vehicle_type' in prefill
     assert "find_ttn_record_id_by_fbs" in prefill
     assert "Настройки → Юр. лица" in prefill
     assert "Настройки → Склады" in prefill
