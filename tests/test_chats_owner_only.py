@@ -19,7 +19,7 @@ def test_chats_visibility_is_owner_only() -> None:
     assert "permissions.can_view_chats && isTenantOwner()" in js
     assert 'id="nav-chats"' in html
     assert 'id="section-chats"' in html
-    assert "app.js?v=700" in html
+    assert "app.js?v=701" in html
 
 
 def test_chat_sync_defaults_on(monkeypatch) -> None:

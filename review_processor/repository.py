@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 import hashlib
+import os
 import re
+import threading
+import time
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -26,9 +29,45 @@ DEFAULT_GROUP_PROCESSORS: dict[str, str] = {
 
 TEMPLATE_VARIABLE_KEY_RE = re.compile(r"^%[A-Z0-9_]{2,50}%$")
 
+# Working UI window is ~90d; classifications SELECT uses a small slack so the
+# skip-map still covers the boundary when sync_start is older than that window.
+CLASSIFICATIONS_LOOKBACK_DAYS = 97
+
+# Process-wide TTL cache for sync_reviews skip-map. Auto-sync hits this once per
+# account; without a cache a 2 GB VPS reloads tens of thousands of rows per poll.
+_CLASSIFICATIONS_CACHE_LOCK = threading.Lock()
+_CLASSIFICATIONS_CACHE: dict[tuple[int, str], tuple[float, dict[str, tuple[str, str]]]] = {}
+try:
+    _CLASSIFICATIONS_CACHE_TTL_SEC = float(
+        os.environ.get("APP_CLASSIFICATIONS_CACHE_TTL_SEC", "300") or "300"
+    )
+except (TypeError, ValueError):
+    _CLASSIFICATIONS_CACHE_TTL_SEC = 300.0
+_CLASSIFICATIONS_CACHE_TTL_SEC = max(0.0, min(3600.0, _CLASSIFICATIONS_CACHE_TTL_SEC))
+
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def classifications_window_start(since_date: str | None = None) -> str:
+    """Cutoff for get_existing_classifications: max(sync_start, today−97).
+
+    Keeps the skip-map aligned with sync while capping RAM when sync_start is
+    far in the past. YYYY-MM-DD only.
+    """
+    today = datetime.now(UTC).date()
+    window = (today - timedelta(days=CLASSIFICATIONS_LOOKBACK_DAYS)).isoformat()
+    since = str(since_date or "").strip()[:10]
+    if len(since) == 10 and since[4] == "-" and since[7] == "-":
+        return max(since, window)
+    return window
+
+
+def _marketplace_date_ymd_expr(*candidates: str) -> str:
+    """SQL expression: LEFT(COALESCE(NULLIF(TRIM(c), ''), ...), 10) for YYYY-MM-DD compare."""
+    parts = [f"NULLIF(TRIM({c}), '')" for c in candidates]
+    return f"LEFT(COALESCE({', '.join(parts)}), 10)"
 
 
 def supply_window_sold_qty(rows: list[dict[str, Any]]) -> float:
@@ -4571,14 +4610,18 @@ class ReviewRepository:
             placeholders = ", ".join("?" for _ in normalized_account_ids)
             base_clauses.append(f"account_id IN ({placeholders})")
             base_params.extend(normalized_account_ids)
+        # Period = marketplace createdDate (same field as sort / sync skip), not updated_at
+        # (updated_at is the last sync write and would falsely keep old reviews in a 90d window).
+        _mp_date_expr = _marketplace_date_ymd_expr(
+            "metadata_json::jsonb->'raw'->>'createdDate'",
+            "updated_at::text",
+        )
         if date_from:
-            base_clauses.append("updated_at::date >= ?::date")
-
-            base_params.append(date_from)
+            base_clauses.append(f"{_mp_date_expr} >= ?")
+            base_params.append(str(date_from)[:10])
         if date_to:
-            base_clauses.append("updated_at::date <= ?::date")
-
-            base_params.append(date_to)
+            base_clauses.append(f"{_mp_date_expr} <= ?")
+            base_params.append(str(date_to)[:10])
 
         view_clauses = list(base_clauses)
         view_params = list(base_params)
@@ -5113,14 +5156,27 @@ class ReviewRepository:
                 "(TRIM(COALESCE(message_text, '')) != '' OR unread_count > 0"
                 " OR last_sent_at IS NOT NULL OR last_message_at IS NOT NULL)"
             )
+        # Period = marketplace create/activity date, not updated_at (sync write time).
+        # Questions: raw.createdDate → raw.published_at (Ozon) → last_message_at → updated_at.
+        # Chats: last_message_at → updated_at.
+        if kind == "question":
+            _mp_date_expr = _marketplace_date_ymd_expr(
+                "metadata_json::jsonb->'raw'->>'createdDate'",
+                "metadata_json::jsonb->'raw'->>'published_at'",
+                "last_message_at::text",
+                "updated_at::text",
+            )
+        else:
+            _mp_date_expr = _marketplace_date_ymd_expr(
+                "last_message_at::text",
+                "updated_at::text",
+            )
         if date_from:
-            base_clauses.append("updated_at::date >= ?::date")
-
-            base_params.append(date_from)
+            base_clauses.append(f"{_mp_date_expr} >= ?")
+            base_params.append(str(date_from)[:10])
         if date_to:
-            base_clauses.append("updated_at::date <= ?::date")
-
-            base_params.append(date_to)
+            base_clauses.append(f"{_mp_date_expr} <= ?")
+            base_params.append(str(date_to)[:10])
         # Both last_sent_at and last_message_at are stored as ISO-8601 TEXT.
         # ISO-8601 strings with timezone sort correctly lexicographically, so
         # a plain TEXT comparison works on both SQLite and PostgreSQL.
@@ -6193,33 +6249,88 @@ class ReviewRepository:
             items.append(data)
         return items
 
-    def get_existing_classifications(self, *, user_id: int) -> dict[str, tuple[str, str]]:
-        """Return {review_uid: (category/group, classified_subgroup)} for all
-        already-classified reviews of this user. Used to skip redundant Yandex calls.
-        Uses the `category` column (always populated) and json_extract on metadata_json
-        for the subgroup."""
+    def get_existing_classifications(
+        self,
+        *,
+        user_id: int,
+        date_from: str | None = None,
+    ) -> dict[str, tuple[str, str]]:
+        """Return {review_uid: (category/group, classified_subgroup)} for already
+        classified reviews. Used to skip redundant Yandex calls during sync.
+
+        When ``date_from`` (YYYY-MM-DD) is set, only rows whose marketplace
+        ``createdDate`` (fallback ``created_at``) is on/after that day are loaded —
+        the working-window cap that keeps auto-sync RAM bounded.
+
+        Cached briefly in-process so auto-sync (N accounts) does not reload the
+        skip-map on every account within the same poll.
+        """
+        try:
+            uid = int(user_id or 0)
+        except (TypeError, ValueError):
+            uid = 0
+        if uid <= 0:
+            return {}
+
+        from_s = str(date_from or "").strip()[:10]
+        cache_key = (uid, from_s)
+        now = time.monotonic()
+        if _CLASSIFICATIONS_CACHE_TTL_SEC > 0:
+            with _CLASSIFICATIONS_CACHE_LOCK:
+                hit = _CLASSIFICATIONS_CACHE.get(cache_key)
+                if hit is not None and (now - float(hit[0])) < _CLASSIFICATIONS_CACHE_TTL_SEC:
+                    return hit[1]
+
         sub_expr = "metadata_json::jsonb->>'classified_subgroup'"
+        mp_date = _marketplace_date_ymd_expr(
+            "metadata_json::jsonb->'raw'->>'createdDate'",
+            "created_at::text",
+        )
+        clauses = [
+            "user_id = ?",
+            "category IS NOT NULL",
+            "category != ''",
+        ]
+        params: list[Any] = [uid]
+        if from_s:
+            clauses.append(f"{mp_date} >= ?")
+            params.append(from_s)
 
         sql = self._sql(f"""
             SELECT review_uid,
                    category AS grp,
                    {sub_expr} AS sub
             FROM review_items
-            WHERE user_id = ?
-              AND category IS NOT NULL
-              AND category != ''
+            WHERE {" AND ".join(clauses)}
         """)
         with self._connect() as conn:
-            rows = conn.execute(sql, (user_id,)).fetchall()
+            rows = conn.execute(sql, tuple(params)).fetchall()
         result: dict[str, tuple[str, str]] = {}
         for row in rows:
             d = self._row_to_dict(row)
-            uid = str(d.get("review_uid") or "").strip()
+            review_uid = str(d.get("review_uid") or "").strip()
             grp = str(d.get("grp") or "").strip()
             sub = str(d.get("sub") or "").strip()
-            if uid and grp:
-                result[uid] = (grp, sub)
+            if review_uid and grp:
+                result[review_uid] = (grp, sub)
+
+        if _CLASSIFICATIONS_CACHE_TTL_SEC > 0:
+            with _CLASSIFICATIONS_CACHE_LOCK:
+                _CLASSIFICATIONS_CACHE[cache_key] = (now, result)
         return result
+
+    def invalidate_existing_classifications_cache(self, *, user_id: int | None = None) -> None:
+        """Drop cached classification skip-map (all users or one)."""
+        with _CLASSIFICATIONS_CACHE_LOCK:
+            if user_id is None:
+                _CLASSIFICATIONS_CACHE.clear()
+                return
+            try:
+                uid = int(user_id or 0)
+            except (TypeError, ValueError):
+                return
+            for key in [k for k in _CLASSIFICATIONS_CACHE if k[0] == uid]:
+                _CLASSIFICATIONS_CACHE.pop(key, None)
 
     # ── Product catalog methods ───────────────────────────────────────────────
 

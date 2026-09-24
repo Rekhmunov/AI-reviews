@@ -220,6 +220,10 @@ APP_DB_URL=postgresql://feedpilot:[REDACTED]@127.0.0.1:5432/feedpilot
 APP_ENCRYPTION_KEY=<FERNET_KEY>
 APP_SELF_REGISTRATION_ENABLED=false
 PYTHONUNBUFFERED=1
+# Small VPS: longer gap between auto-sync polls (seconds, 60–3600).
+# APP_AUTO_SYNC_INTERVAL_SECONDS=300
+# TTL for in-memory review classification skip-map (seconds, 0 disables).
+# APP_CLASSIFICATIONS_CACHE_TTL_SEC=300
 ```
 
 > Важно: при `APP_ENV=production` приложение не будет работать без `APP_ENCRYPTION_KEY`.

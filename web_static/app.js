@@ -983,9 +983,9 @@ function setDefaultReviewsDateRange(force) {
   if (!force && reviewsState.date_from && reviewsState.date_to) return;
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const monthAgo = new Date(today);
-  monthAgo.setMonth(monthAgo.getMonth() - 1);
-  reviewsState.date_from = dateToInputValue(monthAgo);
+  const from = new Date(today);
+  from.setDate(from.getDate() - 90);
+  reviewsState.date_from = dateToInputValue(from);
   reviewsState.date_to = dateToInputValue(today);
   const fromInput = document.getElementById("reviewsDateFrom");
   const toInput = document.getElementById("reviewsDateTo");
@@ -1226,9 +1226,9 @@ function setDefaultQuestionsDateRange(force) {
   if (!force && questionsState.date_from && questionsState.date_to) return;
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const monthAgo = new Date(today);
-  monthAgo.setMonth(monthAgo.getMonth() - 1);
-  questionsState.date_from = dateToInputValue(monthAgo);
+  const from = new Date(today);
+  from.setDate(from.getDate() - 90);
+  questionsState.date_from = dateToInputValue(from);
   questionsState.date_to = dateToInputValue(today);
   const fromInput = document.getElementById("questionsDateFrom");
   const toInput = document.getElementById("questionsDateTo");
@@ -1311,9 +1311,9 @@ function setDefaultChatsDateRange(force) {
   if (!force && chatsState.date_from && chatsState.date_to) return;
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const monthAgo = new Date(today);
-  monthAgo.setMonth(monthAgo.getMonth() - 1);
-  chatsState.date_from = dateToInputValue(monthAgo);
+  const from = new Date(today);
+  from.setDate(from.getDate() - 90);
+  chatsState.date_from = dateToInputValue(from);
   chatsState.date_to = dateToInputValue(today);
   const fromInput = document.getElementById("chatsDateFrom");
   const toInput = document.getElementById("chatsDateTo");
@@ -11075,7 +11075,8 @@ function resetAnalyticsDates() {
   const t = document.getElementById("analyticsDateTo");
   if (f) f.value = "";
   if (t) t.value = "";
-  loadAnalytics();
+  _analyticsDefaultsPromise = null;
+  ensureAnalyticsDefaultDates().then(() => loadAnalytics());
 }
 
 const AN_SRC_LABELS = { wb: "ВБ", ozon: "ОЗОН", yandex: "ЯМ" };
@@ -11088,6 +11089,34 @@ function _anFmtDate(d) {
 }
 
 let _anLastData = null; // cache last analytics result for export
+let _analyticsDefaultsPromise = null;
+
+/** Default analytics range: sync_start_date → today (from user settings). */
+async function ensureAnalyticsDefaultDates() {
+  const f = document.getElementById("analyticsDateFrom");
+  const t = document.getElementById("analyticsDateTo");
+  if (!f || !t) return;
+  if (f.value && t.value) return;
+  if (!_analyticsDefaultsPromise) {
+    _analyticsDefaultsPromise = (async () => {
+      let syncStart = "";
+      try {
+        const res = await fetch("/api/user-sync-settings");
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) syncStart = String(data.sync_start_date || "").trim();
+      } catch (_) {
+        syncStart = "";
+      }
+      if (!f.value && syncStart) f.value = syncStart.slice(0, 10);
+      if (!t.value) {
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        t.value = dateToInputValue(today);
+      }
+    })();
+  }
+  await _analyticsDefaultsPromise;
+}
 
 function _anGetFilters() {
   return {
@@ -11105,6 +11134,7 @@ function _anUpdateExportBtn() {
 }
 
 async function loadAnalytics() {
+  await ensureAnalyticsDefaultDates();
   const { source, dateFrom, dateTo } = _anGetFilters();
   _anUpdateExportBtn();
   const q = new URLSearchParams();
@@ -18999,6 +19029,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   setDefaultReviewsDateRange(false);
   setDefaultQuestionsDateRange(false);
+  setDefaultChatsDateRange(false);
   updateReviewsDateFilterButton();
   updateQuestionsDateFilterButton();
   updateChatsDateFilterButton();

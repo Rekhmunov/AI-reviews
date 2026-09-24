@@ -594,26 +594,44 @@ class RepositoryAdminTests(unittest.TestCase):
             conn.execute(
                 """
                 UPDATE review_items
-                SET updated_at = ?
+                SET updated_at = ?,
+                    metadata_json = jsonb_set(
+                      COALESCE(metadata_json::jsonb, '{}'::jsonb),
+                      '{raw}',
+                      COALESCE(metadata_json::jsonb->'raw', '{}'::jsonb) ||
+                        jsonb_build_object('createdDate', ?::text)
+                    )
                 WHERE user_id = ? AND external_review_id = ?
                 """,
-                ("2026-03-10T10:00:00+00:00", self.user_id, "ext-date-1"),
+                ("2026-09-20T10:00:00+00:00", "2026-03-10T10:00:00+00:00", self.user_id, "ext-date-1"),
             )
             conn.execute(
                 """
                 UPDATE review_items
-                SET updated_at = ?
+                SET updated_at = ?,
+                    metadata_json = jsonb_set(
+                      COALESCE(metadata_json::jsonb, '{}'::jsonb),
+                      '{raw}',
+                      COALESCE(metadata_json::jsonb->'raw', '{}'::jsonb) ||
+                        jsonb_build_object('createdDate', ?::text)
+                    )
                 WHERE user_id = ? AND external_review_id = ?
                 """,
-                ("2026-03-11T10:00:00+00:00", self.user_id, "ext-date-2"),
+                ("2026-09-20T10:00:00+00:00", "2026-03-11T10:00:00+00:00", self.user_id, "ext-date-2"),
             )
             conn.execute(
                 """
                 UPDATE review_items
-                SET updated_at = ?
+                SET updated_at = ?,
+                    metadata_json = jsonb_set(
+                      COALESCE(metadata_json::jsonb, '{}'::jsonb),
+                      '{raw}',
+                      COALESCE(metadata_json::jsonb->'raw', '{}'::jsonb) ||
+                        jsonb_build_object('createdDate', ?::text)
+                    )
                 WHERE user_id = ? AND external_review_id = ?
                 """,
-                ("2026-03-12T10:00:00+00:00", self.user_id, "ext-date-3"),
+                ("2026-09-20T10:00:00+00:00", "2026-03-12T10:00:00+00:00", self.user_id, "ext-date-3"),
             )
 
         date_filtered = self.repository.list_reviews_paginated(

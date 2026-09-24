@@ -18,7 +18,7 @@ _log = logging.getLogger(__name__)
 from .config import sync_chats_enabled
 from .models import ReviewInput
 from .processor import ReviewProcessor
-from .repository import ReviewRepository
+from .repository import ReviewRepository, classifications_window_start
 
 
 class MarketplaceClient(Protocol):
@@ -2602,11 +2602,20 @@ class ReviewAutomationService:
         since_iso_cutoff: str | None = _normalize_timestamp(since_date) if since_date else None
 
         # Load already-classified reviews to avoid re-sending to Yandex on repeated syncs.
+        # Cap by max(sync_start, today−97) so auto-sync does not pull the full history into RAM.
         existing_classifications: dict[str, tuple[str, str]] = {}
         if user_id:
             try:
-                existing_classifications = self.repository.get_existing_classifications(user_id=user_id)
-                _log.info("sync_reviews: loaded %d existing classifications (will skip Yandex for these)", len(existing_classifications))
+                classifications_from = classifications_window_start(since_date)
+                existing_classifications = self.repository.get_existing_classifications(
+                    user_id=user_id,
+                    date_from=classifications_from,
+                )
+                _log.info(
+                    "sync_reviews: loaded %d existing classifications from %s (will skip Yandex for these)",
+                    len(existing_classifications),
+                    classifications_from,
+                )
             except Exception as _exc:
                 _log.warning("sync_reviews: could not load existing classifications: %s", _exc)
 
