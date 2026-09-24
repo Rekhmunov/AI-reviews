@@ -45,9 +45,9 @@ def test_js_helpers_and_gates() -> None:
 
 def test_cache_bumps() -> None:
     html = HTML.read_text(encoding="utf-8")
-    assert "app.js?v=698" in html
+    assert "app.js?v=699" in html
     assert "ozon_fbs.js?v=197" in html
-    assert "style.css?v=417" in html
+    assert "style.css?v=418" in html
     # Same card classes as RU-layout warning (identical size/format).
     assert 'class="modal-card wb-fbs-kiz-ru-layout-modal"' in html
     assert 'id="fbsStickerNotFoundTitle" class="wb-fbs-kiz-ru-layout-title"' in html

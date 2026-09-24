@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=417" />
+  <link rel="stylesheet" href="/static/style.css?v=418" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -4434,7 +4434,12 @@
                       <span class="ttn-th-label">Водитель <span class="ttn-sort-icon" aria-hidden="true">⇅</span></span>
                       <span class="col-resize-handle" onclick="event.stopPropagation()"></span>
                     </th>
-                    <th data-col="6">Действия</th>
+                    <th data-col="6" class="ttn-sortable" data-sort="cargo_places"
+                        title="Сортировать по грузоместам" onclick="toggleTtnSort('cargo_places')">
+                      <span class="ttn-th-label">Грузоместа <span class="ttn-sort-icon" aria-hidden="true">⇅</span></span>
+                      <span class="col-resize-handle" onclick="event.stopPropagation()"></span>
+                    </th>
+                    <th data-col="7">Действия</th>
                   </tr>
                 </thead>
                 <tbody id="ttnTbody"></tbody>
@@ -4758,13 +4763,19 @@
                 </div>
                 <div class="small" id="ttnFbsSupplyHint" style="color:#64748b;margin-top:6px"></div>
               </div>
-              <div class="ttn-field">
+              <div class="ttn-field" id="ttnPlacesSimpleField">
                 <label class="small" for="ttnCreatePlaces">Кол-во мест</label>
                 <input id="ttnCreatePlaces" class="ttn-input" type="text" placeholder="напр. 10" autocomplete="off" />
               </div>
-              <div class="ttn-field">
+              <div class="ttn-field" id="ttnWeightSimpleField">
                 <label class="small" for="ttnCreateWeight">Масса, кг</label>
                 <input id="ttnCreateWeight" class="ttn-input" type="text" placeholder="напр. 500" autocomplete="off" />
+              </div>
+              <div class="ttn-field ttn-field-span-2 hidden" id="ttnCargoPlacesDetailField">
+                <label class="small" id="ttnCargoPlacesDetailLabel">Грузоместа</label>
+                <div id="ttnCargoPlacesDetailList" class="ttn-gm-detail-list" role="list"
+                     aria-labelledby="ttnCargoPlacesDetailLabel"></div>
+                <div class="ttn-gm-detail-totals" id="ttnCargoPlacesDetailTotals"></div>
               </div>
               <div class="ttn-field ttn-field-span-2">
                 <label class="small" for="ttnCreateDocs">4. Сопроводительные документы</label>
@@ -8215,6 +8226,6 @@
 
   <script src="/static/ozon_fbs.js?v=197"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=37"></script>
-  <script src="/static/app.js?v=698"></script>
+  <script src="/static/app.js?v=699"></script>
 </body>
 </html>

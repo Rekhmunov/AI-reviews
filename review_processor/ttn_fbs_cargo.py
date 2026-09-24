@@ -241,6 +241,223 @@ def local_ozon_container_ids(
     return out
 
 
+def _fmt_weight_text(kg: float | None) -> str:
+    if kg is None or kg <= 0:
+        return ""
+    rounded = round(float(kg), 3)
+    if abs(rounded - round(rounded)) < 1e-9:
+        return str(int(round(rounded)))
+    return f"{rounded:.3f}".rstrip("0").rstrip(".")
+
+
+def local_ozon_cargo_place_rows(
+    repo: Any,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    weight_index: dict[str, float] | None = None,
+) -> list[dict[str, Any]]:
+    """Per-GM rows for Ozon FBS TTN: №, container_id, mass of bound postings.
+
+    Local only (no Ozon API). ``container_number`` is 1-based order among
+    distinct ids (портальный № может отсутствовать локально).
+    """
+    ids = local_ozon_container_ids(
+        repo, user_id=user_id, source_id=source_id, supply_id=supply_id
+    )
+    if not ids:
+        return []
+    sid = str(supply_id or "").strip()
+    try:
+        src = int(source_id or 0)
+        uid = int(user_id or 0)
+    except (TypeError, ValueError):
+        return []
+    try:
+        with repo._connect() as conn:
+            rows = conn.execute(
+                repo._sql(
+                    """
+                    SELECT container_id, offer_id, sku, quantity, status, tab,
+                           posting_number
+                    FROM ozon_fbs_postings
+                    WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                      AND COALESCE(container_id, 0) > 0
+                    ORDER BY container_id ASC, posting_number ASC
+                    """
+                ),
+                (uid, src, sid),
+            ).fetchall()
+    except Exception:
+        rows = []
+
+    try:
+        from . import ozon_fbs as oz
+    except Exception:
+        oz = None  # type: ignore
+
+    by_cid: dict[str, list[tuple[list[str], int]]] = {cid: [] for cid in ids}
+    order_counts: dict[str, int] = {cid: 0 for cid in ids}
+    for row in rows or []:
+        try:
+            d = (
+                repo._row_to_dict(row)
+                if hasattr(repo, "_row_to_dict")
+                else (dict(row) if hasattr(row, "keys") else {})
+            )
+        except Exception:
+            d = {}
+        if not d and row is not None and hasattr(row, "keys"):
+            d = {k: row[k] for k in row.keys()}
+        try:
+            cid_i = int(d.get("container_id") or 0)
+        except (TypeError, ValueError):
+            continue
+        if cid_i <= 0:
+            continue
+        cid = str(cid_i)
+        if cid not in by_cid:
+            by_cid[cid] = []
+            order_counts[cid] = 0
+        if oz is not None and oz.posting_row_is_cancelled(d):
+            continue
+        qty = _as_qty(d.get("quantity"), default=1)
+        if qty <= 0:
+            continue
+        offer_id = str(d.get("offer_id") or "").strip()
+        sku = str(d.get("sku") or "").strip()
+        by_cid[cid].append(([offer_id, sku], qty))
+        order_counts[cid] = int(order_counts.get(cid) or 0) + 1
+
+    index = weight_index if isinstance(weight_index, dict) else {}
+    out: list[dict[str, Any]] = []
+    for num, cid in enumerate(ids, start=1):
+        lines = by_cid.get(cid) or []
+        winfo = (
+            sum_weight_for_lines(index, lines)
+            if index and lines
+            else {"weight_kg": None, "weight": "", "matched_qty": 0}
+        )
+        weight_kg = winfo.get("weight_kg")
+        weight_text = str(winfo.get("weight") or "").strip() or _fmt_weight_text(
+            float(weight_kg) if weight_kg is not None else None
+        )
+        out.append(
+            {
+                "container_id": cid,
+                "container_number": num,
+                "order_count": int(order_counts.get(cid) or 0),
+                "weight_kg": weight_kg,
+                "weight": weight_text,
+            }
+        )
+    return out
+
+
+def parse_cargo_places_detail(raw: object) -> list[dict[str, Any]]:
+    """Normalize stored / API cargo_places_detail list."""
+    parsed: object = raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            import json
+
+            parsed = json.loads(raw)
+        except Exception:
+            return []
+    if not isinstance(parsed, list):
+        return []
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for i, item in enumerate(parsed):
+        if not isinstance(item, dict):
+            continue
+        cid = str(item.get("container_id") or "").strip()
+        if not cid or not cid.isdigit() or cid == "0" or cid in seen:
+            continue
+        seen.add(cid)
+        try:
+            number = int(item.get("container_number") or 0)
+        except (TypeError, ValueError):
+            number = 0
+        if number <= 0:
+            number = len(out) + 1
+        weight_text = str(item.get("weight") or "").strip()
+        weight_kg = _as_float(item.get("weight_kg"))
+        if not weight_text and weight_kg is not None:
+            weight_text = _fmt_weight_text(weight_kg)
+        try:
+            order_count = int(item.get("order_count") or 0)
+        except (TypeError, ValueError):
+            order_count = 0
+        out.append(
+            {
+                "container_id": cid,
+                "container_number": number,
+                "order_count": max(0, order_count),
+                "weight_kg": weight_kg,
+                "weight": weight_text,
+            }
+        )
+    return out
+
+
+def serialize_cargo_places_detail(rows: list[dict[str, Any]] | None) -> str:
+    import json
+
+    cleaned = parse_cargo_places_detail(rows or [])
+    if not cleaned:
+        return ""
+    payload = [
+        {
+            "container_id": r["container_id"],
+            "container_number": int(r.get("container_number") or 0),
+            "order_count": int(r.get("order_count") or 0),
+            "weight": str(r.get("weight") or ""),
+            "weight_kg": r.get("weight_kg"),
+        }
+        for r in cleaned
+    ]
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def totals_from_cargo_places_detail(
+    rows: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    cleaned = parse_cargo_places_detail(rows or [])
+    total_kg = 0.0
+    matched = 0
+    for r in cleaned:
+        w = _as_float(r.get("weight_kg"))
+        if w is None:
+            w = _as_float(str(r.get("weight") or "").replace(",", "."))
+        if w is None:
+            continue
+        total_kg += float(w)
+        matched += 1
+    return {
+        "places": len(cleaned),
+        "places_text": format_places(len(cleaned)) if cleaned else "",
+        "weight_kg": round(total_kg, 3) if matched else None,
+        "weight": _fmt_weight_text(total_kg) if matched else "",
+    }
+
+
+def format_cargo_place_row_label(row: dict[str, Any] | None) -> str:
+    """One line: «№1 · 1019563511789384»."""
+    if not isinstance(row, dict):
+        return ""
+    cid = str(row.get("container_id") or "").strip()
+    try:
+        num = int(row.get("container_number") or 0)
+    except (TypeError, ValueError):
+        num = 0
+    left = f"№{num}" if num > 0 else "ГМ"
+    if cid:
+        return f"{left} · {cid}"
+    return left
+
+
 def local_ozon_places_count(
     repo: Any,
     *,

@@ -8627,6 +8627,7 @@ class ReviewRepository:
             "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS fbs_supply_id TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS group_id TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS title TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE supply_ttn_records ADD COLUMN IF NOT EXISTS cargo_places_detail_json TEXT NOT NULL DEFAULT ''",
         ):
             conn.execute(_ttn_col_sql)
         # Contour.Logistics / Diadoc EDO settings + sent document tracking (Ozon).
@@ -11237,6 +11238,7 @@ class ReviewRepository:
                            t.vehicle_line, t.carrier_snapshot,
                            t.load_address, t.unload_address,
                            t.cargo_description, t.cargo_places, t.cargo_weight,
+                           COALESCE(t.cargo_places_detail_json, '') AS cargo_places_detail_json,
                            t.accompanying_docs, t.notes,
                            COALESCE(t.customer_services, '') AS customer_services,
                            COALESCE(t.customer_party_type, '') AS customer_party_type,
@@ -11331,6 +11333,18 @@ class ReviewRepository:
                     "doc_inn_fl": d.get("d_inn_fl"),
                 }
             )
+            try:
+                from . import ttn_fbs_cargo as ttn_cargo
+
+                detail = ttn_cargo.parse_cargo_places_detail(
+                    d.get("cargo_places_detail_json")
+                )
+            except Exception:
+                detail = []
+            d["cargo_places_detail"] = detail
+            d["cargo_places_detail_json"] = str(
+                d.get("cargo_places_detail_json") or ""
+            ).strip()
             result.append(d)
         return cluster_supply_ttn_records_by_group(result)
 
@@ -11354,6 +11368,7 @@ class ReviewRepository:
         cargo_description: str = "",
         cargo_places: str = "",
         cargo_weight: str = "",
+        cargo_places_detail_json: str = "",
         accompanying_docs: str = "",
         notes: str = "",
         customer_services: str = "",
@@ -11384,6 +11399,14 @@ class ReviewRepository:
         _cust_id = int(customer_party_id or 0) if _cust_type else 0
         _group_id = str(group_id or "").strip()
         _title = str(title or "").strip()
+        try:
+            from . import ttn_fbs_cargo as ttn_cargo
+
+            _detail_json = ttn_cargo.serialize_cargo_places_detail(
+                ttn_cargo.parse_cargo_places_detail(cargo_places_detail_json)
+            )
+        except Exception:
+            _detail_json = str(cargo_places_detail_json or "").strip()
         with self._connect() as conn:
             rid = self._insert_and_get_id(
                 conn,
@@ -11392,13 +11415,14 @@ class ReviewRepository:
                 "shipper_type, consignee_type, driver_id, "
                 "driver_manual_name, driver_manual_docs, vehicle_line, carrier_snapshot, "
                 "load_address, unload_address, cargo_description, cargo_places, cargo_weight, "
+                "cargo_places_detail_json, "
                 "accompanying_docs, notes, "
                 "customer_services, customer_party_type, customer_party_id, "
                 "packing_type, declared_value, vehicle_type, "
                 "loading_datetime, loader_name, unloading_datetime, receiver_name, "
                 "redirect_info, carrier_marks, freight_cost, "
                 "fbs_platform, fbs_source_id, fbs_supply_id, group_id, created_at"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     user_id,
                     (doc_number or "").strip(),
@@ -11418,6 +11442,7 @@ class ReviewRepository:
                     (cargo_description or "").strip(),
                     (cargo_places or "").strip(),
                     (cargo_weight or "").strip(),
+                    _detail_json,
                     (accompanying_docs or "").strip(),
                     (notes or "").strip(),
                     (customer_services or "").strip(),
@@ -11463,6 +11488,7 @@ class ReviewRepository:
         cargo_description: str = "",
         cargo_places: str = "",
         cargo_weight: str = "",
+        cargo_places_detail_json: str = "",
         accompanying_docs: str = "",
         notes: str = "",
         customer_services: str = "",
@@ -11492,6 +11518,14 @@ class ReviewRepository:
         _cust_id = int(customer_party_id or 0) if _cust_type else 0
         _group_id = str(group_id or "").strip()
         _title = str(title or "").strip()
+        try:
+            from . import ttn_fbs_cargo as ttn_cargo
+
+            _detail_json = ttn_cargo.serialize_cargo_places_detail(
+                ttn_cargo.parse_cargo_places_detail(cargo_places_detail_json)
+            )
+        except Exception:
+            _detail_json = str(cargo_places_detail_json or "").strip()
         with self._connect() as conn:
             result = conn.execute(
                 self._sql(
@@ -11501,6 +11535,7 @@ class ReviewRepository:
                     "driver_manual_name = ?, driver_manual_docs = ?, vehicle_line = ?, "
                     "carrier_snapshot = ?, load_address = ?, unload_address = ?, "
                     "cargo_description = ?, cargo_places = ?, cargo_weight = ?, "
+                    "cargo_places_detail_json = ?, "
                     "accompanying_docs = ?, notes = ?, "
                     "customer_services = ?, customer_party_type = ?, customer_party_id = ?, "
                     "packing_type = ?, declared_value = ?, vehicle_type = ?, "
@@ -11526,6 +11561,7 @@ class ReviewRepository:
                     (cargo_description or "").strip(),
                     (cargo_places or "").strip(),
                     (cargo_weight or "").strip(),
+                    _detail_json,
                     (accompanying_docs or "").strip(),
                     (notes or "").strip(),
                     (customer_services or "").strip(),

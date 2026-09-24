@@ -5,13 +5,18 @@ from __future__ import annotations
 import unittest
 
 from review_processor.ttn_fbs_cargo import (
+    format_cargo_place_row_label,
     format_places,
     local_ozon_container_ids,
+    local_ozon_cargo_place_rows,
     normalize_packing_type,
+    parse_cargo_places_detail,
     places_from_ozon_containers,
     places_from_wb_trbx,
     product_weight_index,
+    serialize_cargo_places_detail,
     sum_weight_for_lines,
+    totals_from_cargo_places_detail,
     weight_lines_from_ozon_orders,
     weight_lines_from_wb_orders,
 )
@@ -140,6 +145,96 @@ class TtnFbsCargoTests(unittest.TestCase):
         )
         # DISTINCT in SQL + local dedupe; mock returns unsorted duplicates.
         self.assertEqual(ids, ["20", "10"])
+
+    def test_parse_serialize_cargo_places_detail(self) -> None:
+        rows = parse_cargo_places_detail(
+            [
+                {"container_id": "101", "container_number": 1, "weight": "12.5"},
+                {"container_id": "101", "container_number": 9, "weight": "1"},  # dup
+                {"container_id": "202", "weight_kg": 3},
+            ]
+        )
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["container_id"], "101")
+        self.assertEqual(rows[0]["weight"], "12.5")
+        self.assertEqual(rows[1]["container_id"], "202")
+        self.assertEqual(rows[1]["weight"], "3")
+        self.assertEqual(rows[1]["container_number"], 2)
+        raw = serialize_cargo_places_detail(rows)
+        again = parse_cargo_places_detail(raw)
+        self.assertEqual(again[0]["container_id"], "101")
+        self.assertEqual(format_cargo_place_row_label(rows[0]), "№1 · 101")
+        totals = totals_from_cargo_places_detail(rows)
+        self.assertEqual(totals["places"], 2)
+        self.assertEqual(totals["places_text"], "2")
+        self.assertEqual(totals["weight_kg"], 15.5)
+        self.assertEqual(totals["weight"], "15.5")
+
+    def test_local_ozon_cargo_place_rows_weights(self) -> None:
+        class _Repo:
+            def _connect(self):
+                return self
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def _sql(self, q):
+                return q
+
+            def execute(self, sql, params=()):
+                self.last_sql = sql
+                self.params = params
+                return self
+
+            def fetchall(self):
+                if "DISTINCT" in str(self.last_sql):
+                    return [{"cid": 10}, {"cid": 20}]
+                return [
+                    {
+                        "container_id": 10,
+                        "offer_id": "A",
+                        "sku": "1",
+                        "quantity": 2,
+                        "status": "delivering",
+                        "tab": "delivering",
+                        "posting_number": "p1",
+                    },
+                    {
+                        "container_id": 20,
+                        "offer_id": "B",
+                        "sku": "2",
+                        "quantity": 1,
+                        "status": "delivering",
+                        "tab": "delivering",
+                        "posting_number": "p2",
+                    },
+                ]
+
+            def _row_to_dict(self, row):
+                return dict(row)
+
+        idx = product_weight_index(
+            [
+                {"supplier_article": "A", "weight_kg": 1.5},
+                {"supplier_article": "B", "weight_kg": 4},
+            ]
+        )
+        rows = local_ozon_cargo_place_rows(
+            _Repo(),
+            user_id=1,
+            source_id=2,
+            supply_id="S1",
+            weight_index=idx,
+        )
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["container_id"], "10")
+        self.assertEqual(rows[0]["container_number"], 1)
+        self.assertEqual(rows[0]["weight_kg"], 3.0)
+        self.assertEqual(rows[1]["container_id"], "20")
+        self.assertEqual(rows[1]["weight_kg"], 4.0)
 
 
 if __name__ == "__main__":

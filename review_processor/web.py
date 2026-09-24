@@ -496,6 +496,7 @@ class CreateTtnRecordRequest(BaseModel):
     cargo_description: str = ""
     cargo_places: str = ""
     cargo_weight: str = ""
+    cargo_places_detail_json: str = ""
     accompanying_docs: str = ""
     notes: str = ""
     # ПП РФ № 2200 — дополнительные поля ТН (все опциональны, старый клиент не ломаем)
@@ -537,6 +538,7 @@ class UpdateTtnRecordRequest(BaseModel):
     cargo_description: str = ""
     cargo_places: str = ""
     cargo_weight: str = ""
+    cargo_places_detail_json: str = ""
     accompanying_docs: str = ""
     notes: str = ""
     customer_services: str = ""
@@ -22332,6 +22334,30 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         except Exception:
             packing_type = ""
 
+        cargo_places_detail: list = []
+        if plat == "ozon":
+            try:
+                cargo_places_detail = ttn_cargo.local_ozon_cargo_place_rows(
+                    repository,
+                    user_id=owner_id,
+                    source_id=int(source_id),
+                    supply_id=sid,
+                    weight_index=weight_index,
+                )
+            except Exception:
+                cargo_places_detail = []
+            if cargo_places_detail:
+                detail_totals = ttn_cargo.totals_from_cargo_places_detail(
+                    cargo_places_detail
+                )
+                places = int(detail_totals.get("places") or len(cargo_places_detail))
+                if detail_totals.get("weight"):
+                    weight_info = {
+                        **weight_info,
+                        "weight": detail_totals.get("weight") or "",
+                        "weight_kg": detail_totals.get("weight_kg"),
+                    }
+
         if weight_info.get("missing_articles"):
             miss = ", ".join(weight_info["missing_articles"][:8])
             more = len(weight_info["missing_articles"]) - 8
@@ -22356,6 +22382,10 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             "weight_kg": weight_info.get("weight_kg"),
             "weight": weight_info.get("weight") or "",
             "packing_type": packing_type,
+            "cargo_places_detail": cargo_places_detail,
+            "cargo_places_detail_json": ttn_cargo.serialize_cargo_places_detail(
+                cargo_places_detail
+            ),
             "missing_articles": weight_info.get("missing_articles") or [],
             "warnings": warnings,
         }
@@ -22494,6 +22524,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                 cargo_description=payload.cargo_description,
                 cargo_places=payload.cargo_places,
                 cargo_weight=payload.cargo_weight,
+                cargo_places_detail_json=payload.cargo_places_detail_json,
                 accompanying_docs=payload.accompanying_docs,
                 notes=payload.notes,
                 customer_services=payload.customer_services,
@@ -22546,6 +22577,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             cargo_description=payload.cargo_description,
             cargo_places=payload.cargo_places,
             cargo_weight=payload.cargo_weight,
+            cargo_places_detail_json=payload.cargo_places_detail_json,
             accompanying_docs=payload.accompanying_docs,
             notes=payload.notes,
             customer_services=payload.customer_services,
@@ -22637,6 +22669,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             cargo_description=payload.cargo_description,
             cargo_places=payload.cargo_places,
             cargo_weight=payload.cargo_weight,
+            cargo_places_detail_json=payload.cargo_places_detail_json,
             accompanying_docs=payload.accompanying_docs,
             notes=payload.notes,
             customer_services=payload.customer_services,
@@ -22707,7 +22740,46 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         packing = e(str(record.get("packing_type") or ""))
         places = e(str(record.get("cargo_places") or ""))
         weight = e(str(record.get("cargo_weight") or ""))
+        from . import ttn_fbs_cargo as ttn_cargo
+
+        detail_rows = ttn_cargo.parse_cargo_places_detail(
+            record.get("cargo_places_detail") or record.get("cargo_places_detail_json")
+        )
+        plat = str(record.get("fbs_platform") or "").strip().lower()
+        is_ozon_fbs = plat in ("ozon", "ozon_fbs") and bool(detail_rows)
+        if is_ozon_fbs:
+            detail_html_parts = []
+            for row in detail_rows:
+                label = e(ttn_cargo.format_cargo_place_row_label(row))
+                w_raw = str(row.get("weight") or "").strip()
+                w = e(w_raw) if w_raw else ""
+                w_suffix = f"{w} кг" if w else ""
+                detail_html_parts.append(
+                    f'<div style="display:flex;justify-content:space-between;gap:12pt;'
+                    f'margin-top:2pt"><span>{label}</span><span>{w_suffix}</span></div>'
+                )
+            places_block = (
+                '<div style="margin-top:4pt"><div class="label">Грузоместа</div>'
+                + "".join(detail_html_parts)
+                + f'<div style="margin-top:4pt">Итого мест: <b>{places or len(detail_rows)}</b>'
+                f'&nbsp;&nbsp; Масса, кг: <b>{weight}</b></div></div>'
+            )
+        else:
+            places_block = (
+                f'<div style="margin-top:4pt">Тара / упаковка: <b>{packing}</b>'
+                f'&nbsp;&nbsp; Мест: <b>{places}</b>'
+                f'&nbsp;&nbsp; Масса, кг: <b>{weight}</b>'
+                f'&nbsp;&nbsp; Объявленная стоимость: <b>{{declared}}</b></div>'
+            )
         declared = e(str(record.get("declared_value") or ""))
+        if is_ozon_fbs:
+            places_block = (
+                f'<div style="margin-top:4pt">Тара / упаковка: <b>{packing}</b>'
+                f'&nbsp;&nbsp; Объявленная стоимость: <b>{declared}</b></div>'
+                + places_block
+            )
+        else:
+            places_block = places_block.format(declared=declared)
         docs = e(str(record.get("accompanying_docs") or ""))
         notes = e(str(record.get("notes") or ""))
         loading_dt = e(str(record.get("loading_datetime") or ""))
@@ -22747,10 +22819,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
     <td colspan="2">
       <div class="label">3. Наименование груза</div>
       <div>{cargo}</div>
-      <div style="margin-top:4pt">Тара / упаковка: <b>{packing}</b>
-        &nbsp;&nbsp; Мест: <b>{places}</b>
-        &nbsp;&nbsp; Масса, кг: <b>{weight}</b>
-        &nbsp;&nbsp; Объявленная стоимость: <b>{declared}</b></div>
+      {places_block}
     </td>
   </tr>
   <tr>

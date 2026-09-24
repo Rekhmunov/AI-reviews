@@ -132,12 +132,12 @@ def test_ui_title_field_and_table_column() -> None:
     )[0]
     assert "_ttnEnsureDefaultTitles" in open_modal
     assert "(r.title || \"\").toLowerCase().includes(sq)" in JS or "(r.title || '').toLowerCase().includes(sq)" in JS
-    assert 'colspan="7"' in JS.split("function renderTtnTable", 1)[1].split(
+    assert 'colspan="8"' in JS.split("function renderTtnTable", 1)[1].split(
         "window.renderTtnTable", 1
     )[0]
     assert "logistics_ttn_col_widths_v3" in JS
-    assert "app.js?v=698" in HTML
-    assert "style.css?v=417" in HTML
+    assert "app.js?v=699" in HTML
+    assert "style.css?v=418" in HTML
     assert "ozon_fbs.js?v=197" in HTML
     assert 'id="ttnSelectAll"' in HTML
     assert "function printSelectedTtnRecords" in JS

@@ -7782,6 +7782,67 @@ body.sst-col-resizing * {
   color: #475569;
 }
 
+#createTtnModal .ttn-gm-detail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+#createTtnModal .ttn-gm-detail-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+#createTtnModal .ttn-gm-detail-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#createTtnModal .ttn-gm-detail-weight {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+#createTtnModal .ttn-gm-detail-weight-input {
+  width: 88px;
+  text-align: right;
+}
+
+#createTtnModal .ttn-gm-detail-unit {
+  font-size: 13px;
+  color: #64748b;
+  min-width: 20px;
+}
+
+#createTtnModal .ttn-gm-detail-empty {
+  font-size: 14px;
+  color: #64748b;
+  padding: 8px 0;
+}
+
+#createTtnModal .ttn-gm-detail-totals {
+  margin-top: 8px;
+  font-size: 14px;
+  color: #475569;
+}
+
 #createTtnModal .ttn-modal-footer {
   flex: 0 0 auto;
   display: flex;
@@ -20422,6 +20483,42 @@ body.ttn-col-resizing {
 #ttnTable td:last-child {
   overflow: visible;
   white-space: normal;
+}
+#ttnTable td.ttn-cargo-places-cell {
+  overflow: hidden;
+  white-space: normal;
+  vertical-align: top;
+  font-size: 13px;
+  line-height: 1.35;
+}
+#ttnTable .ttn-gm-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+#ttnTable .ttn-gm-cell-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: baseline;
+}
+#ttnTable .ttn-gm-cell-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #0f172a;
+}
+#ttnTable .ttn-gm-cell-weight {
+  flex: 0 0 auto;
+  color: #334155;
+  font-variant-numeric: tabular-nums;
+}
+#ttnTable .ttn-gm-cell-total {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #64748b;
 }
 /* Origin tint: Ozon blue / WB violet. Clear enough to scan, not loud. */
 #ttnTable tbody tr.ttn-row-from-ozon td {

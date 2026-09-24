@@ -20742,6 +20742,205 @@ let _ttnSelectedFbsSupplyName = "";
 let _ttnOpenedFromFbsTab = ""; // "" | "wb" | "ozon"
 /** @deprecated use _ttnOpenedFromFbsTab */
 let _ttnOpenedFromWbFbs = false;
+/** Current Ozon FBS per-GM breakdown in the TN modal (empty = simple places/weight). */
+let _ttnCargoPlacesDetail = [];
+
+function _ttnIsOzonFbsPlatform(plat) {
+  const p = String(plat || "").trim().toLowerCase();
+  return p === "ozon" || p === "ozon_fbs" || p === "ozon-fbs";
+}
+
+function _ttnFmtWeightText(kg) {
+  if (kg == null || !Number.isFinite(Number(kg)) || Number(kg) <= 0) return "";
+  const rounded = Math.round(Number(kg) * 1000) / 1000;
+  if (Math.abs(rounded - Math.round(rounded)) < 1e-9) return String(Math.round(rounded));
+  return String(rounded).replace(/\.?0+$/, "");
+}
+
+function _ttnParseCargoPlacesDetail(raw) {
+  let parsed = raw;
+  if (typeof raw === "string" && raw.trim()) {
+    try { parsed = JSON.parse(raw); } catch (_) { return []; }
+  }
+  if (!Array.isArray(parsed)) return [];
+  const out = [];
+  const seen = new Set();
+  parsed.forEach((item, i) => {
+    if (!item || typeof item !== "object") return;
+    const cid = String(item.container_id || "").trim();
+    if (!cid || !/^\d+$/.test(cid) || cid === "0" || seen.has(cid)) return;
+    seen.add(cid);
+    let number = parseInt(item.container_number, 10);
+    if (!Number.isFinite(number) || number <= 0) number = i + 1;
+    let weightText = String(item.weight || "").trim();
+    let weightKg = item.weight_kg;
+    if (weightKg != null && weightKg !== "") {
+      const n = Number(String(weightKg).replace(",", "."));
+      weightKg = Number.isFinite(n) ? n : null;
+    } else {
+      weightKg = null;
+    }
+    if (!weightText && weightKg != null) weightText = _ttnFmtWeightText(weightKg);
+    if (weightKg == null && weightText) {
+      const n = Number(weightText.replace(",", "."));
+      if (Number.isFinite(n)) weightKg = n;
+    }
+    let orderCount = parseInt(item.order_count, 10);
+    if (!Number.isFinite(orderCount) || orderCount < 0) orderCount = 0;
+    out.push({
+      container_id: cid,
+      container_number: number,
+      order_count: orderCount,
+      weight_kg: weightKg,
+      weight: weightText,
+    });
+  });
+  return out;
+}
+
+function _ttnSerializeCargoPlacesDetail(rows) {
+  const cleaned = _ttnParseCargoPlacesDetail(rows || []);
+  if (!cleaned.length) return "";
+  return JSON.stringify(cleaned.map((r) => ({
+    container_id: r.container_id,
+    container_number: Number(r.container_number || 0),
+    order_count: Number(r.order_count || 0),
+    weight: String(r.weight || ""),
+    weight_kg: r.weight_kg,
+  })));
+}
+
+function _ttnFormatCargoPlaceLabel(row) {
+  if (!row || typeof row !== "object") return "";
+  const cid = String(row.container_id || "").trim();
+  const num = parseInt(row.container_number, 10);
+  const left = Number.isFinite(num) && num > 0 ? `№${num}` : "ГМ";
+  return cid ? `${left} · ${cid}` : left;
+}
+
+function _ttnCargoPlacesDetailTotals(rows) {
+  const cleaned = _ttnParseCargoPlacesDetail(rows || []);
+  let totalKg = 0;
+  let matched = 0;
+  for (const r of cleaned) {
+    let w = r.weight_kg;
+    if (w == null || !Number.isFinite(Number(w))) {
+      const n = Number(String(r.weight || "").replace(",", "."));
+      w = Number.isFinite(n) ? n : null;
+    }
+    if (w == null) continue;
+    totalKg += Number(w);
+    matched += 1;
+  }
+  const places = cleaned.length;
+  return {
+    places,
+    places_text: places ? String(places) : "",
+    weight_kg: matched ? Math.round(totalKg * 1000) / 1000 : null,
+    weight: matched ? _ttnFmtWeightText(totalKg) : "",
+  };
+}
+
+function _ttnSyncPlacesWeightFromDetail() {
+  const totals = _ttnCargoPlacesDetailTotals(_ttnCargoPlacesDetail);
+  const placesEl = document.getElementById("ttnCreatePlaces");
+  const weightEl = document.getElementById("ttnCreateWeight");
+  if (placesEl) placesEl.value = totals.places_text || "";
+  if (weightEl) weightEl.value = totals.weight || "";
+  const totalsEl = document.getElementById("ttnCargoPlacesDetailTotals");
+  if (totalsEl) {
+    const placesLabel = totals.places_text || "0";
+    const weightLabel = totals.weight || "—";
+    totalsEl.textContent = `Итого мест: ${placesLabel} · Масса, кг: ${weightLabel}`;
+  }
+}
+
+function _ttnRenderCargoPlacesDetailList() {
+  const list = document.getElementById("ttnCargoPlacesDetailList");
+  if (!list) return;
+  const rows = _ttnCargoPlacesDetail;
+  if (!rows.length) {
+    list.innerHTML = '<div class="ttn-gm-detail-empty">Нет привязанных грузомест</div>';
+    return;
+  }
+  list.innerHTML = rows.map((row, idx) => {
+    const label = esc(_ttnFormatCargoPlaceLabel(row));
+    const weight = esc(String(row.weight || ""));
+    return `<div class="ttn-gm-detail-row" role="listitem" data-idx="${idx}">
+      <span class="ttn-gm-detail-label" title="${label}">${label}</span>
+      <label class="ttn-gm-detail-weight">
+          <input type="text" class="ttn-input ttn-gm-detail-weight-input" inputmode="decimal"
+               value="${weight}" placeholder="кг" autocomplete="off"
+               aria-label="Масса ГМ ${esc(String(row.container_number || idx + 1))}, кг"
+               oninput="onTtnCargoPlaceWeightInput(${idx}, this.value)" />
+        <span class="ttn-gm-detail-unit" aria-hidden="true">кг</span>
+      </label>
+    </div>`;
+  }).join("");
+}
+
+function _ttnSetCargoPlacesDetailUi(rows) {
+  _ttnCargoPlacesDetail = _ttnParseCargoPlacesDetail(rows || []);
+  const detailField = document.getElementById("ttnCargoPlacesDetailField");
+  const placesField = document.getElementById("ttnPlacesSimpleField");
+  const weightField = document.getElementById("ttnWeightSimpleField");
+  const showDetail = _ttnCargoPlacesDetail.length > 0
+    && _ttnIsOzonFbsPlatform(_ttnSelectedFbsMeta?.platform || _ttnOpenedFromFbsTab);
+  if (detailField) detailField.classList.toggle("hidden", !showDetail);
+  if (placesField) placesField.classList.toggle("hidden", showDetail);
+  if (weightField) weightField.classList.toggle("hidden", showDetail);
+  if (showDetail) {
+    _ttnRenderCargoPlacesDetailList();
+    _ttnSyncPlacesWeightFromDetail();
+  } else {
+    const list = document.getElementById("ttnCargoPlacesDetailList");
+    if (list) list.innerHTML = "";
+    const totalsEl = document.getElementById("ttnCargoPlacesDetailTotals");
+    if (totalsEl) totalsEl.textContent = "";
+  }
+}
+
+function onTtnCargoPlaceWeightInput(idx, value) {
+  const i = Number(idx);
+  if (!Number.isFinite(i) || i < 0 || i >= _ttnCargoPlacesDetail.length) return;
+  const text = String(value || "").trim();
+  const n = Number(text.replace(",", "."));
+  _ttnCargoPlacesDetail[i] = {
+    ..._ttnCargoPlacesDetail[i],
+    weight: text,
+    weight_kg: Number.isFinite(n) && n >= 0 ? n : null,
+  };
+  _ttnSyncPlacesWeightFromDetail();
+  _ttnFormDirty = true;
+  _ttnScheduleDraftSave();
+}
+window.onTtnCargoPlaceWeightInput = onTtnCargoPlaceWeightInput;
+
+function _ttnCargoPlacesCellHtml(record) {
+  const plat = String(record?.fbs_platform || "").trim().toLowerCase();
+  const detail = _ttnParseCargoPlacesDetail(
+    record?.cargo_places_detail || record?.cargo_places_detail_json || []
+  );
+  if (_ttnIsOzonFbsPlatform(plat) && detail.length) {
+    const rows = detail.map((row) => {
+      const label = esc(_ttnFormatCargoPlaceLabel(row));
+      const w = esc(String(row.weight || "").trim() || "—");
+      return `<div class="ttn-gm-cell-row"><span class="ttn-gm-cell-label">${label}</span>`
+        + `<span class="ttn-gm-cell-weight">${w} кг</span></div>`;
+    }).join("");
+    const totals = _ttnCargoPlacesDetailTotals(detail);
+    const places = esc(String(record?.cargo_places || totals.places_text || detail.length));
+    const weight = esc(String(record?.cargo_weight || totals.weight || "—"));
+    return `<div class="ttn-gm-cell">${rows}`
+      + `<div class="ttn-gm-cell-total">Итого: ${places} · ${weight} кг</div></div>`;
+  }
+  const places = String(record?.cargo_places || "").trim();
+  const weight = String(record?.cargo_weight || "").trim();
+  if (!places && !weight) return "—";
+  if (places && weight) return esc(`${places} / ${weight} кг`);
+  if (places) return esc(`${places} мест`);
+  return esc(`${weight} кг`);
+}
 
 /** Cross-module setter (ozon_fbs.js cannot write the lexical let directly). */
 function setTtnOpenedFromFbsTab(tab) {
@@ -20928,6 +21127,7 @@ async function onTtnFbsSupplyChange() {
   if (!raw) {
     _ttnSelectedFbsMeta = null;
     _ttnSelectedFbsSupplyName = "";
+    _ttnSetCargoPlacesDetailUi([]);
     _ttnRestoreManualTitleIfTemplate();
     if (hint) hint.textContent = "Подставляются количество мест и масса из выбранной поставки FBS. Вид тары укажите вручную.";
     return;
@@ -20954,6 +21154,14 @@ async function onTtnFbsSupplyChange() {
     // Always apply (including empty) so a failed lookup does not leave stale autofill.
     if (placesEl) placesEl.value = data.places_text != null ? String(data.places_text) : "";
     if (weightEl) weightEl.value = data.weight != null ? String(data.weight) : "";
+    const detailRows = _ttnParseCargoPlacesDetail(
+      data.cargo_places_detail || data.cargo_places_detail_json || []
+    );
+    if (_ttnIsOzonFbsPlatform(platform) && detailRows.length) {
+      _ttnSetCargoPlacesDetailUi(detailRows);
+    } else {
+      _ttnSetCargoPlacesDetailUi([]);
+    }
     const packingFromWh = String(data.packing_type || "").trim();
     if (packingFromWh) _ttnSetPackingValue(packingFromWh);
     const supplyName = String(data.supply_name || "").trim();
@@ -21205,6 +21413,7 @@ const TTN_SORT_COLS = new Set([
   "le_short",
   "c_name",
   "driver",
+  "cargo_places",
 ]);
 
 function _loadTtnSortState() {
@@ -21244,6 +21453,13 @@ function _ttnSortValue(rec, col) {
   if (col === "ttn_date") return _ttnDateSortKey(rec);
   if (col === "driver") {
     return String(_ttnDriverCarrierCell(rec) || "").trim().toLowerCase();
+  }
+  if (col === "cargo_places") {
+    const detail = _ttnParseCargoPlacesDetail(
+      rec?.cargo_places_detail || rec?.cargo_places_detail_json || []
+    );
+    if (detail.length) return String(detail.length).padStart(6, "0");
+    return String(rec?.cargo_places || "").trim().toLowerCase();
   }
   return String(rec?.[col] || "").trim().toLowerCase();
 }
@@ -21509,7 +21725,7 @@ function renderTtnTable() {
   _ttnSyncPrintSelectedBtn();
   _updateTtnSortIcons();
   if (!page.total) {
-    tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">ТН не найдены</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-cell">ТН не найдены</td></tr>';
     return;
   }
   tbody.innerHTML = "";
@@ -21539,6 +21755,7 @@ function renderTtnTable() {
       <td>${esc(r.le_short || "")}</td>
       <td>${esc(r.c_name || "")}</td>
       <td>${esc(_ttnDriverCarrierCell(r))}</td>
+      <td class="ttn-cargo-places-cell">${_ttnCargoPlacesCellHtml(r)}</td>
       <td>
         <div class="ttn-row-actions">
           <button type="button" class="secondary small-btn icon-btn ttn-row-print-btn"
@@ -21921,6 +22138,7 @@ function _ttnEmptyFormState() {
     packingManual: "",
     places: "",
     weight: "",
+    cargoPlacesDetail: [],
     docs: TTN_DEFAULT_DOCS,
     notes: "",
     declaredValue: "",
@@ -21982,6 +22200,7 @@ function _ttnCaptureFormState() {
     packingManual: document.getElementById("ttnCreatePackingManual")?.value || "",
     places: document.getElementById("ttnCreatePlaces")?.value || "",
     weight: document.getElementById("ttnCreateWeight")?.value || "",
+    cargoPlacesDetail: _ttnParseCargoPlacesDetail(_ttnCargoPlacesDetail),
     docs: document.getElementById("ttnCreateDocs")?.value || "",
     notes: document.getElementById("ttnCreateNotes")?.value || "",
     declaredValue: document.getElementById("ttnCreateDeclaredValue")?.value || "",
@@ -22225,6 +22444,10 @@ async function _ttnApplyFormState(state) {
       applyCargo: false,
       keepMeta: !!preferFbs || !!_ttnOpenedFromFbsTab || !!_ttnOpenedFromWbFbs,
     });
+    // Restore saved/prefilled GM breakdown after FBS field refresh (no cargo overwrite).
+    setVal("ttnCreatePlaces", s.places || "");
+    setVal("ttnCreateWeight", s.weight || "");
+    _ttnSetCargoPlacesDetailUi(s.cargoPlacesDetail || []);
   } finally {
     _ttnFbsSuppressCargoAutofill = false;
     _ttnSuppressDirty = false;
@@ -22264,6 +22487,12 @@ function _ttnStateFromRecord(record, mode) {
   }
   if (mode === "copy" && !_ttnOpenedFromFbsTab && !_ttnOpenedFromWbFbs) {
     fbsMeta = null;
+  }
+  let cargoPlacesDetail = _ttnParseCargoPlacesDetail(
+    record.cargo_places_detail || record.cargo_places_detail_json || []
+  );
+  if (!fbsMeta || !_ttnIsOzonFbsPlatform(fbsMeta.platform)) {
+    cargoPlacesDetail = [];
   }
   const dId = Number(record.driver_id || 0);
   const manualDriver = dId <= 0 && !!(record.driver_manual_name);
@@ -22326,6 +22555,7 @@ function _ttnStateFromRecord(record, mode) {
     packingManual: packingIsPreset ? "" : packing,
     places: record.cargo_places || "",
     weight: record.cargo_weight || "",
+    cargoPlacesDetail,
     docs: String(record.accompanying_docs || "").trim() || TTN_DEFAULT_DOCS,
     notes: record.notes || "",
     declaredValue: record.declared_value || "",
@@ -22411,6 +22641,18 @@ function _ttnBuildPayloadFromState(state, groupId) {
     packingType = String(s.packing || "").trim();
   }
   const customerParsed = _ttnParsePartyRef(s.customer || "");
+  let cargoPlaces = String(s.places || "").trim();
+  let cargoWeight = String(s.weight || "").trim();
+  let cargoPlacesDetailJson = "";
+  if (_ttnIsOzonFbsPlatform(s.fbsMeta?.platform)) {
+    const detail = _ttnParseCargoPlacesDetail(s.cargoPlacesDetail || []);
+    cargoPlacesDetailJson = _ttnSerializeCargoPlacesDetail(detail);
+    if (detail.length) {
+      const totals = _ttnCargoPlacesDetailTotals(detail);
+      if (totals.places_text) cargoPlaces = totals.places_text;
+      if (totals.weight) cargoWeight = totals.weight;
+    }
+  }
   const payload = {
     legal_entity_id: shipper.id,
     contractor_id: consignee.id,
@@ -22426,8 +22668,9 @@ function _ttnBuildPayloadFromState(state, groupId) {
     load_address: loadAddress,
     unload_address: unloadAddress,
     cargo_description: cargoDescription,
-    cargo_places: String(s.places || "").trim(),
-    cargo_weight: String(s.weight || "").trim(),
+    cargo_places: cargoPlaces,
+    cargo_weight: cargoWeight,
+    cargo_places_detail_json: cargoPlacesDetailJson,
     accompanying_docs: String(s.docs || "").trim(),
     notes: String(s.notes || "").trim(),
     customer_services: _ttnPartySnapshot(s.customer || ""),

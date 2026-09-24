@@ -2873,9 +2873,16 @@ def build_ttn_prefill(
         warnings.append("Назначьте водителя в карточке поставки.")
 
     # Local cargo places = distinct GM binds on supply postings (no live Ozon).
-    places = ttn_cargo.local_ozon_places_count(
-        repo, user_id=user_id, source_id=src, supply_id=sid
+    products = repo.list_product_photos(user_id=user_id)
+    weight_index = ttn_cargo.product_weight_index(products)
+    cargo_places_detail = ttn_cargo.local_ozon_cargo_place_rows(
+        repo,
+        user_id=user_id,
+        source_id=src,
+        supply_id=sid,
+        weight_index=weight_index,
     )
+    detail_totals = ttn_cargo.totals_from_cargo_places_detail(cargo_places_detail)
     orders: list[dict[str, Any]] = []
     with repo._connect() as conn:
         orows = conn.execute(
@@ -2896,12 +2903,20 @@ def build_ttn_prefill(
             od["cancelled"] = True
         orders.append(od)
 
-    products = repo.list_product_photos(user_id=user_id)
     weight_info = ttn_cargo.sum_weight_for_lines(
-        ttn_cargo.product_weight_index(products),
+        weight_index,
         ttn_cargo.weight_lines_from_ozon_orders(orders),
     )
-    places_text = str(places) if places else ""
+    # Prefer per-GM totals when breakdown is known; else legacy supply sum.
+    if cargo_places_detail:
+        places_text = str(detail_totals.get("places_text") or len(cargo_places_detail))
+        cargo_weight_text = str(detail_totals.get("weight") or weight_info.get("weight") or "")
+    else:
+        places = ttn_cargo.local_ozon_places_count(
+            repo, user_id=user_id, source_id=src, supply_id=sid
+        )
+        places_text = str(places) if places else ""
+        cargo_weight_text = str(weight_info.get("weight") or "")
     packing_type = ""
     if warehouse:
         packing_type = ttn_cargo.normalize_packing_type(
@@ -2929,7 +2944,11 @@ def build_ttn_prefill(
         "unloading_datetime": ttn_date,
         "cargo_description": "Постельное белье/наматрасник",
         "cargo_places": places_text,
-        "cargo_weight": str(weight_info.get("weight") or ""),
+        "cargo_weight": cargo_weight_text,
+        "cargo_places_detail": cargo_places_detail,
+        "cargo_places_detail_json": ttn_cargo.serialize_cargo_places_detail(
+            cargo_places_detail
+        ),
         "packing_type": packing_type,
         "fbs_platform": "ozon",
         "fbs_source_id": src,
@@ -2965,10 +2984,32 @@ def build_ttn_prefill(
             "carrier_marks",
             "freight_cost",
             "title",
+            "cargo_places_detail_json",
         ):
             val = existing_record.get(key)
             if val not in (None, ""):
                 record[key] = val
+        # Prefer saved GM breakdown when editing an existing Ozon FBS TTN.
+        saved_detail = ttn_cargo.parse_cargo_places_detail(
+            existing_record.get("cargo_places_detail")
+            or existing_record.get("cargo_places_detail_json")
+        )
+        if saved_detail:
+            record["cargo_places_detail"] = saved_detail
+            record["cargo_places_detail_json"] = ttn_cargo.serialize_cargo_places_detail(
+                saved_detail
+            )
+            totals = ttn_cargo.totals_from_cargo_places_detail(saved_detail)
+            if totals.get("places_text"):
+                record["cargo_places"] = totals["places_text"]
+            if totals.get("weight"):
+                record["cargo_weight"] = totals["weight"]
+            elif existing_record.get("cargo_weight") not in (None, ""):
+                record["cargo_weight"] = existing_record.get("cargo_weight")
+        elif existing_record.get("cargo_places") not in (None, ""):
+            record["cargo_places"] = existing_record.get("cargo_places")
+        if not saved_detail and existing_record.get("cargo_weight") not in (None, ""):
+            record["cargo_weight"] = existing_record.get("cargo_weight")
     ttn_cargo.apply_fbs_customer_shipper_default(record)
     from . import ttn_title as ttn_title_mod
 

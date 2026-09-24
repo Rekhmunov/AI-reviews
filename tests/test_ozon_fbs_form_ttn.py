@@ -57,6 +57,8 @@ def test_ttn_prefill_is_local_only() -> None:
     assert "Назначьте водителя" in prefill
     assert 'fbs_platform": "ozon"' in prefill
     assert "local_ozon_places_count" in prefill
+    assert "local_ozon_cargo_place_rows" in prefill
+    assert "cargo_places_detail" in prefill
     assert '@app.get("/api/ozon-fbs/supplies/{supply_id}/ttn-prefill")' in WEB
     assert "oz_sup.build_ttn_prefill" in WEB
     assert 'platform="ozon"' in OZ.split("def _list_supplies_tab_response", 1)[1].split(
@@ -68,9 +70,19 @@ def test_ttn_prefill_is_local_only() -> None:
     assert "window.setTtnOpenedFromFbsTab" in APP_JS
     assert "reloadOzonFbsPostings" in JS
     assert "fromFbsTab === \"ozon\"" in APP_JS or "fromFbsTab === 'ozon'" in APP_JS
+    assert "function _ttnSetCargoPlacesDetailUi" in APP_JS
+    assert "cargo_places_detail_json" in APP_JS
+    assert "ttnCargoPlacesDetailField" in HTML
+    assert "ttn-gm-detail-list" in HTML
+    assert "ttn-cargo-places-cell" in APP_JS
+    assert 'data-sort="cargo_places"' in HTML
+    assert "Грузоместа" in HTML.split('id="ttnTable"', 1)[1].split("tbody", 1)[0]
+    assert "places_block" in WEB
+    assert "format_cargo_place_row_label" in WEB
 
 
 def test_cache_bump_for_ozon_form_ttn() -> None:
     assert "ozon_fbs.js?v=197" in HTML
-    assert "app.js?v=698" in HTML
+    assert "app.js?v=699" in HTML
+    assert "style.css?v=418" in HTML
     assert "suggest_fbs_ttn_title" in OZ
