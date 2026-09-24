@@ -23603,8 +23603,8 @@ async function saveCertEdit() {
 }
 
 // ── Resizable columns ──
-const TTN_COL_WIDTHS_KEY = "logistics_ttn_col_widths_v3";
-const TTN_DEFAULT_WIDTHS = [8, 16, 10, 14, 16, 22, 14];
+const TTN_COL_WIDTHS_KEY = "logistics_ttn_col_widths_v4";
+const TTN_DEFAULT_WIDTHS = [7, 14, 9, 12, 14, 16, 18, 10];
 let _ttnColResizerInited = false;
 
 function initTtnColumnResizer() {

@@ -42,5 +42,5 @@ def test_ozon_owner_only_returns_sync() -> None:
 
 
 def test_cache_bump() -> None:
-    assert "app.js?v=699" in HTML
+    assert "app.js?v=700" in HTML
     assert "ozon_fbs.js?v=197" in HTML
