@@ -15258,7 +15258,14 @@ class ReviewRepository:
     # ── Stock ledger (movements) ─────────────────────────────────────────────
 
     _STOCK_KINDS = frozenset(
-        {"opening", "receipt", "fbs_ship", "adjustment", "fbs_reverse"}
+        {
+            "opening",
+            "receipt",
+            "fbs_ship",
+            "adjustment",
+            "fbs_reverse",
+            "operator_writeoff",
+        }
     )
 
     def get_product_id_by_article_map(self, *, user_id: int) -> dict[str, int]:

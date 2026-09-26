@@ -88,4 +88,4 @@ def test_import_parse_sums_duplicate_articles() -> None:
 
 def test_cache_bump_receipt_import() -> None:
     assert "style.css?v=418" in APP_HTML
-    assert "app.js?v=701" in APP_HTML
+    assert "app.js?v=702" in APP_HTML

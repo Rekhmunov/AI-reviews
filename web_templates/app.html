@@ -4979,8 +4979,9 @@
               </button>
             </div>
             <div class="sb-toolbar-primary" role="group" aria-label="Действия со складом">
-              <button type="button" class="secondary" onclick="openSupplyStockAdjustmentModal()">Корректировка</button>
-              <button type="button" id="supplyBalancesReceiptBtn" onclick="openSupplyStockReceiptModal()">Добавить на склад</button>
+              <button type="button" id="supplyBalancesAdjBtn" class="secondary" onclick="openSupplyStockAdjustmentModal()" hidden>Корректировка</button>
+              <button type="button" id="supplyBalancesWriteoffBtn" class="secondary" onclick="openSupplyStockWriteoffModal()">Списать</button>
+              <button type="button" id="supplyBalancesReceiptBtn" onclick="openSupplyStockReceiptModal()">Добавить</button>
             </div>
           </div>
           <div id="supplyBalancesInfo" class="sb-status" role="status"></div>
@@ -7782,13 +7783,80 @@
     </div>
   </div>
 
+  <!-- Supply stock: operator write-off -->
+  <div id="supplyStockWriteoffModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+       aria-labelledby="supplyStockWriteoffTitle">
+    <div class="modal-card sb-sheet-modal sb-doc-modal sb-adj-modal">
+      <div class="sb-sheet-header">
+        <div class="sb-sheet-title-row">
+          <h3 id="supplyStockWriteoffTitle" class="sb-sheet-title">Списать</h3>
+          <button type="button" class="icon-btn secondary" onclick="closeSupplyStockWriteoffModal()" aria-label="Закрыть">✕</button>
+        </div>
+        <div class="sb-doc-fields sb-doc-fields-search-end sb-receipt-toolbar">
+          <label class="sb-doc-field sb-doc-field-bare" for="supplyStockWriteoffKind">
+            <select id="supplyStockWriteoffKind" aria-label="Тип" title="Тип">
+              <option value="writeoff">Списание</option>
+            </select>
+          </label>
+          <label class="sb-doc-field sb-doc-field-bare" for="supplyStockWriteoffDate">
+            <input type="date" id="supplyStockWriteoffDate" aria-label="Дата" title="Дата" />
+          </label>
+          <div class="sb-sheet-search-end">
+            <button type="button" id="supplyStockWriteoffFilterBtn"
+                    class="icon-btn secondary sb-bulk-filter-btn sb-receipt-filter-btn"
+                    title="Массовые действия" aria-label="Массовые действия"
+                    aria-expanded="false" aria-controls="supplyStockWriteoffBulkPanel"
+                    onclick="toggleSupplyStockWriteoffBulkPanel()">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M4 6h16M7 12h10M10 18h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+            </button>
+            <input type="search" id="supplyStockWriteoffSearch" class="sb-sheet-search" placeholder="Поиск..."
+                   autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                   aria-label="Поиск" oninput="onSupplyStockModalSearch('writeoff')" />
+            <span id="supplyStockWriteoffFilterCount" class="sb-modal-filter-count" hidden></span>
+          </div>
+        </div>
+        <div id="supplyStockWriteoffBulkPanel" class="sb-bulk-panel" hidden>
+          <div class="sb-bulk-bar">
+            <label class="sb-bulk-value-field" for="supplyStockWriteoffBulkValue">
+              <span>Значение</span>
+              <input type="number" id="supplyStockWriteoffBulkValue" min="0" step="any" inputmode="decimal" placeholder="0" />
+            </label>
+            <button type="button" class="secondary" onclick="supplyStockBulkFill('writeoff','all')">Ко всем</button>
+            <button type="button" class="secondary" onclick="supplyStockBulkFill('writeoff','selected')">К выбранным</button>
+            <button type="button" class="secondary" onclick="supplyStockBulkClear('writeoff','all')">Обнулить все</button>
+            <button type="button" class="secondary" onclick="supplyStockBulkClear('writeoff','selected')">Обнулить выбранные</button>
+          </div>
+        </div>
+      </div>
+      <div class="sb-adj-list-wrap">
+        <div class="sb-adj-list-head">
+          <label class="sb-adj-check-cell" title="Выбрать все">
+            <input type="checkbox" id="supplyStockWriteoffSelectAll" onchange="supplyStockBulkToggleAll('writeoff', this.checked)" />
+          </label>
+          <span class="sb-adj-col sb-adj-col-photo">Фото</span>
+          <span class="sb-adj-col">Название<span class="sb-adj-col-resize" data-sb-adj-resize="name" title="Изменить ширину"></span></span>
+          <span class="sb-adj-col">Количество<span class="sb-adj-col-resize" data-sb-adj-resize="qty" title="Изменить ширину"></span></span>
+          <span class="sb-adj-col">Комментарий<span class="sb-adj-col-resize" data-sb-adj-resize="comment" title="Изменить ширину"></span></span>
+        </div>
+        <div id="supplyStockWriteoffList" class="sb-adj-list"></div>
+      </div>
+      <div id="supplyStockWriteoffErr" class="sb-doc-err sb-sheet-err" hidden></div>
+      <div class="sb-sheet-footer">
+        <button type="button" class="secondary" onclick="closeSupplyStockWriteoffModal()">Отмена</button>
+        <button type="button" id="supplyStockWriteoffSaveBtn" onclick="saveSupplyStockWriteoff()">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Supply stock: add to warehouse -->
   <div id="supplyStockReceiptModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
        aria-labelledby="supplyStockReceiptTitle">
     <div class="modal-card sb-sheet-modal sb-doc-modal sb-adj-modal">
       <div class="sb-sheet-header">
         <div class="sb-sheet-title-row">
-          <h3 id="supplyStockReceiptTitle" class="sb-sheet-title">Добавить на склад</h3>
+          <h3 id="supplyStockReceiptTitle" class="sb-sheet-title">Добавить</h3>
           <button type="button" class="icon-btn secondary" onclick="closeSupplyStockReceiptModal()" aria-label="Закрыть">✕</button>
         </div>
         <div class="sb-doc-fields sb-doc-fields-search-end sb-receipt-toolbar">
@@ -8227,6 +8295,6 @@
 
   <script src="/static/ozon_fbs.js?v=197"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=37"></script>
-  <script src="/static/app.js?v=701"></script>
+  <script src="/static/app.js?v=702"></script>
 </body>
 </html>

@@ -19,7 +19,7 @@ def _slice(src: str, start: str, end: str) -> str:
 
 
 def test_cache_versions() -> None:
-    assert "app.js?v=701" in HTML
+    assert "app.js?v=702" in HTML
     assert "style.css?v=418" in HTML
 
 

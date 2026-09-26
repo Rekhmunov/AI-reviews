@@ -992,6 +992,14 @@ class SupplyStockReceiptRequest(BaseModel):
     items: list[dict[str, object]] = Field(default_factory=list)
 
 
+class SupplyStockWriteoffRequest(BaseModel):
+    """Manual operator write-off (negative ledger rows)."""
+
+    date: str = Field(default="", max_length=20)
+    comment: str = Field(default="", max_length=500)
+    items: list[dict[str, object]] = Field(default_factory=list)
+
+
 class SupplyStockAdjustmentRequest(BaseModel):
     """Opening balance or inventory adjustment.
 
@@ -21011,6 +21019,53 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         )
         return {"ok": True, "saved": saved, "date": date_s, "production_id": pid}
 
+    @app.post("/api/supply-balances/writeoff")
+    def post_supply_stock_writeoff(
+        request: Request, payload: SupplyStockWriteoffRequest
+    ) -> dict[str, object]:
+        """Manual write-off by operator: same shape as receipt, qty stored negative."""
+        user = _require_user(request)
+        if not _can_view_supply_stock(user):
+            raise HTTPException(status_code=403, detail="Нет доступа к остаткам")
+        owner_id = _supply_owner_id(user)
+        pid = _default_stock_production_id(user)
+        if not pid:
+            raise HTTPException(
+                status_code=400,
+                detail="Добавьте производство в Поставки → Настройки → Производства",
+            )
+        today = _moscow_today()
+        date_s = _parse_stock_date(payload.date, today=today)
+        lines = _normalize_stock_line_items(list(payload.items or []))
+        lines = [x for x in lines if float(x["qty"]) > 0]
+        if not lines:
+            raise HTTPException(status_code=400, detail="Добавьте позиции с количеством")
+        _reject_hidden_stock_lines(owner_id, lines)
+        import uuid as _uuid
+
+        items = [
+            {
+                **line,
+                "qty": -abs(float(line["qty"])),
+                "source_id": (
+                    f"writeoff:{date_s}:{line['item_type']}:{line['item_id']}:"
+                    f"{_uuid.uuid4().hex[:10]}"
+                ),
+            }
+            for line in lines
+        ]
+        saved = repository.add_supply_stock_movements(
+            user_id=owner_id,
+            production_id=pid,
+            movement_date=date_s,
+            kind="operator_writeoff",
+            source_type="manual_writeoff",
+            items=items,
+            comment=str(payload.comment or "").strip(),
+            created_by=int(user.get("id") or 0) or None,
+        )
+        return {"ok": True, "saved": saved, "date": date_s, "production_id": pid}
+
     @app.post("/api/supply-balances/adjustment")
     def post_supply_stock_adjustment(
         request: Request, payload: SupplyStockAdjustmentRequest
@@ -21133,7 +21188,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             raise HTTPException(status_code=403, detail="Нет доступа к остаткам")
         raise HTTPException(
             status_code=410,
-            detail="Редактирование ячеек отключено. Используйте «Добавить на склад» или «Корректировка».",
+            detail="Редактирование ячеек отключено. Используйте «Добавить», «Списать» или «Корректировка».",
         )
 
     @app.get("/api/supply-balances/visibility")
@@ -21346,6 +21401,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             "opening": "Начальный остаток",
             "receipt": "Приход",
             "fbs_ship": "Списание FBS",
+            "operator_writeoff": "Списание оператором",
             "adjustment": "Корректировка",
             "fbs_reverse": "Возврат FBS",
         }
@@ -21596,6 +21652,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             "opening": "Начальный остаток",
             "receipt": "Приход",
             "fbs_ship": "Списание FBS",
+            "operator_writeoff": "Списание оператором",
             "adjustment": "Корректировка",
             "fbs_reverse": "Возврат FBS",
         }

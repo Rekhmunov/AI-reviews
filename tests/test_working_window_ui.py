@@ -27,4 +27,4 @@ def test_analytics_defaults_from_sync_start() -> None:
 
 
 def test_app_js_cache_bump() -> None:
-    assert "app.js?v=701" in APP_HTML
+    assert "app.js?v=702" in APP_HTML

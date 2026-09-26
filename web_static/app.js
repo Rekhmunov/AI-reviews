@@ -15946,16 +15946,24 @@ function _sbSetDocErr(id, text) {
 }
 
 function _sbBulkListId(kind) {
-  return kind === "receipt" ? "supplyStockReceiptList" : "supplyStockAdjList";
+  if (kind === "receipt") return "supplyStockReceiptList";
+  if (kind === "writeoff") return "supplyStockWriteoffList";
+  return "supplyStockAdjList";
 }
 function _sbBulkErrId(kind) {
-  return kind === "receipt" ? "supplyStockReceiptErr" : "supplyStockAdjErr";
+  if (kind === "receipt") return "supplyStockReceiptErr";
+  if (kind === "writeoff") return "supplyStockWriteoffErr";
+  return "supplyStockAdjErr";
 }
 function _sbBulkValueId(kind) {
-  return kind === "receipt" ? "supplyStockReceiptBulkValue" : "supplyStockAdjBulkValue";
+  if (kind === "receipt") return "supplyStockReceiptBulkValue";
+  if (kind === "writeoff") return "supplyStockWriteoffBulkValue";
+  return "supplyStockAdjBulkValue";
 }
 function _sbBulkSelectAllId(kind) {
-  return kind === "receipt" ? "supplyStockReceiptSelectAll" : "supplyStockAdjSelectAll";
+  if (kind === "receipt") return "supplyStockReceiptSelectAll";
+  if (kind === "writeoff") return "supplyStockWriteoffSelectAll";
+  return "supplyStockAdjSelectAll";
 }
 
 function _sbBulkTargetRows(kind, scope) {
@@ -16000,10 +16008,14 @@ function supplyStockBulkToggleAll(kind, checked) {
 window.supplyStockBulkToggleAll = supplyStockBulkToggleAll;
 
 function _sbModalSearchInputId(kind) {
-  return kind === "receipt" ? "supplyStockReceiptSearch" : "supplyStockAdjSearch";
+  if (kind === "receipt") return "supplyStockReceiptSearch";
+  if (kind === "writeoff") return "supplyStockWriteoffSearch";
+  return "supplyStockAdjSearch";
 }
 function _sbModalFilterCountId(kind) {
-  return kind === "receipt" ? "supplyStockReceiptFilterCount" : "supplyStockAdjFilterCount";
+  if (kind === "receipt") return "supplyStockReceiptFilterCount";
+  if (kind === "writeoff") return "supplyStockWriteoffFilterCount";
+  return "supplyStockAdjFilterCount";
 }
 
 function onSupplyStockModalSearch(kind) {
@@ -16097,8 +16109,13 @@ function supplyStockBulkFill(kind, scope) {
     _sbSetDocErr(errId, "Значение должно быть числом 0 или больше");
     return;
   }
-  if (kind === "receipt" && qty <= 0) {
-    _sbSetDocErr(errId, "Для прихода укажите количество больше 0");
+  if ((kind === "receipt" || kind === "writeoff") && qty <= 0) {
+    _sbSetDocErr(
+      errId,
+      kind === "writeoff"
+        ? "Для списания укажите количество больше 0"
+        : "Для прихода укажите количество больше 0",
+    );
     return;
   }
   const rows = _sbBulkTargetRows(kind, scope);
@@ -16900,6 +16917,12 @@ function _sbBulkPanelIds(kind) {
       btn: "supplyStockAdjFilterBtn",
     };
   }
+  if (kind === "writeoff") {
+    return {
+      panel: "supplyStockWriteoffBulkPanel",
+      btn: "supplyStockWriteoffFilterBtn",
+    };
+  }
   return {
     panel: "supplyStockReceiptBulkPanel",
     btn: "supplyStockReceiptFilterBtn",
@@ -16943,10 +16966,20 @@ function setSupplyStockAdjBulkPanelOpen(open) {
 function toggleSupplyStockAdjBulkPanel(force) {
   toggleSupplyStockBulkPanel("adj", force);
 }
+
+function setSupplyStockWriteoffBulkPanelOpen(open) {
+  setSupplyStockBulkPanelOpen("writeoff", open);
+}
+
+function toggleSupplyStockWriteoffBulkPanel(force) {
+  toggleSupplyStockBulkPanel("writeoff", force);
+}
 window.toggleSupplyStockReceiptBulkPanel = toggleSupplyStockReceiptBulkPanel;
 window.setSupplyStockReceiptBulkPanelOpen = setSupplyStockReceiptBulkPanelOpen;
 window.toggleSupplyStockAdjBulkPanel = toggleSupplyStockAdjBulkPanel;
 window.setSupplyStockAdjBulkPanelOpen = setSupplyStockAdjBulkPanelOpen;
+window.toggleSupplyStockWriteoffBulkPanel = toggleSupplyStockWriteoffBulkPanel;
+window.setSupplyStockWriteoffBulkPanelOpen = setSupplyStockWriteoffBulkPanelOpen;
 
 function _sbStockDocListHasEnteredQty(listId) {
   const list = document.getElementById(listId);
@@ -16975,6 +17008,127 @@ function closeSupplyStockReceiptModal(opts) {
   setModalVisibility("supplyStockReceiptModal", false);
 }
 window.closeSupplyStockReceiptModal = closeSupplyStockReceiptModal;
+
+function renderSupplyStockWriteoffList() {
+  const list = document.getElementById("supplyStockWriteoffList");
+  if (!list) return;
+  const items = _sbVisibleCatalogItems();
+  if (!items.length) {
+    list.innerHTML = `<div class="sb-doc-empty">Нет видимых материалов и товаров. Включите позиции в «Вывод».</div>`;
+    _sbBindBulkChecks("writeoff");
+    return;
+  }
+  const materials = items.filter((x) => x.item_type === "material");
+  const products = items.filter((x) => x.item_type === "product");
+  const parts = [];
+  const renderRows = (title, rows) => {
+    if (!rows.length) return;
+    parts.push(`<div class="sb-adj-group">${esc(title)}</div>`);
+    rows.forEach((row) => {
+      parts.push(_sbRenderStockRowHtml(row, {
+        qtyLabel: "Количество",
+        qtyPlaceholder: "0",
+      }));
+    });
+  };
+  renderRows("Материалы", materials);
+  renderRows("Товары", products);
+  list.innerHTML = parts.join("");
+  _sbBindBulkChecks("writeoff");
+}
+
+function _sbCollectWriteoffItemsFromList() {
+  const list = document.getElementById("supplyStockWriteoffList");
+  if (!list) return [];
+  const items = [];
+  list.querySelectorAll(".sb-adj-row").forEach((row) => {
+    const type = String(row.getAttribute("data-sb-type") || "").trim();
+    const itemId = Number(row.getAttribute("data-sb-id") || 0);
+    const qtyEl = row.querySelector(".sb-adj-qty");
+    const commentEl = row.querySelector(".sb-adj-comment");
+    const raw = String(qtyEl?.value || "").trim().replace(",", ".");
+    if (!raw) return;
+    const qty = Number(raw);
+    if (!Number.isFinite(qty) || qty <= 0 || !type || itemId <= 0) return;
+    const item = { item_type: type, item_id: itemId, qty };
+    const comment = String(commentEl?.value || "").trim();
+    if (comment) item.comment = comment;
+    items.push(item);
+  });
+  return items;
+}
+
+async function openSupplyStockWriteoffModal() {
+  _sbSetDocErr("supplyStockWriteoffErr", "");
+  setSupplyStockWriteoffBulkPanelOpen(false);
+  setModalVisibility("supplyStockWriteoffModal", true);
+  initSupplyStockAdjColumnResizer();
+  const kindEl = document.getElementById("supplyStockWriteoffKind");
+  const dateEl = document.getElementById("supplyStockWriteoffDate");
+  const list = document.getElementById("supplyStockWriteoffList");
+  const bulkEl = document.getElementById("supplyStockWriteoffBulkValue");
+  const searchEl = document.getElementById("supplyStockWriteoffSearch");
+  if (kindEl) kindEl.value = "writeoff";
+  if (dateEl) dateEl.value = supplyBalancesState.today || "";
+  if (bulkEl) bulkEl.value = "";
+  if (searchEl) searchEl.value = "";
+  if (list) list.innerHTML = `<div class="sb-doc-empty">Загрузка…</div>`;
+  try {
+    await _sbLoadCatalogItems();
+    renderSupplyStockWriteoffList();
+    onSupplyStockModalSearch("writeoff");
+  } catch (e) {
+    _sbSetDocErr("supplyStockWriteoffErr", String(e.message || e));
+    if (list) list.innerHTML = `<div class="sb-doc-empty">Не удалось загрузить список</div>`;
+  }
+}
+window.openSupplyStockWriteoffModal = openSupplyStockWriteoffModal;
+
+function closeSupplyStockWriteoffModal(opts) {
+  const force = Boolean(opts && opts.force);
+  if (!force && _sbStockDocListHasEnteredQty("supplyStockWriteoffList")) {
+    if (!confirm("Уверены? Введённые количества будут потеряны.")) return;
+  }
+  setSupplyStockWriteoffBulkPanelOpen(false);
+  setModalVisibility("supplyStockWriteoffModal", false);
+}
+window.closeSupplyStockWriteoffModal = closeSupplyStockWriteoffModal;
+
+async function saveSupplyStockWriteoff() {
+  const btn = document.getElementById("supplyStockWriteoffSaveBtn");
+  const dateEl = document.getElementById("supplyStockWriteoffDate");
+  _sbSetDocErr("supplyStockWriteoffErr", "");
+  const items = _sbCollectWriteoffItemsFromList();
+  if (!items.length) {
+    _sbSetDocErr("supplyStockWriteoffErr", "Укажите количество хотя бы по одной позиции");
+    return;
+  }
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch("/api/supply-balances/writeoff", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        date: String(dateEl?.value || ""),
+        comment: "",
+        items,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Ошибка сохранения");
+    closeSupplyStockWriteoffModal({ force: true });
+    await loadSupplyBalancesData();
+    _sbSetStatus(
+      `Списание сохранено: ${data.saved || 0} · ${_sbFormatDateLabel(data.date)}`,
+      "ok",
+    );
+  } catch (e) {
+    _sbSetDocErr("supplyStockWriteoffErr", String(e.message || e));
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+window.saveSupplyStockWriteoff = saveSupplyStockWriteoff;
 
 const stockReturnRestoreState = {
   scanning: false,
@@ -17553,7 +17707,7 @@ async function printStockReturnRestoreKiz(rowKey) {
     }, dmUrl));
     win.document.close();
     _stockReturnRestoreSetInfo(
-      "Распечатайте этикетку 58×40, затем отсканируйте её в «Добавить на склад»",
+      "Распечатайте этикетку 58×40, затем отсканируйте её в «Добавить»",
       "ok",
     );
   } catch (err) {
@@ -17574,7 +17728,7 @@ function printStockReturnRestoreBarcode(rowKey) {
   if (barcodes.length === 1) {
     _wbFbsReturnsDoBarcodePrint(barcodes[0], labelText);
     _stockReturnRestoreSetInfo(
-      "Распечатайте этикетку 58×40, затем отсканируйте её в «Добавить на склад»",
+      "Распечатайте этикетку 58×40, затем отсканируйте её в «Добавить»",
       "ok",
     );
     return;
@@ -18959,6 +19113,11 @@ document.addEventListener("DOMContentLoaded", () => {
   if (wbDriverPageBtn) {
     wbDriverPageBtn.style.display = isTenantOwner() ? "" : "none";
     wbDriverPageBtn.hidden = !isTenantOwner();
+  }
+  // Остатки → «Корректировка»: временно только для основного пользователя.
+  const supplyAdjBtn = document.getElementById("supplyBalancesAdjBtn");
+  if (supplyAdjBtn) {
+    supplyAdjBtn.hidden = !isTenantOwner();
   }
   if (!permissions.can_view_ozon_supplies && !isTenantOwner()) {
     document.getElementById("section-supplies-ozon")?.classList.add("hidden");
