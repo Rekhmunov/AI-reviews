@@ -2332,6 +2332,9 @@ def _list_supplies_tab_response(
     paginate = page is not None and page_size is not None
     if paginate:
         page_n, size_n = _clamp_supplies_page(page, page_size)
+        max_page = max(1, (total + size_n - 1) // size_n) if total else 1
+        if page_n > max_page:
+            page_n = max_page
         start = (page_n - 1) * size_n
         page_items = items[start : start + size_n]
     else:

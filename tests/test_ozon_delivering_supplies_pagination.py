@@ -99,6 +99,22 @@ def test_list_supplies_tab_response_paginates_before_enrich(monkeypatch) -> None
     assert all(it.get("ttn_id") == 0 for it in out["items"])
     assert all(it.get("row_tone") == "ok" for it in out["items"])
 
+    # Out-of-range page clamps to the last page (no empty table).
+    enriched_ids.clear()
+    last = _list_supplies_tab_response(
+        _Repo(),  # type: ignore[arg-type]
+        user_id=1,
+        source_id=2,
+        tab=oz.TAB_DELIVERING,
+        adopt_info={"adopted": 0, "created_supplies": []},
+        client=object(),
+        page=99,
+        page_size=50,
+    )
+    assert last["page"] == 3
+    assert len(last["items"]) == 20
+    assert last["items"][0]["supply_id"] == "s101"
+
 
 def test_awaiting_deliver_still_returns_all_without_forced_page() -> None:
     """Awaiting-deliver path does not pass page → no slice."""
