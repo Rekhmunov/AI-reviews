@@ -6357,20 +6357,27 @@ def _scan_remote_statuses_via_list(
     progress: Callable[[int, int, str], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
     total_hint: int = 0,
-) -> dict[str, str]:
-    """Bulk status map for local PNs via ``/v3/posting/fbs/list`` (limit 1000)."""
+) -> tuple[dict[str, str], bool]:
+    """Bulk status map for local PNs via ``/v3/posting/fbs/list`` (limit 1000).
+
+    Returns ``(found, stopped)``. On cancel, breaks out of both status and page
+    loops immediately after the in-flight list request finishes.
+    """
     found: dict[str, str] = {}
     if not local_pns:
-        return found
+        return found, False
     want = set(local_pns)
+    stopped = False
     for status in _STATUS_CHECK_LIST_STATUSES:
         if should_stop and should_stop():
+            stopped = True
             break
         if not want:
             break
         offset = 0
         for page in range(OZON_FBS_STATUS_CHECK_LIST_MAX_PAGES):
             if should_stop and should_stop():
+                stopped = True
                 break
             try:
                 postings, has_next = client.list_postings_page(
@@ -6405,10 +6412,16 @@ def _scan_remote_statuses_via_list(
                     max(total_hint, 1),
                     f"Список {status}: стр. {page + 1}, найдено {len(found)}",
                 )
+            # Re-check right after a page so Stop does not start another HTTP call.
+            if should_stop and should_stop():
+                stopped = True
+                break
             if not has_next or not want:
                 break
             offset += len(postings)
-    return found
+        if stopped:
+            break
+    return found, stopped
 
 
 def refresh_delivering_posting_statuses(
@@ -6473,7 +6486,7 @@ def refresh_delivering_posting_statuses(
     client = oz.OzonFbsClient(str(client_id).strip(), str(api_key).strip())
     date_from, date_to = _status_check_date_window(rows)
     local_set = set(numbers)
-    remote_map = _scan_remote_statuses_via_list(
+    remote_map, list_stopped = _scan_remote_statuses_via_list(
         client,
         local_pns=local_set,
         date_from=date_from,
@@ -6490,7 +6503,7 @@ def refresh_delivering_posting_statuses(
     # List scan may exit early on cancel; honour it before get-fallback.
     # Otherwise an empty partial map would trigger get for every local PN.
     # List hits already fetched are still applied (local DB only, batched).
-    stopped = bool(should_stop and should_stop())
+    stopped = bool(list_stopped or (should_stop and should_stop()))
 
     still_ok = {
         pn: st
@@ -6511,9 +6524,16 @@ def refresh_delivering_posting_statuses(
         )
 
     # Always flush list hits to DB — even if Stop was pressed during list scan.
-    # should_stop is not passed: local batched writes are cheap and must not be
-    # abandoned after we already paid for the Ozon list pages.
+    # should_stop is not passed: local batched writes must not be abandoned after
+    # we already paid for the Ozon list pages. Progress text is prefixed with
+    # «Остановка…» by the job _set() when cancel_requested is set.
     if to_move:
+        if stopped and progress:
+            progress(
+                checked,
+                max(total, 1),
+                f"Сохраняем найденное до остановки: {len(to_move)}…",
+            )
         try:
             applied = oz.batch_apply_remote_statuses_for_delivering(
                 repo,
@@ -6697,6 +6717,13 @@ def start_delivering_status_check_thread(
                 st = _status_check_jobs.get(uid)
                 if not st or st.get("job_id") != job_id:
                     return
+                # Keep Stop visible: progress callbacks must not wipe «Остановка…».
+                if st.get("cancel_requested") and "message" in kwargs:
+                    msg = str(kwargs.get("message") or "").strip()
+                    if msg and not msg.startswith("Остановка"):
+                        kwargs["message"] = f"Остановка… {msg}"
+                    elif not msg:
+                        kwargs["message"] = "Остановка…"
                 st.update(kwargs)
 
         def _stop_requested() -> bool:

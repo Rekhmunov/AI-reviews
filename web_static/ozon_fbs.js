@@ -5281,6 +5281,13 @@
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      if (!data.ok && !data.stopping) {
+        // Job not on this process / already finished — restore the button.
+        if (stopBtn) {
+          stopBtn.disabled = false;
+          stopBtn.textContent = "Остановить";
+        }
+      }
       _ozonFbsSyncSettingsSetInfo(String(data.message || "Остановка…"));
     } catch (e) {
       if (stopBtn) {
@@ -5312,9 +5319,14 @@
     }
     const title = document.getElementById("ozonFbsStatusCheckProgressTitle");
     if (title) {
-      title.textContent = st?.in_progress
-        ? (String(st?.message || "Проверка статусов…").slice(0, 80) || "Проверка статусов…")
-        : "Проверка статусов";
+      if (!st?.in_progress) {
+        title.textContent = "Проверка статусов";
+      } else if (st.cancel_requested) {
+        const msg = String(st?.message || "Остановка…");
+        title.textContent = (msg.startsWith("Остановка") ? msg : `Остановка… ${msg}`).slice(0, 100);
+      } else {
+        title.textContent = String(st?.message || "Проверка статусов…").slice(0, 100) || "Проверка статусов…";
+      }
     }
   }
 

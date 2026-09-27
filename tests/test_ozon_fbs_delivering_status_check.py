@@ -355,6 +355,67 @@ def test_batch_apply_groups_updates_without_per_row_select(monkeypatch) -> None:
         assert "IN (" in sql
 
 
+def test_scan_list_stops_without_continuing_other_statuses(monkeypatch) -> None:
+    """After Stop mid-status, do not open the next filter (cancelled/…)."""
+    calls: list[str] = []
+
+    class _Client:
+        def list_postings_page(self, *, status, since, to, limit=50, offset=0, with_extras=True):
+            calls.append(status)
+            if status == "delivering":
+                return (
+                    [{"posting_number": "P-1", "status": "delivering"}],
+                    True,  # has_next — would continue without stop
+                )
+            return ([], False)
+
+    stop_n = {"n": 0}
+
+    def _stop() -> bool:
+        # Calls: status-enter, page-enter, post-page → stop before page 2.
+        stop_n["n"] += 1
+        return stop_n["n"] > 2
+
+    found, stopped = oz_sup._scan_remote_statuses_via_list(
+        _Client(),  # type: ignore[arg-type]
+        local_pns={"P-1", "P-2"},
+        date_from=datetime.now(UTC) - timedelta(days=30),
+        date_to=datetime.now(UTC),
+        should_stop=_stop,
+        total_hint=2,
+    )
+    assert stopped is True
+    assert found.get("P-1") == "delivering"
+    assert calls == ["delivering"]
+
+
+def test_status_check_job_set_keeps_stopping_prefix() -> None:
+    """Progress updates must not wipe «Остановка…» after cancel."""
+    uid = 424243
+    job_id = "stop-prefix"
+    with oz_sup._status_check_lock:
+        oz_sup._status_check_jobs[uid] = {
+            **oz_sup._empty_status_check_job(),
+            "in_progress": True,
+            "job_id": job_id,
+            "cancel_requested": True,
+            "message": "Остановка…",
+        }
+
+    # Simulate the closure body of start_delivering_status_check_thread._set
+    with oz_sup._status_check_lock:
+        st = oz_sup._status_check_jobs[uid]
+        kwargs: dict[str, Any] = {"message": "Список delivered: стр. 12, найдено 500"}
+        if st.get("cancel_requested") and "message" in kwargs:
+            msg = str(kwargs.get("message") or "").strip()
+            if msg and not msg.startswith("Остановка"):
+                kwargs["message"] = f"Остановка… {msg}"
+        st.update(kwargs)
+        assert st["message"].startswith("Остановка…")
+        assert "Список delivered" in st["message"]
+        oz_sup._status_check_jobs.pop(uid, None)
+
+
 def test_status_check_finish_message_shows_moved_before_stop() -> None:
     msg = oz_sup._status_check_finish_message(
         stopped=True, checked=120, total=30000, updated=45, errors=2
@@ -685,4 +746,4 @@ def test_move_to_delivering_pins_listed(monkeypatch) -> None:
 
 
 def test_cache_bump() -> None:
-    assert "ozon_fbs.js?v=201" in HTML
+    assert "ozon_fbs.js?v=202" in HTML
