@@ -22807,46 +22807,14 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         packing = e(str(record.get("packing_type") or ""))
         places = e(str(record.get("cargo_places") or ""))
         weight = e(str(record.get("cargo_weight") or ""))
-        from . import ttn_fbs_cargo as ttn_cargo
-
-        detail_rows = ttn_cargo.parse_cargo_places_detail(
-            record.get("cargo_places_detail") or record.get("cargo_places_detail_json")
-        )
-        plat = str(record.get("fbs_platform") or "").strip().lower()
-        is_ozon_fbs = plat in ("ozon", "ozon_fbs") and bool(detail_rows)
-        if is_ozon_fbs:
-            detail_html_parts = []
-            for row in detail_rows:
-                label = e(ttn_cargo.format_cargo_place_row_label(row))
-                w_raw = str(row.get("weight") or "").strip()
-                w = e(w_raw) if w_raw else ""
-                w_suffix = f"{w} кг" if w else ""
-                detail_html_parts.append(
-                    f'<div style="display:flex;justify-content:space-between;gap:12pt;'
-                    f'margin-top:2pt"><span>{label}</span><span>{w_suffix}</span></div>'
-                )
-            places_block = (
-                '<div style="margin-top:4pt"><div class="label">Грузоместа</div>'
-                + "".join(detail_html_parts)
-                + f'<div style="margin-top:4pt">Итого мест: <b>{places or len(detail_rows)}</b>'
-                f'&nbsp;&nbsp; Масса, кг: <b>{weight}</b></div></div>'
-            )
-        else:
-            places_block = (
-                f'<div style="margin-top:4pt">Тара / упаковка: <b>{packing}</b>'
-                f'&nbsp;&nbsp; Мест: <b>{places}</b>'
-                f'&nbsp;&nbsp; Масса, кг: <b>{weight}</b>'
-                f'&nbsp;&nbsp; Объявленная стоимость: <b>{{declared}}</b></div>'
-            )
         declared = e(str(record.get("declared_value") or ""))
-        if is_ozon_fbs:
-            places_block = (
-                f'<div style="margin-top:4pt">Тара / упаковка: <b>{packing}</b>'
-                f'&nbsp;&nbsp; Объявленная стоимость: <b>{declared}</b></div>'
-                + places_block
-            )
-        else:
-            places_block = places_block.format(declared=declared)
+        # Paper TN: totals only (fits one sheet). Per-GM breakdown stays in form UI + эТрН XML.
+        places_block = (
+            f'<div style="margin-top:4pt">Тара / упаковка: <b>{packing}</b>'
+            f'&nbsp;&nbsp; Мест: <b>{places}</b>'
+            f'&nbsp;&nbsp; Масса, кг: <b>{weight}</b>'
+            f'&nbsp;&nbsp; Объявленная стоимость: <b>{declared}</b></div>'
+        )
         docs = e(str(record.get("accompanying_docs") or ""))
         notes = e(str(record.get("notes") or ""))
         loading_dt = e(str(record.get("loading_datetime") or ""))

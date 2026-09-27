@@ -78,7 +78,18 @@ def test_ttn_prefill_is_local_only() -> None:
     assert 'data-sort="cargo_places"' in HTML
     assert "Грузоместа" in HTML.split('id="ttnTable"', 1)[1].split("tbody", 1)[0]
     assert "places_block" in WEB
-    assert "format_cargo_place_row_label" in WEB
+    # Paper print: totals only; per-GM schedule stays in form UI + эТрН.
+    print_html = WEB.split("def _build_ttn_catalog_html", 1)[1].split("\n    def ", 1)[0]
+    assert "Мест: <b>{places}</b>" in print_html
+    assert "Масса, кг: <b>{weight}</b>" in print_html
+    assert "format_cargo_place_row_label" not in print_html
+    assert "Итого мест:" not in print_html
+    assert "detail_html_parts" not in print_html
+    assert "is_ozon_fbs" not in print_html
+    # Prefill / form still carry full GM detail for эТрН.
+    assert "local_ozon_cargo_place_rows" in WEB
+    assert "cargo_places_detail" in WEB
+    assert "build_ttn_etrn_xml" in WEB
 
 
 def test_cache_bump_for_ozon_form_ttn() -> None:
