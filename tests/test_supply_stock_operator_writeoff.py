@@ -61,7 +61,7 @@ def test_operator_writeoff_kind_in_backend() -> None:
 
 
 def test_app_js_cache_bump() -> None:
-    assert "app.js?v=702" in APP_HTML
+    assert "app.js?v=703" in APP_HTML
 
 
 def test_add_supply_stock_movements_accepts_operator_writeoff() -> None:

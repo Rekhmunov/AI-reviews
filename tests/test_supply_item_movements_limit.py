@@ -15,17 +15,23 @@ _MODAL_FN = APP_JS.split("async function openSupplyStockMovementsModal", 1)[1].s
 )[0]
 
 
-def test_item_movements_ui_requests_last_14_days() -> None:
-    assert 'days: "14"' in _MODAL_FN
+def test_item_movements_ui_uses_min_auto_days() -> None:
+    assert 'days: "14"' not in _MODAL_FN
+    assert "_sbResolveMinAutoDays(" in APP_JS
+    assert "await _sbResolveMinAutoDays()" in _MODAL_FN
+    assert 'days: String(daysWindow)' in _MODAL_FN
     assert 'days: "10"' not in _MODAL_FN
     assert 'limit: "1000"' not in _MODAL_FN
     assert 'limit: "100"' not in _MODAL_FN
     assert "За последние" not in _MODAL_FN
     assert "Дни свёрнуты" not in _MODAL_FN
     assert "Текущий остаток:" in _MODAL_FN
-    assert "Продалось за 14 дней:" in _MODAL_FN
+    assert "Продалось за 14 дней:" not in _MODAL_FN
+    assert "Продалось за ${daysN}" in _MODAL_FN
+    assert "_sbDaysWord(daysN)" in _MODAL_FN
     assert "_sbWindowSoldQty(" in _MODAL_FN
     assert "data.days" in _MODAL_FN
+    assert "/api/supply-balances/min-auto" in APP_JS
 
 
 _MOVEMENTS_API = WEB_PY.split('@app.get("/api/supply-balances/movements")', 1)[1].split(
@@ -56,4 +62,7 @@ def test_item_movements_api_uses_day_window() -> None:
     assert "outside_window" in WEB_PY
     assert "movement_date <=" in REPO_PY
     assert "date_from: str = \"\"" in REPO_PY or 'date_from: str = ""' in REPO_PY
-    assert "app.js?v=702" in APP_HTML
+    assert "min(days_n, 366)" in _MOVEMENTS_API
+    assert "min(days_n, 90)" not in _MOVEMENTS_API
+    assert "app.js?v=703" in APP_HTML
+    assert "Журнал движений берёт то же окно" in APP_HTML

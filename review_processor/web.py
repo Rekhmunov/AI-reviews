@@ -21533,6 +21533,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         """Read-only ledger journal for one Остатки row.
 
         Default window: last ``days`` calendar days (inclusive), Moscow today.
+        UI passes the same «Дней продаж» value as min-auto (1..366).
         ``sold`` is the sum of FBS shipments in that window. Returns are
         not subtracted, so it matches the red per-day sales totals.
         """
@@ -21564,7 +21565,8 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             days_n = int(days or 14)
         except (TypeError, ValueError):
             days_n = 14
-        days_n = max(1, min(days_n, 90))
+        # Align with min-auto «Дней продаж» (1..366).
+        days_n = max(1, min(days_n, 366))
         raw_to = str(date_to or "").strip() or today
         to_s = _parse_stock_date(raw_to, today=today)
         raw_from = str(date_from or "").strip()

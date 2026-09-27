@@ -18785,6 +18785,29 @@ function _sbRenderMovementsByDay(items, unit) {
   }).join("");
 }
 
+/** Days window from «Дней продаж» (min-auto). Same setting as auto min_qty. */
+async function _sbResolveMinAutoDays() {
+  try {
+    const res = await fetch("/api/supply-balances/min-auto");
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return 14;
+    const days = Number(data.days);
+    if (!Number.isFinite(days) || days < 1) return 14;
+    return Math.min(366, Math.max(1, Math.round(days)));
+  } catch (_err) {
+    return 14;
+  }
+}
+
+function _sbDaysWord(n) {
+  const abs = Math.abs(Math.round(Number(n) || 0)) % 100;
+  const last = abs % 10;
+  if (abs > 10 && abs < 20) return "дней";
+  if (last === 1) return "день";
+  if (last >= 2 && last <= 4) return "дня";
+  return "дней";
+}
+
 async function openSupplyStockMovementsModal(itemType, itemId) {
   const itype = String(itemType || "").trim().toLowerCase();
   const iid = Number(itemId || 0);
@@ -18798,11 +18821,13 @@ async function openSupplyStockMovementsModal(itemType, itemId) {
   if (list) list.innerHTML = `<div class="sb-doc-empty">Загрузка…</div>`;
   try {
     const pid = Number(supplyBalancesState.productionId || 0);
+    // Same «Дней продаж» as Автоматический мин. остаток (not a hardcoded 14).
+    const daysWindow = await _sbResolveMinAutoDays();
     const params = new URLSearchParams({
       item_type: itype,
       item_id: String(iid),
       // Last N calendar days (not a row-count window) so high-volume SKUs keep history.
-      days: "14",
+      days: String(daysWindow),
     });
     if (pid) params.set("production_id", String(pid));
     const res = await fetch(`/api/supply-balances/movements?${params.toString()}`);
@@ -18819,7 +18844,7 @@ async function openSupplyStockMovementsModal(itemType, itemId) {
     const name = String(data.name || "");
     const unit = String(data.unit || "шт");
     const balText = _sbQtyText(data.balance);
-    const daysN = Number(data.days || 14) || 14;
+    const daysN = Number(data.days || daysWindow) || daysWindow || 14;
     if (title) title.textContent = name || "Журнал движений";
     if (lead) {
       const truncNote = data.truncated
@@ -18834,7 +18859,7 @@ async function openSupplyStockMovementsModal(itemType, itemId) {
       lead.replaceChildren(
         document.createTextNode(`Текущий остаток: ${balText} ${unit}.${basisNote}${truncNote}`),
         document.createElement("br"),
-        document.createTextNode(`Продалось за 14 дней: ${soldText} ${unit}`),
+        document.createTextNode(`Продалось за ${daysN} ${_sbDaysWord(daysN)}: ${soldText} ${unit}`),
       );
     }
     const items = Array.isArray(data.items) ? data.items : [];
