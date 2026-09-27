@@ -513,13 +513,16 @@ def test_tn_rename_and_pp2200_fields_additive() -> None:
         "ttnCreateNotes",
     ):
         assert f'id="{field_id}"' in html
+    # Declared value is in the main block (still optional), below docs and above optional section.
+    main_after_docs = html.split('id="ttnCreateDocs"', 1)[1].split('id="ttnOptionalSection"', 1)[0]
+    assert 'id="ttnCreateDeclaredValue"' in main_after_docs
     # Optional fields live inside collapsible block (vehicle type + load/unload datetimes are main).
     optional_block = html.split('id="ttnOptionalSection"', 1)[1].split("ttn-modal-footer", 1)[0]
     assert 'id="ttnCreateVehicleType"' not in optional_block
     assert 'id="ttnCreateLoadingDatetime"' not in optional_block
     assert 'id="ttnCreateUnloadingDatetime"' not in optional_block
+    assert 'id="ttnCreateDeclaredValue"' not in optional_block
     for field_id in (
-        "ttnCreateDeclaredValue",
         "ttnCreateLoaderName",
         "ttnCreateReceiverName",
         "ttnCreateNotes",

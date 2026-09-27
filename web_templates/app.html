@@ -4783,6 +4783,11 @@
                 <input id="ttnCreateDocs" class="ttn-input" type="text" placeholder="УПД/ТОРГ-12/Электронная накладная"
                        autocomplete="off" />
               </div>
+              <div class="ttn-field">
+                <label class="small" for="ttnCreateDeclaredValue">Объявленная стоимость</label>
+                <input id="ttnCreateDeclaredValue" class="ttn-input" type="text"
+                       placeholder="Если объявлялась" autocomplete="off" />
+              </div>
               <div class="ttn-field ttn-field-span-2">
                 <div class="ttn-optional" id="ttnOptionalSection">
                   <button type="button" class="ttn-optional-toggle" id="ttnOptionalToggle"
@@ -4791,16 +4796,11 @@
                     <span class="ttn-optional-chevron" aria-hidden="true">▸</span>
                     <span class="ttn-optional-toggle-copy">
                       <span class="ttn-optional-title">Необязательные поля</span>
-                      <span class="ttn-optional-hint">лица, стоимость, отметки</span>
+                      <span class="ttn-optional-hint">лица, отметки, стоимость перевозки</span>
                     </span>
                   </button>
                   <div class="ttn-optional-body" id="ttnOptionalBody" hidden>
                     <div class="ttn-form-grid ttn-optional-grid">
-                      <div class="ttn-field">
-                        <label class="small" for="ttnCreateDeclaredValue">Объявленная стоимость</label>
-                        <input id="ttnCreateDeclaredValue" class="ttn-input" type="text"
-                               placeholder="Если объявлялась" autocomplete="off" />
-                      </div>
                       <div class="ttn-field">
                         <label class="small" for="ttnCreateLoaderName">Лицо, осуществившее погрузку</label>
                         <input id="ttnCreateLoaderName" class="ttn-input" type="text"
