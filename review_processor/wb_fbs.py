@@ -4379,8 +4379,9 @@ def list_delivery_supplies(
         tab=TAB_DELIVERY,
         search=search,
         page=1,
-        page_size=5000,
+        page_size=10_000,
         _skip_delivery_enrich=True,
+        _allow_large_page=True,
     )
     items = list(active.get("items") or [])
     seen = {
@@ -4461,6 +4462,7 @@ def _list_supplies_for_orders_tab(
     page: int = 1,
     page_size: int = 50,
     _skip_delivery_enrich: bool = False,
+    _allow_large_page: bool = False,
 ) -> dict[str, Any]:
     """Aggregate orders of a tab into supply rows (portal-like)."""
     ensure_wb_fbs_tables(repo)
@@ -4480,7 +4482,9 @@ def _list_supplies_for_orders_tab(
         params.extend([like, like, like, like, like])
     where = " AND ".join(conditions)
     safe_page = max(int(page), 1)
-    safe_size = min(max(int(page_size), 1), 5000)
+    # Assembly / public callers stay at 200; delivery merge may load a larger set.
+    size_cap = 10_000 if _allow_large_page else 200
+    safe_size = min(max(int(page_size), 1), size_cap)
     offset = (safe_page - 1) * safe_size
 
     with repo._connect() as conn:
