@@ -139,7 +139,6 @@ def test_build_supply_items_includes_empty_listed(monkeypatch) -> None:
             return _Conn()
 
     monkeypatch.setattr(oz_sup, "ensure_ozon_fbs_supply_schema", lambda r: None)
-    monkeypatch.setattr(oz_sup, "pin_delivering_listed_supplies", lambda *a, **k: 1)
 
     items = oz_sup._build_supply_items_for_tab(
         _FakeRepo(), user_id=1, source_id=5, tab=oz.TAB_DELIVERING
@@ -211,6 +210,54 @@ def test_refresh_delivering_posting_statuses_pins_and_updates(monkeypatch) -> No
     assert out["pinned_supplies"] == 1
     assert len(calls) == 2
     assert progress[-1] == (2, 2)
+
+
+def test_refresh_skips_rows_no_longer_delivering(monkeypatch) -> None:
+    """Do not re-promote postings moved off delivering while the job runs."""
+
+    class _Client:
+        def __init__(self, *_a, **_k):
+            pass
+
+        def get_posting(self, pn: str) -> dict[str, Any]:
+            raise AssertionError(f"should not call Ozon for {pn}")
+
+    monkeypatch.setattr(oz_sup, "ensure_ozon_fbs_supply_schema", lambda r: None)
+    monkeypatch.setattr(oz, "ensure_ozon_fbs_tables", lambda r: None)
+    monkeypatch.setattr(oz_sup, "OZON_FBS_STATUS_CHECK_PAUSE_SEC", 0)
+    monkeypatch.setattr(
+        oz_sup, "_pin_all_current_delivering_supplies", lambda *a, **k: ["S1"]
+    )
+    monkeypatch.setattr(
+        oz_sup, "_list_delivering_posting_numbers", lambda *a, **k: ["P-moved"]
+    )
+    monkeypatch.setattr(oz, "OzonFbsClient", _Client)
+    monkeypatch.setattr(
+        oz,
+        "get_posting_by_number",
+        lambda *a, **k: {
+            "posting_number": "P-moved",
+            "tab": "awaiting_deliver",
+            "status": "awaiting_deliver",
+        },
+    )
+    refresh_calls: list[str] = []
+    monkeypatch.setattr(
+        oz,
+        "refresh_posting_status_only",
+        lambda *a, **k: refresh_calls.append(k.get("posting_number") or ""),
+    )
+
+    out = oz_sup.refresh_delivering_posting_statuses(
+        object(),  # type: ignore[arg-type]
+        user_id=1,
+        source_id=2,
+        client_id="c",
+        api_key="k",
+    )
+    assert out["checked"] == 1
+    assert out["updated"] == 0
+    assert refresh_calls == []
 
 
 def test_move_to_delivering_pins_listed(monkeypatch) -> None:

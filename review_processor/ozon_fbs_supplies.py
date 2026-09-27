@@ -2327,22 +2327,7 @@ def _build_supply_items_for_tab(
         for g in groups
         if str(g["supply_id"] if hasattr(g, "keys") else g[0]).strip()
     ]
-    # Backfill pin for supplies that still have delivering orders.
-    if tab_key == oz.TAB_DELIVERING and supply_ids:
-        try:
-            pin_delivering_listed_supplies(
-                repo,
-                user_id=user_id,
-                source_id=source_id,
-                supply_ids=supply_ids,
-            )
-        except Exception as exc:
-            _log.warning(
-                "ozon fbs pin delivering_listed failed user=%s source=%s: %s",
-                user_id,
-                source_id,
-                exc,
-            )
+    # Pins are set on move / adopt / status-check — not on every list read.
 
     listed_rows: list[dict[str, Any]] = []
     if tab_key == oz.TAB_DELIVERING:
@@ -2762,6 +2747,8 @@ def list_delivering_supplies_cancellations(
 
     Uses local DB only (no live Ozon refresh). Supply list matches the
     delivering tab; cancelled rows are those still linked by ``supply_id``.
+    Empty pinned supplies (0 delivering orders) are omitted unless they
+    still have cancelled rows linked.
     """
     ensure_ozon_fbs_supply_schema(repo)
     supplies = _build_supply_items_for_tab(
@@ -2836,12 +2823,16 @@ def list_delivering_supplies_cancellations(
     for s in supplies:
         sid = str(s.get("supply_id") or "").strip()
         cancelled_rows = cancelled_by_supply.get(sid) or []
+        order_count = int(s.get("order_count") or 0)
+        # Skip empty pinned supplies with no cancellations (noise in journal).
+        if order_count <= 0 and not cancelled_rows:
+            continue
         cancelled_total += len(cancelled_rows)
         out_supplies.append(
             {
                 "supply_id": sid,
                 "name": s.get("name") or sid,
-                "order_count": int(s.get("order_count") or 0),
+                "order_count": order_count,
                 "warehouse_label": s.get("warehouse_label") or "—",
                 "cancelled_count": len(cancelled_rows),
                 "cancelled_orders": cancelled_rows,
@@ -6305,18 +6296,25 @@ def refresh_delivering_posting_statuses(
         if should_stop and should_stop():
             break
         try:
+            before = oz.get_posting_by_number(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                posting_number=pn,
+            )
+            before_tab = str((before or {}).get("tab") or "").strip().lower()
+            # Skip if operator already moved the row off «Доставляются»
+            # (e.g. back to awaiting_deliver) while the job was running.
+            if before_tab != oz.TAB_DELIVERING:
+                checked += 1
+                if progress:
+                    progress(checked, total, f"Проверено {checked} из {total}")
+                continue
             remote = client.get_posting(pn)
             remote_status = str(
                 (remote or {}).get("status") if isinstance(remote, dict) else ""
             ).strip()
             if remote_status:
-                before = oz.get_posting_by_number(
-                    repo,
-                    user_id=user_id,
-                    source_id=source_id,
-                    posting_number=pn,
-                )
-                before_tab = str((before or {}).get("tab") or "").strip().lower()
                 after = oz.refresh_posting_status_only(
                     repo,
                     user_id=user_id,
@@ -7018,6 +7016,17 @@ def move_supply_to_awaiting_deliver(
                 (already["n"] if already and hasattr(already, "keys") else (already[0] if already else 0))
                 or 0
             )
+            # Always clear pin when nothing remains on «Доставляются».
+            try:
+                set_supply_delivering_listed(
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    supply_id=sid,
+                    listed=False,
+                )
+            except Exception:
+                pass
             return {
                 "ok": True,
                 "supply_id": sid,

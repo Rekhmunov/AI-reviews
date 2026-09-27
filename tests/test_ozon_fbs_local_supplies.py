@@ -869,7 +869,11 @@ class OzonFbsDeliveringSuppliesTests(unittest.TestCase):
                 supply_id="OZ-MIX",
                 posting_tab=oz.TAB_AWAITING_DELIVER,
             )
-        tab_nums.assert_called_once()
+        # Tab filter + cancelled companions for the same supply.
+        self.assertGreaterEqual(tab_nums.call_count, 1)
+        tab_nums.assert_any_call(
+            repo, user_id=1, source_id=2, supply_id="OZ-MIX", tab=oz.TAB_AWAITING_DELIVER
+        )
         all_nums.assert_not_called()
         self.assertEqual(detail["order_count"], 1)
         self.assertEqual(detail["orders"][0]["posting_number"], "P-1")
@@ -1115,7 +1119,12 @@ class OzonFbsDeliveringSuppliesTests(unittest.TestCase):
         ), patch.object(repo, "_connect") as conn_ctx:
             conn = MagicMock()
             conn_ctx.return_value.__enter__.return_value = conn
-            conn.execute.return_value.fetchall.side_effect = [[group], [meta_row]]
+            # groups → delivering_listed pins → meta by supply_id
+            conn.execute.return_value.fetchall.side_effect = [
+                [group],
+                [meta_row],  # listed supplies (may include active)
+                [meta_row],  # meta lookup
+            ]
             repo._row_to_dict.side_effect = lambda r: r
             items = _build_supply_items_for_tab(
                 repo, user_id=1, source_id=2, tab="delivering"
