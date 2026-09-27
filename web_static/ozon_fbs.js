@@ -5172,6 +5172,19 @@
       _ozonFbsSyncSettingsSetInfo(String(e.message || e), "error");
       if (saveBtn) saveBtn.disabled = false;
     }
+    // Resume progress UI if a status-check job is already running.
+    try {
+      const stRes = await fetch("/api/ozon-fbs/delivering-status-check/status");
+      const st = await stRes.json().catch(() => ({}));
+      if (stRes.ok && st?.in_progress) {
+        _ozonFbsStatusCheckSetBusy(true);
+        _ozonFbsStatusCheckShowModal();
+        _ozonFbsStatusCheckRenderProgress(st);
+        pollOzonFbsDeliveringStatusCheck();
+      }
+    } catch (_e) {
+      /* ignore */
+    }
   }
 
   function closeOzonFbsSyncSettings() {
@@ -5213,6 +5226,146 @@
       _ozonFbsSyncSettingsSetInfo(String(e.message || e), "error");
     } finally {
       if (saveBtn) saveBtn.disabled = false;
+    }
+  }
+
+  const statusCheckState = {
+    busy: false,
+    pollTimer: null,
+    jobId: "",
+  };
+
+  function _ozonFbsStatusCheckSetBusy(busy) {
+    statusCheckState.busy = !!busy;
+    const btn = document.getElementById("ozonFbsDeliveringStatusCheckBtn");
+    if (btn) {
+      btn.disabled = !!busy;
+      btn.textContent = busy ? "Проверка…" : "Проверить статус заказов";
+    }
+  }
+
+  function _ozonFbsStatusCheckShowModal() {
+    const modal = document.getElementById("ozonFbsStatusCheckProgressModal");
+    if (modal) modal.classList.remove("hidden");
+    const closeBtn = document.getElementById("ozonFbsStatusCheckProgressCloseBtn");
+    if (closeBtn) closeBtn.classList.add("hidden");
+    const err = document.getElementById("ozonFbsStatusCheckProgressError");
+    if (err) {
+      err.textContent = "";
+      err.classList.add("hidden");
+    }
+  }
+
+  function closeOzonFbsStatusCheckProgress() {
+    const modal = document.getElementById("ozonFbsStatusCheckProgressModal");
+    if (modal) modal.classList.add("hidden");
+  }
+
+  function _ozonFbsStatusCheckRenderProgress(st) {
+    const done = Math.max(0, Number(st?.done || 0) || 0);
+    const total = Math.max(0, Number(st?.total || 0) || 0);
+    const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+    const fill = document.getElementById("ozonFbsStatusCheckProgressFill");
+    if (fill) fill.style.width = `${pct}%`;
+    const text = document.getElementById("ozonFbsStatusCheckProgressText");
+    if (text) {
+      text.textContent = total > 0 ? `${done} / ${total}` : String(st?.message || "…");
+    }
+    const extra = document.getElementById("ozonFbsStatusCheckProgressExtra");
+    if (extra) {
+      const updated = Number(st?.updated || 0) || 0;
+      const errors = Number(st?.errors || 0) || 0;
+      const bits = [];
+      if (updated > 0) bits.push(`изменено ${updated}`);
+      if (errors > 0) bits.push(`ошибок ${errors}`);
+      extra.textContent = bits.join(" · ");
+    }
+    const title = document.getElementById("ozonFbsStatusCheckProgressTitle");
+    if (title) {
+      title.textContent = st?.in_progress
+        ? (String(st?.message || "Проверка статусов…").slice(0, 80) || "Проверка статусов…")
+        : "Проверка статусов";
+    }
+  }
+
+  function _stopStatusCheckPoll() {
+    if (statusCheckState.pollTimer) {
+      clearTimeout(statusCheckState.pollTimer);
+      statusCheckState.pollTimer = null;
+    }
+  }
+
+  async function pollOzonFbsDeliveringStatusCheck() {
+    try {
+      const res = await fetch("/api/ozon-fbs/delivering-status-check/status");
+      const st = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(detailText(st.detail) || `Ошибка ${res.status}`);
+      _ozonFbsStatusCheckRenderProgress(st);
+      if (st.in_progress) {
+        _ozonFbsStatusCheckSetBusy(true);
+        statusCheckState.pollTimer = setTimeout(pollOzonFbsDeliveringStatusCheck, 800);
+        return;
+      }
+      _stopStatusCheckPoll();
+      _ozonFbsStatusCheckSetBusy(false);
+      const closeBtn = document.getElementById("ozonFbsStatusCheckProgressCloseBtn");
+      if (closeBtn) closeBtn.classList.remove("hidden");
+      const err = document.getElementById("ozonFbsStatusCheckProgressError");
+      if (err) {
+        const errText = String(st.error || (!st.ok && st.message) || "").trim();
+        err.textContent = errText;
+        err.classList.toggle("hidden", !errText || st.ok);
+      }
+      _ozonFbsSyncSettingsSetInfo(String(st.message || "Готово"), st.ok ? "ok" : "error");
+      pollOzonFbsOpsLog(true).catch(() => {});
+      if (state.tab === "delivering") {
+        loadPostings(true).catch(() => {});
+      }
+    } catch (e) {
+      statusCheckState.pollTimer = setTimeout(pollOzonFbsDeliveringStatusCheck, 1500);
+    }
+  }
+
+  async function startOzonFbsDeliveringStatusCheck() {
+    if (typeof isTenantOwner === "function" && !isTenantOwner()) {
+      alert("Проверка статусов доступна только главному пользователю");
+      return;
+    }
+    if (statusCheckState.busy) return;
+    _ozonFbsStatusCheckSetBusy(true);
+    _ozonFbsStatusCheckShowModal();
+    _ozonFbsStatusCheckRenderProgress({
+      in_progress: true,
+      done: 0,
+      total: 0,
+      message: "Запуск…",
+    });
+    _ozonFbsSyncSettingsSetInfo("Запуск проверки статусов…");
+    try {
+      const res = await fetch("/api/ozon-fbs/delivering-status-check", {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: "{}",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        throw new Error(detailText(data.detail) || data.message || `Ошибка ${res.status}`);
+      }
+      statusCheckState.jobId = String(data.job_id || "");
+      _ozonFbsSyncSettingsSetInfo(String(data.message || "Проверка запущена…"));
+      pollOzonFbsOpsLog(true).catch(() => {});
+      pollOzonFbsDeliveringStatusCheck();
+    } catch (e) {
+      _ozonFbsStatusCheckSetBusy(false);
+      const msg = String(e.message || e);
+      _ozonFbsSyncSettingsSetInfo(msg, "error");
+      const err = document.getElementById("ozonFbsStatusCheckProgressError");
+      if (err) {
+        err.textContent = msg;
+        err.classList.remove("hidden");
+      }
+      const closeBtn = document.getElementById("ozonFbsStatusCheckProgressCloseBtn");
+      if (closeBtn) closeBtn.classList.remove("hidden");
     }
   }
 
@@ -13232,6 +13385,8 @@
   window.openOzonFbsSyncSettings = openOzonFbsSyncSettings;
   window.closeOzonFbsSyncSettings = closeOzonFbsSyncSettings;
   window.saveOzonFbsSyncSettings = saveOzonFbsSyncSettings;
+  window.startOzonFbsDeliveringStatusCheck = startOzonFbsDeliveringStatusCheck;
+  window.closeOzonFbsStatusCheckProgress = closeOzonFbsStatusCheckProgress;
   window.closeOzonFbsSyncInfo = closeSyncInfo;
   window.openOzonFbsDetail = openDetail;
   window.closeOzonFbsDetailModal = closeDetailModal;

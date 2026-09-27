@@ -14445,6 +14445,63 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         settings["can_edit"] = True
         return settings
 
+    @app.post("/api/ozon-fbs/delivering-status-check")
+    def ozon_fbs_delivering_status_check_start(request: Request) -> dict[str, object]:
+        """Owner-only: refresh statuses for all local «Доставляются» postings.
+
+        No lookback limit — every delivering posting in DB is checked via
+        ``/v3/posting/fbs/get``. Supplies stay pinned on the tab.
+        """
+        from . import ozon_fbs_ops_log as ops_log
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        if not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Проверка статусов доступна только главному пользователю",
+            )
+        owner_id = _supply_owner_id(user)
+        jobs = ozon_fbs_mod.list_fbs_sync_jobs(repository, user_id=owner_id)
+        if not jobs:
+            return {
+                "ok": False,
+                "message": (
+                    "Нет источников OZON ФБС с Client-Id / Api-Key"
+                ),
+            }
+        ok, message, job_id = oz_sup.start_delivering_status_check_thread(
+            repository,
+            user_id=owner_id,
+            sources=jobs,
+            actor_user_id=int(user.get("id") or 0) or None,
+            actor_name=ops_log.actor_label(user),
+        )
+        return {
+            "ok": ok,
+            "started": bool(ok),
+            "message": message,
+            "job_id": job_id,
+            "sources_count": len(jobs),
+        }
+
+    @app.get("/api/ozon-fbs/delivering-status-check/status")
+    def ozon_fbs_delivering_status_check_status(request: Request) -> dict[str, object]:
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        if not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Проверка статусов доступна только главному пользователю",
+            )
+        owner_id = _supply_owner_id(user)
+        return oz_sup.get_delivering_status_check_state(user_id=owner_id)
+
     @app.put("/api/ozon-fbs/sync-settings")
     def update_ozon_fbs_sync_settings(
         request: Request, payload: OzonFbsSyncSettingsRequest

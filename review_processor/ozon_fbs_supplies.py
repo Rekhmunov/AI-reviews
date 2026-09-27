@@ -138,6 +138,93 @@ def ensure_ozon_fbs_supply_schema(repo: ReviewRepository) -> None:
             )
             """
         )
+        # Pin supplies on «Доставляются» even after all orders leave the tab
+        # (delivered / cancelled). Driver / TTN / GM metadata stay reachable.
+        try:
+            conn.execute(
+                "ALTER TABLE ozon_fbs_supplies "
+                "ADD COLUMN IF NOT EXISTS delivering_listed "
+                "BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+        except Exception:
+            try:
+                conn.execute(
+                    "ALTER TABLE ozon_fbs_supplies "
+                    "ADD COLUMN delivering_listed BOOLEAN NOT NULL DEFAULT FALSE"
+                )
+            except Exception:
+                pass
+        try:
+            conn.execute(
+                repo._sql(
+                    "CREATE INDEX IF NOT EXISTS "
+                    "idx_ozon_fbs_supplies_delivering_listed "
+                    "ON ozon_fbs_supplies(user_id, source_id, delivering_listed) "
+                    "WHERE delivering_listed = TRUE"
+                )
+            )
+        except Exception:
+            pass
+
+
+def set_supply_delivering_listed(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    listed: bool,
+) -> None:
+    """Pin / unpin a supply on the «Доставляются» list."""
+    ensure_ozon_fbs_supply_schema(repo)
+    sid = str(supply_id or "").strip()
+    if not sid:
+        return
+    with repo._connect() as conn:
+        conn.execute(
+            repo._sql(
+                """
+                UPDATE ozon_fbs_supplies
+                SET delivering_listed = ?, updated_at = NOW()
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                """
+            ),
+            (bool(listed), int(user_id), int(source_id), sid),
+        )
+
+
+def pin_delivering_listed_supplies(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_ids: list[str],
+) -> int:
+    """Mark supplies as listed on «Доставляются». Returns how many ids were set."""
+    ensure_ozon_fbs_supply_schema(repo)
+    ids = sorted(
+        {
+            str(x or "").strip()
+            for x in (supply_ids or [])
+            if str(x or "").strip()
+        }
+    )
+    if not ids:
+        return 0
+    placeholders = ", ".join("?" for _ in ids)
+    with repo._connect() as conn:
+        cur = conn.execute(
+            repo._sql(
+                f"""
+                UPDATE ozon_fbs_supplies
+                SET delivering_listed = TRUE, updated_at = NOW()
+                WHERE user_id = ? AND source_id = ?
+                  AND supply_id IN ({placeholders})
+                """
+            ),
+            (int(user_id), int(source_id), *ids),
+        )
+        return int(getattr(cur, "rowcount", 0) or 0)
 
 
 def _source_display_name(
@@ -2181,6 +2268,19 @@ def adopt_orphan_delivering_postings(
         created.append({"supply_id": sid, "name": name})
         group_line = f"{name}: {len(posting_numbers)} отпр. (осиротевшие)"
 
+    try:
+        set_supply_delivering_listed(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=sid,
+            listed=True,
+        )
+    except Exception as exc:
+        _log.warning(
+            "ozon fbs orphan delivering_listed pin failed supply=%s: %s", sid, exc
+        )
+
     return {
         "ok": True,
         "adopted": len(posting_numbers),
@@ -2192,7 +2292,11 @@ def adopt_orphan_delivering_postings(
 def _build_supply_items_for_tab(
     repo: ReviewRepository, *, user_id: int, source_id: int, tab: str
 ) -> list[dict[str, Any]]:
-    """Supply cards grouped by ``ozon_fbs_postings.supply_id`` for the given tab."""
+    """Supply cards grouped by ``ozon_fbs_postings.supply_id`` for the given tab.
+
+    On «Доставляются» also keeps supplies with ``delivering_listed`` even when
+    every order has already left the tab (delivered / cancelled).
+    """
     ensure_ozon_fbs_supply_schema(repo)
     tab_key = str(tab or "").strip()
     if not tab_key:
@@ -2218,14 +2322,55 @@ def _build_supply_items_for_tab(
             (user_id, source_id, tab_key),
         ).fetchall()
 
-    if not groups:
-        return []
-
     supply_ids = [
         str(g["supply_id"] if hasattr(g, "keys") else g[0]).strip()
         for g in groups
         if str(g["supply_id"] if hasattr(g, "keys") else g[0]).strip()
     ]
+    # Backfill pin for supplies that still have delivering orders.
+    if tab_key == oz.TAB_DELIVERING and supply_ids:
+        try:
+            pin_delivering_listed_supplies(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                supply_ids=supply_ids,
+            )
+        except Exception as exc:
+            _log.warning(
+                "ozon fbs pin delivering_listed failed user=%s source=%s: %s",
+                user_id,
+                source_id,
+                exc,
+            )
+
+    listed_rows: list[dict[str, Any]] = []
+    if tab_key == oz.TAB_DELIVERING:
+        with repo._connect() as conn:
+            listed_rows = [
+                repo._row_to_dict(r)
+                for r in conn.execute(
+                    repo._sql(
+                        """
+                        SELECT supply_id, name, warehouse_name, warehouse_id,
+                               created_at
+                        FROM ozon_fbs_supplies
+                        WHERE user_id = ? AND source_id = ?
+                          AND delivering_listed = TRUE
+                        ORDER BY created_at DESC NULLS LAST, supply_id DESC
+                        """
+                    ),
+                    (user_id, source_id),
+                ).fetchall()
+            ]
+        for lr in listed_rows:
+            sid = str(lr.get("supply_id") or "").strip()
+            if sid and sid not in supply_ids:
+                supply_ids.append(sid)
+
+    if not supply_ids and not groups:
+        return []
+
     meta: dict[str, dict[str, Any]] = {}
     if supply_ids:
         placeholders = ", ".join("?" for _ in supply_ids)
@@ -2249,6 +2394,7 @@ def _build_supply_items_for_tab(
 
     status_label = _TAB_SUPPLY_STATUS_LABEL.get(tab_key, tab_key)
     items: list[dict[str, Any]] = []
+    seen: set[str] = set()
     for g in groups:
         d = repo._row_to_dict(g)
         sid = str(d.get("supply_id") or "").strip()
@@ -2272,8 +2418,30 @@ def _build_supply_items_for_tab(
                 "warehouse_id": sm.get("warehouse_id") if sm else d.get("warehouse_id"),
                 "status_label": status_label,
                 "created_at": sm.get("created_at") or d.get("last_posting_at"),
+                "delivering_listed": True if tab_key == oz.TAB_DELIVERING else False,
             }
         )
+        seen.add(sid)
+
+    if tab_key == oz.TAB_DELIVERING:
+        for lr in listed_rows:
+            sid = str(lr.get("supply_id") or "").strip()
+            if not sid or sid in seen:
+                continue
+            sm = meta.get(sid) or lr
+            items.append(
+                {
+                    "supply_id": sid,
+                    "name": sm.get("name") or sid,
+                    "order_count": 0,
+                    "warehouse_label": sm.get("warehouse_name") or "—",
+                    "warehouse_id": sm.get("warehouse_id"),
+                    "status_label": status_label,
+                    "created_at": sm.get("created_at"),
+                    "delivering_listed": True,
+                }
+            )
+            seen.add(sid)
     return items
 
 
@@ -5986,6 +6154,427 @@ def start_stickers_print_job(
     }
 
 
+# ── Delivering status check (owner gear; no lookback limit) ───────────────
+
+_status_check_lock = threading.Lock()
+_status_check_jobs: dict[int, dict[str, Any]] = {}
+
+# Pause between /v3/posting/fbs/get calls — same order of magnitude as ship-all.
+OZON_FBS_STATUS_CHECK_PAUSE_SEC = 0.12
+
+
+def _empty_status_check_job() -> dict[str, Any]:
+    return {
+        "in_progress": False,
+        "job_id": "",
+        "done": 0,
+        "total": 0,
+        "updated": 0,
+        "errors": 0,
+        "message": "",
+        "ok": False,
+        "error": "",
+        "sources_done": 0,
+        "sources_total": 0,
+    }
+
+
+def get_delivering_status_check_state(*, user_id: int) -> dict[str, Any]:
+    with _status_check_lock:
+        return dict(
+            _status_check_jobs.get(int(user_id)) or _empty_status_check_job()
+        )
+
+
+def _list_delivering_posting_numbers(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> list[str]:
+    """All local delivering postings for the source (no lookback / date filter)."""
+    ensure_ozon_fbs_supply_schema(repo)
+    not_cancelled = oz.sql_exclude_cancelled_postings_clause()
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT posting_number, supply_id
+                FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ? AND tab = ?
+                  AND ({not_cancelled})
+                ORDER BY posting_number
+                """
+            ),
+            (int(user_id), int(source_id), oz.TAB_DELIVERING),
+        ).fetchall()
+    out: list[str] = []
+    for row in rows:
+        d = repo._row_to_dict(row)
+        pn = str(d.get("posting_number") or "").strip()
+        if pn:
+            out.append(pn)
+    return out
+
+
+def _pin_all_current_delivering_supplies(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> list[str]:
+    """Pin every supply that currently has delivering orders (or is already listed)."""
+    ensure_ozon_fbs_supply_schema(repo)
+    not_cancelled = oz.sql_exclude_cancelled_postings_clause()
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT DISTINCT supply_id
+                FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ? AND tab = ?
+                  AND COALESCE(supply_id, '') != ''
+                  AND ({not_cancelled})
+                """
+            ),
+            (int(user_id), int(source_id), oz.TAB_DELIVERING),
+        ).fetchall()
+        listed = conn.execute(
+            repo._sql(
+                """
+                SELECT supply_id FROM ozon_fbs_supplies
+                WHERE user_id = ? AND source_id = ?
+                  AND delivering_listed = TRUE
+                """
+            ),
+            (int(user_id), int(source_id)),
+        ).fetchall()
+    ids: list[str] = []
+    for row in list(rows) + list(listed):
+        d = repo._row_to_dict(row) if not isinstance(row, dict) else row
+        sid = str(
+            (d.get("supply_id") if isinstance(d, dict) else None)
+            or (row["supply_id"] if hasattr(row, "keys") else row[0])
+            or ""
+        ).strip()
+        if sid:
+            ids.append(sid)
+    pin_delivering_listed_supplies(
+        repo, user_id=user_id, source_id=source_id, supply_ids=ids
+    )
+    return sorted(set(ids))
+
+
+def refresh_delivering_posting_statuses(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    client_id: str,
+    api_key: str,
+    progress: Callable[[int, int, str], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
+) -> dict[str, Any]:
+    """Refresh status for every delivering posting via ``/v3/posting/fbs/get``.
+
+    No lookback window — uses the local delivering set only. Pins supplies on
+    «Доставляются» before refresh so empty cards stay after delivered leave.
+    """
+    ensure_ozon_fbs_supply_schema(repo)
+    oz.ensure_ozon_fbs_tables(repo)
+    pinned = _pin_all_current_delivering_supplies(
+        repo, user_id=user_id, source_id=source_id
+    )
+    numbers = _list_delivering_posting_numbers(
+        repo, user_id=user_id, source_id=source_id
+    )
+    total = len(numbers)
+    if progress:
+        progress(0, max(total, 1), f"Поставок закреплено: {len(pinned)}")
+    if not numbers:
+        return {
+            "ok": True,
+            "source_id": int(source_id),
+            "total": 0,
+            "checked": 0,
+            "updated": 0,
+            "errors": 0,
+            "pinned_supplies": len(pinned),
+            "message": "Нет отправлений в «Доставляются»",
+        }
+
+    client = oz.OzonFbsClient(str(client_id).strip(), str(api_key).strip())
+    checked = 0
+    updated = 0
+    errors = 0
+    for pn in numbers:
+        if should_stop and should_stop():
+            break
+        try:
+            remote = client.get_posting(pn)
+            remote_status = str(
+                (remote or {}).get("status") if isinstance(remote, dict) else ""
+            ).strip()
+            if remote_status:
+                before = oz.get_posting_by_number(
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    posting_number=pn,
+                )
+                before_tab = str((before or {}).get("tab") or "").strip().lower()
+                after = oz.refresh_posting_status_only(
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    posting_number=pn,
+                    remote_status=remote_status,
+                )
+                after_tab = str((after or {}).get("tab") or "").strip().lower()
+                if after and after_tab != before_tab:
+                    updated += 1
+        except Exception as exc:
+            errors += 1
+            _log.warning(
+                "ozon delivering status check failed pn=%s: %s", pn, exc
+            )
+        checked += 1
+        if progress:
+            progress(
+                checked,
+                total,
+                f"Проверено {checked} из {total}",
+            )
+        if OZON_FBS_STATUS_CHECK_PAUSE_SEC > 0:
+            time.sleep(OZON_FBS_STATUS_CHECK_PAUSE_SEC)
+
+    return {
+        "ok": errors == 0,
+        "source_id": int(source_id),
+        "total": total,
+        "checked": checked,
+        "updated": updated,
+        "errors": errors,
+        "pinned_supplies": len(pinned),
+        "message": (
+            f"Проверено {checked} из {total}, "
+            f"статус изменился: {updated}, ошибок: {errors}"
+        ),
+    }
+
+
+def start_delivering_status_check_thread(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    sources: list[dict[str, Any]],
+    actor_user_id: int | None = None,
+    actor_name: str = "",
+) -> tuple[bool, str, str]:
+    """Background job: refresh delivering statuses for all given FBS sources."""
+    uid = int(user_id)
+    jobs = [
+        s
+        for s in (sources or [])
+        if int(s.get("source_id") or 0) > 0
+        and str(s.get("client_id") or "").strip()
+        and str(s.get("api_key") or "").strip()
+    ]
+    if not jobs:
+        return False, "Нет источников OZON ФБС с Client-Id / Api-Key", ""
+
+    job_id = secrets.token_hex(6)
+    with _status_check_lock:
+        cur = _status_check_jobs.get(uid) or {}
+        if cur.get("in_progress"):
+            return (
+                False,
+                "Уже идёт проверка статусов. Дождитесь окончания.",
+                str(cur.get("job_id") or ""),
+            )
+        _status_check_jobs[uid] = {
+            **_empty_status_check_job(),
+            "in_progress": True,
+            "job_id": job_id,
+            "sources_total": len(jobs),
+            "message": "Подготовка…",
+        }
+
+    try:
+        from . import ozon_fbs_ops_log as ops_log
+
+        ops_log.append_event(
+            repo,
+            user_id=uid,
+            action=ops_log.ACTION_STATUS_CHECK,
+            message=f"Проверка статусов «Доставляются»: старт ({len(jobs)} ист.)",
+            level=ops_log.LEVEL_INFO,
+            actor_user_id=actor_user_id,
+            actor_name=actor_name,
+            details={"job_id": job_id, "phase": "start", "sources": len(jobs)},
+        )
+    except Exception:
+        pass
+
+    def _run() -> None:
+        total_checked = 0
+        total_updated = 0
+        total_errors = 0
+        total_postings = 0
+        sources_done = 0
+
+        def _set(**kwargs: Any) -> None:
+            with _status_check_lock:
+                st = _status_check_jobs.get(uid)
+                if not st or st.get("job_id") != job_id:
+                    return
+                st.update(kwargs)
+
+        try:
+            # Pre-count for a stable progress bar across sources.
+            per_source_nums: list[tuple[dict[str, Any], list[str]]] = []
+            for src in jobs:
+                sid = int(src["source_id"])
+                try:
+                    _pin_all_current_delivering_supplies(
+                        repo, user_id=uid, source_id=sid
+                    )
+                    nums = _list_delivering_posting_numbers(
+                        repo, user_id=uid, source_id=sid
+                    )
+                except Exception as exc:
+                    _log.warning(
+                        "ozon status-check list failed source=%s: %s", sid, exc
+                    )
+                    nums = []
+                per_source_nums.append((src, nums))
+                total_postings += len(nums)
+
+            _set(
+                total=max(total_postings, 1),
+                done=0,
+                message=(
+                    f"К проверке: {total_postings} отпр. "
+                    f"({len(jobs)} ист.)"
+                ),
+            )
+
+            done_acc = [0]
+            for src, nums in per_source_nums:
+                sid = int(src["source_id"])
+                name = str(src.get("name") or sid)
+
+                def _progress(
+                    done: int,
+                    total: int,
+                    message: str,
+                    *,
+                    _name: str = name,
+                    _base: list[int] = done_acc,
+                ) -> None:
+                    _set(
+                        done=_base[0] + int(done),
+                        total=max(total_postings, 1),
+                        message=f"{_name}: {message}",
+                        sources_done=sources_done,
+                    )
+
+                try:
+                    # Re-run refresh for this source (pins again; nums may shrink
+                    # if concurrent ops moved rows — safe).
+                    result = refresh_delivering_posting_statuses(
+                        repo,
+                        user_id=uid,
+                        source_id=sid,
+                        client_id=str(src.get("client_id") or ""),
+                        api_key=str(src.get("api_key") or ""),
+                        progress=_progress,
+                        should_stop=lambda: False,
+                    )
+                    total_checked += int(result.get("checked") or 0)
+                    total_updated += int(result.get("updated") or 0)
+                    total_errors += int(result.get("errors") or 0)
+                except Exception as exc:
+                    total_errors += 1
+                    _log.exception(
+                        "ozon status-check source failed user=%s source=%s",
+                        uid,
+                        sid,
+                    )
+                    _set(message=f"{name}: ошибка — {exc}")
+                sources_done += 1
+                done_acc[0] += len(nums)
+                _set(
+                    done=min(done_acc[0], max(total_postings, 1)),
+                    sources_done=sources_done,
+                    updated=total_updated,
+                    errors=total_errors,
+                )
+
+            msg = (
+                f"Готово: проверено {total_checked}, "
+                f"статус изменился: {total_updated}, ошибок: {total_errors}"
+            )
+            _set(
+                in_progress=False,
+                ok=total_errors == 0,
+                error="" if total_errors == 0 else f"Ошибок API: {total_errors}",
+                message=msg,
+                done=max(total_postings, 1) if total_postings else 1,
+                total=max(total_postings, 1),
+                updated=total_updated,
+                errors=total_errors,
+                sources_done=sources_done,
+            )
+            try:
+                from . import ozon_fbs_ops_log as ops_log
+
+                ops_log.append_event(
+                    repo,
+                    user_id=uid,
+                    action=ops_log.ACTION_STATUS_CHECK,
+                    message=msg,
+                    level=(
+                        ops_log.LEVEL_ERROR
+                        if total_errors
+                        else ops_log.LEVEL_INFO
+                    ),
+                    actor_user_id=actor_user_id,
+                    actor_name=actor_name,
+                    details={
+                        "job_id": job_id,
+                        "phase": "done",
+                        "checked": total_checked,
+                        "updated": total_updated,
+                        "errors": total_errors,
+                    },
+                )
+            except Exception:
+                pass
+        except Exception as exc:
+            _log.exception("ozon delivering status-check job failed user=%s", uid)
+            _set(
+                in_progress=False,
+                ok=False,
+                error=str(exc),
+                message=str(exc),
+            )
+            try:
+                from . import ozon_fbs_ops_log as ops_log
+
+                ops_log.append_event(
+                    repo,
+                    user_id=uid,
+                    action=ops_log.ACTION_STATUS_CHECK,
+                    message=f"Проверка статусов: ошибка — {exc}",
+                    level=ops_log.LEVEL_ERROR,
+                    actor_user_id=actor_user_id,
+                    actor_name=actor_name,
+                    details={"job_id": job_id, "phase": "fail", "error": str(exc)[:300]},
+                )
+            except Exception:
+                pass
+
+    threading.Thread(
+        target=_run, name=f"ozon-status-check-{uid}", daemon=True
+    ).start()
+    return True, "Проверка статусов запущена…", job_id
+
+
 def _ozon_fbs_stock_movement_date() -> str:
     try:
         return datetime.now(ZoneInfo("Europe/Moscow")).date().isoformat()
@@ -6275,6 +6864,17 @@ def move_supply_to_delivering(
                 or 0
             )
             stock_stats = {"shipped": 0, "reversed": 0, "skipped": 0, "ok": 0, "settled": 0}
+            if already_n:
+                try:
+                    set_supply_delivering_listed(
+                        repo,
+                        user_id=user_id,
+                        source_id=source_id,
+                        supply_id=sid,
+                        listed=True,
+                    )
+                except Exception:
+                    pass
             return {
                 "ok": True,
                 "supply_id": sid,
@@ -6318,6 +6918,19 @@ def move_supply_to_delivering(
     for row in to_move:
         row["tab"] = oz.TAB_DELIVERING
         row["status"] = oz.TAB_DELIVERING
+
+    try:
+        set_supply_delivering_listed(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=sid,
+            listed=True,
+        )
+    except Exception as exc:
+        _log.warning(
+            "ozon fbs delivering_listed pin failed supply=%s: %s", sid, exc
+        )
 
     stock_stats = _reconcile_ozon_fbs_stock_after_local_move(
         repo, user_id=user_id, postings=list(to_move)
@@ -6447,6 +7060,19 @@ def move_supply_to_awaiting_deliver(
     for row in to_move:
         row["tab"] = oz.TAB_AWAITING_DELIVER
         row["status"] = oz.TAB_AWAITING_DELIVER
+
+    try:
+        set_supply_delivering_listed(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=sid,
+            listed=False,
+        )
+    except Exception as exc:
+        _log.warning(
+            "ozon fbs delivering_listed clear failed supply=%s: %s", sid, exc
+        )
 
     stock_stats = _reconcile_ozon_fbs_stock_after_local_move(
         repo, user_id=user_id, postings=to_move

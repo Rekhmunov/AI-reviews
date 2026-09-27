@@ -2933,6 +2933,17 @@
                   <span class="wb-fbs-auto-sync-field-hint">Сколько дней назад брать отправления из Ozon (по умолчанию 3, макс. 30). Логи старше этого срока удаляются.</span>
                 </div>
               </div>
+              <div class="ozon-fbs-sync-settings-section ozon-fbs-status-check-section">
+                <p class="ozon-fbs-sync-settings-lead">
+                  Проверить актуальные статусы всех отправлений на вкладке «Доставляются»
+                  (без ограничения глубины синхронизации). Доставленные уйдут с вкладки;
+                  сами поставки с водителем, ГМ и ТТН останутся.
+                </p>
+                <button type="button" id="ozonFbsDeliveringStatusCheckBtn" class="secondary"
+                        onclick="startOzonFbsDeliveringStatusCheck()">
+                  Проверить статус заказов
+                </button>
+              </div>
               <div id="ozonFbsSyncSettingsInfo" class="wb-fbs-auto-sync-info" hidden></div>
               <div class="ozon-fbs-ops-log-section">
                 <div class="ozon-fbs-ops-log-section-head">
@@ -7316,6 +7327,29 @@
   </div>
 
   <!-- Modal: Contest analysis — progress/result -->
+  <div id="ozonFbsStatusCheckProgressModal" class="modal-overlay hidden" role="dialog"
+       aria-modal="true" aria-labelledby="ozonFbsStatusCheckProgressTitle">
+    <div class="modal-card ozon-fbs-status-check-progress-modal">
+      <div class="modal-card-header">
+        <h4 class="no-margin" id="ozonFbsStatusCheckProgressTitle">Проверка статусов…</h4>
+      </div>
+      <div class="ozon-fbs-status-check-progress-body">
+        <div class="ozon-fbs-status-check-progress-track" aria-hidden="true">
+          <div id="ozonFbsStatusCheckProgressFill" class="ozon-fbs-status-check-progress-fill"></div>
+        </div>
+        <div class="ozon-fbs-status-check-progress-meta">
+          <span id="ozonFbsStatusCheckProgressText">0 / 0</span>
+          <span id="ozonFbsStatusCheckProgressExtra"></span>
+        </div>
+        <div id="ozonFbsStatusCheckProgressError" class="ozon-fbs-status-check-progress-error hidden"></div>
+        <div class="ozon-fbs-status-check-progress-actions">
+          <button type="button" id="ozonFbsStatusCheckProgressCloseBtn" class="secondary hidden"
+                  onclick="closeOzonFbsStatusCheckProgress()">Закрыть</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="contestProgressModal" class="modal-overlay hidden">
     <div class="modal-card" style="max-width:440px;width:90%">
       <div class="modal-card-header">
@@ -8293,7 +8327,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=198"></script>
+  <script src="/static/ozon_fbs.js?v=199"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=37"></script>
   <script src="/static/app.js?v=703"></script>
 </body>

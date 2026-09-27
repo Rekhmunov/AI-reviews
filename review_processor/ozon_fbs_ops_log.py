@@ -36,6 +36,7 @@ ACTION_CONTAINER_UNBIND = "container_unbind"
 ACTION_CONTAINER_RECONCILE = "container_reconcile"
 ACTION_STICKERS_PRINT = "stickers_print"
 ACTION_PICKING_LIST = "picking_list"
+ACTION_STATUS_CHECK = "status_check"
 
 LEVEL_INFO = "info"
 LEVEL_WARN = "warn"

@@ -10265,6 +10265,69 @@ tr.dnd-over td {
   flex: 0 0 auto;
   background: #fff;
 }
+.ozon-fbs-status-check-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ozon-fbs-status-check-section #ozonFbsDeliveringStatusCheckBtn {
+  align-self: flex-start;
+  min-height: 40px;
+  padding: 8px 16px;
+}
+.ozon-fbs-status-check-section #ozonFbsDeliveringStatusCheckBtn:hover:not(:disabled) {
+  background: #f1f5f9;
+}
+.ozon-fbs-status-check-section #ozonFbsDeliveringStatusCheckBtn:active:not(:disabled) {
+  background: #e2e8f0;
+}
+.ozon-fbs-status-check-section #ozonFbsDeliveringStatusCheckBtn:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+.ozon-fbs-status-check-section #ozonFbsDeliveringStatusCheckBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.ozon-fbs-status-check-progress-modal {
+  max-width: 440px;
+  width: 90%;
+}
+.ozon-fbs-status-check-progress-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.ozon-fbs-status-check-progress-track {
+  background: #e2e8f0;
+  border-radius: 6px;
+  height: 10px;
+  overflow: hidden;
+}
+.ozon-fbs-status-check-progress-fill {
+  background: #2563eb;
+  height: 100%;
+  width: 0%;
+  transition: width 0.4s ease;
+  border-radius: 6px;
+}
+.ozon-fbs-status-check-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+  color: #475569;
+}
+.ozon-fbs-status-check-progress-error {
+  color: #b91c1c;
+  font-size: 14px;
+}
+.ozon-fbs-status-check-progress-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
 .ozon-fbs-ops-log-section {
   flex: 1 1 auto;
   min-height: 240px;
