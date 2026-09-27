@@ -7756,7 +7756,7 @@
           <h3 id="supplyBalancesMinAutoTitle" class="sb-sheet-title">Автоматический мин. остаток</h3>
           <button type="button" class="icon-btn secondary" onclick="closeSupplyBalancesMinAutoModal()" aria-label="Закрыть">✕</button>
         </div>
-        <p class="sb-sheet-lead">Если включено, после 00:00 по Москве в поле «Мин.» записывается количество продаж за выбранное число дней. То же число дней использует журнал движений по позиции. Если выключено, ночной пересчёт не выполняется.</p>
+        <p class="sb-sheet-lead">Если включено, после 00:00 по Москве в поле «Мин.» записывается количество продаж за выбранное число дней. Журнал движений по позиции использует то же число дней. Если выключено, ночной пересчёт не выполняется.</p>
       </div>
       <div class="sb-min-auto-body">
         <div class="wb-fbs-auto-sync-row">
@@ -7772,7 +7772,7 @@
         <div class="wb-fbs-auto-sync-field">
           <label for="supplyBalancesMinAutoDays">Дней продаж</label>
           <input type="number" id="supplyBalancesMinAutoDays" min="1" max="366" step="1" value="14" inputmode="numeric" />
-          <span class="wb-fbs-auto-sync-field-hint">После 00:00 по Москве продажи за эти дни записываются в поле «Мин.». Журнал движений берёт то же окно.</span>
+          <span class="wb-fbs-auto-sync-field-hint">После 00:00 по Москве продажи за эти дни записываются в поле «Мин.». Журнал движений берёт то же число дней.</span>
         </div>
         <p id="supplyBalancesMinAutoErr" class="sb-doc-err" hidden></p>
       </div>
