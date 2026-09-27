@@ -6436,10 +6436,6 @@ def refresh_delivering_posting_statuses(
         repo, user_id=user_id, source_id=source_id
     )
     numbers = [str(r["posting_number"]) for r in rows]
-    local_tabs = {
-        str(r["posting_number"]): str(r.get("tab") or "").strip().lower()
-        for r in rows
-    }
     total = len(numbers)
     if progress:
         progress(0, max(total, 1), f"Поставок закреплено: {len(pinned)}")
@@ -6514,7 +6510,10 @@ def refresh_delivering_posting_statuses(
             f"Без изменений (ещё delivering): {len(still_ok)}",
         )
 
-    if to_move and not stopped:
+    # Always flush list hits to DB — even if Stop was pressed during list scan.
+    # should_stop is not passed: local batched writes are cheap and must not be
+    # abandoned after we already paid for the Ozon list pages.
+    if to_move:
         try:
             applied = oz.batch_apply_remote_statuses_for_delivering(
                 repo,
@@ -6522,22 +6521,12 @@ def refresh_delivering_posting_statuses(
                 source_id=source_id,
                 remote_by_pn=to_move,
                 progress=progress,
-                should_stop=should_stop,
+                should_stop=None,
                 checked_base=checked,
                 total_hint=total,
             )
             checked += int(applied.get("checked") or 0)
             updated += int(applied.get("updated") or 0)
-            if applied.get("stopped"):
-                stopped = True
-            for pn, st in to_move.items():
-                status, tab = oz.resolve_upsert_status(
-                    local_status=oz.TAB_DELIVERING,
-                    local_tab=oz.TAB_DELIVERING,
-                    remote_status=st,
-                )
-                if tab != oz.TAB_DELIVERING:
-                    local_tabs[pn] = tab
         except Exception as exc:
             errors += 1
             _log.warning("ozon delivering status batch apply failed: %s", exc)
@@ -6594,6 +6583,7 @@ def refresh_delivering_posting_statuses(
             # Do not wait for the rest of the queue (that would ignore Stop).
             pool.shutdown(wait=False, cancel_futures=True)
 
+        # Flush statuses already fetched via get — including after Stop.
         if get_remote:
             try:
                 applied = oz.batch_apply_remote_statuses_for_delivering(
@@ -6602,7 +6592,7 @@ def refresh_delivering_posting_statuses(
                     source_id=source_id,
                     remote_by_pn=get_remote,
                     progress=progress,
-                    should_stop=should_stop,
+                    should_stop=None,
                     checked_base=checked,
                     total_hint=total,
                 )
@@ -6610,8 +6600,6 @@ def refresh_delivering_posting_statuses(
                 n_upd = int(applied.get("updated") or 0)
                 updated += n_upd
                 get_applied = n_upd
-                if applied.get("stopped"):
-                    stopped = True
             except Exception as exc:
                 errors += 1
                 checked += len(get_remote)

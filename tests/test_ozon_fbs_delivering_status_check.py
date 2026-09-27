@@ -508,6 +508,88 @@ def test_stop_during_list_skips_get_fallback(monkeypatch) -> None:
     assert out["get_fallbacks"] == 0
 
 
+def test_stop_during_list_still_flushes_list_hits(monkeypatch) -> None:
+    """Stop after list scan must still batch-write statuses already fetched."""
+    batch_payloads: list[dict[str, str]] = []
+    saw_delivered = {"ok": False}
+
+    class _Client:
+        def __init__(self, *_a, **_k):
+            pass
+
+        def list_postings_page(self, *, status, since, to, limit=50, offset=0, with_extras=True):
+            if status == "delivered":
+                saw_delivered["ok"] = True
+                return (
+                    [
+                        {"posting_number": "P-1", "status": "delivered"},
+                        {"posting_number": "P-2", "status": "delivered"},
+                    ],
+                    False,
+                )
+            return ([], False)
+
+        def get_posting(self, pn: str) -> dict[str, Any]:
+            raise AssertionError(f"get should not run after stop, got {pn}")
+
+    def _batch(repo, *, remote_by_pn, should_stop=None, **kwargs):
+        assert should_stop is None  # flush must not honour cancel
+        batch_payloads.append(dict(remote_by_pn))
+        return {
+            "checked": len(remote_by_pn),
+            "updated": len(remote_by_pn),
+            "noop": 0,
+            "stopped": False,
+            "errors": 0,
+        }
+
+    monkeypatch.setattr(oz_sup, "ensure_ozon_fbs_supply_schema", lambda r: None)
+    monkeypatch.setattr(oz, "ensure_ozon_fbs_tables", lambda r: None)
+    monkeypatch.setattr(
+        oz_sup, "_pin_all_current_delivering_supplies", lambda *a, **k: ["S1"]
+    )
+    monkeypatch.setattr(
+        oz_sup,
+        "_list_delivering_posting_rows",
+        lambda *a, **k: [
+            {
+                "posting_number": "P-1",
+                "tab": "delivering",
+                "created_at_ozon": "2026-01-01T00:00:00Z",
+            },
+            {
+                "posting_number": "P-2",
+                "tab": "delivering",
+                "created_at_ozon": "2026-01-02T00:00:00Z",
+            },
+            {
+                "posting_number": "P-3",
+                "tab": "delivering",
+                "created_at_ozon": "2026-01-03T00:00:00Z",
+            },
+        ],
+    )
+    monkeypatch.setattr(oz, "OzonFbsClient", _Client)
+    monkeypatch.setattr(oz, "batch_apply_remote_statuses_for_delivering", _batch)
+
+    def _stop() -> bool:
+        # Cancel as soon as delivered list page is in hand — before get leftovers.
+        return bool(saw_delivered["ok"])
+
+    out = oz_sup.refresh_delivering_posting_statuses(
+        object(),  # type: ignore[arg-type]
+        user_id=1,
+        source_id=2,
+        client_id="c",
+        api_key="k",
+        should_stop=_stop,
+    )
+    assert out["stopped"] is True
+    assert batch_payloads == [{"P-1": "delivered", "P-2": "delivered"}]
+    assert out["updated"] == 2
+    assert "перенесено 2" in out["message"]
+
+
 def test_move_to_delivering_pins_listed(monkeypatch) -> None:
     pinned: list[tuple] = []
 
