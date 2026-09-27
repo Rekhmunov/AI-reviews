@@ -46,9 +46,16 @@ def test_delivery_tab_second_badge_uses_saved_ttn() -> None:
 
 
 def test_ttn_id_only_on_wb_delivery_payload() -> None:
-    block = _slice(WB, "if tab_key == TAB_DELIVERY and items:", "return {")
+    assert "def _enrich_delivery_supply_row_tones(" in WB
+    block = _slice(
+        WB,
+        "def _enrich_delivery_supply_row_tones(",
+        "def _persist_supply_boxes(",
+    )
     assert 'it["ttn_id"]' in block
     assert 'platform="wb"' in block
+    assert "list_delivery_supplies" in WB
+    assert "_enrich_delivery_supply_row_tones(" in WB
 
 
 def test_badge_styles_already_shared() -> None:

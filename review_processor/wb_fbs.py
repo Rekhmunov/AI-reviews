@@ -1226,6 +1226,37 @@ def ensure_wb_fbs_tables(repo: ReviewRepository) -> None:
             ADD COLUMN IF NOT EXISTS is_b2b BOOLEAN NOT NULL DEFAULT FALSE
             """
         )
+        # Pin supplies on «В доставке» even after all orders leave the tab
+        # (sold / cancelled / archive). Driver / TTN / GM stay reachable.
+        try:
+            conn.execute(
+                """
+                ALTER TABLE wb_fbs_supplies
+                ADD COLUMN IF NOT EXISTS delivery_listed
+                BOOLEAN NOT NULL DEFAULT FALSE
+                """
+            )
+        except Exception:
+            try:
+                conn.execute(
+                    """
+                    ALTER TABLE wb_fbs_supplies
+                    ADD COLUMN delivery_listed BOOLEAN NOT NULL DEFAULT FALSE
+                    """
+                )
+            except Exception:
+                pass
+        try:
+            conn.execute(
+                repo._sql(
+                    "CREATE INDEX IF NOT EXISTS "
+                    "idx_wb_fbs_supplies_delivery_listed "
+                    "ON wb_fbs_supplies(user_id, source_id, delivery_listed) "
+                    "WHERE delivery_listed = TRUE"
+                )
+            )
+        except Exception:
+            pass
         # Local pick-check for orders WITHOUT КИЗ (EAN-13 vs product ШК).
         # Never sent to Wildberries — FeedPilot-only verification.
         conn.execute(
@@ -1457,10 +1488,128 @@ def get_supply_driver_payload(
     }
 
 
+def set_supply_delivery_listed(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    listed: bool,
+) -> None:
+    """Pin / unpin a supply on the «В доставке» list."""
+    ensure_wb_fbs_tables(repo)
+    sid = str(supply_id or "").strip()
+    if not sid:
+        return
+    with repo._connect() as conn:
+        conn.execute(
+            repo._sql(
+                """
+                UPDATE wb_fbs_supplies
+                SET delivery_listed = ?
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                """
+            ),
+            (bool(listed), int(user_id), int(source_id), sid),
+        )
+
+
+def pin_delivery_listed_supplies(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int | None,
+    supply_ids: list[tuple[int, str]] | list[str],
+) -> int:
+    """Mark supplies as listed on «В доставке».
+
+    ``supply_ids`` may be plain ids (requires ``source_id``) or
+    ``(source_id, supply_id)`` pairs when pinning across sources.
+    """
+    ensure_wb_fbs_tables(repo)
+    pairs: list[tuple[int, str]] = []
+    for raw in supply_ids or []:
+        if isinstance(raw, tuple) and len(raw) == 2:
+            try:
+                src = int(raw[0] or 0)
+            except (TypeError, ValueError):
+                continue
+            sid = str(raw[1] or "").strip()
+            if src > 0 and sid:
+                pairs.append((src, sid))
+        else:
+            sid = str(raw or "").strip()
+            try:
+                src = int(source_id or 0)
+            except (TypeError, ValueError):
+                src = 0
+            if src > 0 and sid:
+                pairs.append((src, sid))
+    if not pairs:
+        return 0
+    n = 0
+    with repo._connect() as conn:
+        for src, sid in pairs:
+            cur = conn.execute(
+                repo._sql(
+                    """
+                    UPDATE wb_fbs_supplies
+                    SET delivery_listed = TRUE
+                    WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                    """
+                ),
+                (int(user_id), int(src), sid),
+            )
+            try:
+                n += int(getattr(cur, "rowcount", 0) or 0)
+            except (TypeError, ValueError):
+                n += 1
+    return n
+
+
+def _pin_all_current_delivery_supplies(
+    repo: ReviewRepository, *, user_id: int, source_id: int | None = None
+) -> list[tuple[int, str]]:
+    """Pin every supply that currently has orders on «В доставке»."""
+    ensure_wb_fbs_tables(repo)
+    conditions = ["user_id = ?", "tab = ?", "COALESCE(supply_id, '') != ''"]
+    params: list[Any] = [int(user_id), TAB_DELIVERY]
+    if source_id:
+        conditions.append("source_id = ?")
+        params.append(int(source_id))
+    where = " AND ".join(conditions)
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT DISTINCT source_id, supply_id
+                FROM wb_fbs_orders
+                WHERE {where}
+                """
+            ),
+            tuple(params),
+        ).fetchall()
+    pairs: list[tuple[int, str]] = []
+    for row in rows:
+        d = repo._row_to_dict(row) if not isinstance(row, dict) else row
+        try:
+            src = int(d.get("source_id") or 0)
+        except (TypeError, ValueError):
+            src = 0
+        sid = str(d.get("supply_id") or "").strip()
+        if src > 0 and sid:
+            pairs.append((src, sid))
+    if pairs:
+        pin_delivery_listed_supplies(
+            repo, user_id=user_id, source_id=source_id, supply_ids=pairs
+        )
+    return pairs
+
+
 def supply_is_in_delivery(
     repo: ReviewRepository, *, user_id: int, source_id: int, supply_id: str
 ) -> bool:
-    """True when local orders of this supply are on the «В доставке» tab."""
+    """True when supply has delivery-tab orders or is pinned on «В доставке»."""
     ensure_wb_fbs_tables(repo)
     sid = str(supply_id or "").strip()
     if not sid:
@@ -1478,7 +1627,21 @@ def supply_is_in_delivery(
             ),
             (user_id, source_id, sid, TAB_DELIVERY),
         ).fetchone()
-    return bool(row)
+        if row:
+            return True
+        pinned = conn.execute(
+            repo._sql(
+                """
+                SELECT 1
+                FROM wb_fbs_supplies
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                  AND delivery_listed = TRUE
+                LIMIT 1
+                """
+            ),
+            (user_id, source_id, sid),
+        ).fetchone()
+    return bool(pinned)
 
 
 def set_supply_driver(
@@ -3396,6 +3559,21 @@ def upsert_supply(
                 bool(has_supply_b2b),
             ),
         )
+    # After PATCH /deliver WB sets done=true — keep the card on «В доставке»
+    # even when every order later moves to archive / finished.
+    if bool(supply.get("done")):
+        try:
+            set_supply_delivery_listed(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                supply_id=supply_id,
+                listed=True,
+            )
+        except Exception as exc:
+            _log.warning(
+                "wb fbs delivery_listed pin failed supply=%s: %s", supply_id, exc
+            )
 
 
 def _orders_filter_sql(
@@ -4179,16 +4357,77 @@ def list_delivery_supplies(
     page: int = 1,
     page_size: int = 50,
 ) -> dict[str, Any]:
-    """Supplies (поставки) for the «В доставке» tab — one row per supply, not orders."""
-    return _list_supplies_for_orders_tab(
+    """Supplies for «В доставке» — keeps pinned empty cards (like Ozon).
+
+    Orders may move to archive / «Доставлены», but the supply stays listed while
+    ``delivery_listed`` is set so driver / GM / TTN remain reachable.
+    """
+    ensure_wb_fbs_tables(repo)
+    try:
+        _pin_all_current_delivery_supplies(
+            repo, user_id=user_id, source_id=source_id
+        )
+    except Exception as exc:
+        _log.warning("wb fbs pin delivery supplies failed: %s", exc)
+
+    # Active groups (orders still on delivery) — full set, paginate in Python
+    # together with empty pinned rows.
+    active = _list_supplies_for_orders_tab(
         repo,
         user_id=user_id,
         source_id=source_id,
         tab=TAB_DELIVERY,
         search=search,
-        page=page,
-        page_size=page_size,
+        page=1,
+        page_size=5000,
+        _skip_delivery_enrich=True,
     )
+    items = list(active.get("items") or [])
+    seen = {
+        (int(it.get("source_id") or 0), str(it.get("supply_id") or "").strip())
+        for it in items
+        if str(it.get("supply_id") or "").strip()
+    }
+    for it in items:
+        it["delivery_listed"] = True
+
+    empty_pinned = _list_empty_delivery_listed_supplies(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        search=search,
+        exclude=seen,
+    )
+    items.extend(empty_pinned)
+
+    def _sort_key(it: dict[str, Any]) -> tuple:
+        created = str(it.get("created_at_wb") or "")
+        return (created, str(it.get("supply_id") or ""))
+
+    items.sort(key=_sort_key, reverse=True)
+
+    safe_page = max(int(page), 1)
+    safe_size = min(max(int(page_size), 1), 200)
+    total = len(items)
+    max_page = max(1, (total + safe_size - 1) // safe_size) if total else 1
+    if safe_page > max_page:
+        safe_page = max_page
+    start = (safe_page - 1) * safe_size
+    page_items = items[start : start + safe_size]
+
+    if page_items:
+        _attach_supply_drivers_to_items(repo, user_id=user_id, items=page_items)
+        _enrich_delivery_supply_row_tones(
+            repo, user_id=user_id, source_id=source_id, items=page_items
+        )
+
+    return {
+        "items": page_items,
+        "total": total,
+        "page": safe_page,
+        "page_size": safe_size,
+        "counts": _tab_counts(repo, user_id=user_id, source_id=source_id),
+    }
 
 
 def list_assembly_supplies(
@@ -4221,6 +4460,7 @@ def _list_supplies_for_orders_tab(
     search: str | None = None,
     page: int = 1,
     page_size: int = 50,
+    _skip_delivery_enrich: bool = False,
 ) -> dict[str, Any]:
     """Aggregate orders of a tab into supply rows (portal-like)."""
     ensure_wb_fbs_tables(repo)
@@ -4240,7 +4480,7 @@ def _list_supplies_for_orders_tab(
         params.extend([like, like, like, like, like])
     where = " AND ".join(conditions)
     safe_page = max(int(page), 1)
-    safe_size = min(max(int(page_size), 1), 200)
+    safe_size = min(max(int(page_size), 1), 5000)
     offset = (safe_page - 1) * safe_size
 
     with repo._connect() as conn:
@@ -4300,108 +4540,15 @@ def _list_supplies_for_orders_tab(
     items: list[dict[str, Any]] = []
     for row in rows:
         d = repo._row_to_dict(row)
-        supply_id = str(d.get("supply_id") or "").strip()
-        raw = _parse_json_obj(d.get("raw_json"))
-        order_ids_agg = d.get("order_ids_agg") or []
-        order_ids: list[int] = []
-        if isinstance(order_ids_agg, (list, tuple)):
-            for oid in order_ids_agg:
-                try:
-                    order_ids.append(int(oid))
-                except (TypeError, ValueError):
-                    continue
-        boxes = _parse_json_list(d.get("boxes_json"))
-        offices = _parse_json_list(d.get("offices_json"))
-        office_names = [str(x).strip() for x in offices if str(x or "").strip()]
-        cargo_type = d.get("cargo_type") if d.get("cargo_type") not in (None, 0) else d.get("order_cargo_type")
-        done = bool(int(d.get("done_int") or 0))
-        scan_dt = d.get("scan_dt")
-        name = str(d.get("name") or "").strip()
-        if not name and d.get("created_at_wb"):
-            # Fallback like portal: «Поставка от DD.MM.YYYY»
-            try:
-                created = datetime.fromisoformat(str(d["created_at_wb"]).replace("Z", "+00:00"))
-                name = f"Поставка от {created.strftime('%d.%m.%Y')}"
-            except Exception:
-                name = f"Поставка {supply_id}"
-        elif not name:
-            name = f"Поставка {supply_id}" if supply_id else "Поставка"
+        item = _supply_list_item_from_group_row(d, tab_key=tab_key)
+        if item:
+            items.append(item)
 
-        # Portal shows seller WH + destination office; API gives destination in offices[].
-        warehouse_label = ", ".join(office_names) if office_names else (
-            f"Склад {d.get('warehouse_id')}" if d.get("warehouse_id") else "—"
-        )
-        warehouse_sub = ""
-        if d.get("destination_office_id") and not office_names:
-            warehouse_sub = f"Офис {d.get('destination_office_id')}"
-
-        pickup_allowed = bool(raw.get("isPickupPointShipmentAllowed"))
-        order_count = int(d.get("order_count") or 0) or len(order_ids)
-        boxes_count = len(boxes)
-        if tab_key == TAB_ASSEMBLY:
-            status_label = assembly_stage_label(done=done, boxes_count=boxes_count)
-        else:
-            status_label = supply_status_label(done=done, scan_dt=scan_dt)
-
-        items.append(
-            {
-                "supply_id": supply_id,
-                "source_id": d.get("source_id"),
-                "name": name,
-                "done": done,
-                "cargo_type": cargo_type or 0,
-                "cargo_label": cargo_type_label(cargo_type),
-                "pickup_allowed": pickup_allowed,
-                "created_at_wb": d.get("created_at_wb"),
-                "closed_at_wb": d.get("closed_at_wb"),
-                "scan_dt": scan_dt,
-                "status_label": status_label,
-                "order_count": order_count,
-                "boxes_count": boxes_count,
-                "order_ids": order_ids,
-                "boxes": boxes,
-                "warehouse_id": d.get("warehouse_id"),
-                "warehouse_label": warehouse_label,
-                "warehouse_sub": warehouse_sub,
-                "destination_office_id": d.get("destination_office_id"),
-            }
-        )
-
-    if tab_key == TAB_DELIVERY and items:
+    if tab_key == TAB_DELIVERY and items and not _skip_delivery_enrich:
         _attach_supply_drivers_to_items(repo, user_id=user_id, items=items)
-        from .ozon_fbs_supplies import resolve_fbs_supply_row_tone
-
-        ttn_map = repo.map_ttn_ids_for_fbs_supplies(
-            user_id=user_id,
-            platform="wb",
-            source_id=source_id,
-            supply_ids=[str(it.get("supply_id") or "") for it in items],
+        _enrich_delivery_supply_row_tones(
+            repo, user_id=user_id, source_id=source_id, items=items
         )
-        for it in items:
-            try:
-                src = int(it.get("source_id") or 0)
-            except (TypeError, ValueError):
-                src = 0
-            sid = str(it.get("supply_id") or "").strip()
-            it["ttn_id"] = int(ttn_map.get((src, sid)) or 0)
-            # WB has no SC status for TRBX: boxes without scanDt ≈ «сформировано»;
-            # scanDt set ≈ accepted at WB warehouse.
-            try:
-                boxes_count = int(it.get("boxes_count") or 0)
-            except (TypeError, ValueError):
-                boxes_count = 0
-            scanned = bool(it.get("scan_dt"))
-            if boxes_count > 0 and not scanned:
-                gm_statuses = ["formed"]
-            elif boxes_count > 0 and scanned:
-                gm_statuses = ["acceptance_in_progress"]
-            else:
-                gm_statuses = []
-            it["gm_has_formed"] = boxes_count > 0 and not scanned
-            it["gm_all_accepted"] = boxes_count > 0 and scanned
-            it["row_tone"] = resolve_fbs_supply_row_tone(
-                gm_statuses=gm_statuses, ttn_id=int(it.get("ttn_id") or 0)
-            )
 
     return {
         "items": items,
@@ -4410,6 +4557,223 @@ def _list_supplies_for_orders_tab(
         "page_size": safe_size,
         "counts": _tab_counts(repo, user_id=user_id, source_id=source_id),
     }
+
+
+def _supply_list_item_from_group_row(
+    d: dict[str, Any], *, tab_key: str
+) -> dict[str, Any] | None:
+    supply_id = str(d.get("supply_id") or "").strip()
+    if not supply_id:
+        return None
+    raw = _parse_json_obj(d.get("raw_json"))
+    order_ids_agg = d.get("order_ids_agg") or []
+    order_ids: list[int] = []
+    if isinstance(order_ids_agg, (list, tuple)):
+        for oid in order_ids_agg:
+            try:
+                order_ids.append(int(oid))
+            except (TypeError, ValueError):
+                continue
+    # Empty pinned rows may pass order_ids via order_ids_json already parsed.
+    if not order_ids and isinstance(d.get("order_ids"), list):
+        for oid in d.get("order_ids") or []:
+            try:
+                order_ids.append(int(oid))
+            except (TypeError, ValueError):
+                continue
+    boxes = d.get("boxes") if isinstance(d.get("boxes"), list) else _parse_json_list(
+        d.get("boxes_json")
+    )
+    offices = _parse_json_list(d.get("offices_json"))
+    office_names = [str(x).strip() for x in offices if str(x or "").strip()]
+    cargo_type = (
+        d.get("cargo_type")
+        if d.get("cargo_type") not in (None, 0)
+        else d.get("order_cargo_type")
+    )
+    done = bool(int(d.get("done_int") or 0)) if "done_int" in d else bool(d.get("done"))
+    scan_dt = d.get("scan_dt")
+    name = str(d.get("name") or "").strip()
+    if not name and d.get("created_at_wb"):
+        try:
+            created = datetime.fromisoformat(
+                str(d["created_at_wb"]).replace("Z", "+00:00")
+            )
+            name = f"Поставка от {created.strftime('%d.%m.%Y')}"
+        except Exception:
+            name = f"Поставка {supply_id}"
+    elif not name:
+        name = f"Поставка {supply_id}" if supply_id else "Поставка"
+
+    warehouse_label = ", ".join(office_names) if office_names else (
+        f"Склад {d.get('warehouse_id')}" if d.get("warehouse_id") else "—"
+    )
+    warehouse_sub = ""
+    if d.get("destination_office_id") and not office_names:
+        warehouse_sub = f"Офис {d.get('destination_office_id')}"
+
+    pickup_allowed = bool(raw.get("isPickupPointShipmentAllowed"))
+    try:
+        order_count = int(d.get("order_count") or 0)
+    except (TypeError, ValueError):
+        order_count = 0
+    if order_count <= 0:
+        order_count = len(order_ids)
+    boxes_count = len(boxes)
+    if tab_key == TAB_ASSEMBLY:
+        status_label = assembly_stage_label(done=done, boxes_count=boxes_count)
+    else:
+        status_label = supply_status_label(done=done, scan_dt=scan_dt)
+
+    return {
+        "supply_id": supply_id,
+        "source_id": d.get("source_id"),
+        "name": name,
+        "done": done,
+        "cargo_type": cargo_type or 0,
+        "cargo_label": cargo_type_label(cargo_type),
+        "pickup_allowed": pickup_allowed,
+        "created_at_wb": d.get("created_at_wb"),
+        "closed_at_wb": d.get("closed_at_wb"),
+        "scan_dt": scan_dt,
+        "status_label": status_label,
+        "order_count": order_count,
+        "boxes_count": boxes_count,
+        "order_ids": order_ids,
+        "boxes": boxes,
+        "warehouse_id": d.get("warehouse_id"),
+        "warehouse_label": warehouse_label,
+        "warehouse_sub": warehouse_sub,
+        "destination_office_id": d.get("destination_office_id"),
+    }
+
+
+def _list_empty_delivery_listed_supplies(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int | None,
+    search: str | None = None,
+    exclude: set[tuple[int, str]] | None = None,
+) -> list[dict[str, Any]]:
+    """Pinned «В доставке» supplies that no longer have delivery-tab orders."""
+    ensure_wb_fbs_tables(repo)
+    conditions = ["s.user_id = ?", "s.delivery_listed = TRUE"]
+    params: list[Any] = [int(user_id)]
+    if source_id:
+        conditions.append("s.source_id = ?")
+        params.append(int(source_id))
+    q = str(search or "").strip()
+    if q:
+        like = f"%{q}%"
+        conditions.append("(s.supply_id ILIKE ? OR COALESCE(s.name, '') ILIKE ?)")
+        params.extend([like, like])
+    where = " AND ".join(conditions)
+    live_conditions = ["user_id = ?", "tab = ?", "COALESCE(supply_id, '') != ''"]
+    live_params: list[Any] = [int(user_id), TAB_DELIVERY]
+    if source_id:
+        live_conditions.append("source_id = ?")
+        live_params.append(int(source_id))
+    live_where = " AND ".join(live_conditions)
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT s.supply_id, s.source_id, s.name, s.done, s.cargo_type,
+                       s.destination_office_id, s.created_at_wb, s.closed_at_wb,
+                       s.scan_dt, s.boxes_json, s.order_ids_json, s.raw_json
+                FROM wb_fbs_supplies s
+                WHERE {where}
+                ORDER BY s.created_at_wb DESC NULLS LAST, s.supply_id DESC
+                """
+            ),
+            tuple(params),
+        ).fetchall()
+        live_rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT DISTINCT source_id, supply_id
+                FROM wb_fbs_orders
+                WHERE {live_where}
+                """
+            ),
+            tuple(live_params),
+        ).fetchall()
+
+    live_set: set[tuple[int, str]] = set()
+    for row in live_rows:
+        d = repo._row_to_dict(row)
+        try:
+            src = int(d.get("source_id") or 0)
+        except (TypeError, ValueError):
+            src = 0
+        sid = str(d.get("supply_id") or "").strip()
+        if src > 0 and sid:
+            live_set.add((src, sid))
+
+    skip = exclude or set()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        d = repo._row_to_dict(row)
+        try:
+            src = int(d.get("source_id") or 0)
+        except (TypeError, ValueError):
+            src = 0
+        sid = str(d.get("supply_id") or "").strip()
+        if not sid or (src, sid) in skip or (src, sid) in live_set:
+            continue
+        d["order_count"] = 0
+        d["order_ids"] = []
+        d["boxes"] = _parse_json_list(d.get("boxes_json"))
+        d["done_int"] = 1 if d.get("done") else 0
+        item = _supply_list_item_from_group_row(d, tab_key=TAB_DELIVERY)
+        if not item:
+            continue
+        item["order_count"] = 0
+        item["order_ids"] = []
+        item["delivery_listed"] = True
+        out.append(item)
+    return out
+
+
+def _enrich_delivery_supply_row_tones(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int | None,
+    items: list[dict[str, Any]],
+) -> None:
+    from .ozon_fbs_supplies import resolve_fbs_supply_row_tone
+
+    ttn_map = repo.map_ttn_ids_for_fbs_supplies(
+        user_id=user_id,
+        platform="wb",
+        source_id=source_id,
+        supply_ids=[str(it.get("supply_id") or "") for it in items],
+    )
+    for it in items:
+        try:
+            src = int(it.get("source_id") or 0)
+        except (TypeError, ValueError):
+            src = 0
+        sid = str(it.get("supply_id") or "").strip()
+        it["ttn_id"] = int(ttn_map.get((src, sid)) or 0)
+        try:
+            boxes_count = int(it.get("boxes_count") or 0)
+        except (TypeError, ValueError):
+            boxes_count = 0
+        scanned = bool(it.get("scan_dt"))
+        if boxes_count > 0 and not scanned:
+            gm_statuses = ["formed"]
+        elif boxes_count > 0 and scanned:
+            gm_statuses = ["acceptance_in_progress"]
+        else:
+            gm_statuses = []
+        it["gm_has_formed"] = boxes_count > 0 and not scanned
+        it["gm_all_accepted"] = boxes_count > 0 and scanned
+        it["row_tone"] = resolve_fbs_supply_row_tone(
+            gm_statuses=gm_statuses, ttn_id=int(it.get("ttn_id") or 0)
+        )
 
 
 def _persist_supply_boxes(
@@ -4915,6 +5279,14 @@ def sync_wb_fbs_source(
             time.sleep(0.25)
     except Exception as exc:
         errors.append(friendly_sync_error("supplies", exc))
+
+    # Keep «В доставке» cards after orders leave (sold/cancel/archive).
+    try:
+        _pin_all_current_delivery_supplies(
+            repo, user_id=user_id, source_id=source_id
+        )
+    except Exception as exc:
+        _log.warning("wb fbs sync delivery_listed pin failed: %s", exc)
 
     if _stopped():
         return {
