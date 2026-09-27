@@ -103,11 +103,13 @@ def test_ozon_backend_enriches_tones() -> None:
     block = oz.split("def _list_supplies_tab_response", 1)[1].split(
         "def resolve_fbs_supply_row_tone", 1
     )[0]
-    assert 'str(tab or "").strip() == oz.TAB_DELIVERING and items:' in block
+    assert 'str(tab or "").strip() == oz.TAB_DELIVERING and page_items:' in block
     assert "TAB_AWAITING_DELIVER, oz.TAB_DELIVERING" not in block
     api = web.split("def ozon_fbs_list_supplies", 1)[1].split("\n    @app.", 1)[0]
     assert "OzonFbsClient" in api
     assert "client=client" in api
+    assert "page=page" in api
+    assert "page_size=page_size" in api
 
 
 def test_wb_delivery_row_tone_from_boxes_and_scan() -> None:
@@ -141,6 +143,6 @@ def test_ui_row_classes_and_cache_bump() -> None:
     assert ".fbs-supply-row-ok" in css
     assert "#fff1f2" in css
     assert "#f0fdf4" in css
-    assert "ozon_fbs.js?v=197" in html
+    assert "ozon_fbs.js?v=198" in html
     assert "app.js?v=703" in html
     assert "style.css?v=418" in html

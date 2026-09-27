@@ -1340,6 +1340,7 @@
     }
 
     const suppliesMode = isSuppliesTab();
+    const deliveringSupplies = suppliesMode && isDeliveringSuppliesTab();
     const pnQuery = parsePostingNumberQuery(state.search);
     const params = new URLSearchParams({
       source_id: String(state.sourceId),
@@ -1347,7 +1348,11 @@
       page: String(state.page),
       page_size: String(state.pageSize),
     });
-    if (state.search && !suppliesMode && !pnQuery) params.set("search", state.search);
+    // Delivering supplies: server search + pagination. Orders tab: server search.
+    // Awaiting-deliver supplies: still filtered client-side (no server page).
+    if (state.search && !pnQuery && (!suppliesMode || deliveringSupplies)) {
+      params.set("search", state.search);
+    }
     const seq = ++state.loadSeq;
 
     try {
@@ -1392,7 +1397,7 @@
       if (!res.ok) throw new Error(detailText(data.detail) || "Ошибка загрузки");
 
       let items = data.items || [];
-      if (suppliesMode && state.search) {
+      if (suppliesMode && state.search && !deliveringSupplies) {
         const q = state.search.toLowerCase();
         items = items.filter((s) => {
           const hay = [
@@ -1405,7 +1410,12 @@
 
       updateTabCounts(data.counts || {});
 
-      state.total = suppliesMode ? items.length : Number(data.total || 0);
+      state.total = suppliesMode
+        ? (deliveringSupplies ? Number(data.total || 0) : items.length)
+        : Number(data.total || 0);
+      if (deliveringSupplies && Number.isFinite(Number(data.page)) && Number(data.page) > 0) {
+        state.page = Math.max(1, Math.round(Number(data.page)));
+      }
       if (suppliesMode) {
         const adopted = Number(data.adopted_orphans || 0);
         if (adopted > 0) {
@@ -1436,7 +1446,8 @@
       }
       const pageInfo = document.getElementById("ozonFbsPageInfo");
       const pager = document.querySelector("#section-ozon-fbs .supplies-pagination");
-      if (suppliesMode) {
+      // Orders + «Доставляются» supplies: server pager. Awaiting-deliver supplies: all rows.
+      if (suppliesMode && !deliveringSupplies) {
         if (pageInfo) pageInfo.textContent = "";
         if (pager) pager.style.display = "none";
       } else {

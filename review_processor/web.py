@@ -14894,7 +14894,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.get("/api/ozon-fbs/supplies")
     def ozon_fbs_list_supplies(
-        request: Request, source_id: int, tab: str = "awaiting_deliver"
+        request: Request,
+        source_id: int,
+        tab: str = "awaiting_deliver",
+        page: int = 1,
+        page_size: int = 50,
+        search: str = "",
     ) -> dict[str, object]:
         from . import ozon_fbs as ozon_fbs_mod
         from . import ozon_fbs_supplies as oz_sup
@@ -14921,6 +14926,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 user_id=owner_id,
                 source_id=int(source_id),
                 client=client,
+                page=page,
+                page_size=page_size,
+                search=search,
             )
         return {
             "items": [],

@@ -2277,6 +2277,41 @@ def _build_supply_items_for_tab(
     return items
 
 
+def _clamp_supplies_page(page: object, page_size: object) -> tuple[int, int]:
+    """Normalize supplies list pagination. Default page_size=50, max 100."""
+    try:
+        page_n = int(page)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        page_n = 1
+    try:
+        size_n = int(page_size)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        size_n = 50
+    return max(1, page_n), max(1, min(100, size_n))
+
+
+def _filter_supply_items_by_search(
+    items: list[dict[str, Any]], search: str
+) -> list[dict[str, Any]]:
+    q = str(search or "").strip().lower()
+    if not q:
+        return items
+    out: list[dict[str, Any]] = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        hay = " ".join(
+            [
+                str(it.get("name") or ""),
+                str(it.get("supply_id") or ""),
+                str(it.get("warehouse_label") or ""),
+            ]
+        ).lower()
+        if q in hay:
+            out.append(it)
+    return out
+
+
 def _list_supplies_tab_response(
     repo: ReviewRepository,
     *,
@@ -2285,24 +2320,36 @@ def _list_supplies_tab_response(
     tab: str,
     adopt_info: dict[str, Any],
     client: Any | None = None,
+    page: int | None = None,
+    page_size: int | None = None,
+    search: str = "",
 ) -> dict[str, Any]:
     items = _build_supply_items_for_tab(
         repo, user_id=user_id, source_id=source_id, tab=tab
     )
-    # Driver column is only on «Доставляются», not «Ожидают отгрузки».
-    if str(tab or "").strip() == oz.TAB_DELIVERING and items:
+    items = _filter_supply_items_by_search(items, search)
+    total = len(items)
+    paginate = page is not None and page_size is not None
+    if paginate:
+        page_n, size_n = _clamp_supplies_page(page, page_size)
+        start = (page_n - 1) * size_n
+        page_items = items[start : start + size_n]
+    else:
+        page_n = 1
+        size_n = total if total > 0 else 50
+        page_items = items
+    # Driver / TTN / GM row tones only on «Доставляются», and only for this page.
+    if str(tab or "").strip() == oz.TAB_DELIVERING and page_items:
         _attach_supply_drivers_to_items(
-            repo, user_id=user_id, source_id=source_id, items=items
+            repo, user_id=user_id, source_id=source_id, items=page_items
         )
-    # TTN + GM row tones only on «Доставляются», not «Ожидают отгрузки».
-    if str(tab or "").strip() == oz.TAB_DELIVERING and items:
         ttn_map = repo.map_ttn_ids_for_fbs_supplies(
             user_id=user_id,
             platform="ozon",
             source_id=source_id,
-            supply_ids=[str(it.get("supply_id") or "") for it in items],
+            supply_ids=[str(it.get("supply_id") or "") for it in page_items],
         )
-        for it in items:
+        for it in page_items:
             sid = str(it.get("supply_id") or "").strip()
             try:
                 src = int(source_id or 0)
@@ -2316,11 +2363,11 @@ def _list_supplies_tab_response(
                     repo,
                     user_id=user_id,
                     source_id=source_id,
-                    items=items,
+                    items=page_items,
                     client=client,
                 )
             except Exception:
-                for it in items:
+                for it in page_items:
                     it.setdefault("row_tone", "")
                     it.setdefault("gm_has_formed", False)
                     it.setdefault("gm_all_accepted", False)
@@ -2332,8 +2379,10 @@ def _list_supplies_tab_response(
     except Exception:
         counts["open_supplies"] = 0
     return {
-        "items": items,
-        "total": len(items),
+        "items": page_items,
+        "total": total,
+        "page": page_n,
+        "page_size": size_n if paginate else len(page_items),
         "counts": counts,
         "adopted_orphans": int(adopt_info.get("adopted") or 0),
         "adopt_created_supplies": adopt_info.get("created_supplies") or [],
@@ -2510,8 +2559,14 @@ def list_delivering_supplies(
     user_id: int,
     source_id: int,
     client: Any | None = None,
+    page: int = 1,
+    page_size: int = 50,
+    search: str = "",
 ) -> dict[str, Any]:
-    """Supplies shown on «Доставляются» (read-only drill-down in UI)."""
+    """Supplies shown on «Доставляются» (read-only drill-down in UI).
+
+    Server-paginated: only the current page is enriched (driver / TTN / GM tones).
+    """
     ensure_ozon_fbs_supply_schema(repo)
     adopt_info = adopt_orphan_delivering_postings(
         repo, user_id=user_id, source_id=source_id
@@ -2523,6 +2578,9 @@ def list_delivering_supplies(
         tab=oz.TAB_DELIVERING,
         adopt_info=adopt_info,
         client=client,
+        page=page,
+        page_size=page_size,
+        search=search,
     )
 
 
