@@ -5306,7 +5306,7 @@
       const updated = Number(st?.updated || 0) || 0;
       const errors = Number(st?.errors || 0) || 0;
       const bits = [];
-      if (updated > 0) bits.push(`изменено ${updated}`);
+      if (updated > 0) bits.push(`перенесено ${updated}`);
       if (errors > 0) bits.push(`ошибок ${errors}`);
       extra.textContent = bits.join(" · ");
     }

@@ -6302,6 +6302,26 @@ def _parse_ozon_dt(value: object) -> datetime | None:
     return dt.astimezone(UTC)
 
 
+def _status_check_finish_message(
+    *,
+    stopped: bool,
+    checked: int,
+    total: int,
+    updated: int,
+    errors: int,
+) -> str:
+    """Operator-facing summary; on stop highlights moves done before cancel."""
+    if stopped:
+        return (
+            f"Остановлено. До остановки: проверено {checked} из {total}, "
+            f"перенесено {updated}, ошибок: {errors}"
+        )
+    return (
+        f"Готово: проверено {checked} из {total}, "
+        f"перенесено {updated}, ошибок: {errors}"
+    )
+
+
 def _status_check_date_window(
     rows: list[dict[str, Any]],
 ) -> tuple[datetime, datetime]:
@@ -6437,6 +6457,9 @@ def refresh_delivering_posting_statuses(
         }
 
     if should_stop and should_stop():
+        msg = _status_check_finish_message(
+            stopped=True, checked=0, total=total, updated=0, errors=0
+        )
         return {
             "ok": True,
             "source_id": int(source_id),
@@ -6446,7 +6469,9 @@ def refresh_delivering_posting_statuses(
             "errors": 0,
             "stopped": True,
             "pinned_supplies": len(pinned),
-            "message": "Остановлено",
+            "list_hits": 0,
+            "get_fallbacks": 0,
+            "message": msg,
         }
 
     client = oz.OzonFbsClient(str(client_id).strip(), str(api_key).strip())
@@ -6465,6 +6490,7 @@ def refresh_delivering_posting_statuses(
     checked = 0
     updated = 0
     errors = 0
+    get_applied = 0
     # List scan may exit early on cancel; honour it before get-fallback.
     # Otherwise an empty partial map would trigger get for every local PN.
     # List hits already fetched are still applied (local DB only).
@@ -6531,12 +6557,10 @@ def refresh_delivering_posting_statuses(
                 return pn, "", exc
 
         workers = min(OZON_FBS_STATUS_CHECK_WORKERS, max(1, len(leftovers)))
-        with ThreadPoolExecutor(max_workers=workers) as pool:
+        pool = ThreadPoolExecutor(max_workers=workers)
+        try:
             futs = {pool.submit(_fetch_one, pn): pn for pn in leftovers}
             for fut in as_completed(futs):
-                if should_stop and should_stop():
-                    stopped = True
-                    break
                 pn, remote_status, err = fut.result()
                 if err is not None:
                     errors += 1
@@ -6546,7 +6570,10 @@ def refresh_delivering_posting_statuses(
                     )
                 elif remote_status:
                     try:
+                        before_u = updated
                         _apply(pn, remote_status)
+                        if updated > before_u:
+                            get_applied += 1
                     except Exception as exc:
                         errors += 1
                         checked += 1
@@ -6563,17 +6590,22 @@ def refresh_delivering_posting_statuses(
                         total,
                         f"Проверено {min(checked, total)} из {total}",
                     )
+                # Apply the completed result first, then honour stop — so the
+                # count «перенесено до остановки» includes this posting.
+                if should_stop and should_stop():
+                    stopped = True
+                    break
+        finally:
+            # Do not wait for the rest of the queue (that would ignore Stop).
+            pool.shutdown(wait=False, cancel_futures=True)
 
-    if stopped:
-        msg = (
-            f"Остановлено: проверено {checked} из {total}, "
-            f"статус изменился: {updated}, ошибок: {errors}"
-        )
-    else:
-        msg = (
-            f"Проверено {checked} из {total}, "
-            f"статус изменился: {updated}, ошибок: {errors}"
-        )
+    msg = _status_check_finish_message(
+        stopped=stopped,
+        checked=checked,
+        total=total,
+        updated=updated,
+        errors=errors,
+    )
     if progress:
         progress(min(checked, max(total, 1)), max(total, 1), msg)
     return {
@@ -6586,7 +6618,7 @@ def refresh_delivering_posting_statuses(
         "stopped": stopped,
         "pinned_supplies": len(pinned),
         "list_hits": len(remote_map),
-        "get_fallbacks": len(leftovers) if not stopped else 0,
+        "get_fallbacks": get_applied if stopped else len(leftovers),
         "message": msg,
     }
 
@@ -6758,16 +6790,13 @@ def start_delivering_status_check_thread(
                 if stopped:
                     break
 
-            if stopped:
-                msg = (
-                    f"Остановлено: проверено {total_checked}, "
-                    f"статус изменился: {total_updated}, ошибок: {total_errors}"
-                )
-            else:
-                msg = (
-                    f"Готово: проверено {total_checked}, "
-                    f"статус изменился: {total_updated}, ошибок: {total_errors}"
-                )
+            msg = _status_check_finish_message(
+                stopped=stopped,
+                checked=total_checked,
+                total=total_postings,
+                updated=total_updated,
+                errors=total_errors,
+            )
             _set(
                 in_progress=False,
                 ok=(total_errors == 0 and not stopped),
@@ -6805,7 +6834,9 @@ def start_delivering_status_check_thread(
                         "phase": "stopped" if stopped else "done",
                         "checked": total_checked,
                         "updated": total_updated,
+                        "moved": total_updated,
                         "errors": total_errors,
+                        "total": total_postings,
                     },
                 )
             except Exception:

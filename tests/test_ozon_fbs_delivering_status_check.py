@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -315,6 +317,113 @@ def test_status_check_date_window_max_one_year() -> None:
     assert span >= timedelta(days=364)
 
 
+def test_status_check_finish_message_shows_moved_before_stop() -> None:
+    msg = oz_sup._status_check_finish_message(
+        stopped=True, checked=120, total=30000, updated=45, errors=2
+    )
+    assert "Остановлено" in msg
+    assert "До остановки" in msg
+    assert "перенесено 45" in msg
+    assert "проверено 120 из 30000" in msg
+    done = oz_sup._status_check_finish_message(
+        stopped=False, checked=10, total=10, updated=3, errors=0
+    )
+    assert done.startswith("Готово:")
+    assert "перенесено 3" in done
+
+
+def test_stop_during_get_applies_done_then_cancels(monkeypatch) -> None:
+    """Stop after first get result: apply it, cancel the rest, report moved."""
+    get_started = threading.Event()
+    release_first = threading.Event()
+
+    class _Client:
+        def __init__(self, *_a, **_k):
+            pass
+
+        def list_postings_page(self, **_k):
+            return ([], False)
+
+        def get_posting(self, pn: str) -> dict[str, Any]:
+            if pn == "P-1":
+                get_started.set()
+                release_first.wait(timeout=2)
+                return {"status": "delivered"}
+            # Remaining workers should be cancelled or ignored after stop.
+            time.sleep(0.3)
+            return {"status": "delivered"}
+
+    monkeypatch.setattr(oz_sup, "ensure_ozon_fbs_supply_schema", lambda r: None)
+    monkeypatch.setattr(oz, "ensure_ozon_fbs_tables", lambda r: None)
+    monkeypatch.setattr(
+        oz_sup, "_pin_all_current_delivering_supplies", lambda *a, **k: ["S1"]
+    )
+    monkeypatch.setattr(
+        oz_sup,
+        "_list_delivering_posting_rows",
+        lambda *a, **k: [
+            {
+                "posting_number": f"P-{i}",
+                "tab": "delivering",
+                "created_at_ozon": "2026-01-01T00:00:00Z",
+            }
+            for i in range(1, 6)
+        ],
+    )
+    monkeypatch.setattr(oz, "OzonFbsClient", _Client)
+    monkeypatch.setattr(
+        oz,
+        "get_posting_by_number",
+        lambda *a, **k: {
+            "posting_number": k["posting_number"],
+            "tab": "delivering",
+            "status": "delivering",
+        },
+    )
+    refresh_calls: list[str] = []
+
+    def _refresh(**kwargs):
+        refresh_calls.append(str(kwargs.get("posting_number") or ""))
+        return {
+            "posting_number": kwargs["posting_number"],
+            "tab": "delivered",
+            "status": "delivered",
+        }
+
+    monkeypatch.setattr(oz, "refresh_posting_status_only", lambda *a, **k: _refresh(**k))
+
+    stop_after_first = {"ready": False}
+
+    def _stop() -> bool:
+        return bool(stop_after_first["ready"])
+
+    result_box: dict[str, Any] = {}
+
+    def _worker() -> None:
+        result_box["out"] = oz_sup.refresh_delivering_posting_statuses(
+            object(),  # type: ignore[arg-type]
+            user_id=1,
+            source_id=2,
+            client_id="c",
+            api_key="k",
+            should_stop=_stop,
+        )
+
+    t = threading.Thread(target=_worker)
+    t.start()
+    assert get_started.wait(timeout=2)
+    stop_after_first["ready"] = True
+    release_first.set()
+    t.join(timeout=5)
+    assert t.is_alive() is False
+    out = result_box["out"]
+    assert out["stopped"] is True
+    assert out["updated"] >= 1
+    assert "P-1" in refresh_calls
+    assert "перенесено" in out["message"]
+    assert "До остановки" in out["message"]
+
+
 def test_stop_during_list_skips_get_fallback(monkeypatch) -> None:
     """Cancel mid list-scan must not fan out get for every unfound PN."""
     get_calls: list[str] = []
@@ -463,4 +572,4 @@ def test_move_to_delivering_pins_listed(monkeypatch) -> None:
 
 
 def test_cache_bump() -> None:
-    assert "ozon_fbs.js?v=200" in HTML
+    assert "ozon_fbs.js?v=201" in HTML
