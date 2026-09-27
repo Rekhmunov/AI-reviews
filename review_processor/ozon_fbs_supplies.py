@@ -6305,7 +6305,12 @@ def _parse_ozon_dt(value: object) -> datetime | None:
 def _status_check_date_window(
     rows: list[dict[str, Any]],
 ) -> tuple[datetime, datetime]:
-    """since/to for list scan: oldest local created_at (floor 400d) → now+1d."""
+    """since/to for list scan: oldest local created_at → now+1d.
+
+    Ozon ``/v3/posting/fbs/list`` requires ``filter.since``…``to`` ≤ 1 year.
+    Floor is 365 days so the request stays within the documented limit; older
+    local rows fall through to ``/v3/posting/fbs/get``.
+    """
     date_to = datetime.now(UTC) + timedelta(days=1)
     oldest: datetime | None = None
     for row in rows:
@@ -6314,7 +6319,7 @@ def _status_check_date_window(
             continue
         if oldest is None or dt < oldest:
             oldest = dt
-    floor = date_to - timedelta(days=400)
+    floor = date_to - timedelta(days=365)
     date_from = oldest if oldest is not None else floor
     if date_from < floor:
         date_from = floor
@@ -6460,7 +6465,10 @@ def refresh_delivering_posting_statuses(
     checked = 0
     updated = 0
     errors = 0
-    stopped = False
+    # List scan may exit early on cancel; honour it before get-fallback.
+    # Otherwise an empty partial map would trigger get for every local PN.
+    # List hits already fetched are still applied (local DB only).
+    stopped = bool(should_stop and should_stop())
 
     def _apply(pn: str, remote_status: str) -> None:
         nonlocal checked, updated
@@ -6489,9 +6497,6 @@ def refresh_delivering_posting_statuses(
         checked += 1
 
     for pn, remote_status in remote_map.items():
-        if should_stop and should_stop():
-            stopped = True
-            break
         if remote_status == oz.TAB_DELIVERING:
             checked += 1
         else:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -301,6 +302,70 @@ def test_request_status_check_stop() -> None:
     assert oz_sup.request_delivering_status_check_stop(user_id=uid + 1) is False
     with oz_sup._status_check_lock:
         oz_sup._status_check_jobs.pop(uid, None)
+
+
+def test_status_check_date_window_max_one_year() -> None:
+    """Ozon list filter.since…to must be ≤ 1 year — floor is 365d, not 400."""
+    old = (datetime.now(UTC) - timedelta(days=500)).isoformat().replace("+00:00", "Z")
+    date_from, date_to = oz_sup._status_check_date_window(
+        [{"created_at_ozon": old}]
+    )
+    span = date_to - date_from
+    assert span <= timedelta(days=365)
+    assert span >= timedelta(days=364)
+
+
+def test_stop_during_list_skips_get_fallback(monkeypatch) -> None:
+    """Cancel mid list-scan must not fan out get for every unfound PN."""
+    get_calls: list[str] = []
+    stop_n = {"n": 0}
+
+    class _Client:
+        def __init__(self, *_a, **_k):
+            pass
+
+        def list_postings_page(self, **_k):
+            return ([], False)
+
+        def get_posting(self, pn: str) -> dict[str, Any]:
+            get_calls.append(pn)
+            return {"status": "delivering"}
+
+    monkeypatch.setattr(oz_sup, "ensure_ozon_fbs_supply_schema", lambda r: None)
+    monkeypatch.setattr(oz, "ensure_ozon_fbs_tables", lambda r: None)
+    monkeypatch.setattr(
+        oz_sup, "_pin_all_current_delivering_supplies", lambda *a, **k: ["S1"]
+    )
+    monkeypatch.setattr(
+        oz_sup,
+        "_list_delivering_posting_rows",
+        lambda *a, **k: [
+            {
+                "posting_number": f"P-{i}",
+                "tab": "delivering",
+                "created_at_ozon": "2026-01-01T00:00:00Z",
+            }
+            for i in range(5)
+        ],
+    )
+    monkeypatch.setattr(oz, "OzonFbsClient", _Client)
+
+    def _stop() -> bool:
+        stop_n["n"] += 1
+        # Pass the early gate once, then cancel for list-scan / leftovers.
+        return stop_n["n"] > 1
+
+    out = oz_sup.refresh_delivering_posting_statuses(
+        object(),  # type: ignore[arg-type]
+        user_id=1,
+        source_id=2,
+        client_id="c",
+        api_key="k",
+        should_stop=_stop,
+    )
+    assert out["stopped"] is True
+    assert get_calls == []
+    assert out["get_fallbacks"] == 0
 
 
 def test_move_to_delivering_pins_listed(monkeypatch) -> None:
