@@ -162,8 +162,8 @@ def test_build_supply_items_includes_empty_listed(monkeypatch) -> None:
 
 
 def test_refresh_uses_list_then_get_fallback(monkeypatch) -> None:
-    """List hits update without get; leftovers use parallel get_posting."""
-    calls: list[dict[str, Any]] = []
+    """List hits update via batch; leftovers use parallel get_posting + batch."""
+    batch_payloads: list[dict[str, str]] = []
     list_calls: list[str] = []
 
     class _Client:
@@ -182,6 +182,16 @@ def test_refresh_uses_list_then_get_fallback(monkeypatch) -> None:
             assert pn == "P-3"
             return {"status": "cancelled"}
 
+    def _batch(repo, *, remote_by_pn, **kwargs):
+        batch_payloads.append(dict(remote_by_pn))
+        return {
+            "checked": len(remote_by_pn),
+            "updated": len(remote_by_pn),
+            "noop": 0,
+            "stopped": False,
+            "errors": 0,
+        }
+
     monkeypatch.setattr(oz_sup, "ensure_ozon_fbs_supply_schema", lambda r: None)
     monkeypatch.setattr(oz, "ensure_ozon_fbs_tables", lambda r: None)
     monkeypatch.setattr(
@@ -197,23 +207,7 @@ def test_refresh_uses_list_then_get_fallback(monkeypatch) -> None:
         ],
     )
     monkeypatch.setattr(oz, "OzonFbsClient", _Client)
-    monkeypatch.setattr(
-        oz,
-        "get_posting_by_number",
-        lambda *a, **k: {
-            "posting_number": k["posting_number"],
-            "tab": "delivering",
-            "status": "delivering",
-        },
-    )
-
-    def _refresh(**kwargs):
-        calls.append(dict(kwargs))
-        st = str(kwargs.get("remote_status") or "")
-        tab = "delivered" if st == "delivered" else ("cancelled" if st == "cancelled" else "delivering")
-        return {"posting_number": kwargs["posting_number"], "tab": tab, "status": tab}
-
-    monkeypatch.setattr(oz, "refresh_posting_status_only", lambda *a, **k: _refresh(**k))
+    monkeypatch.setattr(oz, "batch_apply_remote_statuses_for_delivering", _batch)
 
     out = oz_sup.refresh_delivering_posting_statuses(
         object(),  # type: ignore[arg-type]
@@ -227,19 +221,18 @@ def test_refresh_uses_list_then_get_fallback(monkeypatch) -> None:
     assert out["list_hits"] == 2
     assert out["get_fallbacks"] == 1
     assert "delivered" in list_calls
-    pns = {c["posting_number"] for c in calls}
-    assert pns == {"P-1", "P-3"}
+    assert batch_payloads[0] == {"P-1": "delivered"}
+    assert batch_payloads[1] == {"P-3": "cancelled"}
 
 
 def test_refresh_skips_rows_no_longer_delivering(monkeypatch) -> None:
-    """Do not re-promote postings moved off delivering while the job runs."""
+    """Batch UPDATE only touches tab=delivering — already-moved rows stay put."""
 
     class _Client:
         def __init__(self, *_a, **_k):
             pass
 
         def list_postings_page(self, **_k):
-            # Ozon still says delivering — must not bounce local awaiting back.
             return ([{"posting_number": "P-moved", "status": "delivered"}], False)
 
         def get_posting(self, pn: str) -> dict[str, Any]:
@@ -262,20 +255,17 @@ def test_refresh_skips_rows_no_longer_delivering(monkeypatch) -> None:
         ],
     )
     monkeypatch.setattr(oz, "OzonFbsClient", _Client)
+    # Simulate race: batch finds 0 rows still on delivering.
     monkeypatch.setattr(
         oz,
-        "get_posting_by_number",
+        "batch_apply_remote_statuses_for_delivering",
         lambda *a, **k: {
-            "posting_number": "P-moved",
-            "tab": "awaiting_deliver",
-            "status": "awaiting_deliver",
+            "checked": 1,
+            "updated": 0,
+            "noop": 0,
+            "stopped": False,
+            "errors": 0,
         },
-    )
-    refresh_calls: list[str] = []
-    monkeypatch.setattr(
-        oz,
-        "refresh_posting_status_only",
-        lambda *a, **k: refresh_calls.append(k.get("posting_number") or ""),
     )
 
     out = oz_sup.refresh_delivering_posting_statuses(
@@ -287,7 +277,6 @@ def test_refresh_skips_rows_no_longer_delivering(monkeypatch) -> None:
     )
     assert out["checked"] == 1
     assert out["updated"] == 0
-    assert refresh_calls == []
 
 
 def test_request_status_check_stop() -> None:
@@ -315,6 +304,55 @@ def test_status_check_date_window_max_one_year() -> None:
     span = date_to - date_from
     assert span <= timedelta(days=365)
     assert span >= timedelta(days=364)
+
+
+def test_batch_apply_groups_updates_without_per_row_select(monkeypatch) -> None:
+    """One UPDATE per (status,tab) chunk; WHERE tab=delivering."""
+    executed: list[tuple[str, tuple]] = []
+
+    class _Cur:
+        def __init__(self, n: int):
+            self.rowcount = n
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def execute(self, sql, params=()):
+            executed.append((str(sql), tuple(params)))
+            pns = [p for p in params if isinstance(p, str) and p.startswith("P-")]
+            return _Cur(len(pns))
+
+    class _Repo:
+        def _sql(self, q: str) -> str:
+            return q
+
+        def _connect(self):
+            return _Conn()
+
+    monkeypatch.setattr(oz, "ensure_ozon_fbs_tables", lambda r: None)
+    out = oz.batch_apply_remote_statuses_for_delivering(
+        _Repo(),  # type: ignore[arg-type]
+        user_id=1,
+        source_id=2,
+        remote_by_pn={
+            "P-1": "delivered",
+            "P-2": "delivered",
+            "P-3": "cancelled",
+            "P-4": "delivering",
+        },
+    )
+    assert out["noop"] == 1  # P-4
+    assert out["updated"] == 3
+    assert out["checked"] == 4
+    assert len(executed) == 2  # delivered group + cancelled group
+    for sql, params in executed:
+        assert "AND tab = ?" in sql
+        assert oz.TAB_DELIVERING in params
+        assert "IN (" in sql
 
 
 def test_status_check_finish_message_shows_moved_before_stop() -> None:
@@ -371,26 +409,19 @@ def test_stop_during_get_applies_done_then_cancels(monkeypatch) -> None:
         ],
     )
     monkeypatch.setattr(oz, "OzonFbsClient", _Client)
-    monkeypatch.setattr(
-        oz,
-        "get_posting_by_number",
-        lambda *a, **k: {
-            "posting_number": k["posting_number"],
-            "tab": "delivering",
-            "status": "delivering",
-        },
-    )
-    refresh_calls: list[str] = []
+    batch_pns: list[str] = []
 
-    def _refresh(**kwargs):
-        refresh_calls.append(str(kwargs.get("posting_number") or ""))
+    def _batch(repo, *, remote_by_pn, **kwargs):
+        batch_pns.extend(remote_by_pn.keys())
         return {
-            "posting_number": kwargs["posting_number"],
-            "tab": "delivered",
-            "status": "delivered",
+            "checked": len(remote_by_pn),
+            "updated": len(remote_by_pn),
+            "noop": 0,
+            "stopped": False,
+            "errors": 0,
         }
 
-    monkeypatch.setattr(oz, "refresh_posting_status_only", lambda *a, **k: _refresh(**k))
+    monkeypatch.setattr(oz, "batch_apply_remote_statuses_for_delivering", _batch)
 
     stop_after_first = {"ready": False}
 
@@ -419,7 +450,7 @@ def test_stop_during_get_applies_done_then_cancels(monkeypatch) -> None:
     out = result_box["out"]
     assert out["stopped"] is True
     assert out["updated"] >= 1
-    assert "P-1" in refresh_calls
+    assert "P-1" in batch_pns
     assert "перенесено" in out["message"]
     assert "До остановки" in out["message"]
 

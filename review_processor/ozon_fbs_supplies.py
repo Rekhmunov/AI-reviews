@@ -6493,49 +6493,54 @@ def refresh_delivering_posting_statuses(
     get_applied = 0
     # List scan may exit early on cancel; honour it before get-fallback.
     # Otherwise an empty partial map would trigger get for every local PN.
-    # List hits already fetched are still applied (local DB only).
+    # List hits already fetched are still applied (local DB only, batched).
     stopped = bool(should_stop and should_stop())
 
-    def _apply(pn: str, remote_status: str) -> None:
-        nonlocal checked, updated
-        # Re-read tab: operator may have moved the row off delivering mid-job.
-        live = oz.get_posting_by_number(
-            repo,
-            user_id=user_id,
-            source_id=source_id,
-            posting_number=pn,
+    still_ok = {
+        pn: st
+        for pn, st in remote_map.items()
+        if st == oz.TAB_DELIVERING
+    }
+    to_move = {
+        pn: st
+        for pn, st in remote_map.items()
+        if st != oz.TAB_DELIVERING
+    }
+    checked += len(still_ok)
+    if progress and still_ok:
+        progress(
+            checked,
+            max(total, 1),
+            f"Без изменений (ещё delivering): {len(still_ok)}",
         )
-        before_tab = str((live or {}).get("tab") or local_tabs.get(pn) or "").strip().lower()
-        if before_tab != oz.TAB_DELIVERING:
-            checked += 1
-            return
-        after = oz.refresh_posting_status_only(
-            repo,
-            user_id=user_id,
-            source_id=source_id,
-            posting_number=pn,
-            remote_status=remote_status,
-        )
-        after_tab = str((after or {}).get("tab") or "").strip().lower()
-        if after and after_tab != before_tab:
-            updated += 1
-            local_tabs[pn] = after_tab
-        checked += 1
 
-    for pn, remote_status in remote_map.items():
-        if remote_status == oz.TAB_DELIVERING:
-            checked += 1
-        else:
-            try:
-                _apply(pn, remote_status)
-            except Exception as exc:
-                errors += 1
-                checked += 1
-                _log.warning(
-                    "ozon delivering status apply failed pn=%s: %s", pn, exc
+    if to_move and not stopped:
+        try:
+            applied = oz.batch_apply_remote_statuses_for_delivering(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                remote_by_pn=to_move,
+                progress=progress,
+                should_stop=should_stop,
+                checked_base=checked,
+                total_hint=total,
+            )
+            checked += int(applied.get("checked") or 0)
+            updated += int(applied.get("updated") or 0)
+            if applied.get("stopped"):
+                stopped = True
+            for pn, st in to_move.items():
+                status, tab = oz.resolve_upsert_status(
+                    local_status=oz.TAB_DELIVERING,
+                    local_tab=oz.TAB_DELIVERING,
+                    remote_status=st,
                 )
-        if progress and checked % 50 == 0:
-            progress(checked, total, f"Обновление из списка… {checked}/{total}")
+                if tab != oz.TAB_DELIVERING:
+                    local_tabs[pn] = tab
+        except Exception as exc:
+            errors += 1
+            _log.warning("ozon delivering status batch apply failed: %s", exc)
 
     leftovers = [pn for pn in numbers if pn not in remote_map]
     if not stopped and leftovers:
@@ -6556,6 +6561,7 @@ def refresh_delivering_posting_statuses(
             except Exception as exc:
                 return pn, "", exc
 
+        get_remote: dict[str, str] = {}
         workers = min(OZON_FBS_STATUS_CHECK_WORKERS, max(1, len(leftovers)))
         pool = ThreadPoolExecutor(max_workers=workers)
         try:
@@ -6568,36 +6574,50 @@ def refresh_delivering_posting_statuses(
                     _log.warning(
                         "ozon delivering status check failed pn=%s: %s", pn, err
                     )
+                elif remote_status == oz.TAB_DELIVERING:
+                    checked += 1
                 elif remote_status:
-                    try:
-                        before_u = updated
-                        _apply(pn, remote_status)
-                        if updated > before_u:
-                            get_applied += 1
-                    except Exception as exc:
-                        errors += 1
-                        checked += 1
-                        _log.warning(
-                            "ozon delivering status apply failed pn=%s: %s",
-                            pn,
-                            exc,
-                        )
+                    get_remote[pn] = remote_status
                 else:
                     checked += 1
                 if progress:
                     progress(
-                        min(checked, total),
+                        min(checked + len(get_remote), total),
                         total,
-                        f"Проверено {min(checked, total)} из {total}",
+                        f"Точечная проверка… "
+                        f"{min(checked + len(get_remote), total)}/{total}",
                     )
-                # Apply the completed result first, then honour stop — so the
-                # count «перенесено до остановки» includes this posting.
                 if should_stop and should_stop():
                     stopped = True
                     break
         finally:
             # Do not wait for the rest of the queue (that would ignore Stop).
             pool.shutdown(wait=False, cancel_futures=True)
+
+        if get_remote:
+            try:
+                applied = oz.batch_apply_remote_statuses_for_delivering(
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    remote_by_pn=get_remote,
+                    progress=progress,
+                    should_stop=should_stop,
+                    checked_base=checked,
+                    total_hint=total,
+                )
+                checked += int(applied.get("checked") or 0)
+                n_upd = int(applied.get("updated") or 0)
+                updated += n_upd
+                get_applied = n_upd
+                if applied.get("stopped"):
+                    stopped = True
+            except Exception as exc:
+                errors += 1
+                checked += len(get_remote)
+                _log.warning(
+                    "ozon delivering status get-batch apply failed: %s", exc
+                )
 
     msg = _status_check_finish_message(
         stopped=stopped,

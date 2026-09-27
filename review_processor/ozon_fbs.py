@@ -2669,6 +2669,110 @@ def refresh_posting_status_only(
     )
 
 
+# Chunk size for status-check bulk UPDATE (list → DB). Keeps statements bounded.
+OZON_FBS_STATUS_APPLY_CHUNK = 500
+
+
+def batch_apply_remote_statuses_for_delivering(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    remote_by_pn: dict[str, str],
+    progress: Callable[[int, int, str], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
+    checked_base: int = 0,
+    total_hint: int = 0,
+) -> dict[str, Any]:
+    """Bulk-write remote statuses for rows still on ``delivering``.
+
+    Groups by resolved ``(status, tab)`` and runs ``UPDATE … IN (…)`` chunks.
+    Race-safe: ``WHERE tab = delivering`` — rows already moved by an operator
+    are skipped (rowcount 0). No per-row SELECT.
+    """
+    ensure_ozon_fbs_tables(repo)
+    groups: dict[tuple[str, str], list[str]] = {}
+    noop = 0
+    for raw_pn, raw_st in (remote_by_pn or {}).items():
+        pn = str(raw_pn or "").strip()
+        remote = str(raw_st or "").strip().lower()
+        if not pn or not remote:
+            continue
+        status, tab = resolve_upsert_status(
+            local_status=TAB_DELIVERING,
+            local_tab=TAB_DELIVERING,
+            remote_status=remote,
+        )
+        if tab == TAB_DELIVERING:
+            # Still on delivering (incl. anti-regression) — nothing to write.
+            noop += 1
+            continue
+        groups.setdefault((status, tab), []).append(pn)
+
+    # Flatten work list for progress / stop between chunks.
+    work: list[tuple[str, str, list[str]]] = []
+    for (status, tab), pns in groups.items():
+        for i in range(0, len(pns), OZON_FBS_STATUS_APPLY_CHUNK):
+            work.append((status, tab, pns[i : i + OZON_FBS_STATUS_APPLY_CHUNK]))
+
+    updated = 0
+    applied = 0
+    stopped = False
+    now = _utc_now()
+    uid = int(user_id)
+    src = int(source_id)
+    hint = max(int(total_hint or 0), 1)
+
+    if progress and (noop or work):
+        progress(
+            checked_base + noop,
+            hint,
+            f"Запись в БД: к переносу {sum(len(c) for _, _, c in work)}…",
+        )
+
+    with repo._connect() as conn:
+        for status, tab, chunk in work:
+            if should_stop and should_stop():
+                stopped = True
+                break
+            placeholders = ", ".join("?" for _ in chunk)
+            cur = conn.execute(
+                repo._sql(
+                    f"""
+                    UPDATE ozon_fbs_postings
+                    SET status = ?, tab = ?, synced_at = ?
+                    WHERE user_id = ? AND source_id = ?
+                      AND tab = ?
+                      AND posting_number IN ({placeholders})
+                    """
+                ),
+                (status, tab, now, uid, src, TAB_DELIVERING, *chunk),
+            )
+            try:
+                n = int(getattr(cur, "rowcount", 0) or 0)
+            except (TypeError, ValueError):
+                n = 0
+            if n < 0:
+                n = len(chunk)
+            updated += min(n, len(chunk))
+            applied += len(chunk)
+            if progress:
+                progress(
+                    checked_base + noop + applied,
+                    hint,
+                    f"Запись в БД… {noop + applied} "
+                    f"(перенесено {updated})",
+                )
+
+    return {
+        "checked": noop + applied,
+        "updated": updated,
+        "noop": noop,
+        "stopped": stopped,
+        "errors": 0,
+    }
+
+
 def format_lookup_datetime(value: object) -> str:
     """Operator-facing datetime for search cards (MSK ``DD.MM.YYYY HH:MM``)."""
     if value is None:
