@@ -7343,6 +7343,8 @@
         </div>
         <div id="ozonFbsStatusCheckProgressError" class="ozon-fbs-status-check-progress-error hidden"></div>
         <div class="ozon-fbs-status-check-progress-actions">
+          <button type="button" id="ozonFbsStatusCheckProgressStopBtn" class="secondary"
+                  onclick="stopOzonFbsDeliveringStatusCheck()">Остановить</button>
           <button type="button" id="ozonFbsStatusCheckProgressCloseBtn" class="secondary hidden"
                   onclick="closeOzonFbsStatusCheckProgress()">Закрыть</button>
         </div>
@@ -8327,7 +8329,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=199"></script>
+  <script src="/static/ozon_fbs.js?v=200"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=37"></script>
   <script src="/static/app.js?v=703"></script>
 </body>

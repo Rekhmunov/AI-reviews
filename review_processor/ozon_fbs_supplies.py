@@ -15,7 +15,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
@@ -6150,8 +6150,19 @@ def start_stickers_print_job(
 _status_check_lock = threading.Lock()
 _status_check_jobs: dict[int, dict[str, Any]] = {}
 
-# Pause between /v3/posting/fbs/get calls — same order of magnitude as ship-all.
-OZON_FBS_STATUS_CHECK_PAUSE_SEC = 0.12
+# Parallel get_posting for leftovers after list-scan. Token bucket (~40 rps)
+# already paces Ozon; no extra sleep between calls.
+OZON_FBS_STATUS_CHECK_WORKERS = 10
+OZON_FBS_STATUS_CHECK_LIST_LIMIT = 1000
+OZON_FBS_STATUS_CHECK_LIST_MAX_PAGES = 400
+# Statuses that take a posting off «Доставляются» (or confirm it stays).
+_STATUS_CHECK_LIST_STATUSES = (
+    oz.TAB_DELIVERING,
+    oz.TAB_DELIVERED,
+    oz.TAB_CANCELLED,
+    oz.TAB_ARBITRATION,
+    "client_arbitration",
+)
 
 
 def _empty_status_check_job() -> dict[str, Any]:
@@ -6167,6 +6178,8 @@ def _empty_status_check_job() -> dict[str, Any]:
         "error": "",
         "sources_done": 0,
         "sources_total": 0,
+        "cancel_requested": False,
+        "stopped": False,
     }
 
 
@@ -6177,17 +6190,37 @@ def get_delivering_status_check_state(*, user_id: int) -> dict[str, Any]:
         )
 
 
+def request_delivering_status_check_stop(*, user_id: int) -> bool:
+    """Ask the running status-check job to stop. Returns True if a job was live."""
+    with _status_check_lock:
+        st = _status_check_jobs.get(int(user_id))
+        if not st or not st.get("in_progress"):
+            return False
+        st["cancel_requested"] = True
+        st["message"] = "Остановка…"
+        return True
+
+
 def _list_delivering_posting_numbers(
     repo: ReviewRepository, *, user_id: int, source_id: int
 ) -> list[str]:
     """All local delivering postings for the source (no lookback / date filter)."""
+    rows = _list_delivering_posting_rows(
+        repo, user_id=user_id, source_id=source_id
+    )
+    return [str(r["posting_number"]) for r in rows if r.get("posting_number")]
+
+
+def _list_delivering_posting_rows(
+    repo: ReviewRepository, *, user_id: int, source_id: int
+) -> list[dict[str, Any]]:
     ensure_ozon_fbs_supply_schema(repo)
     not_cancelled = oz.sql_exclude_cancelled_postings_clause()
     with repo._connect() as conn:
         rows = conn.execute(
             repo._sql(
                 f"""
-                SELECT posting_number, supply_id
+                SELECT posting_number, supply_id, created_at_ozon, tab, status
                 FROM ozon_fbs_postings
                 WHERE user_id = ? AND source_id = ? AND tab = ?
                   AND ({not_cancelled})
@@ -6196,12 +6229,13 @@ def _list_delivering_posting_numbers(
             ),
             (int(user_id), int(source_id), oz.TAB_DELIVERING),
         ).fetchall()
-    out: list[str] = []
+    out: list[dict[str, Any]] = []
     for row in rows:
         d = repo._row_to_dict(row)
         pn = str(d.get("posting_number") or "").strip()
         if pn:
-            out.append(pn)
+            d["posting_number"] = pn
+            out.append(d)
     return out
 
 
@@ -6250,6 +6284,108 @@ def _pin_all_current_delivering_supplies(
     return sorted(set(ids))
 
 
+def _parse_ozon_dt(value: object) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        text = str(value or "").strip()
+        if not text:
+            return None
+        try:
+            dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except Exception:
+            return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
+
+def _status_check_date_window(
+    rows: list[dict[str, Any]],
+) -> tuple[datetime, datetime]:
+    """since/to for list scan: oldest local created_at (floor 400d) → now+1d."""
+    date_to = datetime.now(UTC) + timedelta(days=1)
+    oldest: datetime | None = None
+    for row in rows:
+        dt = _parse_ozon_dt(row.get("created_at_ozon"))
+        if dt is None:
+            continue
+        if oldest is None or dt < oldest:
+            oldest = dt
+    floor = date_to - timedelta(days=400)
+    date_from = oldest if oldest is not None else floor
+    if date_from < floor:
+        date_from = floor
+    if date_from >= date_to:
+        date_from = date_to - timedelta(days=30)
+    return date_from, date_to
+
+
+def _scan_remote_statuses_via_list(
+    client: oz.OzonFbsClient,
+    *,
+    local_pns: set[str],
+    date_from: datetime,
+    date_to: datetime,
+    progress: Callable[[int, int, str], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
+    total_hint: int = 0,
+) -> dict[str, str]:
+    """Bulk status map for local PNs via ``/v3/posting/fbs/list`` (limit 1000)."""
+    found: dict[str, str] = {}
+    if not local_pns:
+        return found
+    want = set(local_pns)
+    for status in _STATUS_CHECK_LIST_STATUSES:
+        if should_stop and should_stop():
+            break
+        if not want:
+            break
+        offset = 0
+        for page in range(OZON_FBS_STATUS_CHECK_LIST_MAX_PAGES):
+            if should_stop and should_stop():
+                break
+            try:
+                postings, has_next = client.list_postings_page(
+                    status=status,
+                    since=date_from,
+                    to=date_to,
+                    limit=OZON_FBS_STATUS_CHECK_LIST_LIMIT,
+                    offset=offset,
+                    with_extras=False,
+                )
+            except Exception as exc:
+                _log.warning(
+                    "ozon status-check list %s failed offset=%s: %s",
+                    status,
+                    offset,
+                    exc,
+                )
+                break
+            if not postings:
+                break
+            for posting in postings:
+                pn = str(posting.get("posting_number") or "").strip()
+                if not pn or pn not in want:
+                    continue
+                remote = str(posting.get("status") or status or "").strip().lower()
+                if remote:
+                    found[pn] = remote
+                    want.discard(pn)
+            if progress:
+                progress(
+                    len(found),
+                    max(total_hint, 1),
+                    f"Список {status}: стр. {page + 1}, найдено {len(found)}",
+                )
+            if not has_next or not want:
+                break
+            offset += len(postings)
+    return found
+
+
 def refresh_delivering_posting_statuses(
     repo: ReviewRepository,
     *,
@@ -6260,19 +6396,25 @@ def refresh_delivering_posting_statuses(
     progress: Callable[[int, int, str], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
-    """Refresh status for every delivering posting via ``/v3/posting/fbs/get``.
+    """Refresh status for every delivering posting.
 
-    No lookback window — uses the local delivering set only. Pins supplies on
-    «Доставляются» before refresh so empty cards stay after delivered leave.
+    Fast path: ``/v3/posting/fbs/list`` (up to 1000/page) for delivering /
+    delivered / cancelled. Leftovers (outside list window) use parallel
+    ``/v3/posting/fbs/get`` paced by the shared Client-Id rate limiter (~40 rps).
     """
     ensure_ozon_fbs_supply_schema(repo)
     oz.ensure_ozon_fbs_tables(repo)
     pinned = _pin_all_current_delivering_supplies(
         repo, user_id=user_id, source_id=source_id
     )
-    numbers = _list_delivering_posting_numbers(
+    rows = _list_delivering_posting_rows(
         repo, user_id=user_id, source_id=source_id
     )
+    numbers = [str(r["posting_number"]) for r in rows]
+    local_tabs = {
+        str(r["posting_number"]): str(r.get("tab") or "").strip().lower()
+        for r in rows
+    }
     total = len(numbers)
     if progress:
         progress(0, max(total, 1), f"Поставок закреплено: {len(pinned)}")
@@ -6284,74 +6426,163 @@ def refresh_delivering_posting_statuses(
             "checked": 0,
             "updated": 0,
             "errors": 0,
+            "stopped": False,
             "pinned_supplies": len(pinned),
             "message": "Нет отправлений в «Доставляются»",
         }
 
+    if should_stop and should_stop():
+        return {
+            "ok": True,
+            "source_id": int(source_id),
+            "total": total,
+            "checked": 0,
+            "updated": 0,
+            "errors": 0,
+            "stopped": True,
+            "pinned_supplies": len(pinned),
+            "message": "Остановлено",
+        }
+
     client = oz.OzonFbsClient(str(client_id).strip(), str(api_key).strip())
+    date_from, date_to = _status_check_date_window(rows)
+    local_set = set(numbers)
+    remote_map = _scan_remote_statuses_via_list(
+        client,
+        local_pns=local_set,
+        date_from=date_from,
+        date_to=date_to,
+        progress=progress,
+        should_stop=should_stop,
+        total_hint=total,
+    )
+
     checked = 0
     updated = 0
     errors = 0
-    for pn in numbers:
-        if should_stop and should_stop():
-            break
-        try:
-            before = oz.get_posting_by_number(
-                repo,
-                user_id=user_id,
-                source_id=source_id,
-                posting_number=pn,
-            )
-            before_tab = str((before or {}).get("tab") or "").strip().lower()
-            # Skip if operator already moved the row off «Доставляются»
-            # (e.g. back to awaiting_deliver) while the job was running.
-            if before_tab != oz.TAB_DELIVERING:
-                checked += 1
-                if progress:
-                    progress(checked, total, f"Проверено {checked} из {total}")
-                continue
-            remote = client.get_posting(pn)
-            remote_status = str(
-                (remote or {}).get("status") if isinstance(remote, dict) else ""
-            ).strip()
-            if remote_status:
-                after = oz.refresh_posting_status_only(
-                    repo,
-                    user_id=user_id,
-                    source_id=source_id,
-                    posting_number=pn,
-                    remote_status=remote_status,
-                )
-                after_tab = str((after or {}).get("tab") or "").strip().lower()
-                if after and after_tab != before_tab:
-                    updated += 1
-        except Exception as exc:
-            errors += 1
-            _log.warning(
-                "ozon delivering status check failed pn=%s: %s", pn, exc
-            )
+    stopped = False
+
+    def _apply(pn: str, remote_status: str) -> None:
+        nonlocal checked, updated
+        # Re-read tab: operator may have moved the row off delivering mid-job.
+        live = oz.get_posting_by_number(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            posting_number=pn,
+        )
+        before_tab = str((live or {}).get("tab") or local_tabs.get(pn) or "").strip().lower()
+        if before_tab != oz.TAB_DELIVERING:
+            checked += 1
+            return
+        after = oz.refresh_posting_status_only(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            posting_number=pn,
+            remote_status=remote_status,
+        )
+        after_tab = str((after or {}).get("tab") or "").strip().lower()
+        if after and after_tab != before_tab:
+            updated += 1
+            local_tabs[pn] = after_tab
         checked += 1
+
+    for pn, remote_status in remote_map.items():
+        if should_stop and should_stop():
+            stopped = True
+            break
+        if remote_status == oz.TAB_DELIVERING:
+            checked += 1
+        else:
+            try:
+                _apply(pn, remote_status)
+            except Exception as exc:
+                errors += 1
+                checked += 1
+                _log.warning(
+                    "ozon delivering status apply failed pn=%s: %s", pn, exc
+                )
+        if progress and checked % 50 == 0:
+            progress(checked, total, f"Обновление из списка… {checked}/{total}")
+
+    leftovers = [pn for pn in numbers if pn not in remote_map]
+    if not stopped and leftovers:
         if progress:
             progress(
                 checked,
                 total,
-                f"Проверено {checked} из {total}",
+                f"Точечная проверка: {len(leftovers)} вне списка",
             )
-        if OZON_FBS_STATUS_CHECK_PAUSE_SEC > 0:
-            time.sleep(OZON_FBS_STATUS_CHECK_PAUSE_SEC)
 
+        def _fetch_one(pn: str) -> tuple[str, str, Exception | None]:
+            try:
+                remote = client.get_posting(pn)
+                st = str(
+                    (remote or {}).get("status") if isinstance(remote, dict) else ""
+                ).strip().lower()
+                return pn, st, None
+            except Exception as exc:
+                return pn, "", exc
+
+        workers = min(OZON_FBS_STATUS_CHECK_WORKERS, max(1, len(leftovers)))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futs = {pool.submit(_fetch_one, pn): pn for pn in leftovers}
+            for fut in as_completed(futs):
+                if should_stop and should_stop():
+                    stopped = True
+                    break
+                pn, remote_status, err = fut.result()
+                if err is not None:
+                    errors += 1
+                    checked += 1
+                    _log.warning(
+                        "ozon delivering status check failed pn=%s: %s", pn, err
+                    )
+                elif remote_status:
+                    try:
+                        _apply(pn, remote_status)
+                    except Exception as exc:
+                        errors += 1
+                        checked += 1
+                        _log.warning(
+                            "ozon delivering status apply failed pn=%s: %s",
+                            pn,
+                            exc,
+                        )
+                else:
+                    checked += 1
+                if progress:
+                    progress(
+                        min(checked, total),
+                        total,
+                        f"Проверено {min(checked, total)} из {total}",
+                    )
+
+    if stopped:
+        msg = (
+            f"Остановлено: проверено {checked} из {total}, "
+            f"статус изменился: {updated}, ошибок: {errors}"
+        )
+    else:
+        msg = (
+            f"Проверено {checked} из {total}, "
+            f"статус изменился: {updated}, ошибок: {errors}"
+        )
+    if progress:
+        progress(min(checked, max(total, 1)), max(total, 1), msg)
     return {
-        "ok": errors == 0,
+        "ok": errors == 0 and not stopped,
         "source_id": int(source_id),
         "total": total,
         "checked": checked,
         "updated": updated,
         "errors": errors,
+        "stopped": stopped,
         "pinned_supplies": len(pinned),
-        "message": (
-            f"Проверено {checked} из {total}, "
-            f"статус изменился: {updated}, ошибок: {errors}"
-        ),
+        "list_hits": len(remote_map),
+        "get_fallbacks": len(leftovers) if not stopped else 0,
+        "message": msg,
     }
 
 
@@ -6414,6 +6645,7 @@ def start_delivering_status_check_thread(
         total_errors = 0
         total_postings = 0
         sources_done = 0
+        stopped = False
 
         def _set(**kwargs: Any) -> None:
             with _status_check_lock:
@@ -6422,10 +6654,17 @@ def start_delivering_status_check_thread(
                     return
                 st.update(kwargs)
 
+        def _stop_requested() -> bool:
+            with _status_check_lock:
+                st = _status_check_jobs.get(uid) or {}
+                return bool(st.get("cancel_requested"))
+
         try:
-            # Pre-count for a stable progress bar across sources.
             per_source_nums: list[tuple[dict[str, Any], list[str]]] = []
             for src in jobs:
+                if _stop_requested():
+                    stopped = True
+                    break
                 sid = int(src["source_id"])
                 try:
                     _pin_all_current_delivering_supplies(
@@ -6446,13 +6685,20 @@ def start_delivering_status_check_thread(
                 total=max(total_postings, 1),
                 done=0,
                 message=(
-                    f"К проверке: {total_postings} отпр. "
-                    f"({len(jobs)} ист.)"
+                    "Остановка…"
+                    if stopped
+                    else (
+                        f"К проверке: {total_postings} отпр. "
+                        f"({len(jobs)} ист.)"
+                    )
                 ),
             )
 
             done_acc = [0]
             for src, nums in per_source_nums:
+                if _stop_requested():
+                    stopped = True
+                    break
                 sid = int(src["source_id"])
                 name = str(src.get("name") or sid)
 
@@ -6469,11 +6715,11 @@ def start_delivering_status_check_thread(
                         total=max(total_postings, 1),
                         message=f"{_name}: {message}",
                         sources_done=sources_done,
+                        updated=total_updated,
+                        errors=total_errors,
                     )
 
                 try:
-                    # Re-run refresh for this source (pins again; nums may shrink
-                    # if concurrent ops moved rows — safe).
                     result = refresh_delivering_posting_statuses(
                         repo,
                         user_id=uid,
@@ -6481,11 +6727,13 @@ def start_delivering_status_check_thread(
                         client_id=str(src.get("client_id") or ""),
                         api_key=str(src.get("api_key") or ""),
                         progress=_progress,
-                        should_stop=lambda: False,
+                        should_stop=_stop_requested,
                     )
                     total_checked += int(result.get("checked") or 0)
                     total_updated += int(result.get("updated") or 0)
                     total_errors += int(result.get("errors") or 0)
+                    if result.get("stopped"):
+                        stopped = True
                 except Exception as exc:
                     total_errors += 1
                     _log.exception(
@@ -6502,14 +6750,22 @@ def start_delivering_status_check_thread(
                     updated=total_updated,
                     errors=total_errors,
                 )
+                if stopped:
+                    break
 
-            msg = (
-                f"Готово: проверено {total_checked}, "
-                f"статус изменился: {total_updated}, ошибок: {total_errors}"
-            )
+            if stopped:
+                msg = (
+                    f"Остановлено: проверено {total_checked}, "
+                    f"статус изменился: {total_updated}, ошибок: {total_errors}"
+                )
+            else:
+                msg = (
+                    f"Готово: проверено {total_checked}, "
+                    f"статус изменился: {total_updated}, ошибок: {total_errors}"
+                )
             _set(
                 in_progress=False,
-                ok=total_errors == 0,
+                ok=(total_errors == 0 and not stopped),
                 error="" if total_errors == 0 else f"Ошибок API: {total_errors}",
                 message=msg,
                 done=max(total_postings, 1) if total_postings else 1,
@@ -6517,6 +6773,8 @@ def start_delivering_status_check_thread(
                 updated=total_updated,
                 errors=total_errors,
                 sources_done=sources_done,
+                stopped=stopped,
+                cancel_requested=False,
             )
             try:
                 from . import ozon_fbs_ops_log as ops_log
@@ -6527,15 +6785,19 @@ def start_delivering_status_check_thread(
                     action=ops_log.ACTION_STATUS_CHECK,
                     message=msg,
                     level=(
-                        ops_log.LEVEL_ERROR
-                        if total_errors
-                        else ops_log.LEVEL_INFO
+                        ops_log.LEVEL_WARN
+                        if stopped
+                        else (
+                            ops_log.LEVEL_ERROR
+                            if total_errors
+                            else ops_log.LEVEL_INFO
+                        )
                     ),
                     actor_user_id=actor_user_id,
                     actor_name=actor_name,
                     details={
                         "job_id": job_id,
-                        "phase": "done",
+                        "phase": "stopped" if stopped else "done",
                         "checked": total_checked,
                         "updated": total_updated,
                         "errors": total_errors,
@@ -6550,6 +6812,7 @@ def start_delivering_status_check_thread(
                 ok=False,
                 error=str(exc),
                 message=str(exc),
+                cancel_requested=False,
             )
             try:
                 from . import ozon_fbs_ops_log as ops_log

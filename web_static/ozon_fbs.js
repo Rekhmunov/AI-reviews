@@ -5249,6 +5249,12 @@
     if (modal) modal.classList.remove("hidden");
     const closeBtn = document.getElementById("ozonFbsStatusCheckProgressCloseBtn");
     if (closeBtn) closeBtn.classList.add("hidden");
+    const stopBtn = document.getElementById("ozonFbsStatusCheckProgressStopBtn");
+    if (stopBtn) {
+      stopBtn.classList.remove("hidden");
+      stopBtn.disabled = false;
+      stopBtn.textContent = "Остановить";
+    }
     const err = document.getElementById("ozonFbsStatusCheckProgressError");
     if (err) {
       err.textContent = "";
@@ -5259,6 +5265,30 @@
   function closeOzonFbsStatusCheckProgress() {
     const modal = document.getElementById("ozonFbsStatusCheckProgressModal");
     if (modal) modal.classList.add("hidden");
+  }
+
+  async function stopOzonFbsDeliveringStatusCheck() {
+    const stopBtn = document.getElementById("ozonFbsStatusCheckProgressStopBtn");
+    if (stopBtn) {
+      stopBtn.disabled = true;
+      stopBtn.textContent = "Остановка…";
+    }
+    try {
+      const res = await fetch("/api/ozon-fbs/delivering-status-check/stop", {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: "{}",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      _ozonFbsSyncSettingsSetInfo(String(data.message || "Остановка…"));
+    } catch (e) {
+      if (stopBtn) {
+        stopBtn.disabled = false;
+        stopBtn.textContent = "Остановить";
+      }
+      _ozonFbsSyncSettingsSetInfo(String(e.message || e), "error");
+    }
   }
 
   function _ozonFbsStatusCheckRenderProgress(st) {
@@ -5303,20 +5333,31 @@
       _ozonFbsStatusCheckRenderProgress(st);
       if (st.in_progress) {
         _ozonFbsStatusCheckSetBusy(true);
+        const stopBtn = document.getElementById("ozonFbsStatusCheckProgressStopBtn");
+        if (stopBtn) {
+          stopBtn.classList.remove("hidden");
+          if (st.cancel_requested) {
+            stopBtn.disabled = true;
+            stopBtn.textContent = "Остановка…";
+          }
+        }
         statusCheckState.pollTimer = setTimeout(pollOzonFbsDeliveringStatusCheck, 800);
         return;
       }
       _stopStatusCheckPoll();
       _ozonFbsStatusCheckSetBusy(false);
+      const stopBtnDone = document.getElementById("ozonFbsStatusCheckProgressStopBtn");
+      if (stopBtnDone) stopBtnDone.classList.add("hidden");
       const closeBtn = document.getElementById("ozonFbsStatusCheckProgressCloseBtn");
       if (closeBtn) closeBtn.classList.remove("hidden");
       const err = document.getElementById("ozonFbsStatusCheckProgressError");
       if (err) {
-        const errText = String(st.error || (!st.ok && st.message) || "").trim();
+        const errText = String(st.error || (!st.ok && !st.stopped && st.message) || "").trim();
         err.textContent = errText;
-        err.classList.toggle("hidden", !errText || st.ok);
+        err.classList.toggle("hidden", !errText || st.ok || st.stopped);
       }
-      _ozonFbsSyncSettingsSetInfo(String(st.message || "Готово"), st.ok ? "ok" : "error");
+      const infoKind = st.stopped ? "" : (st.ok ? "ok" : "error");
+      _ozonFbsSyncSettingsSetInfo(String(st.message || "Готово"), infoKind);
       pollOzonFbsOpsLog(true).catch(() => {});
       if (state.tab === "delivering") {
         loadPostings(true).catch(() => {});
@@ -13386,6 +13427,7 @@
   window.closeOzonFbsSyncSettings = closeOzonFbsSyncSettings;
   window.saveOzonFbsSyncSettings = saveOzonFbsSyncSettings;
   window.startOzonFbsDeliveringStatusCheck = startOzonFbsDeliveringStatusCheck;
+  window.stopOzonFbsDeliveringStatusCheck = stopOzonFbsDeliveringStatusCheck;
   window.closeOzonFbsStatusCheckProgress = closeOzonFbsStatusCheckProgress;
   window.closeOzonFbsSyncInfo = closeSyncInfo;
   window.openOzonFbsDetail = openDetail;

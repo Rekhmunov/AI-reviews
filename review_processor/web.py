@@ -14502,6 +14502,24 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         owner_id = _supply_owner_id(user)
         return oz_sup.get_delivering_status_check_state(user_id=owner_id)
 
+    @app.post("/api/ozon-fbs/delivering-status-check/stop")
+    def ozon_fbs_delivering_status_check_stop(request: Request) -> dict[str, object]:
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        if not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Проверка статусов доступна только главному пользователю",
+            )
+        owner_id = _supply_owner_id(user)
+        stopped = oz_sup.request_delivering_status_check_stop(user_id=owner_id)
+        if stopped:
+            return {"ok": True, "stopping": True, "message": "Остановка проверки…"}
+        return {"ok": False, "stopping": False, "message": "Проверка не запущена"}
+
     @app.put("/api/ozon-fbs/sync-settings")
     def update_ozon_fbs_sync_settings(
         request: Request, payload: OzonFbsSyncSettingsRequest

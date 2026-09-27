@@ -406,7 +406,11 @@ class OzonFbsClient:
         to: datetime,
         limit: int = 50,
         offset: int = 0,
+        with_extras: bool = True,
     ) -> tuple[list[dict[str, Any]], bool]:
+        """Page of FBS postings. ``with_extras=False`` skips heavy nested payloads
+        (status-check bulk scan — only ``posting_number`` / ``status`` needed)."""
+        extras = bool(with_extras)
         body = {
             "dir": "ASC",
             "filter": {
@@ -417,10 +421,10 @@ class OzonFbsClient:
             "limit": min(max(limit, 1), 1000),
             "offset": max(offset, 0),
             "with": {
-                "analytics_data": True,
-                "barcodes": True,
-                "financial_data": True,
-                "translit": True,
+                "analytics_data": extras,
+                "barcodes": extras,
+                "financial_data": extras,
+                "translit": extras,
             },
         }
         data = self.post_json("/v3/posting/fbs/list", body)

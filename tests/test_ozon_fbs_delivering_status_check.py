@@ -20,6 +20,9 @@ def test_ui_button_and_progress_in_sync_settings() -> None:
     assert "Проверить статус заказов" in HTML
     assert 'id="ozonFbsStatusCheckProgressModal"' in HTML
     assert "startOzonFbsDeliveringStatusCheck" in JS
+    assert "stopOzonFbsDeliveringStatusCheck" in JS
+    assert "ozonFbsStatusCheckProgressStopBtn" in HTML
+    assert "/api/ozon-fbs/delivering-status-check/stop" in JS
     assert "closeOzonFbsStatusCheckProgress" in JS
     assert "/api/ozon-fbs/delivering-status-check" in JS
     assert "isTenantOwner" in JS[
@@ -38,6 +41,9 @@ def test_api_routes_owner_only() -> None:
     assert "_is_wb_fbs_tenant_owner" in block
     assert "start_delivering_status_check_thread" in block
     assert "get_delivering_status_check_state" in block
+    stop = WEB.find("def ozon_fbs_delivering_status_check_stop")
+    assert stop > 0
+    assert "request_delivering_status_check_stop" in WEB[stop:stop + 600]
 
 
 def test_schema_has_delivering_listed() -> None:
@@ -151,65 +157,75 @@ def test_build_supply_items_includes_empty_listed(monkeypatch) -> None:
     assert by_id["S-empty"]["delivering_listed"] is True
 
 
-def test_refresh_delivering_posting_statuses_pins_and_updates(monkeypatch) -> None:
+
+def test_refresh_uses_list_then_get_fallback(monkeypatch) -> None:
+    """List hits update without get; leftovers use parallel get_posting."""
     calls: list[dict[str, Any]] = []
+    list_calls: list[str] = []
 
     class _Client:
         def __init__(self, *_a, **_k):
             pass
 
+        def list_postings_page(self, *, status, since, to, limit=50, offset=0, with_extras=True):
+            list_calls.append(status)
+            if status == "delivered" and offset == 0:
+                return ([{"posting_number": "P-1", "status": "delivered"}], False)
+            if status == "delivering" and offset == 0:
+                return ([{"posting_number": "P-2", "status": "delivering"}], False)
+            return ([], False)
+
         def get_posting(self, pn: str) -> dict[str, Any]:
-            return {"status": "delivered" if pn == "P-1" else "delivering"}
+            assert pn == "P-3"
+            return {"status": "cancelled"}
 
     monkeypatch.setattr(oz_sup, "ensure_ozon_fbs_supply_schema", lambda r: None)
     monkeypatch.setattr(oz, "ensure_ozon_fbs_tables", lambda r: None)
-    monkeypatch.setattr(oz_sup, "OZON_FBS_STATUS_CHECK_PAUSE_SEC", 0)
     monkeypatch.setattr(
-        oz_sup,
-        "_pin_all_current_delivering_supplies",
-        lambda *a, **k: ["S1"],
+        oz_sup, "_pin_all_current_delivering_supplies", lambda *a, **k: ["S1"]
     )
     monkeypatch.setattr(
         oz_sup,
-        "_list_delivering_posting_numbers",
-        lambda *a, **k: ["P-1", "P-2"],
+        "_list_delivering_posting_rows",
+        lambda *a, **k: [
+            {"posting_number": "P-1", "tab": "delivering", "created_at_ozon": "2026-01-01T00:00:00Z"},
+            {"posting_number": "P-2", "tab": "delivering", "created_at_ozon": "2026-01-02T00:00:00Z"},
+            {"posting_number": "P-3", "tab": "delivering", "created_at_ozon": "2026-01-03T00:00:00Z"},
+        ],
     )
     monkeypatch.setattr(oz, "OzonFbsClient", _Client)
-
-    def _get_posting(**kwargs):
-        return {
-            "posting_number": kwargs["posting_number"],
+    monkeypatch.setattr(
+        oz,
+        "get_posting_by_number",
+        lambda *a, **k: {
+            "posting_number": k["posting_number"],
             "tab": "delivering",
             "status": "delivering",
-        }
+        },
+    )
 
     def _refresh(**kwargs):
         calls.append(dict(kwargs))
-        tab = "delivered" if kwargs["posting_number"] == "P-1" else "delivering"
-        return {
-            "posting_number": kwargs["posting_number"],
-            "tab": tab,
-            "status": tab,
-        }
+        st = str(kwargs.get("remote_status") or "")
+        tab = "delivered" if st == "delivered" else ("cancelled" if st == "cancelled" else "delivering")
+        return {"posting_number": kwargs["posting_number"], "tab": tab, "status": tab}
 
-    monkeypatch.setattr(oz, "get_posting_by_number", lambda *a, **k: _get_posting(**k))
     monkeypatch.setattr(oz, "refresh_posting_status_only", lambda *a, **k: _refresh(**k))
 
-    progress: list[tuple[int, int]] = []
     out = oz_sup.refresh_delivering_posting_statuses(
         object(),  # type: ignore[arg-type]
         user_id=1,
         source_id=2,
         client_id="c",
         api_key="k",
-        progress=lambda d, t, m: progress.append((d, t)),
     )
-    assert out["checked"] == 2
-    assert out["updated"] == 1
-    assert out["errors"] == 0
-    assert out["pinned_supplies"] == 1
-    assert len(calls) == 2
-    assert progress[-1] == (2, 2)
+    assert out["checked"] == 3
+    assert out["updated"] == 2  # P-1 delivered, P-3 cancelled; P-2 stayed
+    assert out["list_hits"] == 2
+    assert out["get_fallbacks"] == 1
+    assert "delivered" in list_calls
+    pns = {c["posting_number"] for c in calls}
+    assert pns == {"P-1", "P-3"}
 
 
 def test_refresh_skips_rows_no_longer_delivering(monkeypatch) -> None:
@@ -219,17 +235,28 @@ def test_refresh_skips_rows_no_longer_delivering(monkeypatch) -> None:
         def __init__(self, *_a, **_k):
             pass
 
+        def list_postings_page(self, **_k):
+            # Ozon still says delivering — must not bounce local awaiting back.
+            return ([{"posting_number": "P-moved", "status": "delivered"}], False)
+
         def get_posting(self, pn: str) -> dict[str, Any]:
-            raise AssertionError(f"should not call Ozon for {pn}")
+            raise AssertionError(f"should not call get for {pn}")
 
     monkeypatch.setattr(oz_sup, "ensure_ozon_fbs_supply_schema", lambda r: None)
     monkeypatch.setattr(oz, "ensure_ozon_fbs_tables", lambda r: None)
-    monkeypatch.setattr(oz_sup, "OZON_FBS_STATUS_CHECK_PAUSE_SEC", 0)
     monkeypatch.setattr(
         oz_sup, "_pin_all_current_delivering_supplies", lambda *a, **k: ["S1"]
     )
     monkeypatch.setattr(
-        oz_sup, "_list_delivering_posting_numbers", lambda *a, **k: ["P-moved"]
+        oz_sup,
+        "_list_delivering_posting_rows",
+        lambda *a, **k: [
+            {
+                "posting_number": "P-moved",
+                "tab": "delivering",
+                "created_at_ozon": "2026-01-01T00:00:00Z",
+            }
+        ],
     )
     monkeypatch.setattr(oz, "OzonFbsClient", _Client)
     monkeypatch.setattr(
@@ -258,6 +285,22 @@ def test_refresh_skips_rows_no_longer_delivering(monkeypatch) -> None:
     assert out["checked"] == 1
     assert out["updated"] == 0
     assert refresh_calls == []
+
+
+def test_request_status_check_stop() -> None:
+    uid = 424242
+    with oz_sup._status_check_lock:
+        oz_sup._status_check_jobs[uid] = {
+            **oz_sup._empty_status_check_job(),
+            "in_progress": True,
+            "job_id": "abc",
+        }
+    assert oz_sup.request_delivering_status_check_stop(user_id=uid) is True
+    st = oz_sup.get_delivering_status_check_state(user_id=uid)
+    assert st["cancel_requested"] is True
+    assert oz_sup.request_delivering_status_check_stop(user_id=uid + 1) is False
+    with oz_sup._status_check_lock:
+        oz_sup._status_check_jobs.pop(uid, None)
 
 
 def test_move_to_delivering_pins_listed(monkeypatch) -> None:
@@ -355,4 +398,4 @@ def test_move_to_delivering_pins_listed(monkeypatch) -> None:
 
 
 def test_cache_bump() -> None:
-    assert "ozon_fbs.js?v=199" in HTML
+    assert "ozon_fbs.js?v=200" in HTML

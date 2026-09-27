@@ -10328,6 +10328,17 @@ tr.dnd-over td {
   justify-content: flex-end;
   gap: 8px;
 }
+#ozonFbsStatusCheckProgressStopBtn {
+  color: #b91c1c;
+  border-color: #fca5a5;
+}
+#ozonFbsStatusCheckProgressStopBtn:hover:not(:disabled) {
+  background: #fef2f2;
+}
+#ozonFbsStatusCheckProgressStopBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 .ozon-fbs-ops-log-section {
   flex: 1 1 auto;
   min-height: 240px;
