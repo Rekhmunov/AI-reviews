@@ -2509,15 +2509,23 @@ def list_postings(
     }
 
 
+# Full posting: 0124861120-0199-1  |  order number (no package suffix): 0124861120-0199
 _POSTING_NUMBER_QUERY_RE = re.compile(r"^\d{6,}-\d{3,}-\d{1,4}$")
+_ORDER_NUMBER_QUERY_RE = re.compile(r"^\d{6,}-\d{3,}$")
 
 
 def parse_posting_number_query(search: object) -> str:
-    """Return normalized posting number when search looks like a full Ozon id."""
+    """Normalize toolbar find query: full posting or order number (2 segments)."""
     q = re.sub(r"\s+", "", str(search or "").strip())
-    if not _POSTING_NUMBER_QUERY_RE.fullmatch(q):
-        return ""
-    return q
+    if _POSTING_NUMBER_QUERY_RE.fullmatch(q) or _ORDER_NUMBER_QUERY_RE.fullmatch(q):
+        return q
+    return ""
+
+
+def is_ozon_order_number_query(search: object) -> bool:
+    """True for order-number form without package suffix (…-0059, not …-0059-1)."""
+    q = re.sub(r"\s+", "", str(search or "").strip())
+    return bool(_ORDER_NUMBER_QUERY_RE.fullmatch(q))
 
 
 def get_posting_by_number(
@@ -2550,6 +2558,54 @@ def get_posting_by_number(
     if str(d.get("posting_number") or "").strip().casefold() != pn.casefold():
         return None
     return d
+
+
+def list_postings_by_number_query(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    query: str,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """Local rows for toolbar find: exact posting, order_number, or package siblings.
+
+    ``0133209311-0059`` matches ``0133209311-0059-1``, ``…-2``, … via
+    ``posting_number LIKE 'query-%'`` and/or ``order_number``.
+    """
+    ensure_ozon_fbs_tables(repo)
+    q = str(query or "").strip()
+    if not q:
+        return []
+    safe_limit = max(1, min(int(limit or 50), 50))
+    child_like = f"{q}-%"
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                """
+                SELECT * FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ?
+                  AND (
+                    posting_number ILIKE ?
+                    OR order_number ILIKE ?
+                    OR posting_number ILIKE ?
+                  )
+                ORDER BY posting_number ASC
+                LIMIT ?
+                """
+            ),
+            (int(user_id), int(source_id), q, q, child_like, safe_limit),
+        ).fetchall()
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in rows:
+        d = repo._row_to_dict(row)
+        pn = str(d.get("posting_number") or "").strip()
+        if not pn or pn.casefold() in seen:
+            continue
+        seen.add(pn.casefold())
+        out.append(d)
+    return out
 
 
 def _enrich_posting_list_item(
@@ -2952,6 +3008,76 @@ def build_posting_lookup_details(
     }
 
 
+def _lookup_refresh_one_posting(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    local: dict[str, Any],
+    client_id: str,
+    api_key: str,
+    allow_remote: bool,
+    shared_client: OzonFbsClient | None = None,
+) -> tuple[dict[str, Any], dict[str, Any], OzonFbsClient | None, bool, str]:
+    """Refresh one local row from Ozon; return (row, remote, client, refreshed, warning)."""
+    pn = str(local.get("posting_number") or "").strip()
+    status_refreshed = False
+    api_warning = ""
+    remote: dict[str, Any] = {}
+    api = shared_client
+    if not (allow_remote and client_id and api_key and pn):
+        return local, remote, api, False, ""
+    try:
+        if api is None:
+            api = OzonFbsClient(client_id, api_key)
+        got = api.get_posting(pn)
+        if isinstance(got, dict):
+            remote = got
+        remote_status = str(remote.get("status") or "").strip()
+        if remote_status:
+            updated = refresh_posting_status_only(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                posting_number=pn,
+                remote_status=remote_status,
+            )
+            if updated:
+                local = updated
+                status_refreshed = True
+        if remote:
+            try:
+                apply_posting_sticker_hints(
+                    repo,
+                    user_id=user_id,
+                    source_id=source_id,
+                    posting={**remote, "posting_number": pn},
+                )
+                hints = sticker_fields_from_posting({**remote, "posting_number": pn})
+                hint_upper = str(hints.get("sticker_barcode") or "").strip()
+                hint_lower = str(hints.get("sticker_lower_barcode") or "").strip()
+                if hint_upper or hint_lower:
+                    patched = dict(local)
+                    if hint_upper and ozon_package_barcode_is_blank(
+                        patched.get("sticker_barcode")
+                    ):
+                        patched["sticker_barcode"] = hint_upper
+                    if hint_lower and ozon_package_barcode_is_blank(
+                        patched.get("sticker_lower_barcode")
+                    ):
+                        patched["sticker_lower_barcode"] = hint_lower
+                    local = patched
+            except Exception as heal_exc:
+                _log.warning(
+                    "ozon_fbs lookup sticker heal failed pn=%s: %s", pn, heal_exc
+                )
+    except Exception as exc:
+        _log.warning("ozon_fbs lookup status refresh failed pn=%s: %s", pn, exc)
+        api_warning = "Статус из базы (Ozon API недоступен)"
+        api = None
+    return local, remote, api, status_refreshed, api_warning
+
+
 def lookup_posting_by_number(
     repo: ReviewRepository,
     *,
@@ -2962,7 +3088,10 @@ def lookup_posting_by_number(
     api_key: str | None = None,
     allow_remote: bool = True,
 ) -> dict[str, Any]:
-    """Find posting locally; refresh status from Ozon API when credentials allow.
+    """Find posting(s) locally; refresh status from Ozon API when credentials allow.
+
+    Accepts full ``posting_number`` (…-0059-1) or order number (…-0059). The latter
+    returns all package siblings (…-1, …-2, …) stacked for the toolbar search.
 
     Local marking / supply_id are kept. ``status`` and ``tab`` are updated from
     ``/v3/posting/fbs/get``. Empty or placeholder package stickers (``"0"``)
@@ -2979,116 +3108,108 @@ def lookup_posting_by_number(
             "posting_number": "",
             "tab": "",
             "item": None,
+            "items": [],
+            "match_count": 0,
             "counts": counts,
             "status_refreshed": False,
-            "message": "Укажите номер отправления (например 0124861120-0199-1)",
+            "message": (
+                "Укажите номер отправления или заказа "
+                "(например 0124861120-0199-1 или 0124861120-0199)"
+            ),
         }
-    local = get_posting_by_number(
-        repo, user_id=user_id, source_id=sid, posting_number=pn
-    )
-    if not local:
+
+    order_query = is_ozon_order_number_query(pn)
+    if order_query:
+        local_rows = list_postings_by_number_query(
+            repo, user_id=user_id, source_id=sid, query=pn
+        )
+    else:
+        one = get_posting_by_number(
+            repo, user_id=user_id, source_id=sid, posting_number=pn
+        )
+        local_rows = [one] if one else []
+
+    if not local_rows:
         return {
             "found": False,
             "source": "none",
             "posting_number": pn,
             "tab": "",
             "item": None,
+            "items": [],
+            "match_count": 0,
             "counts": counts,
             "status_refreshed": False,
-            "message": f"Отправление {pn} не найдено в локальной базе",
+            "message": (
+                f"Заказ {pn} не найден в локальной базе"
+                if order_query
+                else f"Отправление {pn} не найдено в локальной базе"
+            ),
         }
 
-    status_refreshed = False
-    api_warning = ""
-    remote: dict[str, Any] = {}
-    api: OzonFbsClient | None = None
     cid = str(client_id or "").strip()
     key = str(api_key or "").strip()
-    if allow_remote and cid and key:
-        try:
-            api = OzonFbsClient(cid, key)
-            got = api.get_posting(pn)
-            if isinstance(got, dict):
-                remote = got
-            remote_status = str(remote.get("status") or "").strip()
-            if remote_status:
-                updated = refresh_posting_status_only(
-                    repo,
-                    user_id=user_id,
-                    source_id=sid,
-                    posting_number=pn,
-                    remote_status=remote_status,
-                )
-                if updated:
-                    local = updated
-                    status_refreshed = True
-                    counts = _tab_counts(repo, user_id=user_id, source_id=sid)
-            # Heal placeholder / empty package stickers without touching real QRs.
-            if remote:
-                try:
-                    apply_posting_sticker_hints(
-                        repo,
-                        user_id=user_id,
-                        source_id=sid,
-                        posting={**remote, "posting_number": pn},
-                    )
-                    hints = sticker_fields_from_posting(
-                        {**remote, "posting_number": pn}
-                    )
-                    hint_upper = str(hints.get("sticker_barcode") or "").strip()
-                    hint_lower = str(
-                        hints.get("sticker_lower_barcode") or ""
-                    ).strip()
-                    if hint_upper or hint_lower:
-                        patched = dict(local)
-                        if hint_upper and ozon_package_barcode_is_blank(
-                            patched.get("sticker_barcode")
-                        ):
-                            patched["sticker_barcode"] = hint_upper
-                        if hint_lower and ozon_package_barcode_is_blank(
-                            patched.get("sticker_lower_barcode")
-                        ):
-                            patched["sticker_lower_barcode"] = hint_lower
-                        local = patched
-                except Exception as heal_exc:
-                    _log.warning(
-                        "ozon_fbs lookup sticker heal failed pn=%s: %s",
-                        pn,
-                        heal_exc,
-                    )
-        except Exception as exc:
-            _log.warning(
-                "ozon_fbs lookup status refresh failed pn=%s: %s", pn, exc
-            )
-            api_warning = "Статус из базы (Ozon API недоступен)"
-            api = None
+    items: list[dict[str, Any]] = []
+    details_first: dict[str, Any] | None = None
+    any_refreshed = False
+    api_warning = ""
+    shared_client: OzonFbsClient | None = None
 
-    item = _enrich_posting_list_item(repo, user_id=user_id, row=local)
-    details = build_posting_lookup_details(
-        repo,
-        user_id=user_id,
-        source_id=sid,
-        row=local,
-        remote=remote or None,
-        client=api,
-    )
-    # Prefer Russian Ozon status on the list item used by search card.
-    if details.get("status_label"):
-        item["status_label"] = details["status_label"]
-        item["status"] = details.get("status") or item.get("status")
-    source = "local+api" if status_refreshed else "local"
+    for idx, row0 in enumerate(local_rows):
+        local, remote, shared_client, refreshed, warn = _lookup_refresh_one_posting(
+            repo,
+            user_id=user_id,
+            source_id=sid,
+            local=row0,
+            client_id=cid,
+            api_key=key,
+            allow_remote=allow_remote,
+            shared_client=shared_client,
+        )
+        if refreshed:
+            any_refreshed = True
+        if warn and not api_warning:
+            api_warning = warn
+        item = _enrich_posting_list_item(repo, user_id=user_id, row=local)
+        details = build_posting_lookup_details(
+            repo,
+            user_id=user_id,
+            source_id=sid,
+            row=local,
+            remote=remote or None,
+            client=shared_client,
+        )
+        if details.get("status_label"):
+            item["status_label"] = details["status_label"]
+            item["status"] = details.get("status") or item.get("status")
+        items.append(item)
+        if idx == 0:
+            details_first = details
+
+    if any_refreshed:
+        counts = _tab_counts(repo, user_id=user_id, source_id=sid)
+
+    source = "local+api" if any_refreshed else "local"
     message = api_warning
-    if status_refreshed:
+    if any_refreshed:
         message = "Статус обновлён из Ozon"
+    elif len(items) > 1:
+        message = f"Найдено отправлений: {len(items)}"
+
+    first = items[0]
     return {
         "found": True,
         "source": source,
-        "posting_number": str(item.get("posting_number") or pn),
-        "tab": str(item.get("tab") or ""),
-        "item": item,
-        "details": details,
+        "posting_number": str(first.get("posting_number") or pn),
+        "query": pn,
+        "tab": str(first.get("tab") or ""),
+        "item": first,
+        "items": items,
+        "match_count": len(items),
+        # Detail card only for a single hit; multi shows stacked table rows.
+        "details": details_first if len(items) == 1 else None,
         "counts": counts,
-        "status_refreshed": status_refreshed,
+        "status_refreshed": any_refreshed,
         "message": message,
     }
 

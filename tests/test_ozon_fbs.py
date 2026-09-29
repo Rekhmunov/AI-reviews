@@ -202,11 +202,17 @@ class OzonFbsMappingTests(unittest.TestCase):
         self.assertEqual(codes, ["460999"])
 
     def test_parse_posting_number_query(self) -> None:
+        from review_processor.ozon_fbs import is_ozon_order_number_query
+
         self.assertEqual(
             parse_posting_number_query(" 0124861120-0199-1 "),
             "0124861120-0199-1",
         )
         self.assertEqual(parse_posting_number_query("0124861120-0199-1"), "0124861120-0199-1")
+        self.assertEqual(parse_posting_number_query("0133209311-0059"), "0133209311-0059")
+        self.assertEqual(parse_posting_number_query(" 0133209311-0059 "), "0133209311-0059")
+        self.assertTrue(is_ozon_order_number_query("0133209311-0059"))
+        self.assertFalse(is_ozon_order_number_query("0133209311-0059-1"))
         self.assertEqual(parse_posting_number_query("art-sku"), "")
         self.assertEqual(parse_posting_number_query("0124861120"), "")
         self.assertEqual(parse_posting_number_query("123"), "")
@@ -666,6 +672,65 @@ class OzonFbsMappingTests(unittest.TestCase):
         self.assertEqual(out["tab"], TAB_DELIVERING)
         self.assertEqual(out["item"]["supply_id"], "sup-delivering")
         refresh_wrap.assert_called_once()
+
+    def test_lookup_order_number_returns_package_siblings(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        repo = MagicMock()
+        rows = [
+            {
+                "posting_number": "0133209311-0059-1",
+                "order_number": "0133209311-0059",
+                "tab": TAB_DELIVERING,
+                "status": "delivering",
+                "offer_id": "A",
+            },
+            {
+                "posting_number": "0133209311-0059-2",
+                "order_number": "0133209311-0059",
+                "tab": TAB_DELIVERING,
+                "status": "delivering",
+                "offer_id": "B",
+            },
+        ]
+        with patch(
+            "review_processor.ozon_fbs.list_postings_by_number_query",
+            return_value=rows,
+        ), patch(
+            "review_processor.ozon_fbs.get_posting_by_number",
+            return_value=None,
+        ), patch(
+            "review_processor.ozon_fbs._tab_counts",
+            return_value={TAB_DELIVERING: 2},
+        ), patch(
+            "review_processor.ozon_fbs.ensure_ozon_fbs_tables"
+        ), patch(
+            "review_processor.ozon_fbs._enrich_posting_list_item",
+            side_effect=lambda repo, **kw: {
+                **kw["row"],
+                "warehouse_label": "—",
+                "tab_label": "Доставляются",
+                "status_label": "Доставляется",
+            },
+        ), patch(
+            "review_processor.ozon_fbs.build_posting_lookup_details",
+            return_value={"status_label": "Доставляется", "tab_label": "Доставляются"},
+        ):
+            out = lookup_posting_by_number(
+                repo,
+                user_id=1,
+                source_id=2,
+                posting_number="0133209311-0059",
+                allow_remote=False,
+            )
+        self.assertTrue(out["found"])
+        self.assertEqual(out["match_count"], 2)
+        self.assertEqual(len(out["items"]), 2)
+        self.assertEqual(out["items"][0]["posting_number"], "0133209311-0059-1")
+        self.assertEqual(out["items"][1]["posting_number"], "0133209311-0059-2")
+        self.assertEqual(out["item"]["posting_number"], "0133209311-0059-1")
+        self.assertIsNone(out["details"])
+        self.assertEqual(out["query"], "0133209311-0059")
 
 
 if __name__ == "__main__":

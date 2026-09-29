@@ -237,7 +237,9 @@
 
   function parsePostingNumberQuery(search) {
     const q = String(search || "").trim().replace(/\s+/g, "");
+    // Full posting …-0199-1 or order number …-0199 (package siblings).
     if (/^\d{6,}-\d{3,}-\d{1,4}$/.test(q)) return q;
+    if (/^\d{6,}-\d{3,}$/.test(q)) return q;
     return "";
   }
 
@@ -350,38 +352,48 @@
   }
 
   function applyLookupResult(data, postingNumber) {
-    const item = data && data.item;
-    if (!data?.found || !item) {
+    const items = Array.isArray(data?.items) && data.items.length
+      ? data.items.filter((it) => it && typeof it === "object")
+      : (data?.item && typeof data.item === "object" ? [data.item] : []);
+    if (!data?.found || !items.length) {
       clearLookupMode();
       return false;
     }
-    const details = data.details && typeof data.details === "object" ? data.details : null;
+    const item = items[0];
+    const multi = items.length > 1;
+    const details = !multi && data.details && typeof data.details === "object"
+      ? data.details
+      : null;
     const tab = String(data.tab || details?.tab || item.tab || "").trim();
     const supplyId = String(
       (details && details.supply_id) || item.supply_id || ""
     ).trim();
+    const queryLabel = String(data.query || postingNumber || "").trim();
     state.lookupMode = true;
     state.lookupMeta = {
       posting_number: String(data.posting_number || postingNumber),
+      query: queryLabel,
       tab,
       source: String(data.source || ""),
       message: String(data.message || ""),
       supply_id: supplyId,
+      match_count: items.length,
     };
-    state.items = [item];
-    state.total = 1;
+    state.items = items;
+    state.total = items.length;
     state.page = 1;
     state.selected.clear();
     if (data.counts) updateTabCounts(data.counts);
     // Keep operator on a visible tab button; do not open hidden tabs.
-    if (tab && !OZON_FBS_HIDDEN_TABS.has(tab) && state.tab !== tab) {
+    // Multi-match may span tabs — stay on current visible tab.
+    if (!multi && tab && !OZON_FBS_HIDDEN_TABS.has(tab) && state.tab !== tab) {
       state.tab = tab;
       document.querySelectorAll("#ozonFbsTabs .wb-fbs-tab").forEach((btn) => {
         btn.classList.toggle("active", btn.dataset.tab === tab);
       });
     }
     syncTableMode();
-    renderTable([item]);
+    renderTable(items);
     syncPackagingActionButtons();
     const tabLabel = String(
       details?.tab_label || OZON_FBS_TAB_LABELS[tab] || tab || "—"
@@ -393,11 +405,12 @@
       ? "статус обновлён из Ozon"
       : (data.message && String(data.message).startsWith("Статус из базы")
         ? "статус из базы (API недоступен)"
-        : "найдено в базе");
-    // Footer already has pagination; tab/status live in the row + detail card.
+        : (multi ? `найдено ${items.length} по запросу ${queryLabel || postingNumber}` : "найдено в базе"));
     const info = document.getElementById("ozonFbsInfo");
-    if (info) info.textContent = "Всего: 1";
-    if (details) {
+    if (info) info.textContent = `Всего: ${items.length}`;
+    if (multi) {
+      _ozonFbsRenderLookupDetail(null);
+    } else if (details) {
       _ozonFbsRenderLookupDetail(details, { viaText: via });
     } else {
       _ozonFbsRenderLookupDetail({
@@ -1356,14 +1369,14 @@
     const seq = ++state.loadSeq;
 
     try {
-      // Full posting number → always /find (cross-tab + status refresh from Ozon).
-      // Skipping the tab list avoids stale status when the row is already on this tab.
+      // Posting / order number → /find (cross-tab + status refresh from Ozon).
+      // Order number (…-0059) may return several package siblings stacked.
       if (pnQuery) {
         if (tbody) {
-          tbody.innerHTML = `<tr><td colspan="${colspan()}" class="wb-fbs-empty">Ищем отправление ${esc(pnQuery)}…</td></tr>`;
+          tbody.innerHTML = `<tr><td colspan="${colspan()}" class="wb-fbs-empty">Ищем ${esc(pnQuery)}…</td></tr>`;
         }
         const infoPending = document.getElementById("ozonFbsInfo");
-        if (infoPending) infoPending.textContent = `Поиск отправления ${pnQuery}…`;
+        if (infoPending) infoPending.textContent = `Поиск ${pnQuery}…`;
         const lookup = await lookupPostingByNumber(pnQuery, { seq });
         if (seq !== state.loadSeq) return;
         if (lookup && applyLookupResult(lookup, pnQuery)) return;

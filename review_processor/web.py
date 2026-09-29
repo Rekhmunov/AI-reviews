@@ -14196,10 +14196,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         search: str | None = None,
         refresh: bool = True,
     ) -> dict[str, object]:
-        """Toolbar search: find one posting by number across all local tabs (WB-like).
+        """Toolbar search: find posting(s) by number across all local tabs.
 
-        ``refresh=false`` skips Ozon status pull — used after local-only edits
-        (e.g. move to supply) so local ``tab`` is not immediately overwritten.
+        Accepts full posting (…-0199-1) or order number (…-0199); the latter
+        returns all package siblings. ``refresh=false`` skips Ozon status pull —
+        used after local-only edits (e.g. move to supply) so local ``tab`` is
+        not immediately overwritten.
         """
         user = _require_user(request)
         if not _can_view_ozon_fbs(user):
@@ -14211,7 +14213,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not pn:
             raise HTTPException(
                 status_code=400,
-                detail="Укажите полный номер отправления (например 0124861120-0199-1)",
+                detail=(
+                    "Укажите номер отправления или заказа "
+                    "(например 0124861120-0199-1 или 0124861120-0199)"
+                ),
             )
         owner_id = _supply_owner_id(user)
         client_id = ""
