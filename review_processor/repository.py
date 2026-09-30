@@ -8361,6 +8361,8 @@ class ReviewRepository:
             "carrier_kpp",
             "carrier_phone",
             "carrier_fns_id",
+            "carrier_ogrn",
+            "carrier_box_id",
             "carrier_addr_index",
             "carrier_addr_region_code",
             "carrier_addr_district",
@@ -8943,6 +8945,8 @@ class ReviewRepository:
         carrier_kpp: str = "",
         carrier_phone: str = "",
         carrier_fns_id: str = "",
+        carrier_ogrn: str = "",
+        carrier_box_id: str = "",
         carrier_addr_index: str = "",
         carrier_addr_region_code: str = "",
         carrier_addr_district: str = "",
@@ -8961,6 +8965,10 @@ class ReviewRepository:
         phone = re.sub(r"\s+", " ", str(carrier_phone or "").strip())[:32]
         # Diadoc/FNS participant id, e.g. 2BM-7704217370-774301001-201407110916237240124
         fns_id = re.sub(r"\s+", "", str(carrier_fns_id or "").strip())[:80]
+        # ОГРН (13) / ОГРНИП (15) — empty stays empty (omit in XML).
+        ogrn = re.sub(r"\D", "", str(carrier_ogrn or ""))[:15]
+        # Diadoc recipient BoxId (UUID); empty → fallback to ЭДО settings.
+        box_id = re.sub(r"\s+", "", str(carrier_box_id or "").strip())[:80]
         fias = re.sub(r"[{}\s]", "", str(carrier_addr_fias or "").strip()).lower()
         if not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", fias):
             fias = ""
@@ -8970,6 +8978,8 @@ class ReviewRepository:
             "carrier_kpp": kpp,
             "carrier_phone": phone,
             "carrier_fns_id": fns_id,
+            "carrier_ogrn": ogrn,
+            "carrier_box_id": box_id,
             "carrier_addr_index": index,
             "carrier_addr_region_code": region,
             "carrier_addr_district": str(carrier_addr_district or "").strip(),
@@ -9459,6 +9469,8 @@ class ReviewRepository:
         carrier_kpp: str = "",
         carrier_phone: str = "",
         carrier_fns_id: str = "",
+        carrier_ogrn: str = "",
+        carrier_box_id: str = "",
         carrier_addr_index: str = "",
         carrier_addr_region_code: str = "",
         carrier_addr_district: str = "",
@@ -9493,6 +9505,8 @@ class ReviewRepository:
             carrier_kpp=carrier_kpp,
             carrier_phone=carrier_phone,
             carrier_fns_id=carrier_fns_id,
+            carrier_ogrn=carrier_ogrn,
+            carrier_box_id=carrier_box_id,
             carrier_addr_index=carrier_addr_index,
             carrier_addr_region_code=carrier_addr_region_code,
             carrier_addr_district=carrier_addr_district,
@@ -9519,11 +9533,12 @@ class ReviewRepository:
                 "INSERT INTO supply_drivers ("
                 "user_id, full_name, last_name, first_name, middle_name, phone, documents, in_person, vehicles_json, carrier, "
                 "carrier_name, carrier_inn, carrier_kpp, carrier_phone, carrier_fns_id, "
+                "carrier_ogrn, carrier_box_id, "
                 "carrier_addr_index, carrier_addr_region_code, carrier_addr_district, "
                 "carrier_addr_city, carrier_addr_settlement, carrier_addr_street, "
                 "carrier_addr_house, carrier_addr_corpus, carrier_addr_flat, carrier_addr_fias, "
                 "doc_vu_series, doc_vu_number, doc_vu_issuer, doc_vu_date, doc_inn_fl, access_pin, created_at"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     user_id,
                     fio["full_name"],
@@ -9540,6 +9555,8 @@ class ReviewRepository:
                     cf["carrier_kpp"],
                     cf["carrier_phone"],
                     cf["carrier_fns_id"],
+                    cf["carrier_ogrn"],
+                    cf["carrier_box_id"],
                     cf["carrier_addr_index"],
                     cf["carrier_addr_region_code"],
                     cf["carrier_addr_district"],
@@ -9599,6 +9616,8 @@ class ReviewRepository:
         carrier_kpp: str = "",
         carrier_phone: str = "",
         carrier_fns_id: str = "",
+        carrier_ogrn: str = "",
+        carrier_box_id: str = "",
         carrier_addr_index: str = "",
         carrier_addr_region_code: str = "",
         carrier_addr_district: str = "",
@@ -9632,6 +9651,8 @@ class ReviewRepository:
             carrier_kpp=carrier_kpp,
             carrier_phone=carrier_phone,
             carrier_fns_id=carrier_fns_id,
+            carrier_ogrn=carrier_ogrn,
+            carrier_box_id=carrier_box_id,
             carrier_addr_index=carrier_addr_index,
             carrier_addr_region_code=carrier_addr_region_code,
             carrier_addr_district=carrier_addr_district,
@@ -9673,7 +9694,7 @@ class ReviewRepository:
                     "UPDATE supply_drivers SET full_name = ?, last_name = ?, first_name = ?, middle_name = ?, "
                     "phone = ?, documents = ?, in_person = ?, vehicles_json = ?, "
                     "carrier = ?, carrier_name = ?, carrier_inn = ?, carrier_kpp = ?, carrier_phone = ?, "
-                    "carrier_fns_id = ?, "
+                    "carrier_fns_id = ?, carrier_ogrn = ?, carrier_box_id = ?, "
                     "carrier_addr_index = ?, carrier_addr_region_code = ?, carrier_addr_district = ?, "
                     "carrier_addr_city = ?, carrier_addr_settlement = ?, carrier_addr_street = ?, "
                     "carrier_addr_house = ?, carrier_addr_corpus = ?, carrier_addr_flat = ?, "
@@ -9697,6 +9718,8 @@ class ReviewRepository:
                     cf["carrier_kpp"],
                     cf["carrier_phone"],
                     cf["carrier_fns_id"],
+                    cf["carrier_ogrn"],
+                    cf["carrier_box_id"],
                     cf["carrier_addr_index"],
                     cf["carrier_addr_region_code"],
                     cf["carrier_addr_district"],

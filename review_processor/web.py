@@ -813,6 +813,8 @@ class CreateSupplyDriverRequest(BaseModel):
     carrier_kpp: str = ""
     carrier_phone: str = ""
     carrier_fns_id: str = ""
+    carrier_ogrn: str = ""
+    carrier_box_id: str = ""
     carrier_addr_index: str = ""
     carrier_addr_region_code: str = ""
     carrier_addr_district: str = ""
@@ -929,6 +931,8 @@ class UpdateSupplyDriverRequest(BaseModel):
     carrier_kpp: str = ""
     carrier_phone: str = ""
     carrier_fns_id: str = ""
+    carrier_ogrn: str = ""
+    carrier_box_id: str = ""
     carrier_addr_index: str = ""
     carrier_addr_region_code: str = ""
     carrier_addr_district: str = ""
@@ -18407,14 +18411,32 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     fname = f"{root.attrib['ИдФайл']}.xml"
             except Exception:
                 pass
+        carrier_box_id = ""
+        if isinstance(ctx.get("carrier_fields"), dict):
+            carrier_box_id = str(ctx["carrier_fields"].get("carrier_box_id") or "").strip()
         meta = {
             "doc_type": doc_type,
             "supply_order_id": supply_order_id,
             "filename": fname,
             "xml_base64": _b64.b64encode(xml_bytes).decode("ascii"),
             "xml_size": len(xml_bytes),
+            "carrier_box_id": carrier_box_id,
         }
         return xml_bytes, fname, meta
+
+    def _resolve_diadoc_to_box_id(
+        settings: dict[str, object],
+        carrier_fields: dict[str, object] | None = None,
+        *,
+        carrier_box_id: str = "",
+    ) -> str:
+        """ToBoxId: carrier_box_id from Водители → Перевозчик, else ЭДО settings."""
+        box = str(carrier_box_id or "").strip()
+        if not box and isinstance(carrier_fields, dict):
+            box = str(carrier_fields.get("carrier_box_id") or "").strip()
+        if box:
+            return box
+        return str((settings or {}).get("diadoc_to_box_id") or "").strip()
 
     @app.get("/api/supply-edo-settings")
     def get_supply_edo_settings(request: Request) -> dict[str, object]:
@@ -18488,12 +18510,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         _xml, _fname, meta = _ozon_build_edo_xml(request, supply_order_id, doc_type)
         settings = repository.get_supply_edo_settings(user_id=_supply_owner_id(user))
         meta["cert_thumbprint"] = str(settings.get("cert_thumbprint") or "")
+        to_box = _resolve_diadoc_to_box_id(
+            settings, carrier_box_id=str(meta.get("carrier_box_id") or "")
+        )
         diadoc_ready = bool(
             settings.get("diadoc_client_id")
             and settings.get("diadoc_login")
             and settings.get("has_diadoc_password")
             and settings.get("diadoc_from_box_id")
-            and settings.get("diadoc_to_box_id")
+            and to_box
         )
         # эТрН → Logistics API key; Заявка → Diadoc creds (either channel is enough to enable UI).
         meta["edo_enabled"] = bool(
@@ -18589,16 +18614,23 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             return {"ok": True, "doc_type": doc_type, "channel": "logistics", "document": st}
 
         # zakaz → Diadoc LogisticsOrderRequest
+        # ToBoxId: carrier_box_id перевозчика, иначе To BoxId из Настройки → ЭДО.
+        try:
+            _data, ctx, _cargo = _ozon_prepare_doc_xml_context(request, supply_order_id)
+            carrier_fields = ctx.get("carrier_fields") if isinstance(ctx, dict) else None
+        except Exception:
+            carrier_fields = None
+        to_box_id = _resolve_diadoc_to_box_id(settings, carrier_fields if isinstance(carrier_fields, dict) else None)
         if not (
             settings.get("diadoc_client_id")
             and settings.get("diadoc_login")
             and settings.get("diadoc_password")
             and settings.get("diadoc_from_box_id")
-            and settings.get("diadoc_to_box_id")
+            and to_box_id
         ):
             raise HTTPException(
                 status_code=400,
-                detail="Для Заявки заполните Diadoc в Настройки → ЭДО (Client ID, логин, пароль, From/To BoxId)",
+                detail="Для Заявки заполните Diadoc в Настройки → ЭДО (Client ID, логин, пароль, From BoxId) и To BoxId (в ЭДО или у перевозчика)",
             )
         dclient = KonturDiadocClient(
             api_url=str(settings.get("diadoc_url") or ""),
@@ -18608,7 +18640,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         res = dclient.send_order_request(
             from_box_id=str(settings.get("diadoc_from_box_id") or ""),
-            to_box_id=str(settings.get("diadoc_to_box_id") or ""),
+            to_box_id=to_box_id,
             xml_bytes=xml_bytes,
             signature_bytes=signature_bytes,
         )
@@ -20198,6 +20230,8 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             carrier_kpp=payload.carrier_kpp,
             carrier_phone=payload.carrier_phone,
             carrier_fns_id=payload.carrier_fns_id,
+            carrier_ogrn=payload.carrier_ogrn,
+            carrier_box_id=payload.carrier_box_id,
             carrier_addr_index=payload.carrier_addr_index,
             carrier_addr_region_code=payload.carrier_addr_region_code,
             carrier_addr_district=payload.carrier_addr_district,
@@ -20254,6 +20288,8 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             carrier_kpp=payload.carrier_kpp,
             carrier_phone=payload.carrier_phone,
             carrier_fns_id=payload.carrier_fns_id,
+            carrier_ogrn=payload.carrier_ogrn,
+            carrier_box_id=payload.carrier_box_id,
             carrier_addr_index=payload.carrier_addr_index,
             carrier_addr_region_code=payload.carrier_addr_region_code,
             carrier_addr_district=payload.carrier_addr_district,
@@ -23184,12 +23220,23 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                 fname = f"{file_id}.xml"
         except Exception:
             pass
+        carrier_box_id = ""
+        try:
+            ctx = _ttn_docs.collect_ttn_doc_context(
+                repository=repository, owner_id=owner_id, record=record
+            )
+            cf = ctx.get("carrier_fields") if isinstance(ctx, dict) else None
+            if isinstance(cf, dict):
+                carrier_box_id = str(cf.get("carrier_box_id") or "").strip()
+        except Exception:
+            carrier_box_id = ""
         meta = {
             "doc_type": doc_type,
             "ttn_record_id": record_id,
             "filename": fname,
             "xml_base64": _b64.b64encode(xml_bytes).decode("ascii"),
             "xml_size": len(xml_bytes),
+            "carrier_box_id": carrier_box_id,
         }
         return xml_bytes, fname, meta
 
@@ -23250,12 +23297,15 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         _xml, _fname, meta = _ttn_build_edo_xml(request, record_id, doc_type)
         settings = repository.get_supply_edo_settings(user_id=_supply_owner_id(user))
         meta["cert_thumbprint"] = str(settings.get("cert_thumbprint") or "")
+        to_box = _resolve_diadoc_to_box_id(
+            settings, carrier_box_id=str(meta.get("carrier_box_id") or "")
+        )
         diadoc_ready = bool(
             settings.get("diadoc_client_id")
             and settings.get("diadoc_login")
             and settings.get("has_diadoc_password")
             and settings.get("diadoc_from_box_id")
-            and settings.get("diadoc_to_box_id")
+            and to_box
         )
         meta["edo_enabled"] = bool(
             settings.get("is_enabled") and (settings.get("has_api_key") or diadoc_ready)
@@ -23350,16 +23400,30 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             )
             return {"ok": True, "doc_type": doc_type, "channel": "logistics", "document": st}
 
+        # ToBoxId: carrier_box_id перевозчика, иначе To BoxId из Настройки → ЭДО.
+        try:
+            from . import ttn_docs as _ttn_docs
+
+            record = _get_ttn_catalog_record(user, record_id)
+            ctx = _ttn_docs.collect_ttn_doc_context(
+                repository=repository, owner_id=owner_id, record=record
+            )
+            carrier_fields = ctx.get("carrier_fields") if isinstance(ctx, dict) else None
+        except Exception:
+            carrier_fields = None
+        to_box_id = _resolve_diadoc_to_box_id(
+            settings, carrier_fields if isinstance(carrier_fields, dict) else None
+        )
         if not (
             settings.get("diadoc_client_id")
             and settings.get("diadoc_login")
             and settings.get("diadoc_password")
             and settings.get("diadoc_from_box_id")
-            and settings.get("diadoc_to_box_id")
+            and to_box_id
         ):
             raise HTTPException(
                 status_code=400,
-                detail="Для Заявки заполните Diadoc в Настройки → ЭДО (Client ID, логин, пароль, From/To BoxId)",
+                detail="Для Заявки заполните Diadoc в Настройки → ЭДО (Client ID, логин, пароль, From BoxId) и To BoxId (в ЭДО или у перевозчика)",
             )
         dclient = KonturDiadocClient(
             api_url=str(settings.get("diadoc_url") or ""),
@@ -23369,7 +23433,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         )
         res = dclient.send_order_request(
             from_box_id=str(settings.get("diadoc_from_box_id") or ""),
-            to_box_id=str(settings.get("diadoc_to_box_id") or ""),
+            to_box_id=to_box_id,
             xml_bytes=xml_bytes,
             signature_bytes=signature_bytes,
         )

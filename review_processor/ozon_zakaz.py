@@ -572,8 +572,16 @@ def build_ozon_zakaz_xml(
     sv_prv = _el(sod, "СвПрв")
     id_prv = _el(sv_prv, "ИдСв")
     # 10-digit INN → СвЮЛУч; 12-digit → СвИП (Контур OrgType 1/2).
+    carrier_ogrn = ""
+    if isinstance(carrier_fields, dict):
+        carrier_ogrn = str(carrier_fields.get("carrier_ogrn") or "").strip()
     _add_carrier_idsv(
-        id_prv, carrier_name, carrier_inn, carrier_kpp, style="zakaz"
+        id_prv,
+        carrier_name,
+        carrier_inn,
+        carrier_kpp,
+        ogrn=carrier_ogrn,
+        style="zakaz",
     )
     _addr_block(sv_prv, carrier_addr)
     # Carrier phone from catalog; fallback to юр.лица / driver (contact_phone).

@@ -473,6 +473,51 @@ def test_etrn_carrier_ip_uses_svip_not_ulyuch():
     assert root.find("Документ/СодИнфГО/СвПер/Контакт/Тлф").text
 
 
+def test_etrn_carrier_ip_ogrnip_optional():
+    """ОГРНИП на СвИП только если 15 цифр; пустое → omit."""
+    ogrnip = "318370200012345"
+    root = ET.fromstring(
+        _build(
+            carrier_fields={
+                "carrier_name": "ИП Петрова Елена Владимировна",
+                "carrier_inn": "370700174809",
+                "carrier_ogrn": ogrnip,
+            },
+        )
+    )
+    ip = root.find("Документ/СодИнфГО/СвПер/ИдСв/СвИП")
+    assert ip is not None
+    assert ip.attrib.get("ОГРНИП") == ogrnip
+
+    root_empty = ET.fromstring(
+        _build(
+            carrier_fields={
+                "carrier_name": "ИП Петрова Елена Владимировна",
+                "carrier_inn": "370700174809",
+            },
+        )
+    )
+    assert "ОГРНИП" not in root_empty.find("Документ/СодИнфГО/СвПер/ИдСв/СвИП").attrib
+
+
+def test_etrn_carrier_ul_ogrn_optional():
+    """ОГРН на СвЮЛУч только если 13 цифр."""
+    ogrn = "1025001002003"
+    root = ET.fromstring(
+        _build(
+            carrier_fields={
+                "carrier_name": 'ООО "Перевозчик"',
+                "carrier_inn": "5001002003",
+                "carrier_kpp": "500101001",
+                "carrier_ogrn": ogrn,
+            },
+        )
+    )
+    ul = root.find("Документ/СодИнфГО/СвПер/ИдСв/СвЮЛУч")
+    assert ul is not None
+    assert ul.attrib.get("ОГРН") == ogrn
+
+
 def test_compose_carrier_line_for_documents():
     from review_processor.repository import ReviewRepository
 

@@ -85,4 +85,4 @@ def test_order_excel_box_column_uses_product_box_qty() -> None:
 
 def test_cache_bump_order_feature() -> None:
     assert "style.css?v=418" in APP_HTML
-    assert "app.js?v=703" in APP_HTML
+    assert "app.js?v=704" in APP_HTML

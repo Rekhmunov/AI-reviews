@@ -364,11 +364,13 @@ def _add_carrier_idsv(
     inn: str,
     kpp: str = "",
     *,
+    ogrn: str = "",
     style: str = "zakaz",
 ) -> ET.Element:
     """Emit carrier party under ИдСв: СвЮЛУч (ООО, 10-digit INN) or СвИП (12-digit INN).
 
     Only the identification element type changes. Address / phone stay with the caller.
+    ``ogrn``: ОГРН (13) for ЮЛ or ОГРНИП (15) for ИП — empty/wrong length → omit.
     ``style`` preserves historical attribute assembly for empty ЮЛ payloads:
     - zakaz: fallback «Перевозчик (уточнить)» when no name/inn/kpp
     - etrn: always emit НаимОрг (may be empty)
@@ -376,10 +378,14 @@ def _add_carrier_idsv(
     inn_digits = re.sub(r"\D", "", str(inn or ""))[:12]
     org_name = str(name or "").strip()
     kpp_digits = re.sub(r"\D", "", str(kpp or ""))[:9]
+    ogrn_digits = re.sub(r"\D", "", str(ogrn or ""))[:15]
 
     # ИП: Contour/Diadoc OrgType=2 — СвИП + ИННФЛ + ФИО (no КПП).
     if len(inn_digits) == 12:
-        sv_ip = _el(id_parent, "СвИП", ИННФЛ=inn_digits)
+        ip_attrs: dict[str, str] = {"ИННФЛ": inn_digits}
+        if len(ogrn_digits) == 15:
+            ip_attrs["ОГРНИП"] = ogrn_digits
+        sv_ip = _el(id_parent, "СвИП", **ip_attrs)
         fam, imya, otch = _split_fio(_strip_ip_prefix(org_name))
         if not fam:
             fam, imya = "Не", "указан"
@@ -396,6 +402,8 @@ def _add_carrier_idsv(
             per_attrs["ИННЮЛ"] = inn_digits
         if kpp_digits:
             per_attrs["КПП"] = kpp_digits
+        if len(ogrn_digits) == 13:
+            per_attrs["ОГРН"] = ogrn_digits
         return _el(id_parent, "СвЮЛУч", **per_attrs)
 
     prv_attrs: dict[str, str] = {}
@@ -405,6 +413,8 @@ def _add_carrier_idsv(
         prv_attrs["ИННЮЛ"] = inn_digits
     if kpp_digits:
         prv_attrs["КПП"] = kpp_digits
+    if len(ogrn_digits) == 13:
+        prv_attrs["ОГРН"] = ogrn_digits
     if prv_attrs:
         return _el(id_parent, "СвЮЛУч", **prv_attrs)
     return _el(id_parent, "СвЮЛУч", НаимОрг="Перевозчик (уточнить)")
@@ -1376,7 +1386,12 @@ def build_ozon_etrn_xml(
     id_per = _el(sv_per, "ИдСв")
     # 10-digit INN → СвЮЛУч; 12-digit → СвИП (same rule as ЭЗЗ / Contour OrgType).
     _add_carrier_idsv(
-        id_per, carrier_name, carrier_inn, carrier_kpp, style="etrn"
+        id_per,
+        carrier_name,
+        carrier_inn,
+        carrier_kpp,
+        ogrn=str((carrier_fields or {}).get("carrier_ogrn") or "").strip(),
+        style="etrn",
     )
     # Prefer structured carrier address; else parse free-text; else shipper fallback.
     carrier_addr = _addr_from_carrier_fields(carrier_fields)

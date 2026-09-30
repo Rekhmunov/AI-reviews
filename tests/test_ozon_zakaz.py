@@ -472,3 +472,51 @@ def test_zakaz_carrier_ip_uses_svip_not_ulyuch():
     assert adr is not None
     assert adr.attrib.get("Индекс") == "153000"
     assert adr.attrib.get("КодРегион") == "37"
+
+
+def test_zakaz_carrier_ip_ogrnip_optional():
+    """ОГРНИП на СвИП только если 15 цифр; пустое → атрибут отсутствует."""
+    ogrnip = "318370200012345"
+    root = ET.fromstring(
+        _build(
+            carrier_fields={
+                "carrier_name": "ИП Петрова Елена Владимировна",
+                "carrier_inn": "370700174809",
+                "carrier_ogrn": ogrnip,
+            },
+        )
+    )
+    ip = root.find("Документ/СодИнфГО/СвПрв/ИдСв/СвИП")
+    assert ip is not None
+    assert ip.attrib.get("ОГРНИП") == ogrnip
+
+    root_empty = ET.fromstring(
+        _build(
+            carrier_fields={
+                "carrier_name": "ИП Петрова Елена Владимировна",
+                "carrier_inn": "370700174809",
+                "carrier_ogrn": "",
+            },
+        )
+    )
+    ip2 = root_empty.find("Документ/СодИнфГО/СвПрв/ИдСв/СвИП")
+    assert ip2 is not None
+    assert "ОГРНИП" not in ip2.attrib
+
+
+def test_zakaz_carrier_ul_ogrn_optional():
+    """ОГРН на СвЮЛУч только если 13 цифр."""
+    ogrn = "1025001002003"
+    root = ET.fromstring(
+        _build(
+            carrier_fields={
+                "carrier_name": 'ООО "Перевозчик"',
+                "carrier_inn": "5001002003",
+                "carrier_kpp": "500101001",
+                "carrier_ogrn": ogrn,
+            },
+        )
+    )
+    ul = root.find("Документ/СодИнфГО/СвПрв/ИдСв/СвЮЛУч")
+    assert ul is not None
+    assert ul.attrib.get("ОГРН") == ogrn

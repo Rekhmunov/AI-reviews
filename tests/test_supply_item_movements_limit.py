@@ -64,5 +64,5 @@ def test_item_movements_api_uses_day_window() -> None:
     assert "date_from: str = \"\"" in REPO_PY or 'date_from: str = ""' in REPO_PY
     assert "min(days_n, 366)" in _MOVEMENTS_API
     assert "min(days_n, 90)" not in _MOVEMENTS_API
-    assert "app.js?v=703" in APP_HTML
+    assert "app.js?v=704" in APP_HTML
     assert "Журнал движений берёт то же число дней" in APP_HTML
