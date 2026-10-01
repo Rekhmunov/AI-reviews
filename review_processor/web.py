@@ -15490,7 +15490,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     def ozon_fbs_posting_move_targets(
         request: Request, source_id: int
     ) -> dict[str, object]:
-        """List local supplies (awaiting_deliver + delivering) for local move modal."""
+        """List local awaiting_deliver supplies for the local move modal."""
         from . import ozon_fbs_supplies as oz_sup
 
         user = _require_user(request)
