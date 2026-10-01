@@ -5,7 +5,9 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from review_processor.ozon_fbs_detail import (
+    _exemplar_requires_codes_before_ship,
     _ship_error_already_assembled,
+    _ship_error_exemplar_not_filled,
     ship_posting,
 )
 from review_processor.ozon_fbs_supplies import (
@@ -19,6 +21,141 @@ def test_ship_error_already_assembled_detects_ozon_messages() -> None:
     assert _ship_error_already_assembled(RuntimeError("POSTING_ALREADY_SHIPPED"))
     assert _ship_error_already_assembled(RuntimeError("нельзя собрать: awaiting_deliver"))
     assert not _ship_error_already_assembled(RuntimeError("need exemplars"))
+
+
+def test_ship_error_exemplar_not_filled_detects_ozon_code() -> None:
+    assert _ship_error_exemplar_not_filled(
+        RuntimeError('Ozon HTTP 400: {"code":3,"message":"EXEMPLAR_INFO_NOT_FILLED_COMPLETELY"}')
+    )
+    assert not _ship_error_exemplar_not_filled(RuntimeError("POSTING_ALREADY_SHIPPED"))
+
+
+def test_exemplar_requires_codes_false_for_optional_mark() -> None:
+    client = MagicMock()
+    client.product_exemplar_create_or_get.return_value = {
+        "products": [
+            {
+                "product_id": 111,
+                "is_mandatory_mark_needed": False,
+                "is_mandatory_mark_possible": True,
+                "is_gtd_needed": False,
+            }
+        ]
+    }
+    client.product_exemplar_status.return_value = {"status": "ship_available"}
+    packages = [{"products": [{"product_id": 111, "quantity": 1}]}]
+    assert (
+        _exemplar_requires_codes_before_ship(
+            client, posting_number="P-1", packages=packages
+        )
+        is False
+    )
+
+
+def test_exemplar_requires_codes_true_when_mark_needed() -> None:
+    client = MagicMock()
+    client.product_exemplar_create_or_get.return_value = {
+        "products": [
+            {
+                "product_id": 111,
+                "is_mandatory_mark_needed": True,
+                "is_mandatory_mark_possible": False,
+                "is_gtd_needed": False,
+            }
+        ]
+    }
+    packages = [{"products": [{"product_id": 111, "quantity": 1}]}]
+    assert (
+        _exemplar_requires_codes_before_ship(
+            client, posting_number="P-1", packages=packages
+        )
+        is True
+    )
+    client.product_exemplar_status.assert_not_called()
+
+
+def test_ship_posting_retries_when_exemplar_only_optional() -> None:
+    repo = MagicMock()
+    client = MagicMock()
+    client.ship_posting.side_effect = [
+        RuntimeError(
+            'Ozon HTTP 400: {"code":3,"message":"EXEMPLAR_INFO_NOT_FILLED_COMPLETELY"}'
+        ),
+        {"result": ["P-1"]},
+    ]
+    client.product_exemplar_create_or_get.return_value = {
+        "products": [
+            {
+                "product_id": 111,
+                "is_mandatory_mark_needed": False,
+                "is_mandatory_mark_possible": True,
+            }
+        ]
+    }
+    client.product_exemplar_status.return_value = {"status": "ship_available"}
+    row = {
+        "posting_number": "P-1",
+        "tab": "awaiting_packaging",
+        "products_json": '[{"sku": 111, "quantity": 1}]',
+    }
+    with (
+        patch("review_processor.ozon_fbs_detail.get_posting_row", return_value=row),
+        patch("review_processor.ozon_fbs_detail._force_local_awaiting_deliver") as force,
+    ):
+        out = ship_posting(
+            repo,
+            user_id=1,
+            source_id=2,
+            posting_number="P-1",
+            client_id="c",
+            api_key="k",
+            client=client,
+            fast=True,
+        )
+    assert out["ok"] is True
+    assert client.ship_posting.call_count == 2
+    force.assert_called_once()
+
+
+def test_ship_posting_raises_when_exemplar_mark_needed() -> None:
+    repo = MagicMock()
+    client = MagicMock()
+    client.ship_posting.side_effect = RuntimeError(
+        'Ozon HTTP 400: {"code":3,"message":"EXEMPLAR_INFO_NOT_FILLED_COMPLETELY"}'
+    )
+    client.product_exemplar_create_or_get.return_value = {
+        "products": [
+            {
+                "product_id": 111,
+                "is_mandatory_mark_needed": True,
+                "is_gtd_needed": True,
+            }
+        ]
+    }
+    row = {
+        "posting_number": "P-1",
+        "tab": "awaiting_packaging",
+        "products_json": '[{"sku": 111, "quantity": 1}]',
+    }
+    with patch("review_processor.ozon_fbs_detail.get_posting_row", return_value=row):
+        try:
+            ship_posting(
+                repo,
+                user_id=1,
+                source_id=2,
+                posting_number="P-1",
+                client_id="c",
+                api_key="k",
+                client=client,
+                fast=True,
+            )
+            raised = False
+        except RuntimeError as exc:
+            raised = True
+            assert "EXEMPLAR_INFO_NOT_FILLED_COMPLETELY" in str(exc)
+            assert "КИЗ" in str(exc)
+    assert raised
+    assert client.ship_posting.call_count == 1
 
 
 def test_ship_posting_fast_uses_local_and_skips_second_get() -> None:
