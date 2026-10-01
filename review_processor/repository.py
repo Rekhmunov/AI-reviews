@@ -6985,7 +6985,7 @@ class ReviewRepository:
         user_id: int,
         source: str | None = None,
         account_id: int | None = None,
-        limit: int = 300,
+        limit: int = AI_USAGE_DAILY_LIMIT,
     ) -> list[dict[str, Any]]:
         """Oldest ai_unclassified reviews first (previous-day leftovers before new ones)."""
         clauses = ["user_id = ?", "category = ?"]
@@ -6996,7 +6996,7 @@ class ReviewRepository:
         if account_id is not None:
             clauses.append("account_id = ?")
             params.append(int(account_id))
-        safe_limit = min(max(int(limit), 1), 1000)
+        safe_limit = min(max(int(limit), 1), AI_USAGE_DAILY_LIMIT)
         params.append(safe_limit)
         sql = f"""
             SELECT *

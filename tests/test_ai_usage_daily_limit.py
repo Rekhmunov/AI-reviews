@@ -7,6 +7,7 @@ from datetime import datetime
 from unittest import mock
 from zoneinfo import ZoneInfo
 
+from review_processor.models import ReviewInput
 from review_processor.repository import (
     AI_USAGE_ALERT_THRESHOLD,
     AI_USAGE_DAILY_LIMIT,
@@ -43,6 +44,39 @@ class AiUsageDailyLimitTests(unittest.TestCase):
         self.assertTrue(bool(ctx.exception.details.get("daily_limit_reached")))
         self.assertEqual(ctx.exception.details.get("scope"), "classification")
         repo.get_ai_settings.assert_not_called()
+
+    def test_daily_limit_fail_closed_on_counter_error(self) -> None:
+        repo = mock.Mock()
+        repo.get_ai_usage_requests_for_date.side_effect = RuntimeError("db down")
+        service = ReviewAutomationService(repository=repo)
+        self.assertTrue(service._ai_daily_limit_reached(user_id=1))
+
+    def test_backlog_reviews_yielded_before_feed(self) -> None:
+        repo = mock.Mock()
+        repo.list_ai_classification_backlog.return_value = [
+            {
+                "external_review_id": "old-1",
+                "text": "старый",
+                "author": "A",
+                "rating": 1,
+                "metadata": {"raw": {"createdDate": "2026-09-01T00:00:00Z"}},
+            }
+        ]
+        service = ReviewAutomationService(repository=repo)
+        feed = [
+            ReviewInput(review_id="new-1", text="новый", rating=5),
+            ReviewInput(review_id="old-1", text="старый из ленты", rating=1),
+        ]
+        ordered = list(
+            service._reviews_with_ai_backlog_first(
+                reviews=feed,
+                user_id=1,
+                source="wb",
+                account_id=29,
+            )
+        )
+        self.assertEqual([r.review_id for r in ordered], ["old-1", "new-1"])
+        self.assertEqual(ordered[0].text, "старый")
 
 
 if __name__ == "__main__":

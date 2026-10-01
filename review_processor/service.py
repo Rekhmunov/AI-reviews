@@ -2688,29 +2688,17 @@ class ReviewAutomationService:
         skipped_noop_answered = 0
         seen_pending_review_ids: set[str] = set()
 
-        # After midnight the daily AI counter resets. Drain ai_unclassified backlog
-        # (oldest first = leftovers from previous day) before new feed items so the
-        # fresh 1000 budget goes to unfinished work first.
-        if user_id and account_id is not None and not self._ai_daily_limit_reached(user_id=int(user_id)):
-            try:
-                backlog_done = self._classify_ai_backlog_before_feed(
-                    user_id=int(user_id),
-                    source=source,
-                    account_id=int(account_id),
-                    settings=settings,
-                    stop_requested=stop_requested,
-                    existing_classifications=existing_classifications,
-                    resolve_classified_subgroup=_resolve_classified_subgroup,
-                )
-                if backlog_done:
-                    _log.info(
-                        "sync_reviews: classified %d ai_unclassified backlog reviews before feed",
-                        backlog_done,
-                    )
-            except Exception as _exc:
-                _log.warning("sync_reviews: AI backlog drain failed: %s", _exc)
+        # After midnight the daily AI counter resets. Run ai_unclassified backlog
+        # (oldest first) through the SAME pipeline before newly fetched reviews,
+        # so the fresh 1000 budget is not stolen by brand-new items.
+        reviews_iter = self._reviews_with_ai_backlog_first(
+            reviews=reviews,
+            user_id=int(user_id) if user_id else None,
+            source=source,
+            account_id=int(account_id) if account_id is not None else None,
+        )
 
-        for review in reviews:
+        for review in reviews_iter:
             _raise_if_stop_requested(stop_requested, source=source)
             if not review.review_id:
                 continue
@@ -5035,108 +5023,81 @@ class ReviewAutomationService:
                 _push(item)
         return result
 
-    def _classify_ai_backlog_before_feed(
+    def _review_input_from_db_row(self, row: Mapping[str, object]) -> ReviewInput | None:
+        external_id = str(row.get("external_review_id") or "").strip()
+        if not external_id:
+            return None
+        metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        if not metadata:
+            raw_meta = row.get("metadata_json")
+            if isinstance(raw_meta, dict):
+                metadata = raw_meta
+            elif isinstance(raw_meta, str) and raw_meta.strip():
+                try:
+                    parsed = json.loads(raw_meta)
+                    metadata = parsed if isinstance(parsed, dict) else {}
+                except Exception:
+                    metadata = {}
+        rating_raw = row.get("rating")
+        rating: int | None
+        try:
+            rating = int(rating_raw) if rating_raw is not None else None
+        except (TypeError, ValueError):
+            rating = None
+        return ReviewInput(
+            review_id=external_id,
+            text=str(row.get("text") or ""),
+            author=str(row.get("author") or "") or None,
+            rating=rating,
+            metadata=dict(metadata) if isinstance(metadata, dict) else {},
+        )
+
+    def _reviews_with_ai_backlog_first(
         self,
         *,
-        user_id: int,
+        reviews: object,
+        user_id: int | None,
         source: str,
-        account_id: int,
-        settings: dict[str, object],
-        stop_requested: Callable[[], bool] | None,
-        existing_classifications: dict[str, tuple[str, str]],
-        resolve_classified_subgroup: Callable[[str, str | None], str | None],
-        limit: int = 300,
-    ) -> int:
-        """Classify oldest ai_unclassified rows first (after midnight budget reset)."""
-        rows = self.repository.list_ai_classification_backlog(
-            user_id=user_id,
-            source=source,
-            account_id=account_id,
-            limit=limit,
-        )
-        if not rows:
-            return 0
-        done = 0
-        for row in rows:
-            _raise_if_stop_requested(stop_requested, source=source)
-            if self._ai_daily_limit_reached(user_id=user_id):
-                break
-            external_id = str(row.get("external_review_id") or "").strip()
-            review_uid = str(row.get("review_uid") or "").strip()
-            if not external_id or not review_uid:
-                continue
-            metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-            if not metadata:
-                raw_meta = row.get("metadata_json")
-                if isinstance(raw_meta, dict):
-                    metadata = raw_meta
-                elif isinstance(raw_meta, str) and raw_meta.strip():
-                    try:
-                        parsed = json.loads(raw_meta)
-                        metadata = parsed if isinstance(parsed, dict) else {}
-                    except Exception:
-                        metadata = {}
-            review = ReviewInput(
-                review_id=external_id,
-                text=str(row.get("text") or ""),
-                author=str(row.get("author") or "") or None,
-                rating=row.get("rating") if row.get("rating") is not None else None,
-                metadata=dict(metadata),
-            )
-            # Textless + no media: local rule, no Yandex call.
-            has_text = bool((review.text or "").strip())
-            has_media = self._review_has_media(review)
-            processed = self.processor.process(review)
+        account_id: int | None,
+    ):
+        """Yield ai_unclassified backlog (oldest first), then marketplace feed."""
+        backlog: list[ReviewInput] = []
+        backlog_ids: set[str] = set()
+        if user_id and account_id is not None:
             try:
-                category, classified_subgroup = self._classify_category_and_subgroup(
-                    review,
-                    processed,
-                    settings=settings,
-                    user_id=user_id,
+                rows = self.repository.list_ai_classification_backlog(
+                    user_id=int(user_id),
+                    source=source,
+                    account_id=int(account_id),
+                    limit=AI_USAGE_DAILY_LIMIT,
                 )
-            except MarketplaceSyncError as exc:
-                details = exc.details if isinstance(exc.details, Mapping) else {}
-                if bool(details.get("daily_limit_reached")):
-                    break
-                if str(details.get("scope") or "").strip().lower() == "classification":
+            except Exception as exc:
+                _log.warning("sync_reviews: could not load AI backlog: %s", exc)
+                rows = []
+            for row in rows:
+                if not isinstance(row, Mapping):
                     continue
-                raise
-            category = str(category or "").strip()
-            if not category or category == self.AI_UNCLASSIFIED_CATEGORY:
-                continue
-            classified_subgroup = resolve_classified_subgroup(category, classified_subgroup)
-            review_metadata = dict(review.metadata)
-            if classified_subgroup:
-                review_metadata["classified_subgroup"] = classified_subgroup
-            review_metadata["classified_group_id"] = category
-            review_metadata.pop("ai_classification_status", None)
-            review_metadata.pop("ai_classification_note", None)
-            review_metadata.pop("ai_classification_error", None)
-            status = str(row.get("status") or "queued_for_operator").strip() or "queued_for_operator"
-            auto_reply = str(row.get("auto_reply") or "").strip() or None
-            self.repository.upsert_processed_review(
-                user_id=user_id,
-                source=source,
-                account_id=account_id,
-                review=ReviewInput(
-                    review_id=review.review_id,
-                    text=review.text,
-                    author=review.author,
-                    rating=review.rating,
-                    metadata=review_metadata,
-                ),
-                processed=processed,
-                category=category,
-                processing_mode=str(row.get("processing_mode") or "manual"),
-                status=status,
-                auto_reply=auto_reply,
-            )
-            existing_classifications[review_uid] = (category, str(classified_subgroup or ""))
-            done += 1
-            if not has_text and not has_media:
-                # Local classification does not consume the AI budget.
-                pass
-        return done
+                item = self._review_input_from_db_row(row)
+                if item is None or not item.review_id or item.review_id in backlog_ids:
+                    continue
+                backlog.append(item)
+                backlog_ids.add(str(item.review_id))
+            if backlog:
+                _log.info(
+                    "sync_reviews: prioritizing %d ai_unclassified backlog reviews before feed",
+                    len(backlog),
+                )
+
+        def _gen():
+            for item in backlog:
+                yield item
+            for item in reviews:  # type: ignore[attr-defined]
+                rid = str(getattr(item, "review_id", "") or "").strip()
+                if rid and rid in backlog_ids:
+                    continue
+                yield item
+
+        return _gen()
 
     @staticmethod
     def _textless_subgroup_for_rating(rating: int) -> str:
@@ -5584,15 +5545,22 @@ class ReviewAutomationService:
             return 0
 
     def _ai_daily_limit_reached(self, *, user_id: int) -> bool:
-        """True when today's (Europe/Moscow) Yandex GPT request count is at/over limit."""
+        """True when today's (Europe/Moscow) Yandex GPT request count is at/over limit.
+
+        Fail-closed: if the counter cannot be read, treat as blocked so a DB
+        blip cannot unlock unbounded paid AI calls.
+        """
         cached = getattr(self, "_ai_usage_day_cache", None)
         today = ai_usage_today()
         uid = self._as_nonneg_int(user_id)
+        if uid <= 0:
+            return True
         if not isinstance(cached, dict) or cached.get("day") != today or self._as_nonneg_int(cached.get("user_id")) != uid:
             try:
                 used_raw = self.repository.get_ai_usage_requests_for_date(user_id=uid, log_date=today)
-            except Exception:
-                used_raw = 0
+            except Exception as exc:
+                _log.warning("AI daily limit counter unavailable; blocking calls: %s", exc)
+                return True
             self._ai_usage_day_cache = {
                 "day": today,
                 "user_id": uid,
@@ -5610,7 +5578,13 @@ class ReviewAutomationService:
             try:
                 used_raw = self.repository.get_ai_usage_requests_for_date(user_id=uid, log_date=today)
             except Exception:
-                used_raw = 0
+                # Keep a conservative local tally so subsequent checks still block.
+                self._ai_usage_day_cache = {
+                    "day": today,
+                    "user_id": uid,
+                    "used": AI_USAGE_DAILY_LIMIT,
+                }
+                return
             self._ai_usage_day_cache = {
                 "day": today,
                 "user_id": uid,
