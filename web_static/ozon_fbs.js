@@ -12205,7 +12205,11 @@
         // Empty rows are fine — skip. Only clear when codes existed and were removed.
         const wantClear = !codes.length && baseHadCodes;
         const codesDirty = !_ozonFbsKizBaselineEquals(pn, codes);
-        const needsOzonPush = gtdRequired && codes.length > 0 && !!gtdNow && !r.kiz_ozon_synced;
+        // Retry Ozon attach when local codes exist but exemplar push failed/pending.
+        // Юрлица still require GTD; B2C catalog-KIZ retries marks-only.
+        const needsOzonPush = codes.length > 0
+          && !r.kiz_ozon_synced
+          && (!gtdRequired || !!gtdNow);
         if (!force && !codesDirty && !gtdDirty && !needsOzonPush && !wantClear) continue;
         if (!codes.length && !wantClear && !gtdDirty && !force) continue;
         if (ozonFbsKizState.errors[pn]) delete ozonFbsKizState.errors[pn];

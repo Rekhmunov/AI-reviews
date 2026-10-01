@@ -26,3 +26,14 @@ def test_background_ozon_push_after_local_autosave() -> None:
     # Serialize per posting so an older in-flight push cannot overwrite newer codes.
     assert "bgOzonPushChainByPosting" in text
     assert "bgOzonPushSeqByPosting" in text
+
+
+def test_final_save_retries_unsynced_b2c_and_legal() -> None:
+    """«Сохранить» must re-push when kiz_ozon_synced is false (not only юрлица)."""
+    text = OZON_JS.read_text(encoding="utf-8")
+    assert "async function saveOzonFbsKizModal" in text
+    # Old gate was gtd-only; now B2C unsynced rows are included too.
+    assert "const needsOzonPush = codes.length > 0" in text
+    assert "!r.kiz_ozon_synced" in text
+    assert "(!gtdRequired || !!gtdNow)" in text
+    assert 'body: JSON.stringify({ items: chunk })' in text
