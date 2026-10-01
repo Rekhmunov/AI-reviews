@@ -6,7 +6,9 @@ from unittest.mock import MagicMock, patch
 
 from review_processor import ozon_fbs as oz
 from review_processor.ozon_fbs_supplies import (
+    _sync_supply_composition_from_assembly,
     create_local_supply_from_postings,
+    get_supply_detail_for_print,
     list_supplies_for_local_move,
     move_posting_to_local_supply,
     move_postings_to_local_supply,
@@ -63,9 +65,33 @@ def test_list_supplies_for_local_move_awaiting_only() -> None:
     assert [x["supply_id"] for x in out["items"]] == ["S-A", "S-EMPTY"]
 
 
-def test_move_posting_to_local_supply_syncs_composition() -> None:
+def test_sync_supply_composition_from_assembly_keeps_order_and_appends() -> None:
+    set_calls: list[dict] = []
+    with patch(
+        "review_processor.ozon_fbs_supplies._assembly_posting_numbers_for_supply",
+        return_value=["PN-NEW", "PN-KEEP", "PN-EXTRA"],
+    ), patch(
+        "review_processor.ozon_fbs_supplies.get_supply",
+        return_value={
+            "supply_id": "S-1",
+            "posting_numbers": ["PN-KEEP", "PN-STALE", "PN-NEW"],
+        },
+    ), patch(
+        "review_processor.ozon_fbs_supplies._set_supply_posting_numbers",
+        side_effect=lambda *_a, **kwargs: set_calls.append(dict(kwargs)),
+    ):
+        out = _sync_supply_composition_from_assembly(
+            MagicMock(), user_id=1, source_id=2, supply_id="S-1"
+        )
+
+    assert out == ["PN-KEEP", "PN-NEW", "PN-EXTRA"]
+    assert set_calls[0]["posting_numbers"] == ["PN-KEEP", "PN-NEW", "PN-EXTRA"]
+
+
+def test_move_posting_to_local_supply_syncs_composition_and_clears_container() -> None:
     repo = MagicMock()
     sync_calls: list[str] = []
+    updates: list[str] = []
 
     class _Conn:
         def __enter__(self):
@@ -84,6 +110,9 @@ def test_move_posting_to_local_supply_syncs_composition() -> None:
                     "tab": oz.TAB_DELIVERING,
                     "status": oz.TAB_DELIVERING,
                 }
+            elif "UPDATE ozon_fbs_postings" in sql_s:
+                updates.append(sql_s)
+                cur.fetchone.return_value = None
             else:
                 cur.fetchone.return_value = None
             return cur
@@ -124,6 +153,37 @@ def test_move_posting_to_local_supply_syncs_composition() -> None:
     assert result["tab"] == oz.TAB_AWAITING_DELIVER
     assert result["from_supply_id"] == "OLD-S"
     assert sync_calls == ["NEW-S", "OLD-S"]
+    assert updates
+    assert "container_id = NULL" in updates[0]
+    assert "container_barcode = ''" in updates[0]
+
+
+def test_get_supply_detail_for_print_with_tab_uses_assembly_not_json_gate() -> None:
+    """Moved orders must print via posting_tab assembly path (no JSON mismatch gate)."""
+    with patch(
+        "review_processor.ozon_fbs_supplies.detach_cancelled_postings_from_supply"
+    ), patch(
+        "review_processor.ozon_fbs_supplies.get_supply_detail",
+        return_value={
+            "supply_id": "NEW-S",
+            "orders": [{"posting_number": "PN-MOVED"}, {"posting_number": "PN-KEEP"}],
+            "order_count": 2,
+        },
+    ) as detail_mock, patch(
+        "review_processor.ozon_fbs_supplies.ensure_supply_ready_for_print"
+    ) as gate_mock:
+        out = get_supply_detail_for_print(
+            MagicMock(),
+            user_id=1,
+            source_id=2,
+            supply_id="NEW-S",
+            kind="picking_list",
+            posting_tab=oz.TAB_AWAITING_DELIVER,
+        )
+
+    assert [o["posting_number"] for o in out["orders"]] == ["PN-MOVED", "PN-KEEP"]
+    gate_mock.assert_not_called()
+    assert detail_mock.call_args.kwargs["posting_tab"] == oz.TAB_AWAITING_DELIVER
 
 
 def test_move_posting_to_local_supply_unchanged_when_same() -> None:
@@ -181,7 +241,7 @@ def test_move_posting_to_local_supply_unchanged_when_same() -> None:
 def test_move_postings_to_local_supply_bulk_syncs_composition() -> None:
     repo = MagicMock()
     sync_calls: list[str] = []
-    updates: list[tuple] = []
+    updates: list[str] = []
 
     class _Conn:
         def __enter__(self):
@@ -213,7 +273,7 @@ def test_move_postings_to_local_supply_bulk_syncs_composition() -> None:
                     },
                 ]
             elif "UPDATE ozon_fbs_postings" in sql_s:
-                updates.append(params)
+                updates.append(sql_s)
                 cur.fetchall.return_value = []
                 cur.fetchone.return_value = None
             else:
@@ -259,7 +319,8 @@ def test_move_postings_to_local_supply_bulk_syncs_composition() -> None:
     assert result["missing"] == []
     assert set(result["posting_numbers"]) == {"PN-1", "PN-2"}
     assert result["from_supply_ids"] == ["OLD-S"]
-    assert updates
+    assert len(updates) == 1
+    assert "container_id = NULL" in updates[0]
     assert sync_calls == ["NEW-S", "OLD-S"]
 
 

@@ -7637,17 +7637,36 @@ def move_posting_to_local_supply(
                 "message": "Отправление уже в этой поставке",
             }
 
-        conn.execute(
-            repo._sql(
-                """
-                UPDATE ozon_fbs_postings
-                SET supply_id = ?, tab = ?, status = ?,
-                    synced_at = CURRENT_TIMESTAMP
-                WHERE user_id = ? AND source_id = ? AND posting_number = ?
-                """
-            ),
-            (sid, tab_hint, tab_hint, user_id, source_id, pn),
-        )
+        # Drop cargo binds when leaving a supply — GM belongs to the old carriage.
+        clear_container = bool(old_sid and old_sid != sid)
+        if clear_container:
+            conn.execute(
+                repo._sql(
+                    """
+                    UPDATE ozon_fbs_postings
+                    SET supply_id = ?, tab = ?, status = ?,
+                        container_id = NULL,
+                        container_barcode = '',
+                        container_synced = FALSE,
+                        container_sync_error = '',
+                        synced_at = CURRENT_TIMESTAMP
+                    WHERE user_id = ? AND source_id = ? AND posting_number = ?
+                    """
+                ),
+                (sid, tab_hint, tab_hint, user_id, source_id, pn),
+            )
+        else:
+            conn.execute(
+                repo._sql(
+                    """
+                    UPDATE ozon_fbs_postings
+                    SET supply_id = ?, tab = ?, status = ?,
+                        synced_at = CURRENT_TIMESTAMP
+                    WHERE user_id = ? AND source_id = ? AND posting_number = ?
+                    """
+                ),
+                (sid, tab_hint, tab_hint, user_id, source_id, pn),
+            )
 
     # Align composition snapshots with assembly so print/KIZ see moved orders.
     affected = {sid}
@@ -7797,20 +7816,48 @@ def move_postings_to_local_supply(
             for r in to_move
             if str(r.get("posting_number") or "").strip()
         ]
-        ph = ", ".join("?" for _ in move_pns)
+        # Postings that leave another supply: drop cargo binds (GM is carriage-local).
+        clear_container_pns = [
+            str(r.get("posting_number") or "").strip()
+            for r in to_move
+            if str(r.get("posting_number") or "").strip()
+            and str(r.get("supply_id") or "").strip()
+            and str(r.get("supply_id") or "").strip() != sid
+        ]
+        same_supply_pns = [pn for pn in move_pns if pn not in set(clear_container_pns)]
         with repo._connect() as conn:
-            conn.execute(
-                repo._sql(
-                    f"""
-                    UPDATE ozon_fbs_postings
-                    SET supply_id = ?, tab = ?, status = ?,
-                        synced_at = CURRENT_TIMESTAMP
-                    WHERE user_id = ? AND source_id = ?
-                      AND posting_number IN ({ph})
-                    """
-                ),
-                (sid, tab_hint, tab_hint, user_id, source_id, *move_pns),
-            )
+            if clear_container_pns:
+                ph = ", ".join("?" for _ in clear_container_pns)
+                conn.execute(
+                    repo._sql(
+                        f"""
+                        UPDATE ozon_fbs_postings
+                        SET supply_id = ?, tab = ?, status = ?,
+                            container_id = NULL,
+                            container_barcode = '',
+                            container_synced = FALSE,
+                            container_sync_error = '',
+                            synced_at = CURRENT_TIMESTAMP
+                        WHERE user_id = ? AND source_id = ?
+                          AND posting_number IN ({ph})
+                        """
+                    ),
+                    (sid, tab_hint, tab_hint, user_id, source_id, *clear_container_pns),
+                )
+            if same_supply_pns:
+                ph = ", ".join("?" for _ in same_supply_pns)
+                conn.execute(
+                    repo._sql(
+                        f"""
+                        UPDATE ozon_fbs_postings
+                        SET supply_id = ?, tab = ?, status = ?,
+                            synced_at = CURRENT_TIMESTAMP
+                        WHERE user_id = ? AND source_id = ?
+                          AND posting_number IN ({ph})
+                        """
+                    ),
+                    (sid, tab_hint, tab_hint, user_id, source_id, *same_supply_pns),
+                )
 
         # Align composition snapshots with assembly so print/KIZ see moved orders.
         affected = {sid, *from_by_supply.keys()}
