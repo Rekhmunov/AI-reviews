@@ -1992,7 +1992,65 @@ async function clearAllReviews() {
   await loadReviews();
 }
 
+async function loadReviewsAiUsageAlert() {
+  const box = document.getElementById("reviewsAiUsageAlert");
+  const textEl = document.getElementById("reviewsAiUsageAlertText");
+  const dismissBtn = document.getElementById("reviewsAiUsageAlertDismiss");
+  if (!box || !textEl) return;
+  try {
+    const res = await fetch("/api/reviews/ai-usage-alert");
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data || !data.active || !data.message) {
+      box.classList.add("hidden");
+      textEl.textContent = "";
+      if (dismissBtn) dismissBtn.classList.add("hidden");
+      return;
+    }
+    textEl.textContent = String(data.message || "");
+    box.classList.remove("hidden");
+    if (dismissBtn) {
+      if (data.can_dismiss) dismissBtn.classList.remove("hidden");
+      else dismissBtn.classList.add("hidden");
+    }
+  } catch (_err) {
+    // Banner is advisory; reviews list should still load.
+  }
+}
+
+async function dismissReviewsAiUsageAlert() {
+  if (!isTenantOwner()) return;
+  const box = document.getElementById("reviewsAiUsageAlert");
+  const textEl = document.getElementById("reviewsAiUsageAlertText");
+  const dismissBtn = document.getElementById("reviewsAiUsageAlertDismiss");
+  try {
+    const res = await fetch("/api/reviews/ai-usage-alert/dismiss", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: "{}",
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.detail || "Не удалось скрыть предупреждение");
+      return;
+    }
+    if (data.active && data.message) {
+      if (textEl) textEl.textContent = String(data.message || "");
+      if (box) box.classList.remove("hidden");
+      if (dismissBtn) dismissBtn.classList.remove("hidden");
+      return;
+    }
+    if (box) box.classList.add("hidden");
+    if (textEl) textEl.textContent = "";
+    if (dismissBtn) dismissBtn.classList.add("hidden");
+  } catch (_err) {
+    alert("Не удалось скрыть предупреждение");
+  }
+}
+
+window.dismissReviewsAiUsageAlert = dismissReviewsAiUsageAlert;
+
 async function loadReviews() {
+  void loadReviewsAiUsageAlert();
   const priority = String(document.getElementById("priorityFilter")?.value || reviewsState.priority || "");
   const status = String(document.getElementById("statusFilter")?.value || reviewsState.status || "all");
   const category = String(document.getElementById("categoryFilter")?.value || reviewsState.category || "");

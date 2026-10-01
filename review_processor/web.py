@@ -28,7 +28,11 @@ from .auth import create_session_token, hash_password, verify_password
 
 _log = logging.getLogger(__name__)
 from .config import AppConfig, load_app_config, sync_chats_enabled
-from .repository import ReviewRepository
+from .repository import (
+    AI_USAGE_ALERT_THRESHOLD,
+    ReviewRepository,
+    format_ai_usage_alert_message,
+)
 from .service import MarketplaceSyncError, ReviewAutomationService, _normalize_timestamp, _ozon_chat_timestamp, _ozon_user_kind, _parse_ozon_message_text, _wb_image_url
 from .models import ReviewInput
 from .stock_service import StockScheduler, sync_stock_source
@@ -2878,6 +2882,45 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "source": normalized_source,
             "status": status_key or "all",
             "source_options": source_options,
+        }
+
+    @app.get("/api/reviews/ai-usage-alert")
+    def get_reviews_ai_usage_alert(request: Request) -> dict[str, object]:
+        """Signal banner for Reviews when daily Yandex GPT requests exceed 500."""
+        user = _require_user(request)
+        owner_id = _tenant_owner_id(user)
+        dates = repository.get_ai_usage_alert_dates(owner_user_id=owner_id)
+        today = datetime.now(UTC).date().isoformat()
+        message = format_ai_usage_alert_message(dates, today=today)
+        return {
+            "ok": True,
+            "active": bool(dates),
+            "dates": dates,
+            "message": message,
+            "threshold": AI_USAGE_ALERT_THRESHOLD,
+            "can_dismiss": user_is_tenant_owner(user),
+        }
+
+    @app.post("/api/reviews/ai-usage-alert/dismiss")
+    def dismiss_reviews_ai_usage_alert(request: Request) -> dict[str, object]:
+        """Owner-only: hide the AI usage warning for currently active dates."""
+        user = _require_user(request)
+        if not user_is_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Скрыть предупреждение может только основной пользователь",
+            )
+        owner_id = _tenant_owner_id(user)
+        dismissed = repository.dismiss_ai_usage_alert(owner_user_id=owner_id)
+        dates = repository.get_ai_usage_alert_dates(owner_user_id=owner_id)
+        today = datetime.now(UTC).date().isoformat()
+        return {
+            "ok": True,
+            "dismissed_dates": dismissed,
+            "active": bool(dates),
+            "dates": dates,
+            "message": format_ai_usage_alert_message(dates, today=today),
+            "can_dismiss": True,
         }
 
     @app.get("/api/reviews/random-template")
