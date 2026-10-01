@@ -966,18 +966,17 @@ def save_marking(
     api_key: str | None = None,
     skip_ozon_push: bool = False,
 ) -> dict[str, Any]:
-    """Save marking codes locally; push КИЗ to Ozon on final save.
+    """Save marking codes locally; push КИЗ to Ozon when not ``skip_ozon_push``.
 
-    Local storage is unchanged (catalog «Требует КИЗ» rows). Final «Сохранить»
-    also attaches marks via exemplar set for those rows — Ozon accepts additional
-    mark info for B2C, not only юрлица. GTD is still pushed only for юрлица
-    (``products_requiring_gtd``).
+    Local storage is unchanged (catalog «Требует КИЗ» rows). The «Товары с КИЗ»
+    modal keeps per-scan autosave on ``skip_ozon_push`` (no operator wait); the
+    UI then fire-and-forgets a second save without skip to attach marks via
+    exemplar set. Final «Сохранить» also pushes any still-unsynced rows.
+    GTD is still pushed only for юрлица (``products_requiring_gtd``) — their
+    packaging exemplar flow stays separate.
 
     Unchanged payloads that were already autosaved (and synced to Ozon when
     required) are returned as ``unchanged`` without rewriting DB or re-pushing.
-
-    ``skip_ozon_push`` (per-scan autosave): persist locally only — fast, silent,
-    never drops codes if Ozon is slow. Final «Сохранить» pushes unsynced rows.
     """
     results: list[dict[str, Any]] = []
     ok_n = 0

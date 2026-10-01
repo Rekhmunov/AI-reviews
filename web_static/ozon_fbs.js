@@ -11350,6 +11350,9 @@
    * - Per-posting seq coalesces rapid re-scans of the same posting.
    * - Microtask batches different postings touched in the same turn into one PUT.
    * - Scan path never awaits; UI stays responsive under hundreds of marks.
+   * - After a successful local write for B2C catalog-KIZ (not юрлицо/GTD),
+   *   a fire-and-forget Ozon exemplar push runs in the background — scan UI
+   *   does not await it. Юрлица keep their packaging/GTD path elsewhere.
    * - Always adopt server kiz_saved_at on ok (even if a newer scan is pending)
    *   so the next PUT does not false-conflict on stale expected_saved_at.
    */
@@ -11512,6 +11515,11 @@
           }
           delete ozonFbsKizState.forceSaveByPosting?.[pn];
           delete ozonFbsKizState.errors[pn];
+          // B2C catalog-KIZ: attach marks to Ozon after local scan save, without
+          // blocking the wedge. Юрлица (gtd_required) use packaging exemplar flow.
+          if (!(clearFlags && clearFlags[pn])) {
+            _ozonFbsKizScheduleBackgroundOzonPush(pn);
+          }
         }
       }
     } catch (_e) {
@@ -11532,6 +11540,65 @@
         return _ozonFbsKizFlushLocalAutosaveBatch(still, clearFlags, seqSnapshot, attempt + 1);
       }
     }
+  }
+
+  /**
+   * Fire-and-forget exemplar push after local autosave (B2C catalog-KIZ only).
+   * Never awaited by the scan path — operator latency stays on FeedPilot DB only.
+   */
+  function _ozonFbsKizScheduleBackgroundOzonPush(postingNumber) {
+    const pn = String(postingNumber || "").trim();
+    if (!pn || !_ozonFbsKizModalIsOpen()) return;
+    const row = _ozonFbsKizRowByPosting(pn);
+    if (!row || _ozonFbsRowIsCancelled(row) || row.gtd_required) return;
+    if (row.kiz_ozon_synced) return;
+    const codes = _ozonFbsKizNormalizeCodesList(row.kiz_codes);
+    const reqQty = Math.max(Number(row.quantity) || 1, 1);
+    if (codes.length < reqQty) return;
+    const sid = String(supplyDetailState.supplyId || "").trim();
+    const sourceId = supplyDetailState.sourceId || state.sourceId;
+    if (!sid || !sourceId) return;
+    if (!ozonFbsKizState.bgOzonPushSeqByPosting) ozonFbsKizState.bgOzonPushSeqByPosting = {};
+    const seq = (Number(ozonFbsKizState.bgOzonPushSeqByPosting[pn]) || 0) + 1;
+    ozonFbsKizState.bgOzonPushSeqByPosting[pn] = seq;
+    const savedAt = String(row.kiz_saved_at || "");
+    const payload = {
+      items: [
+        {
+          posting_number: pn,
+          kiz_codes: codes,
+          gtd_number: "",
+          expected_saved_at: savedAt,
+          force: true,
+        },
+      ],
+      local_only: false,
+    };
+    // Do not await — scan wedge must not wait on Ozon.
+    fetch(
+      `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/marking?source_id=${sourceId}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...jsonHeaders() },
+        body: JSON.stringify(payload),
+        keepalive: true,
+      }
+    )
+      .then((res) => res.json().catch(() => ({})))
+      .then((data) => {
+        if ((Number(ozonFbsKizState.bgOzonPushSeqByPosting?.[pn]) || 0) !== seq) return;
+        const result = (data.results || []).find(
+          (r) => String(r?.posting_number || "").trim() === pn
+        );
+        if (!result || !result.ok) return;
+        const live = _ozonFbsKizRowByPosting(pn);
+        if (!live) return;
+        if (result.kiz_saved_at) live.kiz_saved_at = String(result.kiz_saved_at);
+        if (typeof result.kiz_ozon_synced === "boolean") {
+          live.kiz_ozon_synced = !!result.kiz_ozon_synced;
+        }
+      })
+      .catch(() => {});
   }
 
   function _ozonFbsKizSyncActiveCodeInput() {
