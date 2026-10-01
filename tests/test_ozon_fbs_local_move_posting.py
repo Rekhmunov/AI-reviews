@@ -6,8 +6,10 @@ from unittest.mock import MagicMock, patch
 
 from review_processor import ozon_fbs as oz
 from review_processor.ozon_fbs_supplies import (
+    create_local_supply_from_postings,
     list_supplies_for_local_move,
     move_posting_to_local_supply,
+    move_postings_to_local_supply,
 )
 
 
@@ -170,3 +172,160 @@ def test_move_posting_to_local_supply_unchanged_when_same() -> None:
     assert result["ok"] is True
     assert result["unchanged"] is True
     set_nums.assert_not_called()
+
+
+def test_move_postings_to_local_supply_bulk_updates_membership() -> None:
+    repo = MagicMock()
+    set_calls: list[dict] = []
+    updates: list[tuple] = []
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def execute(self, sql, params=()):
+            sql_s = str(sql)
+            cur = MagicMock()
+            if "SELECT posting_number, supply_id, tab, status" in sql_s:
+                cur.fetchall.return_value = [
+                    {
+                        "posting_number": "PN-1",
+                        "supply_id": "OLD-S",
+                        "tab": oz.TAB_AWAITING_DELIVER,
+                        "status": oz.TAB_AWAITING_DELIVER,
+                        "warehouse_id": 10,
+                        "warehouse_name": "WH",
+                    },
+                    {
+                        "posting_number": "PN-2",
+                        "supply_id": "OLD-S",
+                        "tab": oz.TAB_AWAITING_DELIVER,
+                        "status": oz.TAB_AWAITING_DELIVER,
+                        "warehouse_id": 10,
+                        "warehouse_name": "WH",
+                    },
+                ]
+            elif "UPDATE ozon_fbs_postings" in sql_s:
+                updates.append(params)
+                cur.fetchall.return_value = []
+                cur.fetchone.return_value = None
+            else:
+                cur.fetchall.return_value = []
+                cur.fetchone.return_value = None
+            return cur
+
+    repo._connect.return_value = _Conn()
+    repo._sql.side_effect = lambda q: q
+    repo._row_to_dict.side_effect = lambda r: dict(r)
+
+    with patch(
+        "review_processor.ozon_fbs_supplies.ensure_ozon_fbs_supply_schema"
+    ), patch(
+        "review_processor.ozon_fbs_supplies.oz.ensure_ozon_fbs_tables"
+    ), patch(
+        "review_processor.ozon_fbs_supplies.get_supply",
+        side_effect=lambda *_a, supply_id, **_k: {
+            "supply_id": supply_id,
+            "name": f"Name {supply_id}",
+            "posting_numbers": (
+                ["PN-1", "PN-2", "KEEP-OLD"]
+                if supply_id == "OLD-S"
+                else ["KEEP-NEW"]
+            ),
+        },
+    ), patch(
+        "review_processor.ozon_fbs_supplies._set_supply_posting_numbers",
+        side_effect=lambda *_a, **kwargs: set_calls.append(dict(kwargs)),
+    ):
+        result = move_postings_to_local_supply(
+            repo,
+            user_id=1,
+            source_id=2,
+            posting_numbers=["PN-1", "PN-2", "PN-1"],
+            supply_id="NEW-S",
+            target_tab=oz.TAB_AWAITING_DELIVER,
+        )
+
+    assert result["ok"] is True
+    assert result["moved"] == 2
+    assert result["unchanged"] == 0
+    assert result["missing"] == []
+    assert set(result["posting_numbers"]) == {"PN-1", "PN-2"}
+    assert result["from_supply_ids"] == ["OLD-S"]
+    assert updates
+    old_call = next(c for c in set_calls if c["supply_id"] == "OLD-S")
+    new_call = next(c for c in set_calls if c["supply_id"] == "NEW-S")
+    assert old_call["posting_numbers"] == ["KEEP-OLD"]
+    assert new_call["posting_numbers"] == ["KEEP-NEW", "PN-1", "PN-2"]
+
+
+def test_create_local_supply_from_postings_creates_then_moves() -> None:
+    repo = MagicMock()
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def execute(self, sql, params=()):
+            cur = MagicMock()
+            cur.fetchall.return_value = [
+                {
+                    "posting_number": "PN-1",
+                    "warehouse_id": 7,
+                    "warehouse_name": "Склад А",
+                }
+            ]
+            cur.fetchone.return_value = None
+            return cur
+
+    repo._connect.return_value = _Conn()
+    repo._sql.side_effect = lambda q: q
+    repo._row_to_dict.side_effect = lambda r: dict(r)
+
+    with patch(
+        "review_processor.ozon_fbs_supplies.ensure_ozon_fbs_supply_schema"
+    ), patch(
+        "review_processor.ozon_fbs_supplies.oz.ensure_ozon_fbs_tables"
+    ), patch(
+        "review_processor.ozon_fbs_supplies._build_supply_items_for_tab",
+        return_value=[{"name": "Поставка X от 01.01.2026"}],
+    ), patch(
+        "review_processor.ozon_fbs_supplies._source_display_name",
+        return_value="X",
+    ), patch(
+        "review_processor.ozon_fbs_supplies._create_local_supply",
+        return_value="NEW-SID",
+    ) as create_mock, patch(
+        "review_processor.ozon_fbs_supplies.move_postings_to_local_supply",
+        return_value={
+            "ok": True,
+            "moved": 1,
+            "unchanged": 0,
+            "posting_numbers": ["PN-1"],
+            "from_supply_ids": ["OLD"],
+        },
+    ) as move_mock:
+        result = create_local_supply_from_postings(
+            repo,
+            user_id=1,
+            source_id=2,
+            posting_numbers=["PN-1"],
+            name="Поставка X от 01.01.2026",
+            target_tab=oz.TAB_AWAITING_DELIVER,
+        )
+
+    assert result["ok"] is True
+    assert result["supply_id"] == "NEW-SID"
+    assert result["name"].startswith("Поставка X от 01.01.2026")
+    assert result["name"] != "Поставка X от 01.01.2026"  # uniquified
+    create_mock.assert_called_once()
+    assert create_mock.call_args.kwargs["posting_numbers"] == []
+    move_mock.assert_called_once()
+    assert move_mock.call_args.kwargs["supply_id"] == "NEW-SID"
+    assert move_mock.call_args.kwargs["posting_numbers"] == ["PN-1"]

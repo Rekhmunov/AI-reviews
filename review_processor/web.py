@@ -15504,6 +15504,142 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             repository, user_id=owner_id, source_id=int(source_id)
         )
 
+    # Static bulk paths before ``{posting_number}`` routes.
+    @app.post("/api/ozon-fbs/postings/bulk-move-to-supply")
+    async def ozon_fbs_postings_bulk_move_to_supply(
+        request: Request,
+    ) -> dict[str, object]:
+        """Locally move many postings into an existing supply. No Ozon API."""
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        source_id = int(body.get("source_id") or 0)
+        supply_id = str(body.get("supply_id") or "").strip()
+        target_tab = str(body.get("target_tab") or "").strip() or None
+        raw_nums = body.get("posting_numbers") or []
+        if not isinstance(raw_nums, list):
+            raw_nums = []
+        posting_numbers = [str(x or "").strip() for x in raw_nums if str(x or "").strip()]
+        if not source_id or not supply_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        if not posting_numbers:
+            raise HTTPException(status_code=400, detail="Укажите posting_numbers")
+        _ozon_fbs_source_credentials(owner_id, source_id)
+        try:
+            result = oz_sup.move_postings_to_local_supply(
+                repository,
+                user_id=owner_id,
+                source_id=source_id,
+                posting_numbers=posting_numbers,
+                supply_id=supply_id,
+                target_tab=target_tab,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        try:
+            from . import ozon_fbs_ops_log as ops_log
+
+            ops_log.append_event(
+                repository,
+                user_id=owner_id,
+                action=ops_log.ACTION_MOVE_TO_SUPPLY,
+                message=str(
+                    result.get("message")
+                    or f"Перенос {len(posting_numbers)} отпр. → {supply_id}"
+                ),
+                actor_user_id=int(user.get("id") or 0) or None,
+                actor_name=ops_log.actor_label(user),
+                source_id=source_id,
+                supply_id=supply_id,
+                details={
+                    "tab": result.get("tab"),
+                    "moved": result.get("moved"),
+                    "unchanged": result.get("unchanged"),
+                    "from_supply_ids": result.get("from_supply_ids"),
+                    "posting_numbers": result.get("posting_numbers"),
+                },
+            )
+        except Exception:
+            pass
+        return result
+
+    @app.post("/api/ozon-fbs/postings/bulk-move-to-new-supply")
+    async def ozon_fbs_postings_bulk_move_to_new_supply(
+        request: Request,
+    ) -> dict[str, object]:
+        """Create a local supply and move selected postings into it. No Ozon API."""
+        from . import ozon_fbs_supplies as oz_sup
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        owner_id = _supply_owner_id(user)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        source_id = int(body.get("source_id") or 0)
+        name = str(body.get("name") or "").strip()
+        target_tab = str(body.get("target_tab") or "").strip() or None
+        raw_nums = body.get("posting_numbers") or []
+        if not isinstance(raw_nums, list):
+            raw_nums = []
+        posting_numbers = [str(x or "").strip() for x in raw_nums if str(x or "").strip()]
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        if not posting_numbers:
+            raise HTTPException(status_code=400, detail="Укажите posting_numbers")
+        _ozon_fbs_source_credentials(owner_id, source_id)
+        try:
+            result = oz_sup.create_local_supply_from_postings(
+                repository,
+                user_id=owner_id,
+                source_id=source_id,
+                posting_numbers=posting_numbers,
+                name=name,
+                target_tab=target_tab,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        try:
+            from . import ozon_fbs_ops_log as ops_log
+
+            ops_log.append_event(
+                repository,
+                user_id=owner_id,
+                action=ops_log.ACTION_MOVE_TO_SUPPLY,
+                message=str(result.get("message") or "Создана поставка и перенесены отправления"),
+                actor_user_id=int(user.get("id") or 0) or None,
+                actor_name=ops_log.actor_label(user),
+                source_id=source_id,
+                supply_id=str(result.get("supply_id") or ""),
+                details={
+                    "tab": result.get("tab"),
+                    "moved": result.get("moved"),
+                    "name": result.get("name"),
+                    "from_supply_ids": result.get("from_supply_ids"),
+                    "posting_numbers": result.get("posting_numbers"),
+                },
+            )
+        except Exception:
+            pass
+        return result
+
     @app.post("/api/ozon-fbs/postings/{posting_number}/move-to-supply")
     async def ozon_fbs_posting_move_to_supply(
         request: Request, posting_number: str
