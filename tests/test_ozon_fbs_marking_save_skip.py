@@ -7,6 +7,12 @@ from unittest.mock import MagicMock, patch
 from review_processor.ozon_fbs_marking import save_marking
 
 
+def _repo_with_kiz_map(mapping: dict | None = None) -> MagicMock:
+    repo = MagicMock()
+    repo.get_product_requires_kiz_map.return_value = mapping or {}
+    return repo
+
+
 def test_save_marking_local_only_skips_ozon_push_even_when_gtd() -> None:
     codes = ["010460123456789021ABC"]
     gtd = "10000000/010126/1234567"
@@ -52,7 +58,7 @@ def test_save_marking_local_only_skips_ozon_push_even_when_gtd() -> None:
         patch("review_processor.ozon_fbs_marking.oz.OzonFbsClient") as client_cls,
     ):
         out = save_marking(
-            MagicMock(),
+            _repo_with_kiz_map(),
             user_id=1,
             source_id=2,
             items=[
@@ -115,7 +121,7 @@ def test_save_marking_skips_ozon_push_when_already_synced() -> None:
         patch("review_processor.ozon_fbs_marking.oz.OzonFbsClient"),
     ):
         out = save_marking(
-            MagicMock(),
+            _repo_with_kiz_map(),
             user_id=1,
             source_id=2,
             items=[
@@ -164,6 +170,10 @@ def test_save_marking_skips_local_rewrite_when_unchanged_non_gtd() -> None:
             return_value=False,
         ),
         patch(
+            "review_processor.ozon_fbs_marking.oz.posting_requires_marking",
+            return_value=False,
+        ),
+        patch(
             "review_processor.ozon_fbs_marking.update_posting_marking_codes"
         ) as upd,
         patch(
@@ -171,7 +181,7 @@ def test_save_marking_skips_local_rewrite_when_unchanged_non_gtd() -> None:
         ) as push,
     ):
         out = save_marking(
-            MagicMock(),
+            _repo_with_kiz_map(),
             user_id=1,
             source_id=2,
             items=[{"posting_number": "P-1", "kiz_codes": codes}],
@@ -181,6 +191,73 @@ def test_save_marking_skips_local_rewrite_when_unchanged_non_gtd() -> None:
     assert out["results"][0]["unchanged"] is True
     upd.assert_not_called()
     push.assert_not_called()
+
+
+def test_save_marking_pushes_catalog_kiz_without_gtd() -> None:
+    """B2C catalog-KIZ: final save attaches marks to Ozon, no GTD."""
+    codes = ["010460123456789021ABC"]
+    with (
+        patch(
+            "review_processor.ozon_fbs_marking._load_posting_cancelled_map",
+            return_value={},
+        ),
+        patch(
+            "review_processor.ozon_fbs_marking.load_marking_map",
+            return_value={
+                "P-1": {
+                    "codes": [],
+                    "saved_at": "",
+                    "ozon_synced": False,
+                    "gtd_number": "",
+                }
+            },
+        ),
+        patch(
+            "review_processor.ozon_fbs_marking._load_posting_row",
+            return_value={
+                "posting_number": "P-1",
+                "offer_id": "ART-1",
+                "sku": "111",
+                "raw_json": '{"products":[{"sku":111,"offer_id":"ART-1","quantity":1}]}',
+            },
+        ),
+        patch(
+            "review_processor.ozon_fbs_marking.oz.posting_requires_pre_ship_gtd",
+            return_value=False,
+        ),
+        patch(
+            "review_processor.ozon_fbs_marking.oz.posting_requires_marking",
+            return_value=True,
+        ),
+        patch(
+            "review_processor.ozon_fbs_marking.update_posting_marking_codes",
+            return_value={
+                "ok": True,
+                "codes": codes,
+                "saved_at": "2026-08-31T10:00:00+00:00",
+            },
+        ) as upd,
+        patch(
+            "review_processor.ozon_fbs_marking.push_marking_to_ozon"
+        ) as push,
+        patch("review_processor.ozon_fbs_marking.oz.OzonFbsClient"),
+    ):
+        out = save_marking(
+            _repo_with_kiz_map({"ART-1": True, "111": True}),
+            user_id=1,
+            source_id=2,
+            items=[{"posting_number": "P-1", "kiz_codes": codes}],
+            allowed_posting_numbers={"P-1"},
+            client_id="cid",
+            api_key="key",
+        )
+    assert out["ok"] is True
+    assert out["results"][0]["kiz_ozon_synced"] is True
+    push.assert_called_once()
+    assert push.call_args.kwargs.get("gtd") == ""
+    assert push.call_args.kwargs.get("prefer_gtd_products") is False
+    assert push.call_args.kwargs.get("codes") == codes
+    assert upd.call_count >= 1
 
 
 def test_save_marking_push_only_when_local_same_but_not_synced() -> None:
@@ -232,7 +309,7 @@ def test_save_marking_push_only_when_local_same_but_not_synced() -> None:
         patch("review_processor.ozon_fbs_marking.oz.OzonFbsClient"),
     ):
         out = save_marking(
-            MagicMock(),
+            _repo_with_kiz_map(),
             user_id=1,
             source_id=2,
             items=[
@@ -249,6 +326,68 @@ def test_save_marking_push_only_when_local_same_but_not_synced() -> None:
     assert out["ok"] is True
     assert out["results"][0]["kiz_ozon_synced"] is True
     push.assert_called_once()
+    assert push.call_args.kwargs.get("gtd") == gtd
+    assert push.call_args.kwargs.get("prefer_gtd_products") is True
     # Only the post-push synced=True write — no pre-push wipe.
+    assert upd.call_count == 1
+    assert upd.call_args.kwargs.get("ozon_synced") is True
+
+
+def test_save_marking_catalog_kiz_push_only_when_unsynced() -> None:
+    codes = ["010460123456789021ABC"]
+    with (
+        patch(
+            "review_processor.ozon_fbs_marking._load_posting_cancelled_map",
+            return_value={},
+        ),
+        patch(
+            "review_processor.ozon_fbs_marking.load_marking_map",
+            return_value={
+                "P-1": {
+                    "codes": codes,
+                    "saved_at": "2026-08-31T10:00:00+00:00",
+                    "ozon_synced": False,
+                    "gtd_number": "",
+                }
+            },
+        ),
+        patch(
+            "review_processor.ozon_fbs_marking._load_posting_row",
+            return_value={"posting_number": "P-1", "raw_json": "{}"},
+        ),
+        patch(
+            "review_processor.ozon_fbs_marking.oz.posting_requires_pre_ship_gtd",
+            return_value=False,
+        ),
+        patch(
+            "review_processor.ozon_fbs_marking.oz.posting_requires_marking",
+            return_value=True,
+        ),
+        patch(
+            "review_processor.ozon_fbs_marking.update_posting_marking_codes",
+            return_value={
+                "ok": True,
+                "codes": codes,
+                "saved_at": "2026-08-31T10:01:00+00:00",
+            },
+        ) as upd,
+        patch(
+            "review_processor.ozon_fbs_marking.push_marking_to_ozon"
+        ) as push,
+        patch("review_processor.ozon_fbs_marking.oz.OzonFbsClient"),
+    ):
+        out = save_marking(
+            _repo_with_kiz_map({"ART": True}),
+            user_id=1,
+            source_id=2,
+            items=[{"posting_number": "P-1", "kiz_codes": codes}],
+            allowed_posting_numbers={"P-1"},
+            client_id="cid",
+            api_key="key",
+        )
+    assert out["ok"] is True
+    assert out["results"][0]["kiz_ozon_synced"] is True
+    push.assert_called_once()
+    assert push.call_args.kwargs.get("gtd") == ""
     assert upd.call_count == 1
     assert upd.call_args.kwargs.get("ozon_synced") is True
