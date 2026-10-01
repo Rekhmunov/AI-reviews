@@ -650,6 +650,92 @@ def _ship_error_already_assembled(exc: BaseException) -> bool:
     return any(n in text for n in needles)
 
 
+def _ship_error_exemplar_not_filled(exc: BaseException) -> bool:
+    """``/v4/posting/fbs/ship`` rejected because exemplar/KIZ/GTD data is incomplete."""
+    return "EXEMPLAR_INFO_NOT_FILLED_COMPLETELY" in str(exc or "").upper()
+
+
+def _packages_to_exemplar_products(
+    packages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """``product_id`` + ``quantity`` lines for exemplar create-or-get."""
+    out: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for pkg in packages:
+        if not isinstance(pkg, dict):
+            continue
+        for p in pkg.get("products") or []:
+            if not isinstance(p, dict):
+                continue
+            try:
+                pid = int(p.get("product_id"))
+            except (TypeError, ValueError):
+                continue
+            if pid <= 0 or pid in seen:
+                continue
+            seen.add(pid)
+            try:
+                qty = int(p.get("quantity") or 1)
+            except (TypeError, ValueError):
+                qty = 1
+            out.append({"product_id": pid, "quantity": max(qty, 1)})
+    return out
+
+
+def _exemplar_requires_codes_before_ship(
+    client: oz.OzonFbsClient,
+    *,
+    posting_number: str,
+    packages: list[dict[str, Any]],
+) -> bool:
+    """True when Ozon still needs КИЗ/ГТД/etc. before ship.
+
+    Optional Chestny ZNAK (``is_mandatory_mark_possible`` without
+    ``is_mandatory_mark_needed``) must NOT block — portal and live API allow
+    ``/v4/posting/fbs/ship`` without codes for those postings.
+    """
+    products = _packages_to_exemplar_products(packages)
+    if products:
+        try:
+            resp = client.product_exemplar_create_or_get(
+                str(posting_number), products
+            )
+        except Exception as exc:
+            _log.info(
+                "ozon ship exemplar probe create-or-get %s failed: %s",
+                posting_number,
+                exc,
+            )
+            return True
+        for item in resp.get("products") or []:
+            if not isinstance(item, dict):
+                continue
+            if (
+                item.get("is_mandatory_mark_needed")
+                or item.get("is_gtd_needed")
+                or item.get("is_rnpt_needed")
+                or item.get("is_jw_uin_needed")
+                or item.get("is_weight_needed")
+            ):
+                return True
+
+    try:
+        status_resp = client.product_exemplar_status(str(posting_number))
+    except Exception as exc:
+        _log.info(
+            "ozon ship exemplar probe status %s failed: %s",
+            posting_number,
+            exc,
+        )
+        # If create-or-get already said nothing is needed, do not block on
+        # a flaky status call; otherwise keep the original EXEMPLAR error.
+        return not bool(products)
+    status = str(status_resp.get("status") or "").strip().lower()
+    if status in {"ship_not_available", "validation_in_process"}:
+        return True
+    return False
+
+
 def ship_posting(
     repo: ReviewRepository,
     *,
@@ -710,20 +796,55 @@ def ship_posting(
     try:
         result = api.ship_posting(str(posting_number), packages)
     except Exception as exc:
-        if not _ship_error_already_assembled(exc):
-            # One soft retry on rate limit / transient HTTP.
+        if _ship_error_already_assembled(exc):
+            result = {"already": True, "error": str(exc)}
+        else:
             err_l = str(exc).lower()
-            if "429" in err_l or "http 5" in err_l or "network" in err_l:
+            retried = False
+            # Optional-mark fluke: Ozon sometimes returns EXEMPLAR… even when
+            # create-or-get says mark is only possible (not needed). Portal ships
+            # these without КИЗ — probe and retry once.
+            if _ship_error_exemplar_not_filled(exc):
+                blocks = _exemplar_requires_codes_before_ship(
+                    api,
+                    posting_number=str(posting_number),
+                    packages=packages,
+                )
+                if not blocks:
+                    _log.info(
+                        "ozon ship %s EXEMPLAR… but exemplar not required — retry",
+                        posting_number,
+                    )
+                    try:
+                        result = api.ship_posting(str(posting_number), packages)
+                        retried = True
+                    except Exception as exc_retry:
+                        if _ship_error_already_assembled(exc_retry):
+                            result = {"already": True, "error": str(exc_retry)}
+                            retried = True
+                        else:
+                            raise
+                else:
+                    raise RuntimeError(
+                        "EXEMPLAR_INFO_NOT_FILLED_COMPLETELY: "
+                        "нужен КИЗ («Честный ЗНАК») и/или ГТД перед сборкой"
+                    ) from exc
+            if not retried and (
+                "429" in err_l or "http 5" in err_l or "network" in err_l
+            ):
+                # One soft retry on rate limit / transient HTTP.
                 import time as _time
 
                 _time.sleep(1.5)
                 try:
                     result = api.ship_posting(str(posting_number), packages)
+                    retried = True
                 except Exception as exc2:
                     if not _ship_error_already_assembled(exc2):
                         raise
                     result = {"already": True, "error": str(exc2)}
-            else:
+                    retried = True
+            if not retried:
                 # Confirm remote status — may already be past packaging.
                 try:
                     got = api.get_posting(str(posting_number))
@@ -749,8 +870,6 @@ def ship_posting(
                         "posting_numbers": [str(posting_number)],
                     }
                 raise
-        else:
-            result = {"already": True, "error": str(exc)}
 
     posting_numbers = _ship_result_posting_numbers(
         result, fallback_posting_number=str(posting_number)
