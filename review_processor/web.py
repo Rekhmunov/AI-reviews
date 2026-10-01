@@ -15490,7 +15490,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     def ozon_fbs_posting_move_targets(
         request: Request, source_id: int
     ) -> dict[str, object]:
-        """List local supplies (awaiting_deliver + delivering) for local move modal."""
+        """List local awaiting_deliver supplies for the local move modal."""
         from . import ozon_fbs_supplies as oz_sup
 
         user = _require_user(request)
@@ -16016,11 +16016,23 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         if not supply:
             raise HTTPException(status_code=404, detail="Поставка не найдена")
+        # Assembly truth (incl. locally moved postings), not stale JSON snapshot.
         allowed = {
             str(x).strip()
-            for x in (supply.get("posting_numbers") or [])
+            for x in oz_sup._assembly_posting_numbers_for_supply(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                supply_id=sid,
+            )
             if str(x).strip()
         }
+        if not allowed:
+            allowed = {
+                str(x).strip()
+                for x in (supply.get("posting_numbers") or [])
+                if str(x).strip()
+            }
         try:
             _, client_id, api_key = _ozon_fbs_source_credentials(
                 owner_id, int(source_id)

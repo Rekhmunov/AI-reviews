@@ -8355,6 +8355,11 @@ tr.dnd-over td {
   /* Above supply-detail overlay (same base z-index), so create never looks "closed". */
   z-index: 1300;
 }
+/* Nested above #ozonFbsSupplyDetailModal (DOM order alone is not enough for Move). */
+#ozonFbsMovePostingModal.modal-overlay,
+#ozonFbsSupplyDetailNewSupplyModal.modal-overlay {
+  z-index: 1300;
+}
 .wb-fbs-create-trbx-modal {
   max-width: 728px;
   width: calc(100% - 32px);

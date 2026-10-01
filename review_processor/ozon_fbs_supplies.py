@@ -3800,6 +3800,49 @@ def _set_supply_posting_numbers(
         )
 
 
+def _sync_supply_composition_from_assembly(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+) -> list[str]:
+    """Rewrite ``posting_numbers_json`` from live assembly links.
+
+    Keeps prior snapshot order for numbers that remain, then appends any
+    assembly-only numbers. Used after local moves so print/KIZ composition
+    gate stays aligned with ``ozon_fbs_postings.supply_id``.
+    """
+    sid = str(supply_id or "").strip()
+    if not sid:
+        return []
+    assembly = _assembly_posting_numbers_for_supply(
+        repo, user_id=user_id, source_id=source_id, supply_id=sid
+    )
+    assembly_set = set(assembly)
+    supply = get_supply(repo, user_id=user_id, source_id=source_id, supply_id=sid)
+    if not supply:
+        return list(assembly)
+    prev = [
+        str(x).strip()
+        for x in (supply.get("posting_numbers") or [])
+        if str(x).strip() and str(x).strip() in assembly_set
+    ]
+    seen = set(prev)
+    for pn in assembly:
+        if pn not in seen:
+            prev.append(pn)
+            seen.add(pn)
+    _set_supply_posting_numbers(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=sid,
+        posting_numbers=prev,
+    )
+    return prev
+
+
 def rename_local_supply(
     repo: ReviewRepository,
     *,
@@ -7441,14 +7484,41 @@ def move_supply_to_awaiting_deliver(
 def list_supplies_for_local_move(
     repo: ReviewRepository, *, user_id: int, source_id: int
 ) -> dict[str, Any]:
-    """Local supplies on «Ожидают отгрузки» and «Доставляются» for move modal."""
+    """Local supplies on «Ожидают отгрузки» for the move modal.
+
+    «Доставляются» is excluded — local move targets only open awaiting supplies
+    (same rule as collect/selection). Empty awaiting shells are included so
+    operators can refill a cleared supply.
+    """
     ensure_ozon_fbs_supply_schema(repo)
     awaiting = _build_supply_items_for_tab(
         repo, user_id=user_id, source_id=source_id, tab=oz.TAB_AWAITING_DELIVER
     )
-    delivering = _build_supply_items_for_tab(
+    # Empty open supplies that still exist as shells (no awaiting postings yet).
+    awaiting_ids = {
+        str(s.get("supply_id") or "").strip()
+        for s in awaiting
+        if str(s.get("supply_id") or "").strip()
+    }
+    delivering_ids = _supply_ids_with_tab(
         repo, user_id=user_id, source_id=source_id, tab=oz.TAB_DELIVERING
     )
+    empty_shells: list[dict[str, Any]] = []
+    for s in list_open_supplies(repo, user_id=user_id, source_id=source_id):
+        sid = str(s.get("supply_id") or "").strip()
+        if not sid or sid in awaiting_ids or sid in delivering_ids:
+            continue
+        if not s.get("is_empty"):
+            continue
+        empty_shells.append(
+            {
+                "supply_id": sid,
+                "name": str(s.get("name") or sid).strip() or sid,
+                "order_count": 0,
+                "warehouse_label": str(s.get("warehouse_name") or "").strip(),
+                "warehouse_name": str(s.get("warehouse_name") or "").strip(),
+            }
+        )
 
     def _slim(items: list[dict[str, Any]], tab: str) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
@@ -7470,14 +7540,13 @@ def list_supplies_for_local_move(
             )
         return out
 
-    awaiting_items = _slim(awaiting, oz.TAB_AWAITING_DELIVER)
-    delivering_items = _slim(delivering, oz.TAB_DELIVERING)
+    awaiting_items = _slim(awaiting + empty_shells, oz.TAB_AWAITING_DELIVER)
     return {
         "ok": True,
         "awaiting_deliver": awaiting_items,
-        "delivering": delivering_items,
-        "items": awaiting_items + delivering_items,
-        "total": len(awaiting_items) + len(delivering_items),
+        "delivering": [],
+        "items": awaiting_items,
+        "total": len(awaiting_items),
     }
 
 
@@ -7568,51 +7637,48 @@ def move_posting_to_local_supply(
                 "message": "Отправление уже в этой поставке",
             }
 
-        conn.execute(
-            repo._sql(
-                """
-                UPDATE ozon_fbs_postings
-                SET supply_id = ?, tab = ?, status = ?,
-                    synced_at = CURRENT_TIMESTAMP
-                WHERE user_id = ? AND source_id = ? AND posting_number = ?
-                """
-            ),
-            (sid, tab_hint, tab_hint, user_id, source_id, pn),
-        )
-
-    # Refresh membership lists outside the posting update transaction scope.
-    if old_sid and old_sid != sid:
-        old_supply = get_supply(
-            repo, user_id=user_id, source_id=source_id, supply_id=old_sid
-        )
-        if old_supply:
-            old_nums = [
-                str(x).strip()
-                for x in (old_supply.get("posting_numbers") or [])
-                if str(x).strip() and str(x).strip() != pn
-            ]
-            _set_supply_posting_numbers(
-                repo,
-                user_id=user_id,
-                source_id=source_id,
-                supply_id=old_sid,
-                posting_numbers=old_nums,
+        # Drop cargo binds when leaving a supply — GM belongs to the old carriage.
+        clear_container = bool(old_sid and old_sid != sid)
+        if clear_container:
+            conn.execute(
+                repo._sql(
+                    """
+                    UPDATE ozon_fbs_postings
+                    SET supply_id = ?, tab = ?, status = ?,
+                        container_id = NULL,
+                        container_barcode = '',
+                        container_synced = FALSE,
+                        container_sync_error = '',
+                        synced_at = CURRENT_TIMESTAMP
+                    WHERE user_id = ? AND source_id = ? AND posting_number = ?
+                    """
+                ),
+                (sid, tab_hint, tab_hint, user_id, source_id, pn),
+            )
+        else:
+            conn.execute(
+                repo._sql(
+                    """
+                    UPDATE ozon_fbs_postings
+                    SET supply_id = ?, tab = ?, status = ?,
+                        synced_at = CURRENT_TIMESTAMP
+                    WHERE user_id = ? AND source_id = ? AND posting_number = ?
+                    """
+                ),
+                (sid, tab_hint, tab_hint, user_id, source_id, pn),
             )
 
-    new_nums = [
-        str(x).strip()
-        for x in (supply.get("posting_numbers") or [])
-        if str(x).strip()
-    ]
-    if pn not in new_nums:
-        new_nums.append(pn)
-    _set_supply_posting_numbers(
-        repo,
-        user_id=user_id,
-        source_id=source_id,
-        supply_id=sid,
-        posting_numbers=new_nums,
-    )
+    # Align composition snapshots with assembly so print/KIZ see moved orders.
+    affected = {sid}
+    if old_sid and old_sid != sid:
+        affected.add(old_sid)
+    for affected_sid in sorted(affected):
+        _sync_supply_composition_from_assembly(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=affected_sid,
+        )
 
     supply_name = str(supply.get("name") or sid).strip() or sid
     tab_label = oz.TAB_LABELS.get(tab_hint, tab_hint)
@@ -7750,58 +7816,58 @@ def move_postings_to_local_supply(
             for r in to_move
             if str(r.get("posting_number") or "").strip()
         ]
-        ph = ", ".join("?" for _ in move_pns)
+        # Postings that leave another supply: drop cargo binds (GM is carriage-local).
+        clear_container_pns = [
+            str(r.get("posting_number") or "").strip()
+            for r in to_move
+            if str(r.get("posting_number") or "").strip()
+            and str(r.get("supply_id") or "").strip()
+            and str(r.get("supply_id") or "").strip() != sid
+        ]
+        same_supply_pns = [pn for pn in move_pns if pn not in set(clear_container_pns)]
         with repo._connect() as conn:
-            conn.execute(
-                repo._sql(
-                    f"""
-                    UPDATE ozon_fbs_postings
-                    SET supply_id = ?, tab = ?, status = ?,
-                        synced_at = CURRENT_TIMESTAMP
-                    WHERE user_id = ? AND source_id = ?
-                      AND posting_number IN ({ph})
-                    """
-                ),
-                (sid, tab_hint, tab_hint, user_id, source_id, *move_pns),
-            )
+            if clear_container_pns:
+                ph = ", ".join("?" for _ in clear_container_pns)
+                conn.execute(
+                    repo._sql(
+                        f"""
+                        UPDATE ozon_fbs_postings
+                        SET supply_id = ?, tab = ?, status = ?,
+                            container_id = NULL,
+                            container_barcode = '',
+                            container_synced = FALSE,
+                            container_sync_error = '',
+                            synced_at = CURRENT_TIMESTAMP
+                        WHERE user_id = ? AND source_id = ?
+                          AND posting_number IN ({ph})
+                        """
+                    ),
+                    (sid, tab_hint, tab_hint, user_id, source_id, *clear_container_pns),
+                )
+            if same_supply_pns:
+                ph = ", ".join("?" for _ in same_supply_pns)
+                conn.execute(
+                    repo._sql(
+                        f"""
+                        UPDATE ozon_fbs_postings
+                        SET supply_id = ?, tab = ?, status = ?,
+                            synced_at = CURRENT_TIMESTAMP
+                        WHERE user_id = ? AND source_id = ?
+                          AND posting_number IN ({ph})
+                        """
+                    ),
+                    (sid, tab_hint, tab_hint, user_id, source_id, *same_supply_pns),
+                )
 
-        for old_sid, old_pns in from_by_supply.items():
-            old_supply = get_supply(
-                repo, user_id=user_id, source_id=source_id, supply_id=old_sid
-            )
-            if not old_supply:
-                continue
-            drop = set(old_pns)
-            old_nums = [
-                str(x).strip()
-                for x in (old_supply.get("posting_numbers") or [])
-                if str(x).strip() and str(x).strip() not in drop
-            ]
-            _set_supply_posting_numbers(
+        # Align composition snapshots with assembly so print/KIZ see moved orders.
+        affected = {sid, *from_by_supply.keys()}
+        for affected_sid in sorted(affected):
+            _sync_supply_composition_from_assembly(
                 repo,
                 user_id=user_id,
                 source_id=source_id,
-                supply_id=old_sid,
-                posting_numbers=old_nums,
+                supply_id=affected_sid,
             )
-
-        # Re-read target membership after possible concurrent edits.
-        supply = get_supply(repo, user_id=user_id, source_id=source_id, supply_id=sid) or supply
-        new_nums = [
-            str(x).strip()
-            for x in (supply.get("posting_numbers") or [])
-            if str(x).strip()
-        ]
-        for pn in move_pns:
-            if pn not in new_nums:
-                new_nums.append(pn)
-        _set_supply_posting_numbers(
-            repo,
-            user_id=user_id,
-            source_id=source_id,
-            supply_id=sid,
-            posting_numbers=new_nums,
-        )
 
     supply_name = str(supply.get("name") or sid).strip() or sid
     tab_label = oz.TAB_LABELS.get(tab_hint, tab_hint)

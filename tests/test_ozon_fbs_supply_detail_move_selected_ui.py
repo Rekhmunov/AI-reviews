@@ -38,3 +38,15 @@ def test_supply_detail_move_selected_js_hooks() -> None:
     branch = text[empty_idx : empty_idx + 450]
     assert "updateSupplyDetailBottomBar()" in branch
     assert "supplyDetailState.selected = new Set()" in branch
+    # Move modal lists awaiting_deliver only (no delivering section).
+    assert 'title: "Доставляются"' not in text
+    assert "Нет других локальных поставок в «Ожидают отгрузки»" in text
+
+
+def test_move_modals_stack_above_supply_detail() -> None:
+    css = (ROOT / "web_static" / "style.css").read_text(encoding="utf-8")
+    assert "#ozonFbsMovePostingModal.modal-overlay" in css
+    assert "#ozonFbsSupplyDetailNewSupplyModal.modal-overlay" in css
+    move_idx = css.index("#ozonFbsMovePostingModal.modal-overlay")
+    snippet = css[move_idx : move_idx + 220]
+    assert "z-index: 1300" in snippet

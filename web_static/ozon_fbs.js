@@ -8061,24 +8061,20 @@
     const body = document.getElementById("ozonFbsMovePostingBody");
     if (!body) return;
     const exclude = String(movePostingState.excludeSupplyId || "").trim();
-    const sections = [
-      { key: "awaiting_deliver", title: "Ожидают отгрузки", items: groups.awaiting_deliver || [] },
-      { key: "delivering", title: "Доставляются", items: groups.delivering || [] },
-    ];
+    // Only «Ожидают отгрузки» — delivering supplies are not valid local move targets.
+    const items = (groups.awaiting_deliver || groups.items || []).filter((s) => {
+      const sid = String(s.supply_id || "").trim();
+      return sid && sid !== exclude;
+    });
     const flat = [];
     let html = "";
-    for (const sec of sections) {
-      const items = (sec.items || []).filter((s) => {
-        const sid = String(s.supply_id || "").trim();
-        return sid && sid !== exclude;
-      });
-      if (!items.length) continue;
+    if (items.length) {
       html += `<div class="ozon-fbs-move-section">`;
-      html += `<h4 class="ozon-fbs-move-section-title">${esc(sec.title)}</h4>`;
+      html += `<h4 class="ozon-fbs-move-section-title">Ожидают отгрузки</h4>`;
       html += items.map((s) => {
         flat.push(s);
         const sid = String(s.supply_id || "").trim();
-        const tab = String(s.tab || sec.key).trim();
+        const tab = String(s.tab || "awaiting_deliver").trim() || "awaiting_deliver";
         const name = String(s.name || sid).trim() || sid;
         const count = Number(s.order_count || 0) || 0;
         const wh = String(s.warehouse_name || "").trim();
@@ -8096,7 +8092,7 @@
     }
     movePostingState.items = flat;
     if (!html) {
-      body.innerHTML = `<div class="wb-fbs-empty">Нет других локальных поставок в «Ожидают отгрузки» и «Доставляются»</div>`;
+      body.innerHTML = `<div class="wb-fbs-empty">Нет других локальных поставок в «Ожидают отгрузки»</div>`;
     } else {
       body.innerHTML = html;
     }

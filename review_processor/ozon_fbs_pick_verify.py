@@ -22,13 +22,16 @@ def _supply_detail_for_pick_verify(
     user_id: int,
     source_id: int,
     supply_id: str,
+    posting_tab: str | None = None,
 ) -> dict[str, Any]:
-    """Load supply detail for pick-verify from local DB."""
+    """Load supply detail for pick-verify from local DB (assembly + optional tab)."""
+    tab_key = str(posting_tab or "").strip() or None
     return oz_sup.get_supply_detail(
         repo,
         user_id=user_id,
         source_id=source_id,
         supply_id=supply_id,
+        posting_tab=tab_key,
     )
 
 
@@ -38,6 +41,7 @@ def allowed_pick_verify_posting_numbers(
     user_id: int,
     source_id: int,
     supply_id: str,
+    posting_tab: str | None = None,
 ) -> set[str]:
     """Plain (non-КИЗ) posting numbers in a supply — assembly/local truth."""
     detail = _supply_detail_for_pick_verify(
@@ -45,6 +49,7 @@ def allowed_pick_verify_posting_numbers(
         user_id=user_id,
         source_id=int(source_id),
         supply_id=str(supply_id),
+        posting_tab=posting_tab,
     )
     return {
         str(o.get("posting_number") or "").strip()
