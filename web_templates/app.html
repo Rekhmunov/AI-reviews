@@ -3532,6 +3532,48 @@
                 </tbody>
               </table>
             </div>
+            <div id="ozonFbsSupplyDetailBottomBar" class="wb-fbs-sd-bottom-bar hidden">
+              <span id="ozonFbsSupplyDetailSelectedLabel" class="wb-fbs-selected-label">Выбрано 0 отправлений</span>
+              <div class="wb-fbs-bottom-actions">
+                <button type="button" class="wb-fbs-bottom-primary"
+                        onclick="openOzonFbsSupplyDetailNewSupply()">
+                  <span class="wb-fbs-ico-plus" aria-hidden="true">+</span>
+                  Новая поставка
+                </button>
+                <button type="button" id="ozonFbsSupplyDetailAddExistingBtn"
+                        class="secondary wb-fbs-bottom-add-existing"
+                        onclick="openOzonFbsSupplyDetailMoveExisting()">
+                  В существующую
+                </button>
+                <button type="button" class="icon-btn secondary wb-fbs-bottom-close"
+                        onclick="clearOzonFbsSupplyDetailSelection()" title="Сбросить выбор">✕</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="ozonFbsSupplyDetailNewSupplyModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsSupplyDetailNewSupplyTitle">
+          <div class="modal-card wb-fbs-collect-mgt-modal">
+            <div class="wb-fbs-collect-mgt-header">
+              <h3 id="ozonFbsSupplyDetailNewSupplyTitle" class="wb-fbs-collect-mgt-title">Новая поставка</h3>
+              <button type="button" class="icon-btn secondary" onclick="closeOzonFbsSupplyDetailNewSupplyModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <p id="ozonFbsSupplyDetailNewSupplyLead" class="wb-fbs-collect-mgt-lead">
+              Локальный перенос выбранных отправлений в новую поставку. В Ozon ничего не отправляется.
+            </p>
+            <div id="ozonFbsSupplyDetailNewSupplyBody" class="wb-fbs-collect-mgt-body">
+              <div class="wb-fbs-collect-mgt-field">
+                <label for="ozonFbsSupplyDetailNewSupplyName">Название поставки</label>
+                <input type="text" id="ozonFbsSupplyDetailNewSupplyName" value="" autocomplete="off" />
+              </div>
+            </div>
+            <div id="ozonFbsSupplyDetailNewSupplyErr" class="wb-fbs-collect-mgt-err" hidden></div>
+            <div class="wb-fbs-collect-mgt-footer">
+              <button type="button" class="secondary" onclick="closeOzonFbsSupplyDetailNewSupplyModal()">Отмена</button>
+              <button type="button" id="ozonFbsSupplyDetailNewSupplyConfirmBtn" class="ozon-fbs-ship-all-btn"
+                      onclick="confirmOzonFbsSupplyDetailNewSupply()">Создать</button>
+            </div>
           </div>
         </div>
 

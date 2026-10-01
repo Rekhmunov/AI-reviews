@@ -7626,3 +7626,320 @@ def move_posting_to_local_supply(
         "unchanged": False,
         "message": f"Перенесено в «{supply_name}» ({tab_label})",
     }
+
+
+def _resolve_local_move_tab(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+    target_tab: str | None,
+) -> str:
+    tab_hint = str(target_tab or "").strip().lower()
+    if tab_hint in {oz.TAB_AWAITING_DELIVER, oz.TAB_DELIVERING}:
+        return tab_hint
+    with repo._connect() as conn:
+        row = conn.execute(
+            repo._sql(
+                """
+                SELECT tab, COUNT(*) AS n
+                FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                  AND tab IN (?, ?)
+                GROUP BY tab
+                ORDER BY n DESC
+                """
+            ),
+            (
+                user_id,
+                source_id,
+                supply_id,
+                oz.TAB_AWAITING_DELIVER,
+                oz.TAB_DELIVERING,
+            ),
+        ).fetchone()
+    if row:
+        tab_hint = str(
+            row["tab"] if hasattr(row, "keys") else row[0] or ""
+        ).strip().lower()
+    if tab_hint not in {oz.TAB_AWAITING_DELIVER, oz.TAB_DELIVERING}:
+        return oz.TAB_AWAITING_DELIVER
+    return tab_hint
+
+
+def move_postings_to_local_supply(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_numbers: list[str],
+    supply_id: str,
+    target_tab: str | None = None,
+) -> dict[str, Any]:
+    """Locally assign many postings to an existing supply. No Ozon API calls."""
+    ensure_ozon_fbs_supply_schema(repo)
+    oz.ensure_ozon_fbs_tables(repo)
+    sid = str(supply_id or "").strip()
+    if not sid:
+        raise ValueError("Укажите supply_id")
+    nums: list[str] = []
+    seen: set[str] = set()
+    for raw in posting_numbers or []:
+        pn = str(raw or "").strip()
+        if not pn or pn in seen:
+            continue
+        seen.add(pn)
+        nums.append(pn)
+    if not nums:
+        raise ValueError("Укажите posting_numbers")
+
+    supply = get_supply(repo, user_id=user_id, source_id=source_id, supply_id=sid)
+    if not supply:
+        raise RuntimeError("Поставка не найдена")
+
+    tab_hint = _resolve_local_move_tab(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        supply_id=sid,
+        target_tab=target_tab,
+    )
+
+    placeholders = ", ".join("?" for _ in nums)
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT posting_number, supply_id, tab, status,
+                       warehouse_id, warehouse_name
+                FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ?
+                  AND posting_number IN ({placeholders})
+                """
+            ),
+            (user_id, source_id, *nums),
+        ).fetchall()
+        found: dict[str, dict[str, Any]] = {}
+        for r in rows:
+            d = repo._row_to_dict(r)
+            pn = str(d.get("posting_number") or "").strip()
+            if pn:
+                found[pn] = d
+
+    missing = [pn for pn in nums if pn not in found]
+    to_move: list[dict[str, Any]] = []
+    unchanged = 0
+    from_by_supply: dict[str, list[str]] = {}
+    for pn in nums:
+        row = found.get(pn)
+        if not row:
+            continue
+        old_sid = str(row.get("supply_id") or "").strip()
+        old_tab = str(row.get("tab") or "").strip()
+        if old_sid == sid and old_tab == tab_hint:
+            unchanged += 1
+            continue
+        to_move.append(row)
+        if old_sid and old_sid != sid:
+            from_by_supply.setdefault(old_sid, []).append(pn)
+
+    if to_move:
+        move_pns = [
+            str(r.get("posting_number") or "").strip()
+            for r in to_move
+            if str(r.get("posting_number") or "").strip()
+        ]
+        ph = ", ".join("?" for _ in move_pns)
+        with repo._connect() as conn:
+            conn.execute(
+                repo._sql(
+                    f"""
+                    UPDATE ozon_fbs_postings
+                    SET supply_id = ?, tab = ?, status = ?,
+                        synced_at = CURRENT_TIMESTAMP
+                    WHERE user_id = ? AND source_id = ?
+                      AND posting_number IN ({ph})
+                    """
+                ),
+                (sid, tab_hint, tab_hint, user_id, source_id, *move_pns),
+            )
+
+        for old_sid, old_pns in from_by_supply.items():
+            old_supply = get_supply(
+                repo, user_id=user_id, source_id=source_id, supply_id=old_sid
+            )
+            if not old_supply:
+                continue
+            drop = set(old_pns)
+            old_nums = [
+                str(x).strip()
+                for x in (old_supply.get("posting_numbers") or [])
+                if str(x).strip() and str(x).strip() not in drop
+            ]
+            _set_supply_posting_numbers(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                supply_id=old_sid,
+                posting_numbers=old_nums,
+            )
+
+        # Re-read target membership after possible concurrent edits.
+        supply = get_supply(repo, user_id=user_id, source_id=source_id, supply_id=sid) or supply
+        new_nums = [
+            str(x).strip()
+            for x in (supply.get("posting_numbers") or [])
+            if str(x).strip()
+        ]
+        for pn in move_pns:
+            if pn not in new_nums:
+                new_nums.append(pn)
+        _set_supply_posting_numbers(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=sid,
+            posting_numbers=new_nums,
+        )
+
+    supply_name = str(supply.get("name") or sid).strip() or sid
+    tab_label = oz.TAB_LABELS.get(tab_hint, tab_hint)
+    moved = len(to_move)
+    ok = moved > 0 or (unchanged > 0 and not missing)
+    if moved:
+        message = f"Перенесено {moved} отпр. в «{supply_name}» ({tab_label})"
+        if unchanged:
+            message += f", без изменений: {unchanged}"
+        if missing:
+            message += f", не найдено: {len(missing)}"
+    elif unchanged and not missing:
+        message = "Отправления уже в этой поставке"
+    else:
+        message = "Не удалось перенести отправления"
+
+    return {
+        "ok": ok,
+        "supply_id": sid,
+        "supply_name": supply_name,
+        "tab": tab_hint,
+        "moved": moved,
+        "unchanged": unchanged,
+        "missing": missing,
+        "posting_numbers": [
+            str(r.get("posting_number") or "").strip() for r in to_move if str(r.get("posting_number") or "").strip()
+        ],
+        "from_supply_ids": sorted(from_by_supply.keys()),
+        "message": message,
+    }
+
+
+def create_local_supply_from_postings(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    posting_numbers: list[str],
+    name: str = "",
+    target_tab: str | None = None,
+) -> dict[str, Any]:
+    """Create a new local supply and move selected postings into it. No Ozon API."""
+    ensure_ozon_fbs_supply_schema(repo)
+    oz.ensure_ozon_fbs_tables(repo)
+    nums: list[str] = []
+    seen: set[str] = set()
+    for raw in posting_numbers or []:
+        pn = str(raw or "").strip()
+        if not pn or pn in seen:
+            continue
+        seen.add(pn)
+        nums.append(pn)
+    if not nums:
+        raise ValueError("Укажите posting_numbers")
+
+    placeholders = ", ".join("?" for _ in nums)
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                f"""
+                SELECT posting_number, warehouse_id, warehouse_name
+                FROM ozon_fbs_postings
+                WHERE user_id = ? AND source_id = ?
+                  AND posting_number IN ({placeholders})
+                """
+            ),
+            (user_id, source_id, *nums),
+        ).fetchall()
+    found_rows = [repo._row_to_dict(r) for r in rows]
+    found_pns = {
+        str(r.get("posting_number") or "").strip()
+        for r in found_rows
+        if str(r.get("posting_number") or "").strip()
+    }
+    missing = [pn for pn in nums if pn not in found_pns]
+    usable = [pn for pn in nums if pn in found_pns]
+    if not usable:
+        raise RuntimeError("Отправления не найдены локально")
+
+    # Warehouse: majority among selected, else first.
+    wh_counts: dict[tuple[object, str], int] = {}
+    for r in found_rows:
+        key = (r.get("warehouse_id"), str(r.get("warehouse_name") or "").strip())
+        wh_counts[key] = int(wh_counts.get(key) or 0) + 1
+    wh_id: object = None
+    wh_name = ""
+    if wh_counts:
+        (wh_id, wh_name), _n = max(wh_counts.items(), key=lambda kv: kv[1])
+
+    open_items = _build_supply_items_for_tab(
+        repo, user_id=user_id, source_id=source_id, tab=oz.TAB_AWAITING_DELIVER
+    )
+    existing_names = {
+        str(s.get("name") or "").strip()
+        for s in open_items
+        if str(s.get("name") or "").strip()
+    }
+    source_name = _source_display_name(repo, user_id=user_id, source_id=source_id)
+    supply_name = _unique_supply_name(
+        str(name or "").strip() or default_supply_name(source_name=source_name),
+        existing_names,
+    )
+    tab_hint = str(target_tab or "").strip().lower()
+    if tab_hint not in {oz.TAB_AWAITING_DELIVER, oz.TAB_DELIVERING}:
+        tab_hint = oz.TAB_AWAITING_DELIVER
+
+    # Empty shell first — membership of source supplies is updated by bulk move.
+    new_sid = _create_local_supply(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        name=supply_name,
+        warehouse_id=wh_id,
+        warehouse_name=wh_name,
+        posting_numbers=[],
+        force_tab=None,
+    )
+    moved = move_postings_to_local_supply(
+        repo,
+        user_id=user_id,
+        source_id=source_id,
+        posting_numbers=usable,
+        supply_id=new_sid,
+        target_tab=tab_hint,
+    )
+    return {
+        "ok": bool(moved.get("ok")),
+        "supply_id": new_sid,
+        "name": supply_name,
+        "tab": tab_hint,
+        "moved": int(moved.get("moved") or 0),
+        "unchanged": int(moved.get("unchanged") or 0),
+        "missing": missing,
+        "posting_numbers": list(moved.get("posting_numbers") or []),
+        "from_supply_ids": list(moved.get("from_supply_ids") or []),
+        "message": (
+            f"Создана поставка «{supply_name}»: "
+            f"{int(moved.get('moved') or 0)} отпр."
+            + (f", не найдено: {len(missing)}" if missing else "")
+        ),
+    }
