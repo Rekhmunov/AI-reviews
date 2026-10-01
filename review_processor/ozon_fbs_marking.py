@@ -520,9 +520,10 @@ def push_marking_to_ozon(
     requires_kiz_map: dict[str, bool] | None = None,
     prefer_gtd_products: bool = False,
 ) -> dict[str, Any]:
-    """create-or-get → set(КИЗ+ГТД) → validate(КИЗ+ГТД) → poll status.
+    """create-or-get → set(КИЗ[+ГТД]) → validate → poll status.
 
     Shared by packaging «Ожидают сборки» modal and supply «Маркировка».
+    Pass ``gtd`` only for юрлица; catalog-KIZ B2C pushes marks without GTD.
     ``EXEMPLAR_INFO_ALREADY_DEFINED`` is treated as success after status check.
     """
     gtd_clean = str(gtd or "").strip()
@@ -582,13 +583,14 @@ def push_marking_to_ozon(
                             mark_val = str(m.get("mark") or "")
                             break
                     if mark_val:
-                        exemplars.append(
-                            {
-                                "mandatory_mark": mark_val,
-                                "gtd": gtd_clean,
-                                "jw_uin": "",
-                            }
-                        )
+                        ex_val: dict[str, Any] = {
+                            "mandatory_mark": mark_val,
+                            "jw_uin": "",
+                        }
+                        # GTD only for юрлица; do not send empty gtd on B2C marks.
+                        if gtd_clean:
+                            ex_val["gtd"] = gtd_clean
+                        exemplars.append(ex_val)
                 if pid and exemplars:
                     validate_products.append(
                         {"product_id": pid, "exemplars": exemplars}
@@ -911,6 +913,48 @@ def save_packaging_exemplar(
     }
 
 
+def _catalog_kiz_map(repo: ReviewRepository, *, user_id: int) -> dict[str, bool]:
+    """Feedback → Settings → Products «Требует КИЗ» map (safe empty on errors)."""
+    try:
+        mapping = repo.get_product_requires_kiz_map(user_id=user_id)
+    except Exception as exc:
+        _log.warning("ozon marking catalog kiz map user=%s: %s", user_id, exc)
+        return {}
+    return mapping if isinstance(mapping, dict) else {}
+
+
+def _push_marking_for_saved_row(
+    client: oz.OzonFbsClient,
+    *,
+    row: dict[str, Any],
+    posting_number: str,
+    codes: list[str],
+    gtd_number: str,
+    gtd_required: bool,
+    requires_kiz_map: dict[str, bool],
+) -> dict[str, Any]:
+    """Push local codes to Ozon; GTD only when юрлицо requires it."""
+    posting = oz._posting_payload_from_row(row) or {}
+    if gtd_required:
+        return push_marking_to_ozon(
+            client,
+            posting_number=posting_number,
+            posting=posting,
+            codes=codes,
+            gtd=gtd_number,
+            prefer_gtd_products=True,
+        )
+    return push_marking_to_ozon(
+        client,
+        posting_number=posting_number,
+        posting=posting,
+        codes=codes,
+        gtd="",
+        requires_kiz_map=requires_kiz_map,
+        prefer_gtd_products=False,
+    )
+
+
 def save_marking(
     repo: ReviewRepository,
     *,
@@ -922,13 +966,17 @@ def save_marking(
     api_key: str | None = None,
     skip_ozon_push: bool = False,
 ) -> dict[str, Any]:
-    """Save marking codes locally; push to Ozon when GTD/юрлицо row is complete.
+    """Save marking codes locally; push КИЗ to Ozon when not ``skip_ozon_push``.
+
+    Local storage is unchanged (catalog «Требует КИЗ» rows). The «Товары с КИЗ»
+    modal keeps per-scan autosave on ``skip_ozon_push`` (no operator wait); the
+    UI then fire-and-forgets a second save without skip to attach marks via
+    exemplar set. Final «Сохранить» also pushes any still-unsynced rows.
+    GTD is still pushed only for юрлица (``products_requiring_gtd``) — their
+    packaging exemplar flow stays separate.
 
     Unchanged payloads that were already autosaved (and synced to Ozon when
     required) are returned as ``unchanged`` without rewriting DB or re-pushing.
-
-    ``skip_ozon_push`` (per-scan autosave): persist locally only — fast, silent,
-    never drops codes if Ozon is slow. Final «Сохранить» pushes unsynced rows.
     """
     results: list[dict[str, Any]] = []
     ok_n = 0
@@ -941,6 +989,7 @@ def save_marking(
         if skip_ozon_push
         else (oz.OzonFbsClient(cid, key) if cid and key else None)
     )
+    requires_kiz_map = _catalog_kiz_map(repo, user_id=user_id)
     candidate_pns = [
         str(raw.get("posting_number") or "").strip()
         for raw in items
@@ -1004,6 +1053,11 @@ def save_marking(
             repo, user_id=user_id, source_id=source_id, posting_number=pn
         ) or {}
         gtd_required = oz.posting_requires_pre_ship_gtd(row)
+        catalog_kiz = oz.posting_requires_marking(
+            row, requires_kiz_map=requires_kiz_map
+        )
+        # Push КИЗ for catalog-KIZ and/or юрлицо; GTD still only for юрлица.
+        needs_ozon_push = bool(uniq) and (gtd_required or catalog_kiz)
         if gtd_required and not gtd_clean:
             gtd_clean = str(row.get("marking_gtd_number") or "").strip()
         prev = prev_map.get(pn) or {}
@@ -1013,10 +1067,10 @@ def save_marking(
         prev_saved = str(prev.get("saved_at") or "")
         codes_same = prev_codes == uniq
         gtd_same = prev_gtd == str(gtd_clean or "")
-        # Autosave already persisted (+ pushed for юрлицо). Final «Сохранить»
-        # must not wipe marking_ozon_synced and re-push every posting to Ozon.
+        # Autosave already persisted. Final «Сохранить» must not wipe
+        # marking_ozon_synced / re-push when already synced.
         if not clear and codes_same and gtd_same:
-            if skip_ozon_push or not (gtd_required and uniq):
+            if skip_ozon_push or not needs_ozon_push:
                 ok_n += 1
                 results.append(
                     {
@@ -1030,7 +1084,7 @@ def save_marking(
                     }
                 )
                 continue
-            if not gtd_clean:
+            if gtd_required and not gtd_clean:
                 err_n += 1
                 results.append(
                     {
@@ -1071,20 +1125,21 @@ def save_marking(
                         "kiz_ozon_synced": False,
                         "error": (
                             "Коды сохранены локально, но нет доступа к API Ozon "
-                            "для передачи КИЗ/ГТД"
+                            "для передачи КИЗ"
+                            + ("/ГТД" if gtd_required else "")
                         ),
                     }
                 )
                 continue
-            posting = oz._posting_payload_from_row(row) or {}
             try:
-                push_marking_to_ozon(
+                _push_marking_for_saved_row(
                     client,
+                    row=row,
                     posting_number=pn,
-                    posting=posting,
                     codes=uniq,
-                    gtd=gtd_clean,
-                    prefer_gtd_products=True,
+                    gtd_number=gtd_clean,
+                    gtd_required=gtd_required,
+                    requires_kiz_map=requires_kiz_map,
                 )
                 synced_res = update_posting_marking_codes(
                     repo,
@@ -1092,7 +1147,7 @@ def save_marking(
                     source_id=source_id,
                     posting_number=pn,
                     codes=uniq,
-                    gtd_number=gtd_clean,
+                    gtd_number=gtd_clean if gtd_required else None,
                     ozon_synced=True,
                     force=True,
                 )
@@ -1123,8 +1178,7 @@ def save_marking(
                     }
                 )
             continue
-        # Keep prior Ozon sync bit when local payload is unchanged except we are
-        # rewriting — codes/gtd changed ⇒ must clear synced until push succeeds.
+        # codes/gtd changed ⇒ clear synced until push succeeds.
         local_res = update_posting_marking_codes(
             repo,
             user_id=user_id,
@@ -1178,8 +1232,8 @@ def save_marking(
                 }
             )
             continue
-        if local_ok and gtd_required and uniq:
-            if not gtd_clean:
+        if local_ok and needs_ozon_push:
+            if gtd_required and not gtd_clean:
                 local_ok = False
                 err_n += 1
                 results.append(
@@ -1205,20 +1259,21 @@ def save_marking(
                         "gtd_number": gtd_clean,
                         "error": (
                             "Коды сохранены локально, но нет доступа к API Ozon "
-                            "для передачи КИЗ/ГТД"
+                            "для передачи КИЗ"
+                            + ("/ГТД" if gtd_required else "")
                         ),
                     }
                 )
                 continue
-            posting = oz._posting_payload_from_row(row) or {}
             try:
-                push_marking_to_ozon(
+                _push_marking_for_saved_row(
                     client,
+                    row=row,
                     posting_number=pn,
-                    posting=posting,
                     codes=uniq,
-                    gtd=gtd_clean,
-                    prefer_gtd_products=True,
+                    gtd_number=gtd_clean,
+                    gtd_required=gtd_required,
+                    requires_kiz_map=requires_kiz_map,
                 )
                 ozon_synced = True
                 update_posting_marking_codes(
@@ -1227,7 +1282,7 @@ def save_marking(
                     source_id=source_id,
                     posting_number=pn,
                     codes=uniq,
-                    gtd_number=gtd_clean,
+                    gtd_number=gtd_clean if gtd_required else None,
                     ozon_synced=True,
                     force=True,
                 )

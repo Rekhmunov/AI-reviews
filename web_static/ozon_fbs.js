@@ -11350,6 +11350,9 @@
    * - Per-posting seq coalesces rapid re-scans of the same posting.
    * - Microtask batches different postings touched in the same turn into one PUT.
    * - Scan path never awaits; UI stays responsive under hundreds of marks.
+   * - After a successful local write for B2C catalog-KIZ (not юрлицо/GTD),
+   *   a fire-and-forget Ozon exemplar push runs in the background — scan UI
+   *   does not await it. Юрлица keep their packaging/GTD path elsewhere.
    * - Always adopt server kiz_saved_at on ok (even if a newer scan is pending)
    *   so the next PUT does not false-conflict on stale expected_saved_at.
    */
@@ -11512,6 +11515,11 @@
           }
           delete ozonFbsKizState.forceSaveByPosting?.[pn];
           delete ozonFbsKizState.errors[pn];
+          // B2C catalog-KIZ: attach marks to Ozon after local scan save, without
+          // blocking the wedge. Юрлица (gtd_required) use packaging exemplar flow.
+          if (!(clearFlags && clearFlags[pn])) {
+            _ozonFbsKizScheduleBackgroundOzonPush(pn);
+          }
         }
       }
     } catch (_e) {
@@ -11532,6 +11540,84 @@
         return _ozonFbsKizFlushLocalAutosaveBatch(still, clearFlags, seqSnapshot, attempt + 1);
       }
     }
+  }
+
+  /**
+   * Fire-and-forget exemplar push after local autosave (B2C catalog-KIZ only).
+   * Never awaited by the scan path — operator latency stays on FeedPilot DB only.
+   * Per-posting promise chain + seq: rapid re-scans must not let an older
+   * in-flight push overwrite newer codes on Ozon.
+   */
+  function _ozonFbsKizScheduleBackgroundOzonPush(postingNumber) {
+    const pn = String(postingNumber || "").trim();
+    if (!pn || !_ozonFbsKizModalIsOpen()) return;
+    const row = _ozonFbsKizRowByPosting(pn);
+    if (!row || _ozonFbsRowIsCancelled(row) || row.gtd_required) return;
+    if (row.kiz_ozon_synced) return;
+    const codesNow = _ozonFbsKizNormalizeCodesList(row.kiz_codes);
+    const reqQty = Math.max(Number(row.quantity) || 1, 1);
+    if (codesNow.length < reqQty) return;
+    const sid = String(supplyDetailState.supplyId || "").trim();
+    const sourceId = supplyDetailState.sourceId || state.sourceId;
+    if (!sid || !sourceId) return;
+    if (!ozonFbsKizState.bgOzonPushSeqByPosting) ozonFbsKizState.bgOzonPushSeqByPosting = {};
+    if (!ozonFbsKizState.bgOzonPushChainByPosting) ozonFbsKizState.bgOzonPushChainByPosting = {};
+    const seq = (Number(ozonFbsKizState.bgOzonPushSeqByPosting[pn]) || 0) + 1;
+    ozonFbsKizState.bgOzonPushSeqByPosting[pn] = seq;
+    const prev = ozonFbsKizState.bgOzonPushChainByPosting[pn] || Promise.resolve();
+    const run = () => {
+      // Superseded by a newer schedule for this posting — skip stale work.
+      if ((Number(ozonFbsKizState.bgOzonPushSeqByPosting?.[pn]) || 0) !== seq) {
+        return Promise.resolve();
+      }
+      if (!_ozonFbsKizModalIsOpen()) return Promise.resolve();
+      const live = _ozonFbsKizRowByPosting(pn);
+      if (!live || _ozonFbsRowIsCancelled(live) || live.gtd_required) {
+        return Promise.resolve();
+      }
+      if (live.kiz_ozon_synced) return Promise.resolve();
+      const codes = _ozonFbsKizNormalizeCodesList(live.kiz_codes);
+      const need = Math.max(Number(live.quantity) || 1, 1);
+      if (codes.length < need) return Promise.resolve();
+      const payload = {
+        items: [
+          {
+            posting_number: pn,
+            kiz_codes: codes,
+            gtd_number: "",
+            expected_saved_at: String(live.kiz_saved_at || ""),
+            force: true,
+          },
+        ],
+        local_only: false,
+      };
+      // Do not await from the scan path — only chain per posting in background.
+      return fetch(
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/marking?source_id=${sourceId}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", ...jsonHeaders() },
+          body: JSON.stringify(payload),
+          keepalive: true,
+        }
+      )
+        .then((res) => res.json().catch(() => ({})))
+        .then((data) => {
+          if ((Number(ozonFbsKizState.bgOzonPushSeqByPosting?.[pn]) || 0) !== seq) return;
+          const result = (data.results || []).find(
+            (r) => String(r?.posting_number || "").trim() === pn
+          );
+          if (!result || !result.ok) return;
+          const rowLive = _ozonFbsKizRowByPosting(pn);
+          if (!rowLive) return;
+          if (result.kiz_saved_at) rowLive.kiz_saved_at = String(result.kiz_saved_at);
+          if (typeof result.kiz_ozon_synced === "boolean") {
+            rowLive.kiz_ozon_synced = !!result.kiz_ozon_synced;
+          }
+        })
+        .catch(() => {});
+    };
+    ozonFbsKizState.bgOzonPushChainByPosting[pn] = prev.then(run, run).catch(() => {});
   }
 
   function _ozonFbsKizSyncActiveCodeInput() {
@@ -12119,7 +12205,11 @@
         // Empty rows are fine — skip. Only clear when codes existed and were removed.
         const wantClear = !codes.length && baseHadCodes;
         const codesDirty = !_ozonFbsKizBaselineEquals(pn, codes);
-        const needsOzonPush = gtdRequired && codes.length > 0 && !!gtdNow && !r.kiz_ozon_synced;
+        // Retry Ozon attach when local codes exist but exemplar push failed/pending.
+        // Юрлица still require GTD; B2C catalog-KIZ retries marks-only.
+        const needsOzonPush = codes.length > 0
+          && !r.kiz_ozon_synced
+          && (!gtdRequired || !!gtdNow);
         if (!force && !codesDirty && !gtdDirty && !needsOzonPush && !wantClear) continue;
         if (!codes.length && !wantClear && !gtdDirty && !force) continue;
         if (ozonFbsKizState.errors[pn]) delete ozonFbsKizState.errors[pn];
