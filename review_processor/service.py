@@ -2603,6 +2603,9 @@ class ReviewAutomationService:
 
         # Load already-classified reviews to avoid re-sending to Yandex on repeated syncs.
         # Cap by max(sync_start, today−97) so auto-sync does not pull the full history into RAM.
+        # Older reviews that reappear in the feed are resolved via indexed DB lookup
+        # on miss (see _cached_classification_for_sync) — same skip behaviour as before
+        # the window, without loading ~100k rows into process memory.
         existing_classifications: dict[str, tuple[str, str]] = {}
         if user_id:
             try:
@@ -2618,6 +2621,33 @@ class ReviewAutomationService:
                 )
             except Exception as _exc:
                 _log.warning("sync_reviews: could not load existing classifications: %s", _exc)
+
+        def _cached_classification_for_sync(review_uid: str) -> tuple[str, str] | None:
+            """Windowed RAM map first; on miss, one indexed DB row (then memoize)."""
+            uid_key = str(review_uid or "").strip()
+            if not uid_key:
+                return None
+            hit = existing_classifications.get(uid_key)
+            if hit is not None:
+                return hit
+            if not user_id:
+                return None
+            try:
+                row = self.repository.get_existing_classification_for_uid(
+                    user_id=user_id,
+                    review_uid=uid_key,
+                )
+            except Exception as _exc:
+                _log.warning(
+                    "sync_reviews: classification DB fallback failed uid=%s: %s",
+                    uid_key[:48],
+                    _exc,
+                )
+                return None
+            if row is None:
+                return None
+            existing_classifications[uid_key] = row
+            return row
 
         # Per-account status/reply map — skip N+1 comments API + no-op upserts for YM.
         existing_review_states: dict[str, dict[str, object]] = {}
@@ -2698,7 +2728,7 @@ class ReviewAutomationService:
             if _reply_text or _ym_no_reaction:
                 review_metadata = dict(review.metadata) if isinstance(review.metadata, dict) else {}
                 # Use cached classification if available and valid; otherwise classify now
-                _cached_for_answered = existing_classifications.get(review_uid)
+                _cached_for_answered = _cached_classification_for_sync(review_uid)
                 if _cached_for_answered and _cached_for_answered[0] != self.AI_UNCLASSIFIED_CATEGORY:
                     _answered_category = _cached_for_answered[0]
                     if _cached_for_answered[1]:
@@ -2745,11 +2775,12 @@ class ReviewAutomationService:
             review_uid = self.repository.make_review_uid(
                 user_id or 0, source, account_id, str(review.review_id)
             )
-            # ai_unclassified reviews are never cached — they must be retried with
-            # Yandex on every sync so they get properly classified once the API
-            # key is restored.  If Yandex still fails → ai_classification_failed
-            # is set below and the review stays in manual queue.
-            _cached = existing_classifications.get(review_uid)
+            # ai_unclassified reviews are never treated as a durable skip — they
+            # must be retried with Yandex on every sync so they get properly
+            # classified once the API key is restored.  If Yandex still fails →
+            # ai_classification_failed is set below and the review stays in
+            # manual queue.
+            _cached = _cached_classification_for_sync(review_uid)
             if _cached and _cached[0] != self.AI_UNCLASSIFIED_CATEGORY:
                 existing_group, existing_sub = _cached
                 category = existing_group

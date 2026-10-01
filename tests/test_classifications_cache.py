@@ -100,6 +100,56 @@ class ClassificationsCacheTests(unittest.TestCase):
         recent = (today - timedelta(days=10)).isoformat()
         self.assertEqual(repo_mod.classifications_window_start(recent), recent)
 
+    def test_get_existing_classification_for_uid_returns_row(self) -> None:
+        repo = MagicMock(spec=repo_mod.ReviewRepository)
+        repo._sql = lambda q: q
+        conn = MagicMock()
+        conn.__enter__ = MagicMock(return_value=conn)
+        conn.__exit__ = MagicMock(return_value=False)
+        conn.execute.return_value.fetchone.return_value = {
+            "grp": "delivery",
+            "sub": "late",
+        }
+        repo._connect.return_value = conn
+        repo._row_to_dict = lambda r: dict(r)
+
+        out = repo_mod.ReviewRepository.get_existing_classification_for_uid(
+            repo, user_id=1, review_uid="uid-1"
+        )
+        self.assertEqual(out, ("delivery", "late"))
+        sql, params = conn.execute.call_args[0]
+        self.assertIn("review_uid = ?", sql)
+        self.assertEqual(params, (1, "uid-1"))
+
+    def test_get_existing_classification_for_uid_miss(self) -> None:
+        repo = MagicMock(spec=repo_mod.ReviewRepository)
+        repo._sql = lambda q: q
+        conn = MagicMock()
+        conn.__enter__ = MagicMock(return_value=conn)
+        conn.__exit__ = MagicMock(return_value=False)
+        conn.execute.return_value.fetchone.return_value = None
+        repo._connect.return_value = conn
+
+        out = repo_mod.ReviewRepository.get_existing_classification_for_uid(
+            repo, user_id=1, review_uid="missing"
+        )
+        self.assertIsNone(out)
+
+
+class SyncClassificationFallbackTests(unittest.TestCase):
+    def test_service_uses_db_fallback_helper(self) -> None:
+        from pathlib import Path
+
+        src = (
+            Path(__file__).resolve().parents[1]
+            / "review_processor"
+            / "service.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("get_existing_classification_for_uid", src)
+        self.assertIn("_cached_classification_for_sync", src)
+        # Windowed preload must remain (memory win); fallback covers older uids.
+        self.assertIn("classifications_window_start", src)
+
 
 class WorkingWindowSqlTests(unittest.TestCase):
     def test_reviews_list_filters_by_created_date_not_updated_at(self) -> None:
