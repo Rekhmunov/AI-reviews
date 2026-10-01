@@ -18,7 +18,12 @@ _log = logging.getLogger(__name__)
 from .config import sync_chats_enabled
 from .models import ReviewInput
 from .processor import ReviewProcessor
-from .repository import ReviewRepository, classifications_window_start
+from .repository import (
+    AI_USAGE_DAILY_LIMIT,
+    ReviewRepository,
+    ai_usage_today,
+    classifications_window_start,
+)
 
 
 class MarketplaceClient(Protocol):
@@ -2682,6 +2687,29 @@ class ReviewAutomationService:
         skipped_already_classified = 0
         skipped_noop_answered = 0
         seen_pending_review_ids: set[str] = set()
+
+        # After midnight the daily AI counter resets. Drain ai_unclassified backlog
+        # (oldest first = leftovers from previous day) before new feed items so the
+        # fresh 1000 budget goes to unfinished work first.
+        if user_id and account_id is not None and not self._ai_daily_limit_reached(user_id=int(user_id)):
+            try:
+                backlog_done = self._classify_ai_backlog_before_feed(
+                    user_id=int(user_id),
+                    source=source,
+                    account_id=int(account_id),
+                    settings=settings,
+                    stop_requested=stop_requested,
+                    existing_classifications=existing_classifications,
+                    resolve_classified_subgroup=_resolve_classified_subgroup,
+                )
+                if backlog_done:
+                    _log.info(
+                        "sync_reviews: classified %d ai_unclassified backlog reviews before feed",
+                        backlog_done,
+                    )
+            except Exception as _exc:
+                _log.warning("sync_reviews: AI backlog drain failed: %s", _exc)
+
         for review in reviews:
             _raise_if_stop_requested(stop_requested, source=source)
             if not review.review_id:
@@ -5007,7 +5035,109 @@ class ReviewAutomationService:
                 _push(item)
         return result
 
-    @staticmethod
+    def _classify_ai_backlog_before_feed(
+        self,
+        *,
+        user_id: int,
+        source: str,
+        account_id: int,
+        settings: dict[str, object],
+        stop_requested: Callable[[], bool] | None,
+        existing_classifications: dict[str, tuple[str, str]],
+        resolve_classified_subgroup: Callable[[str, str | None], str | None],
+        limit: int = 300,
+    ) -> int:
+        """Classify oldest ai_unclassified rows first (after midnight budget reset)."""
+        rows = self.repository.list_ai_classification_backlog(
+            user_id=user_id,
+            source=source,
+            account_id=account_id,
+            limit=limit,
+        )
+        if not rows:
+            return 0
+        done = 0
+        for row in rows:
+            _raise_if_stop_requested(stop_requested, source=source)
+            if self._ai_daily_limit_reached(user_id=user_id):
+                break
+            external_id = str(row.get("external_review_id") or "").strip()
+            review_uid = str(row.get("review_uid") or "").strip()
+            if not external_id or not review_uid:
+                continue
+            metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+            if not metadata:
+                raw_meta = row.get("metadata_json")
+                if isinstance(raw_meta, dict):
+                    metadata = raw_meta
+                elif isinstance(raw_meta, str) and raw_meta.strip():
+                    try:
+                        parsed = json.loads(raw_meta)
+                        metadata = parsed if isinstance(parsed, dict) else {}
+                    except Exception:
+                        metadata = {}
+            review = ReviewInput(
+                review_id=external_id,
+                text=str(row.get("text") or ""),
+                author=str(row.get("author") or "") or None,
+                rating=row.get("rating") if row.get("rating") is not None else None,
+                metadata=dict(metadata),
+            )
+            # Textless + no media: local rule, no Yandex call.
+            has_text = bool((review.text or "").strip())
+            has_media = self._review_has_media(review)
+            processed = self.processor.process(review)
+            try:
+                category, classified_subgroup = self._classify_category_and_subgroup(
+                    review,
+                    processed,
+                    settings=settings,
+                    user_id=user_id,
+                )
+            except MarketplaceSyncError as exc:
+                details = exc.details if isinstance(exc.details, Mapping) else {}
+                if bool(details.get("daily_limit_reached")):
+                    break
+                if str(details.get("scope") or "").strip().lower() == "classification":
+                    continue
+                raise
+            category = str(category or "").strip()
+            if not category or category == self.AI_UNCLASSIFIED_CATEGORY:
+                continue
+            classified_subgroup = resolve_classified_subgroup(category, classified_subgroup)
+            review_metadata = dict(review.metadata)
+            if classified_subgroup:
+                review_metadata["classified_subgroup"] = classified_subgroup
+            review_metadata["classified_group_id"] = category
+            review_metadata.pop("ai_classification_status", None)
+            review_metadata.pop("ai_classification_note", None)
+            review_metadata.pop("ai_classification_error", None)
+            status = str(row.get("status") or "queued_for_operator").strip() or "queued_for_operator"
+            auto_reply = str(row.get("auto_reply") or "").strip() or None
+            self.repository.upsert_processed_review(
+                user_id=user_id,
+                source=source,
+                account_id=account_id,
+                review=ReviewInput(
+                    review_id=review.review_id,
+                    text=review.text,
+                    author=review.author,
+                    rating=review.rating,
+                    metadata=review_metadata,
+                ),
+                processed=processed,
+                category=category,
+                processing_mode=str(row.get("processing_mode") or "manual"),
+                status=status,
+                auto_reply=auto_reply,
+            )
+            existing_classifications[review_uid] = (category, str(classified_subgroup or ""))
+            done += 1
+            if not has_text and not has_media:
+                # Local classification does not consume the AI budget.
+                pass
+        return done
+
     @staticmethod
     def _textless_subgroup_for_rating(rating: int) -> str:
         """Return the textless-ratings subgroup name for a given star rating."""
@@ -5446,6 +5576,49 @@ class ReviewAutomationService:
                 }
         return None
 
+    @staticmethod
+    def _as_nonneg_int(value: object) -> int:
+        try:
+            return max(0, int(value))  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return 0
+
+    def _ai_daily_limit_reached(self, *, user_id: int) -> bool:
+        """True when today's (Europe/Moscow) Yandex GPT request count is at/over limit."""
+        cached = getattr(self, "_ai_usage_day_cache", None)
+        today = ai_usage_today()
+        uid = self._as_nonneg_int(user_id)
+        if not isinstance(cached, dict) or cached.get("day") != today or self._as_nonneg_int(cached.get("user_id")) != uid:
+            try:
+                used_raw = self.repository.get_ai_usage_requests_for_date(user_id=uid, log_date=today)
+            except Exception:
+                used_raw = 0
+            self._ai_usage_day_cache = {
+                "day": today,
+                "user_id": uid,
+                "used": self._as_nonneg_int(used_raw),
+            }
+            cached = self._ai_usage_day_cache
+        return self._as_nonneg_int(cached.get("used")) >= AI_USAGE_DAILY_LIMIT
+
+    def _ai_daily_limit_note_request(self, *, user_id: int) -> None:
+        """Increment in-process daily counter after a successful Yandex call was logged."""
+        cached = getattr(self, "_ai_usage_day_cache", None)
+        today = ai_usage_today()
+        uid = self._as_nonneg_int(user_id)
+        if not isinstance(cached, dict) or cached.get("day") != today or self._as_nonneg_int(cached.get("user_id")) != uid:
+            try:
+                used_raw = self.repository.get_ai_usage_requests_for_date(user_id=uid, log_date=today)
+            except Exception:
+                used_raw = 0
+            self._ai_usage_day_cache = {
+                "day": today,
+                "user_id": uid,
+                "used": self._as_nonneg_int(used_raw),
+            }
+            return
+        cached["used"] = self._as_nonneg_int(cached.get("used")) + 1
+
     def _classify_with_yandex_target_debug(
         self,
         *,
@@ -5454,6 +5627,21 @@ class ReviewAutomationService:
         user_id: int,
         strict: bool = False,
     ) -> dict[str, object]:
+        if self._ai_daily_limit_reached(user_id=user_id):
+            raise MarketplaceSyncError(
+                "yandex",
+                (
+                    f"Достигнут дневной лимит {AI_USAGE_DAILY_LIMIT} запросов к ИИ. "
+                    "Классификация продолжается после полуночи "
+                    "(сначала необработанные за прошлый день)."
+                ),
+                details={
+                    "scope": "classification",
+                    "daily_limit_reached": True,
+                    "daily_limit": AI_USAGE_DAILY_LIMIT,
+                    "queue_manual": True,
+                },
+            )
         api_key = str(settings.get("yandex_api_key") or "")
         folder_id = str(settings.get("yandex_folder_id") or "")
         model_uri = str(settings.get("yandex_model_uri") or "")
@@ -5571,11 +5759,11 @@ class ReviewAutomationService:
         text = ""
         result = payload.get("result") if isinstance(payload, Mapping) else None
         if isinstance(result, dict):
-            # Log token usage for admin statistics
+            # Log token usage for admin statistics / daily limit
             usage = result.get("usage") or {}
             input_tokens = int(usage.get("inputTextTokens") or 0)
             output_tokens = int(usage.get("completionTokens") or 0)
-            if (input_tokens or output_tokens) and user_id:
+            if user_id:
                 try:
                     self.repository.log_ai_usage(
                         user_id=user_id,
@@ -5583,6 +5771,7 @@ class ReviewAutomationService:
                         output_tokens=output_tokens,
                         model_uri=model_uri,
                     )
+                    self._ai_daily_limit_note_request(user_id=user_id)
                 except Exception:
                     pass
             alternatives = result.get("alternatives")

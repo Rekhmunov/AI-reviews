@@ -58,6 +58,8 @@ def _service_with_mock_repo() -> ReviewAutomationService:
     repo.upsert_review.return_value = {"review_uid": "u1", "is_new": True}
     repo.list_processing_rules.return_value = []
     repo.get_user_sync_settings.return_value = {}
+    repo.get_ai_usage_requests_for_date.return_value = 0
+    repo.list_ai_classification_backlog.return_value = []
     return ReviewAutomationService(repository=repo)
 
 

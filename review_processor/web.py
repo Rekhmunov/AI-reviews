@@ -30,7 +30,9 @@ _log = logging.getLogger(__name__)
 from .config import AppConfig, load_app_config, sync_chats_enabled
 from .repository import (
     AI_USAGE_ALERT_THRESHOLD,
+    AI_USAGE_DAILY_LIMIT,
     ReviewRepository,
+    ai_usage_today,
     format_ai_usage_alert_message,
 )
 from .service import MarketplaceSyncError, ReviewAutomationService, _normalize_timestamp, _ozon_chat_timestamp, _ozon_user_kind, _parse_ozon_message_text, _wb_image_url
@@ -2945,7 +2947,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         user = _require_user(request)
         owner_id = _tenant_owner_id(user)
         dates = repository.get_ai_usage_alert_dates(owner_user_id=owner_id)
-        today = datetime.now(UTC).date().isoformat()
+        today = ai_usage_today()
+        today_requests = repository.get_ai_usage_requests_for_date(user_id=owner_id, log_date=today)
         message = format_ai_usage_alert_message(dates, today=today)
         return {
             "ok": True,
@@ -2953,6 +2956,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "dates": dates,
             "message": message,
             "threshold": AI_USAGE_ALERT_THRESHOLD,
+            "daily_limit": AI_USAGE_DAILY_LIMIT,
+            "today_requests": today_requests,
+            "ai_blocked": today_requests >= AI_USAGE_DAILY_LIMIT,
             "can_dismiss": user_is_tenant_owner(user),
         }
 
@@ -2968,13 +2974,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         owner_id = _tenant_owner_id(user)
         dismissed = repository.dismiss_ai_usage_alert(owner_user_id=owner_id)
         dates = repository.get_ai_usage_alert_dates(owner_user_id=owner_id)
-        today = datetime.now(UTC).date().isoformat()
+        today = ai_usage_today()
+        today_requests = repository.get_ai_usage_requests_for_date(user_id=owner_id, log_date=today)
         return {
             "ok": True,
             "dismissed_dates": dismissed,
             "active": bool(dates),
             "dates": dates,
             "message": format_ai_usage_alert_message(dates, today=today),
+            "daily_limit": AI_USAGE_DAILY_LIMIT,
+            "today_requests": today_requests,
+            "ai_blocked": today_requests >= AI_USAGE_DAILY_LIMIT,
             "can_dismiss": True,
         }
 

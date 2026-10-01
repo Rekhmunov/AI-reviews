@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 import psycopg  # type: ignore
 from psycopg import rows as psycopg_rows  # type: ignore
@@ -35,6 +36,19 @@ CLASSIFICATIONS_LOOKBACK_DAYS = 97
 
 # Reviews banner: warn when daily Yandex GPT request count exceeds this.
 AI_USAGE_ALERT_THRESHOLD = 500
+# Hard stop: no further Yandex GPT calls for the tenant day (Europe/Moscow).
+AI_USAGE_DAILY_LIMIT = 1000
+AI_USAGE_TZ = ZoneInfo("Europe/Moscow")
+
+
+def ai_usage_today(*, now: datetime | None = None) -> str:
+    """YYYY-MM-DD for AI daily counters / banner (Europe/Moscow midnight)."""
+    dt = now or datetime.now(AI_USAGE_TZ)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=AI_USAGE_TZ)
+    else:
+        dt = dt.astimezone(AI_USAGE_TZ)
+    return dt.date().isoformat()
 
 
 def compute_ai_usage_alert_dates(
@@ -71,7 +85,7 @@ def format_ai_usage_alert_message(
     active = compute_ai_usage_alert_dates(dates, dismissed_dates=None)
     if not active:
         return ""
-    today_key = str(today or datetime.now(UTC).date().isoformat()).strip()[:10]
+    today_key = str(today or ai_usage_today()).strip()[:10]
 
     def _ru(day: str) -> str:
         # YYYY-MM-DD -> DD.MM.YYYY
@@ -6929,18 +6943,73 @@ class ReviewRepository:
         input_tokens: int,
         output_tokens: int,
         model_uri: str = "",
+        log_date: str | None = None,
     ) -> None:
-        """Record one Yandex GPT call with token counts."""
+        """Record one Yandex GPT call with token counts (day = Europe/Moscow)."""
         now = _utc_now()
-        log_date = now[:10]  # YYYY-MM-DD
+        day = str(log_date or "").strip()[:10] or ai_usage_today()
         with self._connect() as conn:
             conn.execute(
                 self._sql("""
                 INSERT INTO ai_usage_log (user_id, log_date, input_tokens, output_tokens, requests, model_uri, created_at)
                 VALUES (?, ?, ?, ?, 1, ?, ?)
                 """),
-                (user_id, log_date, input_tokens, output_tokens, model_uri, now),
+                (user_id, day, input_tokens, output_tokens, model_uri, now),
             )
+
+    def get_ai_usage_requests_for_date(self, *, user_id: int, log_date: str | None = None) -> int:
+        """Total Yandex GPT requests for one calendar day (Europe/Moscow)."""
+        day = str(log_date or "").strip()[:10] or ai_usage_today()
+        with self._connect() as conn:
+            row = conn.execute(
+                self._sql(
+                    """
+                    SELECT COALESCE(SUM(requests), 0) AS requests
+                    FROM ai_usage_log
+                    WHERE user_id = ? AND log_date = ?
+                    """
+                ),
+                (user_id, day),
+            ).fetchone()
+        if not row:
+            return 0
+        data = self._row_to_dict(row)
+        try:
+            return max(0, int(data.get("requests") or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    def list_ai_classification_backlog(
+        self,
+        *,
+        user_id: int,
+        source: str | None = None,
+        account_id: int | None = None,
+        limit: int = 300,
+    ) -> list[dict[str, Any]]:
+        """Oldest ai_unclassified reviews first (previous-day leftovers before new ones)."""
+        clauses = ["user_id = ?", "category = ?"]
+        params: list[Any] = [user_id, "ai_unclassified"]
+        if source:
+            clauses.append("source = ?")
+            params.append(str(source))
+        if account_id is not None:
+            clauses.append("account_id = ?")
+            params.append(int(account_id))
+        safe_limit = min(max(int(limit), 1), 1000)
+        params.append(safe_limit)
+        sql = f"""
+            SELECT *
+            FROM review_items
+            WHERE {" AND ".join(clauses)}
+            ORDER BY COALESCE(metadata_json::jsonb->'raw'->>'createdDate', '') ASC,
+                     created_at ASC,
+                     review_uid ASC
+            LIMIT ?
+        """
+        with self._connect() as conn:
+            rows = conn.execute(self._sql(sql), tuple(params)).fetchall()
+        return [self._row_to_dict(row) for row in rows]
 
     def get_ai_usage_stats(self, *, user_id: int, days: int = 30) -> list[dict[str, Any]]:
         """Return daily AI usage aggregated over the last N days."""

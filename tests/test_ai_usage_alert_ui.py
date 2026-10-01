@@ -40,3 +40,9 @@ def test_reviews_ai_usage_alert_styles() -> None:
     assert ".reviews-ai-usage-alert" in css
     assert ".reviews-ai-usage-alert-dismiss" in css
     assert ".reviews-ai-usage-alert-dismiss:focus-visible" in css
+    # Match FBS error surfaces (red), not the old yellow warning.
+    block = css[css.index(".reviews-ai-usage-alert {") : css.index(".reviews-ai-usage-alert.hidden")]
+    assert "#fef2f2" in block
+    assert "#b91c1c" in block
+    assert "#fecaca" in block
+    assert "#fff8eb" not in block
