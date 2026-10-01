@@ -6332,6 +6332,46 @@ class ReviewRepository:
             for key in [k for k in _CLASSIFICATIONS_CACHE if k[0] == uid]:
                 _CLASSIFICATIONS_CACHE.pop(key, None)
 
+    def get_existing_classification_for_uid(
+        self,
+        *,
+        user_id: int,
+        review_uid: str,
+    ) -> tuple[str, str] | None:
+        """Indexed one-row skip lookup when the windowed in-memory map misses.
+
+        Keeps auto-sync RAM bounded (no full-history preload) while still
+        avoiding Yandex for older already-classified reviews that reappear
+        in the marketplace feed.
+        """
+        try:
+            uid = int(user_id or 0)
+        except (TypeError, ValueError):
+            uid = 0
+        ru = str(review_uid or "").strip()
+        if uid <= 0 or not ru:
+            return None
+        sub_expr = "metadata_json::jsonb->>'classified_subgroup'"
+        sql = self._sql(
+            f"""
+            SELECT category AS grp, {sub_expr} AS sub
+            FROM review_items
+            WHERE user_id = ? AND review_uid = ?
+              AND category IS NOT NULL
+              AND category != ''
+            LIMIT 1
+            """
+        )
+        with self._connect() as conn:
+            row = conn.execute(sql, (uid, ru)).fetchone()
+        if row is None:
+            return None
+        d = self._row_to_dict(row)
+        grp = str(d.get("grp") or "").strip()
+        if not grp:
+            return None
+        return grp, str(d.get("sub") or "").strip()
+
     # ── Product catalog methods ───────────────────────────────────────────────
 
     def list_product_catalog(self, *, user_id: int) -> list[dict[str, Any]]:
