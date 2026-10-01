@@ -3522,15 +3522,33 @@
     if (!tbody) return;
     if (!allOrders.length) {
       tbody.innerHTML = `<tr><td colspan="${detailColspan}" class="wb-fbs-empty">В поставке нет отправлений</td></tr>`;
+      supplyDetailState.selected = new Set();
+      const selAllGone = document.getElementById("ozonFbsSupplyDetailSelectAll");
+      if (selAllGone) {
+        selAllGone.checked = false;
+        selAllGone.indeterminate = false;
+      }
+      updateSupplyDetailBottomBar();
       return;
     }
     if (!orders.length) {
       tbody.innerHTML = `<tr><td colspan="${detailColspan}" class="wb-fbs-empty">Нет отправлений по выбранному фильтру</td></tr>`;
+      if (!readOnly) {
+        const aliveFiltered = new Set(
+          allOrders.map((o) => String(o.posting_number || "").trim()).filter(Boolean)
+        );
+        supplyDetailState.selected = new Set(
+          [...supplyDetailState.selected].filter((pn) => aliveFiltered.has(pn))
+        );
+      } else {
+        supplyDetailState.selected = new Set();
+      }
       const selAllEmpty = document.getElementById("ozonFbsSupplyDetailSelectAll");
       if (selAllEmpty) {
         selAllEmpty.checked = false;
         selAllEmpty.indeterminate = false;
       }
+      updateSupplyDetailBottomBar();
       return;
     }
     tbody.innerHTML = orders.map((o) => {
