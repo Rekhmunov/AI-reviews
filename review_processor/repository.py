@@ -33,6 +33,67 @@ TEMPLATE_VARIABLE_KEY_RE = re.compile(r"^%[A-Z0-9_]{2,50}%$")
 # skip-map still covers the boundary when sync_start is older than that window.
 CLASSIFICATIONS_LOOKBACK_DAYS = 97
 
+# Reviews banner: warn when daily Yandex GPT request count exceeds this.
+AI_USAGE_ALERT_THRESHOLD = 500
+
+
+def compute_ai_usage_alert_dates(
+    exceeded_dates: list[str] | tuple[str, ...] | set[str],
+    dismissed_dates: list[str] | tuple[str, ...] | set[str] | None = None,
+) -> list[str]:
+    """Return sorted YYYY-MM-DD dates that still need a Reviews AI warning."""
+    dismissed = {
+        str(day or "").strip()[:10]
+        for day in (dismissed_dates or [])
+        if str(day or "").strip()
+    }
+    active: list[str] = []
+    seen: set[str] = set()
+    for raw in exceeded_dates or []:
+        day = str(raw or "").strip()[:10]
+        if len(day) != 10 or day[4] != "-" or day[7] != "-":
+            continue
+        if day in dismissed or day in seen:
+            continue
+        seen.add(day)
+        active.append(day)
+    active.sort()
+    return active
+
+
+def format_ai_usage_alert_message(
+    dates: list[str],
+    *,
+    today: str | None = None,
+    threshold: int = AI_USAGE_ALERT_THRESHOLD,
+) -> str:
+    """Human-readable warning for the Reviews AI usage banner."""
+    active = compute_ai_usage_alert_dates(dates, dismissed_dates=None)
+    if not active:
+        return ""
+    today_key = str(today or datetime.now(UTC).date().isoformat()).strip()[:10]
+
+    def _ru(day: str) -> str:
+        # YYYY-MM-DD -> DD.MM.YYYY
+        return f"{day[8:10]}.{day[5:7]}.{day[0:4]}"
+
+    if len(active) == 1:
+        day = active[0]
+        if day == today_key:
+            return (
+                f"Внимание, за сегодня израсходовалось более {threshold} запросов. "
+                "Нужно сообщить администратору сервиса."
+            )
+        return (
+            f"Внимание, за {_ru(day)} израсходовалось более {threshold} запросов. "
+            "Нужно сообщить администратору сервиса."
+        )
+    listed = ", ".join(_ru(day) for day in active)
+    return (
+        f"Внимание, за следующие даты израсходовалось более {threshold} запросов: "
+        f"{listed}. Нужно сообщить администратору сервиса."
+    )
+
 # Process-wide TTL cache for sync_reviews skip-map. Auto-sync hits this once per
 # account; without a cache a 2 GB VPS reloads tens of thousands of rows per poll.
 _CLASSIFICATIONS_CACHE_LOCK = threading.Lock()
@@ -966,6 +1027,7 @@ class ReviewRepository:
         # AI tables + stock tables
         self._migrate_ai_request_log_table(conn)
         self._migrate_ai_usage_table(conn)
+        self._migrate_ai_usage_alert_state_table(conn)
         self._migrate_stock_tables(conn)
         # Question quick templates
         self._migrate_question_quick_templates(conn)
@@ -1338,6 +1400,7 @@ class ReviewRepository:
         self._migrate_ai_request_log_table(conn)
         # AI usage statistics table
         self._migrate_ai_usage_table(conn)
+        self._migrate_ai_usage_alert_state_table(conn)
         # Stock module tables
         self._migrate_stock_tables(conn)
         # Question quick templates
@@ -1511,6 +1574,16 @@ class ReviewRepository:
         conn.execute(self._sql(
             "CREATE INDEX IF NOT EXISTS idx_ai_usage_user_date ON ai_usage_log(user_id, log_date DESC)"
         ))
+
+    def _migrate_ai_usage_alert_state_table(self, conn) -> None:
+        """Dismissed dates for the Reviews AI usage warning banner."""
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ai_usage_alert_state (
+                owner_user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                dismissed_dates_json TEXT NOT NULL DEFAULT '[]',
+                updated_at TEXT NOT NULL
+            )
+        """)
 
     def _migrate_stock_tables(self, conn) -> None:
         """Create stock module tables if they don't exist yet."""
@@ -6885,6 +6958,120 @@ class ReviewRepository:
             rows = conn.execute(self._sql(sql), (user_id,)).fetchall()
 
         return [self._row_to_dict(r) for r in rows]
+
+    def list_ai_usage_dates_over_threshold(
+        self,
+        *,
+        user_id: int,
+        threshold: int = AI_USAGE_ALERT_THRESHOLD,
+        days: int = 30,
+    ) -> list[str]:
+        """Return YYYY-MM-DD dates where request count exceeds threshold."""
+        lookback = min(max(int(days), 1), 90)
+        limit = max(int(threshold), 0)
+        cutoff = (datetime.now(UTC).date() - timedelta(days=lookback)).isoformat()
+        sql = """
+            SELECT log_date
+            FROM ai_usage_log
+            WHERE user_id = ? AND log_date >= ?
+            GROUP BY log_date
+            HAVING SUM(requests) > ?
+            ORDER BY log_date ASC
+        """
+        with self._connect() as conn:
+            rows = conn.execute(self._sql(sql), (user_id, cutoff, limit)).fetchall()
+        dates: list[str] = []
+        for row in rows:
+            data = self._row_to_dict(row)
+            day = str(data.get("log_date") or "").strip()[:10]
+            if len(day) == 10 and day[4] == "-" and day[7] == "-":
+                dates.append(day)
+        return dates
+
+    def get_ai_usage_alert_dismissed_dates(self, *, owner_user_id: int) -> list[str]:
+        """Dates the tenant owner already dismissed on the Reviews banner."""
+        with self._connect() as conn:
+            row = conn.execute(
+                self._sql(
+                    "SELECT dismissed_dates_json FROM ai_usage_alert_state WHERE owner_user_id = ?"
+                ),
+                (owner_user_id,),
+            ).fetchone()
+        if not row:
+            return []
+        data = self._row_to_dict(row)
+        raw = _json_load(data.get("dismissed_dates_json"), [])
+        if not isinstance(raw, list):
+            return []
+        out: list[str] = []
+        seen: set[str] = set()
+        for item in raw:
+            day = str(item or "").strip()[:10]
+            if len(day) != 10 or day[4] != "-" or day[7] != "-":
+                continue
+            if day in seen:
+                continue
+            seen.add(day)
+            out.append(day)
+        return out
+
+    def get_ai_usage_alert_dates(
+        self,
+        *,
+        owner_user_id: int,
+        threshold: int = AI_USAGE_ALERT_THRESHOLD,
+        days: int = 30,
+    ) -> list[str]:
+        """Over-threshold dates not yet dismissed by the owner."""
+        exceeded = self.list_ai_usage_dates_over_threshold(
+            user_id=owner_user_id,
+            threshold=threshold,
+            days=days,
+        )
+        dismissed = set(self.get_ai_usage_alert_dismissed_dates(owner_user_id=owner_user_id))
+        return compute_ai_usage_alert_dates(exceeded, dismissed)
+
+    def dismiss_ai_usage_alert(
+        self,
+        *,
+        owner_user_id: int,
+        dates: list[str] | None = None,
+        threshold: int = AI_USAGE_ALERT_THRESHOLD,
+    ) -> list[str]:
+        """Mark alert dates as dismissed. Defaults to currently active dates."""
+        active = list(dates) if dates is not None else self.get_ai_usage_alert_dates(
+            owner_user_id=owner_user_id,
+            threshold=threshold,
+        )
+        if not active:
+            return []
+        existing = self.get_ai_usage_alert_dismissed_dates(owner_user_id=owner_user_id)
+        merged: list[str] = []
+        seen: set[str] = set()
+        for day in existing + [str(d or "").strip()[:10] for d in active]:
+            if len(day) != 10 or day[4] != "-" or day[7] != "-":
+                continue
+            if day in seen:
+                continue
+            seen.add(day)
+            merged.append(day)
+        # Keep only recent dismissals so the JSON does not grow forever.
+        cutoff = (datetime.now(UTC).date() - timedelta(days=90)).isoformat()
+        merged = [day for day in merged if day >= cutoff]
+        now = _utc_now()
+        payload = self._json_param(merged)
+        with self._connect() as conn:
+            conn.execute(
+                self._sql("""
+                INSERT INTO ai_usage_alert_state (owner_user_id, dismissed_dates_json, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT (owner_user_id) DO UPDATE SET
+                    dismissed_dates_json = EXCLUDED.dismissed_dates_json,
+                    updated_at = EXCLUDED.updated_at
+                """),
+                (owner_user_id, payload, now),
+            )
+        return sorted(active)
 
     def purge_sync_action_logs(self) -> int:
         """Delete all bulk sync action log entries from review_actions.

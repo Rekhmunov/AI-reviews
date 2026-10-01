@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=418" />
+  <link rel="stylesheet" href="/static/style.css?v=419" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -107,6 +107,17 @@
 
       <section id="section-reviews">
         <h3 class="section-title">Отзывы</h3>
+        <div id="reviewsAiUsageAlert" class="reviews-ai-usage-alert hidden" role="alert" aria-live="polite">
+          <p id="reviewsAiUsageAlertText" class="reviews-ai-usage-alert-text"></p>
+          <button
+            type="button"
+            id="reviewsAiUsageAlertDismiss"
+            class="reviews-ai-usage-alert-dismiss hidden"
+            onclick="dismissReviewsAiUsageAlert()"
+            aria-label="Закрыть предупреждение"
+            title="Закрыть"
+          >×</button>
+        </div>
         <div class="row reviews-sync-row">
           <span id="syncInfo" class="small"></span>
         </div>
@@ -8380,6 +8391,6 @@
 
   <script src="/static/ozon_fbs.js?v=203"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=37"></script>
-  <script src="/static/app.js?v=704"></script>
+  <script src="/static/app.js?v=705"></script>
 </body>
 </html>
