@@ -21,5 +21,8 @@ def test_background_ozon_push_after_local_autosave() -> None:
     assert "_ozonFbsKizScheduleBackgroundOzonPush(pn)" in text
     assert "row.gtd_required" in text
     # Must not block the scan path on Ozon.
-    assert "Do not await — scan wedge must not wait on Ozon." in text
+    assert "Do not await from the scan path" in text
     assert "local_only: false" in text
+    # Serialize per posting so an older in-flight push cannot overwrite newer codes.
+    assert "bgOzonPushChainByPosting" in text
+    assert "bgOzonPushSeqByPosting" in text

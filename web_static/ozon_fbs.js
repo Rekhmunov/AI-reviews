@@ -11545,6 +11545,8 @@
   /**
    * Fire-and-forget exemplar push after local autosave (B2C catalog-KIZ only).
    * Never awaited by the scan path — operator latency stays on FeedPilot DB only.
+   * Per-posting promise chain + seq: rapid re-scans must not let an older
+   * in-flight push overwrite newer codes on Ozon.
    */
   function _ozonFbsKizScheduleBackgroundOzonPush(postingNumber) {
     const pn = String(postingNumber || "").trim();
@@ -11552,53 +11554,70 @@
     const row = _ozonFbsKizRowByPosting(pn);
     if (!row || _ozonFbsRowIsCancelled(row) || row.gtd_required) return;
     if (row.kiz_ozon_synced) return;
-    const codes = _ozonFbsKizNormalizeCodesList(row.kiz_codes);
+    const codesNow = _ozonFbsKizNormalizeCodesList(row.kiz_codes);
     const reqQty = Math.max(Number(row.quantity) || 1, 1);
-    if (codes.length < reqQty) return;
+    if (codesNow.length < reqQty) return;
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
     if (!sid || !sourceId) return;
     if (!ozonFbsKizState.bgOzonPushSeqByPosting) ozonFbsKizState.bgOzonPushSeqByPosting = {};
+    if (!ozonFbsKizState.bgOzonPushChainByPosting) ozonFbsKizState.bgOzonPushChainByPosting = {};
     const seq = (Number(ozonFbsKizState.bgOzonPushSeqByPosting[pn]) || 0) + 1;
     ozonFbsKizState.bgOzonPushSeqByPosting[pn] = seq;
-    const savedAt = String(row.kiz_saved_at || "");
-    const payload = {
-      items: [
-        {
-          posting_number: pn,
-          kiz_codes: codes,
-          gtd_number: "",
-          expected_saved_at: savedAt,
-          force: true,
-        },
-      ],
-      local_only: false,
-    };
-    // Do not await — scan wedge must not wait on Ozon.
-    fetch(
-      `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/marking?source_id=${sourceId}`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", ...jsonHeaders() },
-        body: JSON.stringify(payload),
-        keepalive: true,
+    const prev = ozonFbsKizState.bgOzonPushChainByPosting[pn] || Promise.resolve();
+    const run = () => {
+      // Superseded by a newer schedule for this posting — skip stale work.
+      if ((Number(ozonFbsKizState.bgOzonPushSeqByPosting?.[pn]) || 0) !== seq) {
+        return Promise.resolve();
       }
-    )
-      .then((res) => res.json().catch(() => ({})))
-      .then((data) => {
-        if ((Number(ozonFbsKizState.bgOzonPushSeqByPosting?.[pn]) || 0) !== seq) return;
-        const result = (data.results || []).find(
-          (r) => String(r?.posting_number || "").trim() === pn
-        );
-        if (!result || !result.ok) return;
-        const live = _ozonFbsKizRowByPosting(pn);
-        if (!live) return;
-        if (result.kiz_saved_at) live.kiz_saved_at = String(result.kiz_saved_at);
-        if (typeof result.kiz_ozon_synced === "boolean") {
-          live.kiz_ozon_synced = !!result.kiz_ozon_synced;
+      if (!_ozonFbsKizModalIsOpen()) return Promise.resolve();
+      const live = _ozonFbsKizRowByPosting(pn);
+      if (!live || _ozonFbsRowIsCancelled(live) || live.gtd_required) {
+        return Promise.resolve();
+      }
+      if (live.kiz_ozon_synced) return Promise.resolve();
+      const codes = _ozonFbsKizNormalizeCodesList(live.kiz_codes);
+      const need = Math.max(Number(live.quantity) || 1, 1);
+      if (codes.length < need) return Promise.resolve();
+      const payload = {
+        items: [
+          {
+            posting_number: pn,
+            kiz_codes: codes,
+            gtd_number: "",
+            expected_saved_at: String(live.kiz_saved_at || ""),
+            force: true,
+          },
+        ],
+        local_only: false,
+      };
+      // Do not await from the scan path — only chain per posting in background.
+      return fetch(
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/marking?source_id=${sourceId}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", ...jsonHeaders() },
+          body: JSON.stringify(payload),
+          keepalive: true,
         }
-      })
-      .catch(() => {});
+      )
+        .then((res) => res.json().catch(() => ({})))
+        .then((data) => {
+          if ((Number(ozonFbsKizState.bgOzonPushSeqByPosting?.[pn]) || 0) !== seq) return;
+          const result = (data.results || []).find(
+            (r) => String(r?.posting_number || "").trim() === pn
+          );
+          if (!result || !result.ok) return;
+          const rowLive = _ozonFbsKizRowByPosting(pn);
+          if (!rowLive) return;
+          if (result.kiz_saved_at) rowLive.kiz_saved_at = String(result.kiz_saved_at);
+          if (typeof result.kiz_ozon_synced === "boolean") {
+            rowLive.kiz_ozon_synced = !!result.kiz_ozon_synced;
+          }
+        })
+        .catch(() => {});
+    };
+    ozonFbsKizState.bgOzonPushChainByPosting[pn] = prev.then(run, run).catch(() => {});
   }
 
   function _ozonFbsKizSyncActiveCodeInput() {
