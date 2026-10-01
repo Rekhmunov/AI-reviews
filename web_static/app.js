@@ -1822,7 +1822,7 @@ async function confirmSyncPreview() {
     const data = await res.json();
     if (!res.ok) {
       const errMsg = res.status === 409
-        ? "Синхронизация уже выполняется (авто-синк). Подождите ~1 минуту и попробуйте снова."
+        ? (data.detail || "Синхронизация уже выполняется. Подождите немного и попробуйте снова.")
         : "Ошибка: " + (data.detail || "синхронизация не выполнена");
       if (syncInfo) syncInfo.textContent = errMsg;
       // Show error in a brief alert so it's visible regardless of current section

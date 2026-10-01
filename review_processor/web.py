@@ -1473,12 +1473,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         "progress_total_items": 0,
         "progress_total_accounts": 0,
         "progress_current_account": 0,
+        # Round-robin cursor for auto-sync (one cabinet per poll)
+        "auto_sync_rr_index": 0,
         # Sync result report (shown after completion)
         "last_sync_report": None,  # populated after manual sync finishes
         "sync_log": [],  # list of log lines accumulated during sync
     }
     auto_sync_stop_event = threading.Event()
     auto_sync_worker: dict[str, threading.Thread | None] = {"thread": None}
+    # Manual sync waits this long for an in-flight auto-sync to honor cancel.
+    # WB page requests can take up to client timeout (~20s), so 2s was too short.
+    MANUAL_SYNC_PREEMPT_WAIT_SECONDS = 30
     rate_limit_lock = threading.Lock()
     rate_buckets: dict[str, list[float]] = {}
     failed_login_attempts: dict[str, list[float]] = {}
@@ -2034,22 +2039,46 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         run_started_at: str,
         apply_date_filter: bool = False,
     ) -> dict[str, object]:
+        preempt_auto = False
+        busy_account = ""
         with sync_lock:
             if bool(sync_state.get("in_progress")):
                 # If an auto-sync is running and this is a manual request,
-                # cancel the auto-sync and let the manual one proceed after a short wait.
+                # cancel the auto-sync and let the manual one proceed after a wait.
                 if apply_date_filter and not bool(sync_state.get("is_manual")):
+                    sync_state["cancel_requested"] = True
                     sync_stop_event.set()  # signal auto-sync to stop
-                    # Will retry after releasing lock; auto-sync checks stop_requested
+                    preempt_auto = True
+                    busy_account = str(sync_state.get("progress_account") or "").strip()
                 else:
-                    raise HTTPException(status_code=409, detail="Синхронизация уже выполняется")
-        # Brief wait for auto-sync to see the stop signal before we acquire the slot
-        if apply_date_filter and sync_stop_event.is_set():
+                    busy_account = str(sync_state.get("progress_account") or "").strip()
+                    detail = "Синхронизация уже выполняется"
+                    if busy_account:
+                        detail = f"Синхронизация уже выполняется ({busy_account})"
+                    raise HTTPException(status_code=409, detail=detail)
+        # Wait for auto-sync to honor stop_requested (checked between WB pages).
+        if preempt_auto:
             import time as _time
-            _time.sleep(2)
+            deadline = _time.monotonic() + float(MANUAL_SYNC_PREEMPT_WAIT_SECONDS)
+            while _time.monotonic() < deadline:
+                with sync_lock:
+                    if not bool(sync_state.get("in_progress")):
+                        break
+                    busy_account = str(sync_state.get("progress_account") or busy_account).strip()
+                _time.sleep(0.5)
         with sync_lock:
             if bool(sync_state.get("in_progress")):
-                raise HTTPException(status_code=409, detail="Синхронизация уже выполняется. Попробуйте снова через несколько секунд.")
+                busy_account = str(sync_state.get("progress_account") or busy_account).strip()
+                detail = (
+                    "Синхронизация уже выполняется. Авто-синк не успел остановиться — "
+                    "подождите немного и попробуйте снова."
+                )
+                if busy_account:
+                    detail = (
+                        f"Синхронизация уже выполняется ({busy_account}). "
+                        "Авто-синк не успел остановиться — подождите немного и попробуйте снова."
+                    )
+                raise HTTPException(status_code=409, detail=detail)
             sync_state["in_progress"] = True
             sync_state["is_manual"] = apply_date_filter  # True only for manual button clicks
             sync_state["cancel_requested"] = False
@@ -2126,6 +2155,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     if auto_sync_stop_event.is_set():
                         break
                     _log.info("auto_sync_loop: poll iteration starting")
+                    # Skip if a sync (manual or previous auto) still holds the slot.
+                    # Prevents 409 spam and stacked work when a poll outlives the interval.
+                    with sync_lock:
+                        if bool(sync_state.get("in_progress")):
+                            busy = str(sync_state.get("progress_account") or "").strip()
+                            _log.info(
+                                "auto_sync_loop: skip poll — sync already in_progress%s",
+                                f" ({busy})" if busy else "",
+                            )
+                            continue
                     # Read sync target from DB on every iteration so the loop
                     # works even if in-memory sync_state was cleared (e.g. Stop
                     # button pressed, then the next auto-sync still fires).
@@ -2154,12 +2193,27 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                 if bool(poll_sync_settings.get("use_sync_start_date"))
                                 else None
                             )
-                            # Update in-memory state so UI can see polling is active
+                            # Round-robin: one cabinet per poll so a slow WB account
+                            # cannot starve the rest of the queue for the whole cycle.
                             with sync_lock:
+                                rr_index = int(sync_state.get("auto_sync_rr_index") or 0)
+                                if rr_index < 0:
+                                    rr_index = 0
+                                pick = account_ids[rr_index % len(account_ids)]
+                                sync_state["auto_sync_rr_index"] = (rr_index + 1) % len(account_ids)
                                 sync_state["polling_enabled"] = True
                                 sync_state["polling_user_id"] = polling_user_id
                                 sync_state["polling_account_ids"] = account_ids
                                 sync_state["polling_since_date"] = polling_since_raw
+                            poll_account_ids = [pick]
+                            _log.info(
+                                "auto_sync_loop: user=%s round-robin account_id=%s "
+                                "(%d/%d in rotation)",
+                                polling_user_id,
+                                pick,
+                                (rr_index % len(account_ids)) + 1,
+                                len(account_ids),
+                            )
                         except Exception:
                             continue
                         run_started_at = _now_iso()
@@ -2167,7 +2221,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                             result = _run_sync_for_user(
                                 user_id=polling_user_id,
                                 since_date=polling_since_raw or None,
-                                account_ids=account_ids,
+                                account_ids=poll_account_ids,
                                 run_started_at=run_started_at,
                             )
                             with sync_lock:
@@ -2180,7 +2234,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                     "failed_accounts": int(result.get("failed_accounts") or 0),
                                     "loaded": int(result.get("loaded") or 0),
                                     "loaded_conversations": int(result.get("loaded_conversations") or 0),
-                                    "account_ids": list(account_ids),
+                                    "account_ids": list(poll_account_ids),
+                                    "rotation_account_ids": list(account_ids),
                                     "errors": _serialize_sync_error_details(result.get("errors")),
                                     "cancelled": bool(result.get("cancelled")),
                                 }
@@ -2191,7 +2246,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                     "ok": False,
                                     "run_started_at": run_started_at,
                                     "error": str(exc.detail),
-                                    "account_ids": list(account_ids),
+                                    "account_ids": list(poll_account_ids),
                                 }
                         except Exception as exc:
                             with sync_lock:
@@ -2200,7 +2255,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                                     "ok": False,
                                     "run_started_at": run_started_at,
                                     "error": str(exc),
-                                    "account_ids": list(account_ids),
+                                    "account_ids": list(poll_account_ids),
                                 }
                         # Continue to next owner user (no break — all tenants polled)
 

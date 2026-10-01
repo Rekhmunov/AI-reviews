@@ -813,11 +813,14 @@ class WildberriesMarketplaceClient:
         *,
         since_date: str | None = None,
         stop_requested: Callable[[], bool] | None = None,
+        include_answered: bool = True,
     ):
-        """Generator: yields all reviews (unanswered + answered) from the given date.
+        """Generator: yields reviews from the given date.
 
-        Two passes — isAnswered=false then isAnswered=true — so reviews answered
-        directly on the marketplace portal are also captured and marked answered_manual.
+        By default two passes — isAnswered=false then isAnswered=true — so reviews
+        answered directly on the marketplace portal are also captured and marked
+        answered_manual. Auto-sync passes include_answered=False to only poll
+        unanswered reviews and avoid multi-minute full history scans every minute.
         Pages are fetched one at a time for O(page_size) peak memory.
         """
         if not self.api_key:
@@ -828,6 +831,8 @@ class WildberriesMarketplaceClient:
             stop_requested=stop_requested,
             answered_value="false",
         )
+        if not include_answered:
+            return
         # Pass 2: answered reviews (replied on portal or via API)
         # A brief pause between passes to respect rate limits
         time.sleep(0.5)
@@ -845,6 +850,8 @@ class WildberriesMarketplaceClient:
         *,
         since_date: str | None = None,
         stop_requested: Callable[[], bool] | None = None,
+        include_answered: bool = True,
+        pending_only: bool = False,
     ) -> list[dict[str, object]]:
         if not self.questions_path:
             return []
@@ -855,6 +862,9 @@ class WildberriesMarketplaceClient:
             since_date=since_date,
             stop_requested=stop_requested,
         )
+        # Auto-sync / pending_only: skip the answered pass (full history scan).
+        if pending_only or not include_answered:
+            return unanswered
         # Also fetch answered questions so we can mark them as processed
         # Temporarily swap unanswered_value to "true"
         original_unanswered_value = self.unanswered_value
@@ -2447,14 +2457,19 @@ class ReviewAutomationService:
         # 200k+ reviews in memory at once.  Falls back to bulk fetch_reviews.
         # Auto-sync (apply_date_filter=False) for Yandex uses reactionStatus=NEED_REACTION
         # per Partner API docs — avoids re-paging the full 6-month corpus every minute.
+        # Auto-sync for WB skips the answered pass — the dual full-history scan
+        # otherwise holds the global sync lock for many minutes and starves other cabinets.
         _fetch_iter = getattr(client, "fetch_reviews_iter", None)
         ym_incremental = (source == "yandex" and not apply_date_filter)
+        wb_incremental = (source == "wb" and not apply_date_filter)
         fetch_kwargs: dict[str, object] = {
             "since_date": since_date,
             "stop_requested": stop_requested,
         }
         if ym_incremental:
             fetch_kwargs["reaction_status"] = getattr(client, "YM_REACTION_NEED", "NEED_REACTION")
+        if wb_incremental:
+            fetch_kwargs["include_answered"] = False
         try:
             if callable(_fetch_iter):
                 try:
@@ -3053,6 +3068,7 @@ class ReviewAutomationService:
             return 0
 
         ym_incremental = (source == "yandex" and not apply_date_filter)
+        wb_incremental = (source == "wb" and not apply_date_filter)
         fetch_kwargs: dict[str, object] = {
             "since_date": since_date,
             "stop_requested": stop_requested,
@@ -3060,6 +3076,9 @@ class ReviewAutomationService:
         if ym_incremental:
             # Official filter: needAnswer=true — only questions waiting for an answer.
             fetch_kwargs["pending_only"] = True
+        if wb_incremental:
+            # Auto-sync: unanswered questions only — skip answered full-history pass.
+            fetch_kwargs["include_answered"] = False
 
         try:
             try:
