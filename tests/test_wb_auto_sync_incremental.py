@@ -318,14 +318,15 @@ class WbAutoSyncIncrementalTests(unittest.TestCase):
 
         client = _Client()
         with mock.patch("review_processor.service.time.sleep", return_value=None):
-            loaded = service.sync_reviews(
-                user_id=1,
-                source="wb",
-                account_id=30,
-                client=client,
-                since_date="2026-09-01",
-                apply_date_filter=False,
-            )
+            with self.assertLogs("review_processor.service", level="INFO") as captured:
+                loaded = service.sync_reviews(
+                    user_id=1,
+                    source="wb",
+                    account_id=30,
+                    client=client,
+                    since_date="2026-09-01",
+                    apply_date_filter=False,
+                )
         self.assertEqual(loaded, 1)
         self.assertEqual(len(sent), 1)
         self.assertEqual(sent[0][0], "textless-only-1")
@@ -335,6 +336,82 @@ class WbAutoSyncIncrementalTests(unittest.TestCase):
         ]
         self.assertTrue(upsert_calls)
         self.assertEqual(upsert_calls[-1].get("status"), "answered_auto")
+        joined = "\n".join(captured.output)
+        self.assertIn("textless progress", joined)
+        self.assertIn("sent=1", joined)
+        self.assertIn("textless done", joined)
+
+    def test_textless_progress_logs_every_ten_and_counts_errors(self) -> None:
+        service = _service_with_mock_repo()
+        repo = service.repository
+        service._list_group_subgroups_for_review_classification = mock.Mock(return_value=[])  # type: ignore[method-assign]
+        service._pick_group_template_text = mock.Mock(return_value="ok")  # type: ignore[method-assign]
+        repo.get_processing_rule.return_value = {
+            "group_id": "textless_ratings",
+            "action_mode": "template",
+            "auto_send": True,
+        }
+        repo.get_template.return_value = None
+        repo.build_template_variables_context.return_value = {}
+
+        class _Client(_RecordingWbClient):
+            def _request_json(
+                self,
+                *,
+                skip: int,
+                take: int,
+                since_date: str | None = None,
+                order: str | None = None,
+            ) -> dict[str, object]:
+                _ = take, since_date, order
+                self.review_passes.append(str(self.unanswered_value))
+                if str(self.unanswered_value) == "false":
+                    return {"data": {"feedbacks": []}}
+                feedbacks = [
+                    {
+                        "id": f"tl-{i}",
+                        "text": "",
+                        "pros": "",
+                        "cons": "",
+                        "productValuation": 5,
+                        "photoLinks": None,
+                        "answer": None,
+                        "createdDate": "2026-09-20T10:00:00Z",
+                    }
+                    for i in range(12)
+                ]
+                return {"data": {"feedbacks": feedbacks}}
+
+            def send_review_reply(self, *, review: ReviewInput, response_text: str) -> bool:
+                _ = response_text
+                # Fail every 4th to exercise errors counter.
+                return not str(review.review_id).endswith("-3")
+
+        # Mark one as already answered locally → skipped.
+        def _state(*, user_id: int, review_uid: str):
+            _ = user_id
+            if review_uid.endswith("tl-0"):
+                return {"status": "answered_auto", "auto_reply": "ранее"}
+            return None
+
+        repo.get_review_sync_state.side_effect = _state
+        client = _Client()
+        with mock.patch("review_processor.service.time.sleep", return_value=None):
+            with self.assertLogs("review_processor.service", level="INFO") as captured:
+                loaded = service.sync_reviews(
+                    user_id=1,
+                    source="wb",
+                    account_id=29,
+                    client=client,
+                    since_date="2026-09-01",
+                    apply_date_filter=False,
+                )
+        self.assertEqual(loaded, 12)
+        joined = "\n".join(captured.output)
+        self.assertIn("textless progress account_id=29 sent=", joined)
+        self.assertIn("total=10", joined)  # intermediate every-10
+        self.assertIn("textless done account_id=29", joined)
+        self.assertRegex(joined, r"textless done account_id=29 sent=\d+ skipped=\d+ errors=\d+")
 
 
 if __name__ == "__main__":
