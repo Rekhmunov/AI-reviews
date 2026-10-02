@@ -6,8 +6,8 @@ import logging
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from typing import Protocol
+from datetime import UTC, datetime, timedelta
+from typing import ClassVar, Protocol
 import time
 from urllib.parse import urlencode, urljoin, urlparse
 from urllib.error import HTTPError, URLError
@@ -774,25 +774,40 @@ class WildberriesMarketplaceClient:
 
         return [review for review in reviews if review.review_id]
 
+    # Auto-sync textless pass: WB puts rating-only (no text/photos) into
+    # isAnswered=true even without a seller reply. Bound the scan so one
+    # cabinet cannot starve the round-robin with a full answered-history walk.
+    TEXTLESS_UNREPLIED_MAX_PAGES: ClassVar[int] = 30
+    TEXTLESS_UNREPLIED_LOOKBACK_DAYS: ClassVar[int] = 30
+
     def _fetch_reviews_iter_with_answered(
         self,
         *,
         since_date: str | None = None,
         stop_requested: Callable[[], bool] | None = None,
         answered_value: str,
+        order: str | None = None,
+        max_pages: int | None = None,
+        only_textless_unreplied: bool = False,
     ):
         """Internal generator: fetch one pass of reviews with a specific isAnswered value."""
         original = self.unanswered_value
         object.__setattr__(self, "unanswered_value", answered_value)
+        page_limit = self.max_pages if max_pages is None else max(1, int(max_pages))
         try:
             skip = 0
             page = 0
-            while page < self.max_pages:
+            while page < page_limit:
                 _raise_if_stop_requested(stop_requested, source="wb")
                 if page > 0:
                     time.sleep(0.4)
                 try:
-                    payload = self._request_json(skip=skip, take=self.page_size, since_date=since_date)
+                    payload = self._request_json(
+                        skip=skip,
+                        take=self.page_size,
+                        since_date=since_date,
+                        order=order,
+                    )
                 except TypeError:
                     payload = self._request_json(skip=skip, take=self.page_size)
                 _raise_if_error_payload(payload, source="wb")
@@ -804,8 +819,11 @@ class WildberriesMarketplaceClient:
                     break
                 for item in items:
                     rv = self._to_review(item)
-                    if rv.review_id:
-                        yield rv
+                    if not rv.review_id:
+                        continue
+                    if only_textless_unreplied and not self._is_textless_unreplied(rv):
+                        continue
+                    yield rv
                 if len(items) < self.page_size:
                     break
                 skip += self.page_size
@@ -813,12 +831,53 @@ class WildberriesMarketplaceClient:
         finally:
             object.__setattr__(self, "unanswered_value", original)
 
+    @staticmethod
+    def _is_textless_unreplied(review: ReviewInput) -> bool:
+        """True when WB feedback is rating-only and still has no seller answer.
+
+        Per WB Feedbacks API, such reviews are returned with isAnswered=true
+        (treated as "processed") even though the seller has not replied yet.
+        """
+        if str(review.text or "").strip():
+            return False
+        raw = review.metadata.get("raw") if isinstance(review.metadata, dict) else None
+        if not isinstance(raw, Mapping):
+            return True
+        answer = raw.get("answer") if isinstance(raw.get("answer"), Mapping) else None
+        reply = raw.get("reply") if isinstance(raw.get("reply"), Mapping) else None
+        if answer and str(answer.get("text") or "").strip():
+            return False
+        if reply and str(reply.get("text") or "").strip():
+            return False
+        if str(raw.get("replyText") or "").strip():
+            return False
+        photos = raw.get("photoLinks")
+        if isinstance(photos, list) and len(photos) > 0:
+            return False
+        if raw.get("video"):
+            return False
+        return True
+
+    @staticmethod
+    def _textless_unreplied_since_date(since_date: str | None) -> str | None:
+        """Clamp textless auto-sync lookback so answered-history scans stay short."""
+        lookback_days = WildberriesMarketplaceClient.TEXTLESS_UNREPLIED_LOOKBACK_DAYS
+        cutoff = (datetime.now(UTC) - timedelta(days=lookback_days)).date().isoformat()
+        raw = str(since_date or "").strip()
+        if not raw:
+            return cutoff
+        date_part = raw[:10]
+        if len(date_part) == 10 and date_part[4] == "-" and date_part[7] == "-":
+            return max(date_part, cutoff)
+        return cutoff
+
     def fetch_reviews_iter(
         self,
         *,
         since_date: str | None = None,
         stop_requested: Callable[[], bool] | None = None,
         include_answered: bool = True,
+        include_textless_unreplied: bool = False,
     ):
         """Generator: yields reviews from the given date.
 
@@ -826,6 +885,9 @@ class WildberriesMarketplaceClient:
         answered directly on the marketplace portal are also captured and marked
         answered_manual. Auto-sync passes include_answered=False to only poll
         unanswered reviews and avoid multi-minute full history scans every minute.
+        When include_textless_unreplied=True (auto-sync), a bounded third pass
+        pulls rating-only feedbacks from isAnswered=true that still need a seller
+        reply — WB never returns those in the unanswered feed.
         Pages are fetched one at a time for O(page_size) peak memory.
         """
         if not self.api_key:
@@ -836,16 +898,39 @@ class WildberriesMarketplaceClient:
             stop_requested=stop_requested,
             answered_value="false",
         )
-        if not include_answered:
+        if include_answered:
+            # Pass 2: answered reviews (replied on portal or via API)
+            # A brief pause between passes to respect rate limits
+            time.sleep(0.5)
+            yield from self._fetch_reviews_iter_with_answered(
+                since_date=since_date,
+                stop_requested=stop_requested,
+                answered_value="true",
+            )
             return
-        # Pass 2: answered reviews (replied on portal or via API)
-        # A brief pause between passes to respect rate limits
+        if not include_textless_unreplied:
+            return
+        # Bounded pass: rating-only without seller reply live in isAnswered=true.
         time.sleep(0.5)
-        yield from self._fetch_reviews_iter_with_answered(
-            since_date=since_date,
+        textless_since = self._textless_unreplied_since_date(since_date)
+        yielded = 0
+        for rv in self._fetch_reviews_iter_with_answered(
+            since_date=textless_since,
             stop_requested=stop_requested,
             answered_value="true",
-        )
+            order="dateDesc",
+            max_pages=self.TEXTLESS_UNREPLIED_MAX_PAGES,
+            only_textless_unreplied=True,
+        ):
+            yielded += 1
+            yield rv
+        if yielded:
+            _log.info(
+                "WB fetch_reviews_iter: textless unreplied pass yielded %d (since=%s, max_pages=%d)",
+                yielded,
+                textless_since,
+                self.TEXTLESS_UNREPLIED_MAX_PAGES,
+            )
 
     def fetch_conversations(self, *, stop_requested: Callable[[], bool] | None = None) -> list[dict[str, object]]:
         return self.fetch_questions(stop_requested=stop_requested) + self.fetch_chats(stop_requested=stop_requested)
@@ -1157,7 +1242,14 @@ class WildberriesMarketplaceClient:
 
         return result
 
-    def _request_json(self, *, skip: int, take: int, since_date: str | None = None) -> dict[str, object]:
+    def _request_json(
+        self,
+        *,
+        skip: int,
+        take: int,
+        since_date: str | None = None,
+        order: str | None = None,
+    ) -> dict[str, object]:
         params_payload: dict[str, object] = {
             self.skip_param: skip,
             self.take_param: take,
@@ -1166,6 +1258,9 @@ class WildberriesMarketplaceClient:
         wb_date_from = self._to_wb_unix_timestamp(since_date)
         if wb_date_from is not None:
             params_payload["dateFrom"] = wb_date_from
+        order_value = str(order or "").strip()
+        if order_value in {"dateAsc", "dateDesc"}:
+            params_payload["order"] = order_value
         params = urlencode(params_payload)
         endpoint = _compose_url(self.api_url, self.list_path)
         url = f"{self.api_url}?{params}" if "?" not in self.api_url else f"{self.api_url}&{params}"
@@ -2462,8 +2557,10 @@ class ReviewAutomationService:
         # 200k+ reviews in memory at once.  Falls back to bulk fetch_reviews.
         # Auto-sync (apply_date_filter=False) for Yandex uses reactionStatus=NEED_REACTION
         # per Partner API docs — avoids re-paging the full 6-month corpus every minute.
-        # Auto-sync for WB skips the answered pass — the dual full-history scan
+        # Auto-sync for WB skips the full answered pass — the dual full-history scan
         # otherwise holds the global sync lock for many minutes and starves other cabinets.
+        # Rating-only WB feedbacks still need a bounded isAnswered=true pass: WB marks
+        # them processed without a seller reply, so they never appear in isAnswered=false.
         _fetch_iter = getattr(client, "fetch_reviews_iter", None)
         ym_incremental = (source == "yandex" and not apply_date_filter)
         wb_incremental = (source == "wb" and not apply_date_filter)
@@ -2475,6 +2572,7 @@ class ReviewAutomationService:
             fetch_kwargs["reaction_status"] = getattr(client, "YM_REACTION_NEED", "NEED_REACTION")
         if wb_incremental:
             fetch_kwargs["include_answered"] = False
+            fetch_kwargs["include_textless_unreplied"] = True
         try:
             if callable(_fetch_iter):
                 try:
@@ -2669,9 +2767,10 @@ class ReviewAutomationService:
             existing_classifications[uid_key] = row
             return row
 
-        # Per-account status/reply map — skip N+1 comments API + no-op upserts for YM.
+        # Per-account status/reply map — skip N+1 comments API + no-op upserts for YM,
+        # and avoid re-sending already answered WB textless reviews from the bounded pass.
         existing_review_states: dict[str, dict[str, object]] = {}
-        if user_id and source == "yandex" and account_id is not None:
+        if user_id and source in {"yandex", "wb"} and account_id is not None:
             try:
                 existing_review_states = self.repository.get_review_sync_states_for_account(
                     user_id=user_id,
@@ -2679,7 +2778,11 @@ class ReviewAutomationService:
                     account_id=int(account_id),
                 )
             except Exception as _exc:
-                _log.warning("sync_reviews: could not load YM review sync states: %s", _exc)
+                _log.warning(
+                    "sync_reviews: could not load %s review sync states: %s",
+                    source,
+                    _exc,
+                )
                 existing_review_states = {}
 
         loaded_count = 0
@@ -2744,6 +2847,15 @@ class ReviewAutomationService:
                     skipped_noop_answered += 1
                     continue
             if source == "yandex" and _existing_status == "answered_auto" and (_ym_no_reaction or _reply_text):
+                skipped_noop_answered += 1
+                continue
+            # WB textless unreplied pass re-lists isAnswered=true items. Skip local
+            # answered rows unless the portal now has a reply we should import.
+            if (
+                source == "wb"
+                and _existing_status in {"answered_manual", "answered_auto", "ignored"}
+                and not _reply_text
+            ):
                 skipped_noop_answered += 1
                 continue
 
