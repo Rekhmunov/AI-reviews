@@ -5219,29 +5219,54 @@ class ReviewAutomationService:
 
     @staticmethod
     def _review_has_media(review: ReviewInput) -> bool:
+        """True only when the buyer attached photos/video to the review itself.
+
+        Product-card image URLs inside marketplace metadata (e.g. WB
+        ``productDetails``) must NOT count as review media — otherwise
+        rating-only feedbacks are wrongly routed to Yandex AI instead of
+        the ``textless_ratings`` template path.
+        """
         metadata = review.metadata if isinstance(review.metadata, dict) else {}
+        raw = metadata.get("raw") if isinstance(metadata.get("raw"), Mapping) else None
+        payloads: list[Mapping[str, object]] = []
+        if isinstance(raw, Mapping):
+            payloads.append(raw)
+        payloads.append(metadata)
 
-        def _has_media(value: object) -> bool:
-            if isinstance(value, str):
-                text = value.strip().lower()
-                if not text:
-                    return False
-                markers = ("http://", "https://", ".jpg", ".jpeg", ".png", ".webp", ".gif", "photo", "image", "картин")
-                return any(marker in text for marker in markers)
-            if isinstance(value, list):
-                return any(_has_media(item) for item in value)
-            if isinstance(value, Mapping):
-                for key, nested in value.items():
-                    key_text = str(key).lower()
-                    if any(marker in key_text for marker in ("photo", "image", "media", "pictures", "gallery", "фото")):
-                        if _has_media(nested):
-                            return True
-                    if _has_media(nested):
-                        return True
+        media_keys = {
+            "photolinks",
+            "photos",
+            "photo",
+            "photosurls",
+            "photo_urls",
+            "images",
+            "image",
+            "media",
+            "videos",
+            "video",
+            "attachments",
+            "gallery",
+            "фото",
+        }
+
+        def _nonempty_media(value: object) -> bool:
+            if value is None or value is False:
                 return False
-            return False
+            if isinstance(value, str):
+                return bool(value.strip())
+            if isinstance(value, (list, tuple, set)):
+                return len(value) > 0
+            if isinstance(value, Mapping):
+                return any(_nonempty_media(v) for v in value.values())
+            return bool(value)
 
-        return _has_media(metadata)
+        for payload in payloads:
+            for key, value in payload.items():
+                if str(key).strip().lower() not in media_keys:
+                    continue
+                if _nonempty_media(value):
+                    return True
+        return False
 
     def _classify_category_and_subgroup(
         self,

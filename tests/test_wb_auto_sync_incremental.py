@@ -129,6 +129,49 @@ class WbAutoSyncIncrementalTests(unittest.TestCase):
         self.assertEqual((textless.text or "").strip(), "")
         self.assertTrue(WildberriesMarketplaceClient._is_textless_unreplied(textless))
 
+    def test_review_has_media_ignores_product_card_images(self) -> None:
+        """WB productDetails image URLs must not force Yandex classification."""
+        service = ReviewAutomationService(repository=mock.Mock())
+        rating_only = ReviewInput(
+            review_id="r1",
+            text="",
+            rating=5,
+            metadata={
+                "raw": {
+                    "text": "",
+                    "pros": "",
+                    "cons": "",
+                    "photoLinks": None,
+                    "video": None,
+                    "productDetails": {
+                        "productName": "Товар",
+                        "imgtm": "https://basket.wb.ru/vol1/part1/123/images/big/1.webp",
+                    },
+                },
+                "marketplace": "wb",
+            },
+        )
+        with_buyer_photo = ReviewInput(
+            review_id="r2",
+            text="",
+            rating=4,
+            metadata={
+                "raw": {
+                    "photoLinks": [{"fullSize": "https://feedback/photo.jpg"}],
+                    "productDetails": {"imgtm": "https://basket.wb.ru/x.webp"},
+                }
+            },
+        )
+        self.assertFalse(service._review_has_media(rating_only))
+        self.assertTrue(service._review_has_media(with_buyer_photo))
+        category, subgroup = service._classify_category_and_subgroup(
+            rating_only,
+            type("P", (), {"sentiment_label": "neutral"})(),
+            settings={"provider": "rules"},
+        )
+        self.assertEqual(category, "textless_ratings")
+        self.assertEqual(subgroup, "5 звезд")
+
     def test_is_textless_unreplied_rejects_photos_and_answers(self) -> None:
         with_answer = ReviewInput(
             review_id="a1",
