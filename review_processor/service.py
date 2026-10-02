@@ -2817,7 +2817,33 @@ class ReviewAutomationService:
         skipped_old = 0
         skipped_already_classified = 0
         skipped_noop_answered = 0
+        # Textless (rating-only) batch progress — otherwise 5–10 min of silence
+        # while auto-replies are sent one-by-one under WB rate limits.
+        textless_sent = 0
+        textless_skipped = 0
+        textless_errors = 0
+        textless_progress_every = 10
         seen_pending_review_ids: set[str] = set()
+
+        def _is_textless_review(item: ReviewInput) -> bool:
+            if str(item.text or "").strip():
+                return False
+            return not self._review_has_media(item)
+
+        def _log_textless_progress(*, force: bool = False) -> None:
+            done = textless_sent + textless_skipped + textless_errors
+            if done <= 0:
+                return
+            if not force and done % textless_progress_every != 0:
+                return
+            _log.info(
+                "sync_reviews: textless progress account_id=%s sent=%d skipped=%d errors=%d total=%d",
+                account_id,
+                textless_sent,
+                textless_skipped,
+                textless_errors,
+                done,
+            )
 
         # After midnight the daily AI counter resets. Run ai_unclassified backlog
         # (oldest first) through the SAME pipeline before newly fetched reviews,
@@ -2892,6 +2918,9 @@ class ReviewAutomationService:
                 and not _reply_text
             ):
                 skipped_noop_answered += 1
+                if _is_textless_review(review):
+                    textless_skipped += 1
+                    _log_textless_progress()
                 continue
 
             # For YM already-answered reviews: fetch seller reply only when we do not have it yet.
@@ -3070,6 +3099,9 @@ class ReviewAutomationService:
                         status=status,
                         auto_reply=auto_reply,
                     )
+                    if _is_textless_review(review_for_processing):
+                        textless_errors += 1
+                        _log_textless_progress()
                     continue
                 auto_reply = self._render_template(
                     selected_template,
@@ -3128,6 +3160,15 @@ class ReviewAutomationService:
                     error_message=str(send_error or "Не удалось отправить ответ"),
                     auto_reply=auto_reply,
                 )
+            if _is_textless_review(review_for_processing):
+                if status == "answered_auto":
+                    textless_sent += 1
+                elif status == "queued_for_operator" and send_error is not None:
+                    textless_errors += 1
+                else:
+                    # manual rule / contradiction / no auto-send — not a hard failure
+                    textless_skipped += 1
+                _log_textless_progress()
             review_uid = self.repository.make_review_uid(user_id, source, account_id, review_for_processing.review_id)
             if ai_classification_failed:
                 self.repository.log_review_action(
@@ -3141,6 +3182,15 @@ class ReviewAutomationService:
                         "scope": "classification",
                     },
                 )
+        if textless_sent or textless_skipped or textless_errors:
+            _log_textless_progress(force=True)
+            _log.info(
+                "sync_reviews: textless done account_id=%s sent=%d skipped=%d errors=%d",
+                account_id,
+                textless_sent,
+                textless_skipped,
+                textless_errors,
+            )
         if skipped_old:
             _log.info(
                 "sync_reviews: skipped %d reviews with createdDate < since_date=%s, saved %d",
@@ -3153,8 +3203,9 @@ class ReviewAutomationService:
             )
         if skipped_noop_answered:
             _log.info(
-                "sync_reviews: skipped %d already-answered YM reviews (no comments API / upsert)",
+                "sync_reviews: skipped %d already-answered %s reviews (no-op)",
                 skipped_noop_answered,
+                source or "marketplace",
             )
 
         # Auto-sync only fetched NEED_REACTION. Local open reviews missing from that
