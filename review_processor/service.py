@@ -913,6 +913,11 @@ class WildberriesMarketplaceClient:
         # Bounded pass: rating-only without seller reply live in isAnswered=true.
         time.sleep(0.5)
         textless_since = self._textless_unreplied_since_date(since_date)
+        _log.info(
+            "WB fetch_reviews_iter: starting textless unreplied pass (since=%s, max_pages=%d)",
+            textless_since,
+            self.TEXTLESS_UNREPLIED_MAX_PAGES,
+        )
         yielded = 0
         for rv in self._fetch_reviews_iter_with_answered(
             since_date=textless_since,
@@ -2767,10 +2772,12 @@ class ReviewAutomationService:
             existing_classifications[uid_key] = row
             return row
 
-        # Per-account status/reply map — skip N+1 comments API + no-op upserts for YM,
-        # and avoid re-sending already answered WB textless reviews from the bounded pass.
+        # Per-account status/reply map — skip N+1 comments API + no-op upserts for YM.
+        # WB must NOT preload the full account map: cabinets with 30k+ reviews make
+        # that query multi-minute and stall auto-sync. WB answered skips use a
+        # lazy per-uid lookup below instead.
         existing_review_states: dict[str, dict[str, object]] = {}
-        if user_id and source in {"yandex", "wb"} and account_id is not None:
+        if user_id and source == "yandex" and account_id is not None:
             try:
                 existing_review_states = self.repository.get_review_sync_states_for_account(
                     user_id=user_id,
@@ -2778,12 +2785,33 @@ class ReviewAutomationService:
                     account_id=int(account_id),
                 )
             except Exception as _exc:
+                _log.warning("sync_reviews: could not load YM review sync states: %s", _exc)
+                existing_review_states = {}
+
+        def _wb_existing_state(review_uid: str, external_id: str) -> dict[str, object]:
+            hit = existing_review_states.get(external_id) or existing_review_states.get(review_uid)
+            if hit is not None:
+                return hit
+            if not user_id:
+                return {}
+            try:
+                row = self.repository.get_review_sync_state(
+                    user_id=user_id,
+                    review_uid=review_uid,
+                )
+            except Exception as _exc:
                 _log.warning(
-                    "sync_reviews: could not load %s review sync states: %s",
-                    source,
+                    "sync_reviews: WB status lookup failed uid=%s: %s",
+                    review_uid[:48],
                     _exc,
                 )
-                existing_review_states = {}
+                row = None
+            payload = dict(row) if isinstance(row, dict) else {}
+            if review_uid:
+                existing_review_states[review_uid] = payload
+            if external_id:
+                existing_review_states[external_id] = payload
+            return payload
 
         loaded_count = 0
         skipped_old = 0
@@ -2835,7 +2863,14 @@ class ReviewAutomationService:
             review_uid = self.repository.make_review_uid(
                 user_id or 0, source, account_id, str(review.review_id)
             )
-            _existing_state = existing_review_states.get(str(review.review_id)) or existing_review_states.get(review_uid) or {}
+            if source == "wb":
+                _existing_state = _wb_existing_state(review_uid, str(review.review_id))
+            else:
+                _existing_state = (
+                    existing_review_states.get(str(review.review_id))
+                    or existing_review_states.get(review_uid)
+                    or {}
+                )
             _existing_status = str(_existing_state.get("status") or "").strip()
             _existing_reply = str(_existing_state.get("auto_reply") or "").strip()
 

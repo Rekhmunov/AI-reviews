@@ -4855,6 +4855,42 @@ class ReviewRepository:
             ).fetchall()
         return [self._row_to_dict(row) for row in rows]
 
+    def get_review_sync_state(
+        self,
+        *,
+        user_id: int,
+        review_uid: str,
+    ) -> dict[str, Any] | None:
+        """Light status lookup for one review (WB auto-sync skip path)."""
+        uid = str(review_uid or "").strip()
+        if not uid:
+            return None
+        sql = self._sql(
+            """
+            SELECT review_uid,
+                   external_review_id,
+                   status,
+                   auto_reply,
+                   created_at
+            FROM review_items
+            WHERE user_id = ?
+              AND review_uid = ?
+            LIMIT 1
+            """
+        )
+        with self._connect() as conn:
+            row = conn.execute(sql, (user_id, uid)).fetchone()
+        if row is None:
+            return None
+        d = self._row_to_dict(row)
+        return {
+            "review_uid": str(d.get("review_uid") or "").strip(),
+            "external_review_id": str(d.get("external_review_id") or "").strip(),
+            "status": str(d.get("status") or "").strip(),
+            "auto_reply": str(d.get("auto_reply") or "").strip(),
+            "created_at": d.get("created_at"),
+        }
+
     def get_review_sync_states_for_account(
         self,
         *,
@@ -4866,6 +4902,7 @@ class ReviewRepository:
 
         Used by Yandex auto-sync to skip comments API / no-op upserts and to reconcile
         portal-answered reviews without re-paging the full feedback catalog.
+        Do not use for WB auto-sync — full-cabinet preload stalls large accounts.
         """
         sql = self._sql(
             """
