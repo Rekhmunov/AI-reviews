@@ -85,6 +85,7 @@ def _service_with_mock_repo() -> ReviewAutomationService:
     repo.get_existing_classifications.return_value = {}
     repo.get_existing_classification_for_uid.return_value = None
     repo.get_review_sync_states_for_account.return_value = {}
+    repo.get_review_sync_state.return_value = None
     repo.upsert_review.return_value = {"review_uid": "u1", "is_new": True}
     repo.list_processing_rules.return_value = []
     repo.get_user_sync_settings.return_value = {}
@@ -231,6 +232,7 @@ class WbAutoSyncIncrementalTests(unittest.TestCase):
         self.assertEqual(loaded, 0)
         self.assertEqual(seen.get("include_answered"), False)
         self.assertEqual(seen.get("include_textless_unreplied"), True)
+        service.repository.get_review_sync_states_for_account.assert_not_called()
 
     def test_manual_sync_reviews_keeps_answered_pass(self) -> None:
         service = _service_with_mock_repo()
