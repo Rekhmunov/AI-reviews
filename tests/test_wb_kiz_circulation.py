@@ -566,6 +566,40 @@ def test_cis_display_foreign_owner_marked_transferred() -> None:
     assert kind3 == "withdrawn"
 
 
+def test_build_party_name_by_inn_from_settings() -> None:
+    repo = MagicMock()
+    repo.list_supply_legal_entities.return_value = [
+        {
+            "short_name": "ООО Ромашка",
+            "full_name": "ООО Ромашка Полное",
+            "requisites": "ИНН 7707083893 КПП 770701001",
+        }
+    ]
+    repo.list_supply_contractors.return_value = [
+        {
+            "name": "ИП Иванов",
+            "requisites": "ИНН 500100732259",
+        },
+        {
+            # Same INN as LE — legal entity wins.
+            "name": "Другое имя",
+            "requisites": "7707083893",
+        },
+    ]
+    mapping = circ.build_party_name_by_inn(repo, user_id=1)
+    assert mapping["7707083893"] == "ООО Ромашка"
+    assert mapping["500100732259"] == "ИП Иванов"
+    assert circ.resolve_owner_name_from_settings(
+        mapping, owner_inn="7707083893", owner_name="API Name"
+    ) == "ООО Ромашка"
+    assert circ.resolve_owner_name_from_settings(
+        mapping, owner_inn="9999999999", owner_name="API Name"
+    ) == "API Name"
+    assert circ.resolve_owner_name_from_settings(
+        mapping, owner_inn="9999999999", owner_name=""
+    ) == ""
+
+
 def test_parse_cises_info_item() -> None:
     parsed = circ.parse_cises_info_item(
         {

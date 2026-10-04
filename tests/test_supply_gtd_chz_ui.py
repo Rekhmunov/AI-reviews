@@ -128,5 +128,25 @@ def test_gtd_chz_filters_in_icon_and_owner_export() -> None:
     assert "TXT — только коды" in APP_HTML
 
 
+def test_gtd_chz_owner_resolves_from_settings_parties() -> None:
+    assert "function _supplyChzPartyNameByInn" in APP_JS
+    assert "function _supplyChzResolvedOwnerName" in APP_JS
+    assert "_supplyChzResolvedOwnerName(it)" in APP_JS
+    open_fn = APP_JS[
+        APP_JS.find("async function openSupplyGtdChzModal") : APP_JS.find(
+            "function closeSupplyGtdChzModal"
+        )
+    ]
+    assert "_ensureSupplyLegalEntitiesLoaded()" in open_fn
+    assert "_ensureSupplyContractorsLoaded()" in open_fn
+    cab_open = APP_JS[
+        APP_JS.find("async function openSupplyChzCabinetModal") : APP_JS.find(
+            "function openSupplyChzCabinetFromSearch"
+        )
+    ]
+    assert "_ensureSupplyLegalEntitiesLoaded()" in cab_open
+    assert "_ensureSupplyContractorsLoaded()" in cab_open
+
+
 def test_asset_version_bumped() -> None:
-    assert "app.js?v=708" in APP_HTML
+    assert "app.js?v=709" in APP_HTML

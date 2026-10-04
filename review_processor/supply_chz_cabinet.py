@@ -769,6 +769,7 @@ def refresh_cabinet_cis_statuses(
     client.set_token(token_s)
     pg = str(settings.get("product_group") or "").strip()
     inn = str(settings.get("participant_inn") or "").strip()
+    party_by_inn = kiz_circ.build_party_name_by_inn(repo, user_id=user_id)
     run_id = _start_run(repo, user_id=user_id, op="cis_status", requested=len(codes))
     log = [f"Выгрузка статусов ЧЗ: кодов {len(codes)}"]
     found = missing = errors = 0
@@ -841,7 +842,11 @@ def refresh_cabinet_cis_statuses(
                 err = str(hit.get("error") or "").strip()
                 status = str(hit.get("status") or "").strip()
                 owner = str(hit.get("owner_inn") or "").strip()
-                owner_name = str(hit.get("owner_name") or "").strip()
+                owner_name = kiz_circ.resolve_owner_name_from_settings(
+                    party_by_inn,
+                    owner_inn=owner,
+                    owner_name=str(hit.get("owner_name") or "").strip(),
+                )
                 if err and not status:
                     errors += 1
                 elif status:

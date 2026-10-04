@@ -706,6 +706,7 @@ def _run_cis_status_chunks(
     """Execute True API cises/info chunks; always finishes the run row."""
     pg = str(product_group or "").strip()
     inn = str(participant_inn or "").strip()
+    party_by_inn = kiz_circ.build_party_name_by_inn(repo, user_id=user_id)
     total_chunks = max(1, (len(codes) + CIS_CHUNK - 1) // CIS_CHUNK)
     updated = found = missing = errors = 0
     try:
@@ -791,7 +792,11 @@ def _run_cis_status_chunks(
                 err = str(hit.get("error") or "").strip()
                 status = str(hit.get("status") or "").strip()
                 owner = str(hit.get("owner_inn") or "").strip()
-                owner_name = str(hit.get("owner_name") or "").strip()
+                owner_name = kiz_circ.resolve_owner_name_from_settings(
+                    party_by_inn,
+                    owner_inn=owner,
+                    owner_name=str(hit.get("owner_name") or "").strip(),
+                )
                 if err and not status:
                     errors += 1
                 elif status:
