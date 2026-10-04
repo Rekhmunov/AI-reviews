@@ -101,6 +101,14 @@ def test_cabinet_modal_matches_gtd_chz_size_and_tools() -> None:
     assert 'id="supplyChzCabCreatedFrom"' in block
     assert 'id="supplyChzCabCreatedTo"' in block
     assert 'id="supplyChzCabFiltersBtn"' in block
+    assert 'id="supplyChzCabFileExportBtn"' in block
+    assert "openSupplyChzExportModal('cabinet')" in block
+    assert block.find('id="supplyChzCabLogBtn"') < block.find('id="supplyChzCabFileExportBtn"')
+    assert block.find('id="supplyChzCabFileExportBtn"') < block.find('id="supplyChzCabFiltersBtn"')
+    assert 'id="supplyChzCabNameFilter"' in block
+    assert 'id="supplyChzCabOwnerFilter"' in block
+    assert 'data-col="owner"' in block
+    assert ">Владелец<" in block
     assert "toggleSupplyChzCabinetFiltersPanel()" in block
     assert 'id="supplyChzCabFilters"' in block
     assert "hidden" in block[block.find('id="supplyChzCabFilters"') : block.find('id="supplyChzCabFilters"') + 80]
@@ -127,8 +135,8 @@ def test_cabinet_modal_matches_gtd_chz_size_and_tools() -> None:
     assert 'id="supplyGtdCabinetHit"' in APP_HTML
     assert "openSupplyChzCabinetFromSearch" in APP_JS
     assert "Ввести в оборот" in APP_JS
-    assert "app.js?v=704" in APP_HTML
-    assert "style.css?v=418" in APP_HTML
+    assert "app.js?v=708" in APP_HTML
+    assert "style.css?v=422" in APP_HTML
 
 
 def test_parse_day_bound_for_emission_filter() -> None:

@@ -5408,7 +5408,14 @@ def cis_display_for_row(
 def parse_cises_info_item(item: dict[str, Any] | None) -> dict[str, str]:
     """Normalize one ``/cises/info`` row into cis / status / owner_inn / error."""
     if not isinstance(item, dict):
-        return {"cis": "", "status": "", "owner_inn": "", "error": "", "error_code": ""}
+        return {
+            "cis": "",
+            "status": "",
+            "owner_inn": "",
+            "owner_name": "",
+            "error": "",
+            "error_code": "",
+        }
     info = item.get("cisInfo") or item.get("cis_info")
     if not isinstance(info, dict):
         info = item if "status" in item or "cis" in item else {}
@@ -5429,6 +5436,13 @@ def parse_cises_info_item(item: dict[str, Any] | None) -> dict[str, str]:
         or item.get("ownerInn")
         or ""
     ).strip()
+    owner_name = str(
+        info.get("ownerName")
+        or info.get("owner_name")
+        or item.get("ownerName")
+        or item.get("owner_name")
+        or ""
+    ).strip()
     err = str(
         item.get("errorMessage")
         or item.get("error_message")
@@ -5447,6 +5461,7 @@ def parse_cises_info_item(item: dict[str, Any] | None) -> dict[str, str]:
         "cis": cis,
         "status": status,
         "owner_inn": owner,
+        "owner_name": owner_name[:500],
         "error": err,
         "error_code": err_code,
     }

@@ -20433,17 +20433,63 @@ button.sb-order-cat-btn[aria-expanded="true"] .sb-order-cat-caret {
 }
 
 /* WB FBS KIZ circulation modal extras */
+.wb-fbs-kiz-circ-action-btns > .wb-fbs-kiz-circ-filter-icon-btn,
 .wb-fbs-kiz-circ-filter-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 40px;
   width: 40px;
   padding: 0;
   font-size: 16px;
   line-height: 1;
 }
+.wb-fbs-kiz-circ-filter-icon-btn svg {
+  display: block;
+}
+.wb-fbs-kiz-circ-filter-icon-btn:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+.wb-fbs-kiz-circ-filter-icon-btn:active:not(:disabled) {
+  background: #e2e8f0;
+}
+.wb-fbs-kiz-circ-filter-icon-btn:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 1px;
+}
+.wb-fbs-kiz-circ-filter-icon-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 .wb-fbs-kiz-circ-filter-icon-btn.is-active {
   border-color: #93c5fd;
   background: #eff6ff;
   color: #1d4ed8;
+}
+.wb-fbs-kiz-circ-field select {
+  min-width: 180px;
+  max-width: 280px;
+}
+.supply-chz-export-card {
+  width: min(400px, 100%);
+  max-width: 400px;
+}
+#supplyChzExportModal {
+  z-index: 1300;
+}
+.supply-chz-export-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.supply-chz-export-actions > button {
+  min-height: 40px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  justify-content: center;
 }
 .wb-fbs-kiz-circ-filters[hidden],
 .wb-fbs-kiz-circ-filters.hidden {

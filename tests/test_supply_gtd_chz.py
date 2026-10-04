@@ -378,6 +378,8 @@ class ListGtdKizPaginationTests(unittest.TestCase):
         self.assertIn("OFFSET ?", last_sql)
         self.assertEqual(conn.execute.call_args_list[-1].args[1][-2:], (1, 0))
         self.assertEqual(out["items"][0].get("product_name"), "")
+        self.assertEqual(out["items"][0].get("cis_owner_name"), "")
+        self.assertIn("cis_owner_name", last_sql)
 
     def test_list_enriches_product_name_from_catalog_ean13(self) -> None:
         repo = _repo_with_rows()

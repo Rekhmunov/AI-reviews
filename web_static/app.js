@@ -15034,6 +15034,7 @@ window.closeSupplyBalancesOrderModal = closeSupplyBalancesOrderModal;
 
 function _sbXmlEscape(text) {
   return String(text ?? "")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -15051,10 +15052,11 @@ function _sbColLetter(index) {
   return s;
 }
 
-async function _sbBuildSimpleXlsxBlob(rows) {
+async function _sbBuildSimpleXlsxBlob(rows, sheetName) {
   if (typeof JSZip === "undefined") {
     throw new Error("JSZip не загружен. Обновите страницу.");
   }
+  const safeSheet = String(sheetName || "Заказ").replace(/[\\/*?:\[\]]/g, " ").trim().slice(0, 31) || "Заказ";
   const sheetRows = rows.map((cells, rIdx) => {
     const r = rIdx + 1;
     const xmlCells = cells.map((val, cIdx) => {
@@ -15063,7 +15065,7 @@ async function _sbBuildSimpleXlsxBlob(rows) {
         return `<c r="${ref}"><v>${val}</v></c>`;
       }
       const t = _sbXmlEscape(val);
-      return `<c r="${ref}" t="inlineStr"><is><t>${t}</t></is></c>`;
+      return `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${t}</t></is></c>`;
     }).join("");
     return `<row r="${r}">${xmlCells}</row>`;
   }).join("");
@@ -15075,7 +15077,7 @@ async function _sbBuildSimpleXlsxBlob(rows) {
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
     `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ` +
     `xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">` +
-    `<sheets><sheet name="Заказ" sheetId="1" r:id="rId1"/></sheets></workbook>`;
+    `<sheets><sheet name="${_sbXmlEscape(safeSheet)}" sheetId="1" r:id="rId1"/></sheets></workbook>`;
   const relsXml =
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
     `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
@@ -28727,10 +28729,206 @@ const SUPPLY_GTD_CHZ_DEFAULT_COL_WIDTHS = {
   name: 220,
   gtin: 140,
   status: 140,
+  owner: 180,
   doc: 160,
   error: 200,
   updated: 140,
 };
+
+function _supplyChzOwnerKey(it) {
+  return String(it?.cis_owner_inn || "").trim() || String(it?.cis_owner_name || "").trim();
+}
+
+function _supplyChzOwnerLabel(it) {
+  const name = String(it?.cis_owner_name || "").trim();
+  const inn = String(it?.cis_owner_inn || "").trim();
+  return name || inn;
+}
+
+function _supplyChzOwnerTitle(it) {
+  const name = String(it?.cis_owner_name || "").trim();
+  const inn = String(it?.cis_owner_inn || "").trim();
+  if (name && inn) return `${name} · ИНН ${inn}`;
+  if (inn) return `ИНН ${inn}`;
+  return name;
+}
+
+function _supplyChzOwnerOptionsFromItems(items) {
+  const byKey = new Map();
+  for (const it of items || []) {
+    const key = _supplyChzOwnerKey(it);
+    if (!key) continue;
+    const inn = String(it?.cis_owner_inn || "").trim();
+    const name = String(it?.cis_owner_name || "").trim();
+    const label = name && inn && name !== inn ? `${name} · ${inn}` : (name || inn || key);
+    const prev = byKey.get(key) || "";
+    if (!prev || label.length > prev.length) byKey.set(key, label);
+  }
+  return [...byKey.entries()]
+    .sort((a, b) => String(a[1]).localeCompare(String(b[1]), "ru"))
+    .map(([value, label]) => ({ value, label }));
+}
+
+function _supplyChzNameOptionsFromItems(items) {
+  const names = new Set();
+  for (const it of items || []) {
+    const name = _supplyGtdChzProductName(it);
+    if (name) names.add(name);
+  }
+  return [...names]
+    .sort((a, b) => a.localeCompare(b, "ru"))
+    .map((value) => ({ value, label: value }));
+}
+
+function _supplyChzFillSelect(selectId, options, currentValue) {
+  const el = document.getElementById(selectId);
+  if (!el) return;
+  const cur = String(currentValue || "");
+  const parts = ['<option value="">Все</option>'];
+  let hasCur = !cur;
+  for (const opt of options || []) {
+    const value = String(opt?.value || "");
+    if (!value) continue;
+    if (value === cur) hasCur = true;
+    const label = String(opt?.label || value);
+    parts.push(
+      `<option value="${_supplyGtdChzEsc(value)}">${_supplyGtdChzEsc(label)}</option>`
+    );
+  }
+  if (cur && !hasCur) {
+    parts.push(`<option value="${_supplyGtdChzEsc(cur)}">${_supplyGtdChzEsc(cur)}</option>`);
+  }
+  el.innerHTML = parts.join("");
+  el.value = cur;
+}
+
+function _supplyChzRowKind(it) {
+  return String(it?.cis_status_kind || "").trim() || "unchecked";
+}
+
+function _supplyChzRowMatches(it, { kind = "", search = "", name = "", owner = "" } = {}) {
+  if (kind && _supplyChzRowKind(it) !== kind) return false;
+  if (name && _supplyGtdChzProductName(it) !== name) return false;
+  if (owner && _supplyChzOwnerKey(it) !== owner) return false;
+  const q = String(search || "").trim().toLowerCase();
+  if (!q) return true;
+  if (String(it?.kiz_short || "").toLowerCase().includes(q)) return true;
+  if (String(it?.gtin || "").toLowerCase().includes(q)) return true;
+  if (_supplyGtdChzProductName(it).toLowerCase().includes(q)) return true;
+  if (_supplyChzOwnerLabel(it).toLowerCase().includes(q)) return true;
+  return false;
+}
+
+function _supplyChzDocCell(it) {
+  return it?.last_doc_id
+    ? `${it.last_op_status || "—"} · ${it.last_doc_id}`
+    : "—";
+}
+
+function _supplyChzErrorCell(it) {
+  return String(it?.cis_status_error || it?.last_op_error || "").trim() || "—";
+}
+
+function _supplyChzCheckedAtCell(it) {
+  return String(it?.cis_checked_at || "").replace("T", " ").slice(0, 19) || "—";
+}
+
+let _supplyChzExportSource = "cabinet";
+
+function _supplyChzExportContext(source) {
+  const kind = source === "gtd" ? "gtd" : "cabinet";
+  if (kind === "gtd") {
+    return {
+      source: kind,
+      state: _supplyGtdChzState,
+      visible: _supplyGtdChzVisibleItems(),
+      prefix: _supplyGtdChzState.gtdNumber
+        ? `gtd_${String(_supplyGtdChzState.gtdNumber).replace(/[^\w.-]+/g, "_")}`
+        : "gtd_chz",
+    };
+  }
+  return {
+    source: kind,
+    state: _supplyChzCabState,
+    visible: _supplyChzCabVisibleItems(),
+    prefix: "chz_cabinet",
+  };
+}
+
+function _supplyChzExportRows(source) {
+  const ctx = _supplyChzExportContext(source);
+  const selected = ctx.state?.selected;
+  if (selected && selected.size) {
+    const picked = ctx.visible.filter((it) => selected.has(it.kiz_short));
+    if (picked.length) return { rows: picked, byCheck: true, prefix: ctx.prefix };
+  }
+  return { rows: ctx.visible, byCheck: false, prefix: ctx.prefix };
+}
+
+function openSupplyChzExportModal(source) {
+  _supplyChzExportSource = source === "gtd" ? "gtd" : "cabinet";
+  const pack = _supplyChzExportRows(_supplyChzExportSource);
+  const hint = document.getElementById("supplyChzExportHint");
+  if (hint) {
+    hint.textContent = pack.byCheck
+      ? `К выгрузке: ${pack.rows.length} выделенных КИЗ.`
+      : `К выгрузке: ${pack.rows.length} КИЗ после фильтра.`;
+  }
+  document.getElementById("supplyChzExportModal")?.classList.remove("hidden");
+}
+
+function closeSupplyChzExportModal() {
+  document.getElementById("supplyChzExportModal")?.classList.add("hidden");
+}
+
+async function confirmSupplyChzExport(fmt) {
+  const pack = _supplyChzExportRows(_supplyChzExportSource);
+  const rows = pack.rows;
+  if (!rows.length) {
+    alert("Нет кодов для выгрузки");
+    return;
+  }
+  const stamp = new Date().toISOString().slice(0, 10);
+  try {
+    if (fmt === "txt") {
+      const body = rows.map((it) => String(it.kiz_short || "").trim()).filter(Boolean).join("\n");
+      const blob = new Blob([body ? `${body}\n` : ""], { type: "text/plain;charset=utf-8" });
+      _supplyChzDownloadBlob(blob, `${pack.prefix}_${stamp}.txt`);
+    } else {
+      const table = [[
+        "КИЗ", "Наименование", "GTIN", "Статус КИЗ", "Владелец", "Документ ЧЗ", "Ошибка", "Обновлён",
+      ]];
+      for (const it of rows) {
+        table.push([
+          String(it.kiz_short || ""),
+          _supplyGtdChzProductName(it) || "—",
+          String(it.gtin || "—"),
+          String(it.cis_status_label || "Не проверен"),
+          _supplyChzOwnerLabel(it) || "—",
+          _supplyChzDocCell(it),
+          _supplyChzErrorCell(it),
+          _supplyChzCheckedAtCell(it),
+        ]);
+      }
+      const blob = await _sbBuildSimpleXlsxBlob(table, "КИЗ");
+      _supplyChzDownloadBlob(blob, `${pack.prefix}_${stamp}.xlsx`);
+    }
+    closeSupplyChzExportModal();
+  } catch (err) {
+    alert(err?.message || String(err));
+  }
+}
+
+function _supplyChzDownloadBlob(blob, filename) {
+  const a = document.createElement("a");
+  const url = URL.createObjectURL(blob);
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
 
 const _supplyGtdChzState = {
   gtdId: 0,
@@ -28738,7 +28936,10 @@ const _supplyGtdChzState = {
   items: [],
   selected: new Set(),
   kindFilter: "",
+  nameFilter: "",
+  ownerFilter: "",
   search: "",
+  filtersOpen: false,
   offset: 0,
   // One request for typical GTD sizes (up to ~15–20k). Server paginates in SQL.
   limit: 20000,
@@ -28927,14 +29128,34 @@ function initSupplyGtdChzColumnResizer() {
 }
 
 function _supplyGtdChzVisibleItems() {
-  const q = String(_supplyGtdChzState.search || "").trim().toLowerCase();
-  if (!q) return _supplyGtdChzState.items;
-  return _supplyGtdChzState.items.filter((it) => {
-    if (String(it.kiz_short || "").toLowerCase().includes(q)) return true;
-    if (String(it.gtin || "").toLowerCase().includes(q)) return true;
-    const name = _supplyGtdChzProductName(it).toLowerCase();
-    return name.includes(q);
-  });
+  return _supplyGtdChzState.items.filter((it) => _supplyChzRowMatches(it, {
+    kind: _supplyGtdChzState.kindFilter,
+    search: _supplyGtdChzState.search,
+    name: _supplyGtdChzState.nameFilter,
+    owner: _supplyGtdChzState.ownerFilter,
+  }));
+}
+
+function _supplyGtdChzHasFilters() {
+  return Boolean(
+    _supplyGtdChzState.kindFilter
+    || _supplyGtdChzState.search
+    || _supplyGtdChzState.nameFilter
+    || _supplyGtdChzState.ownerFilter
+  );
+}
+
+function _supplyGtdChzSyncFilterOptions() {
+  _supplyChzFillSelect(
+    "supplyGtdChzNameFilter",
+    _supplyChzNameOptionsFromItems(_supplyGtdChzState.items),
+    _supplyGtdChzState.nameFilter,
+  );
+  _supplyChzFillSelect(
+    "supplyGtdChzOwnerFilter",
+    _supplyChzOwnerOptionsFromItems(_supplyGtdChzState.items),
+    _supplyGtdChzState.ownerFilter,
+  );
 }
 
 function _supplyGtdChzRowOpReady(it, op) {
@@ -28959,8 +29180,10 @@ function _supplyGtdChzUpdateActionButtons() {
   }
   const wBtn = document.getElementById("supplyGtdChzWithdrawBtn");
   const rBtn = document.getElementById("supplyGtdChzReturnBtn");
+  const exportBtn = document.getElementById("supplyGtdChzExportBtn");
   if (wBtn) wBtn.disabled = _supplyGtdChzState.busy || !canWithdraw;
   if (rBtn) rBtn.disabled = _supplyGtdChzState.busy || !canReturn;
+  if (exportBtn) exportBtn.disabled = _supplyGtdChzState.busy;
 }
 
 function _supplyGtdChzRenderMeta() {
@@ -28973,7 +29196,7 @@ function _supplyGtdChzRenderMeta() {
     } else {
       const total = _supplyGtdChzState.total;
       const shown = visible.length;
-      if (_supplyGtdChzState.kindFilter || _supplyGtdChzState.search) {
+      if (_supplyGtdChzHasFilters()) {
         counts.textContent = `КИЗ: ${total} · показано ${shown}`;
       } else if (shown && shown < total) {
         counts.textContent = `КИЗ: ${total} · загружено ${shown}`;
@@ -29003,6 +29226,13 @@ function _supplyGtdChzRenderMeta() {
     all.indeterminate = !all.checked
       && visKeys.some((k) => _supplyGtdChzState.selected.has(k));
   }
+  const filterBtn = document.getElementById("supplyGtdChzFiltersBtn");
+  if (filterBtn) {
+    filterBtn.classList.toggle(
+      "is-active",
+      Boolean(_supplyGtdChzState.filtersOpen || _supplyGtdChzHasFilters()),
+    );
+  }
   _supplyGtdChzUpdateActionButtons();
 }
 
@@ -29011,7 +29241,7 @@ function _supplyGtdChzRenderTable() {
   if (!tbody) return;
   const items = _supplyGtdChzVisibleItems();
   if (!items.length) {
-    tbody.innerHTML = `<tr><td colspan="8" class="wb-fbs-empty">${
+    tbody.innerHTML = `<tr><td colspan="9" class="wb-fbs-empty">${
       _supplyGtdChzState.busy ? "Загрузка…" : "Нет КИЗ"
     }</td></tr>`;
     _supplyGtdChzRenderMeta();
@@ -29026,6 +29256,8 @@ function _supplyGtdChzRenderTable() {
     const label = String(it.cis_status_label || "Не проверен");
     const checked = _supplyGtdChzState.selected.has(ks) ? "checked" : "";
     const productName = _supplyGtdChzProductName(it) || "—";
+    const ownerLabel = _supplyChzOwnerLabel(it) || "—";
+    const ownerTitle = _supplyChzOwnerTitle(it) || ownerLabel;
     const doc = it.last_doc_id
       ? `${_supplyGtdChzEsc(it.last_op_status || "—")} · ${_supplyGtdChzEsc(it.last_doc_id)}`
       : "—";
@@ -29039,6 +29271,7 @@ function _supplyGtdChzRenderTable() {
       <td title="${_supplyGtdChzEsc(productName)}">${_supplyGtdChzEsc(productName)}</td>
       <td>${_supplyGtdChzEsc(it.gtin || "—")}</td>
       <td><span class="wb-fbs-kiz-circ-cis-st is-${_supplyGtdChzEsc(kind)}">${_supplyGtdChzEsc(label)}</span></td>
+      <td title="${_supplyGtdChzEsc(ownerTitle)}">${_supplyGtdChzEsc(ownerLabel)}</td>
       <td>${doc}</td>
       <td title="${_supplyGtdChzEsc(err)}">${_supplyGtdChzEsc(err)}</td>
       <td>${_supplyGtdChzEsc(checkedAt)}</td>
@@ -29063,9 +29296,6 @@ async function _supplyGtdChzFetch(reset) {
       offset: String(_supplyGtdChzState.offset),
       limit: String(_supplyGtdChzState.limit),
     });
-    if (_supplyGtdChzState.kindFilter) {
-      params.set("status_kind", _supplyGtdChzState.kindFilter);
-    }
     const res = await fetch(`/api/supply-gtd/${gid}/chz/kiz?${params}`, {
       headers: jsonHeaders(),
     });
@@ -29090,6 +29320,7 @@ async function _supplyGtdChzFetch(reset) {
     _supplyGtdChzState.selected = new Set(
       [..._supplyGtdChzState.selected].filter((k) => alive.has(k))
     );
+    _supplyGtdChzSyncFilterOptions();
     _supplyGtdChzRenderTable();
   } finally {
     _supplyGtdChzState.busy = false;
@@ -29103,6 +29334,8 @@ async function openSupplyGtdChzModal(gtdId) {
   _supplyGtdChzState.gtdId = id;
   _supplyGtdChzState.selected = new Set();
   _supplyGtdChzState.kindFilter = "";
+  _supplyGtdChzState.nameFilter = "";
+  _supplyGtdChzState.ownerFilter = "";
   _supplyGtdChzState.search = "";
   _supplyGtdChzState.lastLog = "";
   const search = document.getElementById("supplyGtdChzSearch");
@@ -29110,6 +29343,7 @@ async function openSupplyGtdChzModal(gtdId) {
   document.querySelectorAll("#supplyGtdChzStatusChips .wb-fbs-kiz-circ-chip").forEach((el) => {
     el.classList.toggle("is-active", (el.getAttribute("data-kind") || "") === "");
   });
+  toggleSupplyGtdChzFiltersPanel(false);
   const modal = document.getElementById("supplyGtdChzModal");
   if (modal) modal.classList.remove("hidden");
   initSupplyGtdChzColumnResizer();
@@ -29152,11 +29386,51 @@ function setSupplyGtdChzKindFilter(kind) {
       (el.getAttribute("data-kind") || "") === _supplyGtdChzState.kindFilter,
     );
   });
-  refreshSupplyGtdChzTable();
+  _supplyGtdChzRenderTable();
 }
 
 function onSupplyGtdChzSearchInput() {
   _supplyGtdChzState.search = document.getElementById("supplyGtdChzSearch")?.value || "";
+  _supplyGtdChzRenderTable();
+}
+
+function onSupplyGtdChzNameFilterChange() {
+  _supplyGtdChzState.nameFilter = document.getElementById("supplyGtdChzNameFilter")?.value || "";
+  _supplyGtdChzRenderTable();
+}
+
+function onSupplyGtdChzOwnerFilterChange() {
+  _supplyGtdChzState.ownerFilter = document.getElementById("supplyGtdChzOwnerFilter")?.value || "";
+  _supplyGtdChzRenderTable();
+}
+
+function toggleSupplyGtdChzFiltersPanel(forceOpen) {
+  const panel = document.getElementById("supplyGtdChzFilters");
+  const btn = document.getElementById("supplyGtdChzFiltersBtn");
+  if (!panel) return;
+  let open;
+  if (forceOpen === true) open = true;
+  else if (forceOpen === false) open = false;
+  else open = panel.hasAttribute("hidden") || panel.classList.contains("hidden");
+  panel.classList.toggle("hidden", !open);
+  if (open) panel.removeAttribute("hidden");
+  else panel.setAttribute("hidden", "");
+  _supplyGtdChzState.filtersOpen = open;
+  if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+  _supplyGtdChzRenderMeta();
+}
+
+function resetSupplyGtdChzFilters() {
+  _supplyGtdChzState.kindFilter = "";
+  _supplyGtdChzState.nameFilter = "";
+  _supplyGtdChzState.ownerFilter = "";
+  _supplyGtdChzState.search = "";
+  const search = document.getElementById("supplyGtdChzSearch");
+  if (search) search.value = "";
+  document.querySelectorAll("#supplyGtdChzStatusChips .wb-fbs-kiz-circ-chip").forEach((el) => {
+    el.classList.toggle("is-active", (el.getAttribute("data-kind") || "") === "");
+  });
+  _supplyGtdChzSyncFilterOptions();
   _supplyGtdChzRenderTable();
 }
 
@@ -29290,12 +29564,9 @@ const SUPPLY_GTD_CHZ_STATUS_CHUNK = 200;
 async function _supplyGtdChzCollectAllShorts() {
   const gid = _supplyGtdChzState.gtdId;
   if (!gid) return [];
-  // Already have the full unfiltered table in memory.
-  if (
-    !_supplyGtdChzState.kindFilter
-    && !_supplyGtdChzState.hasMore
-    && _supplyGtdChzState.items.length
-  ) {
+  // Status/name/owner filters are client-side; memory already holds the
+  // unfiltered GTD page (until hasMore).
+  if (!_supplyGtdChzState.hasMore && _supplyGtdChzState.items.length) {
     return _supplyGtdChzState.items
       .map((it) => String(it.kiz_short || "").trim())
       .filter(Boolean);
@@ -29622,6 +29893,7 @@ const SUPPLY_CHZ_CAB_DEFAULT_COL_WIDTHS = {
   name: 220,
   gtin: 140,
   status: 140,
+  owner: 180,
   doc: 160,
   error: 200,
   updated: 140,
@@ -29632,6 +29904,8 @@ const _supplyChzCabState = {
   items: [],
   selected: new Set(),
   kindFilter: "",
+  nameFilter: "",
+  ownerFilter: "",
   search: "",
   focusKiz: "",
   createdFrom: "",
@@ -29735,13 +30009,24 @@ function initSupplyChzCabinetColumnResizer() {
 }
 
 function _supplyChzCabVisibleItems() {
-  const q = String(_supplyChzCabState.search || "").trim().toLowerCase();
-  if (!q) return _supplyChzCabState.items;
-  return _supplyChzCabState.items.filter((it) => {
-    if (String(it.kiz_short || "").toLowerCase().includes(q)) return true;
-    if (String(it.gtin || "").toLowerCase().includes(q)) return true;
-    return _supplyGtdChzProductName(it).toLowerCase().includes(q);
-  });
+  return _supplyChzCabState.items.filter((it) => _supplyChzRowMatches(it, {
+    search: _supplyChzCabState.search,
+    name: _supplyChzCabState.nameFilter,
+    owner: _supplyChzCabState.ownerFilter,
+  }));
+}
+
+function _supplyChzCabSyncFilterOptions() {
+  _supplyChzFillSelect(
+    "supplyChzCabNameFilter",
+    _supplyChzNameOptionsFromItems(_supplyChzCabState.items),
+    _supplyChzCabState.nameFilter,
+  );
+  _supplyChzFillSelect(
+    "supplyChzCabOwnerFilter",
+    _supplyChzOwnerOptionsFromItems(_supplyChzCabState.items),
+    _supplyChzCabState.ownerFilter,
+  );
 }
 
 function _supplyChzCabUpdateActionButtons() {
@@ -29756,10 +30041,12 @@ function _supplyChzCabUpdateActionButtons() {
   const wBtn = document.getElementById("supplyChzCabWithdrawBtn");
   const rBtn = document.getElementById("supplyChzCabReturnBtn");
   const exportBtn = document.getElementById("supplyChzCabExportBtn");
+  const fileExportBtn = document.getElementById("supplyChzCabFileExportBtn");
   const statusBtn = document.getElementById("supplyChzCabStatusBtn");
   if (wBtn) wBtn.disabled = _supplyChzCabState.busy || !canWithdraw;
   if (rBtn) rBtn.disabled = _supplyChzCabState.busy || !canReturn;
   if (exportBtn) exportBtn.disabled = _supplyChzCabState.busy;
+  if (fileExportBtn) fileExportBtn.disabled = _supplyChzCabState.busy;
   if (statusBtn) statusBtn.disabled = _supplyChzCabState.busy;
 }
 
@@ -29815,7 +30102,8 @@ function _supplyChzCabRenderMeta() {
       const shown = visible.length;
       const loaded = _supplyChzCabState.items.length;
       let suffix = "";
-      if (_supplyChzCabState.kindFilter || _supplyChzCabState.search) {
+      if (_supplyChzCabState.kindFilter || _supplyChzCabState.search
+          || _supplyChzCabState.nameFilter || _supplyChzCabState.ownerFilter) {
         suffix = ` · показано ${shown}`;
       } else if (loaded && loaded < total) {
         suffix = ` · загружено ${loaded}`;
@@ -29862,6 +30150,8 @@ function _supplyChzCabRenderMeta() {
       _supplyChzCabState.filtersOpen
       || _supplyChzCabState.kindFilter
       || _supplyChzCabState.search
+      || _supplyChzCabState.nameFilter
+      || _supplyChzCabState.ownerFilter
       || _supplyChzCabHasCreatedFilter(),
     );
     filterBtn.classList.toggle("is-active", active);
@@ -29874,7 +30164,7 @@ function _supplyChzCabRenderTable() {
   if (!tbody) return;
   const items = _supplyChzCabVisibleItems();
   if (!items.length) {
-    tbody.innerHTML = `<tr><td colspan="8" class="wb-fbs-empty">${
+    tbody.innerHTML = `<tr><td colspan="9" class="wb-fbs-empty">${
       _supplyChzCabState.busy ? "Загрузка…" : "Нет КИЗ. Укажите даты и нажмите «Выгрузить коды маркировки»."
     }</td></tr>`;
     _supplyChzCabRenderMeta();
@@ -29888,6 +30178,8 @@ function _supplyChzCabRenderTable() {
     const label = String(it.cis_status_label || "Не проверен");
     const checked = _supplyChzCabState.selected.has(ks) ? "checked" : "";
     const productName = _supplyGtdChzProductName(it) || "—";
+    const ownerLabel = _supplyChzOwnerLabel(it) || "—";
+    const ownerTitle = _supplyChzOwnerTitle(it) || ownerLabel;
     const doc = it.last_doc_id
       ? `${_supplyGtdChzEsc(it.last_op_status || "—")} · ${_supplyGtdChzEsc(it.last_doc_id)}`
       : "—";
@@ -29901,6 +30193,7 @@ function _supplyChzCabRenderTable() {
       <td title="${_supplyGtdChzEsc(productName)}">${_supplyGtdChzEsc(productName)}</td>
       <td>${_supplyGtdChzEsc(it.gtin || "—")}</td>
       <td><span class="wb-fbs-kiz-circ-cis-st is-${_supplyGtdChzEsc(kind)}">${_supplyGtdChzEsc(label)}</span></td>
+      <td title="${_supplyGtdChzEsc(ownerTitle)}">${_supplyGtdChzEsc(ownerLabel)}</td>
       <td>${doc}</td>
       <td title="${_supplyGtdChzEsc(err)}">${_supplyGtdChzEsc(err)}</td>
       <td>${_supplyGtdChzEsc(checkedAt)}</td>
@@ -29957,6 +30250,7 @@ async function _supplyChzCabFetch(reset) {
       _supplyChzCabState.selected = new Set(
         [..._supplyChzCabState.selected].filter((k) => alive.has(k)),
       );
+      _supplyChzCabSyncFilterOptions();
       _supplyChzCabRenderTable();
       const fillAll = _supplyChzCabHasCreatedFilter() && _supplyChzCabState.hasMore;
       if (!fillAll) break;
@@ -30008,6 +30302,8 @@ async function openSupplyChzCabinetModal(focus) {
   const focusKiz = typeof focus === "string" ? String(focus || "").trim() : "";
   _supplyChzCabState.selected = focusKiz ? new Set([focusKiz]) : new Set();
   _supplyChzCabState.kindFilter = "";
+  _supplyChzCabState.nameFilter = "";
+  _supplyChzCabState.ownerFilter = "";
   _supplyChzCabState.search = focusKiz;
   _supplyChzCabState.focusKiz = focusKiz;
   _supplyChzCabState.createdFrom = "";
@@ -30085,6 +30381,16 @@ function onSupplyChzCabinetSearchInput() {
   _supplyChzCabRenderTable();
 }
 
+function onSupplyChzCabinetNameFilterChange() {
+  _supplyChzCabState.nameFilter = document.getElementById("supplyChzCabNameFilter")?.value || "";
+  _supplyChzCabRenderTable();
+}
+
+function onSupplyChzCabinetOwnerFilterChange() {
+  _supplyChzCabState.ownerFilter = document.getElementById("supplyChzCabOwnerFilter")?.value || "";
+  _supplyChzCabRenderTable();
+}
+
 function onSupplyChzCabinetCreatedDateChange() {
   _supplyChzCabSyncCreatedFromInputs();
   const from = _supplyChzCabState.createdFrom;
@@ -30099,6 +30405,8 @@ function onSupplyChzCabinetCreatedDateChange() {
 
 function resetSupplyChzCabinetFilters() {
   _supplyChzCabState.kindFilter = "";
+  _supplyChzCabState.nameFilter = "";
+  _supplyChzCabState.ownerFilter = "";
   _supplyChzCabState.search = "";
   _supplyChzCabState.focusKiz = "";
   _supplyChzCabState.createdFrom = "";
