@@ -580,7 +580,21 @@ def test_parse_cises_info_item() -> None:
     )
     assert parsed["status"] == "INTRODUCED"
     assert parsed["owner_inn"] == "6215034988"
+    assert parsed["owner_name"] == ""
     assert parsed["cis"].startswith("010467")
+
+    named = circ.parse_cises_info_item(
+        {
+            "cisInfo": {
+                "cis": "0104670172422458215mC3G",
+                "status": "INTRODUCED",
+                "ownerInn": "7707083893",
+                "ownerName": "ООО Ромашка",
+            }
+        }
+    )
+    assert named["owner_inn"] == "7707083893"
+    assert named["owner_name"] == "ООО Ромашка"
 
     missing = circ.parse_cises_info_item(
         {

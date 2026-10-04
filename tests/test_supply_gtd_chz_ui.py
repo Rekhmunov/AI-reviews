@@ -20,11 +20,14 @@ def test_gtd_chz_table_has_name_between_kiz_and_gtin() -> None:
     block = _gtd_chz_block()
     assert 'id="supplyGtdChzTable"' in block
     assert 'id="supplyGtdChzColgroup"' in block
-    assert 'data-col="name"' in block
-    kiz = block.find(">КИЗ<")
-    name = block.find(">Наименование<")
-    gtin = block.find(">GTIN<")
+    head = block[block.find("<thead>") : block.find("</thead>")]
+    kiz = head.find('data-col="kiz"')
+    name = head.find('data-col="name"')
+    gtin = head.find('data-col="gtin"')
+    status = head.find('data-col="status"')
+    owner = head.find('data-col="owner"')
     assert kiz > 0 and name > kiz and gtin > name
+    assert status > gtin and owner > status
 
 
 def test_gtd_chz_columns_resizable_markup() -> None:
@@ -34,6 +37,7 @@ def test_gtd_chz_columns_resizable_markup() -> None:
     assert 'data-col="kiz"' in block
     assert 'data-col="gtin"' in block
     assert 'data-col="status"' in block
+    assert 'data-col="owner"' in block
     assert 'data-col="doc"' in block
     assert 'data-col="error"' in block
     assert 'data-col="updated"' in block
@@ -71,7 +75,7 @@ def test_gtd_chz_js_product_name_from_catalog() -> None:
         )
     ]
     assert "_supplyGtdChzProductName(it)" in render
-    assert 'colspan="8"' in render
+    assert 'colspan="9"' in render
     open_fn = APP_JS[
         APP_JS.find("async function openSupplyGtdChzModal") : APP_JS.find(
             "function closeSupplyGtdChzModal"
@@ -82,14 +86,39 @@ def test_gtd_chz_js_product_name_from_catalog() -> None:
 
 def test_gtd_chz_search_covers_name_and_gtin() -> None:
     visible = APP_JS[
-        APP_JS.find("function _supplyGtdChzVisibleItems") : APP_JS.find(
-            "function _supplyGtdChzRowOpReady"
+        APP_JS.find("function _supplyChzRowMatches") : APP_JS.find(
+            "function _supplyChzDocCell"
         )
     ]
-    assert "it.gtin" in visible
+    assert "it?.gtin" in visible or "it.gtin" in visible
     assert "_supplyGtdChzProductName(it)" in visible
+    assert "_supplyChzOwnerKey(it)" in visible
     assert "КИЗ, GTIN, название…" in _gtd_chz_block()
 
 
+def test_gtd_chz_filters_in_icon_and_owner_export() -> None:
+    block = _gtd_chz_block()
+    assert 'id="supplyGtdChzFiltersBtn"' in block
+    assert "toggleSupplyGtdChzFiltersPanel()" in block
+    assert 'id="supplyGtdChzExportBtn"' in block
+    assert "openSupplyChzExportModal('gtd')" in block
+    assert block.find('id="supplyGtdChzLogBtn"') < block.find('id="supplyGtdChzExportBtn"')
+    assert block.find('id="supplyGtdChzExportBtn"') < block.find('id="supplyGtdChzFiltersBtn"')
+    assert 'id="supplyGtdChzNameFilter"' in block
+    assert 'id="supplyGtdChzOwnerFilter"' in block
+    assert 'data-col="owner"' in block
+    status_col = block.find('data-col="status"')
+    owner_col = block.find('data-col="owner"')
+    assert status_col > 0 and owner_col > status_col
+    filters = block[block.find('id="supplyGtdChzFilters"') : block.find('id="supplyGtdChzFilters"') + 90]
+    assert "hidden" in filters
+    assert "function confirmSupplyChzExport" in APP_JS
+    assert "function openSupplyChzExportModal" in APP_JS
+    assert "_supplyChzExportRows" in APP_JS
+    assert 'confirmSupplyChzExport(\'txt\')' in APP_HTML or 'confirmSupplyChzExport("txt")' in APP_HTML
+    assert "Excel — таблица" in APP_HTML
+    assert "TXT — только коды" in APP_HTML
+
+
 def test_asset_version_bumped() -> None:
-    assert "app.js?v=704" in APP_HTML
+    assert "app.js?v=707" in APP_HTML

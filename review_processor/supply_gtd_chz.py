@@ -60,6 +60,7 @@ def ensure_supply_gtd_chz_tables(repo: ReviewRepository) -> None:
                     cis_status_kind TEXT NOT NULL DEFAULT '',
                     cis_status_label TEXT NOT NULL DEFAULT '',
                     cis_owner_inn TEXT NOT NULL DEFAULT '',
+                    cis_owner_name TEXT NOT NULL DEFAULT '',
                     cis_status_error TEXT NOT NULL DEFAULT '',
                     cis_checked_at TIMESTAMPTZ,
                     last_op TEXT NOT NULL DEFAULT '',
@@ -78,6 +79,14 @@ def ensure_supply_gtd_chz_tables(repo: ReviewRepository) -> None:
                 """
                 CREATE INDEX IF NOT EXISTS idx_supply_gtd_chz_state_gtd
                 ON supply_gtd_chz_kiz_state (user_id, gtd_id)
+                """
+            )
+        )
+        conn.execute(
+            repo._sql(
+                """
+                ALTER TABLE supply_gtd_chz_kiz_state
+                ADD COLUMN IF NOT EXISTS cis_owner_name TEXT NOT NULL DEFAULT ''
                 """
             )
         )
@@ -338,7 +347,7 @@ def list_gtd_kiz_for_chz(
                 SELECT k.id AS kiz_id, k.kiz_short, k.gtin,
                        s.cis_status, ({kind_expr}) AS cis_status_kind,
                        s.cis_status_label,
-                       s.cis_owner_inn, s.cis_status_error, s.cis_checked_at,
+                       s.cis_owner_inn, s.cis_owner_name, s.cis_status_error, s.cis_checked_at,
                        s.last_op, s.last_doc_id, s.last_doc_type,
                        s.last_op_status, s.last_op_error
                 {join_sql}
@@ -371,6 +380,7 @@ def list_gtd_kiz_for_chz(
                 "cis_status_kind": kind,
                 "cis_status_label": label,
                 "cis_owner_inn": str(d.get("cis_owner_inn") or ""),
+                "cis_owner_name": str(d.get("cis_owner_name") or ""),
                 "cis_status_error": str(d.get("cis_status_error") or ""),
                 "cis_checked_at": str(d.get("cis_checked_at") or ""),
                 "last_op": str(d.get("last_op") or ""),
@@ -589,6 +599,7 @@ def _upsert_cis_state(
     kiz_short: str,
     cis_status: str = "",
     cis_owner_inn: str = "",
+    cis_owner_name: str = "",
     cis_status_error: str = "",
     participant_inn: str = "",
 ) -> None:
@@ -604,14 +615,20 @@ def _upsert_cis_state(
                 """
                 INSERT INTO supply_gtd_chz_kiz_state (
                     user_id, gtd_id, kiz_short, cis_status, cis_status_kind,
-                    cis_status_label, cis_owner_inn, cis_status_error,
+                    cis_status_label, cis_owner_inn, cis_owner_name, cis_status_error,
                     cis_checked_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
                 ON CONFLICT (user_id, gtd_id, kiz_short) DO UPDATE SET
                     cis_status = EXCLUDED.cis_status,
                     cis_status_kind = EXCLUDED.cis_status_kind,
                     cis_status_label = EXCLUDED.cis_status_label,
                     cis_owner_inn = EXCLUDED.cis_owner_inn,
+                    cis_owner_name = CASE
+                        WHEN EXCLUDED.cis_owner_name <> '' THEN EXCLUDED.cis_owner_name
+                        WHEN EXCLUDED.cis_owner_inn = supply_gtd_chz_kiz_state.cis_owner_inn
+                            THEN supply_gtd_chz_kiz_state.cis_owner_name
+                        ELSE ''
+                    END,
                     cis_status_error = EXCLUDED.cis_status_error,
                     cis_checked_at = EXCLUDED.cis_checked_at,
                     updated_at = EXCLUDED.updated_at
@@ -625,6 +642,7 @@ def _upsert_cis_state(
                 str(kind or "")[:40],
                 str(label or "")[:120],
                 str(cis_owner_inn or "")[:20],
+                str(cis_owner_name or "")[:500],
                 str(cis_status_error or "")[:2000],
             ),
         )
@@ -773,6 +791,7 @@ def _run_cis_status_chunks(
                 err = str(hit.get("error") or "").strip()
                 status = str(hit.get("status") or "").strip()
                 owner = str(hit.get("owner_inn") or "").strip()
+                owner_name = str(hit.get("owner_name") or "").strip()
                 if err and not status:
                     errors += 1
                 elif status:
@@ -786,6 +805,7 @@ def _run_cis_status_chunks(
                     kiz_short=ks,
                     cis_status=status,
                     cis_owner_inn=owner,
+                    cis_owner_name=owner_name,
                     cis_status_error=err,
                     participant_inn=inn,
                 )

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=420" />
+  <link rel="stylesheet" href="/static/style.css?v=421" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -6030,13 +6030,55 @@
                   <button type="button" class="secondary" onclick="refreshSupplyGtdChzTable()">Обновить</button>
                   <button type="button" class="secondary" id="supplyGtdChzLogBtn"
                           onclick="openSupplyGtdChzLogModal()">Лог</button>
+                  <button
+                    type="button"
+                    id="supplyGtdChzExportBtn"
+                    class="secondary reviews-filter-icon-btn wb-fbs-kiz-circ-filter-icon-btn"
+                    title="Экспорт"
+                    aria-label="Экспорт"
+                    onclick="openSupplyChzExportModal('gtd')"
+                  >
+                    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+                      <path fill="currentColor" d="M12 3a1 1 0 0 1 1 1v9.17l2.59-2.58a1 1 0 1 1 1.41 1.42l-4.3 4.29a1 1 0 0 1-1.4 0l-4.3-4.29a1 1 0 1 1 1.41-1.42L11 13.17V4a1 1 0 0 1 1-1Zm-7 14a1 1 0 0 1 1 1v1h12v-1a1 1 0 1 1 2 0v2a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1Z"/>
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    id="supplyGtdChzFiltersBtn"
+                    class="secondary reviews-filter-icon-btn wb-fbs-kiz-circ-filter-icon-btn"
+                    title="Фильтры"
+                    aria-label="Фильтры"
+                    aria-expanded="false"
+                    aria-controls="supplyGtdChzFilters"
+                    onclick="toggleSupplyGtdChzFiltersPanel()"
+                  >⛃</button>
                 </div>
                 <div class="wb-fbs-kiz-circ-meta">
                   <span id="supplyGtdChzCounts" class="wb-fbs-kiz-circ-counts"></span>
                   <span id="supplyGtdChzSelectedInfo" class="wb-fbs-kiz-circ-selected-info"></span>
                 </div>
               </div>
-              <div class="wb-fbs-kiz-circ-filters" id="supplyGtdChzFilters">
+              <div class="wb-fbs-kiz-circ-filters hidden" id="supplyGtdChzFilters" hidden>
+                <div class="wb-fbs-kiz-circ-filter-controls">
+                  <label class="wb-fbs-kiz-circ-field" for="supplyGtdChzNameFilter">
+                    <span>Наименование</span>
+                    <select id="supplyGtdChzNameFilter" onchange="onSupplyGtdChzNameFilterChange()">
+                      <option value="">Все</option>
+                    </select>
+                  </label>
+                  <label class="wb-fbs-kiz-circ-field" for="supplyGtdChzOwnerFilter">
+                    <span>Владелец</span>
+                    <select id="supplyGtdChzOwnerFilter" onchange="onSupplyGtdChzOwnerFilterChange()">
+                      <option value="">Все</option>
+                    </select>
+                  </label>
+                  <label class="wb-fbs-kiz-circ-field wb-fbs-kiz-circ-search-field" for="supplyGtdChzSearch">
+                    <span>Поиск</span>
+                    <input type="search" id="supplyGtdChzSearch" placeholder="КИЗ, GTIN, название…" autocomplete="off"
+                           oninput="onSupplyGtdChzSearchInput()" />
+                  </label>
+                  <button type="button" class="secondary wb-fbs-kiz-circ-reset-btn" onclick="resetSupplyGtdChzFilters()">Сбросить</button>
+                </div>
                 <div class="wb-fbs-kiz-circ-filter-block">
                   <span class="wb-fbs-kiz-circ-filter-label">Статус КИЗ</span>
                   <div class="wb-fbs-kiz-circ-status-chips" id="supplyGtdChzStatusChips" role="group" aria-label="Статусы КИЗ">
@@ -6047,13 +6089,6 @@
                     <button type="button" class="wb-fbs-kiz-circ-chip" data-kind="unchecked" onclick="setSupplyGtdChzKindFilter('unchecked')">Не проверен</button>
                     <button type="button" class="wb-fbs-kiz-circ-chip" data-kind="error" onclick="setSupplyGtdChzKindFilter('error')">Ошибка</button>
                   </div>
-                </div>
-                <div class="wb-fbs-kiz-circ-filter-controls">
-                  <label class="wb-fbs-kiz-circ-field wb-fbs-kiz-circ-search-field" for="supplyGtdChzSearch">
-                    <span>Поиск</span>
-                    <input type="search" id="supplyGtdChzSearch" placeholder="КИЗ, GTIN, название…" autocomplete="off"
-                           oninput="onSupplyGtdChzSearchInput()" />
-                  </label>
                 </div>
               </div>
             </div>
@@ -6066,6 +6101,7 @@
                     <col data-col="name" style="width:220px" />
                     <col data-col="gtin" style="width:140px" />
                     <col data-col="status" style="width:140px" />
+                    <col data-col="owner" style="width:180px" />
                     <col data-col="doc" style="width:160px" />
                     <col data-col="error" style="width:200px" />
                     <col data-col="updated" style="width:140px" />
@@ -6082,6 +6118,7 @@
                       <th data-col="name">Наименование<span class="col-resize-handle"></span></th>
                       <th data-col="gtin">GTIN<span class="col-resize-handle"></span></th>
                       <th data-col="status">Статус КИЗ<span class="col-resize-handle"></span></th>
+                      <th data-col="owner">Владелец<span class="col-resize-handle"></span></th>
                       <th data-col="doc">Документ ЧЗ<span class="col-resize-handle"></span></th>
                       <th data-col="error">Ошибка<span class="col-resize-handle"></span></th>
                       <th data-col="updated">Обновлён<span class="col-resize-handle"></span></th>
@@ -6157,6 +6194,18 @@
                           onclick="openSupplyChzCabinetLogModal()">Лог</button>
                   <button
                     type="button"
+                    id="supplyChzCabFileExportBtn"
+                    class="secondary reviews-filter-icon-btn wb-fbs-kiz-circ-filter-icon-btn"
+                    title="Экспорт"
+                    aria-label="Экспорт"
+                    onclick="openSupplyChzExportModal('cabinet')"
+                  >
+                    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+                      <path fill="currentColor" d="M12 3a1 1 0 0 1 1 1v9.17l2.59-2.58a1 1 0 1 1 1.41 1.42l-4.3 4.29a1 1 0 0 1-1.4 0l-4.3-4.29a1 1 0 1 1 1.41-1.42L11 13.17V4a1 1 0 0 1 1-1Zm-7 14a1 1 0 0 1 1 1v1h12v-1a1 1 0 1 1 2 0v2a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1Z"/>
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
                     id="supplyChzCabFiltersBtn"
                     class="secondary reviews-filter-icon-btn wb-fbs-kiz-circ-filter-icon-btn"
                     title="Фильтры"
@@ -6180,6 +6229,18 @@
                   <label class="wb-fbs-kiz-circ-field" for="supplyChzCabCreatedTo">
                     <span>по</span>
                     <input type="date" id="supplyChzCabCreatedTo" onchange="onSupplyChzCabinetCreatedDateChange()" />
+                  </label>
+                  <label class="wb-fbs-kiz-circ-field" for="supplyChzCabNameFilter">
+                    <span>Наименование</span>
+                    <select id="supplyChzCabNameFilter" onchange="onSupplyChzCabinetNameFilterChange()">
+                      <option value="">Все</option>
+                    </select>
+                  </label>
+                  <label class="wb-fbs-kiz-circ-field" for="supplyChzCabOwnerFilter">
+                    <span>Владелец</span>
+                    <select id="supplyChzCabOwnerFilter" onchange="onSupplyChzCabinetOwnerFilterChange()">
+                      <option value="">Все</option>
+                    </select>
                   </label>
                   <label class="wb-fbs-kiz-circ-field wb-fbs-kiz-circ-search-field" for="supplyChzCabSearch">
                     <span>Поиск</span>
@@ -6211,6 +6272,7 @@
                     <col data-col="name" style="width:220px" />
                     <col data-col="gtin" style="width:140px" />
                     <col data-col="status" style="width:140px" />
+                    <col data-col="owner" style="width:180px" />
                     <col data-col="doc" style="width:160px" />
                     <col data-col="error" style="width:200px" />
                     <col data-col="updated" style="width:140px" />
@@ -6227,6 +6289,7 @@
                       <th data-col="name">Наименование<span class="col-resize-handle"></span></th>
                       <th data-col="gtin">GTIN<span class="col-resize-handle"></span></th>
                       <th data-col="status">Статус КИЗ<span class="col-resize-handle"></span></th>
+                      <th data-col="owner">Владелец<span class="col-resize-handle"></span></th>
                       <th data-col="doc">Документ ЧЗ<span class="col-resize-handle"></span></th>
                       <th data-col="error">Ошибка<span class="col-resize-handle"></span></th>
                       <th data-col="updated">Обновлён<span class="col-resize-handle"></span></th>
@@ -6259,6 +6322,26 @@
             <pre id="supplyChzCabLogBody" class="wb-fbs-kiz-circ-log-pre" style="max-height:min(60vh,480px);overflow:auto;margin:0;white-space:pre-wrap;font-size:13px;line-height:1.45"></pre>
             <div class="row" style="margin-top:16px;gap:8px;justify-content:flex-end">
               <button type="button" onclick="closeSupplyChzCabinetLogModal()">Закрыть</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="supplyChzExportModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="supplyChzExportTitle" onclick="if(event.target===this)closeSupplyChzExportModal()">
+          <div class="modal-card supply-chz-export-card">
+            <div class="row row-between" style="margin-bottom:12px;align-items:flex-start;gap:12px">
+              <h4 id="supplyChzExportTitle" class="no-margin">Экспорт</h4>
+              <button type="button" class="icon-btn secondary" onclick="closeSupplyChzExportModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <p id="supplyChzExportHint" class="small" style="margin:0 0 16px;color:#64748b">
+              Выгружаются коды после фильтра. Если отмечены чекбоксы — только выделенные.
+            </p>
+            <div class="supply-chz-export-actions">
+              <button type="button" class="wb-fbs-kiz-circ-btn-primary" onclick="confirmSupplyChzExport('txt')">TXT — только коды</button>
+              <button type="button" class="secondary" onclick="confirmSupplyChzExport('xlsx')">Excel — таблица</button>
+            </div>
+            <div class="row" style="margin-top:16px;gap:8px;justify-content:flex-end">
+              <button type="button" class="secondary" onclick="closeSupplyChzExportModal()">Отмена</button>
             </div>
           </div>
         </div>
@@ -8391,6 +8474,6 @@
 
   <script src="/static/ozon_fbs.js?v=203"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=37"></script>
-  <script src="/static/app.js?v=706"></script>
+  <script src="/static/app.js?v=707"></script>
 </body>
 </html>

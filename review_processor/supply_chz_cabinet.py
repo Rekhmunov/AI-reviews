@@ -45,6 +45,7 @@ def ensure_supply_chz_cabinet_tables(repo: ReviewRepository) -> None:
                     cis_status_kind TEXT NOT NULL DEFAULT '',
                     cis_status_label TEXT NOT NULL DEFAULT '',
                     cis_owner_inn TEXT NOT NULL DEFAULT '',
+                    cis_owner_name TEXT NOT NULL DEFAULT '',
                     cis_status_error TEXT NOT NULL DEFAULT '',
                     cis_checked_at TIMESTAMPTZ,
                     last_op TEXT NOT NULL DEFAULT '',
@@ -63,6 +64,14 @@ def ensure_supply_chz_cabinet_tables(repo: ReviewRepository) -> None:
                 """
                 CREATE INDEX IF NOT EXISTS idx_supply_chz_cabinet_kiz_user
                 ON supply_chz_cabinet_kiz (user_id, id)
+                """
+            )
+        )
+        conn.execute(
+            repo._sql(
+                """
+                ALTER TABLE supply_chz_cabinet_kiz
+                ADD COLUMN IF NOT EXISTS cis_owner_name TEXT NOT NULL DEFAULT ''
                 """
             )
         )
@@ -252,6 +261,7 @@ def _upsert_search_row(
         return False
     status = str(row.get("status") or "").strip()
     owner = str(row.get("ownerInn") or row.get("ownerINN") or row.get("owner_inn") or "").strip()
+    owner_name = str(row.get("ownerName") or row.get("owner_name") or "").strip()
     label, kind = gtd_chz._display_kind(
         status=status,
         owner_inn=owner,
@@ -265,8 +275,8 @@ def _upsert_search_row(
                 INSERT INTO supply_chz_cabinet_kiz (
                     user_id, kiz_short, gtin, product_name, emission_date,
                     cis_status, cis_status_kind, cis_status_label, cis_owner_inn,
-                    cis_status_error, cis_checked_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', NOW(), NOW())
+                    cis_owner_name, cis_status_error, cis_checked_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', NOW(), NOW())
                 ON CONFLICT (user_id, kiz_short) DO UPDATE SET
                     gtin = CASE WHEN excluded.gtin <> '' THEN excluded.gtin ELSE supply_chz_cabinet_kiz.gtin END,
                     product_name = CASE WHEN excluded.product_name <> '' THEN excluded.product_name
@@ -277,6 +287,12 @@ def _upsert_search_row(
                     cis_status_kind = excluded.cis_status_kind,
                     cis_status_label = excluded.cis_status_label,
                     cis_owner_inn = excluded.cis_owner_inn,
+                    cis_owner_name = CASE
+                        WHEN excluded.cis_owner_name <> '' THEN excluded.cis_owner_name
+                        WHEN excluded.cis_owner_inn = supply_chz_cabinet_kiz.cis_owner_inn
+                            THEN supply_chz_cabinet_kiz.cis_owner_name
+                        ELSE ''
+                    END,
                     cis_status_error = '',
                     cis_checked_at = NOW(),
                     updated_at = NOW()
@@ -292,6 +308,7 @@ def _upsert_search_row(
                 kind[:40],
                 label[:80],
                 owner[:20],
+                owner_name[:500],
             ),
         )
     return True
@@ -557,7 +574,7 @@ def list_cabinet_kiz(
                 f"""
                 SELECT id, kiz_short, gtin, product_name, emission_date,
                        cis_status, ({kind_expr}) AS cis_status_kind, cis_status_label,
-                       cis_owner_inn, cis_status_error, cis_checked_at,
+                       cis_owner_inn, cis_owner_name, cis_status_error, cis_checked_at,
                        last_op, last_doc_id, last_doc_type, last_op_status, last_op_error
                 FROM supply_chz_cabinet_kiz
                 {where} {filter_sql}
@@ -592,6 +609,7 @@ def list_cabinet_kiz(
                 "cis_status_kind": kind,
                 "cis_status_label": label,
                 "cis_owner_inn": str(d.get("cis_owner_inn") or ""),
+                "cis_owner_name": str(d.get("cis_owner_name") or ""),
                 "cis_status_error": str(d.get("cis_status_error") or ""),
                 "cis_checked_at": str(d.get("cis_checked_at") or ""),
                 "last_op": str(d.get("last_op") or ""),
@@ -681,6 +699,7 @@ def _upsert_status(
     kiz_short: str,
     cis_status: str = "",
     cis_owner_inn: str = "",
+    cis_owner_name: str = "",
     cis_status_error: str = "",
     participant_inn: str = "",
 ) -> None:
@@ -697,14 +716,20 @@ def _upsert_status(
                 """
                 INSERT INTO supply_chz_cabinet_kiz (
                     user_id, kiz_short, gtin, cis_status, cis_status_kind,
-                    cis_status_label, cis_owner_inn, cis_status_error,
+                    cis_status_label, cis_owner_inn, cis_owner_name, cis_status_error,
                     cis_checked_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
                 ON CONFLICT (user_id, kiz_short) DO UPDATE SET
                     cis_status = excluded.cis_status,
                     cis_status_kind = excluded.cis_status_kind,
                     cis_status_label = excluded.cis_status_label,
                     cis_owner_inn = excluded.cis_owner_inn,
+                    cis_owner_name = CASE
+                        WHEN excluded.cis_owner_name <> '' THEN excluded.cis_owner_name
+                        WHEN excluded.cis_owner_inn = supply_chz_cabinet_kiz.cis_owner_inn
+                            THEN supply_chz_cabinet_kiz.cis_owner_name
+                        ELSE ''
+                    END,
                     cis_status_error = excluded.cis_status_error,
                     cis_checked_at = NOW(),
                     updated_at = NOW()
@@ -718,6 +743,7 @@ def _upsert_status(
                 kind[:40],
                 label[:80],
                 cis_owner_inn[:20],
+                cis_owner_name[:500],
                 cis_status_error[:500],
             ),
         )
@@ -815,6 +841,7 @@ def refresh_cabinet_cis_statuses(
                 err = str(hit.get("error") or "").strip()
                 status = str(hit.get("status") or "").strip()
                 owner = str(hit.get("owner_inn") or "").strip()
+                owner_name = str(hit.get("owner_name") or "").strip()
                 if err and not status:
                     errors += 1
                 elif status:
@@ -827,6 +854,7 @@ def refresh_cabinet_cis_statuses(
                     kiz_short=ks,
                     cis_status=status,
                     cis_owner_inn=owner,
+                    cis_owner_name=owner_name,
                     cis_status_error=err,
                     participant_inn=inn,
                 )
