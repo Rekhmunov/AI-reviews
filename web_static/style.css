@@ -20475,6 +20475,9 @@ button.sb-order-cat-btn[aria-expanded="true"] .sb-order-cat-caret {
   width: min(400px, 100%);
   max-width: 400px;
 }
+#supplyChzExportModal {
+  z-index: 1300;
+}
 .supply-chz-export-actions {
   display: flex;
   flex-direction: column;

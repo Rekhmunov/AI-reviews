@@ -15034,6 +15034,7 @@ window.closeSupplyBalancesOrderModal = closeSupplyBalancesOrderModal;
 
 function _sbXmlEscape(text) {
   return String(text ?? "")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -28757,7 +28758,11 @@ function _supplyChzOwnerOptionsFromItems(items) {
   for (const it of items || []) {
     const key = _supplyChzOwnerKey(it);
     if (!key) continue;
-    if (!byKey.has(key)) byKey.set(key, _supplyChzOwnerLabel(it) || key);
+    const inn = String(it?.cis_owner_inn || "").trim();
+    const name = String(it?.cis_owner_name || "").trim();
+    const label = name && inn && name !== inn ? `${name} · ${inn}` : (name || inn || key);
+    const prev = byKey.get(key) || "";
+    if (!prev || label.length > prev.length) byKey.set(key, label);
   }
   return [...byKey.entries()]
     .sort((a, b) => String(a[1]).localeCompare(String(b[1]), "ru"))
@@ -29175,8 +29180,10 @@ function _supplyGtdChzUpdateActionButtons() {
   }
   const wBtn = document.getElementById("supplyGtdChzWithdrawBtn");
   const rBtn = document.getElementById("supplyGtdChzReturnBtn");
+  const exportBtn = document.getElementById("supplyGtdChzExportBtn");
   if (wBtn) wBtn.disabled = _supplyGtdChzState.busy || !canWithdraw;
   if (rBtn) rBtn.disabled = _supplyGtdChzState.busy || !canReturn;
+  if (exportBtn) exportBtn.disabled = _supplyGtdChzState.busy;
 }
 
 function _supplyGtdChzRenderMeta() {
@@ -29557,12 +29564,9 @@ const SUPPLY_GTD_CHZ_STATUS_CHUNK = 200;
 async function _supplyGtdChzCollectAllShorts() {
   const gid = _supplyGtdChzState.gtdId;
   if (!gid) return [];
-  // Already have the full unfiltered table in memory.
-  if (
-    !_supplyGtdChzState.kindFilter
-    && !_supplyGtdChzState.hasMore
-    && _supplyGtdChzState.items.length
-  ) {
+  // Status/name/owner filters are client-side; memory already holds the
+  // unfiltered GTD page (until hasMore).
+  if (!_supplyGtdChzState.hasMore && _supplyGtdChzState.items.length) {
     return _supplyGtdChzState.items
       .map((it) => String(it.kiz_short || "").trim())
       .filter(Boolean);
@@ -30037,10 +30041,12 @@ function _supplyChzCabUpdateActionButtons() {
   const wBtn = document.getElementById("supplyChzCabWithdrawBtn");
   const rBtn = document.getElementById("supplyChzCabReturnBtn");
   const exportBtn = document.getElementById("supplyChzCabExportBtn");
+  const fileExportBtn = document.getElementById("supplyChzCabFileExportBtn");
   const statusBtn = document.getElementById("supplyChzCabStatusBtn");
   if (wBtn) wBtn.disabled = _supplyChzCabState.busy || !canWithdraw;
   if (rBtn) rBtn.disabled = _supplyChzCabState.busy || !canReturn;
   if (exportBtn) exportBtn.disabled = _supplyChzCabState.busy;
+  if (fileExportBtn) fileExportBtn.disabled = _supplyChzCabState.busy;
   if (statusBtn) statusBtn.disabled = _supplyChzCabState.busy;
 }
 

@@ -115,10 +115,18 @@ def test_gtd_chz_filters_in_icon_and_owner_export() -> None:
     assert "function confirmSupplyChzExport" in APP_JS
     assert "function openSupplyChzExportModal" in APP_JS
     assert "_supplyChzExportRows" in APP_JS
+    collect = APP_JS[
+        APP_JS.find("async function _supplyGtdChzCollectAllShorts") : APP_JS.find(
+            "async function _supplyGtdChzWaitForRun"
+        )
+    ]
+    assert "!_supplyGtdChzState.hasMore" in collect
+    assert "kindFilter" not in collect
+    assert "name · ${inn}" in APP_JS or "${name} · ${inn}" in APP_JS
     assert 'confirmSupplyChzExport(\'txt\')' in APP_HTML or 'confirmSupplyChzExport("txt")' in APP_HTML
     assert "Excel — таблица" in APP_HTML
     assert "TXT — только коды" in APP_HTML
 
 
 def test_asset_version_bumped() -> None:
-    assert "app.js?v=707" in APP_HTML
+    assert "app.js?v=708" in APP_HTML

@@ -135,8 +135,8 @@ def test_cabinet_modal_matches_gtd_chz_size_and_tools() -> None:
     assert 'id="supplyGtdCabinetHit"' in APP_HTML
     assert "openSupplyChzCabinetFromSearch" in APP_JS
     assert "Ввести в оборот" in APP_JS
-    assert "app.js?v=707" in APP_HTML
-    assert "style.css?v=421" in APP_HTML
+    assert "app.js?v=708" in APP_HTML
+    assert "style.css?v=422" in APP_HTML
 
 
 def test_parse_day_bound_for_emission_filter() -> None:
