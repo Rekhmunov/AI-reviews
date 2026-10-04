@@ -28735,18 +28735,57 @@ const SUPPLY_GTD_CHZ_DEFAULT_COL_WIDTHS = {
   updated: 140,
 };
 
+function _supplyChzNormInn(value) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function _supplyChzInnFromRequisites(text) {
+  const raw = String(text || "");
+  // Prefer 12-digit INN (ИП) over 10-digit — JS alternation is left-first.
+  const labeled = raw.match(/ИНН\s*[:№]?\s*(\d{12}|\d{10})/i);
+  if (labeled) return labeled[1];
+  const bare = raw.match(/\b(\d{12}|\d{10})\b/);
+  return bare ? bare[1] : "";
+}
+
+/** Name from Settings юр.лица / контрагенты for this INN (live UI fallback). */
+function _supplyChzPartyNameByInn(inn) {
+  const key = _supplyChzNormInn(inn);
+  if (!key) return "";
+  for (const le of _supplyLegalEntitiesCache || []) {
+    const leInn = _supplyChzNormInn(_supplyChzInnFromRequisites(le?.requisites));
+    if (leInn !== key) continue;
+    const name = String(le?.short_name || le?.full_name || "").trim();
+    if (name) return name;
+  }
+  for (const c of _supplyContractorsCache || []) {
+    const cInn = _supplyChzNormInn(_supplyChzInnFromRequisites(c?.requisites));
+    if (cInn !== key) continue;
+    const name = String(c?.name || c?.full_name || "").trim();
+    if (name) return name;
+  }
+  return "";
+}
+
+function _supplyChzResolvedOwnerName(it) {
+  const stored = String(it?.cis_owner_name || "").trim();
+  const inn = String(it?.cis_owner_inn || "").trim();
+  const fromSettings = _supplyChzPartyNameByInn(inn);
+  return fromSettings || stored;
+}
+
 function _supplyChzOwnerKey(it) {
   return String(it?.cis_owner_inn || "").trim() || String(it?.cis_owner_name || "").trim();
 }
 
 function _supplyChzOwnerLabel(it) {
-  const name = String(it?.cis_owner_name || "").trim();
+  const name = _supplyChzResolvedOwnerName(it);
   const inn = String(it?.cis_owner_inn || "").trim();
   return name || inn;
 }
 
 function _supplyChzOwnerTitle(it) {
-  const name = String(it?.cis_owner_name || "").trim();
+  const name = _supplyChzResolvedOwnerName(it);
   const inn = String(it?.cis_owner_inn || "").trim();
   if (name && inn) return `${name} · ИНН ${inn}`;
   if (inn) return `ИНН ${inn}`;
@@ -28759,7 +28798,7 @@ function _supplyChzOwnerOptionsFromItems(items) {
     const key = _supplyChzOwnerKey(it);
     if (!key) continue;
     const inn = String(it?.cis_owner_inn || "").trim();
-    const name = String(it?.cis_owner_name || "").trim();
+    const name = _supplyChzResolvedOwnerName(it);
     const label = name && inn && name !== inn ? `${name} · ${inn}` : (name || inn || key);
     const prev = byKey.get(key) || "";
     if (!prev || label.length > prev.length) byKey.set(key, label);
@@ -29348,7 +29387,11 @@ async function openSupplyGtdChzModal(gtdId) {
   if (modal) modal.classList.remove("hidden");
   initSupplyGtdChzColumnResizer();
   try {
-    await _supplyGtdChzEnsureProductsCache();
+    await Promise.all([
+      _supplyGtdChzEnsureProductsCache(),
+      _ensureSupplyLegalEntitiesLoaded(),
+      _ensureSupplyContractorsLoaded(),
+    ]);
     await _supplyGtdChzFetch(true);
   } catch (err) {
     alert(err?.message || String(err));
@@ -30326,7 +30369,11 @@ async function openSupplyChzCabinetModal(focus) {
   if (modal) modal.classList.remove("hidden");
   initSupplyChzCabinetColumnResizer();
   try {
-    await _supplyGtdChzEnsureProductsCache();
+    await Promise.all([
+      _supplyGtdChzEnsureProductsCache(),
+      _ensureSupplyLegalEntitiesLoaded(),
+      _ensureSupplyContractorsLoaded(),
+    ]);
     await _supplyChzCabFetch(true);
   } catch (err) {
     alert(err?.message || String(err));

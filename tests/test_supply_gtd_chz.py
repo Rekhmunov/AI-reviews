@@ -15,6 +15,8 @@ def _repo_with_rows(fetch_map: dict[str, list] | None = None) -> MagicMock:
     repo._sql = lambda s: s
     repo._row_to_dict = lambda r: dict(r) if isinstance(r, dict) else {}
     repo.list_product_photos.return_value = []
+    repo.list_supply_legal_entities.return_value = []
+    repo.list_supply_contractors.return_value = []
 
     conn = MagicMock()
     cm = MagicMock()
@@ -232,6 +234,62 @@ class RefreshStatusesTests(unittest.TestCase):
         upsert.assert_called()
         kwargs = upsert.call_args.kwargs
         self.assertEqual(kwargs["cis_status"], "INTRODUCED")
+        self.assertEqual(kwargs["cis_owner_inn"], "7707083893")
+        self.assertEqual(kwargs.get("cis_owner_name") or "", "")
+
+    def test_refresh_resolves_owner_name_from_settings(self) -> None:
+        repo = _repo_with_rows()
+        repo.list_supply_legal_entities.return_value = [
+            {
+                "short_name": "ООО Ромашка",
+                "full_name": "Общество с ограниченной ответственностью Ромашка",
+                "requisites": "ИНН 7707083893 КПП 770701001",
+            }
+        ]
+        kiz = "0104670172422564215MpGb)qC19x29"
+        client = MagicMock()
+        client.cises_info.return_value = [
+            {
+                "cisInfo": {
+                    "requestedCis": kiz,
+                    "cis": kiz,
+                    "status": "INTRODUCED",
+                    "ownerInn": "7707083893",
+                }
+            }
+        ]
+        settings = {
+            "is_enabled": True,
+            "participant_inn": "7707083893",
+            "product_group": "lp",
+            "api_base_url": "https://example.test",
+        }
+        with patch.object(
+            gtd_chz, "_require_gtd", return_value={"id": 1, "gtd_number": "1/2/3"}
+        ), patch.object(
+            gtd_chz, "_chz_settings_ready", return_value=settings
+        ), patch.object(
+            gtd_chz, "_load_gtd_kiz_codes", return_value=[kiz]
+        ), patch.object(
+            gtd_chz.kiz_circ, "chz_client_from_settings", return_value=client
+        ), patch.object(
+            gtd_chz, "_start_run", return_value=9
+        ), patch.object(
+            gtd_chz, "_finish_run"
+        ), patch.object(
+            gtd_chz, "_upsert_cis_state"
+        ) as upsert:
+            out = gtd_chz.refresh_gtd_cis_statuses(
+                repo,
+                user_id=1,
+                gtd_id=1,
+                token="tok",
+                kiz_shorts=[kiz],
+            )
+        self.assertTrue(out["ok"])
+        kwargs = upsert.call_args.kwargs
+        self.assertEqual(kwargs["cis_owner_inn"], "7707083893")
+        self.assertEqual(kwargs["cis_owner_name"], "ООО Ромашка")
 
     def test_refresh_background_returns_immediately(self) -> None:
         repo = _repo_with_rows()

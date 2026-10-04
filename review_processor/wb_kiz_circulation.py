@@ -2353,15 +2353,75 @@ def upsert_chz_settings(
 
 def _parse_inn_kpp_from_text(text: str) -> tuple[str, str]:
     raw = str(text or "")
-    inn_m = re.search(r"ИНН\s*[:№]?\s*(\d{10}|\d{12})", raw, flags=re.IGNORECASE)
+    # Prefer 12-digit INN (ИП) over 10-digit — alternation is left-first.
+    inn_m = re.search(r"ИНН\s*[:№]?\s*(\d{12}|\d{10})", raw, flags=re.IGNORECASE)
     kpp_m = re.search(r"КПП\s*[:№]?\s*(\d{9})", raw, flags=re.IGNORECASE)
     inn = inn_m.group(1) if inn_m else ""
     kpp = kpp_m.group(1) if kpp_m else ""
     if not inn:
-        digits = re.findall(r"\b(\d{10}|\d{12})\b", raw)
+        digits = re.findall(r"\b(\d{12}|\d{10})\b", raw)
         if digits:
             inn = digits[0]
     return inn, kpp
+
+
+def build_party_name_by_inn(repo: ReviewRepository, *, user_id: int) -> dict[str, str]:
+    """Map normalized INN → display name from Settings юр.лица / контрагенты.
+
+    Legal entities win over contractors when the same INN appears in both.
+    """
+    out: dict[str, str] = {}
+    try:
+        entities = repo.list_supply_legal_entities(user_id=user_id)
+    except Exception:
+        entities = []
+    if not isinstance(entities, list):
+        entities = []
+    for le in entities:
+        if not isinstance(le, dict):
+            continue
+        inn, _ = _parse_inn_kpp_from_text(str(le.get("requisites") or ""))
+        inn_n = _normalize_inn(inn)
+        if not inn_n or inn_n in out:
+            continue
+        name = str(le.get("short_name") or le.get("full_name") or "").strip()
+        if name:
+            out[inn_n] = name[:500]
+    try:
+        contractors = repo.list_supply_contractors(user_id=user_id)
+    except Exception:
+        contractors = []
+    if not isinstance(contractors, list):
+        contractors = []
+    for c in contractors:
+        if not isinstance(c, dict):
+            continue
+        inn, _ = _parse_inn_kpp_from_text(str(c.get("requisites") or ""))
+        inn_n = _normalize_inn(inn)
+        if not inn_n or inn_n in out:
+            continue
+        name = str(c.get("name") or c.get("full_name") or "").strip()
+        if name:
+            out[inn_n] = name[:500]
+    return out
+
+
+def resolve_owner_name_from_settings(
+    party_by_inn: dict[str, str] | None,
+    *,
+    owner_inn: str = "",
+    owner_name: str = "",
+) -> str:
+    """Prefer Settings name for owner INN; else keep API ``ownerName``; else empty.
+
+    UI shows INN when the resolved name is empty.
+    """
+    inn = _normalize_inn(owner_inn)
+    if inn and isinstance(party_by_inn, dict):
+        hit = str(party_by_inn.get(inn) or "").strip()
+        if hit:
+            return hit[:500]
+    return str(owner_name or "").strip()[:500]
 
 
 def resolve_chz_place_details(
