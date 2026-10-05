@@ -482,6 +482,35 @@ def test_refresh_postings_package_stickers_skips_empty_barcodes() -> None:
     assert client.get_posting.call_count == 1
 
 
+def test_refresh_postings_package_stickers_persists_scanit_only() -> None:
+    from review_processor.ozon_fbs_detail import _refresh_postings_package_stickers_from_ozon
+
+    repo = MagicMock()
+    client = MagicMock()
+    client.get_posting.return_value = {
+        "posting_number": "P-1",
+        "scanit": "iiABC12345",
+        "barcodes": {"upper_barcode": "0", "lower_barcode": "0"},
+    }
+    with patch(
+        "review_processor.ozon_fbs_detail.oz.persist_posting_stickers_batch",
+        return_value=1,
+    ) as persist:
+        n = _refresh_postings_package_stickers_from_ozon(
+            repo,
+            user_id=1,
+            source_id=2,
+            posting_numbers=["P-1"],
+            client=client,
+            overwrite=True,
+        )
+    assert n == 1
+    persist.assert_called_once()
+    stickers = persist.call_args.kwargs["stickers"]
+    assert stickers["P-1"]["sticker_scanit"] == "iiABC12345"
+    assert stickers["P-1"]["sticker_barcode"] == ""
+
+
 def test_enrich_empty_package_stickers_skips_already_bound() -> None:
     from review_processor.ozon_fbs_supplies import _enrich_empty_package_stickers_for_print
 

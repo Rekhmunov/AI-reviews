@@ -1604,9 +1604,11 @@
       const id = rowScanId(row);
       const bc = normalizeScan(row.sticker_barcode);
       const bcLow = normalizeScan(row.sticker_lower_barcode);
+      const scanit = normalizeScan(row.sticker_scanit);
       let hit = false;
       if (bc && scanKey(bc) === rawKey) hit = true;
       else if (bcLow && scanKey(bcLow) === rawKey) hit = true;
+      else if (scanit && scanKey(scanit) === rawKey) hit = true;
       if (!hit) continue;
       if (id && seenBc.has(id)) continue;
       if (id) seenBc.add(id);

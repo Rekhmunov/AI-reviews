@@ -5210,14 +5210,12 @@ def _bind_package_stickers_after_label_print(
         if not isinstance(remote, dict):
             return pn, None
         hints = oz.sticker_fields_from_posting({**remote, "posting_number": pn})
-        if not (
-            str(hints.get("sticker_barcode") or "").strip()
-            or str(hints.get("sticker_lower_barcode") or "").strip()
-        ):
+        if not oz.sticker_fields_have_package_codes(hints):
             return pn, None
         return pn, {
             "sticker_barcode": str(hints.get("sticker_barcode") or "").strip(),
             "sticker_lower_barcode": str(hints.get("sticker_lower_barcode") or "").strip(),
+            "sticker_scanit": str(hints.get("sticker_scanit") or "").strip(),
             "sticker_part_a": str(hints.get("sticker_part_a") or "").strip(),
             "sticker_part_b": str(hints.get("sticker_part_b") or "").strip(),
         }

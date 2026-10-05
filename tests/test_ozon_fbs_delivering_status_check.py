@@ -746,4 +746,4 @@ def test_move_to_delivering_pins_listed(monkeypatch) -> None:
 
 
 def test_cache_bump() -> None:
-    assert "ozon_fbs.js?v=203" in HTML
+    assert "ozon_fbs.js?v=204" in HTML

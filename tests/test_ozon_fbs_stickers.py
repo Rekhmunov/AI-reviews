@@ -180,6 +180,7 @@ class OzonFbsStickerFieldsTests(unittest.TestCase):
         )
         self.assertEqual(fields["sticker_barcode"], "QR123")
         self.assertEqual(fields["sticker_lower_barcode"], "")
+        self.assertEqual(fields["sticker_scanit"], "")
         self.assertEqual(fields["sticker_part_a"], "0123604587")
         self.assertEqual(fields["sticker_part_b"], "1235-1")
 
@@ -192,6 +193,29 @@ class OzonFbsStickerFieldsTests(unittest.TestCase):
         )
         self.assertEqual(fields["sticker_barcode"], "UPQR")
         self.assertEqual(fields["sticker_lower_barcode"], "LOWQR")
+
+    def test_sticker_fields_from_posting_scanit(self) -> None:
+        fields = oz.sticker_fields_from_posting(
+            {
+                "posting_number": "0123604587-1235-1",
+                "scanit": "iiABC12345",
+                "barcodes": {"upper_barcode": "UPQR", "lower_barcode": "LOWQR"},
+            }
+        )
+        self.assertEqual(fields["sticker_barcode"], "UPQR")
+        self.assertEqual(fields["sticker_lower_barcode"], "LOWQR")
+        self.assertEqual(fields["sticker_scanit"], "iiABC12345")
+        self.assertTrue(oz.sticker_fields_have_package_codes(fields))
+
+    def test_normalize_ozon_scanit(self) -> None:
+        self.assertTrue(oz.looks_like_ozon_scanit("iiABC12345"))
+        self.assertTrue(oz.looks_like_ozon_scanit(" IIABC12345 "))
+        self.assertFalse(oz.looks_like_ozon_scanit("0124861120-0199-1"))
+        self.assertFalse(oz.looks_like_ozon_scanit("ii"))
+        self.assertFalse(oz.looks_like_ozon_scanit("art-sku"))
+        self.assertEqual(oz.normalize_ozon_scanit(" iiABC12345 "), "iiABC12345")
+        self.assertEqual(oz.normalize_ozon_scanit("0"), "")
+        self.assertEqual(oz.normalize_ozon_scanit("501969478984000"), "")
 
     def test_posting_sticker_payload_falls_back_to_raw_json(self) -> None:
         payload = oz.posting_sticker_payload_from_row(
@@ -212,6 +236,26 @@ class OzonFbsStickerFieldsTests(unittest.TestCase):
         self.assertEqual(payload["sticker_lower_barcode"], "751420599146000")
         self.assertEqual(payload["sticker_part_a"], "0163799058")
         self.assertEqual(payload["sticker_part_b"], "0084-1")
+
+    def test_posting_sticker_payload_falls_back_to_raw_json_scanit(self) -> None:
+        payload = oz.posting_sticker_payload_from_row(
+            {
+                "posting_number": "0163799058-0084-1",
+                "sticker_barcode": "751420599146000",
+                "sticker_lower_barcode": "751420599146000",
+                "sticker_scanit": "",
+                "sticker_part_a": "",
+                "sticker_part_b": "",
+                "raw_json": (
+                    '{"posting_number":"0163799058-0084-1",'
+                    '"scanit":"iiXYZ98765",'
+                    '"barcodes":{"upper_barcode":"751420599146000",'
+                    '"lower_barcode":"751420599146000"}}'
+                ),
+            }
+        )
+        self.assertEqual(payload["sticker_barcode"], "751420599146000")
+        self.assertEqual(payload["sticker_scanit"], "iiXYZ98765")
 
     def test_normalize_ozon_package_barcode_rejects_placeholders(self) -> None:
         self.assertEqual(oz.normalize_ozon_package_barcode("0"), "")
@@ -306,6 +350,7 @@ class OzonFbsStickerPersistTests(unittest.TestCase):
         )
         self.assertEqual(n, 1)
         sql = conn.execute.call_args.args[0]
+        self.assertIn("sticker_scanit", sql)
         self.assertIn("sticker_barcode = '0'", sql)
         self.assertIn("LENGTH(sticker_barcode) < 12", sql)
         # Placeholder "0" must not be written when Ozon sends it.
@@ -435,6 +480,70 @@ class OzonFbsStickerLookupTests(unittest.TestCase):
         mock_refresh.assert_not_called()
         self.assertEqual(mock_find.call_count, 1)
 
+    @patch("review_processor.ozon_fbs.load_posting_sticker_map")
+    @patch(
+        "review_processor.ozon_fbs_detail._refresh_postings_package_stickers_from_ozon"
+    )
+    @patch("review_processor.ozon_fbs_stickers.find_postings_by_sticker_scan")
+    def test_lookup_refreshes_scanit_even_when_qr_bound(
+        self,
+        mock_find: MagicMock,
+        mock_refresh: MagicMock,
+        mock_map: MagicMock,
+    ) -> None:
+        mock_find.side_effect = [
+            {"row": None, "ambiguous": False, "matches": []},
+            {
+                "row": {
+                    "posting_number": "0163544192-0175-3",
+                    "sticker_barcode": "901963382044000",
+                    "sticker_scanit": "iiABC12345",
+                    "marking_codes_json": "[]",
+                },
+                "ambiguous": False,
+                "matches": [],
+            },
+        ]
+        mock_refresh.return_value = 1
+        mock_map.side_effect = [
+            {
+                "0163544192-0175-1": {
+                    "sticker_barcode": "901963267063000",
+                    "sticker_scanit": "iiOLD11111",
+                },
+                "0163544192-0175-3": {
+                    "sticker_barcode": "901963382044000",
+                    "sticker_scanit": "",
+                },
+            },
+            {
+                "0163544192-0175-3": {
+                    "posting_number": "0163544192-0175-3",
+                    "sticker_barcode": "901963382044000",
+                    "sticker_scanit": "iiABC12345",
+                }
+            },
+        ]
+        out = lookup_posting_by_scan(
+            MagicMock(),
+            user_id=1,
+            source_id=2,
+            scan="iiABC12345",
+            client=MagicMock(),
+            refresh_posting_numbers=[
+                "0163544192-0175-1",
+                "0163544192-0175-3",
+            ],
+        )
+        self.assertTrue(out["found"])
+        mock_refresh.assert_called_once()
+        self.assertEqual(
+            mock_refresh.call_args.kwargs["posting_numbers"],
+            ["0163544192-0175-3"],
+        )
+        self.assertEqual(out["posting"]["sticker_scanit"], "iiABC12345")
+        self.assertEqual(out["posting"]["sticker_barcode"], "901963382044000")
+
     def test_find_by_sticker_barcode(self) -> None:
         repo = MagicMock()
         conn = MagicMock()
@@ -475,6 +584,49 @@ class OzonFbsStickerLookupTests(unittest.TestCase):
         )
         self.assertEqual(found["row"]["posting_number"], "PN-2")
 
+    def test_find_by_sticker_scanit(self) -> None:
+        repo = MagicMock()
+        conn = MagicMock()
+        repo._connect.return_value.__enter__.return_value = conn
+        conn.execute.return_value.fetchall.side_effect = [
+            [],  # upper
+            [],  # lower
+            [
+                {
+                    "posting_number": "PN-3",
+                    "sticker_barcode": "UPQR",
+                    "sticker_lower_barcode": "LOWQR",
+                    "sticker_scanit": "iiABC12345",
+                    "sticker_part_a": "",
+                    "sticker_part_b": "",
+                }
+            ],
+        ]
+        repo._row_to_dict = lambda r: dict(r)
+        found = find_postings_by_sticker_scan(
+            repo, user_id=1, source_id=2, scan="iiABC12345"
+        )
+        self.assertEqual(found["row"]["posting_number"], "PN-3")
+
+    def test_find_by_sticker_scanit_keeps_old_qr_match(self) -> None:
+        repo = MagicMock()
+        conn = MagicMock()
+        repo._connect.return_value.__enter__.return_value = conn
+        conn.execute.return_value.fetchall.return_value = [
+            {
+                "posting_number": "PN-1",
+                "sticker_barcode": "!uKEtQZVx",
+                "sticker_scanit": "iiABC12345",
+                "sticker_part_a": "",
+                "sticker_part_b": "",
+            }
+        ]
+        repo._row_to_dict = lambda r: dict(r)
+        found = find_postings_by_sticker_scan(
+            repo, user_id=1, source_id=2, scan="!uKEtQZVx"
+        )
+        self.assertEqual(found["row"]["posting_number"], "PN-1")
+
     def test_find_by_posting_number_partial(self) -> None:
         repo = MagicMock()
         conn = MagicMock()
@@ -501,6 +653,7 @@ class OzonFbsStickerLookupTests(unittest.TestCase):
         conn.execute.return_value.fetchall.side_effect = [
             [],  # upper barcode
             [],  # lower barcode
+            [],  # scanit
             [],  # exact pn
             [
                 {
@@ -537,6 +690,7 @@ class OzonFbsStickerLookupTests(unittest.TestCase):
         conn.execute.return_value.fetchall.side_effect = [
             [],  # upper barcode column
             [],  # lower barcode column
+            [],  # scanit column
             [],  # exact pn
             [],  # partial pn
             [],  # part_b exact

@@ -941,6 +941,7 @@ def ensure_ozon_fbs_tables(repo: ReviewRepository) -> None:
             "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS pick_verified_at TIMESTAMPTZ",
             "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS sticker_barcode TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS sticker_lower_barcode TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS sticker_scanit TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS sticker_part_a TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS sticker_part_b TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE ozon_fbs_postings ADD COLUMN IF NOT EXISTS sticker_scanned_at TIMESTAMPTZ",
@@ -963,6 +964,11 @@ def ensure_ozon_fbs_tables(repo: ReviewRepository) -> None:
                 "CREATE INDEX IF NOT EXISTS idx_ozon_fbs_postings_sticker_lower_barcode "
                 "ON ozon_fbs_postings(user_id, source_id, sticker_lower_barcode) "
                 "WHERE sticker_lower_barcode <> ''"
+            ),
+            repo._sql(
+                "CREATE INDEX IF NOT EXISTS idx_ozon_fbs_postings_sticker_scanit "
+                "ON ozon_fbs_postings(user_id, source_id, sticker_scanit) "
+                "WHERE sticker_scanit <> ''"
             ),
             repo._sql(
                 "CREATE INDEX IF NOT EXISTS idx_ozon_fbs_postings_sticker_part_b "
@@ -1019,11 +1025,57 @@ def ozon_package_barcode_is_blank(value: object) -> bool:
     return not normalize_ozon_package_barcode(value)
 
 
+# New Ozon FBS instance label (scanit): unique id printed as ``ii…`` from 05.10.2026.
+# Keep this independent of posting_number / package QR so old sticker match stays intact.
+_OZON_SCANIT_RE = re.compile(r"^ii[A-Za-z0-9._-]{2,}$", re.IGNORECASE)
+
+
+def looks_like_ozon_scanit(value: object) -> bool:
+    """True for the new Ozon instance label (``ii`` + identifier), not a posting number."""
+    q = re.sub(r"\s+", "", str(value or "").strip())
+    return bool(_OZON_SCANIT_RE.fullmatch(q))
+
+
+def normalize_ozon_scanit(value: object) -> str:
+    """Return a usable Ozon ``scanit`` instance id, or ``""`` for empty/non-scanit values."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    folded = raw.casefold()
+    if folded in {"0", "null", "none", "nil", "-", "n/a"}:
+        return ""
+    if not looks_like_ozon_scanit(raw):
+        return ""
+    return raw
+
+
+def _scanit_from_posting(posting: dict[str, Any]) -> str:
+    scanit = normalize_ozon_scanit(posting.get("scanit"))
+    if scanit:
+        return scanit
+    barcodes = posting.get("barcodes")
+    if isinstance(barcodes, dict):
+        return normalize_ozon_scanit(barcodes.get("scanit"))
+    return ""
+
+
+def sticker_fields_have_package_codes(fields: dict[str, Any] | None) -> bool:
+    """True when Ozon returned a package QR and/or the new ``scanit`` instance id."""
+    if not isinstance(fields, dict):
+        return False
+    return bool(
+        str(fields.get("sticker_barcode") or "").strip()
+        or str(fields.get("sticker_lower_barcode") or "").strip()
+        or str(fields.get("sticker_scanit") or "").strip()
+    )
+
+
 def sticker_fields_from_posting(posting: dict[str, Any]) -> dict[str, str]:
-    """Derive sticker binding from Ozon posting (``barcodes`` + posting_number).
+    """Derive sticker binding from Ozon posting (``barcodes`` + ``scanit`` + posting_number).
 
     Ozon API ``FbsPostingBarcodes``: ``upper_barcode`` = верхняя этикетка,
     ``lower_barcode`` = нижняя. Источник: ``/v3/posting/fbs/get`` с ``with.barcodes``.
+    New instance label (05.10.2026): posting ``scanit`` starting with ``ii``.
     """
     pn = str(posting.get("posting_number") or "").strip()
     part_a, part_b = sticker_parts_from_posting_number(pn)
@@ -1036,6 +1088,7 @@ def sticker_fields_from_posting(posting: dict[str, Any]) -> dict[str, str]:
     return {
         "sticker_barcode": upper,
         "sticker_lower_barcode": lower,
+        "sticker_scanit": _scanit_from_posting(posting),
         "sticker_part_a": part_a,
         "sticker_part_b": part_b,
     }
@@ -1048,7 +1101,8 @@ def posting_sticker_payload_from_row(row: dict[str, Any]) -> dict[str, Any]:
     part_b = str(row.get("sticker_part_b") or "").strip()
     upper = normalize_ozon_package_barcode(row.get("sticker_barcode"))
     lower = normalize_ozon_package_barcode(row.get("sticker_lower_barcode"))
-    if (not upper or not lower or (not part_a and not part_b)) and pn:
+    scanit = normalize_ozon_scanit(row.get("sticker_scanit"))
+    if (not upper or not lower or not scanit or (not part_a and not part_b)) and pn:
         posting = _posting_payload_from_row(row)
         if posting:
             hints = sticker_fields_from_posting({**posting, "posting_number": pn})
@@ -1056,6 +1110,8 @@ def posting_sticker_payload_from_row(row: dict[str, Any]) -> dict[str, Any]:
                 upper = normalize_ozon_package_barcode(hints.get("sticker_barcode"))
             if not lower:
                 lower = normalize_ozon_package_barcode(hints.get("sticker_lower_barcode"))
+            if not scanit:
+                scanit = normalize_ozon_scanit(hints.get("sticker_scanit"))
             if not part_a:
                 part_a = str(hints.get("sticker_part_a") or "").strip()
             if not part_b:
@@ -1068,6 +1124,7 @@ def posting_sticker_payload_from_row(row: dict[str, Any]) -> dict[str, Any]:
         "order_number": str(row.get("order_number") or "").strip(),
         "sticker_barcode": upper,
         "sticker_lower_barcode": lower,
+        "sticker_scanit": scanit,
         "sticker_part_a": part_a,
         "sticker_part_b": part_b,
     }
@@ -1090,7 +1147,8 @@ def load_posting_sticker_map(
             repo._sql(
                 f"""
                 SELECT posting_number, order_id, order_number,
-                       sticker_barcode, sticker_lower_barcode, sticker_part_a, sticker_part_b
+                       sticker_barcode, sticker_lower_barcode, sticker_scanit,
+                       sticker_part_a, sticker_part_b
                 FROM ozon_fbs_postings
                 WHERE user_id = ? AND source_id = ?
                   AND posting_number IN ({placeholders})
@@ -1135,6 +1193,9 @@ def persist_posting_stickers_batch(
             lower_barcode = normalize_ozon_package_barcode(
                 st.get("sticker_lower_barcode") or st.get("lower_barcode") or ""
             )
+            scanit = normalize_ozon_scanit(
+                st.get("sticker_scanit") or st.get("scanit") or ""
+            )
             part_a = str(st.get("sticker_part_a") or st.get("partA") or "").strip()
             part_b = str(st.get("sticker_part_b") or st.get("partB") or "").strip()
             if not part_a and not part_b:
@@ -1143,7 +1204,7 @@ def persist_posting_stickers_batch(
                     part_a = hint_a
                 if not part_b:
                     part_b = hint_b
-            if not (barcode or lower_barcode or part_a or part_b):
+            if not (barcode or lower_barcode or scanit or part_a or part_b):
                 continue
             if only_if_empty:
                 cur = conn.execute(
@@ -1174,6 +1235,10 @@ def persist_posting_stickers_batch(
                                      AND ? <> '' THEN ?
                                 ELSE sticker_lower_barcode
                             END,
+                            sticker_scanit = CASE
+                                WHEN sticker_scanit = '' AND ? <> '' THEN ?
+                                ELSE sticker_scanit
+                            END,
                             sticker_part_a = CASE
                                 WHEN sticker_part_a = '' AND ? <> '' THEN ?
                                 ELSE sticker_part_a
@@ -1190,6 +1255,8 @@ def persist_posting_stickers_batch(
                         barcode,
                         lower_barcode,
                         lower_barcode,
+                        scanit,
+                        scanit,
                         part_a,
                         part_a,
                         part_b,
@@ -1212,6 +1279,10 @@ def persist_posting_stickers_batch(
                                 WHEN ? <> '' THEN ?
                                 ELSE sticker_lower_barcode
                             END,
+                            sticker_scanit = CASE
+                                WHEN ? <> '' THEN ?
+                                ELSE sticker_scanit
+                            END,
                             sticker_part_a = CASE
                                 WHEN ? <> '' THEN ?
                                 ELSE sticker_part_a
@@ -1229,6 +1300,8 @@ def persist_posting_stickers_batch(
                         barcode,
                         lower_barcode,
                         lower_barcode,
+                        scanit,
+                        scanit,
                         part_a,
                         part_a,
                         part_b,
@@ -1260,6 +1333,7 @@ def apply_posting_sticker_hints(
     if not (
         hints.get("sticker_barcode")
         or hints.get("sticker_lower_barcode")
+        or hints.get("sticker_scanit")
         or hints.get("sticker_part_a")
         or hints.get("sticker_part_b")
     ):
@@ -2515,9 +2589,11 @@ _ORDER_NUMBER_QUERY_RE = re.compile(r"^\d{6,}-\d{3,}$")
 
 
 def parse_posting_number_query(search: object) -> str:
-    """Normalize toolbar find query: full posting or order number (2 segments)."""
+    """Normalize toolbar find query: full posting, order number, or new ``ii…`` scanit."""
     q = re.sub(r"\s+", "", str(search or "").strip())
     if _POSTING_NUMBER_QUERY_RE.fullmatch(q) or _ORDER_NUMBER_QUERY_RE.fullmatch(q):
+        return q
+    if looks_like_ozon_scanit(q):
         return q
     return ""
 
@@ -2991,6 +3067,7 @@ def build_posting_lookup_details(
         "sticker_lower_barcode": normalize_ozon_package_barcode(
             sticker.get("sticker_lower_barcode")
         ),
+        "sticker_scanit": normalize_ozon_scanit(sticker.get("sticker_scanit")),
         "kiz_codes": kiz_codes,
         "pick_verified": pick_verified,
         "pick_barcode": pick_barcode,
@@ -3056,7 +3133,8 @@ def _lookup_refresh_one_posting(
                 hints = sticker_fields_from_posting({**remote, "posting_number": pn})
                 hint_upper = str(hints.get("sticker_barcode") or "").strip()
                 hint_lower = str(hints.get("sticker_lower_barcode") or "").strip()
-                if hint_upper or hint_lower:
+                hint_scanit = str(hints.get("sticker_scanit") or "").strip()
+                if hint_upper or hint_lower or hint_scanit:
                     patched = dict(local)
                     if hint_upper and ozon_package_barcode_is_blank(
                         patched.get("sticker_barcode")
@@ -3066,6 +3144,10 @@ def _lookup_refresh_one_posting(
                         patched.get("sticker_lower_barcode")
                     ):
                         patched["sticker_lower_barcode"] = hint_lower
+                    if hint_scanit and not normalize_ozon_scanit(
+                        patched.get("sticker_scanit")
+                    ):
+                        patched["sticker_scanit"] = hint_scanit
                     local = patched
             except Exception as heal_exc:
                 _log.warning(
@@ -3090,12 +3172,14 @@ def lookup_posting_by_number(
 ) -> dict[str, Any]:
     """Find posting(s) locally; refresh status from Ozon API when credentials allow.
 
-    Accepts full ``posting_number`` (…-0059-1) or order number (…-0059). The latter
-    returns all package siblings (…-1, …-2, …) stacked for the toolbar search.
+    Accepts full ``posting_number`` (…-0059-1), order number (…-0059), or the
+    new instance label (``ii…`` / ``scanit``). Order number returns all package
+    siblings (…-1, …-2, …) stacked for the toolbar search.
 
     Local marking / supply_id are kept. ``status`` and ``tab`` are updated from
     ``/v3/posting/fbs/get``. Empty or placeholder package stickers (``"0"``)
-    may be filled from Ozon ``barcodes``; real sticker values are not overwritten.
+    may be filled from Ozon ``barcodes`` / ``scanit``; real sticker values are
+    not overwritten.
     """
     ensure_ozon_fbs_tables(repo)
     pn = parse_posting_number_query(posting_number) or str(posting_number or "").strip()
@@ -3113,13 +3197,39 @@ def lookup_posting_by_number(
             "counts": counts,
             "status_refreshed": False,
             "message": (
-                "Укажите номер отправления или заказа "
-                "(например 0124861120-0199-1 или 0124861120-0199)"
+                "Укажите номер отправления, заказа или этикетки "
+                "(например 0124861120-0199-1, 0124861120-0199 или ii…)"
             ),
         }
 
-    order_query = is_ozon_order_number_query(pn)
-    if order_query:
+    scanit_query = looks_like_ozon_scanit(pn)
+    order_query = (not scanit_query) and is_ozon_order_number_query(pn)
+    if scanit_query:
+        from . import ozon_fbs_stickers as oz_st
+
+        found = oz_st.find_postings_by_sticker_scan(
+            repo, user_id=user_id, source_id=sid, scan=pn
+        )
+        match_rows: list[dict[str, Any]] = []
+        found_row = found.get("row")
+        if isinstance(found_row, dict):
+            match_rows = [found_row]
+        elif found.get("ambiguous"):
+            match_rows = [
+                m for m in (found.get("matches") or []) if isinstance(m, dict)
+            ]
+        local_rows = []
+        seen_pn: set[str] = set()
+        for match in match_rows:
+            one_pn = str(match.get("posting_number") or "").strip()
+            if not one_pn or one_pn.casefold() in seen_pn:
+                continue
+            seen_pn.add(one_pn.casefold())
+            full = get_posting_by_number(
+                repo, user_id=user_id, source_id=sid, posting_number=one_pn
+            )
+            local_rows.append(full or match)
+    elif order_query:
         local_rows = list_postings_by_number_query(
             repo, user_id=user_id, source_id=sid, query=pn
         )
@@ -3130,6 +3240,12 @@ def lookup_posting_by_number(
         local_rows = [one] if one else []
 
     if not local_rows:
+        if scanit_query:
+            miss_msg = f"Этикетка {pn} не найдена в локальной базе"
+        elif order_query:
+            miss_msg = f"Заказ {pn} не найден в локальной базе"
+        else:
+            miss_msg = f"Отправление {pn} не найдено в локальной базе"
         return {
             "found": False,
             "source": "none",
@@ -3140,11 +3256,7 @@ def lookup_posting_by_number(
             "match_count": 0,
             "counts": counts,
             "status_refreshed": False,
-            "message": (
-                f"Заказ {pn} не найден в локальной базе"
-                if order_query
-                else f"Отправление {pn} не найдено в локальной базе"
-            ),
+            "message": miss_msg,
         }
 
     cid = str(client_id or "").strip()

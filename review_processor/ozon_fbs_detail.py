@@ -208,7 +208,8 @@ def _clear_package_sticker_barcodes(
                     f"""
                     UPDATE ozon_fbs_postings
                     SET sticker_barcode = '',
-                        sticker_lower_barcode = ''
+                        sticker_lower_barcode = '',
+                        sticker_scanit = ''
                     WHERE user_id = ? AND source_id = ?
                       AND posting_number IN ({placeholders})
                     """
@@ -252,11 +253,8 @@ def _refresh_postings_package_stickers_from_ozon(
         if not isinstance(remote, dict):
             continue
         hints = oz.sticker_fields_from_posting({**remote, "posting_number": pn})
-        if not (
-            str(hints.get("sticker_barcode") or "").strip()
-            or str(hints.get("sticker_lower_barcode") or "").strip()
-        ):
-            # Barcodes can lag briefly after split — do not wipe existing columns.
+        if not oz.sticker_fields_have_package_codes(hints):
+            # Barcodes/scanit can lag briefly after split — do not wipe existing columns.
             continue
         try:
             n = oz.persist_posting_stickers_batch(
@@ -286,10 +284,7 @@ def _persist_package_stickers_from_posting(
     if not pn or not isinstance(posting, dict):
         return
     hints = oz.sticker_fields_from_posting({**posting, "posting_number": pn})
-    if not (
-        str(hints.get("sticker_barcode") or "").strip()
-        or str(hints.get("sticker_lower_barcode") or "").strip()
-    ):
+    if not oz.sticker_fields_have_package_codes(hints):
         return
     try:
         oz.persist_posting_stickers_batch(

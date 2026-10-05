@@ -364,6 +364,7 @@ def build_pick_verify_payload(
                 "in_process_at": o.get("in_process_at") or "",
                 "sticker_barcode": str(o.get("sticker_barcode") or "").strip(),
                 "sticker_lower_barcode": str(o.get("sticker_lower_barcode") or "").strip(),
+                "sticker_scanit": str(o.get("sticker_scanit") or "").strip(),
                 "sticker_part_a": str(o.get("sticker_part_a") or "").strip(),
                 "sticker_part_b": str(o.get("sticker_part_b") or "").strip(),
                 "container_id": local.get("container_id"),

@@ -1052,6 +1052,7 @@
   function rowHasKnownSticker(row) {
     if (!row) return false;
     if (String(row.sticker_barcode || "").trim()) return true;
+    if (String(row.sticker_scanit || "").trim()) return true;
     const partA = String(row.sticker_part_a || "").trim();
     const partB = String(row.sticker_part_b || "").trim();
     return !!(partA && partB);

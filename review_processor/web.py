@@ -14310,10 +14310,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     ) -> dict[str, object]:
         """Toolbar search: find posting(s) by number across all local tabs.
 
-        Accepts full posting (…-0199-1) or order number (…-0199); the latter
-        returns all package siblings. ``refresh=false`` skips Ozon status pull —
-        used after local-only edits (e.g. move to supply) so local ``tab`` is
-        not immediately overwritten.
+        Accepts full posting (…-0199-1), order number (…-0199), or the new
+        instance label (``ii…``). Order number returns all package siblings.
+        ``refresh=false`` skips Ozon status pull — used after local-only edits
+        (e.g. move to supply) so local ``tab`` is not immediately overwritten.
         """
         user = _require_user(request)
         if not _can_view_ozon_fbs(user):
@@ -14326,8 +14326,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    "Укажите номер отправления или заказа "
-                    "(например 0124861120-0199-1 или 0124861120-0199)"
+                    "Укажите номер отправления, заказа или этикетки "
+                    "(например 0124861120-0199-1, 0124861120-0199 или ii…)"
                 ),
             )
         owner_id = _supply_owner_id(user)
@@ -14389,6 +14389,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     "posting_number": posting_number,
                     "sticker_barcode": body.get("sticker_barcode"),
                     "sticker_lower_barcode": body.get("sticker_lower_barcode"),
+                    "sticker_scanit": body.get("sticker_scanit"),
                     "sticker_part_a": body.get("sticker_part_a"),
                     "sticker_part_b": body.get("sticker_part_b"),
                 }
@@ -14402,7 +14403,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             user_id=owner_id,
             source_id=int(source_id),
             scan_type=oz_scans.SCAN_ASSEMBLY,
-            scan_raw=str(body.get("sticker_barcode") or ""),
+            scan_raw=str(
+                body.get("scan_raw")
+                or body.get("sticker_scanit")
+                or body.get("sticker_barcode")
+                or ""
+            ),
             posting_number=posting_number,
             supply_id=str(body.get("supply_id") or "").strip() or None,
         )

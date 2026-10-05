@@ -26,6 +26,7 @@ def test_search_lookup_ui_drops_redundant_bits() -> None:
     # Order-number search (…-0059) stacks package siblings in the table.
     parse_fn = js[js.find("function parsePostingNumberQuery") : js.find("function clearLookupMode")]
     assert r"/^\d{6,}-\d{3,}$/" in parse_fn
+    assert "_ozonFbsLooksLikeScanit" in parse_fn
     apply_fn = js[js.find("function applyLookupResult") : js.find("function isDeliveringSuppliesTab")]
     assert "Array.isArray(data?.items)" in apply_fn
     assert "renderTable(items)" in apply_fn
@@ -40,7 +41,7 @@ def test_search_lookup_ui_drops_redundant_bits() -> None:
 
     assert ".ozon-fbs-lookup-detail-head" in css
     assert ".ozon-fbs-lookup-detail-title" in css
-    assert "ozon_fbs.js?v=203" in html
+    assert "ozon_fbs.js?v=204" in html
     assert 'rows.push(["Крайний срок сдачи", details.shipment_date])' in js
     assert 'rows.push(["Дата отгрузки", details.shipment_date])' not in js
     assert 'rows.push(["Дата заказа товара", details.in_process_at])' in js

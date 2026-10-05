@@ -240,6 +240,7 @@
     // Full posting …-0199-1 or order number …-0199 (package siblings).
     if (/^\d{6,}-\d{3,}-\d{1,4}$/.test(q)) return q;
     if (/^\d{6,}-\d{3,}$/.test(q)) return q;
+    if (_ozonFbsLooksLikeScanit(q)) return q;
     return "";
   }
 
@@ -272,7 +273,7 @@
       ["Вкладка", _ozonFbsLookupDash(details.tab_label)],
       ["Статус Ozon", _ozonFbsLookupDash(details.status_label || details.status)],
       ["Поставка", _ozonFbsLookupDash(details.supply_id)],
-      ["Стикер", _ozonFbsLookupDash(details.sticker_barcode)],
+      ["Стикер", _ozonFbsLookupDash(details.sticker_barcode || details.sticker_scanit)],
       ["КИЗ", kiz.length ? kiz.join(", ") : "не сохранён"],
       ["Проверка ШК", pickOk ? String(details.pick_barcode) : "не проверен"],
       ["Грузоместо", gmValue],
@@ -422,6 +423,7 @@
         status_label: statusLabel,
         supply_id: supplyId,
         sticker_barcode: item.sticker_barcode || "",
+        sticker_scanit: item.sticker_scanit || "",
         kiz_codes: [],
         pick_verified: false,
         pick_barcode: "",
@@ -8660,9 +8662,15 @@
     return _ozonFbsNormalizeScan(row?.posting_number);
   }
 
+  function _ozonFbsLooksLikeScanit(value) {
+    const raw = String(value || "").replace(/\s+/g, "").trim();
+    return /^ii[A-Za-z0-9._-]{2,}$/i.test(raw);
+  }
+
   function _ozonFbsResolvedStickerFields(row) {
     let upper = _ozonFbsNormalizeScan(row?.sticker_barcode);
     let lower = _ozonFbsNormalizeScan(row?.sticker_lower_barcode);
+    let scanit = _ozonFbsNormalizeScan(row?.sticker_scanit);
     let partA = _ozonFbsNormalizeScan(row?.sticker_part_a);
     let partB = _ozonFbsNormalizeScan(row?.sticker_part_b);
     const pn = String(row?.posting_number || "").trim();
@@ -8671,12 +8679,13 @@
       if (!partA) partA = _ozonFbsNormalizeScan(parts.part_a);
       if (!partB) partB = _ozonFbsNormalizeScan(parts.part_b);
     }
-    return { upper, lower, partA, partB, pn };
+    return { upper, lower, scanit, partA, partB, pn };
   }
 
   /**
    * Ozon FBS sticker match — parity with WB `_wbFbsKizFindBySticker` / backend lookup.
    * Ozon API ``FbsPostingBarcodes``: upper/lower штрихкоды этикетки + posting_number.
+   * New instance label (``scanit`` / ``ii…``) is a separate field so QR match stays intact.
    */
   function _ozonFbsFindByStickerInRows(scan, rows, opts) {
     const raw = _ozonFbsNormalizeScan(scan);
@@ -8697,6 +8706,7 @@
       let hit = false;
       if (fields.upper && _ozonFbsStickerScanKey(fields.upper) === rawKey) hit = true;
       else if (fields.lower && _ozonFbsStickerScanKey(fields.lower) === rawKey) hit = true;
+      else if (fields.scanit && _ozonFbsStickerScanKey(fields.scanit) === rawKey) hit = true;
       if (!hit) continue;
       const id = rowKey(row);
       if (id && seenBc.has(id)) continue;
@@ -8779,7 +8789,12 @@
     }
     const knownUpper = _ozonFbsNormalizeScan(row.sticker_barcode);
     const knownLower = _ozonFbsNormalizeScan(row.sticker_lower_barcode);
-    if (knownLower && _ozonFbsStickerScanKey(knownLower) === rawKey) {
+    const knownScanit = _ozonFbsNormalizeScan(row.sticker_scanit);
+    if (knownScanit && _ozonFbsStickerScanKey(knownScanit) === rawKey) {
+      row.sticker_scanit = raw;
+    } else if (_ozonFbsLooksLikeScanit(raw)) {
+      row.sticker_scanit = raw;
+    } else if (knownLower && _ozonFbsStickerScanKey(knownLower) === rawKey) {
       row.sticker_lower_barcode = raw;
     } else if (knownUpper && _ozonFbsStickerScanKey(knownUpper) === rawKey) {
       row.sticker_barcode = raw;
@@ -8809,8 +8824,10 @@
         body: JSON.stringify({
           source_id: sourceId,
           posting_number: pn,
+          scan_raw: raw,
           sticker_barcode: String(row.sticker_barcode || "").trim(),
           sticker_lower_barcode: String(row.sticker_lower_barcode || "").trim(),
+          sticker_scanit: String(row.sticker_scanit || "").trim(),
           sticker_part_a: String(row.sticker_part_a || "").trim(),
           sticker_part_b: String(row.sticker_part_b || "").trim(),
           supply_id: String(supplyDetailState.supplyId || "").trim() || undefined,
@@ -10913,6 +10930,7 @@
       const fields = _ozonFbsResolvedStickerFields(row);
       if (fields.upper) _ozonFbsKizStickerIndexAdd(stickerIndex, _ozonFbsStickerScanKey(fields.upper), pn);
       if (fields.lower) _ozonFbsKizStickerIndexAdd(stickerIndex, _ozonFbsStickerScanKey(fields.lower), pn);
+      if (fields.scanit) _ozonFbsKizStickerIndexAdd(stickerIndex, _ozonFbsStickerScanKey(fields.scanit), pn);
       if (pn) _ozonFbsKizStickerIndexAdd(stickerIndex, pn.toLowerCase(), pn);
     }
     ozonFbsKizState.rowsByPosting = rowsByPosting;
@@ -11006,18 +11024,26 @@
       if (st.sticker_part_b != null) {
         row.sticker_part_b = String(st.sticker_part_b || "").trim();
       }
+      if (st.sticker_scanit != null) {
+        row.sticker_scanit = String(st.sticker_scanit || "").trim();
+      }
     }
   }
 
-  function _ozonFbsLookupRefreshPostings(rows) {
+  function _ozonFbsLookupRefreshPostings(rows, scan) {
     const out = [];
     const seen = new Set();
+    const scanitScan = _ozonFbsLooksLikeScanit(scan);
     for (const row of Array.isArray(rows) ? rows : []) {
       const pn = String(row?.posting_number || "").trim();
       if (!pn || seen.has(pn)) continue;
       const fields = _ozonFbsResolvedStickerFields(row);
-      // Prefer unbound rows (split siblings). Bound rows are already searchable.
-      if (fields.upper || fields.lower) continue;
+      // Prefer unbound rows. For ii… refresh even QR-bound rows missing scanit.
+      if (scanitScan) {
+        if (fields.scanit) continue;
+      } else if (fields.upper || fields.lower) {
+        continue;
+      }
       seen.add(pn);
       out.push(pn);
       if (out.length >= 80) break;
@@ -11032,13 +11058,17 @@
     return digits.length >= 12 && digits === raw;
   }
 
+  function _ozonFbsScanLooksLikeLabelScan(scan) {
+    return _ozonFbsScanLooksLikePackageBarcode(scan) || _ozonFbsLooksLikeScanit(scan);
+  }
+
   async function _ozonFbsLookupPostingByScan(scan, rows) {
     const sourceId = supplyDetailState.sourceId || state.sourceId;
     const raw = _ozonFbsNormalizeScan(scan);
     if (!sourceId || !raw) return { found: false };
     const params = new URLSearchParams({ source_id: String(sourceId), scan: raw });
-    if (_ozonFbsScanLooksLikePackageBarcode(raw)) {
-      const refreshPns = _ozonFbsLookupRefreshPostings(rows);
+    if (_ozonFbsScanLooksLikeLabelScan(raw)) {
+      const refreshPns = _ozonFbsLookupRefreshPostings(rows, raw);
       if (refreshPns.length) params.set("refresh_postings", refreshPns.join(","));
     }
     const res = await fetch(`/api/ozon-fbs/postings/lookup?${params}`);
@@ -11087,6 +11117,7 @@
       row.sticker_lower_barcode = String(
         data.posting.sticker_lower_barcode || row.sticker_lower_barcode || ""
       ).trim();
+      row.sticker_scanit = String(data.posting.sticker_scanit || row.sticker_scanit || "").trim();
       row.sticker_part_a = String(data.posting.sticker_part_a || row.sticker_part_a || "").trim();
       row.sticker_part_b = String(data.posting.sticker_part_b || row.sticker_part_b || "").trim();
       _ozonFbsKizRebuildIndexes();
@@ -11141,7 +11172,8 @@
     if (!q) return true;
     const hay = [
       row?.posting_number, row?.offer_id, row?.product_name, row?.sku,
-      row?.sticker_barcode, row?.sticker_lower_barcode, row?.sticker_part_a, row?.sticker_part_b,
+      row?.sticker_barcode, row?.sticker_lower_barcode, row?.sticker_scanit,
+      row?.sticker_part_a, row?.sticker_part_b,
       row?.container_barcode, row?.container_id, row?.container_number,
       ...(Array.isArray(row?.barcodes) ? row.barcodes : []),
     ].map((x) => String(x || "").toLowerCase()).join(" ");
@@ -11152,6 +11184,8 @@
     if (!q) return true;
     const hay = [
       row?.posting_number, row?.offer_id, row?.product_name, row?.sku, row?.pick_barcode,
+      row?.sticker_barcode, row?.sticker_lower_barcode, row?.sticker_scanit,
+      row?.sticker_part_a, row?.sticker_part_b,
       row?.container_barcode, row?.container_id, row?.container_number,
       ...(Array.isArray(row?.barcodes) ? row.barcodes : []),
     ].map((x) => String(x || "").toLowerCase()).join(" ");
@@ -12694,6 +12728,7 @@
       row.sticker_lower_barcode = String(
         data.posting.sticker_lower_barcode || row.sticker_lower_barcode || ""
       ).trim();
+      row.sticker_scanit = String(data.posting.sticker_scanit || row.sticker_scanit || "").trim();
       row.sticker_part_a = String(data.posting.sticker_part_a || row.sticker_part_a || "").trim();
       row.sticker_part_b = String(data.posting.sticker_part_b || row.sticker_part_b || "").trim();
       return { row, ambiguous: false };
@@ -13847,6 +13882,7 @@
       status_label: posting.status_label || posting.status || "",
       supply_id: posting.supply_id || "",
       sticker_barcode: posting.sticker_barcode || "",
+      sticker_scanit: posting.sticker_scanit || "",
       kiz_codes: Array.isArray(posting.kiz_codes) ? posting.kiz_codes : [],
       pick_verified: !!posting.pick_verified,
       pick_barcode: posting.pick_barcode || "",

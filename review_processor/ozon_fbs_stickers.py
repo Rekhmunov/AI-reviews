@@ -19,6 +19,7 @@ _POSTING_SCAN_SELECT = """
     offer_id, sku, product_name, marking_codes_json, marking_saved_at,
     pick_verified, pick_barcode, pick_verified_at,
     sticker_barcode, sticker_part_a, sticker_part_b, sticker_lower_barcode,
+    sticker_scanit,
     raw_json
 """
 
@@ -67,6 +68,7 @@ def _sticker_fields_for_scan_row(row: dict[str, Any]) -> dict[str, str]:
     return {
         "sticker_barcode": str(payload.get("sticker_barcode") or "").strip(),
         "sticker_lower_barcode": str(payload.get("sticker_lower_barcode") or "").strip(),
+        "sticker_scanit": str(payload.get("sticker_scanit") or "").strip(),
         "sticker_part_a": str(payload.get("sticker_part_a") or "").strip(),
         "sticker_part_b": str(payload.get("sticker_part_b") or "").strip(),
     }
@@ -76,9 +78,12 @@ def _row_matches_sticker_scan(row: dict[str, Any], raw: str, raw_key: str, digit
     fields = _sticker_fields_for_scan_row(row)
     bc = fields["sticker_barcode"]
     bc_low = fields["sticker_lower_barcode"]
+    scanit = fields["sticker_scanit"]
     if bc and _sticker_scan_key(bc) == raw_key:
         return True
     if bc_low and _sticker_scan_key(bc_low) == raw_key:
+        return True
+    if scanit and _sticker_scan_key(scanit) == raw_key:
         return True
     part_a = normalize_sticker_scan(fields["sticker_part_a"])
     part_b = normalize_sticker_scan(fields["sticker_part_b"])
@@ -164,6 +169,24 @@ def find_postings_by_sticker_scan(
             ]
             if by_low:
                 return _resolve_matches(by_low)
+
+        # 1c) Exact new instance label (scanit, ``ii…``).
+        rows = _fetch_posting_rows(
+            repo,
+            conn,
+            user_id=user_id,
+            source_id=source_id,
+            where_sql="sticker_scanit <> '' AND sticker_scanit ILIKE ?",
+            params=(raw,),
+        )
+        if rows:
+            by_scanit = [
+                r
+                for r in rows
+                if _sticker_scan_key(r.get("sticker_scanit")) == raw_key
+            ]
+            if by_scanit:
+                return _resolve_matches(by_scanit)
 
         # 2) Exact posting_number (case-insensitive).
         rows = _fetch_posting_rows(
@@ -258,6 +281,11 @@ def _looks_like_ozon_package_barcode(scan: str) -> bool:
     return len(digits) >= 12 and digits == raw
 
 
+def _looks_like_refreshable_label_scan(scan: str) -> bool:
+    """True for old package QR or the new ``ii…`` instance label."""
+    return _looks_like_ozon_package_barcode(scan) or oz.looks_like_ozon_scanit(scan)
+
+
 def lookup_posting_by_scan(
     repo: ReviewRepository,
     *,
@@ -272,8 +300,8 @@ def lookup_posting_by_scan(
 
     When the scan misses locally and ``refresh_posting_numbers`` + ``client`` are
     set, re-pull package barcodes from Ozon (post-label lag after split) and retry.
-    Refresh runs only for package-like scans and prefers locally empty sticker rows
-    so a typo does not N×get_posting the whole modal.
+    Refresh runs only for package-like scans (QR or ``ii…`` scanit) and prefers
+    locally empty sticker rows so a typo does not N×get_posting the whole modal.
     """
     from . import ozon_fbs_detail as oz_detail
 
@@ -291,7 +319,7 @@ def lookup_posting_by_scan(
         and not found.get("ambiguous")
         and client is not None
         and refresh_pns
-        and _looks_like_ozon_package_barcode(scan)
+        and _looks_like_refreshable_label_scan(scan)
     ):
         try:
             local_map = oz.load_posting_sticker_map(
@@ -300,16 +328,26 @@ def lookup_posting_by_scan(
                 source_id=source_id,
                 posting_numbers=refresh_pns,
             )
-            need = [
-                pn
-                for pn in refresh_pns
-                if oz.ozon_package_barcode_is_blank(
-                    (local_map.get(pn) or {}).get("sticker_barcode")
-                )
-                and oz.ozon_package_barcode_is_blank(
-                    (local_map.get(pn) or {}).get("sticker_lower_barcode")
-                )
-            ]
+            scanit_scan = oz.looks_like_ozon_scanit(scan)
+            if scanit_scan:
+                need = [
+                    pn
+                    for pn in refresh_pns
+                    if not oz.normalize_ozon_scanit(
+                        (local_map.get(pn) or {}).get("sticker_scanit")
+                    )
+                ]
+            else:
+                need = [
+                    pn
+                    for pn in refresh_pns
+                    if oz.ozon_package_barcode_is_blank(
+                        (local_map.get(pn) or {}).get("sticker_barcode")
+                    )
+                    and oz.ozon_package_barcode_is_blank(
+                        (local_map.get(pn) or {}).get("sticker_lower_barcode")
+                    )
+                ]
             # Empty rows first (split siblings). If none empty, overwrite the
             # provided set once — covers rare barcode rotate after package-label.
             targets = need or list(refresh_pns)

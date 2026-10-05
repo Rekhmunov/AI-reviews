@@ -31,6 +31,10 @@ assert(
   tsdSrc.includes("else if (bcLow && scanKey(bcLow) === rawKey)"),
   "TSD upper else lower — exclusive barcode match"
 );
+assert(
+  tsdSrc.includes("else if (scanit && scanKey(scanit) === rawKey)"),
+  "TSD matches new ii scanit without replacing QR"
+);
 assert(tsdSrc.includes("seenBc"), "TSD barcode matches deduped by row id");
 assert(tsdSrc.includes("seenFuzzy"), "TSD fuzzy matches deduped by row id");
 
@@ -51,6 +55,20 @@ assert(
     "else if (fields.lower && _ozonFbsStickerScanKey(fields.lower) === rawKey)"
   ),
   "Ozon desktop modal upper else lower"
+);
+assert(
+  ozonSrc.includes(
+    "else if (fields.scanit && _ozonFbsStickerScanKey(fields.scanit) === rawKey)"
+  ),
+  "Ozon desktop matches scanit separately from QR"
+);
+assert(
+  ozonSrc.includes("function _ozonFbsLooksLikeScanit"),
+  "Ozon recognizes ii instance labels"
+);
+assert(
+  ozonSrc.includes("row.sticker_scanit = raw;"),
+  "Ozon apply-scan writes ii to scanit, not QR"
 );
 assert(ozonSrc.includes("const seenBc = new Set();"), "Ozon desktop barcode dedupe");
 assert(
@@ -103,9 +121,11 @@ function findByStickerBarcode(rows, raw, isOzon) {
     const id = rowScanId(row, isOzon);
     const bc = normalizeScan(row.sticker_barcode);
     const bcLow = normalizeScan(row.sticker_lower_barcode);
+    const scanit = normalizeScan(row.sticker_scanit);
     let hit = false;
     if (bc && scanKey(bc) === rawKey) hit = true;
     else if (bcLow && scanKey(bcLow) === rawKey) hit = true;
+    else if (scanit && scanKey(scanit) === rawKey) hit = true;
     if (!hit) continue;
     if (id && seenBc.has(id)) continue;
     if (id) seenBc.add(id);
@@ -153,5 +173,26 @@ const amb = findByStickerBarcode(
   true
 );
 assert(amb.ambiguous, "two different postings with same barcode stay ambiguous");
+
+// New ii… instance label must resolve even when QR is already bound.
+const scanitRows = [
+  {
+    posting_number: "36172548-0600-1",
+    sticker_barcode: "401959881047000",
+    sticker_lower_barcode: "401959881047000",
+    sticker_scanit: "iiABC12345",
+  },
+  {
+    posting_number: "36172548-0600-2",
+    sticker_barcode: "401959881048000",
+    sticker_lower_barcode: "401959881048000",
+    sticker_scanit: "iiDEF67890",
+  },
+];
+const byScanit = findByStickerBarcode(scanitRows, "iiDEF67890", true);
+assert(byScanit.row && byScanit.row.posting_number === "36172548-0600-2", "scanit unique hit");
+assert(!byScanit.ambiguous, "scanit match is not ambiguous");
+const byOldQr = findByStickerBarcode(scanitRows, "401959881047000", true);
+assert(byOldQr.row && byOldQr.row.posting_number === "36172548-0600-1", "old QR still matches");
 
 console.log("ok - wb_fbs_tsd_sticker_match");

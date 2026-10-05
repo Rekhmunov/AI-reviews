@@ -216,6 +216,9 @@ class OzonFbsMappingTests(unittest.TestCase):
         self.assertEqual(parse_posting_number_query("art-sku"), "")
         self.assertEqual(parse_posting_number_query("0124861120"), "")
         self.assertEqual(parse_posting_number_query("123"), "")
+        self.assertEqual(parse_posting_number_query("iiABC12345"), "iiABC12345")
+        self.assertEqual(parse_posting_number_query(" IIABC12345 "), "IIABC12345")
+        self.assertFalse(is_ozon_order_number_query("iiABC12345"))
 
     def test_format_lookup_datetime_date_and_iso(self) -> None:
         from review_processor.ozon_fbs import format_lookup_datetime
@@ -355,6 +358,54 @@ class OzonFbsMappingTests(unittest.TestCase):
             )
         self.assertFalse(out["found"])
         self.assertIn("не найдено", out["message"])
+
+    def test_lookup_posting_by_scanit_resolves_to_posting(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        repo = MagicMock()
+        row = {
+            "posting_number": "0124861120-0199-1",
+            "tab": TAB_AWAITING_DELIVER,
+            "status": "awaiting_deliver",
+            "offer_id": "ART-1",
+            "sticker_scanit": "iiABC12345",
+            "sticker_barcode": "UPQR",
+        }
+        with patch(
+            "review_processor.ozon_fbs_stickers.find_postings_by_sticker_scan",
+            return_value={"row": row, "ambiguous": False, "matches": [row]},
+        ), patch(
+            "review_processor.ozon_fbs.get_posting_by_number", return_value=row
+        ), patch(
+            "review_processor.ozon_fbs._tab_counts",
+            return_value={TAB_AWAITING_DELIVER: 1},
+        ), patch(
+            "review_processor.ozon_fbs.ensure_ozon_fbs_tables"
+        ), patch(
+            "review_processor.ozon_fbs._enrich_posting_list_item",
+            return_value={**row, "tab_label": "Ожидают отгрузки"},
+        ), patch(
+            "review_processor.ozon_fbs.build_posting_lookup_details",
+            return_value={
+                "posting_number": "0124861120-0199-1",
+                "status_label": "Ожидает отгрузки",
+                "sticker_scanit": "iiABC12345",
+                "sticker_barcode": "UPQR",
+                "kiz_codes": [],
+                "pick_verified": False,
+            },
+        ):
+            out = lookup_posting_by_number(
+                repo,
+                user_id=1,
+                source_id=2,
+                posting_number="iiABC12345",
+                allow_remote=False,
+            )
+        self.assertTrue(out["found"])
+        self.assertEqual(out["posting_number"], "0124861120-0199-1")
+        self.assertEqual(out["query"], "iiABC12345")
+        self.assertEqual(out["item"]["posting_number"], "0124861120-0199-1")
 
     def test_lookup_refreshes_status_from_api(self) -> None:
         from unittest.mock import MagicMock, patch
