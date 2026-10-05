@@ -11,6 +11,34 @@ from review_processor.ozon_fbs_tsd import (
 )
 
 
+def test_normalize_tsd_rows_preserves_scanit() -> None:
+    rows = _normalize_tsd_rows(
+        [
+            {
+                "posting_number": "0101152363-0210-1",
+                "sticker_barcode": "401959881047000",
+                "sticker_scanit": "iiABC12345",
+            }
+        ]
+    )
+    assert rows[0]["sticker_scanit"] == "iiABC12345"
+    assert rows[0]["sticker_barcode"] == "401959881047000"
+
+
+def test_tsd_lookup_endpoint_uses_tsd_auth() -> None:
+    from pathlib import Path
+
+    web = (Path(__file__).resolve().parents[1] / "review_processor" / "web.py").read_text(
+        encoding="utf-8"
+    )
+    start = web.find('@app.get("/api/wb-fbs/tsd/postings/lookup")')
+    assert start > 0
+    chunk = web[start : start + 1800]
+    assert "_require_tsd_source" in chunk
+    assert "lookup_posting_by_scan" in chunk
+    assert "_can_view_ozon_fbs" not in chunk
+
+
 def test_normalize_tsd_rows_adds_sticker_number_and_order_id() -> None:
     rows = _normalize_tsd_rows(
         [{"posting_number": "0101152363-0210-1", "kiz_codes": ["x"]}]

@@ -1651,6 +1651,124 @@
     return { row: null, ambiguous: false };
   }
 
+  const OZON_SCANIT_RE = /^ii[A-Za-z0-9._-]{2,}$/i;
+
+  function looksLikeOzonScanit(value) {
+    return OZON_SCANIT_RE.test(normalizeScan(value));
+  }
+
+  function looksLikeOzonPackageBarcode(value) {
+    const raw = normalizeScan(value);
+    if (!raw) return false;
+    const digits = digitsOnly(raw);
+    return digits.length >= 12 && digits === raw;
+  }
+
+  function looksLikeOzonLabelScan(value) {
+    return looksLikeOzonPackageBarcode(value) || looksLikeOzonScanit(value);
+  }
+
+  function ozonLookupRefreshPostings(rows, scan) {
+    const out = [];
+    const seen = new Set();
+    const scanitScan = looksLikeOzonScanit(scan);
+    for (const row of rows || []) {
+      const pn = String(row.posting_number || "").trim();
+      if (!pn || seen.has(pn)) continue;
+      const scanit = normalizeScan(row.sticker_scanit);
+      const upper = normalizeScan(row.sticker_barcode);
+      const lower = normalizeScan(row.sticker_lower_barcode);
+      if (scanitScan) {
+        if (scanit) continue;
+      } else if (upper || lower) {
+        continue;
+      }
+      seen.add(pn);
+      out.push(pn);
+      if (out.length >= 80) break;
+    }
+    return out;
+  }
+
+  function applyOzonStickerBindings(rows, bindings) {
+    if (!bindings || typeof bindings !== "object" || !Array.isArray(rows)) return;
+    for (const row of rows) {
+      const pn = String(row?.posting_number || "").trim();
+      if (!pn) continue;
+      const st = bindings[pn];
+      if (!st || typeof st !== "object") continue;
+      if (st.sticker_barcode != null) {
+        row.sticker_barcode = String(st.sticker_barcode || "").trim();
+      }
+      if (st.sticker_lower_barcode != null) {
+        row.sticker_lower_barcode = String(st.sticker_lower_barcode || "").trim();
+      }
+      if (st.sticker_scanit != null) {
+        row.sticker_scanit = String(st.sticker_scanit || "").trim();
+      }
+      if (st.sticker_part_a != null) {
+        row.sticker_part_a = String(st.sticker_part_a || "").trim();
+      }
+      if (st.sticker_part_b != null) {
+        row.sticker_part_b = String(st.sticker_part_b || "").trim();
+      }
+    }
+  }
+
+  function applyOzonPostingStickerToRow(row, posting) {
+    if (!row || !posting || typeof posting !== "object") return;
+    row.sticker_barcode = String(
+      posting.sticker_barcode || row.sticker_barcode || ""
+    ).trim();
+    row.sticker_lower_barcode = String(
+      posting.sticker_lower_barcode || row.sticker_lower_barcode || ""
+    ).trim();
+    row.sticker_scanit = String(
+      posting.sticker_scanit || row.sticker_scanit || ""
+    ).trim();
+    row.sticker_part_a = String(
+      posting.sticker_part_a || row.sticker_part_a || ""
+    ).trim();
+    row.sticker_part_b = String(
+      posting.sticker_part_b || row.sticker_part_b || ""
+    ).trim();
+  }
+
+  async function findByStickerWithOzonLookup(rows, raw) {
+    const local = findBySticker(rows, raw);
+    if (local.row || local.ambiguous) return local;
+    if (!isOzon() || !looksLikeOzonLabelScan(raw)) return local;
+    const sourceId = state.sourceId;
+    if (!sourceId) return local;
+    try {
+      const scan = normalizeScan(raw);
+      const params = new URLSearchParams({
+        source_id: String(sourceId),
+        scan,
+      });
+      const refreshPns = ozonLookupRefreshPostings(rows, scan);
+      if (refreshPns.length) params.set("refresh_postings", refreshPns.join(","));
+      const data = await api(`/api/wb-fbs/tsd/postings/lookup?${params}`);
+      if (data && data.sticker_bindings) {
+        applyOzonStickerBindings(state.kizRows, data.sticker_bindings);
+        applyOzonStickerBindings(state.pickRows, data.sticker_bindings);
+        const afterBindings = findBySticker(rows, raw);
+        if (afterBindings.row || afterBindings.ambiguous) return afterBindings;
+      }
+      if (!data || !data.found || !data.posting) return local;
+      const pn = String(data.posting.posting_number || "").trim();
+      if (!pn) return local;
+      const row = (rows || []).find(
+        (r) => String(r.posting_number || "").trim() === pn
+      );
+      if (!row) return local;
+      applyOzonPostingStickerToRow(row, data.posting);
+      return { row, ambiguous: false };
+    } catch (_e) {
+      return local;
+    }
+  }
+
   function rowKizFilled(r) {
     const codes = Array.isArray(r.kiz_codes) ? r.kiz_codes : [];
     return codes.some((c) => String(c || "").trim());
@@ -3960,7 +4078,7 @@
         }
         if (ev.key === "Enter") {
           ev.preventDefault();
-          applyOrderSearchEnter();
+          void applyOrderSearchEnter();
         }
       });
       if (state.searchOpen) {
@@ -4218,7 +4336,7 @@
     scrollToScanInput();
   }
 
-  function applyOrderSearchEnter() {
+  async function applyOrderSearchEnter() {
     if (state.route.view !== "scan" || !state.searchOpen) return;
     const mode = state.route.mode;
     const rows = mode === "kiz" ? state.kizRows : state.pickRows;
@@ -4236,7 +4354,7 @@
       const input = document.getElementById("tsdOrderSearch");
       if (input) input.value = mapped;
     }
-    const found = findBySticker(rows, raw);
+    const found = await findByStickerWithOzonLookup(rows, raw);
     if (found.ambiguous) {
       setBanner("Стикер совпал у нескольких заказов — уточните поиск", "err");
       beep(false);
@@ -5579,7 +5697,7 @@
     if (state.step === "sticker" || !state.pendingOrderId) {
       if (!guardOrderScanRequiresActiveGm(input)) return;
       const rows = mode === "kiz" ? state.kizRows : state.pickRows;
-      const found = findBySticker(rows, raw);
+      const found = await findByStickerWithOzonLookup(rows, raw);
       if (found.ambiguous) {
         showTsdScanAck(
           "Стикер совпал у нескольких заказов — сканируйте QR ещё раз",
@@ -6104,7 +6222,7 @@
             applyListSearchFromHeader();
             return;
           }
-          applyOrderSearchEnter();
+          void applyOrderSearchEnter();
         }
       });
     }
