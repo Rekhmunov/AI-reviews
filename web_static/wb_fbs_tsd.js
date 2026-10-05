@@ -3163,7 +3163,7 @@
   function renderOzonOrderDetailsHtml(row, mode) {
     const posting = String(row.posting_number || rowScanId(row) || "").trim();
     const sticker = String(
-      row.sticker_barcode || row.sticker_lower_barcode || ""
+      row.sticker_barcode || row.sticker_lower_barcode || row.sticker_scanit || ""
     ).trim();
     const gmCode = rowGmCode(row);
     const gmErr = String(row.container_sync_error || "").trim();
@@ -4155,6 +4155,7 @@
       row.sticker_number,
       row.sticker_barcode,
       row.sticker_lower_barcode,
+      row.sticker_scanit,
       row.sticker_part_a,
       row.sticker_part_b,
       row.product_name,

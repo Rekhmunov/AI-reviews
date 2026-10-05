@@ -35,6 +35,7 @@ assert(
   tsdSrc.includes("else if (scanit && scanKey(scanit) === rawKey)"),
   "TSD matches new ii scanit without replacing QR"
 );
+assert(tsdSrc.includes("row.sticker_scanit"), "TSD search hay includes scanit");
 assert(tsdSrc.includes("seenBc"), "TSD barcode matches deduped by row id");
 assert(tsdSrc.includes("seenFuzzy"), "TSD fuzzy matches deduped by row id");
 
