@@ -81,6 +81,7 @@
     "ozonFbsSupplyDetailPickingBtn",
     "ozonFbsSupplyDetailStickersBtn",
     "ozonFbsSupplyDetailStickersMenuBtn",
+    "ozonFbsSupplyDetailNewStickersBtn",
     "ozonFbsSupplyDetailTrbxBtn",
     "ozonFbsSupplyDetailKizBtn",
     "ozonFbsSupplyDetailKizRefreshBtn",
@@ -4486,17 +4487,29 @@
     const sourceId = supplyDetailState.sourceId || state.sourceId;
     if (!sid || !sourceId || !_ozonFbsSupplyActionsReady()) return;
     closeStickersMenu();
-    const btn = document.getElementById("ozonFbsSupplyDetailStickersBtn");
+    const opts = options && typeof options === "object" ? options : {};
+    const newLabels = !!opts.newLabels;
+    const oldBtn = document.getElementById("ozonFbsSupplyDetailStickersBtn");
+    const newBtn = document.getElementById("ozonFbsSupplyDetailNewStickersBtn");
     const caret = document.getElementById("ozonFbsSupplyDetailStickersMenuBtn");
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = "Стикеры…";
-    }
-    if (caret) caret.disabled = true;
+    const activeBtn = newLabels ? newBtn : oldBtn;
+    const idleLabel = newLabels ? "Новые стикеры" : "Стикеры";
+    const waitLabel = newLabels ? "Новые стикеры…" : "Стикеры…";
+    const setBtnBusy = (busy, text) => {
+      if (oldBtn) {
+        oldBtn.disabled = !!busy;
+        if (!newLabels) oldBtn.textContent = busy ? (text || waitLabel) : "Стикеры";
+      }
+      if (newBtn) {
+        newBtn.disabled = !!busy;
+        if (newLabels) newBtn.textContent = busy ? (text || waitLabel) : "Новые стикеры";
+      }
+      if (caret) caret.disabled = !!busy;
+    };
+    setBtnBusy(true, waitLabel);
     const ids = Array.isArray(postingNumbers)
       ? postingNumbers.map((x) => String(x || "").trim()).filter(Boolean)
       : [];
-    const opts = options && typeof options === "object" ? options : {};
     // Full print (no filter) → cover+separators.
     // Category print passes includeCoverAndSeparators: true.
     // Row «⋮» single sticker keeps labels-only (default when filtered).
@@ -4509,6 +4522,7 @@
       source_id: Number(sourceId),
       order_ids: ids,
       include_cover_and_separators: includeCover,
+      new_labels: newLabels,
     };
     if (tab) body.posting_tab = tab;
 
@@ -4516,18 +4530,16 @@
     // progress there — not a blank tab after a blocking alert on the modal.
     const printWin = window.open("about:blank", "_blank");
     if (!printWin) {
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = "Стикеры";
-      }
-      if (caret) caret.disabled = false;
-      alert("Разрешите всплывающие окна для стикеров");
+      setBtnBusy(false);
+      alert(newLabels
+        ? "Разрешите всплывающие окна для новых стикеров"
+        : "Разрешите всплывающие окна для стикеров");
       return;
     }
     try {
       printWin.document.open();
       printWin.document.write(`<!doctype html><html lang="ru"><head><meta charset="utf-8"/>
-<title>Стикеры — загрузка</title>
+<title>${newLabels ? "Новые стикеры" : "Стикеры"} — загрузка</title>
 <style>
   body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#f8fafc;color:#0f172a}
   .box{max-width:520px;margin:48px auto;padding:24px;background:#fff;border:1px solid #e2e8f0;border-radius:12px}
@@ -4535,7 +4547,7 @@
   #st{font-size:18px;font-weight:700;color:#1d4ed8}
   .hint{color:#64748b;font-size:14px}
 </style></head><body><div class="box">
-  <h1>Подготовка стикеров</h1>
+  <h1>${newLabels ? "Подготовка новых стикеров" : "Подготовка стикеров"}</h1>
   <p id="st">Загрузка…</p>
   <p class="hint">Не закрывайте эту вкладку. Диалог печати откроется здесь автоматически.</p>
 </div></body></html>`);
@@ -4571,11 +4583,7 @@
 
     const restoreBtn = () => {
       if (!_ozonFbsSupplyActionsReady()) return;
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = "Стикеры";
-      }
-      if (caret) caret.disabled = false;
+      setBtnBusy(false);
     };
 
     const writePrintHtml = (html) => {
@@ -4611,6 +4619,7 @@
         || statusMeta?.missing_count
         || 0
       );
+      const readyWord = newLabels ? "Новые стикеры" : "Стикеры";
       if (missingCount > 0) {
         const expected = Number(
           res.headers.get("X-Feedpilot-Stickers-Expected")
@@ -4633,7 +4642,7 @@
           : "";
         const reasonShort = reasons[0] ? ` ${reasons[0]}` : "";
         setModalNotice(
-          `Стикеры: загружено ${loaded} из ${expected}. `
+          `${readyWord}: загружено ${loaded} из ${expected}. `
           + `Пропущено ${missingCount}`
           + (preview ? ` (${preview})` : "")
           + `. Печать открыта в соседней вкладке.`
@@ -4642,7 +4651,7 @@
         );
       } else {
         setModalNotice(
-          "Стикеры готовы — диалог печати открыт в соседней вкладке.",
+          `${readyWord} готовы — диалог печати открыт в соседней вкладке.`,
           "ok"
         );
       }
@@ -4658,12 +4667,12 @@
         if (!res.ok) throw new Error(detailText(st.detail) || `Ошибка ${res.status}`);
         const done = Number(st.done || 0);
         const total = Number(st.total || 0);
-        const msg = String(st.message || "Стикеры…");
+        const msg = String(st.message || waitLabel);
         const progressText =
           total > 0
-            ? `Стикеры ${Math.min(done, total)}/${total}`
+            ? `${idleLabel} ${Math.min(done, total)}/${total}`
             : (msg.length > 28 ? `${msg.slice(0, 26)}…` : msg);
-        if (btn) btn.textContent = progressText;
+        if (activeBtn) activeBtn.textContent = progressText;
         setPrintStatus(
           total > 0
             ? `Загружено ${Math.min(done, total)} из ${total}…`
@@ -4700,7 +4709,11 @@
         );
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(detailText(data.detail) || "Не удалось начать загрузку стикеров");
-        setPrintStatus("Скачивание этикеток с Ozon…");
+        setPrintStatus(
+          newLabels
+            ? "Скачивание новых этикеток с Ozon…"
+            : "Скачивание этикеток с Ozon…"
+        );
         await poll();
       } catch (e) {
         const err = String(e.message || e);
@@ -14776,6 +14789,7 @@
   window.confirmOzonFbsSupplyDetailNewSupply = confirmOzonFbsSupplyDetailNewSupply;
   window.ozonFbsOpenPickingList = openPickingList;
   window.ozonFbsOpenStickersPrint = () => openStickersPrint();
+  window.ozonFbsOpenNewStickersPrint = () => openStickersPrint(undefined, { newLabels: true });
   window.toggleOzonFbsStickersMenu = toggleStickersMenu;
   window.openOzonFbsStickersByCategoryModal = openStickersByCategoryModal;
   window.closeOzonFbsStickersByCategoryModal = closeStickersByCategoryModal;
