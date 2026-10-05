@@ -36,6 +36,15 @@ assert(
   "TSD matches new ii scanit without replacing QR"
 );
 assert(tsdSrc.includes("row.sticker_scanit"), "TSD search hay includes scanit");
+assert(
+  tsdSrc.includes("async function findByStickerWithOzonLookup"),
+  "TSD Ozon lookup-on-miss for new ii labels"
+);
+assert(
+  tsdSrc.includes("/api/wb-fbs/tsd/postings/lookup"),
+  "TSD uses TSD-auth sticker lookup, not desktop-only ozon-fbs"
+);
+assert(tsdSrc.includes("function looksLikeOzonScanit"), "TSD recognizes ii instance labels");
 assert(tsdSrc.includes("seenBc"), "TSD barcode matches deduped by row id");
 assert(tsdSrc.includes("seenFuzzy"), "TSD fuzzy matches deduped by row id");
 
@@ -45,7 +54,7 @@ const stickerEnterIdx = tsdSrc.indexOf(
 );
 assert(stickerEnterIdx > 0, "sticker step enter handler");
 const enterChunk = tsdSrc.slice(stickerEnterIdx, stickerEnterIdx + 500);
-assert(enterChunk.includes("findBySticker(rows, raw)"), "scan Enter uses findBySticker");
+assert(enterChunk.includes("findByStickerWithOzonLookup(rows, raw)"), "scan Enter uses findBySticker");
 assert(
   enterChunk.includes('mode === "kiz" ? state.kizRows : state.pickRows'),
   "KIZ and pick modes share findBySticker"

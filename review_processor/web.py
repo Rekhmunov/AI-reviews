@@ -10403,6 +10403,44 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.get("/api/wb-fbs/tsd/postings/lookup")
+    def wb_fbs_tsd_posting_lookup(
+        request: Request,
+        source_id: int,
+        scan: str,
+        refresh_postings: str | None = None,
+    ) -> dict[str, object]:
+        """TSD Ozon sticker lookup (QR or ``ii…`` scanit), same as desktop modal.
+
+        Uses ТСД source grants, not the full Ozon FBS desktop permission.
+        """
+        from . import ozon_fbs_stickers as oz_stickers
+
+        user = _require_user(request)
+        if not source_id or not str(scan or "").strip():
+            raise HTTPException(status_code=400, detail="Укажите source_id и scan")
+        _require_tsd_source(user, int(source_id))
+        owner_id = _supply_owner_id(user)
+        refresh_pns = [
+            p.strip()
+            for p in str(refresh_postings or "").split(",")
+            if p.strip()
+        ]
+        _, client_id, api_key = _ozon_fbs_source_credentials(
+            owner_id, int(source_id)
+        )
+        client = None
+        if refresh_pns and client_id and api_key:
+            client = ozon_fbs_mod.OzonFbsClient(client_id, api_key)
+        return oz_stickers.lookup_posting_by_scan(
+            repository,
+            user_id=owner_id,
+            source_id=int(source_id),
+            scan=str(scan).strip(),
+            client=client,
+            refresh_posting_numbers=refresh_pns or None,
+        )
+
     @app.get("/api/wb-fbs/tsd/supplies/{supply_id}/kiz")
     def wb_fbs_tsd_kiz_list(
         request: Request,
