@@ -16,7 +16,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 from zoneinfo import ZoneInfo
 
 from . import ozon_fbs as oz
@@ -5122,6 +5122,9 @@ def render_picking_list_html(detail: dict[str, Any]) -> str:
 _OZON_LABEL_BATCH = 20
 # Parallel top-level batches (each ≤20). Keeps total wall time down for 500+ stickers.
 _OZON_LABEL_FETCH_WORKERS = 4
+# New async create+get: Ozon allows 1000; keep batches smaller for mismatch split.
+_OZON_NEW_LABEL_BATCH = 200
+_OZON_NEW_LABEL_FETCH_WORKERS = 2
 _PRINTABLE_LABEL_TABS = frozenset(
     {
         oz.TAB_AWAITING_PACKAGING,
@@ -5421,6 +5424,154 @@ def _fetch_label_images(
     return result
 
 
+def _unprinted_posting_set(meta: Mapping[str, Any] | None) -> set[str]:
+    out: set[str] = set()
+    if not isinstance(meta, Mapping):
+        return out
+    raw = meta.get("unprinted_postings")
+    if not isinstance(raw, list):
+        return out
+    for item in raw:
+        if isinstance(item, Mapping):
+            pn = str(item.get("posting_number") or "").strip()
+        else:
+            pn = str(item or "").strip()
+        if pn:
+            out.add(pn)
+    return out
+
+
+def _assign_new_label_pages(
+    batch: list[str],
+    pages: list[str],
+    meta: Mapping[str, Any] | None,
+) -> dict[str, list[str]] | None:
+    """Map rasterized pages onto postings. None = caller should split the batch."""
+    result: dict[str, list[str]] = {pn: [] for pn in batch}
+    if not batch:
+        return result
+    unprinted = _unprinted_posting_set(meta)
+    printable = [pn for pn in batch if pn not in unprinted]
+    if len(pages) == len(printable):
+        for pn, page in zip(printable, pages):
+            result[pn] = [page]
+        return result
+    if not unprinted and len(pages) == len(batch):
+        return _assign_label_pages_to_batch(batch, pages)
+    return None
+
+
+def _fetch_new_label_pages_for_posting(
+    client: oz.OzonFbsClient, posting_number: str
+) -> list[str]:
+    pn = str(posting_number or "").strip()
+    if not pn:
+        return []
+    try:
+        pdf, _meta = client.fetch_async_package_label_pdf([pn])
+        return _pdf_pages_to_png_b64(pdf)
+    except Exception as exc:
+        if _is_pymupdf_setup_error(exc):
+            raise
+        _log.warning("ozon package-label v3 %s: %s", pn, exc)
+        return []
+
+
+def _fetch_new_label_images_for_batch(
+    client: oz.OzonFbsClient, batch: list[str]
+) -> dict[str, list[str]]:
+    """Fetch+rasterize one async-label batch. Split on errors or page mismatch."""
+    clean = [str(p).strip() for p in batch if str(p).strip()]
+    if not clean:
+        return {}
+    if len(clean) == 1:
+        return {clean[0]: _fetch_new_label_pages_for_posting(client, clean[0])}
+    try:
+        pdf, meta = client.fetch_async_package_label_pdf(clean)
+        pages = _pdf_pages_to_png_b64(pdf)
+        assigned = _assign_new_label_pages(clean, pages, meta)
+        if assigned is not None:
+            return assigned
+        _log.warning(
+            "ozon package-label v3 page/posting mismatch batch=%s pages=%s — split",
+            len(clean),
+            len(pages),
+        )
+    except Exception as exc:
+        if _is_pymupdf_setup_error(exc):
+            raise
+        _log.warning("ozon package-label v3 batch failed (%s): %s", len(clean), exc)
+    mid = max(1, len(clean) // 2)
+    left = _fetch_new_label_images_for_batch(client, clean[:mid])
+    right = _fetch_new_label_images_for_batch(client, clean[mid:])
+    out = dict(left)
+    out.update(right)
+    return out
+
+
+def _fetch_new_label_images(
+    client: oz.OzonFbsClient,
+    posting_numbers: list[str],
+    *,
+    progress: Callable[[int, int, str], None] | None = None,
+) -> dict[str, list[str]]:
+    """Rasterize new Ozon labels via v3 create + v2 get (not sync /v2/package-label)."""
+    nums = [str(p).strip() for p in posting_numbers if str(p).strip()]
+    result: dict[str, list[str]] = {pn: [] for pn in nums}
+    if not nums:
+        return result
+    batches = [
+        nums[i : i + _OZON_NEW_LABEL_BATCH]
+        for i in range(0, len(nums), _OZON_NEW_LABEL_BATCH)
+    ]
+    workers = min(_OZON_NEW_LABEL_FETCH_WORKERS, max(1, len(batches)))
+    t0 = time.monotonic()
+    done_postings = 0
+    progress_lock = threading.Lock()
+
+    def _on_batch_done(batch: list[str], partial: dict[str, list[str]]) -> None:
+        nonlocal done_postings
+        result.update(partial)
+        with progress_lock:
+            done_postings += len(batch)
+            loaded = sum(1 for pn in nums if result.get(pn))
+            cur = min(done_postings, len(nums))
+            if progress:
+                try:
+                    progress(
+                        cur,
+                        len(nums),
+                        f"Новые этикетки {loaded}/{len(nums)}",
+                    )
+                except Exception:
+                    pass
+
+    if workers <= 1 or len(batches) == 1:
+        for batch in batches:
+            partial = _fetch_new_label_images_for_batch(client, batch)
+            _on_batch_done(batch, partial)
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futs = {
+                pool.submit(_fetch_new_label_images_for_batch, client, batch): batch
+                for batch in batches
+            }
+            for fut in as_completed(futs):
+                batch = futs[fut]
+                _on_batch_done(batch, fut.result())
+    loaded = sum(1 for pn in nums if result.get(pn))
+    _log.info(
+        "ozon package-label v3 fetch done postings=%s batches=%s workers=%s "
+        "loaded=%s elapsed=%.1fs",
+        len(nums),
+        len(batches),
+        workers,
+        loaded,
+        time.monotonic() - t0,
+    )
+    return result
+
+
 def _diagnose_missing_label(
     client: oz.OzonFbsClient, posting_number: str
 ) -> tuple[str, dict[str, Any] | None]:
@@ -5499,14 +5650,16 @@ def _retry_and_diagnose_missing_labels(
     source_id: int = 0,
     images: dict[str, list[str]],
     missing: list[str],
+    fetch_one: Callable[[oz.OzonFbsClient, str], list[str]] | None = None,
 ) -> tuple[dict[str, list[str]], list[str], list[str], list[dict[str, Any]]]:
     """One individual retry for missing labels, then status diagnosis."""
+    pull = fetch_one or _fetch_label_pages_for_posting
     out = dict(images)
     still: list[str] = []
     reasons: list[str] = []
     cancelled_postings: list[dict[str, Any]] = []
     for pn in missing:
-        pages = _fetch_label_pages_for_posting(client, pn)
+        pages = pull(client, pn)
         if pages:
             out[pn] = pages
             continue
@@ -5794,6 +5947,7 @@ def build_stickers_print(
     posting_tab: str | None = None,
     progress: Callable[[int, int, str], None] | None = None,
     include_cover_and_separators: bool | None = None,
+    use_new_labels: bool = False,
 ) -> StickersPrintResult:
     detail = get_supply_detail_for_print(
         repo,
@@ -5849,7 +6003,13 @@ def build_stickers_print(
             supply_id,
             exc,
         )
-    images = _fetch_label_images(client, nums, progress=progress)
+    fetch_images = _fetch_new_label_images if use_new_labels else _fetch_label_images
+    fetch_one = (
+        _fetch_new_label_pages_for_posting
+        if use_new_labels
+        else _fetch_label_pages_for_posting
+    )
+    images = fetch_images(client, nums, progress=progress)
     missing = [pn for pn in nums if not (images.get(pn) or [])]
     missing_reasons: list[str] = []
     cancelled_postings: list[dict[str, Any]] = []
@@ -5871,6 +6031,7 @@ def build_stickers_print(
                 source_id=int(source_id),
                 images=images,
                 missing=missing,
+                fetch_one=fetch_one,
             )
         )
     loaded = sum(1 for pn in nums if (images.get(pn) or []))
@@ -6002,6 +6163,7 @@ def start_stickers_print_job(
     posting_numbers_filter: list[str] | None = None,
     posting_tab: str | None = None,
     include_cover_and_separators: bool | None = None,
+    use_new_labels: bool = False,
 ) -> dict[str, Any]:
     """Background stickers fetch with progress for the supply-detail button."""
     uid = int(user_id)
@@ -6069,6 +6231,7 @@ def start_stickers_print_job(
                 posting_tab=posting_tab,
                 progress=_progress,
                 include_cover_and_separators=include_cover_and_separators,
+                use_new_labels=bool(use_new_labels),
             )
             with _stickers_jobs_lock:
                 st = _stickers_jobs.get(uid) or {}

@@ -17,6 +17,7 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from .repository import ReviewRepository
@@ -476,6 +477,117 @@ class OzonFbsClient:
             {"posting_number": [str(p) for p in posting_numbers if str(p).strip()]},
         )
 
+    def package_label_create_v3(self, posting_numbers: list[str]) -> list[dict[str, Any]]:
+        """POST /v3/posting/fbs/package-label/create — async labels, ≤1000 numbers."""
+        nums = [str(p).strip() for p in posting_numbers if str(p).strip()]
+        if not nums:
+            raise RuntimeError("Не указаны отправления для печати")
+        if len(nums) > PACKAGE_LABEL_CREATE_V3_MAX:
+            raise RuntimeError(
+                f"Ozon принимает не больше {PACKAGE_LABEL_CREATE_V3_MAX} "
+                "отправлений за одно задание на этикетки"
+            )
+        data = self.post_json(
+            "/v3/posting/fbs/package-label/create",
+            {"posting_numbers": nums},
+        )
+        tasks = parse_package_label_create_tasks(data)
+        if not tasks:
+            raise RuntimeError("Ozon не вернул задание на формирование этикеток")
+        return tasks
+
+    def package_label_get_v2(self, task_id: int | str) -> dict[str, Any]:
+        """POST /v2/posting/fbs/package-label/get — status / file_url for a create task."""
+        try:
+            tid = int(str(task_id).strip())
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("Некорректный task_id задания этикеток Ozon") from exc
+        data = self.post_json(
+            "/v2/posting/fbs/package-label/get",
+            {"task_id": tid},
+        )
+        return parse_package_label_get_result(data)
+
+    def download_package_label_file(self, file_url: str) -> bytes:
+        """GET the PDF from Ozon ``file_url`` (https, ozon hosts only)."""
+        url = str(file_url or "").strip()
+        if not url:
+            raise RuntimeError("Ozon не вернул ссылку на файл этикеток")
+        parsed = urlparse(url)
+        if parsed.scheme != "https":
+            raise RuntimeError("Ссылка на этикетки Ozon должна быть https")
+        host = str(parsed.hostname or "").strip().lower()
+        if not _is_ozon_label_file_host(host):
+            raise RuntimeError(f"Неожиданный хост файла этикеток Ozon: {host or '—'}")
+        req = Request(
+            url,
+            method="GET",
+            headers={
+                "User-Agent": "FeedPilot-OzonFBS/1.0",
+                "Accept": "application/pdf,*/*",
+            },
+        )
+        try:
+            with urlopen(req, timeout=max(int(self.timeout), 60)) as resp:
+                raw = resp.read()
+        except HTTPError as exc:
+            err_body = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(
+                f"Ozon HTTP {exc.code} при скачивании этикеток: {err_body or exc.reason}"
+            ) from exc
+        except URLError as exc:
+            raise RuntimeError(
+                f"Ozon network error при скачивании этикеток: {exc.reason}"
+            ) from exc
+        if not raw:
+            raise RuntimeError("Ozon вернул пустой файл этикеток")
+        return raw
+
+    def poll_package_label_task(
+        self,
+        task_id: int | str,
+        *,
+        timeout_sec: float = 180.0,
+        interval_sec: float = 1.5,
+        sleep: Callable[[float], None] | None = None,
+    ) -> dict[str, Any]:
+        """Poll ``package-label/get`` until ``file_url`` is ready or the task fails."""
+        sleeper = time.sleep if sleep is None else sleep
+        deadline = time.monotonic() + max(float(timeout_sec), 5.0)
+        interval = max(float(interval_sec), 0.2)
+        last: dict[str, Any] = {}
+        while True:
+            last = self.package_label_get_v2(task_id)
+            if package_label_task_is_failed(last):
+                raise RuntimeError(package_label_task_error_text(last))
+            if package_label_task_is_ready(last):
+                return last
+            if time.monotonic() >= deadline:
+                raise RuntimeError(
+                    "Таймаут ожидания этикеток Ozon. "
+                    "Повторите печать через минуту."
+                )
+            sleeper(interval)
+
+    def fetch_async_package_label_pdf(
+        self,
+        posting_numbers: list[str],
+        *,
+        sleep: Callable[[float], None] | None = None,
+        timeout_sec: float = 180.0,
+    ) -> tuple[bytes, dict[str, Any]]:
+        """Create v3 task, wait for v2 get, download PDF. Does not call sync v2 package-label."""
+        tasks = self.package_label_create_v3(posting_numbers)
+        task = select_small_label_task(tasks)
+        data = self.poll_package_label_task(
+            task["task_id"],
+            timeout_sec=timeout_sec,
+            sleep=sleep,
+        )
+        url = str(data.get("file_url") or "").strip()
+        pdf = self.download_package_label_file(url)
+        return pdf, data
+
     def delivery_method_list(
         self,
         *,
@@ -758,6 +870,175 @@ def ozon_status_label_ru(status: object) -> str:
     if not st:
         return "неизвестен"
     return _OZON_LABEL_STATUS_RU.get(st, st)
+
+
+PACKAGE_LABEL_CREATE_V3_MAX = 1000
+_PACKAGE_LABEL_TASK_FAIL_CODES = frozenset(
+    {"error", "failed", "fail", "cancelled", "canceled"}
+)
+_PACKAGE_LABEL_FILE_HOST_EXACT = frozenset(
+    {"ozon.ru", "ozone.ru", "ozonusercontent.com", "yandexcloud.net"}
+)
+_PACKAGE_LABEL_FILE_HOST_SUFFIXES = (
+    ".ozon.ru",
+    ".ozone.ru",
+    ".ozonusercontent.com",
+    ".yandexcloud.net",
+)
+
+
+def _is_ozon_label_file_host(host: str) -> bool:
+    h = str(host or "").strip().lower().rstrip(".")
+    if not h:
+        return False
+    if h in _PACKAGE_LABEL_FILE_HOST_EXACT:
+        return True
+    return any(h.endswith(suf) for suf in _PACKAGE_LABEL_FILE_HOST_SUFFIXES)
+
+
+def parse_package_label_create_tasks(data: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    """Normalize v3 create response (no ``result`` wrapper; tolerate wrapped/old shapes)."""
+    if not isinstance(data, Mapping):
+        return []
+    raw_tasks = data.get("tasks")
+    if not isinstance(raw_tasks, list):
+        nested = data.get("result")
+        if isinstance(nested, Mapping):
+            raw_tasks = nested.get("tasks")
+            if not isinstance(raw_tasks, list):
+                # Old v2 create: result.task_id
+                tid = nested.get("task_id") or nested.get("taskId")
+                if tid is not None:
+                    raw_tasks = [nested]
+        elif isinstance(nested, list):
+            raw_tasks = nested
+    if not isinstance(raw_tasks, list):
+        tid = data.get("task_id") or data.get("taskId")
+        if tid is not None:
+            raw_tasks = [data]
+        else:
+            return []
+    out: list[dict[str, Any]] = []
+    for item in raw_tasks:
+        if not isinstance(item, Mapping):
+            continue
+        tid = item.get("task_id")
+        if tid is None:
+            tid = item.get("taskId")
+        if tid is None:
+            continue
+        try:
+            task_id = int(str(tid).strip())
+        except (TypeError, ValueError):
+            continue
+        task_type = str(
+            item.get("task_type") or item.get("taskType") or ""
+        ).strip().lower()
+        out.append({"task_id": task_id, "task_type": task_type})
+    return out
+
+
+def select_small_label_task(tasks: list[Mapping[str, Any]]) -> dict[str, Any]:
+    """Prefer 58×40 ``small_label`` when Ozon returns both sizes."""
+    clean = [dict(t) for t in tasks if isinstance(t, Mapping) and t.get("task_id") is not None]
+    if not clean:
+        raise RuntimeError("Ozon не вернул задание на формирование этикеток")
+    for t in clean:
+        tt = str(t.get("task_type") or "").strip().lower()
+        if tt in ("small_label", "small"):
+            return {"task_id": int(t["task_id"]), "task_type": tt}
+    first = clean[0]
+    return {
+        "task_id": int(first["task_id"]),
+        "task_type": str(first.get("task_type") or "").strip().lower(),
+    }
+
+
+def parse_package_label_get_result(data: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Normalize v2 get response (no ``result`` wrapper; tolerate wrapped shapes)."""
+    if not isinstance(data, Mapping):
+        return {}
+    src: Mapping[str, Any] = data
+    nested = data.get("result")
+    if isinstance(nested, Mapping) and not (
+        data.get("file_url") or data.get("fileUrl") or data.get("status")
+    ):
+        src = nested
+    file_url = str(src.get("file_url") or src.get("fileUrl") or src.get("file") or "").strip()
+    status = src.get("status") if isinstance(src.get("status"), Mapping) else {}
+    error = src.get("error") if isinstance(src.get("error"), Mapping) else {}
+    unprinted_raw = status.get("unprinted_postings") if isinstance(status, Mapping) else None
+    if not isinstance(unprinted_raw, list):
+        unprinted_raw = src.get("unprinted_postings")
+    unprinted: list[dict[str, str]] = []
+    if isinstance(unprinted_raw, list):
+        for item in unprinted_raw:
+            if isinstance(item, Mapping):
+                pn = str(item.get("posting_number") or item.get("postingNumber") or "").strip()
+                if pn:
+                    unprinted.append(
+                        {
+                            "posting_number": pn,
+                            "message": str(item.get("message") or "").strip(),
+                        }
+                    )
+            elif str(item or "").strip():
+                unprinted.append({"posting_number": str(item).strip(), "message": ""})
+    return {
+        "file_url": file_url,
+        "status_code": str(
+            (status.get("code") if isinstance(status, Mapping) else "")
+            or src.get("status_code")
+            or (src.get("status") if isinstance(src.get("status"), str) else "")
+            or ""
+        ).strip().lower(),
+        "postings_count": int(status.get("postings_count") or 0) if isinstance(status, Mapping) else 0,
+        "printed_postings_count": (
+            int(status.get("printed_postings_count") or 0) if isinstance(status, Mapping) else 0
+        ),
+        "unprinted_postings": unprinted,
+        "error_code": str(error.get("code") or "").strip(),
+        "error_message": str(error.get("message") or "").strip(),
+        "raw": dict(data),
+    }
+
+
+def package_label_task_error_text(data: Mapping[str, Any] | None) -> str:
+    parsed = (
+        data
+        if isinstance(data, Mapping) and "error_message" in data
+        else parse_package_label_get_result(data)
+    )
+    msg = str(parsed.get("error_message") or "").strip()
+    code = str(parsed.get("error_code") or parsed.get("status_code") or "").strip()
+    if msg:
+        return format_ozon_package_label_error(RuntimeError(msg))
+    if code:
+        return f"Ozon не сформировал этикетки (статус {code})"
+    return "Ozon не сформировал этикетки"
+
+
+def package_label_task_is_failed(data: Mapping[str, Any] | None) -> bool:
+    parsed = (
+        data
+        if isinstance(data, Mapping) and "file_url" in data
+        else parse_package_label_get_result(data)
+    )
+    if str(parsed.get("file_url") or "").strip():
+        return False
+    err = str(parsed.get("error_message") or parsed.get("error_code") or "").strip()
+    if err:
+        return True
+    return str(parsed.get("status_code") or "").strip().lower() in _PACKAGE_LABEL_TASK_FAIL_CODES
+
+
+def package_label_task_is_ready(data: Mapping[str, Any] | None) -> bool:
+    parsed = (
+        data
+        if isinstance(data, Mapping) and "file_url" in data
+        else parse_package_label_get_result(data)
+    )
+    return bool(str(parsed.get("file_url") or "").strip()) and not package_label_task_is_failed(parsed)
 
 
 def explain_package_label_status_block(*, posting_number: str, status: object) -> str:
