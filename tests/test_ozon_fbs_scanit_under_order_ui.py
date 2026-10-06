@@ -90,7 +90,7 @@ def test_scanit_under_order_wired() -> None:
     assert "formatOzonPostingNumberHtml(pnRaw)" in lookup
 
     assert ".wb-fbs-sd-order-id .ozon-fbs-posting-tail" in css
-    assert "ozon_fbs.js?v=216" in html
+    assert "ozon_fbs.js?v=217" in html
 
 
 def test_format_ozon_scanit_html_last_four() -> None:

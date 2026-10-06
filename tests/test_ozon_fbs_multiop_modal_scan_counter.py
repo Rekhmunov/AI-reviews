@@ -213,5 +213,5 @@ def test_gm_status_refresh_skips_scan_busy_and_open_modals_only() -> None:
 
 
 def test_asset_cache_bumped_for_multiop_scan_counter() -> None:
-    assert "ozon_fbs.js?v=216" in HTML
+    assert "ozon_fbs.js?v=217" in HTML
     assert "ozon_fbs_container_bind.js?v=38" in HTML
