@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
 from review_processor import ozon_fbs_containers as ct
+
+ROOT = Path(__file__).resolve().parents[1]
+APP_HTML = (ROOT / "web_templates" / "app.html").read_text(encoding="utf-8")
+OZON_JS = (ROOT / "web_static" / "ozon_fbs.js").read_text(encoding="utf-8")
+WEB_PY = (ROOT / "review_processor" / "web.py").read_text(encoding="utf-8")
 
 
 class _FakeClient:
@@ -118,6 +126,63 @@ def test_list_containers_include_sc_accepted() -> None:
     finished = next(x for x in shown["items"] if x["container_id"] == 555)
     assert finished["status_label"] == "Завершено на СЦ"
     assert finished["can_fill"] is False
+
+
+def test_apply_local_archive_filter_hides_unless_include() -> None:
+    listed = {
+        "ok": True,
+        "items": [
+            {"container_id": 111, "status": "formed", "status_label": "Сформировано"},
+            {"container_id": 222, "status": "new", "status_label": "Новое"},
+            {"container_id": 444, "status": "acceptance_in_progress"},
+        ],
+    }
+    repo = MagicMock()
+    with patch.object(ct, "list_locally_archived_container_ids", return_value={111}):
+        hidden = ct.apply_local_archive_filter(
+            repo,
+            user_id=1,
+            source_id=2,
+            listed=listed,
+            include_archived=False,
+        )
+        shown = ct.apply_local_archive_filter(
+            repo,
+            user_id=1,
+            source_id=2,
+            listed=listed,
+            include_archived=True,
+        )
+    assert [x["container_id"] for x in hidden["items"]] == [222, 444]
+    assert all(x["locally_archived"] is False for x in hidden["items"])
+    shown_ids = [x["container_id"] for x in shown["items"]]
+    assert shown_ids == [111, 222, 444]
+    arch = next(x for x in shown["items"] if x["container_id"] == 111)
+    assert arch["locally_archived"] is True
+    assert arch["is_sc_accepted"] is False
+    sc = next(x for x in shown["items"] if x["container_id"] == 444)
+    assert sc["is_sc_accepted"] is True
+
+
+def test_local_archive_ui_and_api_owner_only() -> None:
+    assert "archiveOzonFbsContainerLocally" in OZON_JS
+    assert "restoreOzonFbsContainerLocally" in OZON_JS
+    assert "wb-fbs-trbx-box-archive" in OZON_JS
+    assert "wb-fbs-trbx-box-restore" in OZON_JS
+    assert "Скрыто локально" in OZON_JS
+    assert "local-archive" in OZON_JS
+    assert "local-restore" in OZON_JS
+    assert "isTenantOwner" in OZON_JS
+    assert '/containers/local-archive"' in WEB_PY or "/containers/local-archive" in WEB_PY
+    assert "/containers/local-restore" in WEB_PY
+    assert "user_is_tenant_owner" in WEB_PY
+    start = WEB_PY.find('@app.post("/api/ozon-fbs/supplies/{supply_id}/containers/local-archive")')
+    assert start > 0
+    chunk = WEB_PY[start : start + 1200]
+    assert "user_is_tenant_owner" in chunk
+    assert "основному пользователю" in chunk
+    assert "ozon_fbs.js?v=206" in APP_HTML
+    assert "style.css?v=423" in APP_HTML
 
 
 def test_list_containers_sorts_newest_created_first() -> None:

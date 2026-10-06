@@ -6578,11 +6578,31 @@
       const canDelete = c.can_delete === true;
       const canPrint = c.can_print !== false;
       const canApprove = c.can_approve === true;
+      const locallyArchived = c.locally_archived === true;
+      const isScAccepted = c.is_sc_accepted === true
+        || /^(acceptance_in_progress|finished)$/i.test(String(c.status || "").trim());
+      const isOwner = typeof isTenantOwner === "function" && isTenantOwner();
+      // Local archive/restore — owner only; never touches Ozon.
+      const canLocalArchive = isOwner && !locallyArchived && !isScAccepted;
+      const canLocalRestore = isOwner && locallyArchived;
       const safeJs = JSON.stringify(cid);
       const isOpen = expandedId && expandedId === cid;
       const caret = isOpen ? "▾" : "▸";
       const detailHtml = isOpen ? _ozonFbsContainersDetailHtml(cid) : "";
-      return `<tr class="ozon-fbs-containers-row${isOpen ? " is-expanded" : ""}" data-cid="${esc(cid)}">
+      const statusHtml = locallyArchived
+        ? `${status} <span class="ozon-fbs-containers-local-arch">Скрыто локально</span>`
+        : status;
+      const localArchiveBtn = canLocalArchive
+        ? `<button type="button" class="wb-fbs-trbx-box-archive" title="В завершённые (локально, без Ozon)"
+                    aria-label="В завершённые ${esc(cid)}" ${busy ? "disabled" : ""}
+                    onclick='archiveOzonFbsContainerLocally(${safeJs})'>⤵</button>`
+        : "";
+      const localRestoreBtn = canLocalRestore
+        ? `<button type="button" class="wb-fbs-trbx-box-restore" title="Вернуть в активные"
+                    aria-label="Вернуть ${esc(cid)}" ${busy ? "disabled" : ""}
+                    onclick='restoreOzonFbsContainerLocally(${safeJs})'>⤴</button>`
+        : "";
+      return `<tr class="ozon-fbs-containers-row${isOpen ? " is-expanded" : ""}${locallyArchived ? " is-local-archived" : ""}" data-cid="${esc(cid)}">
         <td>
           <div class="ozon-fbs-containers-main">
             <button type="button" class="ozon-fbs-containers-expand"
@@ -6597,7 +6617,7 @@
           </div>
         </td>
         <td class="ozon-fbs-containers-col-orders">${esc(ordersLabel)}</td>
-        <td class="ozon-fbs-containers-col-meta">${status}</td>
+        <td class="ozon-fbs-containers-col-meta">${statusHtml}</td>
         <td class="wb-fbs-trbx-boxes-col-act">
           <div class="wb-fbs-trbx-box-actions">
             <button type="button" class="wb-fbs-trbx-box-approve" title="Подтвердить состав грузоместа"
@@ -6609,6 +6629,7 @@
             <button type="button" class="wb-fbs-trbx-box-delete" title="Удалить грузоместо"
                     aria-label="Удалить ${esc(cid)}" ${(busy || !canDelete) ? "disabled" : ""}
                     onclick='deleteOzonFbsContainer(${safeJs})'>✕</button>
+            ${localArchiveBtn}${localRestoreBtn}
           </div>
         </td>
       </tr>
@@ -6961,6 +6982,65 @@
       containersState.busy = false;
       _ozonFbsContainersSyncBusyUi();
     }
+  }
+
+  async function _ozonFbsContainerLocalArchiveToggle(containerId, restore) {
+    const sid = String(containersState.supplyId || "").trim();
+    const sourceId = containersState.sourceId;
+    const cid = String(containerId || "").trim();
+    if (!sid || !sourceId || !cid || containersState.busy) return;
+    if (typeof isTenantOwner === "function" && !isTenantOwner()) return;
+    const doRestore = !!restore;
+    const path = doRestore ? "local-restore" : "local-archive";
+    const waitMsg = doRestore
+      ? "Возвращаем грузоместо в активные…"
+      : "Переносим грузоместо в завершённые…";
+    containersState.busy = true;
+    _ozonFbsContainersSyncBusyUi();
+    renderOzonFbsContainersTable(containersState.items);
+    _ozonFbsContainersSetInfo(waitMsg);
+    try {
+      const res = await fetch(
+        `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/containers/${path}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...jsonHeaders() },
+          body: JSON.stringify({
+            source_id: sourceId,
+            container_id: Number(cid) || cid,
+          }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        throw new Error(
+          detailText(data.detail) || data.message || `Ошибка ${res.status}`
+        );
+      }
+      _ozonFbsContainersSetInfo(
+        String(
+          data.message
+          || (doRestore ? "Возвращено в активные" : "Перенесено в завершённые")
+        ),
+        "ok"
+      );
+      await loadOzonFbsContainers({ keepInfo: true });
+    } catch (e) {
+      _ozonFbsContainersSetInfo(e.message || String(e), "error");
+      await loadOzonFbsContainers({ keepInfo: true });
+    } finally {
+      containersState.busy = false;
+      _ozonFbsContainersSyncBusyUi();
+      renderOzonFbsContainersTable(containersState.items);
+    }
+  }
+
+  function archiveOzonFbsContainerLocally(containerId) {
+    return _ozonFbsContainerLocalArchiveToggle(containerId, false);
+  }
+
+  function restoreOzonFbsContainerLocally(containerId) {
+    return _ozonFbsContainerLocalArchiveToggle(containerId, true);
   }
 
   async function deleteOzonFbsContainer(containerId) {
@@ -14816,6 +14896,8 @@
   window.refreshOzonFbsContainers = refreshOzonFbsContainers;
   window.createOzonFbsContainers = createOzonFbsContainers;
   window.deleteOzonFbsContainer = deleteOzonFbsContainer;
+  window.archiveOzonFbsContainerLocally = archiveOzonFbsContainerLocally;
+  window.restoreOzonFbsContainerLocally = restoreOzonFbsContainerLocally;
   window.approveOzonFbsContainer = approveOzonFbsContainer;
   window.closeOzonFbsContainerApproveModal = closeOzonFbsContainerApproveModal;
   window.printOzonFbsContainerLabel = printOzonFbsContainerLabel;

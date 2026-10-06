@@ -368,6 +368,174 @@ def list_containers(
     }
 
 
+def ensure_container_local_archive_table(repo: ReviewRepository) -> None:
+    """Local-only archive of stuck cargo places (no Ozon calls)."""
+    with repo._connect() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ozon_fbs_container_local_archive (
+                user_id BIGINT NOT NULL,
+                source_id BIGINT NOT NULL,
+                container_id BIGINT NOT NULL,
+                archived_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                PRIMARY KEY (user_id, source_id, container_id)
+            )
+            """
+        )
+        try:
+            conn.execute(
+                repo._sql(
+                    "CREATE INDEX IF NOT EXISTS "
+                    "idx_ozon_fbs_container_local_archive_user_src "
+                    "ON ozon_fbs_container_local_archive(user_id, source_id)"
+                )
+            )
+        except Exception:
+            pass
+
+
+def list_locally_archived_container_ids(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+) -> set[int]:
+    ensure_container_local_archive_table(repo)
+    with repo._connect() as conn:
+        rows = conn.execute(
+            repo._sql(
+                """
+                SELECT container_id
+                FROM ozon_fbs_container_local_archive
+                WHERE user_id = ? AND source_id = ?
+                """
+            ),
+            (int(user_id), int(source_id)),
+        ).fetchall()
+    out: set[int] = set()
+    for row in rows:
+        try:
+            d = repo._row_to_dict(row)
+            cid = int(d.get("container_id") or 0)
+        except (TypeError, ValueError, AttributeError):
+            try:
+                cid = int(row[0] or 0)
+            except (TypeError, ValueError, IndexError):
+                cid = 0
+        if cid > 0:
+            out.add(cid)
+    return out
+
+
+def archive_container_locally(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    container_id: int,
+) -> dict[str, Any]:
+    """Mark cargo place as locally completed/hidden. Does not call Ozon."""
+    ensure_container_local_archive_table(repo)
+    try:
+        cid = int(container_id or 0)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Укажите container_id") from exc
+    if cid <= 0:
+        raise ValueError("Укажите container_id")
+    with repo._connect() as conn:
+        conn.execute(
+            repo._sql(
+                """
+                INSERT INTO ozon_fbs_container_local_archive
+                    (user_id, source_id, container_id, archived_at)
+                VALUES (?, ?, ?, NOW())
+                ON CONFLICT (user_id, source_id, container_id) DO NOTHING
+                """
+            ),
+            (int(user_id), int(source_id), cid),
+        )
+    return {
+        "ok": True,
+        "container_id": cid,
+        "locally_archived": True,
+        "message": f"Грузоместо {cid} перенесено в завершённые (локально)",
+    }
+
+
+def restore_container_locally(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    container_id: int,
+) -> dict[str, Any]:
+    """Undo local archive — cargo place returns to the active list."""
+    ensure_container_local_archive_table(repo)
+    try:
+        cid = int(container_id or 0)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Укажите container_id") from exc
+    if cid <= 0:
+        raise ValueError("Укажите container_id")
+    with repo._connect() as conn:
+        conn.execute(
+            repo._sql(
+                """
+                DELETE FROM ozon_fbs_container_local_archive
+                WHERE user_id = ? AND source_id = ? AND container_id = ?
+                """
+            ),
+            (int(user_id), int(source_id), cid),
+        )
+    return {
+        "ok": True,
+        "container_id": cid,
+        "locally_archived": False,
+        "message": f"Грузоместо {cid} возвращено в активные",
+    }
+
+
+def apply_local_archive_filter(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    listed: dict[str, Any] | None,
+    include_archived: bool = False,
+) -> dict[str, Any]:
+    """Hide locally archived GMs unless the «завершённые» filter is on.
+
+    When shown, rows get ``locally_archived=True`` (and a display hint). No Ozon I/O.
+    """
+    out = dict(listed) if isinstance(listed, dict) else {"ok": True, "items": []}
+    items_in = out.get("items")
+    if not isinstance(items_in, list):
+        out["items"] = []
+        out["total"] = 0
+        return out
+    archived_ids = list_locally_archived_container_ids(
+        repo, user_id=user_id, source_id=source_id
+    )
+    items: list[dict[str, Any]] = []
+    for raw in items_in:
+        if not isinstance(raw, dict):
+            continue
+        row = dict(raw)
+        try:
+            cid = int(row.get("container_id") or 0)
+        except (TypeError, ValueError):
+            cid = 0
+        is_local = bool(cid > 0 and cid in archived_ids)
+        row["locally_archived"] = is_local
+        row["is_sc_accepted"] = is_sc_accepted_container(row)
+        if is_local and not include_archived:
+            continue
+        items.append(row)
+    out["items"] = items
+    out["total"] = len(items)
+    return out
+
+
 def create_containers(
     client: oz.OzonFbsClient,
     *,
