@@ -288,9 +288,36 @@ class OzonFbsNewStickersUiTests(unittest.TestCase):
         trbx_at = HTML.find('id="ozonFbsSupplyDetailTrbxBtn"')
         self.assertLess(stickers_at, new_at)
         self.assertLess(new_at, trbx_at)
-        # Hidden by default; shown only for tenant owner via JS sync.
-        chunk = HTML[new_at : new_at + 280]
+        # Split hidden by default; shown only for tenant owner via JS sync.
+        split_at = HTML.find('id="ozonFbsNewStickersSplit"')
+        self.assertGreater(split_at, 0)
+        self.assertLess(split_at, new_at)
+        chunk = HTML[split_at : split_at + 120]
         self.assertIn("hidden", chunk)
+
+    def test_new_stickers_has_category_caret_like_old(self) -> None:
+        self.assertIn('id="ozonFbsSupplyDetailNewStickersMenuBtn"', HTML)
+        self.assertIn('id="ozonFbsNewStickersMenu"', HTML)
+        self.assertIn("toggleOzonFbsNewStickersMenu(event)", HTML)
+        self.assertIn(
+            "openOzonFbsStickersByCategoryModal({ newLabels: true })",
+            HTML,
+        )
+        new_split = HTML[
+            HTML.find('id="ozonFbsNewStickersSplit"') : HTML.find(
+                'id="ozonFbsSupplyDetailTrbxBtn"'
+            )
+        ]
+        self.assertIn("wb-fbs-picking-caret", new_split)
+        self.assertIn("Печать по категориям", new_split)
+        # Same caret pattern as ordinary stickers split.
+        old_split = HTML[
+            HTML.find('id="ozonFbsStickersSplit"') : HTML.find(
+                'id="ozonFbsNewStickersSplit"'
+            )
+        ]
+        self.assertIn("wb-fbs-picking-caret", old_split)
+        self.assertIn("Печать по категориям", old_split)
 
     def test_js_sends_new_labels_flag_and_keeps_old_default(self) -> None:
         self.assertIn("ozonFbsOpenNewStickersPrint", JS)
@@ -301,10 +328,26 @@ class OzonFbsNewStickersUiTests(unittest.TestCase):
             JS,
         )
         self.assertIn("ozonFbsSupplyDetailNewStickersBtn", JS)
+        self.assertIn("function toggleNewStickersMenu", JS)
+        self.assertIn("window.toggleOzonFbsNewStickersMenu = toggleNewStickersMenu", JS)
+        self.assertIn("stickersCategoryState.newLabels", JS)
+        print_at = JS.find("function ozonFbsPrintStickersByCategory")
+        self.assertGreater(print_at, 0)
+        print_fn = JS[print_at : print_at + 900]
+        self.assertIn("stickersCategoryState.newLabels", print_fn)
+        self.assertIn("includeCoverAndSeparators: true", print_fn)
+        self.assertIn("newLabels", print_fn)
 
     def test_new_stickers_owner_only_ui_and_api(self) -> None:
         self.assertIn("_ozonFbsSyncOwnerOnlyNewStickersBtn", JS)
         self.assertIn("isTenantOwner", JS)
+        sync = JS[
+            JS.find("function _ozonFbsSyncOwnerOnlyNewStickersBtn") : JS.find(
+                "function _ozonFbsSyncOwnerOnlyAllCancellationsBtn"
+            )
+        ]
+        self.assertIn("ozonFbsNewStickersSplit", sync)
+        self.assertIn("ozonFbsSupplyDetailNewStickersMenuBtn", sync)
         web = (ROOT / "review_processor" / "web.py").read_text(encoding="utf-8")
         start = web.find('@app.post("/api/ozon-fbs/supplies/{supply_id}/stickers-print/start")')
         self.assertGreater(start, 0)
@@ -314,7 +357,7 @@ class OzonFbsNewStickersUiTests(unittest.TestCase):
         self.assertIn("только основному пользователю", chunk)
 
     def test_cache_bump(self) -> None:
-        self.assertIn("ozon_fbs.js?v=212", HTML)
+        self.assertIn("ozon_fbs.js?v=213", HTML)
 
 
 if __name__ == "__main__":
