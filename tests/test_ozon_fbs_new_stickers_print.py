@@ -352,6 +352,12 @@ class OzonFbsNewStickersUiTests(unittest.TestCase):
         self.assertIn("stickersCategoryState.newLabels", print_fn)
         self.assertIn("includeCoverAndSeparators: true", print_fn)
         self.assertIn("newLabels", print_fn)
+        # Row ⋮ «Напечатать стикер» must use v3 like the primary «Стикеры» button.
+        one_at = JS.find("function printOnePostingStickerFromDetail")
+        self.assertGreater(one_at, 0)
+        one_fn = JS[one_at : JS.find("function cancelBadgeHtml", one_at)]
+        self.assertIn("openStickersPrint([pn], { newLabels: true })", one_fn)
+        self.assertNotIn("openStickersPrint([pn]);", one_fn)
 
     def test_v3_stickers_open_to_all_users_ui_and_api(self) -> None:
         sync = JS[
@@ -374,7 +380,7 @@ class OzonFbsNewStickersUiTests(unittest.TestCase):
         )
 
     def test_cache_bump(self) -> None:
-        self.assertIn("ozon_fbs.js?v=214", HTML)
+        self.assertIn("ozon_fbs.js?v=215", HTML)
 
 
 if __name__ == "__main__":

@@ -3382,9 +3382,9 @@
       alert("Не удалось определить отправление или источник OZON ФБС");
       return;
     }
-    // Same HTML print flow as the supply «Стикеры» button (reliable in browsers).
+    // Same HTML print flow as the supply «Стикеры» button (v3 labels).
     if (supplyDetailReady() && _ozonFbsSupplyActionsReady()) {
-      openStickersPrint([pn]);
+      openStickersPrint([pn], { newLabels: true });
       return;
     }
     // Search/lookup kebab: if posting is already in a local supply, use the same
