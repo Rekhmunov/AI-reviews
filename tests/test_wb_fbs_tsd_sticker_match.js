@@ -77,16 +77,23 @@ assert(
   "Ozon recognizes ii instance labels"
 );
 assert(
-  ozonSrc.includes("function _ozonFbsAllowPostingDigitTail"),
-  "Ozon does not match ii…/QR by last 4 posting digits"
+  ozonSrc.includes("function _ozonFbsSearchPostingDigitTail"),
+  "Ozon search boxes may use posting digit tail"
 );
 assert(
-  ozonSrc.includes("d.length >= 4 && d.length <= 8"),
-  "Ozon digit-tail only for short posting fragments"
+  ozonSrc.includes("function _ozonFbsSearchMatchesPostingOrSupply"),
+  "Ozon modal search matches posting/supply tail"
 );
+const finderSrc = ozonSrc.slice(
+  ozonSrc.indexOf("function _ozonFbsFindByStickerInRows"),
+  ozonSrc.indexOf("function _ozonFbsApplyStickerScanToRow")
+);
+assert(finderSrc.includes("function _ozonFbsFindByStickerInRows"), "scan finder present");
+assert(!finderSrc.includes("digits.slice(-4)"), "Ozon sticker scan finder has no last-4 posting match");
+assert(!finderSrc.includes("pnLower.includes"), "Ozon sticker scan finder has no posting substring match");
 assert(
-  ozonSrc.includes("_ozonFbsAllowPostingDigitTail(raw, digits)"),
-  "Ozon fuzzy posting-tail match is gated"
+  tsdSrc.includes("Scan: full sticker already tried. Exact posting_number only"),
+  "TSD Ozon scan skips part_b / posting tail"
 );
 
 function _ozonFbsLooksLikeScanit(value) {
@@ -99,14 +106,17 @@ function _ozonFbsScanLooksLikePackageBarcode(scan) {
   const digits = raw.replace(/\D+/g, "");
   return digits.length >= 12 && digits === raw;
 }
-function _ozonFbsAllowPostingDigitTail(raw, digits) {
-  if (_ozonFbsLooksLikeScanit(raw) || _ozonFbsScanLooksLikePackageBarcode(raw)) return false;
-  const d = String(digits || "").replace(/\D+/g, "");
-  return d.length >= 4 && d.length <= 8;
+function _ozonFbsSearchPostingDigitTail(raw) {
+  const q = String(raw || "").replace(/\s+/g, "").trim();
+  if (!q || _ozonFbsLooksLikeScanit(q) || _ozonFbsScanLooksLikePackageBarcode(q)) return "";
+  const d = q.replace(/\D+/g, "");
+  if (d.length >= 4 && d.length <= 8) return d.slice(-4);
+  return "";
 }
-assert(!_ozonFbsAllowPostingDigitTail("ii50127379391", "50127379391"), "scanit must not use last-4");
-assert(!_ozonFbsAllowPostingDigitTail("251560724755000", "251560724755000"), "package QR must not use last-4");
-assert(_ozonFbsAllowPostingDigitTail("9391", "9391"), "short posting fragment still uses last-4");
+assert(_ozonFbsSearchPostingDigitTail("ii50127379391") === "", "search tail skips scanit");
+assert(_ozonFbsSearchPostingDigitTail("251560724755000") === "", "search tail skips package QR");
+assert(_ozonFbsSearchPostingDigitTail("9391") === "9391", "search tail keeps short posting fragment");
+assert(_ozonFbsSearchPostingDigitTail("0939-1") === "9391", "search tail from 0939-1");
 assert(
   "4510054509391".endsWith("50127379391".slice(-4)),
   "collision fixture: last-4 of ii50127379391 is 9391 in 45100545-0939-1"

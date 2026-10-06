@@ -9,7 +9,7 @@ from typing import Any
 from . import ozon_fbs as oz
 from . import ozon_fbs_scans as oz_scans
 from . import wb_fbs as wb
-from .wb_fbs_kiz_restore import normalize_sticker_scan, sticker_number
+from .wb_fbs_kiz_restore import normalize_sticker_scan
 from .repository import ReviewRepository
 
 _log = logging.getLogger(__name__)
@@ -28,20 +28,6 @@ _MATCH_LIMIT = 50
 
 def _sticker_scan_key(value: object) -> str:
     return normalize_sticker_scan(value).casefold()
-
-
-def _allow_posting_number_digit_tail(raw: str, digits: str) -> bool:
-    """Last-4 posting_number match is only for short posting fragments.
-
-    Never for instance labels (``ii…``) or package QR (12+ digits): those
-    collide with unrelated posting suffixes
-    (``ii50127379391`` → ``45100545-0939-1``).
-    """
-    if oz.looks_like_ozon_scanit(raw):
-        return False
-    if _looks_like_ozon_package_barcode(raw):
-        return False
-    return 4 <= len(digits) <= 8
 
 
 def _fetch_posting_rows(
@@ -89,6 +75,8 @@ def _sticker_fields_for_scan_row(row: dict[str, Any]) -> dict[str, str]:
 
 
 def _row_matches_sticker_scan(row: dict[str, Any], raw: str, raw_key: str, digits: str) -> bool:
+    """Exact sticker identity only (scan path). Partial posting match is search-only."""
+    del digits  # kept for call-site compatibility
     fields = _sticker_fields_for_scan_row(row)
     bc = fields["sticker_barcode"]
     bc_low = fields["sticker_lower_barcode"]
@@ -99,41 +87,8 @@ def _row_matches_sticker_scan(row: dict[str, Any], raw: str, raw_key: str, digit
         return True
     if scanit and _sticker_scan_key(scanit) == raw_key:
         return True
-    part_a = normalize_sticker_scan(fields["sticker_part_a"])
-    part_b = normalize_sticker_scan(fields["sticker_part_b"])
-    full = normalize_sticker_scan(sticker_number(part_a, part_b))
     pn = str(row.get("posting_number") or "").strip()
-    pn_lower = pn.casefold()
-    raw_lower = raw.casefold()
-    if pn_lower and (pn_lower == raw_lower or raw_lower in pn_lower or pn_lower in raw_lower):
-        return True
-    return bool(
-        (full and (_sticker_scan_key(full) == raw_key or digits == re.sub(r"\D+", "", full)))
-        or (part_a and part_b and digits == re.sub(r"\D+", "", f"{part_a}{part_b}"))
-        or (
-            part_b
-            and (_sticker_scan_key(part_b) == raw_key or digits == re.sub(r"\D+", "", part_b))
-        )
-        or (
-            pn
-            and _allow_posting_number_digit_tail(raw, digits)
-            and re.sub(r"\D+", "", pn).endswith(digits[-4:])
-        )
-    )
-
-
-def _fuzzy_match_postings(
-    postings: list[dict[str, Any]],
-    raw: str,
-    raw_key: str,
-    digits: str,
-) -> list[dict[str, Any]]:
-    """Client-parity fuzzy match on a bounded row set."""
-    matches: list[dict[str, Any]] = []
-    for row in postings:
-        if _row_matches_sticker_scan(row, raw, raw_key, digits):
-            matches.append(row)
-    return matches
+    return bool(pn and pn.casefold() == raw.casefold())
 
 
 def find_postings_by_sticker_scan(
@@ -143,7 +98,7 @@ def find_postings_by_sticker_scan(
     source_id: int,
     scan: str,
 ) -> dict[str, Any]:
-    """Find local posting row(s) by scanned sticker QR / posting_number fragment."""
+    """Find local posting row(s) by full sticker code (QR / ``ii…``) or exact posting_number."""
     raw = normalize_sticker_scan(scan)
     if not raw:
         return {"row": None, "ambiguous": False, "matches": []}
@@ -223,54 +178,7 @@ def find_postings_by_sticker_scan(
         if exact_pn:
             return _resolve_matches(exact_pn)
 
-        # 3) Partial posting_number (bounded).
-        if len(raw) >= 4:
-            rows = _fetch_posting_rows(
-                repo,
-                conn,
-                user_id=user_id,
-                source_id=source_id,
-                where_sql="posting_number ILIKE ?",
-                params=(f"%{raw}%",),
-            )
-            fuzzy = _fuzzy_match_postings(rows, raw, raw_key, digits)
-            if fuzzy:
-                return _resolve_matches(fuzzy)
-
-        # 4) Sticker part_b exact.
-        rows = _fetch_posting_rows(
-            repo,
-            conn,
-            user_id=user_id,
-            source_id=source_id,
-            where_sql="sticker_part_b <> '' AND sticker_part_b = ?",
-            params=(raw,),
-        )
-        if rows:
-            return _resolve_matches(rows)
-
-        # 5) Digit tail on posting_number (short fragments only, never ii…/QR).
-        if _allow_posting_number_digit_tail(raw, digits):
-            tail = digits[-4:]
-            rows = _fetch_posting_rows(
-                repo,
-                conn,
-                user_id=user_id,
-                source_id=source_id,
-                where_sql=(
-                    "regexp_replace(posting_number, '[^0-9]', '', 'g') LIKE ?"
-                ),
-                params=(f"%{tail}",),
-            )
-            by_tail = [
-                r
-                for r in rows
-                if re.sub(r"\D+", "", str(r.get("posting_number") or "")).endswith(tail)
-            ]
-            if by_tail:
-                return _resolve_matches(by_tail)
-
-        # 6) Ozon package barcode stored only in raw_json (columns not backfilled yet).
+        # 3) Ozon package barcode stored only in raw_json (columns not backfilled yet).
         if len(raw) >= 8:
             rows = _fetch_posting_rows(
                 repo,

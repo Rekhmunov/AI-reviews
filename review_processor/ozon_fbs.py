@@ -2649,12 +2649,24 @@ def _postings_filter_sql(
     q = str(search or "").strip()
     if q:
         like = f"%{q}%"
-        clauses.append(
-            "(posting_number ILIKE ? OR order_number ILIKE ? OR offer_id ILIKE ? "
-            "OR product_name ILIKE ? OR warehouse_name ILIKE ? OR barcodes_json ILIKE ? "
-            "OR products_json ILIKE ?)"
-        )
-        params.extend([like, like, like, like, like, like, like])
+        search_parts = [
+            "posting_number ILIKE ?",
+            "order_number ILIKE ?",
+            "offer_id ILIKE ?",
+            "product_name ILIKE ?",
+            "warehouse_name ILIKE ?",
+            "barcodes_json ILIKE ?",
+            "products_json ILIKE ?",
+        ]
+        search_params: list[Any] = [like, like, like, like, like, like, like]
+        tail = posting_search_digit_tail(q)
+        if tail:
+            search_parts.append(
+                "regexp_replace(posting_number, '[^0-9]', '', 'g') LIKE ?"
+            )
+            search_params.append(f"%{tail}")
+        clauses.append("(" + " OR ".join(search_parts) + ")")
+        params.extend(search_params)
     return " AND ".join(clauses), params
 
 
@@ -2876,6 +2888,23 @@ def parse_posting_number_query(search: object) -> str:
         return q
     if looks_like_ozon_scanit(q):
         return q
+    return ""
+
+
+def posting_search_digit_tail(search: object) -> str:
+    """Last-4 posting/supply digits for list/modal SEARCH boxes only.
+
+    Empty for instance labels (``ii…``) and package QR (12+ digits) so a
+    sticker code never becomes a posting-tail query.
+    """
+    q = re.sub(r"\s+", "", str(search or "").strip())
+    if not q or looks_like_ozon_scanit(q):
+        return ""
+    digits = re.sub(r"\D+", "", q)
+    if len(digits) >= 12 and digits == q:
+        return ""
+    if 4 <= len(digits) <= 8:
+        return digits[-4:]
     return ""
 
 

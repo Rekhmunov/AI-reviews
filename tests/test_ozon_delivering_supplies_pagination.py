@@ -30,10 +30,18 @@ def test_filter_supply_items_by_search() -> None:
     items = [
         {"supply_id": "s1", "name": "Утро", "warehouse_label": "СКЛ-1"},
         {"supply_id": "s2", "name": "Вечер", "warehouse_label": "СКЛ-2"},
+        {
+            "supply_id": "s3",
+            "name": "Ночь",
+            "warehouse_label": "СКЛ-3",
+            "posting_numbers": ["45100545-0939-1"],
+        },
     ]
-    assert len(_filter_supply_items_by_search(items, "")) == 2
+    assert len(_filter_supply_items_by_search(items, "")) == 3
     assert [x["supply_id"] for x in _filter_supply_items_by_search(items, "веч")] == ["s2"]
     assert [x["supply_id"] for x in _filter_supply_items_by_search(items, "скл-1")] == ["s1"]
+    assert [x["supply_id"] for x in _filter_supply_items_by_search(items, "9391")] == ["s3"]
+    assert [x["supply_id"] for x in _filter_supply_items_by_search(items, "ii50127379391")] == []
 
 
 def test_list_supplies_tab_response_paginates_before_enrich(monkeypatch) -> None:
@@ -143,4 +151,4 @@ def test_delivering_api_and_ui_wire_pagination() -> None:
     assert "deliveringSupplies" in load
     assert "suppliesMode && !deliveringSupplies" in load
     assert "Number(data.total || 0)" in load
-    assert "ozon_fbs.js?v=208" in HTML
+    assert "ozon_fbs.js?v=209" in HTML

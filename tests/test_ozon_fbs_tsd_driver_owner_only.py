@@ -67,4 +67,4 @@ def test_driver_page_and_apis_owner_only() -> None:
 
 
 def test_cache_bump() -> None:
-    assert "ozon_fbs.js?v=208" in HTML
+    assert "ozon_fbs.js?v=209" in HTML
