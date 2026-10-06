@@ -314,7 +314,7 @@ class OzonFbsNewStickersUiTests(unittest.TestCase):
         self.assertIn("только основному пользователю", chunk)
 
     def test_cache_bump(self) -> None:
-        self.assertIn("ozon_fbs.js?v=207", HTML)
+        self.assertIn("ozon_fbs.js?v=209", HTML)
 
 
 if __name__ == "__main__":

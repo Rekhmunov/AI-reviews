@@ -1420,7 +1420,14 @@
             s.name, s.supply_id, s.warehouse_label,
             ...(Array.isArray(s.posting_numbers) ? s.posting_numbers : []),
           ].map((x) => String(x || "").toLowerCase()).join(" ");
-          return hay.includes(q);
+          if (hay.includes(q)) return true;
+          const tail = _ozonFbsSearchPostingDigitTail(q);
+          if (!tail) return false;
+          const sidDigits = String(s.supply_id || "").replace(/\D+/g, "");
+          if (sidDigits.endsWith(tail)) return true;
+          return (Array.isArray(s.posting_numbers) ? s.posting_numbers : []).some((pn) =>
+            String(pn || "").replace(/\D+/g, "").endsWith(tail)
+          );
         });
       }
 
@@ -8775,6 +8782,30 @@
     return /^ii[A-Za-z0-9._-]{2,}$/i.test(raw);
   }
 
+  /** Last-4 posting/supply digits for SEARCH boxes only — never for sticker scan. */
+  function _ozonFbsSearchPostingDigitTail(raw) {
+    const q = String(raw || "").replace(/\s+/g, "").trim();
+    if (!q || _ozonFbsLooksLikeScanit(q)) return "";
+    const d = q.replace(/\D+/g, "");
+    if (d.length >= 12 && d === q) return "";
+    if (d.length >= 4 && d.length <= 8) return d.slice(-4);
+    return "";
+  }
+
+  function _ozonFbsSearchMatchesPostingOrSupply(row, q) {
+    if (!q) return true;
+    const needle = String(q).trim().toLowerCase();
+    if (!needle) return true;
+    const pn = String(row?.posting_number || "").trim();
+    const sid = String(row?.supply_id || "").trim();
+    if (pn.toLowerCase().includes(needle) || sid.toLowerCase().includes(needle)) return true;
+    const tail = _ozonFbsSearchPostingDigitTail(needle);
+    if (!tail) return false;
+    const pnDigits = pn.replace(/\D+/g, "");
+    const sidDigits = sid.replace(/\D+/g, "");
+    return (!!pnDigits && pnDigits.endsWith(tail)) || (!!sidDigits && sidDigits.endsWith(tail));
+  }
+
   function _ozonFbsResolvedStickerFields(row) {
     let upper = _ozonFbsNormalizeScan(row?.sticker_barcode);
     let lower = _ozonFbsNormalizeScan(row?.sticker_lower_barcode);
@@ -8791,9 +8822,8 @@
   }
 
   /**
-   * Ozon FBS sticker match — parity with WB `_wbFbsKizFindBySticker` / backend lookup.
-   * Ozon API ``FbsPostingBarcodes``: upper/lower штрихкоды этикетки + posting_number.
-   * New instance label (``scanit`` / ``ii…``) is a separate field so QR match stays intact.
+   * Ozon FBS sticker scan — exact QR / ``ii…`` / full posting_number only.
+   * Partial posting tail lives in search boxes, not in the scan field.
    */
   function _ozonFbsFindByStickerInRows(scan, rows, opts) {
     const raw = _ozonFbsNormalizeScan(scan);
@@ -8835,48 +8865,6 @@
     }
     if (byPnExact.length === 1) return { row: byPnExact[0], ambiguous: false };
     if (byPnExact.length > 1) return { row: null, ambiguous: true, matches: byPnExact };
-
-    const digits = raw.replace(/\D+/g, "");
-    const matches = [];
-    const seenFuzzy = new Set();
-    for (const row of list) {
-      const fields = _ozonFbsResolvedStickerFields(row);
-      const pn = fields.pn;
-      const pnLower = pn.toLowerCase();
-      let hit = false;
-      if (pnLower && (pnLower === rawLower || rawLower.includes(pnLower) || pnLower.includes(rawLower))) {
-        hit = true;
-      } else {
-        const full = fields.partA && fields.partB
-          ? `${fields.partA}${fields.partB}`
-          : (fields.partA || fields.partB || pn);
-        if (
-          (full && (_ozonFbsStickerScanKey(full) === rawKey || digits === full.replace(/\D+/g, ""))) ||
-          (fields.partA && fields.partB && digits === `${fields.partA}${fields.partB}`.replace(/\D+/g, "")) ||
-          (
-            fields.partB
-            && (_ozonFbsStickerScanKey(fields.partB) === rawKey || digits === fields.partB.replace(/\D+/g, ""))
-          ) ||
-          (pn && digits.length >= 4 && pn.replace(/\D+/g, "").endsWith(digits.slice(-4)))
-        ) {
-          hit = true;
-        }
-      }
-      if (!hit) continue;
-      const id = rowKey(row);
-      if (id && seenFuzzy.has(id)) continue;
-      if (id) seenFuzzy.add(id);
-      matches.push(row);
-    }
-    if (matches.length === 1) return { row: matches[0], ambiguous: false };
-    if (matches.length > 1) {
-      const exact = matches.find((r) => {
-        const pn = String(r?.posting_number || "").trim().toLowerCase();
-        return pn && (pn === rawLower || pn.includes(rawLower) || rawLower.includes(pn));
-      });
-      if (exact) return { row: exact, ambiguous: false };
-      return { row: null, ambiguous: true, matches };
-    }
     return { row: null, ambiguous: false };
   }
 
@@ -11285,7 +11273,7 @@
       row?.container_barcode, row?.container_id, row?.container_number,
       ...(Array.isArray(row?.barcodes) ? row.barcodes : []),
     ].map((x) => String(x || "").toLowerCase()).join(" ");
-    return hay.includes(q);
+    return hay.includes(q) || _ozonFbsSearchMatchesPostingOrSupply(row, q);
   }
 
   function _ozonFbsPickRowMatchesSearch(row, q) {
@@ -11297,7 +11285,7 @@
       row?.container_barcode, row?.container_id, row?.container_number,
       ...(Array.isArray(row?.barcodes) ? row.barcodes : []),
     ].map((x) => String(x || "").toLowerCase()).join(" ");
-    return hay.includes(q);
+    return hay.includes(q) || _ozonFbsSearchMatchesPostingOrSupply(row, q);
   }
 
   /**

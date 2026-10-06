@@ -2449,18 +2449,34 @@ def _filter_supply_items_by_search(
     q = str(search or "").strip().lower()
     if not q:
         return items
+    tail = oz.posting_search_digit_tail(q)
     out: list[dict[str, Any]] = []
     for it in items:
         if not isinstance(it, dict):
             continue
+        posting_nums = [
+            str(x or "").strip()
+            for x in (it.get("posting_numbers") or [])
+            if str(x or "").strip()
+        ]
         hay = " ".join(
             [
                 str(it.get("name") or ""),
                 str(it.get("supply_id") or ""),
                 str(it.get("warehouse_label") or ""),
+                *posting_nums,
             ]
         ).lower()
         if q in hay:
+            out.append(it)
+            continue
+        if not tail:
+            continue
+        sid_digits = re.sub(r"\D+", "", str(it.get("supply_id") or ""))
+        if sid_digits.endswith(tail):
+            out.append(it)
+            continue
+        if any(re.sub(r"\D+", "", pn).endswith(tail) for pn in posting_nums):
             out.append(it)
     return out
 

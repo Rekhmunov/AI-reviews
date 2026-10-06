@@ -1622,21 +1622,33 @@
     const digits = digitsOnly(scan);
     const matches = [];
     const seenFuzzy = new Set();
-    for (const row of rows || []) {
-      const full = normalizeScan(
-        row.sticker_number || row.sticker || row.posting_number || ""
-      );
-      const partA = normalizeScan(row.sticker_part_a);
-      const partB = normalizeScan(row.sticker_part_b);
-      if (
-        (full && (rawKey === scanKey(full) || (digits && digits === digitsOnly(full)))) ||
-        (partA && partB && digits && digits === digitsOnly(`${partA}${partB}`)) ||
-        (partB && (rawKey === scanKey(partB) || (digits && digits === digitsOnly(partB))))
-      ) {
+    if (isOzon()) {
+      // Scan: full sticker already tried. Exact posting_number only — no tail/part_b.
+      for (const row of rows || []) {
+        const pn = normalizeScan(row.posting_number || "");
+        if (!(pn && (rawKey === scanKey(pn) || (digits && digits === digitsOnly(pn))))) continue;
         const id = rowScanId(row);
         if (id && seenFuzzy.has(id)) continue;
         if (id) seenFuzzy.add(id);
         matches.push(row);
+      }
+    } else {
+      for (const row of rows || []) {
+        const full = normalizeScan(
+          row.sticker_number || row.sticker || row.posting_number || ""
+        );
+        const partA = normalizeScan(row.sticker_part_a);
+        const partB = normalizeScan(row.sticker_part_b);
+        if (
+          (full && (rawKey === scanKey(full) || (digits && digits === digitsOnly(full)))) ||
+          (partA && partB && digits && digits === digitsOnly(`${partA}${partB}`)) ||
+          (partB && (rawKey === scanKey(partB) || (digits && digits === digitsOnly(partB))))
+        ) {
+          const id = rowScanId(row);
+          if (id && seenFuzzy.has(id)) continue;
+          if (id) seenFuzzy.add(id);
+          matches.push(row);
+        }
       }
     }
     if (matches.length === 1) return { row: matches[0], ambiguous: false };
