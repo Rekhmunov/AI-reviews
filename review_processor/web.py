@@ -17365,13 +17365,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             or body.get("use_new_labels")
             or body.get("newLabels")
         )
-        if use_new_labels and not (
-            user_is_tenant_owner(user) or _is_super_admin(user)
-        ):
-            raise HTTPException(
-                status_code=403,
-                detail="Новые стикеры доступны только основному пользователю",
-            )
         try:
             return oz_sup.start_stickers_print_job(
                 repository,

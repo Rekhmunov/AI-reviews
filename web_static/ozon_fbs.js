@@ -104,7 +104,7 @@
     groups: [],
     selected: new Set(),
     loading: false,
-    /** When true, category print uses v3 «Новые стикеры». */
+    /** When true, category print uses v3 package-label («Стикеры»). */
     newLabels: false,
   };
 
@@ -4576,7 +4576,6 @@
       event.stopPropagation();
     }
     if (!_ozonFbsSupplyActionsReady()) return;
-    if (!(typeof isTenantOwner === "function" && isTenantOwner())) return;
     closeStickersMenu();
     const menu = document.getElementById("ozonFbsNewStickersMenu");
     const caret = document.getElementById("ozonFbsSupplyDetailNewStickersMenuBtn");
@@ -4594,23 +4593,20 @@
     closeNewStickersMenu();
     const opts = options && typeof options === "object" ? options : {};
     const newLabels = !!opts.newLabels;
-    // «Новые стикеры» — только основной пользователь (тестовый API).
-    if (newLabels && !(typeof isTenantOwner === "function" && isTenantOwner())) {
-      return;
-    }
     const oldBtn = document.getElementById("ozonFbsSupplyDetailStickersBtn");
     const newBtn = document.getElementById("ozonFbsSupplyDetailNewStickersBtn");
     const caret = document.getElementById("ozonFbsSupplyDetailStickersMenuBtn");
     const newCaret = document.getElementById("ozonFbsSupplyDetailNewStickersMenuBtn");
-    const waitLabel = newLabels ? "Новые стикеры…" : "Стикеры…";
+    // newLabels=true → primary «Стикеры» (v3); false → «Старые стикеры».
+    const waitLabel = newLabels ? "Стикеры…" : "Старые стикеры…";
     const setBtnBusy = (busy, text) => {
       if (oldBtn) {
         oldBtn.disabled = !!busy;
-        if (!newLabels) oldBtn.textContent = busy ? (text || waitLabel) : "Стикеры";
+        if (!newLabels) oldBtn.textContent = busy ? (text || waitLabel) : "Старые стикеры";
       }
       if (newBtn) {
         newBtn.disabled = !!busy;
-        if (newLabels) newBtn.textContent = busy ? (text || waitLabel) : "Новые стикеры";
+        if (newLabels) newBtn.textContent = busy ? (text || waitLabel) : "Стикеры";
       }
       if (caret) caret.disabled = !!busy;
       if (newCaret) newCaret.disabled = !!busy;
@@ -4641,14 +4637,14 @@
     if (!printWin) {
       setBtnBusy(false);
       alert(newLabels
-        ? "Разрешите всплывающие окна для новых стикеров"
-        : "Разрешите всплывающие окна для стикеров");
+        ? "Разрешите всплывающие окна для стикеров"
+        : "Разрешите всплывающие окна для старых стикеров");
       return;
     }
     try {
       printWin.document.open();
       printWin.document.write(`<!doctype html><html lang="ru"><head><meta charset="utf-8"/>
-<title>${newLabels ? "Новые стикеры" : "Стикеры"} — загрузка</title>
+<title>${newLabels ? "Стикеры" : "Старые стикеры"} — загрузка</title>
 <style>
   body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#f8fafc;color:#0f172a}
   .box{max-width:520px;margin:48px auto;padding:24px;background:#fff;border:1px solid #e2e8f0;border-radius:12px}
@@ -4656,7 +4652,7 @@
   #st{font-size:18px;font-weight:700;color:#1d4ed8}
   .hint{color:#64748b;font-size:14px}
 </style></head><body><div class="box">
-  <h1>${newLabels ? "Подготовка новых стикеров" : "Подготовка стикеров"}</h1>
+  <h1>${newLabels ? "Подготовка стикеров" : "Подготовка старых стикеров"}</h1>
   <p id="st">Загрузка…</p>
   <p class="hint">Не закрывайте эту вкладку. Диалог печати откроется здесь автоматически.</p>
 </div></body></html>`);
@@ -4728,7 +4724,7 @@
         || statusMeta?.missing_count
         || 0
       );
-      const readyWord = newLabels ? "Новые стикеры" : "Стикеры";
+      const readyWord = newLabels ? "Стикеры" : "Старые стикеры";
       if (missingCount > 0) {
         const expected = Number(
           res.headers.get("X-Feedpilot-Stickers-Expected")
@@ -4820,8 +4816,8 @@
         if (!res.ok) throw new Error(detailText(data.detail) || "Не удалось начать загрузку стикеров");
         setPrintStatus(
           newLabels
-            ? "Скачивание новых этикеток с Ozon…"
-            : "Скачивание этикеток с Ozon…"
+            ? "Скачивание этикеток с Ozon…"
+            : "Скачивание старых этикеток с Ozon…"
         );
         await poll();
       } catch (e) {
@@ -4990,9 +4986,6 @@
     closeNewStickersMenu();
     const opts = options && typeof options === "object" ? options : {};
     const newLabels = !!opts.newLabels;
-    if (newLabels && !(typeof isTenantOwner === "function" && isTenantOwner())) {
-      return;
-    }
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
     if (!sid || !sourceId) return;
@@ -5009,8 +5002,8 @@
     const title = document.getElementById("ozonFbsStickersCategoryTitle");
     if (title) {
       title.textContent = newLabels
-        ? "Печать новых стикеров по категориям"
-        : "Печать стикеров по категориям";
+        ? "Печать стикеров по категориям"
+        : "Печать старых стикеров по категориям";
     }
     _ozonFbsStickersCategorySetInfo("");
     _ozonFbsStickersCategoryRender();
@@ -5198,24 +5191,22 @@
   }
 
   function _ozonFbsSyncOwnerOnlyNewStickersBtn() {
-    // «Новые стикеры» (v3 package-label) — только основной пользователь.
-    const can = typeof isTenantOwner === "function" && isTenantOwner();
+    // «Стикеры» (v3 package-label) доступны всем; split всегда видим.
     const split = document.getElementById("ozonFbsNewStickersSplit");
     const btn = document.getElementById("ozonFbsSupplyDetailNewStickersBtn");
     const caret = document.getElementById("ozonFbsSupplyDetailNewStickersMenuBtn");
     if (split) {
-      split.hidden = !can;
-      split.style.display = can ? "" : "none";
+      split.hidden = false;
+      split.style.display = "";
     }
     if (btn) {
-      btn.hidden = !can;
-      btn.style.display = can ? "" : "none";
+      btn.hidden = false;
+      btn.style.display = "";
     }
     if (caret) {
-      caret.hidden = !can;
-      caret.style.display = can ? "" : "none";
+      caret.hidden = false;
+      caret.style.display = "";
     }
-    if (!can) closeNewStickersMenu();
   }
 
   function _ozonFbsSyncOwnerOnlyAllCancellationsBtn() {
@@ -15004,7 +14995,6 @@
   window.ozonFbsOpenPickingList = openPickingList;
   window.ozonFbsOpenStickersPrint = () => openStickersPrint();
   window.ozonFbsOpenNewStickersPrint = () => {
-    if (typeof isTenantOwner === "function" && !isTenantOwner()) return;
     openStickersPrint(undefined, { newLabels: true });
   };
   window.toggleOzonFbsStickersMenu = toggleStickersMenu;
