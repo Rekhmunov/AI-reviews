@@ -82,6 +82,7 @@
     "ozonFbsSupplyDetailStickersBtn",
     "ozonFbsSupplyDetailStickersMenuBtn",
     "ozonFbsSupplyDetailNewStickersBtn",
+    "ozonFbsSupplyDetailNewStickersMenuBtn",
     "ozonFbsSupplyDetailTrbxBtn",
     "ozonFbsSupplyDetailKizBtn",
     "ozonFbsSupplyDetailKizRefreshBtn",
@@ -103,6 +104,8 @@
     groups: [],
     selected: new Set(),
     loading: false,
+    /** When true, category print uses v3 «Новые стикеры». */
+    newLabels: false,
   };
 
   const shipmentsState = {
@@ -3032,6 +3035,7 @@
     document.getElementById("ozonFbsSupplyDetailModal")?.classList.add("hidden");
     syncSupplyDetailReadOnlyMode(false);
     closeStickersMenu();
+    closeNewStickersMenu();
     _ozonFbsSupplyDetailHideNewWarn();
     _ozonFbsRenderMovedToDelivering(null);
     supplyDetailState.supplyId = null;
@@ -3080,6 +3084,7 @@
     });
     if (!ready) {
       closeStickersMenu();
+      closeNewStickersMenu();
     }
     _ozonFbsSyncPickVerifyBtn(supplyDetailState.supply?.orders || []);
     // Delivering: managers see KIZ/pick as tones; tenant owner may open modals.
@@ -4543,14 +4548,38 @@
     if (caret) caret.setAttribute("aria-expanded", "false");
   }
 
+  function closeNewStickersMenu() {
+    const menu = document.getElementById("ozonFbsNewStickersMenu");
+    const caret = document.getElementById("ozonFbsSupplyDetailNewStickersMenuBtn");
+    if (menu) menu.hidden = true;
+    if (caret) caret.setAttribute("aria-expanded", "false");
+  }
+
   function toggleStickersMenu(event) {
     if (event) {
       event.preventDefault();
       event.stopPropagation();
     }
     if (!_ozonFbsSupplyActionsReady()) return;
+    closeNewStickersMenu();
     const menu = document.getElementById("ozonFbsStickersMenu");
     const caret = document.getElementById("ozonFbsSupplyDetailStickersMenuBtn");
+    if (!menu || !caret) return;
+    const willOpen = menu.hidden;
+    menu.hidden = !willOpen;
+    caret.setAttribute("aria-expanded", willOpen ? "true" : "false");
+  }
+
+  function toggleNewStickersMenu(event) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    if (!_ozonFbsSupplyActionsReady()) return;
+    if (!(typeof isTenantOwner === "function" && isTenantOwner())) return;
+    closeStickersMenu();
+    const menu = document.getElementById("ozonFbsNewStickersMenu");
+    const caret = document.getElementById("ozonFbsSupplyDetailNewStickersMenuBtn");
     if (!menu || !caret) return;
     const willOpen = menu.hidden;
     menu.hidden = !willOpen;
@@ -4562,6 +4591,7 @@
     const sourceId = supplyDetailState.sourceId || state.sourceId;
     if (!sid || !sourceId || !_ozonFbsSupplyActionsReady()) return;
     closeStickersMenu();
+    closeNewStickersMenu();
     const opts = options && typeof options === "object" ? options : {};
     const newLabels = !!opts.newLabels;
     // «Новые стикеры» — только основной пользователь (тестовый API).
@@ -4571,8 +4601,7 @@
     const oldBtn = document.getElementById("ozonFbsSupplyDetailStickersBtn");
     const newBtn = document.getElementById("ozonFbsSupplyDetailNewStickersBtn");
     const caret = document.getElementById("ozonFbsSupplyDetailStickersMenuBtn");
-    const activeBtn = newLabels ? newBtn : oldBtn;
-    const idleLabel = newLabels ? "Новые стикеры" : "Стикеры";
+    const newCaret = document.getElementById("ozonFbsSupplyDetailNewStickersMenuBtn");
     const waitLabel = newLabels ? "Новые стикеры…" : "Стикеры…";
     const setBtnBusy = (busy, text) => {
       if (oldBtn) {
@@ -4584,6 +4613,7 @@
         if (newLabels) newBtn.textContent = busy ? (text || waitLabel) : "Новые стикеры";
       }
       if (caret) caret.disabled = !!busy;
+      if (newCaret) newCaret.disabled = !!busy;
     };
     setBtnBusy(true, waitLabel);
     const ids = Array.isArray(postingNumbers)
@@ -4945,15 +4975,24 @@
     stickersCategoryState.groups = [];
     stickersCategoryState.selected = new Set();
     stickersCategoryState.loading = false;
+    stickersCategoryState.newLabels = false;
     _ozonFbsStickersCategorySetInfo("");
     const box = document.getElementById("ozonFbsStickersCategoryList");
     if (box) box.innerHTML = "";
     const printBtn = document.getElementById("ozonFbsStickersCategoryPrintBtn");
     if (printBtn) printBtn.disabled = true;
+    const title = document.getElementById("ozonFbsStickersCategoryTitle");
+    if (title) title.textContent = "Печать стикеров по категориям";
   }
 
-  async function openStickersByCategoryModal() {
+  async function openStickersByCategoryModal(options) {
     closeStickersMenu();
+    closeNewStickersMenu();
+    const opts = options && typeof options === "object" ? options : {};
+    const newLabels = !!opts.newLabels;
+    if (newLabels && !(typeof isTenantOwner === "function" && isTenantOwner())) {
+      return;
+    }
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
     if (!sid || !sourceId) return;
@@ -4966,6 +5005,13 @@
     stickersCategoryState.groups = [];
     stickersCategoryState.selected = new Set();
     stickersCategoryState.loading = true;
+    stickersCategoryState.newLabels = newLabels;
+    const title = document.getElementById("ozonFbsStickersCategoryTitle");
+    if (title) {
+      title.textContent = newLabels
+        ? "Печать новых стикеров по категориям"
+        : "Печать стикеров по категориям";
+    }
     _ozonFbsStickersCategorySetInfo("");
     _ozonFbsStickersCategoryRender();
     try {
@@ -4991,6 +5037,7 @@
   function ozonFbsPrintStickersByCategory() {
     if (stickersCategoryState.loading) return;
     const selected = stickersCategoryState.selected;
+    const newLabels = !!stickersCategoryState.newLabels;
     const nums = [];
     for (const g of stickersCategoryState.groups || []) {
       if (!selected.has(String(g.group_key || ""))) continue;
@@ -5004,7 +5051,10 @@
     }
     if (!nums.length) return;
     closeStickersByCategoryModal();
-    openStickersPrint(nums, { includeCoverAndSeparators: true });
+    openStickersPrint(nums, {
+      includeCoverAndSeparators: true,
+      newLabels,
+    });
   }
 
   document.addEventListener(
@@ -5028,6 +5078,7 @@
     const t = e.target;
     if (!(t instanceof Element)) return;
     if (!t.closest("#ozonFbsStickersSplit")) closeStickersMenu();
+    if (!t.closest("#ozonFbsNewStickersSplit")) closeNewStickersMenu();
     if (
       !t.closest(".wb-fbs-row-menu-wrap") &&
       !t.closest(".wb-fbs-row-menu[id^='ozonFbsRowMenu_']")
@@ -5148,11 +5199,23 @@
 
   function _ozonFbsSyncOwnerOnlyNewStickersBtn() {
     // «Новые стикеры» (v3 package-label) — только основной пользователь.
-    const btn = document.getElementById("ozonFbsSupplyDetailNewStickersBtn");
-    if (!btn) return;
     const can = typeof isTenantOwner === "function" && isTenantOwner();
-    btn.hidden = !can;
-    btn.style.display = can ? "" : "none";
+    const split = document.getElementById("ozonFbsNewStickersSplit");
+    const btn = document.getElementById("ozonFbsSupplyDetailNewStickersBtn");
+    const caret = document.getElementById("ozonFbsSupplyDetailNewStickersMenuBtn");
+    if (split) {
+      split.hidden = !can;
+      split.style.display = can ? "" : "none";
+    }
+    if (btn) {
+      btn.hidden = !can;
+      btn.style.display = can ? "" : "none";
+    }
+    if (caret) {
+      caret.hidden = !can;
+      caret.style.display = can ? "" : "none";
+    }
+    if (!can) closeNewStickersMenu();
   }
 
   function _ozonFbsSyncOwnerOnlyAllCancellationsBtn() {
@@ -14945,6 +15008,7 @@
     openStickersPrint(undefined, { newLabels: true });
   };
   window.toggleOzonFbsStickersMenu = toggleStickersMenu;
+  window.toggleOzonFbsNewStickersMenu = toggleNewStickersMenu;
   window.openOzonFbsStickersByCategoryModal = openStickersByCategoryModal;
   window.closeOzonFbsStickersByCategoryModal = closeStickersByCategoryModal;
   window.ozonFbsPrintStickersByCategory = ozonFbsPrintStickersByCategory;

@@ -3457,10 +3457,27 @@
                             onclick="openOzonFbsStickersByCategoryModal()">Печать по категориям</button>
                   </div>
                 </div>
-                <button type="button" class="secondary" id="ozonFbsSupplyDetailNewStickersBtn"
-                        onclick="ozonFbsOpenNewStickersPrint()"
-                        title="Новая этикетка отправления Ozon"
-                        hidden>Новые стикеры</button>
+                <div class="wb-fbs-picking-split" id="ozonFbsNewStickersSplit" hidden>
+                  <button type="button" class="secondary" id="ozonFbsSupplyDetailNewStickersBtn"
+                          onclick="ozonFbsOpenNewStickersPrint()"
+                          title="Новая этикетка отправления Ozon">Новые стикеры</button>
+                  <button type="button" class="secondary wb-fbs-picking-caret"
+                          id="ozonFbsSupplyDetailNewStickersMenuBtn"
+                          onclick="toggleOzonFbsNewStickersMenu(event)"
+                          aria-label="Другие варианты печати новых стикеров"
+                          aria-haspopup="menu"
+                          aria-expanded="false"
+                          aria-controls="ozonFbsNewStickersMenu"
+                          title="Другие варианты">
+                    <svg width="12" height="8" viewBox="0 0 12 8" fill="none" aria-hidden="true">
+                      <path d="M1 1.5L6 6.5L11 1.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </button>
+                  <div id="ozonFbsNewStickersMenu" class="wb-fbs-picking-menu" role="menu" hidden>
+                    <button type="button" class="wb-fbs-picking-menu-item" role="menuitem"
+                            onclick="openOzonFbsStickersByCategoryModal({ newLabels: true })">Печать по категориям</button>
+                  </div>
+                </div>
                 <button type="button" class="secondary" id="ozonFbsSupplyDetailTrbxBtn"
                         onclick="openOzonFbsContainersModal()"
                         title="Грузоместа Ozon FBS: паллеты, печать ШК, удаление">Грузоместа</button>
@@ -8476,7 +8493,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=212"></script>
+  <script src="/static/ozon_fbs.js?v=213"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=38"></script>
   <script src="/static/app.js?v=709"></script>
 </body>
