@@ -3084,6 +3084,7 @@
     });
     if (!ready) {
       closeStickersMenu();
+      closeNewStickersMenu();
     }
     _ozonFbsSyncPickVerifyBtn(supplyDetailState.supply?.orders || []);
     // Delivering: managers see KIZ/pick as tones; tenant owner may open modals.
