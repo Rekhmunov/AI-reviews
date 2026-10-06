@@ -77,6 +77,41 @@ assert(
   "Ozon recognizes ii instance labels"
 );
 assert(
+  ozonSrc.includes("function _ozonFbsAllowPostingDigitTail"),
+  "Ozon does not match ii…/QR by last 4 posting digits"
+);
+assert(
+  ozonSrc.includes("d.length >= 4 && d.length <= 8"),
+  "Ozon digit-tail only for short posting fragments"
+);
+assert(
+  ozonSrc.includes("_ozonFbsAllowPostingDigitTail(raw, digits)"),
+  "Ozon fuzzy posting-tail match is gated"
+);
+
+function _ozonFbsLooksLikeScanit(value) {
+  const raw = String(value || "").replace(/\s+/g, "").trim();
+  return /^ii[A-Za-z0-9._-]{2,}$/i.test(raw);
+}
+function _ozonFbsScanLooksLikePackageBarcode(scan) {
+  const raw = String(scan || "").replace(/\s+/g, "").trim();
+  if (!raw) return false;
+  const digits = raw.replace(/\D+/g, "");
+  return digits.length >= 12 && digits === raw;
+}
+function _ozonFbsAllowPostingDigitTail(raw, digits) {
+  if (_ozonFbsLooksLikeScanit(raw) || _ozonFbsScanLooksLikePackageBarcode(raw)) return false;
+  const d = String(digits || "").replace(/\D+/g, "");
+  return d.length >= 4 && d.length <= 8;
+}
+assert(!_ozonFbsAllowPostingDigitTail("ii50127379391", "50127379391"), "scanit must not use last-4");
+assert(!_ozonFbsAllowPostingDigitTail("251560724755000", "251560724755000"), "package QR must not use last-4");
+assert(_ozonFbsAllowPostingDigitTail("9391", "9391"), "short posting fragment still uses last-4");
+assert(
+  "4510054509391".endsWith("50127379391".slice(-4)),
+  "collision fixture: last-4 of ii50127379391 is 9391 in 45100545-0939-1"
+);
+assert(
   ozonSrc.includes("row.sticker_scanit = raw;"),
   "Ozon apply-scan writes ii to scanit, not QR"
 );

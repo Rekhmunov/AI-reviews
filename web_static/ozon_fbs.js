@@ -8775,6 +8775,13 @@
     return /^ii[A-Za-z0-9._-]{2,}$/i.test(raw);
   }
 
+  /** Last-4 posting_number match: short fragments only, never ii… labels or package QR. */
+  function _ozonFbsAllowPostingDigitTail(raw, digits) {
+    if (_ozonFbsLooksLikeScanit(raw) || _ozonFbsScanLooksLikePackageBarcode(raw)) return false;
+    const d = String(digits || "").replace(/\D+/g, "");
+    return d.length >= 4 && d.length <= 8;
+  }
+
   function _ozonFbsResolvedStickerFields(row) {
     let upper = _ozonFbsNormalizeScan(row?.sticker_barcode);
     let lower = _ozonFbsNormalizeScan(row?.sticker_lower_barcode);
@@ -8857,7 +8864,11 @@
             fields.partB
             && (_ozonFbsStickerScanKey(fields.partB) === rawKey || digits === fields.partB.replace(/\D+/g, ""))
           ) ||
-          (pn && digits.length >= 4 && pn.replace(/\D+/g, "").endsWith(digits.slice(-4)))
+          (
+            pn
+            && _ozonFbsAllowPostingDigitTail(raw, digits)
+            && pn.replace(/\D+/g, "").endsWith(digits.slice(-4))
+          )
         ) {
           hit = true;
         }

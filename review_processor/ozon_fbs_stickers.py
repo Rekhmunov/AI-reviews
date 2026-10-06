@@ -30,6 +30,20 @@ def _sticker_scan_key(value: object) -> str:
     return normalize_sticker_scan(value).casefold()
 
 
+def _allow_posting_number_digit_tail(raw: str, digits: str) -> bool:
+    """Last-4 posting_number match is only for short posting fragments.
+
+    Never for instance labels (``ii…``) or package QR (12+ digits): those
+    collide with unrelated posting suffixes
+    (``ii50127379391`` → ``45100545-0939-1``).
+    """
+    if oz.looks_like_ozon_scanit(raw):
+        return False
+    if _looks_like_ozon_package_barcode(raw):
+        return False
+    return 4 <= len(digits) <= 8
+
+
 def _fetch_posting_rows(
     repo: ReviewRepository,
     conn: Any,
@@ -100,7 +114,11 @@ def _row_matches_sticker_scan(row: dict[str, Any], raw: str, raw_key: str, digit
             part_b
             and (_sticker_scan_key(part_b) == raw_key or digits == re.sub(r"\D+", "", part_b))
         )
-        or (pn and digits and re.sub(r"\D+", "", pn).endswith(digits[-4:]))
+        or (
+            pn
+            and _allow_posting_number_digit_tail(raw, digits)
+            and re.sub(r"\D+", "", pn).endswith(digits[-4:])
+        )
     )
 
 
@@ -231,8 +249,8 @@ def find_postings_by_sticker_scan(
         if rows:
             return _resolve_matches(rows)
 
-        # 5) Digit tail on posting_number (last 4+ digits).
-        if len(digits) >= 4:
+        # 5) Digit tail on posting_number (short fragments only, never ii…/QR).
+        if _allow_posting_number_digit_tail(raw, digits):
             tail = digits[-4:]
             rows = _fetch_posting_rows(
                 repo,

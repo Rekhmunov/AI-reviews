@@ -7,7 +7,12 @@ from unittest.mock import MagicMock, patch
 
 from review_processor import ozon_fbs as oz
 from review_processor import ozon_fbs_supplies as oz_sup
-from review_processor.ozon_fbs_stickers import find_postings_by_sticker_scan, lookup_posting_by_scan
+from review_processor.ozon_fbs_stickers import (
+    _allow_posting_number_digit_tail,
+    _row_matches_sticker_scan,
+    find_postings_by_sticker_scan,
+    lookup_posting_by_scan,
+)
 
 
 class OzonFbsClientStructureTests(unittest.TestCase):
@@ -694,14 +699,112 @@ class OzonFbsStickerLookupTests(unittest.TestCase):
             [],  # exact pn
             [],  # partial pn
             [],  # part_b exact
-            [],  # digit tail
-            [row],  # raw_json ILIKE
+            [row],  # raw_json ILIKE (digit-tail skipped for 12+ digit QR)
         ]
         repo._row_to_dict = lambda r: dict(r)
         found = find_postings_by_sticker_scan(
             repo, user_id=1, source_id=2, scan="751420599146000"
         )
         self.assertEqual(found["row"]["posting_number"], "0163799058-0084-1")
+
+    def test_allow_posting_digit_tail_skips_scanit_and_package_qr(self) -> None:
+        self.assertFalse(_allow_posting_number_digit_tail("ii50127379391", "50127379391"))
+        self.assertFalse(_allow_posting_number_digit_tail("251560724755000", "251560724755000"))
+        self.assertTrue(_allow_posting_number_digit_tail("9391", "9391"))
+        self.assertTrue(_allow_posting_number_digit_tail("0939-1", "09391"))
+        self.assertFalse(_allow_posting_number_digit_tail("12", "12"))
+
+    def test_row_scanit_does_not_fuzzy_match_unrelated_posting_tail(self) -> None:
+        mattress = {
+            "posting_number": "45100545-0939-1",
+            "sticker_barcode": "451561055248000",
+            "sticker_lower_barcode": "451561055248000",
+            "sticker_scanit": "",
+            "sticker_part_a": "45100545",
+            "sticker_part_b": "0939-1",
+            "offer_id": "nam_muleton_grey160200",
+            "raw_json": "",
+        }
+        raw = "ii50127379391"
+        self.assertFalse(
+            _row_matches_sticker_scan(mattress, raw, raw.casefold(), "50127379391")
+        )
+        kpb = dict(mattress)
+        kpb["posting_number"] = "0105752181-0211-6"
+        kpb["sticker_scanit"] = "ii50127379391"
+        kpb["sticker_barcode"] = "251560724755000"
+        kpb["sticker_lower_barcode"] = "251560724755000"
+        kpb["sticker_part_a"] = "0105752181"
+        kpb["sticker_part_b"] = "0211-6"
+        self.assertTrue(
+            _row_matches_sticker_scan(kpb, raw, raw.casefold(), "50127379391")
+        )
+
+    def test_scanit_does_not_match_unrelated_posting_digit_tail(self) -> None:
+        """ii50127379391 last-4 is 9391 — must not hit 45100545-0939-1."""
+        repo = MagicMock()
+        conn = MagicMock()
+        repo._connect.return_value.__enter__.return_value = conn
+        mattress = {
+            "posting_number": "45100545-0939-1",
+            "sticker_barcode": "451561055248000",
+            "sticker_lower_barcode": "451561055248000",
+            "sticker_scanit": "",
+            "sticker_part_a": "45100545",
+            "sticker_part_b": "0939-1",
+            "offer_id": "nam_muleton_grey160200",
+            "raw_json": "",
+        }
+        conn.execute.return_value.fetchall.side_effect = [
+            [],  # upper barcode
+            [],  # lower barcode
+            [],  # scanit
+            [],  # exact pn
+            [],  # partial pn
+            [],  # part_b exact
+            [mattress],  # digit tail SQL (must be ignored for ii…)
+            [],  # raw_json
+        ]
+        repo._row_to_dict = lambda r: dict(r)
+        found = find_postings_by_sticker_scan(
+            repo, user_id=1, source_id=2, scan="ii50127379391"
+        )
+        self.assertIsNone(found["row"])
+        self.assertFalse(found["ambiguous"])
+        # Digit-tail SQL must not run for instance labels.
+        sql_blobs = " ".join(
+            str(c.args[0]) for c in conn.execute.call_args_list if c.args
+        )
+        self.assertNotIn("regexp_replace(posting_number", sql_blobs)
+
+    def test_short_posting_fragment_still_uses_digit_tail(self) -> None:
+        repo = MagicMock()
+        conn = MagicMock()
+        repo._connect.return_value.__enter__.return_value = conn
+        conn.execute.return_value.fetchall.side_effect = [
+            [],  # upper
+            [],  # lower
+            [],  # scanit
+            [],  # exact pn
+            [],  # partial pn
+            [],  # part_b exact
+            [
+                {
+                    "posting_number": "45100545-0939-1",
+                    "sticker_barcode": "",
+                    "sticker_lower_barcode": "",
+                    "sticker_scanit": "",
+                    "sticker_part_a": "",
+                    "sticker_part_b": "",
+                    "raw_json": "",
+                }
+            ],
+        ]
+        repo._row_to_dict = lambda r: dict(r)
+        found = find_postings_by_sticker_scan(
+            repo, user_id=1, source_id=2, scan="9391"
+        )
+        self.assertEqual(found["row"]["posting_number"], "45100545-0939-1")
 
 
 class OzonFbsStickersPrintHtmlTests(unittest.TestCase):
