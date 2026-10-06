@@ -1361,8 +1361,10 @@
         ? String(row.warehouse_id).trim()
         : "";
       const actCell = _ozonFbsLookupRowActionsHtml(pnRaw);
+      const packagingOrders =
+        state.tab === "awaiting_packaging" && !isSuppliesTab();
       let exemplarBadge = "";
-      if (state.tab === "awaiting_packaging" && !isSuppliesTab()) {
+      if (packagingOrders) {
         const badge = String(row.pre_ship_exemplar_badge || "");
         if (badge === "needed") {
           exemplarBadge =
@@ -1376,10 +1378,18 @@
             + ` title="КИЗ и ГТД переданы в Ozon">Маркировка добавлена</button>`;
         }
       }
+      // «Ожидают сборки»: plain posting number + ii… scanit under it (last-4 large).
+      const orderIdHtml = packagingOrders
+        ? esc(pnRaw)
+        : formatOzonPostingNumberHtml(pnRaw);
+      const scanitUnderHtml = packagingOrders
+        ? _ozonFbsScanitUnderOrderHtml(row)
+        : "";
       return `<tr data-posting="${pn}">
       <td class="wb-fbs-td-check"><input type="checkbox" class="wb-fbs-row-cb" data-posting="${pn}" ${checked} onchange="onOzonFbsCheckboxChange()" /></td>
       <td class="wb-fbs-td-order">
-        <div class="wb-fbs-order-id">${formatOzonPostingNumberHtml(pnRaw)}</div>
+        <div class="wb-fbs-order-id">${orderIdHtml}</div>
+        ${scanitUnderHtml}
         <div class="wb-fbs-order-meta">от ${esc(fmtDate(created))}</div>
         ${exemplarBadge}
         ${badges.length ? `<div class="wb-fbs-badges">${badges.join("")}</div>` : ""}

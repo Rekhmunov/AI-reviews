@@ -473,7 +473,7 @@ class OzonFbsNewStickersUiTests(unittest.TestCase):
         )
 
     def test_cache_bump(self) -> None:
-        self.assertIn("ozon_fbs.js?v=219", HTML)
+        self.assertIn("ozon_fbs.js?v=220", HTML)
 
 
 if __name__ == "__main__":
