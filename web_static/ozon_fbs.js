@@ -3683,6 +3683,7 @@
     const readOnly = isDeliveringSuppliesTab();
     syncSupplyDetailReadOnlyMode(readOnly);
     _ozonFbsSyncCancelledBtn();
+    _ozonFbsSyncOwnerOnlyNewStickersBtn();
     const detailColspan = readOnly ? 2 : 4;
     if (tbody) tbody.innerHTML = `<tr><td colspan="${detailColspan}" class="wb-fbs-empty">Загрузка…</td></tr>`;
     if (modal) modal.classList.remove("hidden");
@@ -4489,6 +4490,10 @@
     closeStickersMenu();
     const opts = options && typeof options === "object" ? options : {};
     const newLabels = !!opts.newLabels;
+    // «Новые стикеры» — только основной пользователь (тестовый API).
+    if (newLabels && !(typeof isTenantOwner === "function" && isTenantOwner())) {
+      return;
+    }
     const oldBtn = document.getElementById("ozonFbsSupplyDetailStickersBtn");
     const newBtn = document.getElementById("ozonFbsSupplyDetailNewStickersBtn");
     const caret = document.getElementById("ozonFbsSupplyDetailStickersMenuBtn");
@@ -4994,6 +4999,7 @@
     _ozonFbsSyncOwnerOnlyReturnsBtn();
     _ozonFbsSyncOwnerOnlyGear();
     _ozonFbsSyncCancelledBtn();
+    _ozonFbsSyncOwnerOnlyNewStickersBtn();
     _ozonFbsSyncOwnerOnlyAllCancellationsBtn();
     _ozonFbsSyncOwnerOnlyFinesBtn();
     syncTableMode();
@@ -5060,6 +5066,15 @@
   function _ozonFbsSyncCancelledBtn() {
     // Owner-only (same as «Все отмены»).
     const btn = document.getElementById("ozonFbsSupplyDetailCancelledBtn");
+    if (!btn) return;
+    const can = typeof isTenantOwner === "function" && isTenantOwner();
+    btn.hidden = !can;
+    btn.style.display = can ? "" : "none";
+  }
+
+  function _ozonFbsSyncOwnerOnlyNewStickersBtn() {
+    // «Новые стикеры» (v3 package-label) — только основной пользователь.
+    const btn = document.getElementById("ozonFbsSupplyDetailNewStickersBtn");
     if (!btn) return;
     const can = typeof isTenantOwner === "function" && isTenantOwner();
     btn.hidden = !can;
@@ -14789,7 +14804,10 @@
   window.confirmOzonFbsSupplyDetailNewSupply = confirmOzonFbsSupplyDetailNewSupply;
   window.ozonFbsOpenPickingList = openPickingList;
   window.ozonFbsOpenStickersPrint = () => openStickersPrint();
-  window.ozonFbsOpenNewStickersPrint = () => openStickersPrint(undefined, { newLabels: true });
+  window.ozonFbsOpenNewStickersPrint = () => {
+    if (typeof isTenantOwner === "function" && !isTenantOwner()) return;
+    openStickersPrint(undefined, { newLabels: true });
+  };
   window.toggleOzonFbsStickersMenu = toggleStickersMenu;
   window.openOzonFbsStickersByCategoryModal = openStickersByCategoryModal;
   window.closeOzonFbsStickersByCategoryModal = closeStickersByCategoryModal;

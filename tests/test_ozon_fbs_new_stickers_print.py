@@ -288,6 +288,9 @@ class OzonFbsNewStickersUiTests(unittest.TestCase):
         trbx_at = HTML.find('id="ozonFbsSupplyDetailTrbxBtn"')
         self.assertLess(stickers_at, new_at)
         self.assertLess(new_at, trbx_at)
+        # Hidden by default; shown only for tenant owner via JS sync.
+        chunk = HTML[new_at : new_at + 280]
+        self.assertIn("hidden", chunk)
 
     def test_js_sends_new_labels_flag_and_keeps_old_default(self) -> None:
         self.assertIn("ozonFbsOpenNewStickersPrint", JS)
@@ -299,8 +302,19 @@ class OzonFbsNewStickersUiTests(unittest.TestCase):
         )
         self.assertIn("ozonFbsSupplyDetailNewStickersBtn", JS)
 
+    def test_new_stickers_owner_only_ui_and_api(self) -> None:
+        self.assertIn("_ozonFbsSyncOwnerOnlyNewStickersBtn", JS)
+        self.assertIn("isTenantOwner", JS)
+        web = (ROOT / "review_processor" / "web.py").read_text(encoding="utf-8")
+        start = web.find('@app.post("/api/ozon-fbs/supplies/{supply_id}/stickers-print/start")')
+        self.assertGreater(start, 0)
+        chunk = web[start : start + 2200]
+        self.assertIn("use_new_labels", chunk)
+        self.assertIn("user_is_tenant_owner", chunk)
+        self.assertIn("только основному пользователю", chunk)
+
     def test_cache_bump(self) -> None:
-        self.assertIn("ozon_fbs.js?v=205", HTML)
+        self.assertIn("ozon_fbs.js?v=206", HTML)
 
 
 if __name__ == "__main__":
