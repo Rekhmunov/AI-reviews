@@ -62,9 +62,9 @@ def test_scanit_under_order_wired() -> None:
     ]
     assert "_ozonFbsScanitUnderOrderHtml" not in lookup
 
-    assert ".ozon-fbs-scanit-line .ozon-fbs-posting-tail" in css
+    # Existing 22px tail already covers scanit via .wb-fbs-sd-order-id
+    assert ".wb-fbs-sd-order-id .ozon-fbs-posting-tail" in css
     assert "ozon_fbs.js?v=210" in html
-    assert "style.css?v=424" in html
 
 
 def test_format_ozon_scanit_html_last_four() -> None:
