@@ -4598,15 +4598,17 @@
     const caret = document.getElementById("ozonFbsSupplyDetailStickersMenuBtn");
     const newCaret = document.getElementById("ozonFbsSupplyDetailNewStickersMenuBtn");
     // newLabels=true → primary «Стикеры» (v3); false → «Старые стикеры».
+    const activeBtn = newLabels ? newBtn : oldBtn;
+    const idleLabel = newLabels ? "Стикеры" : "Старые стикеры";
     const waitLabel = newLabels ? "Стикеры…" : "Старые стикеры…";
     const setBtnBusy = (busy, text) => {
       if (oldBtn) {
         oldBtn.disabled = !!busy;
-        if (!newLabels) oldBtn.textContent = busy ? (text || waitLabel) : "Старые стикеры";
+        if (!newLabels) oldBtn.textContent = busy ? (text || waitLabel) : idleLabel;
       }
       if (newBtn) {
         newBtn.disabled = !!busy;
-        if (newLabels) newBtn.textContent = busy ? (text || waitLabel) : "Стикеры";
+        if (newLabels) newBtn.textContent = busy ? (text || waitLabel) : idleLabel;
       }
       if (caret) caret.disabled = !!busy;
       if (newCaret) newCaret.disabled = !!busy;
