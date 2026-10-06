@@ -3382,24 +3382,22 @@
       alert("Не удалось определить отправление или источник OZON ФБС");
       return;
     }
-    // Supply detail / КИЗ / без КИЗ ⋮ → always v3 «Стикеры» (same as primary button).
-    // Do not fall through to legacy GET stickers while a supply is open.
+    // Supply detail / КИЗ / без КИЗ ⋮ → v3 «Стикеры».
     if (supplyDetailReady()) {
       openStickersPrint([pn], { newLabels: true });
       return;
     }
-    // Search/lookup kebab (no supply modal): if posting is already in a local
-    // supply, use the supply HTML stickers endpoint (soft-fail + missing headers)
-    // instead of the raw PDF path that surfaces Ozon INVALID_ARGUMENT as alert.
+    // Lookup ⋮: posting already in a local supply → same async v3 job (no modal).
     const lookupSupplyId = _ozonFbsLookupSupplyIdForPosting(pn);
     if (lookupSupplyId) {
-      const url =
-        `/api/ozon-fbs/supplies/${encodeURIComponent(lookupSupplyId)}/stickers-print` +
-        `?source_id=${sourceId}&order_ids=${encodeURIComponent(pn)}`;
-      openPrintHtml(url, "Разрешите всплывающие окна для стикера")
-        .catch((e) => alert(String(e.message || e)));
+      openStickersPrint([pn], {
+        newLabels: true,
+        supplyId: lookupSupplyId,
+        sourceId,
+      });
       return;
     }
+    // Lookup ⋮ without local supply → v3 PDF (package-label create+get).
     const url =
       `/api/ozon-fbs/postings/stickers-print?source_id=${sourceId}` +
       `&posting_numbers=${encodeURIComponent(pn)}`;
@@ -4587,12 +4585,15 @@
   }
 
   function openStickersPrint(postingNumbers, options) {
-    const sid = String(supplyDetailState.supplyId || "").trim();
-    const sourceId = supplyDetailState.sourceId || state.sourceId;
-    if (!sid || !sourceId || !_ozonFbsSupplyActionsReady()) return;
+    const opts = options && typeof options === "object" ? options : {};
+    // Lookup may pass supplyId/sourceId without an open supply modal.
+    const sid = String(opts.supplyId || supplyDetailState.supplyId || "").trim();
+    const sourceId = opts.sourceId || supplyDetailState.sourceId || state.sourceId;
+    const standalone = !!opts.supplyId;
+    if (!sid || !sourceId) return;
+    if (!standalone && !_ozonFbsSupplyActionsReady()) return;
     closeStickersMenu();
     closeNewStickersMenu();
-    const opts = options && typeof options === "object" ? options : {};
     const newLabels = !!opts.newLabels;
     const oldBtn = document.getElementById("ozonFbsSupplyDetailStickersBtn");
     const newBtn = document.getElementById("ozonFbsSupplyDetailNewStickersBtn");
@@ -4690,7 +4691,7 @@
     };
 
     const restoreBtn = () => {
-      if (!_ozonFbsSupplyActionsReady()) return;
+      if (!standalone && !_ozonFbsSupplyActionsReady()) return;
       setBtnBusy(false);
     };
 
@@ -5992,8 +5993,12 @@
 
   function printCurrentSticker() {
     if (!state.sourceId || !state.detailPosting) return;
-    const url = `/api/ozon-fbs/postings/stickers-print?source_id=${state.sourceId}&posting_numbers=${encodeURIComponent(state.detailPosting)}`;
-    window.open(url, "_blank");
+    // Detail card «Этикетка» → same v3 PDF as lookup ⋮ without local supply.
+    const url =
+      `/api/ozon-fbs/postings/stickers-print?source_id=${state.sourceId}` +
+      `&posting_numbers=${encodeURIComponent(state.detailPosting)}`;
+    openPrintPdf(url, "Разрешите всплывающие окна для стикера")
+      .catch((e) => alert(String(e.message || e)));
   }
 
   /* ── Selection → new / existing local supply ── */

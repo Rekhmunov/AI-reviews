@@ -382,6 +382,29 @@ class OzonFbsNewStickersUiTests(unittest.TestCase):
             one_fn.find("openStickersPrint([pn], { newLabels: true })"),
             one_fn.find("_ozonFbsLookupSupplyIdForPosting"),
         )
+        # Lookup ⋮ with local supply → async v3 job (supplyId override, no modal).
+        self.assertIn("supplyId: lookupSupplyId", one_fn)
+        self.assertIn("newLabels: true", one_fn)
+        self.assertNotIn("/stickers-print`", one_fn)
+        self.assertNotIn("openPrintHtml(url", one_fn)
+        # Lookup ⋮ without supply → v3 PDF endpoint.
+        self.assertIn("/api/ozon-fbs/postings/stickers-print?", one_fn)
+        self.assertIn("openPrintPdf(url", one_fn)
+        # openStickersPrint accepts standalone supplyId (lookup without modal).
+        open_print = JS[
+            JS.find("function openStickersPrint") : JS.find(
+                "function _ozonFbsStickersCategorySetInfo"
+            )
+        ]
+        self.assertIn("opts.supplyId", open_print)
+        self.assertIn("const standalone = !!opts.supplyId", open_print)
+        # Detail card «Этикетка» → same v3 PDF helper (not window.open).
+        cur_at = JS.find("function printCurrentSticker")
+        self.assertGreater(cur_at, 0)
+        cur_fn = JS[cur_at : JS.find("/* ── Selection", cur_at)]
+        self.assertIn("/api/ozon-fbs/postings/stickers-print?", cur_fn)
+        self.assertIn("openPrintPdf(url", cur_fn)
+        self.assertNotIn("window.open(url", cur_fn)
         # КИЗ / без КИЗ ⋮ share the same v3 helper.
         self.assertIn(
             "onclick=\"ozonFbsPrintOnePostingStickerFromDetail(event, '${safePn}')\"",
@@ -437,7 +460,7 @@ class OzonFbsNewStickersUiTests(unittest.TestCase):
         )
 
     def test_cache_bump(self) -> None:
-        self.assertIn("ozon_fbs.js?v=217", HTML)
+        self.assertIn("ozon_fbs.js?v=218", HTML)
 
 
 if __name__ == "__main__":

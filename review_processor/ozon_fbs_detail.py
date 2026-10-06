@@ -1160,6 +1160,7 @@ def print_package_labels(
     api_key: str,
     posting_numbers: list[str],
 ) -> bytes:
+    """Lookup / detail-card sticker PDF via v3 create + v2 get (not sync v2)."""
     nums = [str(p).strip() for p in posting_numbers if str(p).strip()]
     if not nums:
         raise RuntimeError("Не указаны отправления для печати")
@@ -1169,6 +1170,7 @@ def print_package_labels(
     if len(nums) == 1:
         oz.ensure_single_posting_label_printable(client, nums[0])
     try:
-        return oz.fetch_merged_package_label_pdf(client, nums)
+        pdf, _meta = client.fetch_async_package_label_pdf(nums)
+        return pdf
     except RuntimeError as exc:
         raise RuntimeError(oz.format_ozon_package_label_error(exc)) from exc
