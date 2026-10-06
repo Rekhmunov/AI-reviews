@@ -167,6 +167,28 @@ class OzonFbsPackageLabelErrorTests(unittest.TestCase):
                 )
         self.assertIn("Доставляется", str(ctx.exception))
         client.package_label_pdf.assert_not_called()
+        client.fetch_async_package_label_pdf.assert_not_called()
+
+    def test_print_package_labels_uses_v3_async(self) -> None:
+        from review_processor import ozon_fbs_detail as oz_detail
+
+        with patch.object(oz, "OzonFbsClient") as client_cls:
+            client = client_cls.return_value
+            client.get_posting.return_value = {"status": "awaiting_deliver"}
+            client.fetch_async_package_label_pdf.return_value = (
+                b"%PDF-v3",
+                {"file_url": "https://cdn1.ozon.ru/n.pdf"},
+            )
+            out = oz_detail.print_package_labels(
+                client_id="cid",
+                api_key="key",
+                posting_numbers=["0124861120-0199-1"],
+            )
+        self.assertEqual(out, b"%PDF-v3")
+        client.fetch_async_package_label_pdf.assert_called_once_with(
+            ["0124861120-0199-1"]
+        )
+        client.package_label_pdf.assert_not_called()
 
 
 class OzonFbsStickerFieldsTests(unittest.TestCase):
