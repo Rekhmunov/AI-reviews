@@ -3382,14 +3382,15 @@
       alert("Не удалось определить отправление или источник OZON ФБС");
       return;
     }
-    // Same HTML print flow as the supply «Стикеры» button (v3 labels).
-    if (supplyDetailReady() && _ozonFbsSupplyActionsReady()) {
+    // Supply detail / КИЗ / без КИЗ ⋮ → always v3 «Стикеры» (same as primary button).
+    // Do not fall through to legacy GET stickers while a supply is open.
+    if (supplyDetailReady()) {
       openStickersPrint([pn], { newLabels: true });
       return;
     }
-    // Search/lookup kebab: if posting is already in a local supply, use the same
-    // supply HTML stickers endpoint (soft-fail + missing headers) instead of the
-    // raw PDF path that surfaces Ozon INVALID_ARGUMENT as a browser alert.
+    // Search/lookup kebab (no supply modal): if posting is already in a local
+    // supply, use the supply HTML stickers endpoint (soft-fail + missing headers)
+    // instead of the raw PDF path that surfaces Ozon INVALID_ARGUMENT as alert.
     const lookupSupplyId = _ozonFbsLookupSupplyIdForPosting(pn);
     if (lookupSupplyId) {
       const url =

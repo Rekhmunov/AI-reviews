@@ -316,7 +316,11 @@ class OzonFbsNewStickersUiTests(unittest.TestCase):
         ]
         self.assertIn("wb-fbs-picking-caret", new_split)
         self.assertIn("Печать по категориям", new_split)
-        # Same caret pattern as ordinary stickers split.
+        self.assertIn(
+            "openOzonFbsStickersByCategoryModal({ newLabels: true })",
+            new_split,
+        )
+        # Same caret pattern as ordinary stickers split — still old labels.
         old_split = HTML[
             HTML.find('id="ozonFbsStickersSplit"') : HTML.find(
                 'id="ozonFbsNewStickersSplit"'
@@ -324,6 +328,10 @@ class OzonFbsNewStickersUiTests(unittest.TestCase):
         ]
         self.assertIn("wb-fbs-picking-caret", old_split)
         self.assertIn("Печать по категориям", old_split)
+        self.assertIn("openOzonFbsStickersByCategoryModal()", old_split)
+        self.assertNotIn("newLabels: true", old_split)
+        self.assertIn("Старые стикеры", old_split)
+        self.assertIn("ozonFbsOpenStickersPrint()", old_split)
 
     def test_js_sends_new_labels_flag_and_keeps_old_default(self) -> None:
         self.assertIn("ozonFbsOpenNewStickersPrint", JS)
@@ -368,6 +376,45 @@ class OzonFbsNewStickersUiTests(unittest.TestCase):
         one_fn = JS[one_at : JS.find("function cancelBadgeHtml", one_at)]
         self.assertIn("openStickersPrint([pn], { newLabels: true })", one_fn)
         self.assertNotIn("openStickersPrint([pn]);", one_fn)
+        # While supply modal is open — never fall back to legacy GET stickers.
+        self.assertIn("if (supplyDetailReady())", one_fn)
+        self.assertLess(
+            one_fn.find("openStickersPrint([pn], { newLabels: true })"),
+            one_fn.find("_ozonFbsLookupSupplyIdForPosting"),
+        )
+        # КИЗ / без КИЗ ⋮ share the same v3 helper.
+        self.assertIn(
+            "onclick=\"ozonFbsPrintOnePostingStickerFromDetail(event, '${safePn}')\"",
+            JS,
+        )
+        menu_at = JS.find("function _ozonFbsModalRowMenuItemsHtml")
+        self.assertGreater(menu_at, 0)
+        menu_fn = JS[menu_at : JS.find("function _ozonFbsSyncRowMenuContent", menu_at)]
+        self.assertIn("Напечатать стикер", menu_fn)
+        self.assertIn("ozonFbsPrintOnePostingStickerFromDetail", menu_fn)
+        # Supply-detail ⋮ uses data-ozon-action → same helper.
+        self.assertIn("data-ozon-action=\"print-sticker\"", JS)
+        self.assertIn("printOnePostingStickerFromDetail(e, pn)", JS)
+        # Category print preserves newLabels from the opener (Стикеры vs Старые).
+        cat_print = JS[
+            JS.find("function ozonFbsPrintStickersByCategory") : JS.find(
+                "document.addEventListener",
+                JS.find("function ozonFbsPrintStickersByCategory"),
+            )
+        ]
+        self.assertIn("stickersCategoryState.newLabels", cat_print)
+        self.assertIn("newLabels,", cat_print)
+        # «Старые стикеры» entry stays without newLabels.
+        self.assertIn(
+            "window.ozonFbsOpenStickersPrint = () => openStickersPrint();",
+            JS,
+        )
+        open_old = JS[
+            JS.find("window.ozonFbsOpenStickersPrint") : JS.find(
+                "window.ozonFbsOpenNewStickersPrint"
+            )
+        ]
+        self.assertNotIn("newLabels", open_old)
 
     def test_v3_stickers_open_to_all_users_ui_and_api(self) -> None:
         sync = JS[
@@ -390,7 +437,7 @@ class OzonFbsNewStickersUiTests(unittest.TestCase):
         )
 
     def test_cache_bump(self) -> None:
-        self.assertIn("ozon_fbs.js?v=216", HTML)
+        self.assertIn("ozon_fbs.js?v=217", HTML)
 
 
 if __name__ == "__main__":
