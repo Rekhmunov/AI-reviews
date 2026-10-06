@@ -175,10 +175,34 @@
     return hi(s);
   }
 
+  function _ozonFbsScanitCopyBtnHtml(scanit) {
+    const raw = String(scanit || "").trim();
+    if (!raw) return "";
+    const safe = esc(raw).replace(/'/g, "&#39;");
+    return (
+      `<span class="ozon-fbs-modal-posting-actions">` +
+        `<button type="button" class="ozon-fbs-posting-icon-btn ozon-fbs-posting-copy ozon-fbs-scanit-copy"` +
+        ` title="Скопировать этикетку"` +
+        ` aria-label="Скопировать этикетку ${safe}"` +
+        ` onclick="event.stopPropagation(); copyOzonFbsModalPostingNumber('${safe}', this)">` +
+          `<svg class="ozon-fbs-posting-icon-btn-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">` +
+            `<path fill="currentColor" d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>` +
+          `</svg>` +
+        `</button>` +
+      `</span>`
+    );
+  }
+
   function _ozonFbsScanitUnderOrderHtml(row) {
-    const inner = formatOzonScanitHtml(row?.sticker_scanit);
+    const scanit = String(row?.sticker_scanit || "").trim();
+    const inner = formatOzonScanitHtml(scanit);
     if (!inner) return "";
-    return `<div class="wb-fbs-sd-order-id ozon-fbs-scanit-line">${inner}</div>`;
+    return (
+      `<div class="wb-fbs-sd-order-id ozon-fbs-scanit-line ozon-fbs-modal-posting-id">` +
+        `<span class="ozon-fbs-modal-posting-num">${inner}</span>` +
+        _ozonFbsScanitCopyBtnHtml(scanit) +
+      `</div>`
+    );
   }
 
   function detailText(detail) {
@@ -3629,7 +3653,7 @@
       return `<tr class="${rowCls}">
         ${checkCell}
         <td class="wb-fbs-sd-td-order">
-          <div class="wb-fbs-sd-order-id">${formatOzonPostingNumberHtml(pn)}</div>
+          <div class="wb-fbs-sd-order-id">${esc(pn) || "—"}</div>
           ${_ozonFbsScanitUnderOrderHtml(o)}
           <div class="wb-fbs-order-meta">от ${esc(fmtDate(created))}</div>
           ${badges.length ? `<div class="wb-fbs-badges">${badges.join("")}</div>` : ""}
@@ -3958,11 +3982,13 @@
       const btn = btnEl && btnEl.classList ? btnEl : null;
       if (!btn) return;
       btn.classList.add("is-copied");
-      const prev = btn.getAttribute("title") || "Скопировать стикер";
+      const isScanit = btn.classList.contains("ozon-fbs-scanit-copy");
+      const fallbackTitle = isScanit ? "Скопировать этикетку" : "Скопировать стикер";
+      const prev = btn.getAttribute("title") || fallbackTitle;
       btn.setAttribute("title", "Скопировано");
       window.setTimeout(() => {
         btn.classList.remove("is-copied");
-        btn.setAttribute("title", prev === "Скопировано" ? "Скопировать стикер" : prev);
+        btn.setAttribute("title", prev === "Скопировано" ? fallbackTitle : prev);
       }, 1200);
     };
     try {
@@ -9830,7 +9856,7 @@
     return (
       cancelBadgeHtml(row, { lead: true }) +
       `<div class="wb-fbs-sd-order-id ozon-fbs-modal-posting-id">` +
-        `<span class="ozon-fbs-modal-posting-num">${formatOzonPostingNumberHtml(pn)}</span>` +
+        `<span class="ozon-fbs-modal-posting-num">${esc(pn) || "—"}</span>` +
         `${actionsHtml}` +
       `</div>` +
       _ozonFbsScanitUnderOrderHtml(row) +
