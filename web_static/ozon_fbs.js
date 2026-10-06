@@ -175,15 +175,22 @@
     return hi(s);
   }
 
-  function _ozonFbsScanitCopyBtnHtml(scanit) {
-    const raw = String(scanit || "").trim();
+  function _ozonFbsCopyIconBtnHtml(value, { title, className } = {}) {
+    const raw = String(value || "").trim();
     if (!raw) return "";
     const safe = esc(raw).replace(/'/g, "&#39;");
+    const btnTitle = String(title || "Скопировать").trim() || "Скопировать";
+    const extraCls = String(className || "").trim();
+    const cls = [
+      "ozon-fbs-posting-icon-btn",
+      "ozon-fbs-posting-copy",
+      extraCls,
+    ].filter(Boolean).join(" ");
     return (
       `<span class="ozon-fbs-modal-posting-actions">` +
-        `<button type="button" class="ozon-fbs-posting-icon-btn ozon-fbs-posting-copy ozon-fbs-scanit-copy"` +
-        ` title="Скопировать этикетку"` +
-        ` aria-label="Скопировать этикетку ${safe}"` +
+        `<button type="button" class="${cls}"` +
+        ` title="${esc(btnTitle)}"` +
+        ` aria-label="${esc(btnTitle)} ${safe}"` +
         ` onclick="event.stopPropagation(); copyOzonFbsModalPostingNumber('${safe}', this)">` +
           `<svg class="ozon-fbs-posting-icon-btn-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">` +
             `<path fill="currentColor" d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>` +
@@ -191,6 +198,19 @@
         `</button>` +
       `</span>`
     );
+  }
+
+  function _ozonFbsPostingCopyBtnHtml(postingNumber) {
+    return _ozonFbsCopyIconBtnHtml(postingNumber, {
+      title: "Скопировать стикер",
+    });
+  }
+
+  function _ozonFbsScanitCopyBtnHtml(scanit) {
+    return _ozonFbsCopyIconBtnHtml(scanit, {
+      title: "Скопировать этикетку",
+      className: "ozon-fbs-scanit-copy",
+    });
   }
 
   function _ozonFbsScanitUnderOrderHtml(row) {
@@ -3653,7 +3673,10 @@
       return `<tr class="${rowCls}">
         ${checkCell}
         <td class="wb-fbs-sd-td-order">
-          <div class="wb-fbs-sd-order-id">${esc(pn) || "—"}</div>
+          <div class="wb-fbs-sd-order-id ozon-fbs-modal-posting-id">
+            <span class="ozon-fbs-modal-posting-num">${esc(pn) || "—"}</span>
+            ${_ozonFbsPostingCopyBtnHtml(pn)}
+          </div>
           ${_ozonFbsScanitUnderOrderHtml(o)}
           <div class="wb-fbs-order-meta">от ${esc(fmtDate(created))}</div>
           ${badges.length ? `<div class="wb-fbs-badges">${badges.join("")}</div>` : ""}

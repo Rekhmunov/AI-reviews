@@ -138,7 +138,7 @@ def test_ui_title_field_and_table_column() -> None:
     assert "logistics_ttn_col_widths_v4" in JS
     assert "app.js?v=704" in HTML
     assert "style.css?v=418" in HTML
-    assert "ozon_fbs.js?v=211" in HTML
+    assert "ozon_fbs.js?v=212" in HTML
     assert 'id="ttnSelectAll"' in HTML
     assert "function printSelectedTtnRecords" in JS
     assert "logistics_ttn_col_widths_v4" in JS
