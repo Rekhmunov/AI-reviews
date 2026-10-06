@@ -3439,11 +3439,11 @@
                         onclick="ozonFbsOpenPickingList()">Лист подбора</button>
                 <div class="wb-fbs-picking-split" id="ozonFbsStickersSplit">
                   <button type="button" class="secondary" id="ozonFbsSupplyDetailStickersBtn"
-                          onclick="ozonFbsOpenStickersPrint()" title="Этикетка отправления Ozon">Стикеры</button>
+                          onclick="ozonFbsOpenStickersPrint()" title="Старая этикетка отправления Ozon">Старые стикеры</button>
                   <button type="button" class="secondary wb-fbs-picking-caret"
                           id="ozonFbsSupplyDetailStickersMenuBtn"
                           onclick="toggleOzonFbsStickersMenu(event)"
-                          aria-label="Другие варианты печати стикеров"
+                          aria-label="Другие варианты печати старых стикеров"
                           aria-haspopup="menu"
                           aria-expanded="false"
                           aria-controls="ozonFbsStickersMenu"
@@ -3457,14 +3457,14 @@
                             onclick="openOzonFbsStickersByCategoryModal()">Печать по категориям</button>
                   </div>
                 </div>
-                <div class="wb-fbs-picking-split" id="ozonFbsNewStickersSplit" hidden>
+                <div class="wb-fbs-picking-split" id="ozonFbsNewStickersSplit">
                   <button type="button" class="secondary" id="ozonFbsSupplyDetailNewStickersBtn"
                           onclick="ozonFbsOpenNewStickersPrint()"
-                          title="Новая этикетка отправления Ozon">Новые стикеры</button>
+                          title="Этикетка отправления Ozon">Стикеры</button>
                   <button type="button" class="secondary wb-fbs-picking-caret"
                           id="ozonFbsSupplyDetailNewStickersMenuBtn"
                           onclick="toggleOzonFbsNewStickersMenu(event)"
-                          aria-label="Другие варианты печати новых стикеров"
+                          aria-label="Другие варианты печати стикеров"
                           aria-haspopup="menu"
                           aria-expanded="false"
                           aria-controls="ozonFbsNewStickersMenu"
@@ -8493,7 +8493,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=213"></script>
+  <script src="/static/ozon_fbs.js?v=214"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=38"></script>
   <script src="/static/app.js?v=709"></script>
 </body>

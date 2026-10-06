@@ -278,22 +278,28 @@ class OzonFbsBuildStickersNewLabelsTests(unittest.TestCase):
 
 
 class OzonFbsNewStickersUiTests(unittest.TestCase):
-    def test_supply_modal_has_new_stickers_button_next_to_old(self) -> None:
+    def test_supply_modal_renames_and_opens_v3_to_all(self) -> None:
         self.assertIn('id="ozonFbsSupplyDetailStickersBtn"', HTML)
         self.assertIn('id="ozonFbsSupplyDetailNewStickersBtn"', HTML)
-        self.assertIn("Новые стикеры", HTML)
+        self.assertIn(">Старые стикеры<", HTML)
+        self.assertIn(">Стикеры<", HTML)
+        self.assertNotIn(">Новые стикеры<", HTML)
         self.assertIn("ozonFbsOpenNewStickersPrint()", HTML)
         stickers_at = HTML.find('id="ozonFbsSupplyDetailStickersBtn"')
         new_at = HTML.find('id="ozonFbsSupplyDetailNewStickersBtn"')
         trbx_at = HTML.find('id="ozonFbsSupplyDetailTrbxBtn"')
         self.assertLess(stickers_at, new_at)
         self.assertLess(new_at, trbx_at)
-        # Split hidden by default; shown only for tenant owner via JS sync.
+        # v3 «Стикеры» visible to all users (split not owner-hidden).
         split_at = HTML.find('id="ozonFbsNewStickersSplit"')
         self.assertGreater(split_at, 0)
         self.assertLess(split_at, new_at)
-        chunk = HTML[split_at : split_at + 120]
-        self.assertIn("hidden", chunk)
+        chunk = HTML[split_at : split_at + 80]
+        self.assertNotIn("hidden", chunk)
+        old_btn = HTML[stickers_at : stickers_at + 220]
+        self.assertIn("Старые стикеры", old_btn)
+        new_btn = HTML[new_at : new_at + 220]
+        self.assertIn(">Стикеры<", new_btn)
 
     def test_new_stickers_has_category_caret_like_old(self) -> None:
         self.assertIn('id="ozonFbsSupplyDetailNewStickersMenuBtn"', HTML)
@@ -331,6 +337,15 @@ class OzonFbsNewStickersUiTests(unittest.TestCase):
         self.assertIn("function toggleNewStickersMenu", JS)
         self.assertIn("window.toggleOzonFbsNewStickersMenu = toggleNewStickersMenu", JS)
         self.assertIn("stickersCategoryState.newLabels", JS)
+        self.assertIn('"Старые стикеры"', JS)
+        self.assertIn('newBtn.textContent = busy ? (text || waitLabel) : "Стикеры"', JS)
+        # No owner gate on v3 print entry.
+        open_new = JS[
+            JS.find("window.ozonFbsOpenNewStickersPrint") : JS.find(
+                "window.toggleOzonFbsStickersMenu"
+            )
+        ]
+        self.assertNotIn("isTenantOwner", open_new)
         print_at = JS.find("function ozonFbsPrintStickersByCategory")
         self.assertGreater(print_at, 0)
         print_fn = JS[print_at : print_at + 900]
@@ -338,26 +353,28 @@ class OzonFbsNewStickersUiTests(unittest.TestCase):
         self.assertIn("includeCoverAndSeparators: true", print_fn)
         self.assertIn("newLabels", print_fn)
 
-    def test_new_stickers_owner_only_ui_and_api(self) -> None:
-        self.assertIn("_ozonFbsSyncOwnerOnlyNewStickersBtn", JS)
-        self.assertIn("isTenantOwner", JS)
+    def test_v3_stickers_open_to_all_users_ui_and_api(self) -> None:
         sync = JS[
             JS.find("function _ozonFbsSyncOwnerOnlyNewStickersBtn") : JS.find(
                 "function _ozonFbsSyncOwnerOnlyAllCancellationsBtn"
             )
         ]
         self.assertIn("ozonFbsNewStickersSplit", sync)
-        self.assertIn("ozonFbsSupplyDetailNewStickersMenuBtn", sync)
+        self.assertIn("split.hidden = false", sync)
+        self.assertNotIn("isTenantOwner", sync)
         web = (ROOT / "review_processor" / "web.py").read_text(encoding="utf-8")
         start = web.find('@app.post("/api/ozon-fbs/supplies/{supply_id}/stickers-print/start")')
         self.assertGreater(start, 0)
         chunk = web[start : start + 2200]
         self.assertIn("use_new_labels", chunk)
-        self.assertIn("user_is_tenant_owner", chunk)
-        self.assertIn("только основному пользователю", chunk)
+        self.assertNotIn("Новые стикеры доступны только основному пользователю", chunk)
+        self.assertNotIn(
+            "use_new_labels and not (\n            user_is_tenant_owner(user)",
+            chunk,
+        )
 
     def test_cache_bump(self) -> None:
-        self.assertIn("ozon_fbs.js?v=213", HTML)
+        self.assertIn("ozon_fbs.js?v=214", HTML)
 
 
 if __name__ == "__main__":
