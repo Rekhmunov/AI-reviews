@@ -164,6 +164,23 @@
     return hi(s);
   }
 
+  /** Instance label ``ii…``: last 4 chars use the same large tail as the posting number. */
+  function formatOzonScanitHtml(scanit) {
+    const s = String(scanit || "").trim();
+    if (!s) return "";
+    const hi = (text) => `<span class="ozon-fbs-posting-tail">${esc(text)}</span>`;
+    if (s.length > 4) {
+      return `${esc(s.slice(0, -4))}${hi(s.slice(-4))}`;
+    }
+    return hi(s);
+  }
+
+  function _ozonFbsScanitUnderOrderHtml(row) {
+    const inner = formatOzonScanitHtml(row?.sticker_scanit);
+    if (!inner) return "";
+    return `<div class="wb-fbs-sd-order-id ozon-fbs-scanit-line">${inner}</div>`;
+  }
+
   function detailText(detail) {
     if (detail == null) return "";
     if (typeof detail === "string") return detail;
@@ -3613,6 +3630,7 @@
         ${checkCell}
         <td class="wb-fbs-sd-td-order">
           <div class="wb-fbs-sd-order-id">${formatOzonPostingNumberHtml(pn)}</div>
+          ${_ozonFbsScanitUnderOrderHtml(o)}
           <div class="wb-fbs-order-meta">от ${esc(fmtDate(created))}</div>
           ${badges.length ? `<div class="wb-fbs-badges">${badges.join("")}</div>` : ""}
         </td>
@@ -9778,7 +9796,7 @@
     </div>`;
   }
 
-  /** First column like supply detail: posting number + date (no duplicate sticker line). */
+  /** First column like supply detail: posting number, scanit, date. */
   function _ozonFbsModalPostingColHtml(row, { quantity } = {}) {
     const pn = String(row?.posting_number || "").trim();
     const created = row?.created_at_ozon || row?.in_process_at || row?.created_date || "";
@@ -9815,6 +9833,7 @@
         `<span class="ozon-fbs-modal-posting-num">${formatOzonPostingNumberHtml(pn)}</span>` +
         `${actionsHtml}` +
       `</div>` +
+      _ozonFbsScanitUnderOrderHtml(row) +
       `<div class="wb-fbs-order-meta">от ${esc(fmtDate(created))}</div>` +
       (badges.length ? `<div class="wb-fbs-badges">${badges.join("")}</div>` : "") +
       qtyHtml

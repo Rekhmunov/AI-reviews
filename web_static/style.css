@@ -12135,10 +12135,15 @@ button.wb-fbs-select-all-link:disabled {
 }
 .wb-fbs-order-id .ozon-fbs-posting-tail,
 .wb-fbs-sd-order-id .ozon-fbs-posting-tail,
+.ozon-fbs-scanit-line .ozon-fbs-posting-tail,
 #ozonFbsDetailTitle .ozon-fbs-posting-tail {
   font-size: 22px;
   font-weight: 700;
   color: #0f172a;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.ozon-fbs-scanit-line {
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
 }
