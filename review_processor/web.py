@@ -16409,12 +16409,109 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             except Exception:
                 # Enrichment is best-effort: never block the containers modal list.
                 pass
+            try:
+                out = oz_ct.apply_local_archive_filter(
+                    repository,
+                    user_id=owner_id,
+                    source_id=int(source_id),
+                    listed=out,
+                    include_archived=bool(include_sc_accepted),
+                )
+            except Exception:
+                # Local archive filter is best-effort: never block the modal list.
+                pass
             out["warehouse_name"] = wh_name
             out["supply_id"] = str(supply_id)
             return out
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/ozon-fbs/supplies/{supply_id}/containers/local-archive")
+    async def ozon_fbs_supply_containers_local_archive(
+        request: Request, supply_id: str
+    ) -> dict[str, object]:
+        """Locally hide a stuck cargo place under «завершённые». No Ozon API."""
+        from . import ozon_fbs_containers as oz_ct
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        if not (user_is_tenant_owner(user) or _is_super_admin(user)):
+            raise HTTPException(
+                status_code=403,
+                detail="Перенос грузоместа доступен только основному пользователю",
+            )
+        owner_id = _supply_owner_id(user)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        try:
+            source_id = int(body.get("source_id") or 0)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Укажите source_id") from exc
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _require_ozon_fbs_source(user, int(source_id))
+        try:
+            container_id = int(body.get("container_id") or 0)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Укажите container_id") from exc
+        try:
+            return oz_ct.archive_container_locally(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                container_id=container_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/ozon-fbs/supplies/{supply_id}/containers/local-restore")
+    async def ozon_fbs_supply_containers_local_restore(
+        request: Request, supply_id: str
+    ) -> dict[str, object]:
+        """Undo local archive — cargo place returns to the active list. No Ozon API."""
+        from . import ozon_fbs_containers as oz_ct
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        if not (user_is_tenant_owner(user) or _is_super_admin(user)):
+            raise HTTPException(
+                status_code=403,
+                detail="Возврат грузоместа доступен только основному пользователю",
+            )
+        owner_id = _supply_owner_id(user)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        try:
+            source_id = int(body.get("source_id") or 0)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Укажите source_id") from exc
+        if not source_id:
+            raise HTTPException(status_code=400, detail="Укажите source_id")
+        _require_ozon_fbs_source(user, int(source_id))
+        try:
+            container_id = int(body.get("container_id") or 0)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Укажите container_id") from exc
+        try:
+            return oz_ct.restore_container_locally(
+                repository,
+                user_id=owner_id,
+                source_id=int(source_id),
+                container_id=container_id,
+            )
+        except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get("/api/ozon-fbs/supplies/{supply_id}/containers/{container_id}/details")
