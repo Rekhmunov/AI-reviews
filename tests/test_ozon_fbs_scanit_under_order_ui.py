@@ -82,15 +82,20 @@ def test_scanit_under_order_wired() -> None:
     )
     assert "_ozonFbsScanitUnderOrderHtml" not in cancelled
 
-    lookup = js[
+    orders = js[
         js.find("function renderTable(") : js.find("async function loadPostings(")
     ]
-    assert "_ozonFbsScanitUnderOrderHtml" not in lookup
-    # Main orders table still uses enlarged posting tail.
-    assert "formatOzonPostingNumberHtml(pnRaw)" in lookup
+    # «Ожидают сборки»: plain posting number + ii… under it; other tabs keep enlarged PN.
+    assert 'state.tab === "awaiting_packaging"' in orders
+    assert "packagingOrders" in orders
+    assert "esc(pnRaw)" in orders
+    assert "_ozonFbsScanitUnderOrderHtml(row)" in orders
+    assert "formatOzonPostingNumberHtml(pnRaw)" in orders
+    assert orders.find("packagingOrders") < orders.find("_ozonFbsScanitUnderOrderHtml(row)")
+    assert orders.find("esc(pnRaw)") < orders.find("_ozonFbsScanitUnderOrderHtml(row)")
 
     assert ".wb-fbs-sd-order-id .ozon-fbs-posting-tail" in css
-    assert "ozon_fbs.js?v=219" in html
+    assert "ozon_fbs.js?v=220" in html
 
 
 def test_format_ozon_scanit_html_last_four() -> None:
