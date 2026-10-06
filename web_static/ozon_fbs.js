@@ -3257,25 +3257,46 @@
   }
 
   async function openPrintPdf(url, popupBlockedMsg) {
-    const res = await fetch(url, { credentials: "same-origin" });
-    if (!res.ok) {
-      let detail = "";
-      try {
-        const data = await res.json();
-        detail = detailText(data.detail);
-      } catch (_) {
-        detail = await res.text().catch(() => "");
-      }
-      throw new Error(detail || `Ошибка печати (${res.status})`);
-    }
-    const blob = await res.blob();
-    const blobUrl = URL.createObjectURL(blob);
-    const win = window.open(blobUrl, "_blank");
-    if (!win) {
-      URL.revokeObjectURL(blobUrl);
+    // Open in the same user gesture — window.open after await is often blocked.
+    const printWin = window.open("about:blank", "_blank");
+    if (!printWin) {
       throw new Error(popupBlockedMsg || "Разрешите всплывающие окна");
     }
-    setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+    try {
+      const res = await fetch(url, { credentials: "same-origin" });
+      if (!res.ok) {
+        let detail = "";
+        try {
+          const data = await res.json();
+          detail = detailText(data.detail);
+        } catch (_) {
+          detail = await res.text().catch(() => "");
+        }
+        throw new Error(detail || `Ошибка печати (${res.status})`);
+      }
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      try {
+        printWin.location.href = blobUrl;
+      } catch (_e) {
+        printWin.location = blobUrl;
+      }
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+    } catch (e) {
+      const err = String(e.message || e);
+      try {
+        if (printWin && !printWin.closed) {
+          printWin.document.open();
+          printWin.document.write(`<!doctype html><html lang="ru"><head><meta charset="utf-8"/>
+<title>Ошибка печати</title></head><body style="font-family:system-ui;padding:32px">
+<h1>Не удалось подготовить стикер</h1>
+<p>${err.replace(/[<>&]/g, (c) => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]))}</p>
+</body></html>`);
+          printWin.document.close();
+        }
+      } catch (_e) { /* ignore */ }
+      throw e;
+    }
   }
 
   function _ozonFbsLookupSupplyIdForPosting(postingNumber) {
@@ -4626,7 +4647,10 @@
       typeof opts.includeCoverAndSeparators === "boolean"
         ? opts.includeCoverAndSeparators
         : ids.length === 0;
-    const tab = String(supplyDetailState.postingTab || "").trim();
+    // Lookup standalone must not inherit posting_tab from a previously open supply.
+    const tab = standalone
+      ? ""
+      : String(supplyDetailState.postingTab || "").trim();
     const body = {
       source_id: Number(sourceId),
       order_ids: ids,

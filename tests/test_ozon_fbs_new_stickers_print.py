@@ -398,7 +398,20 @@ class OzonFbsNewStickersUiTests(unittest.TestCase):
         ]
         self.assertIn("opts.supplyId", open_print)
         self.assertIn("const standalone = !!opts.supplyId", open_print)
-        # Detail card «Этикетка» → same v3 PDF helper (not window.open).
+        self.assertIn("standalone", open_print)
+        # Standalone lookup must not send stale posting_tab.
+        self.assertIn('standalone\n      ? ""', open_print)
+        self.assertIn("supplyDetailState.postingTab", open_print)
+        # openPrintPdf opens the tab in the same gesture (about:blank first).
+        pdf_at = JS.find("async function openPrintPdf")
+        self.assertGreater(pdf_at, 0)
+        pdf_fn = JS[pdf_at : JS.find("function _ozonFbsLookupSupplyIdForPosting", pdf_at)]
+        self.assertIn('window.open("about:blank", "_blank")', pdf_fn)
+        self.assertLess(
+            pdf_fn.find('window.open("about:blank", "_blank")'),
+            pdf_fn.find("await fetch(url"),
+        )
+        # Detail card «Этикетка» → same v3 PDF helper (not raw window.open(url)).
         cur_at = JS.find("function printCurrentSticker")
         self.assertGreater(cur_at, 0)
         cur_fn = JS[cur_at : JS.find("/* ── Selection", cur_at)]
@@ -460,7 +473,7 @@ class OzonFbsNewStickersUiTests(unittest.TestCase):
         )
 
     def test_cache_bump(self) -> None:
-        self.assertIn("ozon_fbs.js?v=218", HTML)
+        self.assertIn("ozon_fbs.js?v=219", HTML)
 
 
 if __name__ == "__main__":
