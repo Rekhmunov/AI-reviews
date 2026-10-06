@@ -151,4 +151,4 @@ def test_delivering_api_and_ui_wire_pagination() -> None:
     assert "deliveringSupplies" in load
     assert "suppliesMode && !deliveringSupplies" in load
     assert "Number(data.total || 0)" in load
-    assert "ozon_fbs.js?v=210" in HTML
+    assert "ozon_fbs.js?v=211" in HTML

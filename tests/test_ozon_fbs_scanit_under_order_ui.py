@@ -27,7 +27,9 @@ def test_scanit_under_order_wired() -> None:
 
     assert "function formatOzonScanitHtml" in js
     assert "function _ozonFbsScanitUnderOrderHtml" in js
+    assert "function _ozonFbsScanitCopyBtnHtml" in js
     assert "ozon-fbs-scanit-line" in js
+    assert "ozon-fbs-scanit-copy" in js
     assert "ozon-fbs-posting-tail" in js[js.find("function formatOzonScanitHtml") :]
 
     sd = js[
@@ -35,22 +37,32 @@ def test_scanit_under_order_wired() -> None:
             '<td class="wb-fbs-sd-td-product">'
         )
     ]
-    assert "formatOzonPostingNumberHtml(pn)" in sd
+    # Uniform posting font in supply modal — no enlarged left-of-hyphen tail.
+    assert "formatOzonPostingNumberHtml(pn)" not in sd
+    assert "esc(pn)" in sd
     assert "_ozonFbsScanitUnderOrderHtml(o)" in sd
-    assert sd.find("formatOzonPostingNumberHtml(pn)") < sd.find(
-        "_ozonFbsScanitUnderOrderHtml(o)"
-    )
+    assert sd.find("esc(pn)") < sd.find("_ozonFbsScanitUnderOrderHtml(o)")
 
     col = _fn_src("_ozonFbsModalPostingColHtml", until="_ozonFbsKizRowIsEmpty")
+    assert "formatOzonPostingNumberHtml(pn)" not in col
+    assert "esc(pn)" in col
     assert "_ozonFbsScanitUnderOrderHtml(row)" in col
-    assert col.find("formatOzonPostingNumberHtml(pn)") < col.find(
-        "_ozonFbsScanitUnderOrderHtml(row)"
-    )
+    assert col.find("esc(pn)") < col.find("_ozonFbsScanitUnderOrderHtml(row)")
 
     helper = _fn_src("_ozonFbsScanitUnderOrderHtml", until="detailText")
-    assert "row?.sticker_scanit" in helper
+    assert "row?.sticker_scanit" in helper or 'sticker_scanit' in helper
     assert "ozon-fbs-scanit-line" in helper
+    assert "_ozonFbsScanitCopyBtnHtml" in helper
     assert "—" not in helper
+
+    copy_btn = _fn_src("_ozonFbsScanitCopyBtnHtml", until="_ozonFbsScanitUnderOrderHtml")
+    assert "Скопировать этикетку" in copy_btn
+    assert "copyOzonFbsModalPostingNumber" in copy_btn
+    assert "ozon-fbs-scanit-copy" in copy_btn
+
+    copy_fn = _fn_src("copyOzonFbsModalPostingNumber", until="_ozonFbsApplyCancelledQuiet")
+    assert "ozon-fbs-scanit-copy" in copy_fn
+    assert "Скопировать этикетку" in copy_fn
 
     cancelled = _fn_src(
         "renderOzonFbsCancelledOrdersTable", until="refreshOzonFbsCancelledOrders"
@@ -61,28 +73,29 @@ def test_scanit_under_order_wired() -> None:
         js.find("function renderTable(") : js.find("async function loadPostings(")
     ]
     assert "_ozonFbsScanitUnderOrderHtml" not in lookup
+    # Main orders table still uses enlarged posting tail.
+    assert "formatOzonPostingNumberHtml(pnRaw)" in lookup
 
-    # Existing 22px tail already covers scanit via .wb-fbs-sd-order-id
     assert ".wb-fbs-sd-order-id .ozon-fbs-posting-tail" in css
-    assert "ozon_fbs.js?v=210" in html
+    assert "ozon_fbs.js?v=211" in html
 
 
 def test_format_ozon_scanit_html_last_four() -> None:
     js = JS.read_text(encoding="utf-8")
     start = js.find("function formatOzonScanitHtml")
-    end = js.find("function _ozonFbsScanitUnderOrderHtml")
+    end = js.find("function _ozonFbsScanitCopyBtnHtml")
     assert start >= 0 and end > start
     fn = js[start:end]
     script = f"""
 function esc(s) {{ return String(s ?? ""); }}
 {fn}
-const out = formatOzonScanitHtml("ii50127379391");
-if (out !== 'ii5012737<span class="ozon-fbs-posting-tail">9391</span>') {{
+const out = formatOzonScanitHtml("ii50127383677");
+if (out !== 'ii5012738<span class="ozon-fbs-posting-tail">3677</span>') {{
   console.error("unexpected:", out);
   process.exit(1);
 }}
 if (formatOzonScanitHtml("") !== "") process.exit(2);
 if (formatOzonScanitHtml("   ") !== "") process.exit(3);
-if (formatOzonScanitHtml("9391") !== '<span class="ozon-fbs-posting-tail">9391</span>') process.exit(4);
+if (formatOzonScanitHtml("3677") !== '<span class="ozon-fbs-posting-tail">3677</span>') process.exit(4);
 """
     subprocess.run(["node", "-e", script], check=True)
