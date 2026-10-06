@@ -338,7 +338,17 @@ class OzonFbsNewStickersUiTests(unittest.TestCase):
         self.assertIn("window.toggleOzonFbsNewStickersMenu = toggleNewStickersMenu", JS)
         self.assertIn("stickersCategoryState.newLabels", JS)
         self.assertIn('"Старые стикеры"', JS)
-        self.assertIn('newBtn.textContent = busy ? (text || waitLabel) : "Стикеры"', JS)
+        self.assertIn("const activeBtn = newLabels ? newBtn : oldBtn;", JS)
+        self.assertIn('const idleLabel = newLabels ? "Стикеры" : "Старые стикеры";', JS)
+        self.assertIn("newBtn.textContent = busy ? (text || waitLabel) : idleLabel;", JS)
+        # Progress poll must keep idleLabel/activeBtn (regression: ReferenceError in tab).
+        open_print = JS[
+            JS.find("function openStickersPrint") : JS.find(
+                "function _ozonFbsStickersCategorySetInfo"
+            )
+        ]
+        self.assertIn("${idleLabel}", open_print)
+        self.assertIn("activeBtn.textContent = progressText", open_print)
         # No owner gate on v3 print entry.
         open_new = JS[
             JS.find("window.ozonFbsOpenNewStickersPrint") : JS.find(
@@ -380,7 +390,7 @@ class OzonFbsNewStickersUiTests(unittest.TestCase):
         )
 
     def test_cache_bump(self) -> None:
-        self.assertIn("ozon_fbs.js?v=215", HTML)
+        self.assertIn("ozon_fbs.js?v=216", HTML)
 
 
 if __name__ == "__main__":

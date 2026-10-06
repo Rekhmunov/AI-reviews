@@ -181,7 +181,7 @@ def test_local_archive_ui_and_api_owner_only() -> None:
     chunk = WEB_PY[start : start + 1200]
     assert "user_is_tenant_owner" in chunk
     assert "основному пользователю" in chunk
-    assert "ozon_fbs.js?v=215" in APP_HTML
+    assert "ozon_fbs.js?v=216" in APP_HTML
     assert "style.css?v=423" in APP_HTML
 
 
