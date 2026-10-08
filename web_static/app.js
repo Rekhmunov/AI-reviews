@@ -37075,6 +37075,18 @@ function _wbFbsKizOkForPortal(supply) {
   return !!(kizSplit && !kizSplit.hidden && kizSplit.classList.contains("is-ok"));
 }
 
+/** Pick gate for portal: only when the supply has active plain (non-KIZ) orders. */
+function _wbFbsNeedsPickForPortal(supply) {
+  const orders = Array.isArray(supply?.orders) ? supply.orders : [];
+  return orders.some((o) => o && !o.kiz_required && !_wbFbsOrderIsCancelled(o));
+}
+
+function _wbFbsPickOkForPortal(supply) {
+  if (!_wbFbsNeedsPickForPortal(supply)) return true;
+  const pickSplit = document.getElementById("wbFbsPickSplit");
+  return !!(pickSplit && !pickSplit.hidden && pickSplit.classList.contains("is-ok"));
+}
+
 function _wbFbsPortalGateItems() {
   const supply = wbFbsDetailState.supply;
   const items = [];
@@ -37083,6 +37095,13 @@ function _wbFbsPortalGateItems() {
       key: "kiz",
       label: "Товары с КИЗ",
       done: _wbFbsKizOkForPortal(supply),
+    });
+  }
+  if (_wbFbsNeedsPickForPortal(supply)) {
+    items.push({
+      key: "pick",
+      label: "Товары без КИЗ",
+      done: _wbFbsPickOkForPortal(supply),
     });
   }
   items.push({
@@ -37126,6 +37145,7 @@ function _wbFbsCanOpenPortal() {
   if (!supply) return false;
   if (!_wbFbsDriverHasAssignment(supply)) return false;
   if (!_wbFbsKizOkForPortal(supply)) return false;
+  if (!_wbFbsPickOkForPortal(supply)) return false;
   return true;
 }
 
@@ -41576,6 +41596,8 @@ function _wbFbsPickSplitSetTone(tone) {
   const t = String(tone || "").trim().toLowerCase();
   if (t === "ok") split.classList.add("is-ok");
   else if (t === "error") split.classList.add("is-error");
+  // Re-evaluate «Портал ВБ» gate when pick tone changes (parity with KIZ).
+  _wbFbsSyncPortalBtn();
 }
 
 async function refreshWbFbsPickVerifyStatus(event, opts) {
