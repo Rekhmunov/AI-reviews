@@ -149,4 +149,4 @@ def test_gtd_chz_owner_resolves_from_settings_parties() -> None:
 
 
 def test_asset_version_bumped() -> None:
-    assert "app.js?v=709" in APP_HTML
+    assert "app.js?v=710" in APP_HTML
