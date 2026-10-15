@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=423" />
+  <link rel="stylesheet" href="/static/style.css?v=424" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -8479,7 +8479,7 @@
   </div>
 
   <!-- Shared blocking scan-ack for WB/Ozon FBS KIZ + pick (not-found, mismatch,
-       duplicate, qty/replace, cancelled, ambiguous). Same card as RU-layout.
+       duplicate, qty/replace, cancelled). Same card as RU-layout.
        Close only via «Хорошо». Info strip stays; TSD/import excluded. -->
   <div id="fbsStickerNotFoundModal" class="modal-overlay hidden" role="alertdialog" aria-modal="true"
        aria-labelledby="fbsStickerNotFoundTitle" aria-describedby="fbsStickerNotFoundMessage">
@@ -8493,8 +8493,24 @@
     </div>
   </div>
 
+  <!-- WB FBS KIZ + pick: choose order when QR/sticker_barcode collides. -->
+  <div id="fbsStickerChoiceModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+       aria-labelledby="fbsStickerChoiceTitle" aria-describedby="fbsStickerChoiceHint">
+    <div class="modal-card fbs-sticker-choice-modal">
+      <h4 id="fbsStickerChoiceTitle" class="wb-fbs-kiz-ru-layout-title">Несколько заказов с одним стикером</h4>
+      <p id="fbsStickerChoiceHint" class="wb-fbs-kiz-ru-layout-text">
+        Выберите заказ по номеру стикера на этикетке
+      </p>
+      <div id="fbsStickerChoiceList" class="fbs-sticker-choice-list" role="list"></div>
+      <div class="wb-fbs-kiz-ru-layout-actions">
+        <button type="button" id="fbsStickerChoiceCancel" class="fbs-sticker-choice-cancel" tabindex="-1"
+                onclick="dismissFbsStickerChoice()">Отмена</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/static/ozon_fbs.js?v=220"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=38"></script>
-  <script src="/static/app.js?v=710"></script>
+  <script src="/static/app.js?v=711"></script>
 </body>
 </html>

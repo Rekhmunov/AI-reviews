@@ -39073,6 +39073,137 @@ window.showFbsStickerNotFound = showFbsStickerNotFound;
 window.dismissFbsStickerNotFound = dismissFbsStickerNotFound;
 window._fbsStickerNotFoundModalOpen = _fbsStickerNotFoundModalOpen;
 
+/**
+ * WB FBS KIZ + pick: when sticker QR/barcode matches several orders, operator
+ * picks by visible partA+partB (same chrome as scan-ack; no Esc/overlay/Enter).
+ */
+const fbsStickerChoiceState = {
+  matches: [],
+  scan: "",
+  mode: "", // "pick" | "kiz"
+  focusInputId: null,
+  openedAt: 0,
+};
+
+function _fbsStickerChoiceModalOpen() {
+  const modal = document.getElementById("fbsStickerChoiceModal");
+  return !!(modal && !modal.classList.contains("hidden"));
+}
+
+function _fbsStickerChoiceSwallowKeys(event) {
+  if (!_fbsStickerChoiceModalOpen()) return;
+  event.preventDefault();
+  event.stopPropagation();
+}
+
+function _fbsStickerChoiceClose(opts) {
+  const refocus = !(opts && opts.refocus === false);
+  if (!_fbsStickerChoiceModalOpen() && !fbsStickerChoiceState.openedAt) {
+    fbsStickerChoiceState.matches = [];
+    fbsStickerChoiceState.scan = "";
+    fbsStickerChoiceState.mode = "";
+    fbsStickerChoiceState.focusInputId = null;
+    return;
+  }
+  document.removeEventListener("keydown", _fbsStickerChoiceSwallowKeys, true);
+  setModalVisibility("fbsStickerChoiceModal", false);
+  const list = document.getElementById("fbsStickerChoiceList");
+  if (list) list.innerHTML = "";
+  const id = fbsStickerChoiceState.focusInputId;
+  fbsStickerChoiceState.matches = [];
+  fbsStickerChoiceState.scan = "";
+  fbsStickerChoiceState.mode = "";
+  fbsStickerChoiceState.focusInputId = null;
+  fbsStickerChoiceState.openedAt = 0;
+  if (!refocus) return;
+  const el = id ? document.getElementById(id) : null;
+  if (el) {
+    setTimeout(() => {
+      try {
+        el.focus();
+        el.select?.();
+      } catch (_e) { /* ignore */ }
+    }, 40);
+  }
+}
+
+function showFbsStickerChoice(matches, scan, mode, focusInputEl) {
+  const listEl = document.getElementById("fbsStickerChoiceList");
+  const modal = document.getElementById("fbsStickerChoiceModal");
+  if (!listEl || !modal) return false;
+  const rows = (Array.isArray(matches) ? matches : [])
+    .filter((r) => r && Number(r.order_id))
+    .slice(0, 15);
+  if (rows.length < 2) return false;
+  const modeKey = mode === "kiz" ? "kiz" : "pick";
+  const stickerHtml =
+    typeof _wbFbsKizStickerHtml === "function"
+      ? _wbFbsKizStickerHtml
+      : typeof _wbFbsPickStickerHtml === "function"
+        ? _wbFbsPickStickerHtml
+        : null;
+  listEl.innerHTML = rows
+    .map((row) => {
+      const oid = Number(row.order_id);
+      const sticker = stickerHtml
+        ? stickerHtml(row)
+        : `<div class="wb-fbs-kiz-sticker">${_wbFbsEsc(row.sticker_number || "—")}</div>`;
+      return (
+        `<button type="button" class="fbs-sticker-choice-item" role="listitem" tabindex="-1"` +
+        ` data-order-id="${oid}"` +
+        ` onclick="confirmFbsStickerChoice(${oid})">` +
+        `<span class="fbs-sticker-choice-order">${_wbFbsEsc(String(oid))}</span>` +
+        sticker +
+        `</button>`
+      );
+    })
+    .join("");
+  fbsStickerChoiceState.matches = rows;
+  fbsStickerChoiceState.scan = String(scan || "");
+  fbsStickerChoiceState.mode = modeKey;
+  fbsStickerChoiceState.focusInputId = String(focusInputEl?.id || "") || null;
+  fbsStickerChoiceState.openedAt = Date.now();
+  setModalVisibility("fbsStickerChoiceModal", true);
+  document.removeEventListener("keydown", _fbsStickerChoiceSwallowKeys, true);
+  document.addEventListener("keydown", _fbsStickerChoiceSwallowKeys, true);
+  return true;
+}
+
+function dismissFbsStickerChoice() {
+  _fbsStickerChoiceClose({ refocus: true });
+}
+
+function confirmFbsStickerChoice(orderId) {
+  if (!_fbsStickerChoiceModalOpen()) return;
+  const oid = Number(orderId);
+  const mode = fbsStickerChoiceState.mode;
+  const scan = fbsStickerChoiceState.scan;
+  const focusId = fbsStickerChoiceState.focusInputId;
+  const row = (fbsStickerChoiceState.matches || []).find(
+    (r) => Number(r.order_id) === oid
+  );
+  _fbsStickerChoiceClose({ refocus: false });
+  if (!row || !Number.isFinite(oid) || oid <= 0) return;
+  const input = focusId ? document.getElementById(focusId) : null;
+  if (typeof _wbFbsKizPersistStickerForOrder === "function") {
+    _wbFbsKizPersistStickerForOrder(row, scan);
+  }
+  if (mode === "kiz") {
+    if (typeof _wbFbsKizSetInfo === "function") _wbFbsKizSetInfo("");
+    if (input) input.value = "";
+    if (typeof beginWbFbsKizMarkScan === "function") beginWbFbsKizMarkScan(oid);
+    return;
+  }
+  if (typeof _wbFbsPickSetInfo === "function") _wbFbsPickSetInfo("");
+  if (input) input.value = "";
+  if (typeof beginWbFbsPickSkuScan === "function") beginWbFbsPickSkuScan(oid);
+}
+
+window.showFbsStickerChoice = showFbsStickerChoice;
+window.dismissFbsStickerChoice = dismissFbsStickerChoice;
+window.confirmFbsStickerChoice = confirmFbsStickerChoice;
+window._fbsStickerChoiceModalOpen = _fbsStickerChoiceModalOpen;
+
 function clearWbFbsKizScanField(inputId) {
   const el = document.getElementById(String(inputId || ""));
   if (!el || el.readOnly || el.disabled) return;
@@ -40664,6 +40795,10 @@ function deliverWbFbsComScan(raw) {
   if (typeof _fbsStickerNotFoundModalOpen === "function" && _fbsStickerNotFoundModalOpen()) {
     return false;
   }
+  // Block COM while sticker-choice is open — operator must pick an order or cancel.
+  if (typeof _fbsStickerChoiceModalOpen === "function" && _fbsStickerChoiceModalOpen()) {
+    return false;
+  }
   const now = Date.now();
   if (value === wbFbsScanComState.lastRaw && now - wbFbsScanComState.lastAt < WB_FBS_COM_DEDUP_MS) {
     return false;
@@ -40982,6 +41117,7 @@ function processWbFbsKizStickerScan(raw, inputEl) {
   if (_wbFbsKizRuLayoutModalOpen()) return;
   if (typeof _fbsScanAckModalOpen === "function" && _fbsScanAckModalOpen()) return;
   if (typeof _fbsStickerNotFoundModalOpen === "function" && _fbsStickerNotFoundModalOpen()) return;
+  if (typeof _fbsStickerChoiceModalOpen === "function" && _fbsStickerChoiceModalOpen()) return;
   const input = inputEl || document.getElementById("wbFbsKizStickerScan");
   if (input && (input.readOnly || input.disabled || !wbFbsKizState.rowsReady)) return;
   const rawTyped = String(raw || "").replace(/\s+/g, "").trim();
@@ -40996,10 +41132,20 @@ function processWbFbsKizStickerScan(raw, inputEl) {
   _wbFbsKizCollectFromDom();
   const found = _wbFbsKizFindBySticker(scan);
   if (found.ambiguous) {
-    const ids = (found.matches || []).map((r) => r.order_id).slice(0, 5).join(", ");
+    const matches = found.matches || [];
+    if (
+      matches.length >= 2 &&
+      typeof showFbsStickerChoice === "function" &&
+      showFbsStickerChoice(matches, scan, "kiz", input)
+    ) {
+      _wbFbsKizSetInfo("Выберите заказ по номеру стикера на этикетке");
+      if (input) input.select();
+      return;
+    }
+    const ids = matches.map((r) => r.order_id).slice(0, 5).join(", ");
     const msg =
       `Код стикера совпадает у нескольких заказов (${ids}${
-        (found.matches || []).length > 5 ? "…" : ""
+        matches.length > 5 ? "…" : ""
       }). Отсканируйте QR стикера ещё раз.`;
     _wbFbsKizSetInfo(msg);
     if (typeof showFbsScanAck === "function") showFbsScanAck(msg, input);
@@ -42445,6 +42591,7 @@ function processWbFbsPickStickerScan(raw, inputEl) {
   if (_wbFbsKizRuLayoutModalOpen()) return;
   if (typeof _fbsScanAckModalOpen === "function" && _fbsScanAckModalOpen()) return;
   if (typeof _fbsStickerNotFoundModalOpen === "function" && _fbsStickerNotFoundModalOpen()) return;
+  if (typeof _fbsStickerChoiceModalOpen === "function" && _fbsStickerChoiceModalOpen()) return;
   const input = inputEl || document.getElementById("wbFbsPickStickerScan");
   if (input && (input.readOnly || input.disabled || !wbFbsPickState.rowsReady)) return;
   const rawTyped = String(raw || "").replace(/\s+/g, "").trim();
@@ -42458,10 +42605,20 @@ function processWbFbsPickStickerScan(raw, inputEl) {
   if (!scan) return;
   const found = _wbFbsPickFindBySticker(scan);
   if (found.ambiguous) {
-    const ids = (found.matches || []).map((r) => r.order_id).slice(0, 5).join(", ");
+    const matches = found.matches || [];
+    if (
+      matches.length >= 2 &&
+      typeof showFbsStickerChoice === "function" &&
+      showFbsStickerChoice(matches, scan, "pick", input)
+    ) {
+      _wbFbsPickSetInfo("Выберите заказ по номеру стикера на этикетке");
+      if (input) input.select();
+      return;
+    }
+    const ids = matches.map((r) => r.order_id).slice(0, 5).join(", ");
     const msg =
       `Код стикера совпадает у нескольких заказов (${ids}${
-        (found.matches || []).length > 5 ? "…" : ""
+        matches.length > 5 ? "…" : ""
       }). Отсканируйте QR стикера ещё раз.`;
     _wbFbsPickSetInfo(msg);
     if (typeof showFbsScanAck === "function") showFbsScanAck(msg, input);
