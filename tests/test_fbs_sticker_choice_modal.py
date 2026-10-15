@@ -96,5 +96,5 @@ def test_styles_and_cache_bumps() -> None:
     assert ".fbs-sticker-choice-modal" in CSS
     assert ".fbs-sticker-choice-item" in CSS
     assert "#fbsStickerChoiceModal" in CSS
-    assert "app.js?v=711" in HTML
-    assert "style.css?v=424" in HTML
+    assert "app.js?v=712" in HTML
+    assert "style.css?v=425" in HTML

@@ -476,14 +476,15 @@ def build_ozon_zakaz_xml(
     date_ru = now.strftime("%d.%m.%Y")
     time_ru = now.strftime("%H:%M:%S")
     file_date = now.strftime("%Y%m%d")
-    shipper_edo = _fns_participant_id(inn, kpp, now=now) or "2BM-DRAFT-SHIPPER"
+    # O=shipper EDO from Юр.лица → «Идентификатор ЭДО». Empty field → empty O (no DRAFT/stamp).
+    shipper_edo = str((le or {}).get("edo_id") or "").strip()
     # Prefer catalog FNSId (Водители → Перевозчик); else draft from ИНН/КПП.
     carrier_edo = ""
     if isinstance(carrier_fields, dict):
         carrier_edo = str(carrier_fields.get("carrier_fns_id") or "").strip()
     if not carrier_edo:
         carrier_edo = _fns_participant_id(carrier_inn, carrier_kpp, now=now)
-    # R_T_A_O_W_GGGGMMDD_N — A=carrier (may be empty), O=shipper.
+    # R_T_A_O_W_GGGGMMDD_N — A=carrier (may be empty), O=shipper (may be empty).
     # Ozon FNSId (грузополучатель FBO) is fixed in eTrN ИдФайл/E = OZON_CONSIGNEE_EDO_GUID.
     file_id = f"ON_ZAKZVGO_{carrier_edo}_{shipper_edo}_0_{file_date}_{uuid.uuid4()}"
 

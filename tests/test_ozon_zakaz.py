@@ -243,6 +243,52 @@ def test_zakaz_carrier_fns_id_in_id_file():
     assert root.attrib["ИдФайл"].startswith(f"ON_ZAKZVGO_{fns}_")
 
 
+def test_zakaz_shipper_edo_empty_when_le_edo_id_blank():
+    """Пустой edo_id → пустой O в ИдФайл, без DRAFT/stamp из ИНН."""
+    fns = "2BM-5001002003-500101001-201501010000000000001"
+    root = ET.fromstring(
+        _build(
+            carrier_fields={
+                "carrier_name": 'ООО "Перевозчик"',
+                "carrier_inn": "5001002003",
+                "carrier_kpp": "500101001",
+                "carrier_fns_id": fns,
+            },
+        )
+    )
+    id_file = root.attrib["ИдФайл"]
+    assert "DRAFT" not in id_file
+    # A=carrier, O empty → ON_ZAKZVGO_{fns}__0_...
+    assert id_file.startswith(f"ON_ZAKZVGO_{fns}__0_")
+
+
+def test_zakaz_shipper_edo_from_le_edo_id():
+    """ИдФайл/O ← edo_id юр.лица; carrier_fns_id без изменений."""
+    edo = "2BM-7701234567-770101001-201501010000000000001"
+    fns = "2BM-5001002003-500101001-201501010000000000001"
+    root = ET.fromstring(
+        _build(
+            le={
+                "full_name": 'ООО "Тест Поставщик"',
+                "short_name": "Тест",
+                "requisites": "ИНН 7701234567 КПП 770101001",
+                "signatories": "Иванов Иван Иванович",
+                "phone": "+79991112233",
+                "address": "101000, г. Москва, ул. Ленина, д. 1",
+                "edo_id": edo,
+            },
+            carrier_fields={
+                "carrier_name": 'ООО "Перевозчик"',
+                "carrier_inn": "5001002003",
+                "carrier_kpp": "500101001",
+                "carrier_fns_id": fns,
+            },
+        )
+    )
+    assert root.attrib["ИдФайл"].startswith(f"ON_ZAKZVGO_{fns}_{edo}_")
+    assert "DRAFT" not in root.attrib["ИдФайл"]
+
+
 def test_zakaz_go_phone_from_legal_entity_field():
     """СвГО/Конт/Тлф ← phone юр.лица, даже если есть телефон водителя."""
     root = ET.fromstring(

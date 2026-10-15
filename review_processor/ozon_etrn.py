@@ -1248,9 +1248,10 @@ def build_ozon_etrn_xml(
     date_file = now.strftime("%Y%m%d")
     file_guid = str(uuid.uuid4())
 
-    # A=carrier FNSId (from Водители → Перевозчик), E=consignee FNSId (Ozon by default), O=shipper draft id.
-    # Kontur rewrites ИдФайл on import when needed. Empty A → ON_TRNACLGROT__{E}_...
-    shipper_edo = f"2BM-{inn}-{kpp or '000000000'}-DRAFT" if inn else "2BM-DRAFT-SHIPPER"
+    # A=carrier FNSId (Водители → Перевозчик), E=consignee FNSId (Ozon by default),
+    # O=shipper EDO from Юр.лица → «Идентификатор ЭДО». Empty field → empty O (no DRAFT/stamp).
+    # Empty A → ON_TRNACLGROT__{E}_...
+    shipper_edo = str((le or {}).get("edo_id") or "").strip()
     carrier_edo = str((carrier_fields or {}).get("carrier_fns_id") or "").strip()
     consignee_cfg = dict(consignee or {})
     consignee_name = str(consignee_cfg.get("name") or "").strip() or OZON_CONSIGNEE_NAME

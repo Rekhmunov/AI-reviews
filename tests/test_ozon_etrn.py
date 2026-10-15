@@ -857,6 +857,43 @@ def test_etrn_ozon_fns_id_fixed_in_id_file():
     assert id_file.startswith(f"ON_TRNACLGROT__{OZON_CONSIGNEE_EDO_GUID}_")
 
 
+def test_etrn_shipper_edo_empty_when_le_edo_id_blank():
+    """Пустой edo_id юр.лица → пустой O в ИдФайл, без DRAFT/stamp."""
+    root = ET.fromstring(_build())
+    id_file = root.attrib["ИдФайл"]
+    assert "DRAFT" not in id_file
+    # A empty, E = Ozon, O empty → ON_TRNACLGROT__{E}__0_...
+    assert id_file.startswith(f"ON_TRNACLGROT__{OZON_CONSIGNEE_EDO_GUID}__0_")
+
+
+def test_etrn_shipper_edo_from_le_edo_id():
+    """ИдФайл/O ← edo_id юр.лица; перевозчик/Озон не меняются."""
+    edo = "2BM-7701234567-770101001-201501010000000000001"
+    carrier_fns = "2BM-5001002003-500101001-201501010000000000001"
+    root = ET.fromstring(
+        _build(
+            le={
+                "full_name": 'ООО "Тест Поставщик"',
+                "short_name": "Тест",
+                "requisites": "ИНН 7701234567 КПП 770101001",
+                "signatories": "Иванов Иван Иванович",
+                "phone": "+79991112233",
+                "edo_id": edo,
+            },
+            carrier_fields={
+                "carrier_name": 'ООО "Перевозчик"',
+                "carrier_inn": "5001002003",
+                "carrier_kpp": "500101001",
+                "carrier_fns_id": carrier_fns,
+            },
+        )
+    )
+    assert root.attrib["ИдФайл"].startswith(
+        f"ON_TRNACLGROT_{carrier_fns}_{OZON_CONSIGNEE_EDO_GUID}_{edo}_"
+    )
+    assert "DRAFT" not in root.attrib["ИдФайл"]
+
+
 def test_etrn_carrier_fns_id_in_id_file():
     """ИдФайл/A ← carrier_fns_id из каталога Водители → Перевозчик."""
     fns = "2BM-5001002003-500101001-201501010000000000001"

@@ -894,6 +894,7 @@ class CreateSupplyLegalEntityRequest(BaseModel):
     addr_corpus: str = ""
     addr_flat: str = ""
     addr_fias: str = ""
+    edo_id: str = ""
     signature_image: str | None = None
     fbs_sources: list[dict[str, object]] | None = None
 
@@ -917,6 +918,7 @@ class UpdateSupplyLegalEntityRequest(BaseModel):
     addr_corpus: str = ""
     addr_flat: str = ""
     addr_fias: str = ""
+    edo_id: str = ""
     signature_image: str | None = None  # new base64 or None
     clear_signature: bool = False        # True = delete existing
     fbs_sources: list[dict[str, object]] | None = None
@@ -20852,6 +20854,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             addr_corpus=payload.addr_corpus,
             addr_flat=payload.addr_flat,
             addr_fias=payload.addr_fias,
+            edo_id=payload.edo_id,
             signature_image=payload.signature_image,
             fbs_sources=list(payload.fbs_sources or []),
         )
@@ -20886,6 +20889,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             addr_corpus=payload.addr_corpus,
             addr_flat=payload.addr_flat,
             addr_fias=payload.addr_fias,
+            edo_id=payload.edo_id,
             signature_image=payload.signature_image,
             clear_signature=payload.clear_signature,
             fbs_sources=payload.fbs_sources,

@@ -4220,7 +4220,7 @@ function _readNewLegalAddrFields() {
 function _clearNewLegalFormFields() {
   [
     "newLegalShortName", "newLegalFullName", "newLegalRequisites", "newLegalSignatories",
-    "newLegalInPerson", "newLegalBasis", "newLegalPhone",
+    "newLegalInPerson", "newLegalBasis", "newLegalPhone", "newLegalEdoId",
     "newLegalAddrIndex", "newLegalAddrRegion", "newLegalAddrDistrict", "newLegalAddrCity",
     "newLegalAddrSettlement", "newLegalAddrStreet", "newLegalAddrHouse", "newLegalAddrCorpus", "newLegalAddrFlat",
     "newLegalAddrFias",
@@ -4236,7 +4236,7 @@ function _sstEditFieldHtml({ attr, label, value, span = 1, extra = "" }) {
   </div>`;
 }
 
-function _sstAddrEditFieldsHtml(item, dataAttr) {
+function _sstAddrEditFieldsHtml(item, dataAttr, { includeEdoId = false } = {}) {
   const specs = [
     ["addr_index", "Индекс", 1, 'inputmode="numeric" maxlength="6" placeholder="101000"'],
     ["addr_region_code", "Код региона", 1, 'inputmode="numeric" maxlength="2" placeholder="77"'],
@@ -4249,9 +4249,18 @@ function _sstAddrEditFieldsHtml(item, dataAttr) {
     ["addr_flat", "Кв. / офис", 1, ""],
     ["addr_fias", "ФИАС", 2, 'maxlength="36" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"'],
   ];
-  return specs.map(([key, label, span, extra]) =>
+  const addrHtml = specs.map(([key, label, span, extra]) =>
     _sstEditFieldHtml({ attr: `${dataAttr}="${key}"`, label, value: item[key], span, extra })
   ).join("");
+  if (!includeEdoId) return addrHtml;
+  // LE-only: Diadoc/Kontur FNSId under FIAS; empty → nothing in эТрН/заявка ИдФайл.
+  return addrHtml + _sstEditFieldHtml({
+    attr: 'data-field="edo_id"',
+    label: "Идентификатор ЭДО",
+    value: item.edo_id,
+    span: 2,
+    extra: 'maxlength="80" placeholder="2BM-…"',
+  });
 }
 
 function _sstPartyEditPanelHtml(item, kind) {
@@ -4283,7 +4292,7 @@ function _sstPartyEditPanelHtml(item, kind) {
       <section class="sst-edit-section">
         <h5 class="sst-edit-section-title">${addrTitle} <span class="sst-edit-section-hint">поля эТрН</span></h5>
         <div class="sst-edit-grid">
-          ${_sstAddrEditFieldsHtml(item, addrAttr)}
+          ${_sstAddrEditFieldsHtml(item, addrAttr, { includeEdoId: isLe })}
         </div>
       </section>
       ${isLe ? `<section class="sst-edit-section">
@@ -4300,7 +4309,7 @@ function _sstPartyEditPanelHtml(item, kind) {
 }
 
 function _legalAddrEditInputsHtml(item) {
-  return `<div class="sst-edit-grid">${_sstAddrEditFieldsHtml(item, "data-le-addr")}</div>`;
+  return `<div class="sst-edit-grid">${_sstAddrEditFieldsHtml(item, "data-le-addr", { includeEdoId: true })}</div>`;
 }
 
 async function loadSupplyLegalEntities() {
@@ -4393,9 +4402,10 @@ async function saveEditLegalEntity(id) {
     panel.querySelector("[data-field='short']")?.focus();
     return;
   }
+  const edoId = panel.querySelector("[data-field='edo_id']")?.value.trim() || "";
   const sigPayload = {
     short_name: short, full_name: full, requisites: req, signatories: sig,
-    in_person: inp, basis: bas, phone, address: item?.address || "",
+    in_person: inp, basis: bas, phone, edo_id: edoId, address: item?.address || "",
   };
   _LE_ADDR_FIELDS.forEach(([key]) => {
     sigPayload[key] = panel.querySelector(`[data-le-addr="${key}"]`)?.value.trim() || "";
@@ -4441,11 +4451,12 @@ async function saveSupplyLegalEntity() {
   const inp = document.getElementById("newLegalInPerson")?.value.trim() || "";
   const bas = document.getElementById("newLegalBasis")?.value.trim() || "";
   const phone = document.getElementById("newLegalPhone")?.value.trim() || "";
+  const edoId = document.getElementById("newLegalEdoId")?.value.trim() || "";
   const info = document.getElementById("addLegalEntityInfo");
   if (!short) { if (info) { info.textContent = "Введите короткое название"; info.style.color = "#b91c1c"; } return; }
   const newSigPayload = {
     short_name: short, full_name: full, requisites: req, signatories: sig,
-    in_person: inp, basis: bas, phone, address: "",
+    in_person: inp, basis: bas, phone, edo_id: edoId, address: "",
     ..._readNewLegalAddrFields(),
     fbs_sources: _readWarehouseFbsSourcesFromDom(document.getElementById("newLegalFbsSources")),
   };
