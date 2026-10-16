@@ -75,6 +75,68 @@ def test_ttn_zakaz_xml_download_shape():
     assert "Одежда" in xml_bytes.decode("utf-8")
 
 
+def test_ttn_role_edo_ids_follow_selected_parties():
+    """Грузоотправитель и грузополучатель берут edo_id своей карточки."""
+
+    class _RoleRepo(_Repo):
+        def list_supply_legal_entities(self, user_id=0):
+            return [{
+                "id": 1,
+                "short_name": "Мы",
+                "full_name": 'ООО "Мы"',
+                "requisites": "ИНН 7701234567 КПП 770101001",
+                "phone": "+79991112233",
+                "address": "101000, г. Москва, ул. Ленина, д. 1",
+                "edo_id": "2BM-LE",
+            }]
+
+        def list_supply_contractors(self, user_id=0):
+            return [{
+                "id": 2,
+                "name": "Озон",
+                "full_name": 'ООО "Озон"',
+                "requisites": "ИНН 7704217370 КПП 997750001",
+                "phone": "+74950000000",
+                "address": "123112, г. Москва, Пресненская наб., д. 10",
+                "edo_id": "2BM-CTR",
+            }]
+
+        def list_supply_drivers(self, user_id=0):
+            return [{
+                "id": 3,
+                "full_name": "Иванов Иван Иванович",
+                "phone": "+79001112233",
+                "documents": "ВУ 99 00 123456",
+                "carrier_name": "Перевоз",
+                "carrier_fns_id": "2BM-CAR",
+            }]
+
+    fbs = _record(
+        legal_entity_id=1,
+        contractor_id=2,
+        shipper_type="le",
+        consignee_type="contractor",
+        driver_id=3,
+    )
+    xml_bytes, _fname = build_ttn_etrn_xml(repository=_RoleRepo(), owner_id=1, record=fbs)
+    id_file = ET.fromstring(xml_bytes).attrib["ИдФайл"]
+    assert id_file.startswith("ON_TRNACLGROT_2BM-CAR_2BM-CTR_2BM-LE_")
+
+    swapped = _record(
+        legal_entity_id=2,
+        contractor_id=1,
+        shipper_type="contractor",
+        consignee_type="le",
+        driver_id=3,
+    )
+    xml_bytes, _fname = build_ttn_etrn_xml(repository=_RoleRepo(), owner_id=1, record=swapped)
+    id_file = ET.fromstring(xml_bytes).attrib["ИдФайл"]
+    assert id_file.startswith("ON_TRNACLGROT_2BM-CAR_2BM-LE_2BM-CTR_")
+
+    zakaz, _fname = build_ttn_zakaz_xml(repository=_RoleRepo(), owner_id=1, record=swapped)
+    assert ET.fromstring(zakaz).attrib["ИдФайл"].startswith("ON_ZAKZVGO_2BM-CAR_2BM-CTR_")
+
+
 def test_ttn_etrn_uses_ttn_consignee_not_ozon():
     xml_bytes, fname = build_ttn_etrn_xml(repository=_Repo(), owner_id=1, record=_record())
     assert fname.startswith("эТрН №TN-42")

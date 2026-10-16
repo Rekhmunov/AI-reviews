@@ -17,7 +17,6 @@ from xml.dom import minidom
 from xml.etree import ElementTree as ET
 
 from .ozon_etrn import (
-    OZON_CONSIGNEE_EDO_GUID,
     _add_carrier_idsv,
     _addr_from_carrier_fields,
     _addr_from_production_fields,
@@ -39,9 +38,6 @@ from .ozon_etrn import (
 )
 
 _log = logging.getLogger(__name__)
-
-# Fixed Ozon FBO consignee FNSId (same value as eTrN ИдФайл/E).
-OZON_FNS_ID = OZON_CONSIGNEE_EDO_GUID
 
 # Representative postal indexes when only КодРегион is known (АдрРФ/Индекс is required).
 _DEFAULT_INDEX_BY_REGION: dict[str, str] = {
@@ -321,16 +317,6 @@ def _punkt_address(parent: ET.Element, wrapper_tag: str, addr: dict[str, str] | 
     _el(adr, "АдрРФ", **attrs)
 
 
-def _fns_participant_id(inn: str, kpp: str = "", *, now: datetime | None = None) -> str:
-    inn = str(inn or "").strip()
-    kpp = str(kpp or "").strip() or "000000000"
-    if not inn:
-        return ""
-    # Shape close to Diadoc FNSId: 2BM-{INN}-{KPP}-{21 digits}
-    stamp = (now or datetime.now()).strftime("%Y%m%d%H%M%S") + "0000000"
-    return f"2BM-{inn}-{kpp}-{stamp[:21]}"
-
-
 def build_ozon_zakaz_xml(
     *,
     item: dict[str, Any],
@@ -476,16 +462,14 @@ def build_ozon_zakaz_xml(
     date_ru = now.strftime("%d.%m.%Y")
     time_ru = now.strftime("%H:%M:%S")
     file_date = now.strftime("%Y%m%d")
-    # O=shipper EDO from Юр.лица → «Идентификатор ЭДО». Empty field → empty O (no DRAFT/stamp).
+    # Приказ ФНС ЕД-7-26/108@ и Контур: ИдФайл T1 =
+    # ON_ZAKZVGO_{A}_{O}_{W}_{GGGGMMDD}_{N}
+    # A = FNSId перевозчика, O = FNSId грузоотправителя. Слота грузополучателя нет.
+    # Идентификатор только из карточки. Пустое поле — пустой слот.
     shipper_edo = str((le or {}).get("edo_id") or "").strip()
-    # Prefer catalog FNSId (Водители → Перевозчик); else draft from ИНН/КПП.
     carrier_edo = ""
     if isinstance(carrier_fields, dict):
         carrier_edo = str(carrier_fields.get("carrier_fns_id") or "").strip()
-    if not carrier_edo:
-        carrier_edo = _fns_participant_id(carrier_inn, carrier_kpp, now=now)
-    # R_T_A_O_W_GGGGMMDD_N — A=carrier (may be empty), O=shipper (may be empty).
-    # Ozon FNSId (грузополучатель FBO) is fixed in eTrN ИдФайл/E = OZON_CONSIGNEE_EDO_GUID.
     file_id = f"ON_ZAKZVGO_{carrier_edo}_{shipper_edo}_0_{file_date}_{uuid.uuid4()}"
 
     naim_subj = org_full or "Грузоотправитель"

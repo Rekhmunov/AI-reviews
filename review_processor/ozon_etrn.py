@@ -26,7 +26,6 @@ _log = logging.getLogger(__name__)
 OZON_CONSIGNEE_NAME = 'ООО "ИНТЕРНЕТ РЕШЕНИЯ"'
 OZON_CONSIGNEE_INN = "7704217370"
 OZON_CONSIGNEE_KPP = "997750001"
-OZON_CONSIGNEE_EDO_GUID = "2BM-7704217370-774301001-201407110916237240124"
 # Legal address of Ozon (ООО «ИНТЕРНЕТ РЕШЕНИЯ») — always emit as АдрРФ (Russian).
 OZON_CONSIGNEE_ADDRESS = "123112, г. Москва, Пресненская наб., д. 10"
 # Structured fields — do not rely on free-text parse for the constant consignee.
@@ -1248,16 +1247,19 @@ def build_ozon_etrn_xml(
     date_file = now.strftime("%Y%m%d")
     file_guid = str(uuid.uuid4())
 
-    # A=carrier FNSId (Водители → Перевозчик), E=consignee FNSId (Ozon by default),
-    # O=shipper EDO from Юр.лица → «Идентификатор ЭДО». Empty field → empty O (no DRAFT/stamp).
-    # Empty A → ON_TRNACLGROT__{E}_...
+    # Приказ ФНС ЕД-7-26/1065@ и Контур (Диадок): ИдФайл T1 =
+    # ON_TRNACLGROT_{A}_{E}_{O}_{W}_{GGGGMMDD}_{N}
+    # A = FNSId перевозчика, E = FNSId грузополучателя, O = FNSId грузоотправителя.
+    # Идентификатор только из карточки выбранной стороны. Пустое поле — пустой слот.
     shipper_edo = str((le or {}).get("edo_id") or "").strip()
     carrier_edo = str((carrier_fields or {}).get("carrier_fns_id") or "").strip()
     consignee_cfg = dict(consignee or {})
     consignee_name = str(consignee_cfg.get("name") or "").strip() or OZON_CONSIGNEE_NAME
     consignee_inn = str(consignee_cfg.get("inn") or "").strip() or OZON_CONSIGNEE_INN
     consignee_kpp = str(consignee_cfg.get("kpp") or "").strip() or OZON_CONSIGNEE_KPP
-    consignee_edo = str(consignee_cfg.get("edo_guid") or "").strip() or OZON_CONSIGNEE_EDO_GUID
+    consignee_edo = str(
+        consignee_cfg.get("edo_guid") or consignee_cfg.get("edo_id") or ""
+    ).strip()
     if consignee_cfg.get("addr_fields") and isinstance(consignee_cfg.get("addr_fields"), dict):
         consignee_addr_fields = dict(consignee_cfg["addr_fields"])
     elif str(consignee_cfg.get("address") or "").strip():

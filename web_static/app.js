@@ -4253,7 +4253,7 @@ function _sstAddrEditFieldsHtml(item, dataAttr, { includeEdoId = false } = {}) {
     _sstEditFieldHtml({ attr: `${dataAttr}="${key}"`, label, value: item[key], span, extra })
   ).join("");
   if (!includeEdoId) return addrHtml;
-  // LE-only: Diadoc/Kontur FNSId under FIAS; empty → nothing in эТрН/заявка ИдФайл.
+  // Diadoc/Kontur FNSId under FIAS. Empty → empty slot in эТрН/заявка ИдФайл.
   return addrHtml + _sstEditFieldHtml({
     attr: 'data-field="edo_id"',
     label: "Идентификатор ЭДО",
@@ -4292,7 +4292,7 @@ function _sstPartyEditPanelHtml(item, kind) {
       <section class="sst-edit-section">
         <h5 class="sst-edit-section-title">${addrTitle} <span class="sst-edit-section-hint">поля эТрН</span></h5>
         <div class="sst-edit-grid">
-          ${_sstAddrEditFieldsHtml(item, addrAttr, { includeEdoId: isLe })}
+          ${_sstAddrEditFieldsHtml(item, addrAttr, { includeEdoId: true })}
         </div>
       </section>
       ${isLe ? `<section class="sst-edit-section">
@@ -19770,6 +19770,7 @@ function _clearNewContractorFormFields() {
   [
     "newContractorName", "newContractorFullName", "newContractorRequisites",
     "newContractorSignatories", "newContractorInPerson", "newContractorBasis", "newContractorPhone",
+    "newContractorEdoId",
     "newContractorAddrIndex", "newContractorAddrRegion", "newContractorAddrDistrict",
     "newContractorAddrCity", "newContractorAddrSettlement", "newContractorAddrStreet",
     "newContractorAddrHouse", "newContractorAddrCorpus", "newContractorAddrFlat", "newContractorAddrFias",
@@ -19777,7 +19778,7 @@ function _clearNewContractorFormFields() {
 }
 
 function _contractorAddrEditInputsHtml(item) {
-  return `<div class="sst-edit-grid">${_sstAddrEditFieldsHtml(item, "data-ctr-addr")}</div>`;
+  return `<div class="sst-edit-grid">${_sstAddrEditFieldsHtml(item, "data-ctr-addr", { includeEdoId: true })}</div>`;
 }
 
 async function loadSupplyContractors() {
@@ -19862,6 +19863,7 @@ async function saveEditContractor(id) {
   const inp = panel.querySelector("[data-field='inp']")?.value.trim() || "";
   const basis = panel.querySelector("[data-field='basis']")?.value.trim() || "";
   const phone = panel.querySelector("[data-field='phone']")?.value.trim() || "";
+  const edoId = panel.querySelector("[data-field='edo_id']")?.value.trim() || "";
   if (!name) {
     alert("Укажите короткое наименование");
     panel.querySelector("[data-field='name']")?.focus();
@@ -19869,7 +19871,7 @@ async function saveEditContractor(id) {
   }
   const payload = {
     name, full_name: full, requisites: req, signatories: sign,
-    in_person: inp, basis, phone, address: item?.address || "",
+    in_person: inp, basis, phone, edo_id: edoId, address: item?.address || "",
   };
   _CTR_ADDR_FIELDS.forEach(([key]) => {
     payload[key] = panel.querySelector(`[data-ctr-addr="${key}"]`)?.value.trim() || "";
@@ -19901,12 +19903,13 @@ async function saveSupplyContractor() {
   const inPerson = document.getElementById("newContractorInPerson")?.value.trim() || "";
   const basis = document.getElementById("newContractorBasis")?.value.trim() || "";
   const phone = document.getElementById("newContractorPhone")?.value.trim() || "";
+  const edoId = document.getElementById("newContractorEdoId")?.value.trim() || "";
   const info = document.getElementById("addContractorInfo");
   if (!name) { if (info) { info.textContent = "Введите короткое наименование"; info.style.color = "#b91c1c"; } return; }
   if (info) { info.textContent = "Сохранение..."; info.style.color = ""; }
   const payload = {
     name, full_name: full, requisites, signatories,
-    in_person: inPerson, basis, phone, address: "",
+    in_person: inPerson, basis, phone, edo_id: edoId, address: "",
     ..._readNewContractorAddrFields(),
   };
   const res = await fetch("/api/supply-contractors", {

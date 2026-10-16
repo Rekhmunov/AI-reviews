@@ -18,7 +18,6 @@ from .ozon_etrn import (
     _parse_ru_address,
     _split_vehicle_type_line,
 )
-from .ozon_zakaz import _fns_participant_id
 
 
 def _as_int(value: object, *, default: int = 0) -> int:
@@ -79,6 +78,7 @@ def _le_from_contractor(contractor: dict[str, Any], *, address_line: str = "") -
         "addr_corpus": str(contractor.get("addr_corpus") or ""),
         "addr_flat": str(contractor.get("addr_flat") or ""),
         "addr_fias": str(contractor.get("addr_fias") or ""),
+        "edo_id": str(contractor.get("edo_id") or "").strip(),
     }
 
 
@@ -184,7 +184,7 @@ def _consignee_payload(party: dict[str, Any]) -> dict[str, Any]:
     addr_fields = _addr_from_production_fields(party)
     if not _has_structured_address(addr_fields):
         addr_fields = _parse_ru_address(str(party.get("address") or ""))
-    edo = _fns_participant_id(inn, kpp) if inn else ""
+    edo = str(party.get("edo_id") or "").strip()
     return {
         "name": name,
         "inn": inn,

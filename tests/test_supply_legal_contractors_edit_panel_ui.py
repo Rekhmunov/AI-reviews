@@ -20,7 +20,7 @@ def test_shared_party_edit_panel_helpers() -> None:
     assert "поля эТрН" in js
     assert "wfg-span-${span}" in js
     assert "Идентификатор ЭДО" in js
-    assert "includeEdoId: isLe" in js
+    assert "includeEdoId: true" in js
 
 
 def test_legal_and_contractor_edit_use_panel() -> None:
@@ -71,5 +71,5 @@ def test_driver_form_and_settings_tables_fit() -> None:
     assert "position: sticky" not in settings_css
     assert "width: max-content" not in settings_css
     html = HTML.read_text(encoding="utf-8")
-    assert "app.js?v=712" in html
+    assert "app.js?v=713" in html
     assert "style.css?v=425" in html

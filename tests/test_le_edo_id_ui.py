@@ -15,31 +15,33 @@ ZAKAZ = (ROOT / "review_processor" / "ozon_zakaz.py").read_text(encoding="utf-8"
 
 def test_le_edo_id_form_under_fias() -> None:
     assert 'id="newLegalEdoId"' in HTML
+    assert 'id="newContractorEdoId"' in HTML
     assert "Идентификатор ЭДО" in HTML
-    # Immediately after FIAS in the create form.
     fias_pos = HTML.find('id="newLegalAddrFias"')
     edo_pos = HTML.find('id="newLegalEdoId"')
+    ctr_fias = HTML.find('id="newContractorAddrFias"')
+    ctr_edo = HTML.find('id="newContractorEdoId"')
     assert fias_pos > 0 and edo_pos > fias_pos
+    assert ctr_fias > 0 and ctr_edo > ctr_fias
     assert "newLegalEdoId" in JS
+    assert "newContractorEdoId" in JS
     assert 'data-field="edo_id"' in JS
-    assert "includeEdoId: isLe" in JS
     assert "includeEdoId: true" in JS
-    # Contractors must not get the LE-only EDI field by default.
-    assert '{ includeEdoId = false }' in JS
+    assert "{ includeEdoId = false }" in JS
 
 
 def test_le_edo_id_persisted_in_api_and_repo() -> None:
     assert "edo_id: str = \"\"" in WEB
     assert "ADD COLUMN IF NOT EXISTS edo_id" in REPO
+    assert '("edo_id", "TEXT NOT NULL DEFAULT \'\'")' in REPO
     assert "edo_id=payload.edo_id" in WEB
-    assert "edo_id," in REPO or "edo_id =" in REPO
 
 
-def test_shipper_edo_from_le_only_no_draft_fallback() -> None:
+def test_shipper_edo_from_party_card_only() -> None:
     assert 'shipper_edo = str((le or {}).get("edo_id") or "").strip()' in ETRN
     assert 'shipper_edo = str((le or {}).get("edo_id") or "").strip()' in ZAKAZ
+    assert "OZON_CONSIGNEE_EDO_GUID" not in ETRN
     assert "2BM-DRAFT-SHIPPER" not in ETRN
     assert "2BM-DRAFT-SHIPPER" not in ZAKAZ
-    assert "-DRAFT" not in ETRN.split("shipper_edo", 1)[1].split("\n", 3)[0]
-    assert "app.js?v=712" in HTML
+    assert "app.js?v=713" in HTML
     assert "style.css?v=425" in HTML

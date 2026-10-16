@@ -9237,6 +9237,7 @@ class ReviewRepository:
             ("addr_corpus", "TEXT NOT NULL DEFAULT ''"),
             ("addr_flat", "TEXT NOT NULL DEFAULT ''"),
             ("addr_fias", "TEXT NOT NULL DEFAULT ''"),
+            ("edo_id", "TEXT NOT NULL DEFAULT ''"),
             # When true, TTN unload place for this contractor offers linked warehouses
             # instead of the contractor card address.
             ("ttn_unload_from_warehouses", "BOOLEAN NOT NULL DEFAULT FALSE"),
@@ -11171,7 +11172,7 @@ class ReviewRepository:
                     "SELECT id, user_id, name, full_name, requisites, signatories, in_person, basis, "
                     "address, phone, ttn_unload_from_warehouses, "
                     "addr_index, addr_region_code, addr_district, addr_city, addr_settlement, "
-                    "addr_street, addr_house, addr_corpus, addr_flat, addr_fias, created_at "
+                    "addr_street, addr_house, addr_corpus, addr_flat, addr_fias, edo_id, created_at "
                     "FROM supply_contractors WHERE user_id = ? ORDER BY name ASC"
                 ),
                 (user_id,),
@@ -11209,6 +11210,7 @@ class ReviewRepository:
         addr_corpus: str = "",
         addr_flat: str = "",
         addr_fias: str = "",
+        edo_id: str = "",
     ) -> dict[str, Any]:
         now = _utc_now()
         addr = self._normalize_production_addr_fields(
@@ -11225,6 +11227,7 @@ class ReviewRepository:
         )
         composed = self.compose_production_address_line(addr)
         address_val = composed or str(address or "").strip() or None
+        edo_id_val = re.sub(r"\s+", "", str(edo_id or "").strip())[:80]
         use_wh = bool(ttn_unload_from_warehouses)
         with self._connect() as conn:
             cid = self._insert_and_get_id(
@@ -11233,8 +11236,8 @@ class ReviewRepository:
                 "(user_id, name, full_name, requisites, signatories, in_person, basis, address, phone, "
                 "ttn_unload_from_warehouses, "
                 "addr_index, addr_region_code, addr_district, addr_city, addr_settlement, "
-                "addr_street, addr_house, addr_corpus, addr_flat, addr_fias, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "addr_street, addr_house, addr_corpus, addr_flat, addr_fias, edo_id, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     user_id,
                     name.strip(),
@@ -11256,6 +11259,7 @@ class ReviewRepository:
                     addr["addr_corpus"],
                     addr["addr_flat"],
                     addr["addr_fias"],
+                    edo_id_val,
                     now,
                 ),
             )
@@ -11297,6 +11301,7 @@ class ReviewRepository:
         addr_corpus: str = "",
         addr_flat: str = "",
         addr_fias: str = "",
+        edo_id: str = "",
     ) -> bool:
         addr = self._normalize_production_addr_fields(
             addr_index=addr_index,
@@ -11312,6 +11317,7 @@ class ReviewRepository:
         )
         composed = self.compose_production_address_line(addr)
         address_val = composed or str(address or "").strip() or None
+        edo_id_val = re.sub(r"\s+", "", str(edo_id or "").strip())[:80]
         use_wh = bool(ttn_unload_from_warehouses)
         with self._connect() as conn:
             if not address_val:
@@ -11328,7 +11334,7 @@ class ReviewRepository:
                     "ttn_unload_from_warehouses = ?, "
                     "addr_index = ?, addr_region_code = ?, addr_district = ?, addr_city = ?, "
                     "addr_settlement = ?, addr_street = ?, addr_house = ?, addr_corpus = ?, addr_flat = ?, "
-                    "addr_fias = ? "
+                    "addr_fias = ?, edo_id = ? "
                     "WHERE user_id = ? AND id = ?"
                 ),
                 (
@@ -11351,6 +11357,7 @@ class ReviewRepository:
                     addr["addr_corpus"],
                     addr["addr_flat"],
                     addr["addr_fias"],
+                    edo_id_val,
                     user_id,
                     contractor_id,
                 ),

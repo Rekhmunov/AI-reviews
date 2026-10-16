@@ -589,6 +589,7 @@ class CreateSupplyContractorRequest(BaseModel):
     addr_corpus: str = ""
     addr_flat: str = ""
     addr_fias: str = ""
+    edo_id: str = ""
 
 
 class UpdateSupplyContractorRequest(BaseModel):
@@ -611,6 +612,7 @@ class UpdateSupplyContractorRequest(BaseModel):
     addr_corpus: str = ""
     addr_flat: str = ""
     addr_fias: str = ""
+    edo_id: str = ""
 
 
 class CreateSupplySourceRequest(BaseModel):
@@ -22309,6 +22311,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             addr_corpus=payload.addr_corpus,
             addr_flat=payload.addr_flat,
             addr_fias=payload.addr_fias,
+            edo_id=payload.edo_id,
         )
 
     @app.patch("/api/supply-contractors/{contractor_id}")
@@ -22340,6 +22343,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             addr_corpus=payload.addr_corpus,
             addr_flat=payload.addr_flat,
             addr_fias=payload.addr_fias,
+            edo_id=payload.edo_id,
         )
         if not ok:
             raise HTTPException(status_code=404, detail="Контрагент не найден")

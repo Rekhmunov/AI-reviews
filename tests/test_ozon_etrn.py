@@ -5,7 +5,6 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 
 from review_processor.ozon_etrn import (
-    OZON_CONSIGNEE_EDO_GUID,
     OZON_CONSIGNEE_INN,
     OZON_CONSIGNEE_KPP,
     OZON_CONSIGNEE_NAME,
@@ -92,7 +91,8 @@ def test_etrn_infpol_shipment_flow_type():
     root = ET.fromstring(_build())
     assert root.tag == "Файл"
     assert root.attrib["ВерсФорм"] == "5.01"
-    assert OZON_CONSIGNEE_EDO_GUID in root.attrib["ИдФайл"]
+    assert root.attrib["ИдФайл"].startswith("ON_TRNACLGROT_")
+    assert "DRAFT" not in root.attrib["ИдФайл"]
 
     doc = root.find("Документ")
     assert doc is not None
@@ -849,27 +849,31 @@ def test_etrn_carrier_phone_prefers_catalog_over_legal_entity():
     assert go is not None and go.text == "+79991112233"
 
 
-def test_etrn_ozon_fns_id_fixed_in_id_file():
-    """ИдФайл/E — зафиксированный FNSId Озона."""
-    assert OZON_CONSIGNEE_EDO_GUID == "2BM-7704217370-774301001-201407110916237240124"
-    root = ET.fromstring(_build())
-    id_file = root.attrib["ИдФайл"]
-    assert id_file.startswith(f"ON_TRNACLGROT__{OZON_CONSIGNEE_EDO_GUID}_")
+def test_etrn_consignee_edo_from_selected_party():
+    """ИдФайл/E ← edo_id выбранного грузополучателя, без константы Озона."""
+    consignee_edo = "2BM-7704217370-774301001-201407110916237240124"
+    root = ET.fromstring(
+        _build(consignee={"edo_guid": consignee_edo, "name": "ГП", "inn": "7704217370"})
+    )
+    assert root.attrib["ИдФайл"].startswith(f"ON_TRNACLGROT__{consignee_edo}_")
+    root_empty = ET.fromstring(_build())
+    assert "7704217370" not in root_empty.attrib["ИдФайл"]
 
 
 def test_etrn_shipper_edo_empty_when_le_edo_id_blank():
-    """Пустой edo_id юр.лица → пустой O в ИдФайл, без DRAFT/stamp."""
+    """Пустой edo_id грузоотправителя → пустой O, без DRAFT/stamp."""
     root = ET.fromstring(_build())
     id_file = root.attrib["ИдФайл"]
     assert "DRAFT" not in id_file
-    # A empty, E = Ozon, O empty → ON_TRNACLGROT__{E}__0_...
-    assert id_file.startswith(f"ON_TRNACLGROT__{OZON_CONSIGNEE_EDO_GUID}__0_")
+    # A, E и O пустые → ON_TRNACLGROT____0_...
+    assert id_file.startswith("ON_TRNACLGROT____0_")
 
 
-def test_etrn_shipper_edo_from_le_edo_id():
-    """ИдФайл/O ← edo_id юр.лица; перевозчик/Озон не меняются."""
-    edo = "2BM-7701234567-770101001-201501010000000000001"
-    carrier_fns = "2BM-5001002003-500101001-201501010000000000001"
+def test_etrn_slots_follow_selected_parties():
+    """A=перевозчик, E=грузополучатель, O=грузоотправитель (ФНС / Контур)."""
+    edo = "2BM-SHIPPER"
+    carrier_fns = "2BM-CARRIER"
+    consignee_edo = "2BM-CONSIGNEE"
     root = ET.fromstring(
         _build(
             le={
@@ -886,16 +890,17 @@ def test_etrn_shipper_edo_from_le_edo_id():
                 "carrier_kpp": "500101001",
                 "carrier_fns_id": carrier_fns,
             },
+            consignee={"name": "ГП", "inn": "1", "edo_guid": consignee_edo},
         )
     )
     assert root.attrib["ИдФайл"].startswith(
-        f"ON_TRNACLGROT_{carrier_fns}_{OZON_CONSIGNEE_EDO_GUID}_{edo}_"
+        f"ON_TRNACLGROT_{carrier_fns}_{consignee_edo}_{edo}_"
     )
     assert "DRAFT" not in root.attrib["ИдФайл"]
 
 
 def test_etrn_carrier_fns_id_in_id_file():
-    """ИдФайл/A ← carrier_fns_id из каталога Водители → Перевозчик."""
+    """ИдФайл/A ← carrier_fns_id из карточки перевозчика."""
     fns = "2BM-5001002003-500101001-201501010000000000001"
     root = ET.fromstring(
         _build(
@@ -907,7 +912,7 @@ def test_etrn_carrier_fns_id_in_id_file():
             },
         )
     )
-    assert root.attrib["ИдФайл"].startswith(f"ON_TRNACLGROT_{fns}_{OZON_CONSIGNEE_EDO_GUID}_")
+    assert root.attrib["ИдФайл"].startswith(f"ON_TRNACLGROT_{fns}__")
 
 
 def test_etrn_driver_phone_prefers_catalog_over_legal_entity():

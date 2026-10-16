@@ -4,7 +4,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
-from review_processor.ozon_zakaz import OZON_FNS_ID, build_ozon_zakaz_xml
+from review_processor.ozon_zakaz import build_ozon_zakaz_xml
 
 
 def _build(**overrides):
@@ -215,10 +215,28 @@ def test_zakaz_carrier_phone_prefers_catalog_over_legal_entity():
     assert root.find("Документ/СодИнфГО/СвГО/Конт/Тлф").text == "+7 (999) 111-22-33"
 
 
-def test_zakaz_ozon_fns_id_constant_and_no_unload_owner():
-    """Ozon FNSId — общая константа с эТрН; в Заявке нет слота E и нет ОргВладИнфр на выгрузке."""
-    assert OZON_FNS_ID == "2BM-7704217370-774301001-201407110916237240124"
-    root = ET.fromstring(_build())
+def test_zakaz_has_no_consignee_slot():
+    """Заявка: A=перевозчик, O=грузоотправитель. Идентификатора грузополучателя нет."""
+    root = ET.fromstring(
+        _build(
+            le={
+                "full_name": 'ООО "Тест Поставщик"',
+                "short_name": "Тест",
+                "requisites": "ИНН 7701234567 КПП 770101001",
+                "signatories": "Иванов Иван Иванович",
+                "phone": "+79991112233",
+                "address": "101000, г. Москва, ул. Ленина, д. 1",
+                "edo_id": "2BM-SHIPPER",
+            },
+            carrier_fields={
+                "carrier_name": 'ООО "Перевозчик"',
+                "carrier_inn": "5001002003",
+                "carrier_kpp": "500101001",
+                "carrier_fns_id": "2BM-CARRIER",
+            },
+        )
+    )
+    assert root.attrib["ИдФайл"].startswith("ON_ZAKZVGO_2BM-CARRIER_2BM-SHIPPER_")
     unload = root.find("Документ/СодИнфГО/АдрПункт[@Опер='Выгрузка']")
     assert unload is not None
     assert unload.find("ОргВладИнфр") is None
@@ -227,8 +245,15 @@ def test_zakaz_ozon_fns_id_constant_and_no_unload_owner():
     assert load.attrib.get("ИННВладИнфр") == "7701234567"
 
 
+def test_zakaz_carrier_empty_when_fns_id_blank():
+    """Пустой FNSId перевозчика → пустой A, без сборки из ИНН."""
+    root = ET.fromstring(_build())
+    assert root.attrib["ИдФайл"].startswith("ON_ZAKZVGO__")
+    assert "5001002003" not in root.attrib["ИдФайл"]
+
+
 def test_zakaz_carrier_fns_id_in_id_file():
-    """ИдФайл/A ← carrier_fns_id из каталога Водители → Перевозчик."""
+    """ИдФайл/A ← carrier_fns_id из карточки перевозчика."""
     fns = "2BM-5001002003-500101001-201501010000000000001"
     root = ET.fromstring(
         _build(
