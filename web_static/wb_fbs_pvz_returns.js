@@ -335,13 +335,13 @@ function renderWbFbsPvzTable() {
     const canBarcode = printable.length > 0;
     return `<tr>
       <td class="wb-fbs-sd-td-product">${_wbFbsPvzProductCell(item)}</td>
-      <td class="wb-fbs-pvz-num">${Number(item.qty || 1)}</td>
-      <td class="wb-fbs-pvz-issued">${_wbFbsPvzEsc(item.issued_label || "—")}</td>
+      <td class="wb-fbs-pvz-num"><span class="wb-fbs-pvz-cell-label">Кол-во</span><span class="wb-fbs-pvz-cell-value">${Number(item.qty || 1)}</span></td>
+      <td class="wb-fbs-pvz-issued"><span class="wb-fbs-pvz-cell-label">Выдан</span><span class="wb-fbs-pvz-cell-value">${_wbFbsPvzEsc(item.issued_label || "—")}</span></td>
       <td class="wb-fbs-sd-td-act">
         <div class="wb-fbs-row-menu-wrap">
           <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
                   onclick="toggleWbFbsRowMenu(event, '${menuKey}')" aria-haspopup="menu">⋮</button>
-          <div id="wbFbsRowMenu_${menuKey}" class="wb-fbs-row-menu" data-order-id="${menuKey}" role="menu">
+          <div id="wbFbsRowMenu_${menuKey}" class="wb-fbs-row-menu wb-fbs-pvz-row-menu" data-order-id="${menuKey}" role="menu">
             <button type="button" class="wb-fbs-row-menu-item${canKiz ? "" : " is-disabled"}" role="menuitem"
                     ${canKiz ? `onclick="printWbFbsPvzKiz(${sourceId}, ${orderId})"` : "disabled"}
                     ${canKiz ? "" : 'title="Нет КИЗ для печати"'}>

@@ -21141,6 +21141,9 @@ body.ttn-col-resizing {
   font-size: 16px;
   white-space: nowrap;
 }
+#wbFbsPvzReturnsModal .wb-fbs-pvz-cell-label {
+  display: none;
+}
 #wbFbsPvzReturnsModal th.wb-fbs-pvz-num { text-align: right; }
 #wbFbsPvzReturnsModal .wb-fbs-pvz-issued {
   white-space: nowrap;
@@ -21217,17 +21220,216 @@ body.ttn-col-resizing {
   padding: 8px 16px;
 }
 @media (max-width: 720px) {
-  #wbFbsPvzReturnsModal .wb-fbs-pvz-count {
-    margin-left: 0;
+  #wbFbsPvzReturnsModal.modal-overlay,
+  #wbFbsPvzSettingsModal.modal-overlay {
+    padding: 0 !important;
+    align-items: stretch !important;
+    justify-content: stretch !important;
   }
-  #wbFbsPvzReturnsModal .wb-fbs-pvz-source,
-  #wbFbsPvzReturnsModal .wb-fbs-pvz-source select,
+  #wbFbsPvzReturnsModal > .modal-card,
+  #wbFbsPvzSettingsModal > .modal-card {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+  }
+  #wbFbsPvzReturnsModal .wb-fbs-sd-header {
+    padding: 16px;
+    padding-top: max(16px, env(safe-area-inset-top));
+  }
+  #wbFbsPvzReturnsModal .wb-fbs-sd-title {
+    font-size: 20px;
+  }
+  #wbFbsPvzReturnsModal .wb-fbs-pvz-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    gap: 8px;
+    align-items: center;
+    margin-top: 12px;
+  }
+  #wbFbsPvzReturnsModal .wb-fbs-returns-date-wrap {
+    position: static;
+    grid-column: 1;
+    grid-row: 1;
+    min-width: 0;
+  }
+  #wbFbsPvzReturnsModal .wb-fbs-pvz-date-btn {
+    width: 100%;
+    min-height: 44px;
+  }
+  #wbFbsPvzReturnsModal #wbFbsPvzSettingsBtn {
+    grid-column: 2;
+    grid-row: 1;
+    width: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+  }
   #wbFbsPvzReturnsModal #wbFbsPvzSyncBtn {
+    grid-column: 1 / -1;
+    grid-row: 2;
     width: 100%;
     max-width: none;
+    min-width: 0;
+    min-height: 44px;
   }
   #wbFbsPvzReturnsModal .wb-fbs-pvz-source {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    display: flex;
     flex-direction: column;
     align-items: stretch;
+    gap: 4px;
+    width: 100%;
+  }
+  #wbFbsPvzReturnsModal .wb-fbs-pvz-source select {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+  }
+  #wbFbsPvzReturnsModal .wb-fbs-pvz-count {
+    grid-column: 1 / -1;
+    grid-row: 4;
+    margin-left: 0;
+  }
+  #wbFbsPvzReturnsModal #wbFbsPvzDatePanel.supplies-date-panel {
+    left: 16px;
+    right: 16px;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+  }
+  #wbFbsPvzReturnsModal .cal-cell {
+    height: 40px;
+    font-size: 16px;
+  }
+  #wbFbsPvzReturnsModal .cal-dow {
+    height: 24px;
+    font-size: 14px;
+  }
+  #wbFbsPvzReturnsModal .cal-title {
+    font-size: 16px;
+  }
+  #wbFbsPvzReturnsModal .cal-nav {
+    min-width: 44px;
+    min-height: 44px;
+    font-size: 16px;
+  }
+  #wbFbsPvzReturnsModal .cal-footer .secondary {
+    min-height: 44px;
+    padding: 8px 16px;
+  }
+  #wbFbsPvzReturnsModal .wb-fbs-sd-table-wrap {
+    padding: 0 12px 16px;
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+    -webkit-overflow-scrolling: touch;
+  }
+  #wbFbsPvzReturnsModal .wb-fbs-sd-table,
+  #wbFbsPvzReturnsModal .wb-fbs-sd-table tbody {
+    display: block;
+    width: 100%;
+    min-width: 0 !important;
+  }
+  #wbFbsPvzReturnsModal .wb-fbs-sd-table colgroup,
+  #wbFbsPvzReturnsModal .wb-fbs-sd-table thead {
+    display: none;
+  }
+  #wbFbsPvzReturnsModal .wb-fbs-sd-table tbody tr {
+    display: grid;
+    grid-template-columns: minmax(72px, 0.9fr) minmax(0, 1.3fr) 44px;
+    grid-template-areas:
+      "product product act"
+      "qty issued issued";
+    gap: 8px 12px;
+    align-items: start;
+    padding: 12px;
+    margin: 0 0 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    background: #fff;
+  }
+  #wbFbsPvzReturnsModal .wb-fbs-sd-table tbody td {
+    display: block;
+    padding: 0 !important;
+    border: none !important;
+    background: transparent !important;
+    width: auto !important;
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  #wbFbsPvzReturnsModal .wb-fbs-sd-td-product { grid-area: product; }
+  #wbFbsPvzReturnsModal .wb-fbs-sd-td-act {
+    grid-area: act;
+    justify-self: end;
+  }
+  #wbFbsPvzReturnsModal .wb-fbs-pvz-num { grid-area: qty; }
+  #wbFbsPvzReturnsModal .wb-fbs-pvz-issued { grid-area: issued; }
+  #wbFbsPvzReturnsModal .wb-fbs-pvz-num,
+  #wbFbsPvzReturnsModal .wb-fbs-pvz-issued {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    text-align: left;
+  }
+  #wbFbsPvzReturnsModal .wb-fbs-pvz-cell-label {
+    display: block;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: #64748b;
+  }
+  #wbFbsPvzReturnsModal .wb-fbs-pvz-cell-value {
+    font-size: 16px;
+    font-weight: 600;
+    color: #0f172a;
+    line-height: 1.3;
+  }
+  #wbFbsPvzReturnsModal .wb-fbs-sd-table tbody tr:has(td.wb-fbs-empty) {
+    display: block;
+    padding: 0;
+    margin: 0;
+    border: none;
+    background: transparent;
+  }
+  #wbFbsPvzReturnsModal .wb-fbs-sd-table tbody td.wb-fbs-empty {
+    display: block;
+    padding: 16px 4px !important;
+    text-align: left;
+  }
+  #wbFbsPvzReturnsModal .wb-fbs-row-menu-btn {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .wb-fbs-pvz-row-menu .wb-fbs-row-menu-item {
+    min-height: 44px;
+    font-size: 16px;
+  }
+  #wbFbsPvzSettingsModal .wb-fbs-pvz-settings-modal {
+    padding: 16px;
+    padding-top: max(16px, env(safe-area-inset-top));
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+  }
+  #wbFbsPvzSettingsModal .wb-fbs-sd-title {
+    font-size: 20px;
+  }
+  #wbFbsPvzSettingsModal .wb-fbs-pvz-settings-list {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  #wbFbsPvzSettingsModal .wb-fbs-pvz-settings-actions {
+    flex-direction: column;
+    margin-top: auto;
+    gap: 8px;
+  }
+  #wbFbsPvzSettingsModal .wb-fbs-pvz-settings-actions button {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
   }
 }
