@@ -280,7 +280,7 @@ class PvzUiContractTests(unittest.TestCase):
         self.assertNotIn("hidden", pvz_btn)
         self.assertIn("Возвраты ПВЗ", pvz_btn)
         self.assertLess(html.index('id="wbFbsKizRestoreBtn"'), html.index('id="wbFbsPvzReturnsBtn"'))
-        self.assertIn('src="/static/wb_fbs_pvz_returns.js?v=2"', html)
+        self.assertIn('src="/static/wb_fbs_pvz_returns.js?v=3"', html)
         js = (ROOT / "web_static" / "app.js").read_text(encoding="utf-8")
         gate = js.split("function _wbFbsSyncOwnerOnlyReturnsBtn()", 1)[1].split("function ", 1)[0]
         self.assertIn("wbFbsKizRestoreBtn", gate)
@@ -290,3 +290,8 @@ class PvzUiContractTests(unittest.TestCase):
         self.assertIn("Распечатать маркировку", pvz_js)
         self.assertIn("В таблице:", pvz_js)
         self.assertIn("Нет выданных возвратов за этот период", pvz_js)
+        syncing = pvz_js.split("function _wbFbsPvzSetSyncing", 1)[1].split("function ", 1)[0]
+        self.assertLess(
+            syncing.index("toggleWbFbsPvzDatePanel(false)"),
+            syncing.index("wbFbsPvzState.syncing = !!on"),
+        )
