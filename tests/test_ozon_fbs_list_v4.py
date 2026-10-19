@@ -31,7 +31,8 @@ def test_list_postings_page_calls_v4_with_cursor() -> None:
     assert captured["body"]["cursor"] == "prev-1"
     assert "offset" not in captured["body"]
     assert captured["body"]["with"]["financial_data"] is False
-    assert captured["body"]["filter"]["status"] == "delivering"
+    assert captured["body"]["filter"]["statuses"] == ["delivering"]
+    assert "status" not in captured["body"]["filter"]
     assert rows == [{"posting_number": "P-1", "status": "delivering"}]
     assert has_next is True
     assert cursor == "next-1"

@@ -413,16 +413,21 @@ class OzonFbsClient:
 
         ``/v3/posting/fbs/list`` answers HTTP 429 with a zero per-second budget.
         v4 returns ``postings`` at the top level and continues with ``cursor``.
-        ``with_extras=False`` skips heavy nested payloads (status-check scan
-        only needs ``posting_number`` and ``status``).
+        Status goes in ``filter.statuses``; ``filter.status`` is ignored and
+        would return the whole window. ``with_extras=False`` skips heavy
+        nested payloads (status-check scan only needs ``posting_number`` and
+        ``status``).
         """
         extras = bool(with_extras)
+        # v4 reads ``filter.statuses`` (array). The v3 field ``filter.status``
+        # is ignored, so a string there returns every posting in the window
+        # and the progress line still names the requested status.
         body: dict[str, Any] = {
             "dir": "ASC",
             "filter": {
                 "since": _iso_z(since),
                 "to": _iso_z(to),
-                "status": status,
+                "statuses": [str(status or "").strip()],
             },
             "limit": min(max(int(limit), 1), 1000),
             "with": {
