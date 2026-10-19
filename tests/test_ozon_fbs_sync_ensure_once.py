@@ -82,3 +82,32 @@ def test_sync_keeps_limit_50_and_upserts_without_per_row_ensure() -> None:
     req = saved.get("requirements") or {}
     assert req.get("marking_is_required_checked") is True
     assert req.get("products_requiring_mandatory_mark") == []
+
+
+def test_sync_reports_stock_reconcile_before_full_read() -> None:
+    messages: list[str] = []
+    repo = MagicMock()
+    repo.get_product_requires_kiz_map.return_value = {}
+    repo.list_supply_productions.return_value = [{"id": 9}]
+    conn = MagicMock()
+    conn.execute.return_value.fetchall.return_value = []
+    repo._connect.return_value.__enter__.return_value = conn
+    client = MagicMock()
+    client.list_postings_page.return_value = ([], False, "")
+
+    with (
+        patch("review_processor.ozon_fbs.OzonFbsClient", return_value=client),
+        patch("review_processor.ozon_fbs.ensure_ozon_fbs_tables"),
+        patch("review_processor.ozon_fbs.time.sleep"),
+    ):
+        oz.sync_ozon_fbs_source(
+            repo,
+            user_id=1,
+            source_id=2,
+            client_id="cid",
+            api_key="key",
+            progress=lambda msg, _n: messages.append(msg),
+        )
+
+    assert "Сверяем остатки…" in messages
+    assert messages[-1] == "Сверяем остатки…"
