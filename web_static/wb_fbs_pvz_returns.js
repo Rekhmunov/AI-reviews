@@ -388,6 +388,8 @@ async function loadWbFbsPvzReturns() {
 }
 
 function _wbFbsPvzSetSyncing(on, label) {
+  // Close the calendar before the syncing flag: the toggle ignores calls while syncing.
+  if (on) toggleWbFbsPvzDatePanel(false);
   wbFbsPvzState.syncing = !!on;
   const btn = document.getElementById("wbFbsPvzSyncBtn");
   const gear = document.getElementById("wbFbsPvzSettingsBtn");
@@ -401,7 +403,6 @@ function _wbFbsPvzSetSyncing(on, label) {
   if (gear) gear.disabled = !!on;
   if (dateBtn) dateBtn.disabled = !!on;
   if (source) source.disabled = !!on;
-  if (on) toggleWbFbsPvzDatePanel(false);
 }
 
 async function _wbFbsPvzPoll(token) {
