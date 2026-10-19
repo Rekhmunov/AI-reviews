@@ -21052,3 +21052,182 @@ body.ttn-col-resizing {
     padding-top: 8px !important;
   }
 }
+
+/* WB FBS — Возвраты ПВЗ */
+#wbFbsPvzReturnsModal .wb-fbs-sd-header {
+  position: relative;
+  z-index: 3;
+}
+#wbFbsPvzReturnsModal .wb-fbs-pvz-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+}
+#wbFbsPvzReturnsModal .wb-fbs-pvz-date-btn,
+#wbFbsPvzReturnsModal #wbFbsPvzSyncBtn,
+#wbFbsPvzReturnsModal #wbFbsPvzSettingsBtn,
+#wbFbsPvzSettingsModal button {
+  min-height: 40px;
+}
+#wbFbsPvzReturnsModal #wbFbsPvzSyncBtn {
+  min-width: 180px;
+  max-width: 420px;
+  padding: 8px 16px;
+  white-space: normal;
+  line-height: 1.3;
+  text-align: center;
+}
+#wbFbsPvzReturnsModal .wb-fbs-pvz-date-btn {
+  min-width: 96px;
+  padding: 8px 12px;
+}
+#wbFbsPvzReturnsModal button:focus-visible,
+#wbFbsPvzSettingsModal button:focus-visible,
+#wbFbsPvzReturnsModal select:focus-visible {
+  outline: 2px solid #1d4ed8;
+  outline-offset: 2px;
+}
+#wbFbsPvzReturnsModal button:active:not(:disabled),
+#wbFbsPvzSettingsModal button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+#wbFbsPvzReturnsModal .wb-fbs-pvz-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  color: #334155;
+}
+#wbFbsPvzReturnsModal .wb-fbs-pvz-source select {
+  min-height: 40px;
+  min-width: 180px;
+  padding: 8px 12px;
+  font-size: 16px;
+  color: #0f172a;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+}
+#wbFbsPvzReturnsModal .wb-fbs-pvz-source select:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+#wbFbsPvzReturnsModal .wb-fbs-pvz-count {
+  margin-left: auto;
+  font-size: 16px;
+  font-weight: 600;
+  color: #334155;
+  white-space: nowrap;
+}
+#wbFbsPvzReturnsModal .wb-fbs-pvz-info,
+#wbFbsPvzSettingsModal .wb-fbs-pvz-info {
+  margin-top: 12px;
+  font-size: 16px;
+  line-height: 1.4;
+  color: #334155;
+}
+#wbFbsPvzReturnsModal .wb-fbs-pvz-info.is-error,
+#wbFbsPvzSettingsModal .wb-fbs-pvz-info.is-error {
+  color: #991b1b;
+}
+#wbFbsPvzReturnsModal .wb-fbs-pvz-col-qty { width: 88px; }
+#wbFbsPvzReturnsModal .wb-fbs-pvz-col-issued { width: 168px; }
+#wbFbsPvzReturnsModal .wb-fbs-pvz-col-act { width: 48px; }
+#wbFbsPvzReturnsModal .wb-fbs-pvz-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 16px;
+  white-space: nowrap;
+}
+#wbFbsPvzReturnsModal th.wb-fbs-pvz-num { text-align: right; }
+#wbFbsPvzReturnsModal .wb-fbs-pvz-issued {
+  white-space: nowrap;
+  font-size: 16px;
+  color: #0f172a;
+}
+#wbFbsPvzReturnsModal .wb-fbs-product-photo,
+#wbFbsPvzReturnsModal .wb-fbs-product img,
+#wbFbsPvzReturnsModal .wb-fbs-product-ph {
+  width: 72px !important;
+  height: 72px !important;
+  max-width: 72px !important;
+  max-height: 72px !important;
+  min-width: 72px;
+  min-height: 72px;
+  flex: 0 0 72px;
+}
+#wbFbsPvzSettingsModal.modal-overlay {
+  z-index: 1400;
+}
+#wbFbsPvzSettingsModal .wb-fbs-pvz-settings-modal {
+  width: min(480px, 100%);
+  max-height: calc(100vh - 40px);
+  padding: 20px 24px 24px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#wbFbsPvzSettingsModal .wb-fbs-sd-title {
+  font-size: 24px;
+}
+#wbFbsPvzSettingsModal .wb-fbs-pvz-settings-lead,
+#wbFbsPvzSettingsModal .wb-fbs-pvz-settings-empty {
+  margin: 12px 0 0;
+  font-size: 16px;
+  line-height: 1.45;
+  color: #475569;
+}
+#wbFbsPvzSettingsModal .wb-fbs-pvz-settings-list {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+  min-height: 48px;
+}
+#wbFbsPvzSettingsModal .wb-fbs-pvz-check {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 16px;
+  color: #0f172a;
+  cursor: pointer;
+}
+#wbFbsPvzSettingsModal .wb-fbs-pvz-check input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  flex: 0 0 auto;
+}
+#wbFbsPvzSettingsModal .wb-fbs-pvz-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 20px;
+}
+#wbFbsPvzSettingsModal .wb-fbs-pvz-settings-actions button {
+  min-width: 120px;
+  padding: 8px 16px;
+}
+@media (max-width: 720px) {
+  #wbFbsPvzReturnsModal .wb-fbs-pvz-count {
+    margin-left: 0;
+  }
+  #wbFbsPvzReturnsModal .wb-fbs-pvz-source,
+  #wbFbsPvzReturnsModal .wb-fbs-pvz-source select,
+  #wbFbsPvzReturnsModal #wbFbsPvzSyncBtn {
+    width: 100%;
+    max-width: none;
+  }
+  #wbFbsPvzReturnsModal .wb-fbs-pvz-source {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
