@@ -320,6 +320,14 @@ class OzonFbsNewStickersUiTests(unittest.TestCase):
             "openOzonFbsStickersByCategoryModal({ newLabels: true })",
             new_split,
         )
+        # Old split stays in the markup, hidden with its caret.
+        old_split_tag = HTML[
+            HTML.find('id="ozonFbsStickersSplit"') - 48 : HTML.find(
+                'id="ozonFbsStickersSplit"'
+            )
+            + 40
+        ]
+        self.assertIn('id="ozonFbsStickersSplit" hidden', old_split_tag)
         # Same caret pattern as ordinary stickers split — still old labels.
         old_split = HTML[
             HTML.find('id="ozonFbsStickersSplit"') : HTML.find(
