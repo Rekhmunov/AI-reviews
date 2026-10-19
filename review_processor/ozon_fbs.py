@@ -406,21 +406,25 @@ class OzonFbsClient:
         since: datetime,
         to: datetime,
         limit: int = 50,
-        offset: int = 0,
+        cursor: str = "",
         with_extras: bool = True,
-    ) -> tuple[list[dict[str, Any]], bool]:
-        """Page of FBS postings. ``with_extras=False`` skips heavy nested payloads
-        (status-check bulk scan — only ``posting_number`` / ``status`` needed)."""
+    ) -> tuple[list[dict[str, Any]], bool, str]:
+        """One page of FBS postings via ``/v4/posting/fbs/list``.
+
+        ``/v3/posting/fbs/list`` answers HTTP 429 with a zero per-second budget.
+        v4 returns ``postings`` at the top level and continues with ``cursor``.
+        ``with_extras=False`` skips heavy nested payloads (status-check scan
+        only needs ``posting_number`` and ``status``).
+        """
         extras = bool(with_extras)
-        body = {
+        body: dict[str, Any] = {
             "dir": "ASC",
             "filter": {
                 "since": _iso_z(since),
                 "to": _iso_z(to),
                 "status": status,
             },
-            "limit": min(max(limit, 1), 1000),
-            "offset": max(offset, 0),
+            "limit": min(max(int(limit), 1), 1000),
             "with": {
                 "analytics_data": extras,
                 "barcodes": extras,
@@ -428,12 +432,24 @@ class OzonFbsClient:
                 "translit": extras,
             },
         }
-        data = self.post_json("/v3/posting/fbs/list", body)
-        result = data.get("result") if isinstance(data.get("result"), dict) else {}
-        postings = result.get("postings") if isinstance(result.get("postings"), list) else []
-        has_next = bool(result.get("has_next"))
+        cur = str(cursor or "").strip()
+        if cur:
+            body["cursor"] = cur
+        data = self.post_json("/v4/posting/fbs/list", body)
+        # v4 payload is top-level. Keep the old ``result`` shape readable so a
+        # stubbed response does not look like an empty page.
+        if isinstance(data.get("postings"), list) or "cursor" in data:
+            payload: dict[str, Any] = data
+        elif isinstance(data.get("result"), dict):
+            payload = data["result"]
+        else:
+            payload = data
+        raw_postings = payload.get("postings")
+        postings = raw_postings if isinstance(raw_postings, list) else []
+        has_next = bool(payload.get("has_next"))
+        next_cursor = str(payload.get("cursor") or "").strip() if has_next else ""
         clean = [p for p in postings if isinstance(p, dict)]
-        return clean, has_next
+        return clean, has_next, next_cursor
 
     def get_posting(self, posting_number: str) -> dict[str, Any]:
         data = self.post_json(
@@ -3636,6 +3652,27 @@ def lookup_posting_by_number(
     }
 
 
+def unpack_posting_list_page(
+    page: object,
+) -> tuple[list[dict[str, Any]], bool, str]:
+    """Normalize a list page to ``(postings, has_next, cursor)``.
+
+    Callers that still return a 2-tuple ``(postings, has_next)`` stay valid:
+    the next cursor is empty, so pagination stops after that page.
+    """
+    if not isinstance(page, tuple):
+        return [], False, ""
+    raw_postings = page[0] if len(page) >= 1 else []
+    has_next = bool(page[1]) if len(page) >= 2 else False
+    cursor = str(page[2] or "").strip() if len(page) >= 3 else ""
+    if not isinstance(raw_postings, list):
+        raw_postings = []
+    clean = [p for p in raw_postings if isinstance(p, dict)]
+    if not has_next:
+        cursor = ""
+    return clean, has_next, cursor
+
+
 def sync_ozon_fbs_source(
     repo: ReviewRepository,
     *,
@@ -3685,19 +3722,21 @@ def sync_ozon_fbs_source(
             stopped = True
             break
         label = TAB_LABELS.get(compute_tab(status), status)
-        offset = 0
+        cursor = ""
         pages = 0
         while pages < 200:
             if _stopped():
                 stopped = True
                 break
             try:
-                postings, has_next = client.list_postings_page(
-                    status=status,
-                    since=date_from,
-                    to=date_to,
-                    limit=50,
-                    offset=offset,
+                postings, has_next, next_cursor = unpack_posting_list_page(
+                    client.list_postings_page(
+                        status=status,
+                        since=date_from,
+                        to=date_to,
+                        limit=50,
+                        cursor=cursor,
+                    )
                 )
             except Exception as exc:
                 _log.warning("ozon_fbs list %s failed: %s", status, exc)
@@ -3722,9 +3761,9 @@ def sync_ozon_fbs_source(
                 seen.add(pn)
             pages += 1
             _prog(f"{label}… стр. {pages}")
-            if not has_next:
+            if not has_next or not next_cursor or next_cursor == cursor:
                 break
-            offset += len(postings)
+            cursor = next_cursor
             time.sleep(0.25)
         time.sleep(0.15)
 

@@ -170,11 +170,11 @@ def test_refresh_uses_list_then_get_fallback(monkeypatch) -> None:
         def __init__(self, *_a, **_k):
             pass
 
-        def list_postings_page(self, *, status, since, to, limit=50, offset=0, with_extras=True):
+        def list_postings_page(self, *, status, since, to, limit=50, cursor="", with_extras=True):
             list_calls.append(status)
-            if status == "delivered" and offset == 0:
+            if status == "delivered" and cursor == "":
                 return ([{"posting_number": "P-1", "status": "delivered"}], False)
-            if status == "delivering" and offset == 0:
+            if status == "delivering" and cursor == "":
                 return ([{"posting_number": "P-2", "status": "delivering"}], False)
             return ([], False)
 
@@ -360,7 +360,7 @@ def test_scan_list_stops_without_continuing_other_statuses(monkeypatch) -> None:
     calls: list[str] = []
 
     class _Client:
-        def list_postings_page(self, *, status, since, to, limit=50, offset=0, with_extras=True):
+        def list_postings_page(self, *, status, since, to, limit=50, cursor="", with_extras=True):
             calls.append(status)
             if status == "delivering":
                 return (
@@ -578,7 +578,7 @@ def test_stop_during_list_still_flushes_list_hits(monkeypatch) -> None:
         def __init__(self, *_a, **_k):
             pass
 
-        def list_postings_page(self, *, status, since, to, limit=50, offset=0, with_extras=True):
+        def list_postings_page(self, *, status, since, to, limit=50, cursor="", with_extras=True):
             if status == "delivered":
                 saw_delivered["ok"] = True
                 return (

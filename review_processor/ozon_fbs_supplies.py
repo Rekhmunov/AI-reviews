@@ -6547,7 +6547,7 @@ def _status_check_date_window(
 ) -> tuple[datetime, datetime]:
     """since/to for list scan: oldest local created_at → now+1d.
 
-    Ozon ``/v3/posting/fbs/list`` requires ``filter.since``…``to`` ≤ 1 year.
+    Ozon ``/v4/posting/fbs/list`` requires ``filter.since``…``to`` ≤ 1 year.
     Floor is 365 days so the request stays within the documented limit; older
     local rows fall through to ``/v3/posting/fbs/get``.
     """
@@ -6578,7 +6578,7 @@ def _scan_remote_statuses_via_list(
     should_stop: Callable[[], bool] | None = None,
     total_hint: int = 0,
 ) -> tuple[dict[str, str], bool]:
-    """Bulk status map for local PNs via ``/v3/posting/fbs/list`` (limit 1000).
+    """Bulk status map for local PNs via ``/v4/posting/fbs/list`` (limit 1000).
 
     Returns ``(found, stopped)``. On cancel, breaks out of both status and page
     loops immediately after the in-flight list request finishes.
@@ -6594,25 +6594,27 @@ def _scan_remote_statuses_via_list(
             break
         if not want:
             break
-        offset = 0
+        cursor = ""
         for page in range(OZON_FBS_STATUS_CHECK_LIST_MAX_PAGES):
             if should_stop and should_stop():
                 stopped = True
                 break
             try:
-                postings, has_next = client.list_postings_page(
-                    status=status,
-                    since=date_from,
-                    to=date_to,
-                    limit=OZON_FBS_STATUS_CHECK_LIST_LIMIT,
-                    offset=offset,
-                    with_extras=False,
+                postings, has_next, next_cursor = oz.unpack_posting_list_page(
+                    client.list_postings_page(
+                        status=status,
+                        since=date_from,
+                        to=date_to,
+                        limit=OZON_FBS_STATUS_CHECK_LIST_LIMIT,
+                        cursor=cursor,
+                        with_extras=False,
+                    )
                 )
             except Exception as exc:
                 _log.warning(
-                    "ozon status-check list %s failed offset=%s: %s",
+                    "ozon status-check list %s failed page=%s: %s",
                     status,
-                    offset,
+                    page + 1,
                     exc,
                 )
                 break
@@ -6638,7 +6640,9 @@ def _scan_remote_statuses_via_list(
                 break
             if not has_next or not want:
                 break
-            offset += len(postings)
+            if not next_cursor or next_cursor == cursor:
+                break
+            cursor = next_cursor
         if stopped:
             break
     return found, stopped
@@ -6656,7 +6660,7 @@ def refresh_delivering_posting_statuses(
 ) -> dict[str, Any]:
     """Refresh status for every delivering posting.
 
-    Fast path: ``/v3/posting/fbs/list`` (up to 1000/page) for delivering /
+    Fast path: ``/v4/posting/fbs/list`` (up to 1000/page) for delivering /
     delivered / cancelled. Leftovers (outside list window) use parallel
     ``/v3/posting/fbs/get`` paced by the shared Client-Id rate limiter (~40 rps).
     """
