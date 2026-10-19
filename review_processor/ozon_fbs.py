@@ -3779,51 +3779,9 @@ def sync_ozon_fbs_source(
 
     repo.mark_supply_source_synced(source_id=source_id)
 
-    # Поставки → Остатки: списание при delivering/delivered (WB FBS не трогаем).
-    try:
-        prod_id = 0
-        try:
-            productions = repo.list_supply_productions(user_id=user_id)
-            if productions:
-                prod_id = int(productions[0].get("id") or 0)
-        except Exception:
-            prod_id = 0
-        if prod_id > 0:
-            # Last list page is already on screen («Отменены… стр. N»).
-            # This read is the whole cabinet history and does not advance pages.
-            _prog("Сверяем остатки…")
-            with repo._connect() as conn:
-                rows = conn.execute(
-                    repo._sql(
-                        """
-                        SELECT posting_number, tab, offer_id, sku, quantity, products_json
-                        FROM ozon_fbs_postings
-                        WHERE user_id = ? AND source_id = ?
-                        """
-                    ),
-                    (user_id, source_id),
-                ).fetchall()
-            postings = [repo._row_to_dict(r) for r in rows]
-            if postings:
-                try:
-                    from zoneinfo import ZoneInfo
-
-                    move_date = datetime.now(ZoneInfo("Europe/Moscow")).date().isoformat()
-                except Exception:
-                    move_date = datetime.now(UTC).date().isoformat()
-                repo.reconcile_ozon_fbs_stock_postings(
-                    user_id=user_id,
-                    production_id=prod_id,
-                    postings=postings,
-                    movement_date=move_date,
-                )
-    except Exception as exc:
-        _log.warning(
-            "ozon fbs supply stock ledger hook failed user=%s source=%s: %s",
-            user_id,
-            source_id,
-            exc,
-        )
+    # Stock stays on the operator move. «Перенести в доставку» writes the
+    # ledger for that supply; moving it back reverses the rows. Sync only
+    # stores Ozon statuses. WB FBS still reconciles from portal status.
 
     return {
         "postings": len(seen),

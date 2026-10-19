@@ -84,14 +84,10 @@ def test_sync_keeps_limit_50_and_upserts_without_per_row_ensure() -> None:
     assert req.get("products_requiring_mandatory_mark") == []
 
 
-def test_sync_reports_stock_reconcile_before_full_read() -> None:
+def test_sync_does_not_reconcile_stock() -> None:
     messages: list[str] = []
     repo = MagicMock()
     repo.get_product_requires_kiz_map.return_value = {}
-    repo.list_supply_productions.return_value = [{"id": 9}]
-    conn = MagicMock()
-    conn.execute.return_value.fetchall.return_value = []
-    repo._connect.return_value.__enter__.return_value = conn
     client = MagicMock()
     client.list_postings_page.return_value = ([], False, "")
 
@@ -109,5 +105,7 @@ def test_sync_reports_stock_reconcile_before_full_read() -> None:
             progress=lambda msg, _n: messages.append(msg),
         )
 
-    assert "Сверяем остатки…" in messages
-    assert messages[-1] == "Сверяем остатки…"
+    repo.reconcile_ozon_fbs_stock_postings.assert_not_called()
+    repo.list_supply_productions.assert_not_called()
+    assert all("Сверяем остатки" not in msg for msg in messages)
+    repo.mark_supply_source_synced.assert_called_once_with(source_id=2)
