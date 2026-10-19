@@ -6373,7 +6373,7 @@ _status_check_jobs: dict[int, dict[str, Any]] = {}
 # Parallel get_posting for leftovers after list-scan. Token bucket (~40 rps)
 # already paces Ozon; no extra sleep between calls.
 OZON_FBS_STATUS_CHECK_WORKERS = 10
-OZON_FBS_STATUS_CHECK_LIST_LIMIT = 1000
+OZON_FBS_STATUS_CHECK_LIST_LIMIT = oz.FBS_LIST_PAGE_LIMIT_MAX
 OZON_FBS_STATUS_CHECK_LIST_MAX_PAGES = 400
 # Statuses that take a posting off «Доставляются» (or confirm it stays).
 _STATUS_CHECK_LIST_STATUSES = (
@@ -6578,7 +6578,7 @@ def _scan_remote_statuses_via_list(
     should_stop: Callable[[], bool] | None = None,
     total_hint: int = 0,
 ) -> tuple[dict[str, str], bool]:
-    """Bulk status map for local PNs via ``/v4/posting/fbs/list`` (limit 1000).
+    """Bulk status map for local PNs via ``/v4/posting/fbs/list`` (limit 100).
 
     Returns ``(found, stopped)``. On cancel, breaks out of both status and page
     loops immediately after the in-flight list request finishes.
@@ -6660,7 +6660,7 @@ def refresh_delivering_posting_statuses(
 ) -> dict[str, Any]:
     """Refresh status for every delivering posting.
 
-    Fast path: ``/v4/posting/fbs/list`` (up to 1000/page) for delivering /
+    Fast path: ``/v4/posting/fbs/list`` (up to 100/page, the v4 maximum) for delivering /
     delivered / cancelled. Leftovers (outside list window) use parallel
     ``/v3/posting/fbs/get`` paced by the shared Client-Id rate limiter (~40 rps).
     """

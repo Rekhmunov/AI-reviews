@@ -38,6 +38,24 @@ def test_list_postings_page_calls_v4_with_cursor() -> None:
     assert cursor == "next-1"
 
 
+def test_list_postings_page_clamps_limit_to_v4_max() -> None:
+    captured: dict = {}
+
+    class _Client(OzonFbsClient):
+        def post_json(self, path, body):  # type: ignore[override]
+            captured["body"] = body
+            return {"postings": [], "has_next": False}
+
+    now = datetime.now(UTC)
+    _Client("1", "k").list_postings_page(
+        status="delivering",
+        since=now - timedelta(hours=1),
+        to=now,
+        limit=1000,
+    )
+    assert captured["body"]["limit"] == 100
+
+
 def test_list_postings_page_omits_empty_cursor_and_clears_it_without_next() -> None:
     captured: dict = {}
 
