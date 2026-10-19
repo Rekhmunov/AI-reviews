@@ -359,6 +359,16 @@ def _goods_return_token_rate_slot(*, api_key: str, source_id: int | None = None)
         lock.release()
 
 
+def goods_return_token_cooldown_seconds(*, api_key: str) -> float:
+    """Seconds until this Analytics token may call goods-return again."""
+    token_key = _analytics_token_key(api_key)
+    with _goods_return_token_guard:
+        last = float(_goods_return_token_last_request.get(token_key, 0.0))
+    if last <= 0:
+        return 0.0
+    return max(0.0, GOODS_RETURN_REQUEST_INTERVAL_SEC - (time.monotonic() - last))
+
+
 class GoodsReturnHttpError(RuntimeError):
     """WB goods-return HTTP error with optional rate-limit metadata."""
 
@@ -1417,11 +1427,15 @@ def sync_goods_returns(
     api_key_source: str = "",
     trust_report: bool | None = None,
     api_key_candidates: list[tuple[str, str]] | None = None,
+    chunk_days: int = GOODS_RETURN_CHUNK_DAYS,
 ) -> dict[str, Any]:
     """Sync WB goods-return report for one FBS source.
 
     Rows are stored when they belong to this ``source_id``. With
     ``trust_report=True`` (same WB seller cabinet), all report rows are kept.
+
+    ``chunk_days`` stays 30 for the existing «Возвраты» sync. Callers that
+    need one WB request of the allowed 31 days pass ``chunk_days=31``.
     """
     ensure_wb_fbs_returns_tables(repo)
     date_from, date_to, range_clamped = clamp_goods_return_sync_range(date_from, date_to)
@@ -1433,7 +1447,10 @@ def sync_goods_returns(
     matchers = _load_source_goods_return_matchers(
         repo, user_id=user_id, source_id=source_id
     )
-    windows = iter_goods_return_windows(date_from, date_to)
+    chunk = int(chunk_days or GOODS_RETURN_CHUNK_DAYS)
+    if chunk < 1:
+        chunk = GOODS_RETURN_CHUNK_DAYS
+    windows = iter_goods_return_windows(date_from, date_to, chunk_days=chunk)
     totals = {
         "fetched": 0,
         "inserted": 0,

@@ -1728,6 +1728,10 @@
                       hidden>
                 Возвраты
               </button>
+              <button type="button" id="wbFbsPvzReturnsBtn" class="secondary"
+                      onclick="openWbFbsPvzReturnsModal()" title="Возвраты, выданные в ПВЗ">
+                Возвраты ПВЗ
+              </button>
               <button type="button" id="wbFbsTsdBtn" class="secondary"
                       onclick="window.location.href='/wb-fbs/tsd'" title="ТСД — сборка на складе">
                 ТСД
@@ -2690,6 +2694,78 @@
             <div class="wb-fbs-returns-barcode-actions">
               <button type="button" class="secondary" onclick="closeWbFbsReturnsBarcodeModal()">Отмена</button>
               <button type="button" id="wbFbsReturnsBarcodePrintBtn" onclick="confirmWbFbsReturnsBarcodePrint()">Печать</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="wbFbsPvzReturnsModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="wbFbsPvzReturnsTitle">
+          <div class="modal-card wb-fbs-supply-detail-modal">
+            <div class="wb-fbs-sd-header">
+              <div class="wb-fbs-sd-title-row">
+                <h3 id="wbFbsPvzReturnsTitle" class="wb-fbs-sd-title">Возвраты ПВЗ</h3>
+                <button type="button" class="icon-btn secondary wb-fbs-sd-close" onclick="closeWbFbsPvzReturnsModal()" aria-label="Закрыть">✕</button>
+              </div>
+              <div class="wb-fbs-pvz-toolbar">
+                <div class="supplies-date-wrap wb-fbs-returns-date-wrap">
+                  <button id="wbFbsPvzDateBtn" type="button" class="secondary wb-fbs-pvz-date-btn"
+                          onclick="toggleWbFbsPvzDatePanel()" title="Дата выдачи">📅</button>
+                  <input type="hidden" id="wbFbsPvzDateFrom" />
+                  <input type="hidden" id="wbFbsPvzDateTo" />
+                  <div id="wbFbsPvzDatePanel" class="supplies-date-panel" style="display:none">
+                    <div id="wbFbsPvzCalendar"></div>
+                  </div>
+                </div>
+                <button type="button" id="wbFbsPvzSyncBtn" onclick="syncWbFbsPvzReturns()">Синхронизировать</button>
+                <button type="button" id="wbFbsPvzSettingsBtn" class="secondary icon-btn"
+                        onclick="openWbFbsPvzSettings()" title="Источники" aria-label="Источники">⚙</button>
+                <label class="wb-fbs-pvz-source" for="wbFbsPvzSourceFilter">Источник
+                  <select id="wbFbsPvzSourceFilter" onchange="onWbFbsPvzFilterChange()">
+                    <option value="0">Все источники</option>
+                  </select>
+                </label>
+                <span id="wbFbsPvzCount" class="wb-fbs-pvz-count">В таблице: 0</span>
+              </div>
+              <div id="wbFbsPvzInfo" class="wb-fbs-pvz-info" hidden></div>
+            </div>
+            <div class="wb-fbs-sd-table-wrap">
+              <table class="wb-fbs-sd-table" id="wbFbsPvzTable">
+                <colgroup>
+                  <col class="wb-fbs-pvz-col-product" />
+                  <col class="wb-fbs-pvz-col-qty" />
+                  <col class="wb-fbs-pvz-col-issued" />
+                  <col class="wb-fbs-pvz-col-act" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>Товар</th>
+                    <th class="wb-fbs-pvz-num">Кол-во</th>
+                    <th>Выдан</th>
+                    <th class="wb-fbs-sd-col-act"></th>
+                  </tr>
+                </thead>
+                <tbody id="wbFbsPvzTbody">
+                  <tr><td colspan="4" class="wb-fbs-empty">Загрузка…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="wbFbsPvzSettingsModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="wbFbsPvzSettingsTitle"
+             onclick="if(event.target===this)closeWbFbsPvzSettings()">
+          <div class="modal-card wb-fbs-pvz-settings-modal">
+            <div class="wb-fbs-sd-title-row">
+              <h3 id="wbFbsPvzSettingsTitle" class="wb-fbs-sd-title">Источники</h3>
+              <button type="button" class="icon-btn secondary" onclick="closeWbFbsPvzSettings()" aria-label="Закрыть">✕</button>
+            </div>
+            <p class="wb-fbs-pvz-settings-lead">Отметьте кабинеты WB FBS. Синхронизация запросит возвраты только по ним.</p>
+            <div id="wbFbsPvzSettingsList" class="wb-fbs-pvz-settings-list"></div>
+            <div id="wbFbsPvzSettingsInfo" class="wb-fbs-pvz-info" hidden></div>
+            <div class="wb-fbs-pvz-settings-actions">
+              <button type="button" class="secondary" onclick="closeWbFbsPvzSettings()">Отмена</button>
+              <button type="button" id="wbFbsPvzSettingsSaveBtn" onclick="saveWbFbsPvzSettings()">Сохранить</button>
             </div>
           </div>
         </div>
@@ -8520,5 +8596,6 @@
   <script src="/static/ozon_fbs.js?v=220"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=38"></script>
   <script src="/static/app.js?v=713"></script>
+  <script src="/static/wb_fbs_pvz_returns.js?v=1"></script>
 </body>
 </html>
