@@ -26,6 +26,11 @@ _log = logging.getLogger(__name__)
 
 OZON_API = "https://api-seller.ozon.ru"
 
+# ``/v4/posting/fbs/list`` rejects Limit outside (0, 100]. v3 allowed 1000;
+# a 1000-page request is HTTP 400 and the status check then falls back to
+# one ``/v3/posting/fbs/get`` per posting.
+FBS_LIST_PAGE_LIMIT_MAX = 100
+
 # UI tabs (portal-aligned)
 TAB_AWAITING_PACKAGING = "awaiting_packaging"
 TAB_AWAITING_DELIVER = "awaiting_deliver"
@@ -429,7 +434,7 @@ class OzonFbsClient:
                 "to": _iso_z(to),
                 "statuses": [str(status or "").strip()],
             },
-            "limit": min(max(int(limit), 1), 1000),
+            "limit": min(max(int(limit), 1), FBS_LIST_PAGE_LIMIT_MAX),
             "with": {
                 "analytics_data": extras,
                 "barcodes": extras,
