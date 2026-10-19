@@ -3789,6 +3789,9 @@ def sync_ozon_fbs_source(
         except Exception:
             prod_id = 0
         if prod_id > 0:
+            # Last list page is already on screen («Отменены… стр. N»).
+            # This read is the whole cabinet history and does not advance pages.
+            _prog("Сверяем остатки…")
             with repo._connect() as conn:
                 rows = conn.execute(
                     repo._sql(
@@ -4190,7 +4193,15 @@ def start_sync_thread(
         finally:
             pallet_summary: list[dict[str, Any]] = []
             multi_summary: list[dict[str, Any]] = []
+            saved_done_messages: list[tuple[dict[str, Any], str]] = []
             if synced_sources > 0:
+                with _ozon_fbs_sync_lock:
+                    for row in _ozon_fbs_sync_state.get("sources") or []:
+                        if isinstance(row, dict) and row.get("status") == "done":
+                            saved_done_messages.append(
+                                (row, str(row.get("message") or ""))
+                            )
+                            row["message"] = "Считаем паллеты…"
                 try:
                     pallet_summary = compute_ozon_fbs_pallet_summary(
                         repo, user_id=user_id, sources=jobs
@@ -4227,6 +4238,10 @@ def start_sync_thread(
                         "ozon_fbs multi summary failed user=%s", user_id
                     )
                     multi_summary = []
+                with _ozon_fbs_sync_lock:
+                    for row, msg in saved_done_messages:
+                        if row.get("message") == "Считаем паллеты…":
+                            row["message"] = msg
 
             with _ozon_fbs_sync_lock:
                 _ozon_fbs_sync_state["in_progress"] = False
