@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=433" />
+  <link rel="stylesheet" href="/static/style.css?v=434" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2738,12 +2738,6 @@
                         <button type="button" class="icon-btn secondary wb-fbs-pvz-filter-close"
                                 onclick="toggleWbFbsPvzFilterPanel(false)" aria-label="Закрыть фильтры">✕</button>
                       </div>
-                      <label class="wb-fbs-pvz-filter-field" for="wbFbsPvzSearchFilter">Поиск
-                        <input id="wbFbsPvzSearchFilter" class="wb-fbs-kiz-search" type="search"
-                               placeholder="Стикер, ШК, название…" autocomplete="off"
-                               title="Поиск по стикеру возврата, штрихкоду и названию товара"
-                               oninput="onWbFbsPvzSearchInput()" />
-                      </label>
                       <label class="wb-fbs-pvz-filter-field" for="wbFbsPvzSourceFilter">Источник
                         <select id="wbFbsPvzSourceFilter" onchange="onWbFbsPvzFilterChange()">
                           <option value="0">Все источники</option>
@@ -2766,6 +2760,10 @@
                   </button>
                 </div>
                 <div class="wb-fbs-pvz-toolbar-right">
+                  <input id="wbFbsPvzSearchFilter" class="wb-fbs-kiz-search wb-fbs-pvz-search" type="search"
+                         placeholder="🔍 Стикер, ШК, название…" autocomplete="off"
+                         title="Поиск по стикеру возврата, штрихкоду и названию товара"
+                         oninput="onWbFbsPvzSearchInput()" />
                   <div class="supplies-date-wrap wb-fbs-returns-date-wrap wb-fbs-pvz-date-wrap">
                     <button id="wbFbsPvzDateBtn" type="button"
                             class="secondary wb-fbs-returns-date-btn wb-fbs-pvz-date-btn"
@@ -8650,6 +8648,6 @@
   <script src="/static/ozon_fbs.js?v=220"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=38"></script>
   <script src="/static/app.js?v=713"></script>
-  <script src="/static/wb_fbs_pvz_returns.js?v=13"></script>
+  <script src="/static/wb_fbs_pvz_returns.js?v=14"></script>
 </body>
 </html>
