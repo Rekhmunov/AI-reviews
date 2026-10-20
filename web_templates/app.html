@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=436" />
+  <link rel="stylesheet" href="/static/style.css?v=437" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2808,6 +2808,119 @@
           </div>
         </div>
 
+        <div id="ozonFbsPvzReturnsModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsPvzReturnsTitle">
+          <div class="modal-card wb-fbs-supply-detail-modal">
+            <div class="wb-fbs-sd-header">
+              <div class="wb-fbs-sd-title-row">
+                <h3 id="ozonFbsPvzReturnsTitle" class="wb-fbs-sd-title">Возвраты ПВЗ</h3>
+                <button type="button" class="icon-btn secondary wb-fbs-sd-close" onclick="closeOzonFbsPvzReturnsModal()" aria-label="Закрыть">✕</button>
+              </div>
+              <div class="wb-fbs-pvz-toolbar">
+                <div class="wb-fbs-pvz-toolbar-left">
+                  <button type="button" id="ozonFbsPvzSyncBtn" onclick="syncOzonFbsPvzReturns()">Синхронизировать</button>
+                  <button type="button" id="ozonFbsPvzSettingsBtn" class="secondary icon-btn"
+                          onclick="openOzonFbsPvzSettings()" title="Источники" aria-label="Источники"
+                          hidden>⚙</button>
+                  <button type="button" id="ozonFbsPvzPrintBtn" class="secondary icon-btn"
+                          onclick="printOzonFbsPvzList('merged')" title="Печать объединённого списка"
+                          aria-label="Печать объединённого списка">⎙</button>
+                  <button type="button" id="ozonFbsPvzQrBtn" class="secondary icon-btn"
+                          onclick="openOzonFbsPvzGiveout()" title="Получение возвратов (QR)"
+                          aria-label="Получение возвратов">QR</button>
+                  <div class="wb-fbs-pvz-filter-wrap">
+                    <button type="button" id="ozonFbsPvzFilterBtn" class="secondary icon-btn wb-fbs-pvz-filter-btn"
+                            onclick="toggleOzonFbsPvzFilterPanel(event)" title="Фильтры"
+                            aria-label="Фильтры" aria-haspopup="true" aria-expanded="false"
+                            aria-controls="ozonFbsPvzFilterPanel">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M4 6h16M7 12h10M10 18h4" stroke="currentColor" stroke-width="2"
+                              stroke-linecap="round"/>
+                      </svg>
+                    </button>
+                    <div id="ozonFbsPvzFilterPanel" class="wb-fbs-pvz-filter-panel" hidden role="dialog"
+                         aria-label="Фильтры возвратов ПВЗ">
+                      <div class="wb-fbs-pvz-filter-panel-head">
+                        <span class="wb-fbs-pvz-filter-panel-title">Фильтры</span>
+                        <button type="button" class="icon-btn secondary wb-fbs-pvz-filter-close"
+                                onclick="toggleOzonFbsPvzFilterPanel(false)" aria-label="Закрыть фильтры">✕</button>
+                      </div>
+                      <label class="wb-fbs-pvz-filter-field" for="ozonFbsPvzCategoryFilter">Категория
+                        <select id="ozonFbsPvzCategoryFilter" onchange="onOzonFbsPvzFilterChange()">
+                          <option value="">Все категории</option>
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+                <div class="wb-fbs-pvz-toolbar-right">
+                  <select id="ozonFbsPvzSourceFilter" class="wb-fbs-pvz-source"
+                          title="Источник" aria-label="Источник"
+                          onchange="onOzonFbsPvzFilterChange()">
+                    <option value="0">Все источники</option>
+                  </select>
+                  <input id="ozonFbsPvzSearchFilter" class="wb-fbs-kiz-search wb-fbs-pvz-search" type="search"
+                         placeholder="🔍 Отправление, ШК, название…" autocomplete="off"
+                         title="Поиск по отправлению, стикеру, штрихкоду и названию товара"
+                         oninput="onOzonFbsPvzSearchInput()" />
+                  <div class="supplies-date-wrap wb-fbs-returns-date-wrap wb-fbs-pvz-date-wrap">
+                    <button id="ozonFbsPvzDateBtn" type="button"
+                            class="secondary wb-fbs-returns-date-btn wb-fbs-pvz-date-btn"
+                            onclick="toggleOzonFbsPvzDatePanel()" title="Дата получения"
+                            aria-label="Дата получения">📅</button>
+                    <input type="hidden" id="ozonFbsPvzDateFrom" />
+                    <input type="hidden" id="ozonFbsPvzDateTo" />
+                    <div id="ozonFbsPvzDatePanel" class="supplies-date-panel" style="display:none">
+                      <div id="ozonFbsPvzCalendar"></div>
+                    </div>
+                  </div>
+                  <span id="ozonFbsPvzCount" class="wb-fbs-pvz-count">В таблице: 0</span>
+                </div>
+              </div>
+              <div id="ozonFbsPvzInfo" class="wb-fbs-pvz-info" hidden></div>
+            </div>
+            <div class="wb-fbs-sd-table-wrap">
+              <table class="wb-fbs-sd-table" id="ozonFbsPvzTable">
+                <colgroup id="ozonFbsPvzColgroup">
+                  <col data-col="0" class="wb-fbs-pvz-col-issued" style="width:22%" />
+                  <col data-col="1" class="wb-fbs-pvz-col-product" style="width:58%" />
+                  <col data-col="2" class="wb-fbs-pvz-col-qty" style="width:20%" />
+                  <col data-fixed="1" class="wb-fbs-pvz-col-act" style="width:48px" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th data-col="0">Выдан<span class="col-resize-handle"></span></th>
+                    <th data-col="1">Товар<span class="col-resize-handle"></span></th>
+                    <th data-col="2" class="wb-fbs-pvz-num">Кол-во<span class="col-resize-handle"></span></th>
+                    <th class="wb-fbs-sd-col-act"></th>
+                  </tr>
+                </thead>
+                <tbody id="ozonFbsPvzTbody">
+                  <tr><td colspan="4" class="wb-fbs-empty">Загрузка…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="ozonFbsPvzSettingsModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="ozonFbsPvzSettingsTitle"
+             onclick="if(event.target===this)closeOzonFbsPvzSettings()">
+          <div class="modal-card wb-fbs-pvz-settings-modal">
+            <div class="wb-fbs-sd-title-row">
+              <h3 id="ozonFbsPvzSettingsTitle" class="wb-fbs-sd-title">Источники</h3>
+              <button type="button" class="icon-btn secondary wb-fbs-sd-close" onclick="closeOzonFbsPvzSettings()" aria-label="Закрыть">✕</button>
+            </div>
+            <p class="wb-fbs-pvz-settings-lead">Отметьте кабинеты Ozon FBS. Синхронизация запросит возвраты только по ним.</p>
+            <div id="ozonFbsPvzSettingsList" class="wb-fbs-pvz-settings-list"></div>
+            <div id="ozonFbsPvzSettingsInfo" class="wb-fbs-pvz-info" hidden></div>
+            <div class="wb-fbs-pvz-settings-actions">
+              <button type="button" class="secondary" onclick="closeOzonFbsPvzSettings()">Отмена</button>
+              <button type="button" id="ozonFbsPvzSettingsSaveBtn" onclick="saveOzonFbsPvzSettings()">Сохранить</button>
+            </div>
+          </div>
+        </div>
+
         <!-- Проверка ШК (товары без КИЗ) — отдельное окно, не Маркировка -->
         <div id="wbFbsPickVerifyModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
              aria-labelledby="wbFbsPickVerifyTitle">
@@ -2999,6 +3112,10 @@
                       aria-label="Настройки синхронизации Ozon FBS">⚙</button>
               <button type="button" id="ozonFbsKizCirculationBtn" class="secondary ozon-fbs-stub-btn" disabled title="Скоро">Вывод КИЗ</button>
               <button type="button" id="ozonFbsKizRestoreBtn" class="secondary ozon-fbs-stub-btn" disabled title="Скоро" hidden>Возвраты</button>
+              <button type="button" id="ozonFbsPvzReturnsBtn" class="secondary"
+                      onclick="openOzonFbsPvzReturnsModal()" title="Возвраты, полученные продавцом (ПВЗ)">
+                Возвраты ПВЗ
+              </button>
               <button type="button" id="ozonFbsTsdBtn" class="secondary"
                       onclick="window.location.href='/wb-fbs/tsd'" title="ТСД — сборка на складе"
                       hidden>
@@ -8635,5 +8752,6 @@
   <script src="/static/ozon_fbs_container_bind.js?v=38"></script>
   <script src="/static/app.js?v=713"></script>
   <script src="/static/wb_fbs_pvz_returns.js?v=19"></script>
+  <script src="/static/ozon_fbs_pvz_returns.js?v=1"></script>
 </body>
 </html>

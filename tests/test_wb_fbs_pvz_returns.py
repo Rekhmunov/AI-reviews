@@ -409,7 +409,7 @@ class PvzUiContractTests(unittest.TestCase):
         self.assertIn("Возвраты ПВЗ", pvz_btn)
         self.assertLess(html.index('id="wbFbsKizRestoreBtn"'), html.index('id="wbFbsPvzReturnsBtn"'))
         self.assertIn('src="/static/wb_fbs_pvz_returns.js?v=19"', html)
-        self.assertIn('href="/static/style.css?v=436"', html)
+        self.assertIn('href="/static/style.css?v=437"', html)
         self.assertIn('id="wbFbsPvzCategoryFilter"', html)
         self.assertIn('id="wbFbsPvzPrintBtn"', html)
         self.assertIn('id="wbFbsPvzFilterBtn"', html)

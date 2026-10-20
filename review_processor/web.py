@@ -14089,6 +14089,99 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             out.append({"id": s["id"], "name": s.get("name") or f"Источник {sid}"})
         return out
 
+    def _ozon_fbs_pvz_owner(request: Request) -> int:
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        return _supply_owner_id(user)
+
+    @app.get("/api/ozon-fbs/pvz-returns/settings")
+    def ozon_fbs_pvz_returns_settings_get(request: Request) -> dict[str, object]:
+        from . import ozon_fbs_pvz_returns as pvz_mod
+
+        owner_id = _ozon_fbs_pvz_owner(request)
+        return pvz_mod.settings_view(repository, user_id=owner_id)
+
+    @app.post("/api/ozon-fbs/pvz-returns/settings")
+    async def ozon_fbs_pvz_returns_settings_save(request: Request) -> dict[str, object]:
+        from . import ozon_fbs_pvz_returns as pvz_mod
+
+        user = _require_user(request)
+        if not _can_view_ozon_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        if not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Источники возвратов ПВЗ доступны только главному пользователю",
+            )
+        owner_id = _supply_owner_id(user)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        source_ids = body.get("source_ids")
+        if not isinstance(source_ids, list):
+            raise HTTPException(status_code=400, detail="Укажите source_ids")
+        return pvz_mod.save_settings_view(
+            repository, user_id=owner_id, source_ids=source_ids
+        )
+
+    @app.post("/api/ozon-fbs/pvz-returns/sync")
+    async def ozon_fbs_pvz_returns_sync(request: Request) -> dict[str, object]:
+        from . import ozon_fbs_pvz_returns as pvz_mod
+
+        owner_id = _ozon_fbs_pvz_owner(request)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        try:
+            return pvz_mod.start_pvz_sync(
+                repository,
+                user_id=owner_id,
+                date_from=str(body.get("date_from") or ""),
+                date_to=str(body.get("date_to") or ""),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/ozon-fbs/pvz-returns/sync/status")
+    def ozon_fbs_pvz_returns_sync_status(request: Request) -> dict[str, object]:
+        from . import ozon_fbs_pvz_returns as pvz_mod
+
+        owner_id = _ozon_fbs_pvz_owner(request)
+        job = pvz_mod.get_pvz_sync_job(user_id=owner_id)
+        if not job:
+            return {"ok": True, "status": "idle", "message": ""}
+        return {"ok": True, **job}
+
+    @app.get("/api/ozon-fbs/pvz-returns")
+    def ozon_fbs_pvz_returns_list(
+        request: Request,
+        date_from: str = "",
+        date_to: str = "",
+        source_id: int = 0,
+        category: str = "",
+    ) -> dict[str, object]:
+        from . import ozon_fbs_pvz_returns as pvz_mod
+
+        owner_id = _ozon_fbs_pvz_owner(request)
+        try:
+            return pvz_mod.list_for_view(
+                repository,
+                user_id=owner_id,
+                date_from=date_from,
+                date_to=date_to,
+                source_id=source_id,
+                category=category,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.get("/api/ozon-fbs/postings")
     def list_ozon_fbs_postings(
         request: Request,
