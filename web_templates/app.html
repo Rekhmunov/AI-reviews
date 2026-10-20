@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=434" />
+  <link rel="stylesheet" href="/static/style.css?v=435" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2711,16 +2711,9 @@
                   <button type="button" id="wbFbsPvzSyncBtn" onclick="syncWbFbsPvzReturns()">Синхронизировать</button>
                   <button type="button" id="wbFbsPvzSettingsBtn" class="secondary icon-btn"
                           onclick="openWbFbsPvzSettings()" title="Источники" aria-label="Источники">⚙</button>
-                  <div class="wb-fbs-pvz-print-wrap">
-                    <button type="button" id="wbFbsPvzPrintBtn" class="secondary icon-btn"
-                            onclick="toggleWbFbsPvzPrintMenu(event)" title="Печать"
-                            aria-label="Печать" aria-haspopup="menu" aria-expanded="false"
-                            aria-controls="wbFbsPvzPrintMenu">⎙</button>
-                    <div id="wbFbsPvzPrintMenu" class="wb-fbs-picking-menu wb-fbs-pvz-print-menu" role="menu" hidden>
-                      <button type="button" class="wb-fbs-picking-menu-item" role="menuitem"
-                              onclick="printWbFbsPvzList('merged')">Объединённый (как лист подбора)</button>
-                    </div>
-                  </div>
+                  <button type="button" id="wbFbsPvzPrintBtn" class="secondary icon-btn"
+                          onclick="printWbFbsPvzList('merged')" title="Печать объединённого списка"
+                          aria-label="Печать объединённого списка">⎙</button>
                   <div class="wb-fbs-pvz-filter-wrap">
                     <button type="button" id="wbFbsPvzFilterBtn" class="secondary icon-btn wb-fbs-pvz-filter-btn"
                             onclick="toggleWbFbsPvzFilterPanel(event)" title="Фильтры"
@@ -2750,14 +2743,6 @@
                       </label>
                     </div>
                   </div>
-                  <button type="button" id="wbFbsPvzQrBtn" class="secondary icon-btn"
-                          onclick="printWbFbsPvzReturnQrs()" title="Печать QR возвратов 58×40"
-                          aria-label="Печать QR возвратов">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                      <path d="M4 4h7v7H4V4Zm9 0h7v7h-7V4ZM4 13h7v7H4v-7Zm9 3h3v3h-3v-3Zm4-3h3v3h-3v-3Zm-4 0h3v3h-3v-3Zm4 4h3v3h-3v-3Z"
-                            stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
-                    </svg>
-                  </button>
                 </div>
                 <div class="wb-fbs-pvz-toolbar-right">
                   <input id="wbFbsPvzSearchFilter" class="wb-fbs-kiz-search wb-fbs-pvz-search" type="search"
@@ -8648,6 +8633,6 @@
   <script src="/static/ozon_fbs.js?v=220"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=38"></script>
   <script src="/static/app.js?v=713"></script>
-  <script src="/static/wb_fbs_pvz_returns.js?v=15"></script>
+  <script src="/static/wb_fbs_pvz_returns.js?v=16"></script>
 </body>
 </html>

@@ -251,9 +251,7 @@ function toggleWbFbsPvzFilterPanel(show) {
   const btn = document.getElementById("wbFbsPvzFilterBtn");
   if (!panel || !btn || wbFbsPvzState.syncing) return;
   const willOpen = show === undefined ? panel.hidden : Boolean(show);
-  if (willOpen) {
-    toggleWbFbsPvzPrintMenu(false);
-  } else {
+  if (!willOpen) {
     toggleWbFbsPvzDatePanel(false);
   }
   panel.hidden = !willOpen;
@@ -662,14 +660,12 @@ function _wbFbsPvzSetSyncing(on, label) {
   if (on) {
     toggleWbFbsPvzFilterPanel(false);
     toggleWbFbsPvzDatePanel(false);
-    toggleWbFbsPvzPrintMenu(false);
   }
   wbFbsPvzState.syncing = !!on;
   const btn = document.getElementById("wbFbsPvzSyncBtn");
   const gear = document.getElementById("wbFbsPvzSettingsBtn");
   const printBtn = document.getElementById("wbFbsPvzPrintBtn");
   const filterBtn = document.getElementById("wbFbsPvzFilterBtn");
-  const qrBtn = document.getElementById("wbFbsPvzQrBtn");
   const dateBtn = document.getElementById("wbFbsPvzDateBtn");
   const search = document.getElementById("wbFbsPvzSearchFilter");
   const source = document.getElementById("wbFbsPvzSourceFilter");
@@ -682,7 +678,6 @@ function _wbFbsPvzSetSyncing(on, label) {
   if (gear) gear.disabled = !!on;
   if (printBtn) printBtn.disabled = !!on;
   if (filterBtn) filterBtn.disabled = !!on;
-  if (qrBtn) qrBtn.disabled = !!on;
   if (dateBtn) dateBtn.disabled = !!on;
   if (search) search.disabled = !!on;
   if (source) source.disabled = !!on;
@@ -886,24 +881,9 @@ function closeWbFbsPvzReturnsModal() {
   if (typeof _wbFbsCloseRowMenus === "function") _wbFbsCloseRowMenus();
   toggleWbFbsPvzFilterPanel(false);
   toggleWbFbsPvzDatePanel(false);
-  toggleWbFbsPvzPrintMenu(false);
   document.getElementById("wbFbsPvzReturnsModal")?.classList.add("hidden");
 }
 window.closeWbFbsPvzReturnsModal = closeWbFbsPvzReturnsModal;
-
-function toggleWbFbsPvzPrintMenu(show) {
-  const menu = document.getElementById("wbFbsPvzPrintMenu");
-  const btn = document.getElementById("wbFbsPvzPrintBtn");
-  if (!menu || !btn || wbFbsPvzState.syncing) return;
-  const willOpen = show === undefined ? menu.hidden : Boolean(show);
-  if (willOpen) {
-    toggleWbFbsPvzDatePanel(false);
-    toggleWbFbsPvzFilterPanel(false);
-  }
-  menu.hidden = !willOpen;
-  btn.setAttribute("aria-expanded", willOpen ? "true" : "false");
-}
-window.toggleWbFbsPvzPrintMenu = toggleWbFbsPvzPrintMenu;
 
 function _wbFbsPvzMergeItems(items) {
   const merged = new Map();
@@ -991,9 +971,9 @@ function _wbFbsPvzPrintHtml(rows, title, mode) {
     th.qty, td.qty { width: 15%; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
     th.defect, td.defect { width: 15%; text-align: left; }
     td.defect { min-height: 24px; }
-    th, td { padding: 8px 10px; border-bottom: 1px solid #cbd5e1; }
-    table { border: 1px solid #cbd5e1; }
-    th { background: #f8fafc; border-bottom: 1px solid #cbd5e1; }
+    th, td { padding: 8px 10px; border: 1px solid #cbd5e1; }
+    table { border: 1px solid #cbd5e1; border-collapse: collapse; }
+    th { background: #f8fafc; }
     `
     : `
     th.qty, td.qty { text-align: right; white-space: nowrap; width: 72px; font-variant-numeric: tabular-nums; }
@@ -1030,14 +1010,16 @@ function _wbFbsPvzPrintHtml(rows, title, mode) {
 }
 
 function printWbFbsPvzList(mode) {
-  toggleWbFbsPvzPrintMenu(false);
+  if (wbFbsPvzState.syncing) return;
+  toggleWbFbsPvzFilterPanel(false);
+  toggleWbFbsPvzDatePanel(false);
   if (typeof _wbFbsCloseRowMenus === "function") _wbFbsCloseRowMenus();
   const items = _wbFbsPvzVisibleItems();
   if (!items.length) {
     _wbFbsPvzSetInfo("Нет строк для печати. Синхронизируйте или смените фильтр.", "warn");
     return;
   }
-  // Menu only offers the merged pick-list layout; keep full mode for API/compat.
+  // Print button opens merged pick-list; keep full mode for API/compat.
   const merged = String(mode || "") !== "full";
   const rows = merged
     ? _wbFbsPvzMergeItems(items)
@@ -1055,169 +1037,6 @@ function printWbFbsPvzList(mode) {
   win.document.close();
 }
 window.printWbFbsPvzList = printWbFbsPvzList;
-
-function _wbFbsPvzQrMakeDataUrl(text) {
-  if (typeof _wbFbsMakeQrDataUrl === "function") {
-    return _wbFbsMakeQrDataUrl(text, 512);
-  }
-  return Promise.reject(new Error("Библиотека QR ещё загружается. Попробуйте снова."));
-}
-
-function _wbFbsPvzReturnQrLabels(items) {
-  const favicon = (typeof _fpPrintFaviconLink === "string" && _fpPrintFaviconLink)
-    ? _fpPrintFaviconLink
-    : "";
-  const sheets = (items || []).map((item) => {
-    const sticker = _wbFbsPvzEsc(item.sticker_id);
-    const source = _wbFbsPvzEsc(item.source_name || item.source_id || "");
-    const product = _wbFbsPvzEsc(String(item.product_name || item.article || "").trim());
-    const qr = String(item.qr_data_url || "");
-    return `<section class="sheet">
-  <div class="rail"><div class="rail-inner">${sticker}</div></div>
-  <div class="qr-wrap"><img class="qr" alt="QR ${sticker}" src="${qr}" /></div>
-  <div class="rail"><div class="rail-inner">${source || "возврат"}</div></div>
-  ${product ? `<div class="caption">${product}</div>` : ""}
-</section>`;
-  }).join("\n");
-  return `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8">
-<title>QR возвратов ПВЗ</title>
-${favicon}
-<style>
-@page { size: 58mm 40mm; margin: 0; }
-* { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { margin: 0; padding: 0; background: #fff; color: #000;
-  font-family: Arial, Helvetica, sans-serif; }
-.toolbar { padding: 8px 12px; }
-.toolbar button {
-  font: 14px/1.2 Arial, Helvetica, sans-serif; padding: 6px 12px; cursor: pointer;
-}
-.toolbar span { margin-left: 8px; color: #64748b; font-size: 13px; }
-.sheet {
-  position: relative;
-  width: 58mm; height: 40mm; overflow: hidden;
-  display: grid;
-  grid-template-columns: 11mm 1fr 11mm;
-  align-items: center;
-  column-gap: 1.5mm;
-  padding: 2mm 1.5mm;
-  page-break-after: always;
-}
-.sheet:last-child { page-break-after: auto; }
-.rail {
-  height: 36mm; width: 11mm;
-  display: flex; align-items: center; justify-content: center;
-  overflow: hidden;
-}
-.rail-inner {
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  transform: rotate(-90deg);
-  white-space: nowrap;
-  font-weight: 700; font-size: 3mm; line-height: 1.1;
-  letter-spacing: 0.02em; text-align: center;
-  max-width: 34mm;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.qr-wrap {
-  height: 30mm;
-  display: flex; align-items: center; justify-content: center;
-}
-.qr {
-  width: 26mm; height: 26mm;
-  object-fit: contain;
-  display: block;
-}
-.caption {
-  position: absolute;
-  left: 12mm; right: 12mm; bottom: 1.2mm;
-  font-size: 2.2mm; line-height: 1.15; font-weight: 600;
-  text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-@media print {
-  .toolbar { display: none !important; }
-  html, body { width: 58mm; background: #fff; }
-}
-</style></head><body>
-<div class="toolbar">
-  <button type="button" onclick="window.print()">Печать</button>
-  <span>QR возвратов · ${(items || []).length} шт. · 58×40 мм</span>
-</div>
-${sheets}
-<script>window.addEventListener("load", function () { window.focus(); window.print(); });</script>
-</body></html>`;
-}
-
-async function printWbFbsPvzReturnQrs() {
-  if (wbFbsPvzState.syncing) return;
-  toggleWbFbsPvzPrintMenu(false);
-  toggleWbFbsPvzFilterPanel(false);
-  toggleWbFbsPvzDatePanel(false);
-  if (typeof _wbFbsCloseRowMenus === "function") _wbFbsCloseRowMenus();
-
-  const selected = _wbFbsPvzSelectedSources();
-  if (!selected.length) {
-    alert("Выберите источники в настройках");
-    openWbFbsPvzSettings();
-    return;
-  }
-  const selectedIds = new Set(selected.map((s) => Number(s.id || 0)).filter((id) => id > 0));
-  const seen = new Set();
-  const candidates = [];
-  (wbFbsPvzState.items || []).forEach((item) => {
-    const sourceId = Number(item?.source_id || 0);
-    const sticker = String(item?.sticker_id || "").trim();
-    if (!sticker || !selectedIds.has(sourceId) || seen.has(sticker)) return;
-    seen.add(sticker);
-    candidates.push({
-      sticker_id: sticker,
-      source_id: sourceId,
-      source_name: String(item.source_name || "").trim(),
-      product_name: String(item.product_name || item.article || "").trim(),
-      article: String(item.article || "").trim(),
-    });
-  });
-  if (!candidates.length) {
-    _wbFbsPvzSetInfo(
-      "Нет stickerId для печати QR. Синхронизируйте возвраты за выбранные даты.",
-      "warn",
-    );
-    return;
-  }
-
-  const qrBtn = document.getElementById("wbFbsPvzQrBtn");
-  if (qrBtn) {
-    qrBtn.disabled = true;
-    qrBtn.setAttribute("aria-busy", "true");
-  }
-  _wbFbsPvzSetInfo(`Готовим QR: ${candidates.length}…`);
-  try {
-    const withQr = [];
-    for (let i = 0; i < candidates.length; i += 1) {
-      const row = candidates[i];
-      const qr_data_url = await _wbFbsPvzQrMakeDataUrl(row.sticker_id);
-      withQr.push({ ...row, qr_data_url });
-      if (qrBtn && (i + 1) % 5 === 0) {
-        _wbFbsPvzSetInfo(`Готовим QR: ${i + 1}/${candidates.length}…`);
-      }
-    }
-    const win = window.open("", "_blank");
-    if (!win) {
-      _wbFbsPvzSetInfo("Разрешите всплывающие окна для печати", "warn");
-      return;
-    }
-    win.document.write(_wbFbsPvzReturnQrLabels(withQr));
-    win.document.close();
-    _wbFbsPvzSetInfo("");
-  } catch (err) {
-    _wbFbsPvzSetInfo(err?.message || String(err), "error");
-  } finally {
-    if (qrBtn) {
-      qrBtn.disabled = !!wbFbsPvzState.syncing;
-      qrBtn.setAttribute("aria-busy", "false");
-    }
-  }
-}
-window.printWbFbsPvzReturnQrs = printWbFbsPvzReturnQrs;
 
 function printWbFbsPvzBarcode(index) {
   if (typeof _wbFbsCloseRowMenus === "function") _wbFbsCloseRowMenus();
@@ -1294,22 +1113,12 @@ document.addEventListener("keydown", (event) => {
     toggleWbFbsPvzFilterPanel(false);
     return;
   }
-  const printMenu = document.getElementById("wbFbsPvzPrintMenu");
-  if (printMenu && !printMenu.hidden) {
-    toggleWbFbsPvzPrintMenu(false);
-    return;
-  }
   const modal = document.getElementById("wbFbsPvzReturnsModal");
   if (modal && !modal.classList.contains("hidden")) closeWbFbsPvzReturnsModal();
 });
 
 document.addEventListener("click", (event) => {
   const target = event.target;
-  const printWrap = document.querySelector("#wbFbsPvzReturnsModal .wb-fbs-pvz-print-wrap");
-  const printMenu = document.getElementById("wbFbsPvzPrintMenu");
-  if (printWrap && printMenu && !printMenu.hidden && !printWrap.contains(target)) {
-    toggleWbFbsPvzPrintMenu(false);
-  }
   const filterWrap = document.querySelector("#wbFbsPvzReturnsModal .wb-fbs-pvz-filter-wrap");
   const filterPanel = document.getElementById("wbFbsPvzFilterPanel");
   if (filterWrap && filterPanel && !filterPanel.hidden && !filterWrap.contains(target)) {
