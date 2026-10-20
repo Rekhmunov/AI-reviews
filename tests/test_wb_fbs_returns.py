@@ -24,6 +24,28 @@ def _fake_wb_jwt(*, uid: int = 1, scopes: int = wb.WB_SCOPE_ANALYTICS | wb.WB_SC
     return f"{header}.{payload}.sig"
 
 
+class WbJwtScopeBitmaskTests(unittest.TestCase):
+    """WB docs «Bit position N» is bit index N (value 2**N), not 2**(N-1)."""
+
+    def test_analytics_bit_matches_live_goods_return_token(self):
+        # Live cabinet: BuyersReturns+ReadOnly alone → 403; +Analytics → 200.
+        buyers_only = 1073743872  # bits 11, 30
+        with_analytics = 1073743876  # bits 2, 11, 30
+        self.assertEqual(wb.WB_SCOPE_ANALYTICS, 1 << 2)
+        self.assertEqual(wb.WB_SCOPE_BUYERS_RETURNS, 1 << 11)
+        self.assertFalse(wb.wb_token_has_scope(_fake_wb_jwt(scopes=buyers_only), wb.WB_GOODS_RETURN_SCOPES))
+        self.assertTrue(wb.wb_token_has_scope(_fake_wb_jwt(scopes=with_analytics), wb.WB_GOODS_RETURN_SCOPES))
+        labels = wb.wb_token_scope_labels(_fake_wb_jwt(scopes=with_analytics))
+        self.assertIn("Аналитика", labels)
+        self.assertIn("Возвраты покупателей", labels)
+        self.assertNotIn("Цены", labels)
+
+    def test_marketplace_only_is_not_goods_return(self):
+        token = _fake_wb_jwt(scopes=wb.WB_SCOPE_MARKETPLACE)
+        self.assertFalse(wb.wb_token_has_goods_return_scope(token))
+        self.assertEqual(wb.wb_token_scope_labels(token), ["Маркетплейс"])
+
+
 class GoodsReturnWindowTests(unittest.TestCase):
     def test_iter_goods_return_windows_splits_90_days(self):
         windows = returns.iter_goods_return_windows("2026-01-01", "2026-03-31")
