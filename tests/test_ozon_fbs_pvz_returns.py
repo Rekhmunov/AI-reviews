@@ -265,7 +265,7 @@ class OzonPvzUiContractTests(unittest.TestCase):
             html.index('id="ozonFbsPvzReturnsBtn"'),
         )
         self.assertIn('src="/static/ozon_fbs_pvz_returns.js?v=2"', html)
-        self.assertIn('href="/static/style.css?v=437"', html)
+        self.assertIn('href="/static/style.css?v=438"', html)
         self.assertIn('id="ozonFbsPvzReturnsModal"', html)
         self.assertIn('id="ozonFbsPvzQrBtn"', html)
         # Modals must live in Ozon FBS section — not WB FBS (parent .hidden
@@ -316,6 +316,10 @@ class OzonPvzUiContractTests(unittest.TestCase):
         css = (ROOT / "web_static" / "style.css").read_text(encoding="utf-8")
         self.assertIn("/* Ozon FBS — Возвраты ПВЗ */", css)
         self.assertIn("#ozonFbsPvzReturnsModal #ozonFbsPvzQrBtn", css)
+        # QR «Получение возвратов» must stack above «Возвраты ПВЗ».
+        self.assertIn("#ozonReturnsModal.modal-overlay", css)
+        returns_z = css.split("#ozonReturnsModal.modal-overlay", 1)[1].split("}", 1)[0]
+        self.assertIn("z-index: 1500", returns_z)
 
         web_py = (ROOT / "review_processor" / "web.py").read_text(encoding="utf-8")
         self.assertIn("@app.get(\"/api/ozon-fbs/pvz-returns\")", web_py)
