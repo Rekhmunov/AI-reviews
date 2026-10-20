@@ -268,6 +268,18 @@ class OzonPvzUiContractTests(unittest.TestCase):
         self.assertIn('href="/static/style.css?v=437"', html)
         self.assertIn('id="ozonFbsPvzReturnsModal"', html)
         self.assertIn('id="ozonFbsPvzQrBtn"', html)
+        # Modals must live in Ozon FBS section — not WB FBS (parent .hidden
+        # would hide the overlay while on Ozon tab / show it only on WB).
+        ozon_sec = html.split('id="section-supplies-ozon-fbs"', 1)[1].split(
+            "<section ", 1
+        )[0]
+        wb_sec = html.split('id="section-supplies-wb-fbs"', 1)[1].split(
+            "<section ", 1
+        )[0]
+        self.assertIn('id="ozonFbsPvzReturnsModal"', ozon_sec)
+        self.assertIn('id="ozonFbsPvzSettingsModal"', ozon_sec)
+        self.assertNotIn('id="ozonFbsPvzReturnsModal"', wb_sec)
+        self.assertNotIn('id="ozonFbsPvzSettingsModal"', wb_sec)
         self.assertIn("openOzonFbsPvzGiveout()", html)
         self.assertIn("printOzonFbsPvzList('merged')", html)
         toolbar = html.split('id="ozonFbsPvzReturnsModal"', 1)[1].split(
