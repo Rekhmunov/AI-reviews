@@ -119,7 +119,9 @@ class PvzAssembleTests(unittest.TestCase):
             },
         ]
         orders = {
-            (1, 20): {
+            20: {
+                "source_id": 1,
+                "order_id": 20,
                 "article": "nambambbort180200begbort",
                 "nm_id": 3,
                 "skus_json": "[]",
@@ -127,7 +129,9 @@ class PvzAssembleTests(unittest.TestCase):
                 "sticker_part_a": "1",
                 "sticker_part_b": "3640",
             },
-            (1, 10): {
+            10: {
+                "source_id": 1,
+                "order_id": 10,
                 "article": "nambambbort160200begbort",
                 "nm_id": 1,
                 "skus_json": "[]",
@@ -168,7 +172,10 @@ class PvzAssembleTests(unittest.TestCase):
         self.assertEqual([item["srid"] for item in items], ["a", "b"])
         self.assertEqual([item["qty"] for item in items], [1, 1])
         self.assertTrue(items[0]["has_kiz"])
+        self.assertTrue(items[0]["order_linked"])
+        self.assertEqual(items[0]["order_source_id"], 1)
         self.assertFalse(items[1]["has_kiz"])
+        self.assertTrue(items[1]["order_linked"])
         self.assertEqual(items[0]["issued_label"], "19.10.2026 09:01")
         self.assertEqual(items[0]["product_photo"], "/api/products/photo/4")
         self.assertEqual(items[0]["product_category"], "Наматрасники")
@@ -217,7 +224,9 @@ class PvzAssembleTests(unittest.TestCase):
             },
         ]
         orders = {
-            (2, 77): {
+            77: {
+                "source_id": 2,
+                "order_id": 77,
                 "article": "art",
                 "nm_id": 1,
                 "skus_json": "[]",
@@ -236,6 +245,90 @@ class PvzAssembleTests(unittest.TestCase):
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["source_id"], 2)
         self.assertEqual(items[0]["order_id"], 77)
+        self.assertTrue(items[0]["order_linked"])
+        self.assertEqual(items[0]["order_source_id"], 2)
+
+    def test_links_order_from_other_cabinet(self):
+        """Return synced under Analytics cabinet 9, FBS order lives in cabinet 3."""
+        rows = [
+            {
+                "id": 1,
+                "source_id": 9,
+                "wb_order_id": 555,
+                "srid": "x",
+                "status": "Выдано",
+                "completed_dt": "2026-10-19T14:53:06",
+                "sticker_id": "55378343632",
+                "shk_id": "",
+                "barcode": "",
+                "nm_id": 1,
+            },
+        ]
+        orders = {
+            555: {
+                "source_id": 3,
+                "order_id": 555,
+                "article": "art-x",
+                "nm_id": 1,
+                "skus_json": "[]",
+                "kiz_codes_json": '["010460000000000099"]',
+                "sticker_part_a": "5537834",
+                "sticker_part_b": "3632",
+            }
+        }
+        items = pvz.assemble_pvz_items(
+            rows,
+            orders=orders,
+            products=[],
+            date_from=date(2026, 10, 19),
+            date_to=date(2026, 10, 19),
+        )
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["source_id"], 9)
+        self.assertEqual(items[0]["order_id"], 555)
+        self.assertTrue(items[0]["order_linked"])
+        self.assertEqual(items[0]["order_source_id"], 3)
+        self.assertTrue(items[0]["has_kiz"])
+        self.assertEqual(items[0]["sticker_part_b"], "3632")
+
+    def test_load_orders_prefers_return_source_then_any_cabinet(self):
+        repo = MagicMock()
+        conn = MagicMock()
+        repo._connect.return_value.__enter__.return_value = conn
+        repo._connect.return_value.__exit__.return_value = None
+        repo._sql.side_effect = lambda s: s
+        repo._row_to_dict.side_effect = lambda row: dict(row)
+        # Two cabinets have the same order id — prefer the return's source (7).
+        conn.execute.return_value.fetchall.return_value = [
+            {
+                "source_id": 3,
+                "order_id": 100,
+                "article": "a",
+                "nm_id": 1,
+                "skus_json": "[]",
+                "kiz_codes_json": "[]",
+                "sticker_part_a": "",
+                "sticker_part_b": "",
+            },
+            {
+                "source_id": 7,
+                "order_id": 100,
+                "article": "a",
+                "nm_id": 1,
+                "skus_json": "[]",
+                "kiz_codes_json": '["kiz"]',
+                "sticker_part_a": "",
+                "sticker_part_b": "",
+            },
+        ]
+        found = pvz._load_orders(
+            repo,
+            user_id=1,
+            rows=[{"wb_order_id": 100, "source_id": 7}],
+        )
+        self.assertEqual(set(found.keys()), {100})
+        self.assertEqual(found[100]["source_id"], 7)
+        self.assertIn("kiz", found[100]["kiz_codes_json"])
 
 
 class PvzSyncTests(unittest.TestCase):
@@ -315,17 +408,22 @@ class PvzUiContractTests(unittest.TestCase):
         self.assertNotIn("hidden", pvz_btn)
         self.assertIn("Возвраты ПВЗ", pvz_btn)
         self.assertLess(html.index('id="wbFbsKizRestoreBtn"'), html.index('id="wbFbsPvzReturnsBtn"'))
-        self.assertIn('src="/static/wb_fbs_pvz_returns.js?v=7"', html)
-        self.assertIn('href="/static/style.css?v=429"', html)
+        self.assertIn('src="/static/wb_fbs_pvz_returns.js?v=9"', html)
+        self.assertIn('href="/static/style.css?v=430"', html)
         self.assertIn('id="wbFbsPvzCategoryFilter"', html)
         self.assertIn('id="wbFbsPvzPrintBtn"', html)
+        self.assertIn('id="wbFbsPvzSearchFilter"', html)
         self.assertIn("Весь список", html)
         self.assertIn("Объединённый (как лист подбора)", html)
         toolbar = html.split('class="wb-fbs-pvz-toolbar"', 1)[1]
         self.assertLess(toolbar.index("wbFbsPvzSyncBtn"), toolbar.index("wbFbsPvzSettingsBtn"))
         self.assertLess(toolbar.index("wbFbsPvzSettingsBtn"), toolbar.index("wbFbsPvzPrintBtn"))
-        self.assertLess(toolbar.index("wbFbsPvzPrintBtn"), toolbar.index("wbFbsPvzCategoryFilter"))
+        self.assertLess(toolbar.index("wbFbsPvzPrintBtn"), toolbar.index("wbFbsPvzSearchFilter"))
+        self.assertLess(toolbar.index("wbFbsPvzSearchFilter"), toolbar.index("wbFbsPvzCategoryFilter"))
         self.assertLess(toolbar.index("wbFbsPvzCategoryFilter"), toolbar.index("wbFbsPvzDateBtn"))
+        date_btn = html.split('id="wbFbsPvzDateBtn"', 1)[1].split("</button>", 1)[0]
+        self.assertIn("wb-fbs-returns-date-btn", date_btn)
+        self.assertIn("📅", date_btn)
         table_head = html.split('id="wbFbsPvzTable"', 1)[1].split("</thead>", 1)[0]
         self.assertLess(table_head.index(">Выдан<"), table_head.index(">Товар<"))
         self.assertLess(table_head.index(">Товар<"), table_head.index("Кол-во"))
@@ -340,15 +438,26 @@ class PvzUiContractTests(unittest.TestCase):
         self.assertNotIn("Нет источников WB FBS.", pvz_js)
         self.assertIn("Распечатать ШК", pvz_js)
         self.assertIn("Распечатать маркировку", pvz_js)
+        self.assertIn("order_linked", pvz_js)
+        self.assertIn("order_source_id", pvz_js)
+        self.assertIn("Заказ не найден в базе FBS", pvz_js)
         self.assertIn("В таблице:", pvz_js)
         self.assertIn("Нет выданных возвратов за этот период", pvz_js)
         self.assertIn("_wbFbsPvzSetIssueDates", pvz_js)
         self.assertIn("printWbFbsPvzList", pvz_js)
         self.assertIn("_wbFbsPvzMergeItems", pvz_js)
+        self.assertIn("_wbFbsPvzStickerHtml", pvz_js)
+        self.assertIn("_wbFbsPvzVisibleItems", pvz_js)
+        self.assertIn("onWbFbsPvzSearchInput", pvz_js)
         self.assertIn('width="144" height="144"', pvz_js)
         row_html = pvz_js.split("return `<tr>", 1)[1].split("`;", 1)[0]
         self.assertLess(row_html.index("wb-fbs-pvz-issued"), row_html.index("wb-fbs-sd-td-product"))
         self.assertLess(row_html.index("wb-fbs-sd-td-product"), row_html.index("wb-fbs-pvz-num"))
+        self.assertIn("wb-fbs-sd-sticker", row_html)
+        self.assertIn("${stickerHtml}", row_html)
+        self.assertIn("const stickerHtml = _wbFbsPvzStickerHtml(item)", pvz_js)
+        date_btn_fn = pvz_js.split("function _wbFbsPvzUpdateDateBtn", 1)[1].split("function ", 1)[0]
+        self.assertIn("📅 ${range}", date_btn_fn)
         css = (ROOT / "web_static" / "style.css").read_text(encoding="utf-8")
         pvz_css = css.split("/* WB FBS — Возвраты ПВЗ */", 1)[1]
         desktop_photo = pvz_css.split("@media (max-width: 720px)", 1)[0]
@@ -367,6 +476,7 @@ class PvzUiContractTests(unittest.TestCase):
             syncing.index("toggleWbFbsPvzDatePanel(false)"),
             syncing.index("wbFbsPvzState.syncing = !!on"),
         )
+        self.assertIn("wbFbsPvzSearchFilter", syncing)
 
     def test_settings_lists_all_wb_sources_not_only_fbs(self):
         repo = MagicMock()
