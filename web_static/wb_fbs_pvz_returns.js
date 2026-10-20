@@ -117,21 +117,60 @@ function _wbFbsPvzSetIssueDates(fromIso, toIso) {
 function _wbFbsPvzUpdateDateBtn() {
   const btn = document.getElementById("wbFbsPvzDateBtn");
   if (!btn) return;
+  // Icon only — selected range lives in the tooltip.
+  btn.textContent = "📅";
   const start = _wbFbsPvzCal.startDate;
   const end = _wbFbsPvzCal.endDate;
   if (!start || !end) {
-    btn.textContent = "📅";
     btn.title = "Дата выдачи";
+    btn.setAttribute("aria-label", "Дата выдачи");
     return;
   }
-  const fmt = (d) => d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
+  const fmt = (d) => d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
   const range = start.getTime() === end.getTime()
     ? fmt(start)
     : `${fmt(start)}–${fmt(end)}`;
-  // Keep the calendar icon like other WB FBS date filters.
-  btn.textContent = `📅 ${range}`;
   btn.title = `Дата выдачи: ${range}`;
+  btn.setAttribute("aria-label", `Дата выдачи: ${range}`);
 }
+
+function _wbFbsPvzFiltersAreActive() {
+  const search = String(document.getElementById("wbFbsPvzSearchFilter")?.value || "").trim();
+  const source = String(document.getElementById("wbFbsPvzSourceFilter")?.value || "0");
+  const category = String(document.getElementById("wbFbsPvzCategoryFilter")?.value || "");
+  return Boolean(search || (source && source !== "0") || category);
+}
+
+function _wbFbsPvzSyncFilterBtnState() {
+  const btn = document.getElementById("wbFbsPvzFilterBtn");
+  const panel = document.getElementById("wbFbsPvzFilterPanel");
+  if (!btn) return;
+  const open = !!(panel && !panel.hidden);
+  btn.classList.toggle("is-open", open);
+  btn.classList.toggle("is-active", _wbFbsPvzFiltersAreActive());
+  btn.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+function toggleWbFbsPvzFilterPanel(show) {
+  const panel = document.getElementById("wbFbsPvzFilterPanel");
+  const btn = document.getElementById("wbFbsPvzFilterBtn");
+  if (!panel || !btn || wbFbsPvzState.syncing) return;
+  const willOpen = show === undefined ? panel.hidden : Boolean(show);
+  if (willOpen) {
+    toggleWbFbsPvzPrintMenu(false);
+  } else {
+    toggleWbFbsPvzDatePanel(false);
+  }
+  panel.hidden = !willOpen;
+  _wbFbsPvzSyncFilterBtnState();
+  if (willOpen) {
+    const search = document.getElementById("wbFbsPvzSearchFilter");
+    if (search && typeof search.focus === "function") {
+      setTimeout(() => search.focus(), 0);
+    }
+  }
+}
+window.toggleWbFbsPvzFilterPanel = toggleWbFbsPvzFilterPanel;
 
 function _wbFbsPvzCalRender() {
   const container = document.getElementById("wbFbsPvzCalendar");
@@ -328,12 +367,14 @@ function _wbFbsPvzSelectedSources() {
 
 function onWbFbsPvzFilterChange() {
   if (wbFbsPvzState.syncing) return;
+  _wbFbsPvzSyncFilterBtnState();
   void loadWbFbsPvzReturns();
 }
 window.onWbFbsPvzFilterChange = onWbFbsPvzFilterChange;
 
 function onWbFbsPvzSearchInput() {
   if (wbFbsPvzState.syncing) return;
+  _wbFbsPvzSyncFilterBtnState();
   renderWbFbsPvzTable();
 }
 window.onWbFbsPvzSearchInput = onWbFbsPvzSearchInput;
@@ -511,17 +552,20 @@ async function loadWbFbsPvzReturns() {
       wbFbsPvzState.categories = payload.categories;
       _wbFbsPvzFillCategoryFilter();
     }
+    _wbFbsPvzSyncFilterBtnState();
     renderWbFbsPvzTable();
   } catch (err) {
     wbFbsPvzState.items = [];
+    _wbFbsPvzSyncFilterBtnState();
     renderWbFbsPvzTable();
     _wbFbsPvzSetInfo(err?.message || String(err), "error");
   }
 }
 
 function _wbFbsPvzSetSyncing(on, label) {
-  // Close the calendar before the syncing flag: the toggle ignores calls while syncing.
+  // Close panels before the syncing flag: toggles ignore calls while syncing.
   if (on) {
+    toggleWbFbsPvzFilterPanel(false);
     toggleWbFbsPvzDatePanel(false);
     toggleWbFbsPvzPrintMenu(false);
   }
@@ -529,6 +573,7 @@ function _wbFbsPvzSetSyncing(on, label) {
   const btn = document.getElementById("wbFbsPvzSyncBtn");
   const gear = document.getElementById("wbFbsPvzSettingsBtn");
   const printBtn = document.getElementById("wbFbsPvzPrintBtn");
+  const filterBtn = document.getElementById("wbFbsPvzFilterBtn");
   const dateBtn = document.getElementById("wbFbsPvzDateBtn");
   const search = document.getElementById("wbFbsPvzSearchFilter");
   const source = document.getElementById("wbFbsPvzSourceFilter");
@@ -540,6 +585,7 @@ function _wbFbsPvzSetSyncing(on, label) {
   }
   if (gear) gear.disabled = !!on;
   if (printBtn) printBtn.disabled = !!on;
+  if (filterBtn) filterBtn.disabled = !!on;
   if (dateBtn) dateBtn.disabled = !!on;
   if (search) search.disabled = !!on;
   if (source) source.disabled = !!on;
@@ -702,7 +748,9 @@ async function openWbFbsPvzReturnsModal() {
   modal.classList.remove("hidden");
   const search = document.getElementById("wbFbsPvzSearchFilter");
   if (search) search.value = "";
+  toggleWbFbsPvzFilterPanel(false);
   _wbFbsPvzEnsureDates();
+  _wbFbsPvzSyncFilterBtnState();
   _wbFbsPvzSetInfo("");
   try {
     await loadWbFbsPvzSettings();
@@ -738,6 +786,7 @@ window.openWbFbsPvzReturnsModal = openWbFbsPvzReturnsModal;
 
 function closeWbFbsPvzReturnsModal() {
   if (typeof _wbFbsCloseRowMenus === "function") _wbFbsCloseRowMenus();
+  toggleWbFbsPvzFilterPanel(false);
   toggleWbFbsPvzDatePanel(false);
   toggleWbFbsPvzPrintMenu(false);
   document.getElementById("wbFbsPvzReturnsModal")?.classList.add("hidden");
@@ -749,7 +798,10 @@ function toggleWbFbsPvzPrintMenu(show) {
   const btn = document.getElementById("wbFbsPvzPrintBtn");
   if (!menu || !btn || wbFbsPvzState.syncing) return;
   const willOpen = show === undefined ? menu.hidden : Boolean(show);
-  if (willOpen) toggleWbFbsPvzDatePanel(false);
+  if (willOpen) {
+    toggleWbFbsPvzDatePanel(false);
+    toggleWbFbsPvzFilterPanel(false);
+  }
   menu.hidden = !willOpen;
   btn.setAttribute("aria-expanded", willOpen ? "true" : "false");
 }
@@ -909,6 +961,16 @@ document.addEventListener("keydown", (event) => {
     closeWbFbsPvzSettings();
     return;
   }
+  const datePanel = document.getElementById("wbFbsPvzDatePanel");
+  if (datePanel && datePanel.style.display === "flex") {
+    toggleWbFbsPvzDatePanel(false);
+    return;
+  }
+  const filterPanel = document.getElementById("wbFbsPvzFilterPanel");
+  if (filterPanel && !filterPanel.hidden) {
+    toggleWbFbsPvzFilterPanel(false);
+    return;
+  }
   const printMenu = document.getElementById("wbFbsPvzPrintMenu");
   if (printMenu && !printMenu.hidden) {
     toggleWbFbsPvzPrintMenu(false);
@@ -919,9 +981,15 @@ document.addEventListener("keydown", (event) => {
 });
 
 document.addEventListener("click", (event) => {
-  const wrap = document.querySelector("#wbFbsPvzReturnsModal .wb-fbs-pvz-print-wrap");
-  const menu = document.getElementById("wbFbsPvzPrintMenu");
-  if (!wrap || !menu || menu.hidden) return;
-  if (wrap.contains(event.target)) return;
-  toggleWbFbsPvzPrintMenu(false);
+  const target = event.target;
+  const printWrap = document.querySelector("#wbFbsPvzReturnsModal .wb-fbs-pvz-print-wrap");
+  const printMenu = document.getElementById("wbFbsPvzPrintMenu");
+  if (printWrap && printMenu && !printMenu.hidden && !printWrap.contains(target)) {
+    toggleWbFbsPvzPrintMenu(false);
+  }
+  const filterWrap = document.querySelector("#wbFbsPvzReturnsModal .wb-fbs-pvz-filter-wrap");
+  const filterPanel = document.getElementById("wbFbsPvzFilterPanel");
+  if (filterWrap && filterPanel && !filterPanel.hidden && !filterWrap.contains(target)) {
+    toggleWbFbsPvzFilterPanel(false);
+  }
 });
