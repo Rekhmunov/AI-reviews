@@ -294,8 +294,11 @@ class PvzUiContractTests(unittest.TestCase):
         self.assertNotIn("hidden", pvz_btn)
         self.assertIn("Возвраты ПВЗ", pvz_btn)
         self.assertLess(html.index('id="wbFbsKizRestoreBtn"'), html.index('id="wbFbsPvzReturnsBtn"'))
-        self.assertIn('src="/static/wb_fbs_pvz_returns.js?v=5"', html)
-        self.assertIn('href="/static/style.css?v=427"', html)
+        self.assertIn('src="/static/wb_fbs_pvz_returns.js?v=6"', html)
+        self.assertIn('href="/static/style.css?v=428"', html)
+        table_head = html.split('id="wbFbsPvzTable"', 1)[1].split("</thead>", 1)[0]
+        self.assertLess(table_head.index(">Выдан<"), table_head.index(">Товар<"))
+        self.assertLess(table_head.index(">Товар<"), table_head.index("Кол-во"))
         self.assertIn("Отметьте кабинеты WB.", html)
         self.assertNotIn("Отметьте кабинеты WB FBS.", html)
         toolbar = html.split('class="wb-fbs-pvz-toolbar"', 1)[1].split("</div>", 1)[0]
@@ -314,6 +317,15 @@ class PvzUiContractTests(unittest.TestCase):
         self.assertIn("В таблице:", pvz_js)
         self.assertIn("Нет выданных возвратов за этот период", pvz_js)
         self.assertIn("_wbFbsPvzSetIssueDates", pvz_js)
+        self.assertIn('width="144" height="144"', pvz_js)
+        row_html = pvz_js.split("return `<tr>", 1)[1].split("`;", 1)[0]
+        self.assertLess(row_html.index("wb-fbs-pvz-issued"), row_html.index("wb-fbs-sd-td-product"))
+        self.assertLess(row_html.index("wb-fbs-sd-td-product"), row_html.index("wb-fbs-pvz-num"))
+        css = (ROOT / "web_static" / "style.css").read_text(encoding="utf-8")
+        pvz_css = css.split("/* WB FBS — Возвраты ПВЗ */", 1)[1]
+        desktop_photo = pvz_css.split("@media (max-width: 720px)", 1)[0]
+        self.assertNotIn("72px", desktop_photo)
+        self.assertIn('#wbFbsPvzReturnsModal .wb-fbs-product-photo', pvz_css.split("@media (max-width: 720px)", 1)[1])
         sync_fn = pvz_js.split("async function syncWbFbsPvzReturns", 1)[1].split(
             "window.syncWbFbsPvzReturns", 1
         )[0]
