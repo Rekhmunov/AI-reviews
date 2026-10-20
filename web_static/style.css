@@ -21106,8 +21106,18 @@ body.ttn-col-resizing {
   text-align: center;
 }
 #wbFbsPvzReturnsModal .wb-fbs-pvz-date-btn {
-  min-width: 96px;
-  padding: 8px 12px;
+  min-width: 40px;
+  height: 40px;
+  padding: 0 10px;
+  white-space: nowrap;
+  font-size: 16px;
+  line-height: 1;
+}
+#wbFbsPvzReturnsModal .wb-fbs-pvz-filters .wb-fbs-kiz-search {
+  width: 220px;
+  min-width: 180px;
+  min-height: 40px;
+  margin: 0;
 }
 #wbFbsPvzReturnsModal button:focus-visible,
 #wbFbsPvzSettingsModal button:focus-visible,
@@ -21158,7 +21168,7 @@ body.ttn-col-resizing {
 #wbFbsPvzSettingsModal .wb-fbs-pvz-info.is-error {
   color: #991b1b;
 }
-#wbFbsPvzReturnsModal .wb-fbs-pvz-col-issued { width: 168px; }
+#wbFbsPvzReturnsModal .wb-fbs-pvz-col-issued { width: 180px; }
 #wbFbsPvzReturnsModal .wb-fbs-pvz-col-qty { width: 88px; }
 #wbFbsPvzReturnsModal .wb-fbs-pvz-col-act { width: 48px; }
 #wbFbsPvzReturnsModal .wb-fbs-pvz-num {
@@ -21177,6 +21187,12 @@ body.ttn-col-resizing {
   font-variant-numeric: tabular-nums;
   color: #0f172a;
   vertical-align: top;
+}
+#wbFbsPvzReturnsModal .wb-fbs-pvz-issued .wb-fbs-sd-sticker {
+  margin-top: 4px;
+}
+#wbFbsPvzReturnsModal .wb-fbs-pvz-issued .wb-fbs-pvz-cell-value {
+  display: block;
 }
 /* Same photo size as WB FBS supply detail (global 144px). */
 #wbFbsPvzSettingsModal.modal-overlay {
@@ -21308,6 +21324,11 @@ body.ttn-col-resizing {
     margin-left: 0;
     width: 100%;
   }
+  #wbFbsPvzReturnsModal .wb-fbs-pvz-filters .wb-fbs-kiz-search {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+  }
   #wbFbsPvzReturnsModal .wb-fbs-returns-date-wrap {
     position: static;
     width: 100%;
@@ -21316,6 +21337,7 @@ body.ttn-col-resizing {
   #wbFbsPvzReturnsModal .wb-fbs-pvz-date-btn {
     width: 100%;
     min-height: 44px;
+    height: 44px;
   }
   #wbFbsPvzReturnsModal .wb-fbs-pvz-source {
     display: flex;

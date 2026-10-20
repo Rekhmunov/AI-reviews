@@ -121,12 +121,16 @@ function _wbFbsPvzUpdateDateBtn() {
   const end = _wbFbsPvzCal.endDate;
   if (!start || !end) {
     btn.textContent = "📅";
+    btn.title = "Дата выдачи";
     return;
   }
   const fmt = (d) => d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
-  btn.textContent = start.getTime() === end.getTime()
+  const range = start.getTime() === end.getTime()
     ? fmt(start)
     : `${fmt(start)}–${fmt(end)}`;
+  // Keep the calendar icon like other WB FBS date filters.
+  btn.textContent = `📅 ${range}`;
+  btn.title = `Дата выдачи: ${range}`;
 }
 
 function _wbFbsPvzCalRender() {
@@ -328,6 +332,66 @@ function onWbFbsPvzFilterChange() {
 }
 window.onWbFbsPvzFilterChange = onWbFbsPvzFilterChange;
 
+function onWbFbsPvzSearchInput() {
+  if (wbFbsPvzState.syncing) return;
+  renderWbFbsPvzTable();
+}
+window.onWbFbsPvzSearchInput = onWbFbsPvzSearchInput;
+
+function _wbFbsPvzRowMatchesSearch(item, query) {
+  const q = String(query || "").trim().toLocaleLowerCase("en-US");
+  if (!q) return true;
+  const barcodes = [
+    ...(Array.isArray(item?.catalog_barcodes) ? item.catalog_barcodes : []),
+    ...(Array.isArray(item?.product_barcodes) ? item.product_barcodes : []),
+  ];
+  const hay = [
+    item?.sticker_id,
+    item?.sticker_part_a,
+    item?.sticker_part_b,
+    item?.product_name,
+    item?.article,
+    item?.nm_id,
+    item?.srid,
+    item?.order_id,
+    ...barcodes,
+  ]
+    .map((x) => String(x || "").trim().toLocaleLowerCase("en-US"))
+    .filter(Boolean);
+  return hay.some((v) => v.includes(q));
+}
+
+function _wbFbsPvzVisibleItems() {
+  const items = Array.isArray(wbFbsPvzState.items) ? wbFbsPvzState.items : [];
+  const q = document.getElementById("wbFbsPvzSearchFilter")?.value || "";
+  if (!String(q || "").trim()) return items;
+  return items.filter((item) => _wbFbsPvzRowMatchesSearch(item, q));
+}
+
+/** Return sticker under the issued date — same last-4 highlight as supply stickers. */
+function _wbFbsPvzStickerHtml(item) {
+  const stickerId = String(item?.sticker_id || "").trim();
+  const partA = String(item?.sticker_part_a || "").trim();
+  const partB = String(item?.sticker_part_b || "").trim();
+  const row = stickerId
+    ? { sticker_number: stickerId }
+    : { sticker_part_a: partA, sticker_part_b: partB };
+  if (typeof _wbFbsKizStickerHtml === "function") {
+    return _wbFbsKizStickerHtml(row);
+  }
+  const full = stickerId || (partA && partB ? `${partA}${partB}` : (partA || partB));
+  if (!full) return `<div class="wb-fbs-kiz-sticker">—</div>`;
+  if (full.length > 4) {
+    const head = full.slice(0, -4);
+    const tail = full.slice(-4);
+    return `<div class="wb-fbs-kiz-sticker">` +
+      `<span class="wb-fbs-kiz-sticker-head">${_wbFbsPvzEsc(head)}</span>` +
+      `<span class="wb-fbs-kiz-sticker-tail">${_wbFbsPvzEsc(tail)}</span>` +
+      `</div>`;
+  }
+  return `<div class="wb-fbs-kiz-sticker"><span class="wb-fbs-kiz-sticker-tail">${_wbFbsPvzEsc(full)}</span></div>`;
+}
+
 function _wbFbsPvzProductCell(item) {
   const photo = item.product_photo
     ? `<img class="wb-fbs-product-photo" src="${_wbFbsPvzEsc(item.product_photo)}" alt="" width="144" height="144" loading="lazy">`
@@ -357,11 +421,19 @@ function _wbFbsPvzProductCell(item) {
 function renderWbFbsPvzTable() {
   const tbody = document.getElementById("wbFbsPvzTbody");
   const count = document.getElementById("wbFbsPvzCount");
-  const items = Array.isArray(wbFbsPvzState.items) ? wbFbsPvzState.items : [];
+  const allItems = Array.isArray(wbFbsPvzState.items) ? wbFbsPvzState.items : [];
+  const items = _wbFbsPvzVisibleItems();
+  const searchQ = String(document.getElementById("wbFbsPvzSearchFilter")?.value || "").trim();
   if (count) count.textContent = `В таблице: ${items.length}`;
   if (!tbody) return;
-  if (!items.length) {
+  if (!allItems.length) {
     tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">Нет выданных возвратов за этот период. Нажмите «Синхронизировать».</td></tr>`;
+    return;
+  }
+  if (!items.length) {
+    tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">${
+      searchQ ? "Нет строк по выбранному фильтру" : "Нет выданных возвратов за этот период. Нажмите «Синхронизировать»."
+    }</td></tr>`;
     return;
   }
   tbody.innerHTML = items.map((item, index) => {
@@ -373,8 +445,13 @@ function renderWbFbsPvzTable() {
       ? _wbFbsReturnsPrintableBarcodes(item.catalog_barcodes)
       : [];
     const canBarcode = printable.length > 0;
+    const stickerHtml = _wbFbsPvzStickerHtml(item);
     return `<tr>
-      <td class="wb-fbs-pvz-issued"><span class="wb-fbs-pvz-cell-label">Выдан</span><span class="wb-fbs-pvz-cell-value">${_wbFbsPvzEsc(item.issued_label || "—")}</span></td>
+      <td class="wb-fbs-pvz-issued">
+        <span class="wb-fbs-pvz-cell-label">Выдан</span>
+        <span class="wb-fbs-pvz-cell-value">${_wbFbsPvzEsc(item.issued_label || "—")}</span>
+        <div class="wb-fbs-sd-sticker">${stickerHtml}</div>
+      </td>
       <td class="wb-fbs-sd-td-product">${_wbFbsPvzProductCell(item)}</td>
       <td class="wb-fbs-pvz-num"><span class="wb-fbs-pvz-cell-label">Кол-во</span><span class="wb-fbs-pvz-cell-value">${Number(item.qty || 1)}</span></td>
       <td class="wb-fbs-sd-td-act">
@@ -444,6 +521,7 @@ function _wbFbsPvzSetSyncing(on, label) {
   const gear = document.getElementById("wbFbsPvzSettingsBtn");
   const printBtn = document.getElementById("wbFbsPvzPrintBtn");
   const dateBtn = document.getElementById("wbFbsPvzDateBtn");
+  const search = document.getElementById("wbFbsPvzSearchFilter");
   const source = document.getElementById("wbFbsPvzSourceFilter");
   const category = document.getElementById("wbFbsPvzCategoryFilter");
   if (btn) {
@@ -454,6 +532,7 @@ function _wbFbsPvzSetSyncing(on, label) {
   if (gear) gear.disabled = !!on;
   if (printBtn) printBtn.disabled = !!on;
   if (dateBtn) dateBtn.disabled = !!on;
+  if (search) search.disabled = !!on;
   if (source) source.disabled = !!on;
   if (category) category.disabled = !!on;
 }
@@ -612,6 +691,8 @@ async function openWbFbsPvzReturnsModal() {
   const modal = document.getElementById("wbFbsPvzReturnsModal");
   if (!modal) return;
   modal.classList.remove("hidden");
+  const search = document.getElementById("wbFbsPvzSearchFilter");
+  if (search) search.value = "";
   _wbFbsPvzEnsureDates();
   _wbFbsPvzSetInfo("");
   try {
@@ -731,7 +812,7 @@ function _wbFbsPvzPrintHtml(rows, title) {
 function printWbFbsPvzList(mode) {
   toggleWbFbsPvzPrintMenu(false);
   if (typeof _wbFbsCloseRowMenus === "function") _wbFbsCloseRowMenus();
-  const items = Array.isArray(wbFbsPvzState.items) ? wbFbsPvzState.items : [];
+  const items = _wbFbsPvzVisibleItems();
   if (!items.length) {
     _wbFbsPvzSetInfo("Нет строк для печати. Синхронизируйте или смените фильтр.", "warn");
     return;
@@ -756,7 +837,7 @@ window.printWbFbsPvzList = printWbFbsPvzList;
 
 function printWbFbsPvzBarcode(index) {
   if (typeof _wbFbsCloseRowMenus === "function") _wbFbsCloseRowMenus();
-  const item = (wbFbsPvzState.items || [])[Number(index)];
+  const item = _wbFbsPvzVisibleItems()[Number(index)];
   if (!item) return;
   const barcodes = typeof _wbFbsReturnsPrintableBarcodes === "function"
     ? _wbFbsReturnsPrintableBarcodes(item.catalog_barcodes)
