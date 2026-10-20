@@ -775,7 +775,25 @@ function _wbFbsPvzRenderSettings(sources) {
   }).join("");
 }
 
+function _wbFbsPvzCanEditSettings() {
+  return typeof isTenantOwner === "function" && isTenantOwner();
+}
+
+function _wbFbsPvzSyncOwnerOnlySettingsBtn() {
+  const btn = document.getElementById("wbFbsPvzSettingsBtn");
+  if (!btn) return;
+  const can = _wbFbsPvzCanEditSettings();
+  btn.hidden = !can;
+  btn.style.display = can ? "" : "none";
+}
+window._wbFbsPvzSyncOwnerOnlySettingsBtn = _wbFbsPvzSyncOwnerOnlySettingsBtn;
+
 function openWbFbsPvzSettings() {
+  if (!_wbFbsPvzCanEditSettings()) {
+    _wbFbsPvzSyncOwnerOnlySettingsBtn();
+    _wbFbsPvzSetInfo("Источники доступны только главному пользователю", "warn");
+    return;
+  }
   const modal = document.getElementById("wbFbsPvzSettingsModal");
   const info = document.getElementById("wbFbsPvzSettingsInfo");
   if (info) {
@@ -801,6 +819,12 @@ function closeWbFbsPvzSettings() {
 window.closeWbFbsPvzSettings = closeWbFbsPvzSettings;
 
 async function saveWbFbsPvzSettings() {
+  if (!_wbFbsPvzCanEditSettings()) {
+    _wbFbsPvzSyncOwnerOnlySettingsBtn();
+    closeWbFbsPvzSettings();
+    _wbFbsPvzSetInfo("Источники доступны только главному пользователю", "warn");
+    return;
+  }
   const info = document.getElementById("wbFbsPvzSettingsInfo");
   const btn = document.getElementById("wbFbsPvzSettingsSaveBtn");
   const ids = Array.from(document.querySelectorAll("#wbFbsPvzSettingsList input[type=checkbox]:checked"))
@@ -837,6 +861,7 @@ async function openWbFbsPvzReturnsModal() {
   const modal = document.getElementById("wbFbsPvzReturnsModal");
   if (!modal) return;
   modal.classList.remove("hidden");
+  _wbFbsPvzSyncOwnerOnlySettingsBtn();
   const search = document.getElementById("wbFbsPvzSearchFilter");
   if (search) search.value = "";
   toggleWbFbsPvzFilterPanel(false);
