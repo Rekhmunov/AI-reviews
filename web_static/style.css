@@ -21065,24 +21065,41 @@ body.ttn-col-resizing {
   gap: 12px;
   margin-top: 16px;
 }
-#wbFbsPvzReturnsModal .wb-fbs-pvz-filters {
+#wbFbsPvzReturnsModal .wb-fbs-pvz-toolbar-left {
   display: inline-flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 12px;
-  margin-left: auto;
+  gap: 8px;
+  min-width: 0;
 }
-#wbFbsPvzReturnsModal .wb-fbs-pvz-print-wrap {
+#wbFbsPvzReturnsModal .wb-fbs-pvz-print-wrap,
+#wbFbsPvzReturnsModal .wb-fbs-pvz-filter-wrap {
   position: relative;
   display: inline-flex;
   align-items: center;
 }
-#wbFbsPvzReturnsModal #wbFbsPvzPrintBtn {
-  min-width: 40px;
+#wbFbsPvzReturnsModal #wbFbsPvzPrintBtn,
+#wbFbsPvzReturnsModal #wbFbsPvzFilterBtn,
+#wbFbsPvzReturnsModal #wbFbsPvzSettingsBtn,
+#wbFbsPvzReturnsModal .wb-fbs-pvz-date-btn {
   width: 40px;
+  min-width: 40px;
+  height: 40px;
+  min-height: 40px;
   padding: 0;
-  font-size: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   line-height: 1;
+}
+#wbFbsPvzReturnsModal #wbFbsPvzPrintBtn {
+  font-size: 18px;
+}
+#wbFbsPvzReturnsModal #wbFbsPvzFilterBtn.is-open,
+#wbFbsPvzReturnsModal #wbFbsPvzFilterBtn.is-active {
+  color: #1d4ed8;
+  border-color: #93c5fd;
+  background: #eff6ff;
 }
 #wbFbsPvzReturnsModal .wb-fbs-pvz-print-menu {
   left: 0;
@@ -21090,10 +21107,84 @@ body.ttn-col-resizing {
   min-width: 260px;
   z-index: 50;
 }
-#wbFbsPvzReturnsModal .wb-fbs-pvz-date-btn,
+#wbFbsPvzReturnsModal .wb-fbs-pvz-filter-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 60;
+  width: min(320px, calc(100vw - 32px));
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
+}
+#wbFbsPvzReturnsModal .wb-fbs-pvz-filter-panel[hidden] {
+  display: none !important;
+}
+#wbFbsPvzReturnsModal .wb-fbs-pvz-filter-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+#wbFbsPvzReturnsModal .wb-fbs-pvz-filter-panel-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+}
+#wbFbsPvzReturnsModal .wb-fbs-pvz-filter-close {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+}
+#wbFbsPvzReturnsModal .wb-fbs-pvz-filter-field {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #475569;
+}
+#wbFbsPvzReturnsModal .wb-fbs-pvz-filter-field-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #475569;
+}
+#wbFbsPvzReturnsModal .wb-fbs-pvz-filter-field select,
+#wbFbsPvzReturnsModal .wb-fbs-pvz-filter-field .wb-fbs-kiz-search {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 16px;
+  font-weight: 400;
+  color: #0f172a;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+}
+#wbFbsPvzReturnsModal .wb-fbs-pvz-filter-field select:disabled,
+#wbFbsPvzReturnsModal .wb-fbs-pvz-filter-field .wb-fbs-kiz-search:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+#wbFbsPvzReturnsModal .wb-fbs-pvz-date-wrap {
+  display: inline-flex;
+  align-items: center;
+}
+#wbFbsPvzReturnsModal .wb-fbs-pvz-date-btn {
+  font-size: 18px;
+}
 #wbFbsPvzReturnsModal #wbFbsPvzSyncBtn,
-#wbFbsPvzReturnsModal #wbFbsPvzSettingsBtn,
-#wbFbsPvzReturnsModal #wbFbsPvzPrintBtn,
 #wbFbsPvzSettingsModal button {
   min-height: 40px;
 }
@@ -21105,23 +21196,10 @@ body.ttn-col-resizing {
   line-height: 1.3;
   text-align: center;
 }
-#wbFbsPvzReturnsModal .wb-fbs-pvz-date-btn {
-  min-width: 40px;
-  height: 40px;
-  padding: 0 10px;
-  white-space: nowrap;
-  font-size: 16px;
-  line-height: 1;
-}
-#wbFbsPvzReturnsModal .wb-fbs-pvz-filters .wb-fbs-kiz-search {
-  width: 220px;
-  min-width: 180px;
-  min-height: 40px;
-  margin: 0;
-}
 #wbFbsPvzReturnsModal button:focus-visible,
 #wbFbsPvzSettingsModal button:focus-visible,
-#wbFbsPvzReturnsModal select:focus-visible {
+#wbFbsPvzReturnsModal select:focus-visible,
+#wbFbsPvzReturnsModal input:focus-visible {
   outline: 2px solid #1d4ed8;
   outline-offset: 2px;
 }
@@ -21129,29 +21207,8 @@ body.ttn-col-resizing {
 #wbFbsPvzSettingsModal button:active:not(:disabled) {
   transform: translateY(1px);
 }
-#wbFbsPvzReturnsModal .wb-fbs-pvz-source {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 16px;
-  color: #334155;
-}
-#wbFbsPvzReturnsModal .wb-fbs-pvz-source select {
-  min-height: 40px;
-  min-width: 180px;
-  padding: 8px 12px;
-  font-size: 16px;
-  color: #0f172a;
-  background: #fff;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-}
-#wbFbsPvzReturnsModal .wb-fbs-pvz-source select:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
 #wbFbsPvzReturnsModal .wb-fbs-pvz-count {
-  margin-left: 0;
+  margin-left: auto;
   font-size: 16px;
   font-weight: 600;
   color: #334155;
@@ -21168,10 +21225,8 @@ body.ttn-col-resizing {
 #wbFbsPvzSettingsModal .wb-fbs-pvz-info.is-error {
   color: #991b1b;
 }
-#wbFbsPvzReturnsModal .wb-fbs-pvz-col-issued { width: 180px; }
-#wbFbsPvzReturnsModal .wb-fbs-pvz-col-qty { width: 88px; }
 #wbFbsPvzReturnsModal .wb-fbs-pvz-col-act { width: 48px; }
-#wbFbsPvzReturnsModal .wb-fbs-pvz-num {
+#wbFbsPvzReturnsModal td.wb-fbs-pvz-num {
   text-align: right;
   font-variant-numeric: tabular-nums;
   font-size: 16px;
@@ -21180,7 +21235,30 @@ body.ttn-col-resizing {
 #wbFbsPvzReturnsModal .wb-fbs-pvz-cell-label {
   display: none;
 }
-#wbFbsPvzReturnsModal th.wb-fbs-pvz-num { text-align: right; }
+#wbFbsPvzReturnsModal th.wb-fbs-pvz-num {
+  text-align: right;
+  /* Same header type as «Выдан» / «Товар» (.wb-fbs-sd-table th). */
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+}
+#wbFbsPvzReturnsModal #wbFbsPvzTable th[data-col] {
+  position: relative;
+}
+#wbFbsPvzReturnsModal #wbFbsPvzTable th .col-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+}
+#wbFbsPvzReturnsModal #wbFbsPvzTable th .col-resize-handle:hover,
+#wbFbsPvzReturnsModal #wbFbsPvzTable th .col-resize-handle.dragging {
+  background: #2563eb;
+  opacity: 0.45;
+}
 #wbFbsPvzReturnsModal .wb-fbs-pvz-issued {
   white-space: nowrap;
   font-size: 16px;
@@ -21277,11 +21355,18 @@ body.ttn-col-resizing {
     font-size: 20px;
   }
   #wbFbsPvzReturnsModal .wb-fbs-pvz-toolbar {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  #wbFbsPvzReturnsModal .wb-fbs-pvz-toolbar-left {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 44px 44px;
+    grid-template-columns: minmax(0, 1fr) 44px 44px 44px;
     gap: 8px;
     align-items: center;
-    margin-top: 12px;
+    width: 100%;
   }
   #wbFbsPvzReturnsModal #wbFbsPvzSyncBtn {
     grid-column: 1;
@@ -21296,17 +21381,25 @@ body.ttn-col-resizing {
     grid-row: 1;
     width: 44px;
     min-width: 44px;
+    height: 44px;
     min-height: 44px;
-    padding: 0;
   }
   #wbFbsPvzReturnsModal .wb-fbs-pvz-print-wrap {
     grid-column: 3;
     grid-row: 1;
     justify-self: end;
   }
-  #wbFbsPvzReturnsModal #wbFbsPvzPrintBtn {
+  #wbFbsPvzReturnsModal .wb-fbs-pvz-filter-wrap {
+    grid-column: 4;
+    grid-row: 1;
+    justify-self: end;
+  }
+  #wbFbsPvzReturnsModal #wbFbsPvzPrintBtn,
+  #wbFbsPvzReturnsModal #wbFbsPvzFilterBtn,
+  #wbFbsPvzReturnsModal .wb-fbs-pvz-date-btn {
     width: 44px;
     min-width: 44px;
+    height: 44px;
     min-height: 44px;
   }
   #wbFbsPvzReturnsModal .wb-fbs-pvz-print-menu {
@@ -21314,52 +21407,18 @@ body.ttn-col-resizing {
     right: 0;
     min-width: min(280px, calc(100vw - 32px));
   }
-  #wbFbsPvzReturnsModal .wb-fbs-pvz-filters {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-    margin-left: 0;
-    width: 100%;
-  }
-  #wbFbsPvzReturnsModal .wb-fbs-pvz-filters .wb-fbs-kiz-search {
-    width: 100%;
-    min-width: 0;
-    min-height: 44px;
-  }
-  #wbFbsPvzReturnsModal .wb-fbs-returns-date-wrap {
-    position: static;
-    width: 100%;
-    min-width: 0;
-  }
-  #wbFbsPvzReturnsModal .wb-fbs-pvz-date-btn {
-    width: 100%;
-    min-height: 44px;
-    height: 44px;
-  }
-  #wbFbsPvzReturnsModal .wb-fbs-pvz-source {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 4px;
-    width: 100%;
-  }
-  #wbFbsPvzReturnsModal .wb-fbs-pvz-source select {
-    width: 100%;
-    min-width: 0;
-    min-height: 44px;
+  #wbFbsPvzReturnsModal .wb-fbs-pvz-filter-panel {
+    left: auto;
+    right: 0;
+    width: min(320px, calc(100vw - 32px));
   }
   #wbFbsPvzReturnsModal .wb-fbs-pvz-count {
-    grid-column: 1 / -1;
-    grid-row: 3;
     margin-left: 0;
   }
   #wbFbsPvzReturnsModal #wbFbsPvzDatePanel.supplies-date-panel {
-    left: 16px;
-    right: 16px;
-    width: auto;
+    left: 0;
+    right: auto;
+    width: min(320px, calc(100vw - 48px));
     min-width: 0;
     max-width: none;
   }
