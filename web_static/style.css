@@ -21139,8 +21139,8 @@ body.ttn-col-resizing {
 #wbFbsPvzSettingsModal .wb-fbs-pvz-info.is-error {
   color: #991b1b;
 }
-#wbFbsPvzReturnsModal .wb-fbs-pvz-col-qty { width: 88px; }
 #wbFbsPvzReturnsModal .wb-fbs-pvz-col-issued { width: 168px; }
+#wbFbsPvzReturnsModal .wb-fbs-pvz-col-qty { width: 88px; }
 #wbFbsPvzReturnsModal .wb-fbs-pvz-col-act { width: 48px; }
 #wbFbsPvzReturnsModal .wb-fbs-pvz-num {
   text-align: right;
@@ -21155,19 +21155,11 @@ body.ttn-col-resizing {
 #wbFbsPvzReturnsModal .wb-fbs-pvz-issued {
   white-space: nowrap;
   font-size: 16px;
+  font-variant-numeric: tabular-nums;
   color: #0f172a;
+  vertical-align: top;
 }
-#wbFbsPvzReturnsModal .wb-fbs-product-photo,
-#wbFbsPvzReturnsModal .wb-fbs-product img,
-#wbFbsPvzReturnsModal .wb-fbs-product-ph {
-  width: 72px !important;
-  height: 72px !important;
-  max-width: 72px !important;
-  max-height: 72px !important;
-  min-width: 72px;
-  min-height: 72px;
-  flex: 0 0 72px;
-}
+/* Same photo size as WB FBS supply detail (global 144px). */
 #wbFbsPvzSettingsModal.modal-overlay {
   z-index: 1400;
 }
@@ -21352,10 +21344,11 @@ body.ttn-col-resizing {
   }
   #wbFbsPvzReturnsModal .wb-fbs-sd-table tbody tr {
     display: grid;
-    grid-template-columns: minmax(72px, 0.9fr) minmax(0, 1.3fr) 44px;
+    grid-template-columns: minmax(0, 1fr) 44px;
     grid-template-areas:
-      "product product act"
-      "qty issued issued";
+      "issued act"
+      "product product"
+      "qty qty";
     gap: 8px 12px;
     align-items: start;
     padding: 12px;
@@ -21374,13 +21367,13 @@ body.ttn-col-resizing {
     white-space: normal;
     overflow-wrap: anywhere;
   }
+  #wbFbsPvzReturnsModal .wb-fbs-pvz-issued { grid-area: issued; }
   #wbFbsPvzReturnsModal .wb-fbs-sd-td-product { grid-area: product; }
   #wbFbsPvzReturnsModal .wb-fbs-sd-td-act {
     grid-area: act;
     justify-self: end;
   }
   #wbFbsPvzReturnsModal .wb-fbs-pvz-num { grid-area: qty; }
-  #wbFbsPvzReturnsModal .wb-fbs-pvz-issued { grid-area: issued; }
   #wbFbsPvzReturnsModal .wb-fbs-pvz-num,
   #wbFbsPvzReturnsModal .wb-fbs-pvz-issued {
     display: flex;
@@ -21388,6 +21381,17 @@ body.ttn-col-resizing {
     align-items: flex-start;
     gap: 4px;
     text-align: left;
+  }
+  #wbFbsPvzReturnsModal .wb-fbs-product-photo,
+  #wbFbsPvzReturnsModal .wb-fbs-product img,
+  #wbFbsPvzReturnsModal .wb-fbs-product-ph {
+    width: 72px !important;
+    height: 72px !important;
+    max-width: 72px !important;
+    max-height: 72px !important;
+    min-width: 72px;
+    min-height: 72px;
+    flex: 0 0 72px;
   }
   #wbFbsPvzReturnsModal .wb-fbs-pvz-cell-label {
     display: block;

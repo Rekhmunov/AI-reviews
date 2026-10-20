@@ -313,7 +313,7 @@ window.onWbFbsPvzFilterChange = onWbFbsPvzFilterChange;
 
 function _wbFbsPvzProductCell(item) {
   const photo = item.product_photo
-    ? `<img class="wb-fbs-product-photo" src="${_wbFbsPvzEsc(item.product_photo)}" alt="" width="72" height="72" loading="lazy">`
+    ? `<img class="wb-fbs-product-photo" src="${_wbFbsPvzEsc(item.product_photo)}" alt="" width="144" height="144" loading="lazy">`
     : `<span class="wb-fbs-product-ph" aria-hidden="true"></span>`;
   const article = String(item.article || "").trim();
   const nm = String(item.nm_id || "").trim();
@@ -357,9 +357,9 @@ function renderWbFbsPvzTable() {
       : [];
     const canBarcode = printable.length > 0;
     return `<tr>
+      <td class="wb-fbs-pvz-issued"><span class="wb-fbs-pvz-cell-label">Выдан</span><span class="wb-fbs-pvz-cell-value">${_wbFbsPvzEsc(item.issued_label || "—")}</span></td>
       <td class="wb-fbs-sd-td-product">${_wbFbsPvzProductCell(item)}</td>
       <td class="wb-fbs-pvz-num"><span class="wb-fbs-pvz-cell-label">Кол-во</span><span class="wb-fbs-pvz-cell-value">${Number(item.qty || 1)}</span></td>
-      <td class="wb-fbs-pvz-issued"><span class="wb-fbs-pvz-cell-label">Выдан</span><span class="wb-fbs-pvz-cell-value">${_wbFbsPvzEsc(item.issued_label || "—")}</span></td>
       <td class="wb-fbs-sd-td-act">
         <div class="wb-fbs-row-menu-wrap">
           <button type="button" class="icon-btn secondary wb-fbs-row-menu-btn" title="Действия"
