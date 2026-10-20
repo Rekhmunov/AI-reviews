@@ -217,16 +217,16 @@ function _ozonFbsPvzUpdateDateBtn() {
   const start = _ozonFbsPvzCal.startDate;
   const end = _ozonFbsPvzCal.endDate;
   if (!start || !end) {
-    btn.title = "Дата выдачи";
-    btn.setAttribute("aria-label", "Дата выдачи");
+    btn.title = "Дата получения";
+    btn.setAttribute("aria-label", "Дата получения");
     return;
   }
   const fmt = (d) => d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
   const range = start.getTime() === end.getTime()
     ? fmt(start)
     : `${fmt(start)}–${fmt(end)}`;
-  btn.title = `Дата выдачи: ${range}`;
-  btn.setAttribute("aria-label", `Дата выдачи: ${range}`);
+  btn.title = `Дата получения: ${range}`;
+  btn.setAttribute("aria-label", `Дата получения: ${range}`);
 }
 
 function _ozonFbsPvzFiltersAreActive() {
@@ -249,7 +249,9 @@ function toggleOzonFbsPvzFilterPanel(show) {
   const panel = document.getElementById("ozonFbsPvzFilterPanel");
   const btn = document.getElementById("ozonFbsPvzFilterBtn");
   if (!panel || !btn || ozonFbsPvzState.syncing) return;
-  const willOpen = show === undefined ? panel.hidden : Boolean(show);
+  // onclick may pass an Event — treat non-boolean as toggle.
+  const explicit = typeof show === "boolean" ? show : undefined;
+  const willOpen = explicit === undefined ? panel.hidden : explicit;
   if (!willOpen) {
     toggleOzonFbsPvzDatePanel(false);
   }

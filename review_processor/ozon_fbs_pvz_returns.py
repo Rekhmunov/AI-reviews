@@ -878,6 +878,15 @@ def sync_source_returns(
             next_id = int(data.get("last_id") or 0)
         except (TypeError, ValueError):
             next_id = 0
+        if next_id <= 0 and rows:
+            # Fallback when API sets has_next but omits last_id.
+            for row in rows:
+                try:
+                    rid = int(row.get("id") or row.get("return_id") or 0)
+                except (TypeError, ValueError):
+                    rid = 0
+                if rid > next_id:
+                    next_id = rid
         if not has_next or next_id <= 0 or next_id == last_id or not rows:
             break
         last_id = next_id
