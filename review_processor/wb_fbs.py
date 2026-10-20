@@ -314,12 +314,23 @@ def cancel_reason_label(*, supplier_status: object = "", wb_status: object = "")
 
 SCOPE_ERROR_MESSAGE = "Нет ни одного источника с нужным API (Marketplace)."
 
-# WB JWT ``s`` bitmask (category bit = 2 ** (position - 1), positions from WB docs).
-WB_SCOPE_CONTENT = 1 << 0
-WB_SCOPE_ANALYTICS = 1 << 1
-WB_SCOPE_PRICES = 1 << 2
-WB_SCOPE_MARKETPLACE = 1 << 3
-WB_SCOPE_STATISTICS = 1 << 4
+# WB JWT ``s`` bitmask. Docs «Bit position N» is bit index N (value 2**N).
+# Live check: Analytics+BuyersReturns+ReadOnly → s=1073743876 (bits 2,11,30).
+# The old 2**(N-1) mapping labeled Analytics as «Цены» and rejected valid keys.
+WB_SCOPE_CONTENT = 1 << 1
+WB_SCOPE_ANALYTICS = 1 << 2
+WB_SCOPE_PRICES = 1 << 3
+WB_SCOPE_MARKETPLACE = 1 << 4
+WB_SCOPE_STATISTICS = 1 << 5
+WB_SCOPE_PROMOTION = 1 << 6
+WB_SCOPE_FEEDBACKS = 1 << 7
+WB_SCOPE_CHAT = 1 << 9
+WB_SCOPE_SUPPLIES = 1 << 10
+WB_SCOPE_BUYERS_RETURNS = 1 << 11
+WB_SCOPE_DOCUMENTS = 1 << 12
+WB_SCOPE_FINANCE = 1 << 13
+WB_SCOPE_USERS = 1 << 16
+WB_SCOPE_READ_ONLY = 1 << 30
 WB_GOODS_RETURN_SCOPES = WB_SCOPE_ANALYTICS | WB_SCOPE_STATISTICS
 
 
@@ -370,6 +381,15 @@ def wb_token_scope_labels(token: str) -> list[str]:
         (WB_SCOPE_PRICES, "Цены"),
         (WB_SCOPE_MARKETPLACE, "Маркетплейс"),
         (WB_SCOPE_STATISTICS, "Статистика"),
+        (WB_SCOPE_PROMOTION, "Продвижение"),
+        (WB_SCOPE_FEEDBACKS, "Отзывы"),
+        (WB_SCOPE_CHAT, "Чат"),
+        (WB_SCOPE_SUPPLIES, "Поставки"),
+        (WB_SCOPE_BUYERS_RETURNS, "Возвраты покупателей"),
+        (WB_SCOPE_DOCUMENTS, "Документы"),
+        (WB_SCOPE_FINANCE, "Финансы"),
+        (WB_SCOPE_USERS, "Пользователи"),
+        (WB_SCOPE_READ_ONLY, "Только чтение"),
     ):
         if mask & bit:
             labels.append(name)
