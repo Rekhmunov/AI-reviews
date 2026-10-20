@@ -2,6 +2,7 @@
 
 const wbFbsPvzState = {
   sources: [],
+  categories: [],
   items: [],
   syncing: false,
   pollToken: 0,
@@ -290,6 +291,22 @@ function _wbFbsPvzFillSourceFilter() {
   sel.value = stillThere ? prev : "0";
 }
 
+function _wbFbsPvzFillCategoryFilter() {
+  const sel = document.getElementById("wbFbsPvzCategoryFilter");
+  if (!sel) return;
+  const prev = String(sel.value || "");
+  const options = [`<option value="">Все категории</option>`];
+  (wbFbsPvzState.categories || []).forEach((c) => {
+    const name = String(c?.name || "").trim();
+    if (!name) return;
+    options.push(`<option value="${_wbFbsPvzEsc(name)}">${_wbFbsPvzEsc(name)}</option>`);
+  });
+  options.push(`<option value="__none__">Без категории</option>`);
+  sel.innerHTML = options.join("");
+  const stillThere = Array.from(sel.options).some((opt) => opt.value === prev);
+  sel.value = stillThere ? prev : "";
+}
+
 async function loadWbFbsPvzSettings() {
   const res = await fetch("/api/wb-fbs/pvz-returns/settings", { headers: _wbFbsPvzHeaders() });
   const payload = await res.json().catch(() => ({}));
@@ -387,10 +404,12 @@ async function loadWbFbsPvzReturns() {
   const from = document.getElementById("wbFbsPvzDateFrom")?.value || "";
   const to = document.getElementById("wbFbsPvzDateTo")?.value || "";
   const sourceId = document.getElementById("wbFbsPvzSourceFilter")?.value || "0";
+  const category = document.getElementById("wbFbsPvzCategoryFilter")?.value || "";
   const params = new URLSearchParams();
   if (from) params.set("date_from", from);
   if (to) params.set("date_to", to);
   if (sourceId && sourceId !== "0") params.set("source_id", sourceId);
+  if (category) params.set("category", category);
   const tbody = document.getElementById("wbFbsPvzTbody");
   if (tbody && !wbFbsPvzState.items.length) {
     tbody.innerHTML = `<tr><td colspan="4" class="wb-fbs-empty">Загрузка…</td></tr>`;
@@ -402,6 +421,10 @@ async function loadWbFbsPvzReturns() {
       throw new Error(_wbFbsPvzApiError(res, payload, "Не удалось загрузить возвраты"));
     }
     wbFbsPvzState.items = Array.isArray(payload.items) ? payload.items : [];
+    if (Array.isArray(payload.categories)) {
+      wbFbsPvzState.categories = payload.categories;
+      _wbFbsPvzFillCategoryFilter();
+    }
     renderWbFbsPvzTable();
   } catch (err) {
     wbFbsPvzState.items = [];
@@ -412,20 +435,27 @@ async function loadWbFbsPvzReturns() {
 
 function _wbFbsPvzSetSyncing(on, label) {
   // Close the calendar before the syncing flag: the toggle ignores calls while syncing.
-  if (on) toggleWbFbsPvzDatePanel(false);
+  if (on) {
+    toggleWbFbsPvzDatePanel(false);
+    toggleWbFbsPvzPrintMenu(false);
+  }
   wbFbsPvzState.syncing = !!on;
   const btn = document.getElementById("wbFbsPvzSyncBtn");
   const gear = document.getElementById("wbFbsPvzSettingsBtn");
+  const printBtn = document.getElementById("wbFbsPvzPrintBtn");
   const dateBtn = document.getElementById("wbFbsPvzDateBtn");
   const source = document.getElementById("wbFbsPvzSourceFilter");
+  const category = document.getElementById("wbFbsPvzCategoryFilter");
   if (btn) {
     btn.disabled = !!on;
     btn.textContent = on ? (label || "Запуск…") : "Синхронизировать";
     btn.setAttribute("aria-busy", on ? "true" : "false");
   }
   if (gear) gear.disabled = !!on;
+  if (printBtn) printBtn.disabled = !!on;
   if (dateBtn) dateBtn.disabled = !!on;
   if (source) source.disabled = !!on;
+  if (category) category.disabled = !!on;
 }
 
 async function _wbFbsPvzPoll(token) {
@@ -619,9 +649,110 @@ window.openWbFbsPvzReturnsModal = openWbFbsPvzReturnsModal;
 function closeWbFbsPvzReturnsModal() {
   if (typeof _wbFbsCloseRowMenus === "function") _wbFbsCloseRowMenus();
   toggleWbFbsPvzDatePanel(false);
+  toggleWbFbsPvzPrintMenu(false);
   document.getElementById("wbFbsPvzReturnsModal")?.classList.add("hidden");
 }
 window.closeWbFbsPvzReturnsModal = closeWbFbsPvzReturnsModal;
+
+function toggleWbFbsPvzPrintMenu(show) {
+  const menu = document.getElementById("wbFbsPvzPrintMenu");
+  const btn = document.getElementById("wbFbsPvzPrintBtn");
+  if (!menu || !btn || wbFbsPvzState.syncing) return;
+  const willOpen = show === undefined ? menu.hidden : Boolean(show);
+  if (willOpen) toggleWbFbsPvzDatePanel(false);
+  menu.hidden = !willOpen;
+  btn.setAttribute("aria-expanded", willOpen ? "true" : "false");
+}
+window.toggleWbFbsPvzPrintMenu = toggleWbFbsPvzPrintMenu;
+
+function _wbFbsPvzMergeItems(items) {
+  const merged = new Map();
+  const order = [];
+  (items || []).forEach((item) => {
+    const name = String(item?.product_name || "").trim();
+    const article = String(item?.article || "").trim();
+    const key = name
+      ? `name:${name.toLowerCase()}`
+      : (article ? `article:${article.toLowerCase()}` : `id:${Number(item?.id || 0)}`);
+    const qty = Math.max(1, Number(item?.qty || 1) || 1);
+    if (!merged.has(key)) {
+      merged.set(key, {
+        product_name: name || article || "—",
+        qty,
+      });
+      order.push(key);
+      return;
+    }
+    merged.get(key).qty += qty;
+  });
+  return order.map((key) => merged.get(key));
+}
+
+function _wbFbsPvzPrintHtml(rows, title) {
+  const list = Array.isArray(rows) ? rows : [];
+  const total = list.reduce((sum, row) => sum + Math.max(1, Number(row?.qty || 1) || 1), 0);
+  const body = list.length
+    ? list.map((row) => {
+      const name = _wbFbsPvzEsc(row.product_name || row.article || "—");
+      const qty = Math.max(1, Number(row.qty || 1) || 1);
+      return `<tr><td class="name">${name}</td><td class="qty">${qty}</td></tr>`;
+    }).join("")
+    : `<tr><td colspan="2" class="empty">Нет строк для печати</td></tr>`;
+  return `<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>${_wbFbsPvzEsc(title || "Возвраты ПВЗ")}</title>
+  <style>
+    @page { margin: 12mm; }
+    body { font: 14px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #0f172a; margin: 0; }
+    h1 { font-size: 18px; margin: 0 0 8px; font-weight: 700; }
+    .meta { font-size: 13px; color: #475569; margin: 0 0 16px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 8px 0; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+    th { font-size: 12px; font-weight: 600; color: #64748b; text-align: left; }
+    th.qty, td.qty { text-align: right; white-space: nowrap; width: 72px; font-variant-numeric: tabular-nums; }
+    td.name { font-size: 15px; font-weight: 600; padding-right: 16px; }
+    td.empty { color: #64748b; font-weight: 400; }
+  </style>
+</head>
+<body>
+  <h1>${_wbFbsPvzEsc(title || "Возвраты ПВЗ")}</h1>
+  <p class="meta">Строк: ${list.length} · Количество: ${total}</p>
+  <table>
+    <thead><tr><th>Товар</th><th class="qty">Кол-во</th></tr></thead>
+    <tbody>${body}</tbody>
+  </table>
+  <script>window.addEventListener("load", function () { window.focus(); window.print(); });</script>
+</body>
+</html>`;
+}
+
+function printWbFbsPvzList(mode) {
+  toggleWbFbsPvzPrintMenu(false);
+  if (typeof _wbFbsCloseRowMenus === "function") _wbFbsCloseRowMenus();
+  const items = Array.isArray(wbFbsPvzState.items) ? wbFbsPvzState.items : [];
+  if (!items.length) {
+    _wbFbsPvzSetInfo("Нет строк для печати. Синхронизируйте или смените фильтр.", "warn");
+    return;
+  }
+  const merged = String(mode || "") === "merged";
+  const rows = merged
+    ? _wbFbsPvzMergeItems(items)
+    : items.map((item) => ({
+      product_name: String(item.product_name || item.article || "—"),
+      qty: Math.max(1, Number(item.qty || 1) || 1),
+    }));
+  const title = merged ? "Возвраты ПВЗ — объединённый список" : "Возвраты ПВЗ — весь список";
+  const win = window.open("", "_blank");
+  if (!win) {
+    _wbFbsPvzSetInfo("Разрешите всплывающие окна для печати", "warn");
+    return;
+  }
+  win.document.write(_wbFbsPvzPrintHtml(rows, title));
+  win.document.close();
+}
+window.printWbFbsPvzList = printWbFbsPvzList;
 
 function printWbFbsPvzBarcode(index) {
   if (typeof _wbFbsCloseRowMenus === "function") _wbFbsCloseRowMenus();
@@ -688,6 +819,19 @@ document.addEventListener("keydown", (event) => {
     closeWbFbsPvzSettings();
     return;
   }
+  const printMenu = document.getElementById("wbFbsPvzPrintMenu");
+  if (printMenu && !printMenu.hidden) {
+    toggleWbFbsPvzPrintMenu(false);
+    return;
+  }
   const modal = document.getElementById("wbFbsPvzReturnsModal");
   if (modal && !modal.classList.contains("hidden")) closeWbFbsPvzReturnsModal();
+});
+
+document.addEventListener("click", (event) => {
+  const wrap = document.querySelector("#wbFbsPvzReturnsModal .wb-fbs-pvz-print-wrap");
+  const menu = document.getElementById("wbFbsPvzPrintMenu");
+  if (!wrap || !menu || menu.hidden) return;
+  if (wrap.contains(event.target)) return;
+  toggleWbFbsPvzPrintMenu(false);
 });

@@ -21072,9 +21072,28 @@ body.ttn-col-resizing {
   gap: 12px;
   margin-left: auto;
 }
+#wbFbsPvzReturnsModal .wb-fbs-pvz-print-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+#wbFbsPvzReturnsModal #wbFbsPvzPrintBtn {
+  min-width: 40px;
+  width: 40px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+#wbFbsPvzReturnsModal .wb-fbs-pvz-print-menu {
+  left: 0;
+  right: auto;
+  min-width: 260px;
+  z-index: 50;
+}
 #wbFbsPvzReturnsModal .wb-fbs-pvz-date-btn,
 #wbFbsPvzReturnsModal #wbFbsPvzSyncBtn,
 #wbFbsPvzReturnsModal #wbFbsPvzSettingsBtn,
+#wbFbsPvzReturnsModal #wbFbsPvzPrintBtn,
 #wbFbsPvzSettingsModal button {
   min-height: 40px;
 }
@@ -21243,7 +21262,7 @@ body.ttn-col-resizing {
   }
   #wbFbsPvzReturnsModal .wb-fbs-pvz-toolbar {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 44px;
+    grid-template-columns: minmax(0, 1fr) 44px 44px;
     gap: 8px;
     align-items: center;
     margin-top: 12px;
@@ -21263,6 +21282,21 @@ body.ttn-col-resizing {
     min-width: 44px;
     min-height: 44px;
     padding: 0;
+  }
+  #wbFbsPvzReturnsModal .wb-fbs-pvz-print-wrap {
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: end;
+  }
+  #wbFbsPvzReturnsModal #wbFbsPvzPrintBtn {
+    width: 44px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+  #wbFbsPvzReturnsModal .wb-fbs-pvz-print-menu {
+    left: auto;
+    right: 0;
+    min-width: min(280px, calc(100vw - 32px));
   }
   #wbFbsPvzReturnsModal .wb-fbs-pvz-filters {
     grid-column: 1 / -1;

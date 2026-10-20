@@ -292,6 +292,7 @@ def _item_from_row(
         if str(b or "").strip()
     ]
     name = str((product or {}).get("name") or "").strip() or article
+    category = str((product or {}).get("product_category") or "").strip()
     completed = str(row.get("completed_dt") or "").strip()
     try:
         row_id = int(row.get("id") or 0)
@@ -311,6 +312,7 @@ def _item_from_row(
         "article": article,
         "nm_id": nm_id,
         "product_name": name,
+        "product_category": category,
         "product_photo": _photo_url(product),
         "product_barcodes": barcodes,
         "catalog_barcodes": catalog_barcodes,
@@ -341,6 +343,80 @@ def sort_pvz_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         )
 
     return sorted(items, key=_key)
+
+
+def _merge_product_key(item: dict[str, Any]) -> str:
+    name = str(item.get("product_name") or "").strip()
+    article = str(item.get("article") or "").strip()
+    if name:
+        return f"name:{name.casefold()}"
+    if article:
+        return f"article:{article.casefold()}"
+    return f"id:{int(item.get('id') or 0)}"
+
+
+def merge_pvz_items_by_product(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Sum qty for the same product name (pick-list style). Order = first seen."""
+    merged: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for item in items:
+        key = _merge_product_key(item)
+        prev = merged.get(key)
+        if prev is None:
+            row = dict(item)
+            try:
+                row["qty"] = max(1, int(item.get("qty") or 1))
+            except (TypeError, ValueError):
+                row["qty"] = 1
+            merged[key] = row
+            order.append(key)
+            continue
+        try:
+            prev["qty"] = int(prev.get("qty") or 0) + max(1, int(item.get("qty") or 1))
+        except (TypeError, ValueError):
+            prev["qty"] = int(prev.get("qty") or 0) + 1
+    return [merged[key] for key in order]
+
+
+def filter_pvz_items_by_category(
+    items: list[dict[str, Any]],
+    *,
+    category: str = "",
+) -> list[dict[str, Any]]:
+    """Keep rows of one product category. Empty category = all rows."""
+    wanted = str(category or "").strip()
+    if not wanted:
+        return list(items)
+    if wanted == "__none__":
+        return [item for item in items if not str(item.get("product_category") or "").strip()]
+    return [
+        item
+        for item in items
+        if str(item.get("product_category") or "").strip() == wanted
+    ]
+
+
+def product_category_options(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+) -> list[dict[str, Any]]:
+    """Category names from Настройки → Товары (same list for every WB cabinet)."""
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in repo.list_product_categories(user_id=user_id, seed_defaults=True):
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "").strip()
+        if not name or name.casefold() in seen:
+            continue
+        seen.add(name.casefold())
+        try:
+            cat_id = int(row.get("id") or 0)
+        except (TypeError, ValueError):
+            cat_id = 0
+        out.append({"id": cat_id, "name": name})
+    return out
 
 
 def assemble_pvz_items(
@@ -537,6 +613,7 @@ def list_for_view(
     date_from: str = "",
     date_to: str = "",
     source_id: int = 0,
+    category: str = "",
 ) -> dict[str, Any]:
     start, end = parse_issue_bounds(date_from, date_to)
     view = settings_view(repo, user_id=user_id)
@@ -560,10 +637,15 @@ def list_for_view(
         date_from=start,
         date_to=end,
     )
+    categories = product_category_options(repo, user_id=user_id)
+    filtered = filter_pvz_items_by_category(items, category=category)
     return {
         "ok": True,
-        "items": items,
-        "total": len(items),
+        "items": filtered,
+        "total": len(filtered),
+        "total_unfiltered": len(items),
+        "categories": categories,
+        "category": str(category or "").strip(),
         "date_from": start.isoformat(),
         "date_to": end.isoformat(),
     }
