@@ -21207,6 +21207,24 @@ body.ttn-col-resizing {
   margin-left: auto;
   min-width: 0;
 }
+#wbFbsPvzReturnsModal .wb-fbs-pvz-source {
+  width: 180px;
+  max-width: 220px;
+  min-width: 120px;
+  min-height: 40px;
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 16px;
+  font-weight: 400;
+  color: #0f172a;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+}
+#wbFbsPvzReturnsModal .wb-fbs-pvz-source:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 #wbFbsPvzReturnsModal .wb-fbs-pvz-search {
   width: 220px;
   min-width: 160px;
@@ -21418,6 +21436,13 @@ body.ttn-col-resizing {
     margin-left: 0;
     justify-content: flex-start;
     flex-wrap: wrap;
+  }
+  #wbFbsPvzReturnsModal .wb-fbs-pvz-source {
+    flex: 0 1 180px;
+    width: auto;
+    max-width: 220px;
+    min-width: 120px;
+    min-height: 44px;
   }
   #wbFbsPvzReturnsModal .wb-fbs-pvz-search {
     flex: 1 1 160px;

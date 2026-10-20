@@ -230,10 +230,9 @@ function _wbFbsPvzUpdateDateBtn() {
 }
 
 function _wbFbsPvzFiltersAreActive() {
-  const search = String(document.getElementById("wbFbsPvzSearchFilter")?.value || "").trim();
-  const source = String(document.getElementById("wbFbsPvzSourceFilter")?.value || "0");
+  // Only filters that live in the filter panel (category) light up the icon.
   const category = String(document.getElementById("wbFbsPvzCategoryFilter")?.value || "");
-  return Boolean(search || (source && source !== "0") || category);
+  return Boolean(category);
 }
 
 function _wbFbsPvzSyncFilterBtnState() {
@@ -257,9 +256,9 @@ function toggleWbFbsPvzFilterPanel(show) {
   panel.hidden = !willOpen;
   _wbFbsPvzSyncFilterBtnState();
   if (willOpen) {
-    const source = document.getElementById("wbFbsPvzSourceFilter");
-    if (source && typeof source.focus === "function") {
-      setTimeout(() => source.focus(), 0);
+    const category = document.getElementById("wbFbsPvzCategoryFilter");
+    if (category && typeof category.focus === "function") {
+      setTimeout(() => category.focus(), 0);
     }
   }
 }

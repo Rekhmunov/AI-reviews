@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=435" />
+  <link rel="stylesheet" href="/static/style.css?v=436" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2731,11 +2731,6 @@
                         <button type="button" class="icon-btn secondary wb-fbs-pvz-filter-close"
                                 onclick="toggleWbFbsPvzFilterPanel(false)" aria-label="Закрыть фильтры">✕</button>
                       </div>
-                      <label class="wb-fbs-pvz-filter-field" for="wbFbsPvzSourceFilter">Источник
-                        <select id="wbFbsPvzSourceFilter" onchange="onWbFbsPvzFilterChange()">
-                          <option value="0">Все источники</option>
-                        </select>
-                      </label>
                       <label class="wb-fbs-pvz-filter-field" for="wbFbsPvzCategoryFilter">Категория
                         <select id="wbFbsPvzCategoryFilter" onchange="onWbFbsPvzFilterChange()">
                           <option value="">Все категории</option>
@@ -2745,6 +2740,11 @@
                   </div>
                 </div>
                 <div class="wb-fbs-pvz-toolbar-right">
+                  <select id="wbFbsPvzSourceFilter" class="wb-fbs-pvz-source"
+                          title="Источник" aria-label="Источник"
+                          onchange="onWbFbsPvzFilterChange()">
+                    <option value="0">Все источники</option>
+                  </select>
                   <input id="wbFbsPvzSearchFilter" class="wb-fbs-kiz-search wb-fbs-pvz-search" type="search"
                          placeholder="🔍 Стикер, ШК, название…" autocomplete="off"
                          title="Поиск по стикеру возврата, штрихкоду и названию товара"
@@ -8633,6 +8633,6 @@
   <script src="/static/ozon_fbs.js?v=220"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=38"></script>
   <script src="/static/app.js?v=713"></script>
-  <script src="/static/wb_fbs_pvz_returns.js?v=16"></script>
+  <script src="/static/wb_fbs_pvz_returns.js?v=17"></script>
 </body>
 </html>
