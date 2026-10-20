@@ -21080,6 +21080,7 @@ body.ttn-col-resizing {
 }
 #wbFbsPvzReturnsModal #wbFbsPvzPrintBtn,
 #wbFbsPvzReturnsModal #wbFbsPvzFilterBtn,
+#wbFbsPvzReturnsModal #wbFbsPvzQrBtn,
 #wbFbsPvzReturnsModal #wbFbsPvzSettingsBtn,
 #wbFbsPvzReturnsModal .wb-fbs-pvz-date-btn {
   width: 40px;
@@ -21207,8 +21208,15 @@ body.ttn-col-resizing {
 #wbFbsPvzSettingsModal button:active:not(:disabled) {
   transform: translateY(1px);
 }
-#wbFbsPvzReturnsModal .wb-fbs-pvz-count {
+#wbFbsPvzReturnsModal .wb-fbs-pvz-toolbar-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
   margin-left: auto;
+  min-width: 0;
+}
+#wbFbsPvzReturnsModal .wb-fbs-pvz-count {
+  margin-left: 0;
   font-size: 16px;
   font-weight: 600;
   color: #334155;
@@ -21363,7 +21371,7 @@ body.ttn-col-resizing {
   }
   #wbFbsPvzReturnsModal .wb-fbs-pvz-toolbar-left {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 44px 44px 44px;
+    grid-template-columns: minmax(0, 1fr) 44px 44px 44px 44px;
     gap: 8px;
     align-items: center;
     width: 100%;
@@ -21394,8 +21402,14 @@ body.ttn-col-resizing {
     grid-row: 1;
     justify-self: end;
   }
+  #wbFbsPvzReturnsModal #wbFbsPvzQrBtn {
+    grid-column: 5;
+    grid-row: 1;
+    justify-self: end;
+  }
   #wbFbsPvzReturnsModal #wbFbsPvzPrintBtn,
   #wbFbsPvzReturnsModal #wbFbsPvzFilterBtn,
+  #wbFbsPvzReturnsModal #wbFbsPvzQrBtn,
   #wbFbsPvzReturnsModal .wb-fbs-pvz-date-btn {
     width: 44px;
     min-width: 44px;
@@ -21412,12 +21426,17 @@ body.ttn-col-resizing {
     right: 0;
     width: min(320px, calc(100vw - 32px));
   }
+  #wbFbsPvzReturnsModal .wb-fbs-pvz-toolbar-right {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-start;
+  }
   #wbFbsPvzReturnsModal .wb-fbs-pvz-count {
     margin-left: 0;
   }
   #wbFbsPvzReturnsModal #wbFbsPvzDatePanel.supplies-date-panel {
-    left: 0;
-    right: auto;
+    left: auto;
+    right: 0;
     width: min(320px, calc(100vw - 48px));
     min-width: 0;
     max-width: none;
