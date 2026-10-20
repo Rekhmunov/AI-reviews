@@ -408,7 +408,7 @@ class PvzUiContractTests(unittest.TestCase):
         self.assertNotIn("hidden", pvz_btn)
         self.assertIn("Возвраты ПВЗ", pvz_btn)
         self.assertLess(html.index('id="wbFbsKizRestoreBtn"'), html.index('id="wbFbsPvzReturnsBtn"'))
-        self.assertIn('src="/static/wb_fbs_pvz_returns.js?v=18"', html)
+        self.assertIn('src="/static/wb_fbs_pvz_returns.js?v=19"', html)
         self.assertIn('href="/static/style.css?v=436"', html)
         self.assertIn('id="wbFbsPvzCategoryFilter"', html)
         self.assertIn('id="wbFbsPvzPrintBtn"', html)
@@ -430,6 +430,8 @@ class PvzUiContractTests(unittest.TestCase):
         self.assertLess(toolbar.index("wbFbsPvzSourceFilter"), toolbar.index("wbFbsPvzSearchFilter"))
         self.assertLess(toolbar.index("wbFbsPvzSearchFilter"), toolbar.index("wbFbsPvzDateBtn"))
         self.assertLess(toolbar.index("wbFbsPvzDateBtn"), toolbar.index("wbFbsPvzCount"))
+        settings_btn = html.split('id="wbFbsPvzSettingsBtn"', 1)[1].split("</button>", 1)[0]
+        self.assertIn("hidden", settings_btn)
         filter_panel = html.split('id="wbFbsPvzFilterPanel"', 1)[1].split('class="wb-fbs-pvz-toolbar-right"', 1)[0]
         self.assertNotIn("wbFbsPvzSearchFilter", filter_panel)
         self.assertNotIn("wbFbsPvzSourceFilter", filter_panel)
@@ -475,6 +477,10 @@ class PvzUiContractTests(unittest.TestCase):
         self.assertIn("Нет выданных возвратов за этот период", pvz_js)
         self.assertIn("_wbFbsPvzSetIssueDates", pvz_js)
         self.assertIn("printWbFbsPvzList", pvz_js)
+        self.assertIn("_wbFbsPvzSyncOwnerOnlySettingsBtn", pvz_js)
+        self.assertIn("_wbFbsPvzCanEditSettings", pvz_js)
+        self.assertIn("isTenantOwner", pvz_js)
+        self.assertIn("Источники доступны только главному пользователю", pvz_js)
         self.assertNotIn("printWbFbsPvzReturnQrs", pvz_js)
         self.assertNotIn("_wbFbsPvzReturnQrLabels", pvz_js)
         self.assertNotIn("toggleWbFbsPvzPrintMenu", pvz_js)

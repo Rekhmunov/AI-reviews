@@ -13030,7 +13030,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     async def wb_fbs_pvz_returns_settings_save(request: Request) -> dict[str, object]:
         from . import wb_fbs_pvz_returns as pvz_mod
 
-        owner_id = _wb_fbs_pvz_owner(request)
+        user = _require_user(request)
+        if not _can_view_wb_fbs(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        if not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Источники возвратов ПВЗ доступны только главному пользователю",
+            )
+        owner_id = _supply_owner_id(user)
         try:
             body = await request.json()
         except Exception:
