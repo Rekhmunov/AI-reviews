@@ -13081,6 +13081,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         date_from: str = "",
         date_to: str = "",
         source_id: int = 0,
+        category: str = "",
     ) -> dict[str, object]:
         from . import wb_fbs_pvz_returns as pvz_mod
 
@@ -13092,6 +13093,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 date_from=date_from,
                 date_to=date_to,
                 source_id=source_id,
+                category=category,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

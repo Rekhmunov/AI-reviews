@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=428" />
+  <link rel="stylesheet" href="/static/style.css?v=429" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2710,10 +2710,27 @@
                 <button type="button" id="wbFbsPvzSyncBtn" onclick="syncWbFbsPvzReturns()">Синхронизировать</button>
                 <button type="button" id="wbFbsPvzSettingsBtn" class="secondary icon-btn"
                         onclick="openWbFbsPvzSettings()" title="Источники" aria-label="Источники">⚙</button>
+                <div class="wb-fbs-pvz-print-wrap">
+                  <button type="button" id="wbFbsPvzPrintBtn" class="secondary icon-btn"
+                          onclick="toggleWbFbsPvzPrintMenu(event)" title="Печать"
+                          aria-label="Печать" aria-haspopup="menu" aria-expanded="false"
+                          aria-controls="wbFbsPvzPrintMenu">⎙</button>
+                  <div id="wbFbsPvzPrintMenu" class="wb-fbs-picking-menu wb-fbs-pvz-print-menu" role="menu" hidden>
+                    <button type="button" class="wb-fbs-picking-menu-item" role="menuitem"
+                            onclick="printWbFbsPvzList('full')">Весь список</button>
+                    <button type="button" class="wb-fbs-picking-menu-item" role="menuitem"
+                            onclick="printWbFbsPvzList('merged')">Объединённый (как лист подбора)</button>
+                  </div>
+                </div>
                 <div class="wb-fbs-pvz-filters">
                   <label class="wb-fbs-pvz-source" for="wbFbsPvzSourceFilter">Источник
                     <select id="wbFbsPvzSourceFilter" onchange="onWbFbsPvzFilterChange()">
                       <option value="0">Все источники</option>
+                    </select>
+                  </label>
+                  <label class="wb-fbs-pvz-source" for="wbFbsPvzCategoryFilter">Категория
+                    <select id="wbFbsPvzCategoryFilter" onchange="onWbFbsPvzFilterChange()">
+                      <option value="">Все категории</option>
                     </select>
                   </label>
                   <div class="supplies-date-wrap wb-fbs-returns-date-wrap">
@@ -8598,6 +8615,6 @@
   <script src="/static/ozon_fbs.js?v=220"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=38"></script>
   <script src="/static/app.js?v=713"></script>
-  <script src="/static/wb_fbs_pvz_returns.js?v=6"></script>
+  <script src="/static/wb_fbs_pvz_returns.js?v=7"></script>
 </body>
 </html>

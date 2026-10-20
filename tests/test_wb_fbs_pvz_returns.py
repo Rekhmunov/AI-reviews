@@ -145,6 +145,7 @@ class PvzAssembleTests(unittest.TestCase):
                 "barcodes": ["4600000000002"],
                 "barcode_label_name": "",
                 "photo_path": "a.jpg",
+                "product_category": "Наматрасники",
             },
             {
                 "id": 4,
@@ -154,6 +155,7 @@ class PvzAssembleTests(unittest.TestCase):
                 "barcodes": ["4600000000001"],
                 "barcode_label_name": "160",
                 "photo_path": "b.jpg",
+                "product_category": "Наматрасники",
             },
         ]
         items = pvz.assemble_pvz_items(
@@ -169,6 +171,25 @@ class PvzAssembleTests(unittest.TestCase):
         self.assertFalse(items[1]["has_kiz"])
         self.assertEqual(items[0]["issued_label"], "19.10.2026 09:01")
         self.assertEqual(items[0]["product_photo"], "/api/products/photo/4")
+        self.assertEqual(items[0]["product_category"], "Наматрасники")
+        bedding = dict(items[1])
+        bedding["product_name"] = "Пододеяльник"
+        bedding["product_category"] = "Постельное белье"
+        bedding["article"] = "bed-1"
+        pool = items + [bedding]
+        only_pads = pvz.filter_pvz_items_by_category(pool, category="Наматрасники")
+        self.assertEqual([x["srid"] for x in only_pads], ["a", "b"])
+        merged = pvz.merge_pvz_items_by_product(
+            [
+                {"product_name": "Наматрасник 160", "article": "a", "qty": 1, "id": 1},
+                {"product_name": "Наматрасник 160", "article": "a", "qty": 1, "id": 2},
+                {"product_name": "Пододеяльник", "article": "b", "qty": 1, "id": 3},
+            ]
+        )
+        self.assertEqual([(x["product_name"], x["qty"]) for x in merged], [
+            ("Наматрасник 160", 2),
+            ("Пододеяльник", 1),
+        ])
 
     def test_dedupe_prefers_row_matched_to_local_order(self):
         rows = [
@@ -294,17 +315,22 @@ class PvzUiContractTests(unittest.TestCase):
         self.assertNotIn("hidden", pvz_btn)
         self.assertIn("Возвраты ПВЗ", pvz_btn)
         self.assertLess(html.index('id="wbFbsKizRestoreBtn"'), html.index('id="wbFbsPvzReturnsBtn"'))
-        self.assertIn('src="/static/wb_fbs_pvz_returns.js?v=6"', html)
-        self.assertIn('href="/static/style.css?v=428"', html)
+        self.assertIn('src="/static/wb_fbs_pvz_returns.js?v=7"', html)
+        self.assertIn('href="/static/style.css?v=429"', html)
+        self.assertIn('id="wbFbsPvzCategoryFilter"', html)
+        self.assertIn('id="wbFbsPvzPrintBtn"', html)
+        self.assertIn("Весь список", html)
+        self.assertIn("Объединённый (как лист подбора)", html)
+        toolbar = html.split('class="wb-fbs-pvz-toolbar"', 1)[1]
+        self.assertLess(toolbar.index("wbFbsPvzSyncBtn"), toolbar.index("wbFbsPvzSettingsBtn"))
+        self.assertLess(toolbar.index("wbFbsPvzSettingsBtn"), toolbar.index("wbFbsPvzPrintBtn"))
+        self.assertLess(toolbar.index("wbFbsPvzPrintBtn"), toolbar.index("wbFbsPvzCategoryFilter"))
+        self.assertLess(toolbar.index("wbFbsPvzCategoryFilter"), toolbar.index("wbFbsPvzDateBtn"))
         table_head = html.split('id="wbFbsPvzTable"', 1)[1].split("</thead>", 1)[0]
         self.assertLess(table_head.index(">Выдан<"), table_head.index(">Товар<"))
         self.assertLess(table_head.index(">Товар<"), table_head.index("Кол-во"))
         self.assertIn("Отметьте кабинеты WB.", html)
         self.assertNotIn("Отметьте кабинеты WB FBS.", html)
-        toolbar = html.split('class="wb-fbs-pvz-toolbar"', 1)[1].split("</div>", 1)[0]
-        self.assertLess(toolbar.index("wbFbsPvzSyncBtn"), toolbar.index("wbFbsPvzSettingsBtn"))
-        self.assertLess(toolbar.index("wbFbsPvzSettingsBtn"), toolbar.index("wbFbsPvzSourceFilter"))
-        self.assertLess(toolbar.index("wbFbsPvzSourceFilter"), toolbar.index("wbFbsPvzDateBtn"))
         js = (ROOT / "web_static" / "app.js").read_text(encoding="utf-8")
         gate = js.split("function _wbFbsSyncOwnerOnlyReturnsBtn()", 1)[1].split("function ", 1)[0]
         self.assertIn("wbFbsKizRestoreBtn", gate)
@@ -317,6 +343,8 @@ class PvzUiContractTests(unittest.TestCase):
         self.assertIn("В таблице:", pvz_js)
         self.assertIn("Нет выданных возвратов за этот период", pvz_js)
         self.assertIn("_wbFbsPvzSetIssueDates", pvz_js)
+        self.assertIn("printWbFbsPvzList", pvz_js)
+        self.assertIn("_wbFbsPvzMergeItems", pvz_js)
         self.assertIn('width="144" height="144"', pvz_js)
         row_html = pvz_js.split("return `<tr>", 1)[1].split("`;", 1)[0]
         self.assertLess(row_html.index("wb-fbs-pvz-issued"), row_html.index("wb-fbs-sd-td-product"))
