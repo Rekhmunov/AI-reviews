@@ -438,9 +438,18 @@ function renderWbFbsPvzTable() {
   }
   tbody.innerHTML = items.map((item, index) => {
     const orderId = Number(item.order_id || 0);
-    const sourceId = Number(item.source_id || 0);
+    // Print against the FBS cabinet where the order (and КИЗ) lives — may differ
+    // from the goods-return source used for sync.
+    const printSourceId = Number(item.order_source_id || item.source_id || 0);
+    const orderLinked = !!item.order_linked;
     const menuKey = `pvz_${index}`;
-    const canKiz = !!item.has_kiz && orderId > 0 && sourceId > 0;
+    // Enable when the return is linked to a local FBS order; print loads КИЗ
+    // from marking / «Вывод КИЗ» / WB meta (same as модалка «Возвраты»).
+    const canKiz = orderLinked && orderId > 0 && printSourceId > 0;
+    let kizTitle = "";
+    if (!orderId) kizTitle = "В возврате нет номера заказа (orderId)";
+    else if (!orderLinked) kizTitle = "Заказ не найден в базе FBS";
+    else if (!item.has_kiz) kizTitle = "КИЗ подтянется при печати";
     const printable = typeof _wbFbsReturnsPrintableBarcodes === "function"
       ? _wbFbsReturnsPrintableBarcodes(item.catalog_barcodes)
       : [];
@@ -460,8 +469,8 @@ function renderWbFbsPvzTable() {
                   onclick="toggleWbFbsRowMenu(event, '${menuKey}')" aria-haspopup="menu">⋮</button>
           <div id="wbFbsRowMenu_${menuKey}" class="wb-fbs-row-menu wb-fbs-pvz-row-menu" data-order-id="${menuKey}" role="menu">
             <button type="button" class="wb-fbs-row-menu-item${canKiz ? "" : " is-disabled"}" role="menuitem"
-                    ${canKiz ? `onclick="printWbFbsPvzKiz(${sourceId}, ${orderId})"` : "disabled"}
-                    ${canKiz ? "" : 'title="Нет КИЗ для печати"'}>
+                    ${canKiz ? `onclick="printWbFbsPvzKiz(${printSourceId}, ${orderId})"` : "disabled"}
+                    ${canKiz ? "" : `title="${_wbFbsPvzEsc(kizTitle || "Нет КИЗ для печати")}"`}>
               Распечатать маркировку
             </button>
             <button type="button" class="wb-fbs-row-menu-item${canBarcode ? "" : " is-disabled"}" role="menuitem"

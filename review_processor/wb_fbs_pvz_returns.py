@@ -138,18 +138,18 @@ def _dedupe_key(row: dict[str, Any]) -> str:
     return f"row:{sticker}:{order_id}:{shk}"
 
 
-def _row_matches_order(row: dict[str, Any], orders: dict[tuple[int, int], dict[str, Any]]) -> bool:
+def _row_matches_order(row: dict[str, Any], orders: dict[int, dict[str, Any]]) -> bool:
+    """True when goods-return ``orderId`` exists in local FBS orders (any cabinet)."""
     try:
         order_id = int(row.get("wb_order_id") or 0)
-        source_id = int(row.get("source_id") or 0)
     except (TypeError, ValueError):
         return False
-    return order_id > 0 and source_id > 0 and (source_id, order_id) in orders
+    return order_id > 0 and order_id in orders
 
 
 def dedupe_issued_rows(
     rows: list[dict[str, Any]],
-    orders: dict[tuple[int, int], dict[str, Any]],
+    orders: dict[int, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """One row per srid. Prefer the copy that matched a local FBS order."""
     best: dict[str, dict[str, Any]] = {}
@@ -260,7 +260,7 @@ def _photo_url(product: dict[str, Any] | None) -> str:
 
 def _item_from_row(
     row: dict[str, Any],
-    orders: dict[tuple[int, int], dict[str, Any]],
+    orders: dict[int, dict[str, Any]],
     index: tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]], dict[str, dict[str, Any]]],
     source_names: dict[int, str],
 ) -> dict[str, Any]:
@@ -272,8 +272,14 @@ def _item_from_row(
         order_id = int(row.get("wb_order_id") or 0)
     except (TypeError, ValueError):
         order_id = 0
-    order = orders.get((source_id, order_id)) if order_id > 0 else None
+    # Goods-return cabinet and FBS order cabinet often differ — look up by orderId only.
+    order = orders.get(order_id) if order_id > 0 else None
+    linked = isinstance(order, dict) and bool(order)
     order = order or {}
+    try:
+        order_source_id = int(order.get("source_id") or 0) if linked else 0
+    except (TypeError, ValueError):
+        order_source_id = 0
     article = str(order.get("article") or "").strip()
     nm_raw = order.get("nm_id")
     if nm_raw in (None, ""):
@@ -298,11 +304,14 @@ def _item_from_row(
         row_id = int(row.get("id") or 0)
     except (TypeError, ValueError):
         row_id = 0
+    kiz_codes = _local_kiz_codes(order.get("kiz_codes_json")) if linked else []
     return {
         "id": row_id,
         "source_id": source_id,
         "source_name": str(source_names.get(source_id) or "").strip(),
         "order_id": order_id,
+        "order_source_id": order_source_id,
+        "order_linked": linked,
         "srid": str(row.get("srid") or "").strip(),
         "sticker_id": str(row.get("sticker_id") or "").strip(),
         "status": str(row.get("status") or "").strip(),
@@ -319,7 +328,8 @@ def _item_from_row(
         "barcode_label_name": str((product or {}).get("barcode_label_name") or "").strip(),
         "sticker_part_a": str(order.get("sticker_part_a") or "").strip(),
         "sticker_part_b": str(order.get("sticker_part_b") or "").strip(),
-        "has_kiz": bool(_local_kiz_codes(order.get("kiz_codes_json"))),
+        # Local marking on the FBS order. Print also tries «Вывод КИЗ» / WB meta.
+        "has_kiz": bool(kiz_codes),
     }
 
 
@@ -422,7 +432,7 @@ def product_category_options(
 def assemble_pvz_items(
     rows: list[dict[str, Any]],
     *,
-    orders: dict[tuple[int, int], dict[str, Any]],
+    orders: dict[int, dict[str, Any]],
     products: list[dict[str, Any]],
     source_names: dict[int, str] | None = None,
     date_from: date,
@@ -538,24 +548,32 @@ def _load_orders(
     *,
     user_id: int,
     rows: list[dict[str, Any]],
-) -> dict[tuple[int, int], dict[str, Any]]:
-    pairs: list[tuple[int, int]] = []
+) -> dict[int, dict[str, Any]]:
+    """Local FBS orders by ``orderId`` across cabinets.
+
+    Goods-return sync often uses an Analytics cabinet that is not the FBS
+    source where the assembly order (and КИЗ) lives. Match by order id only,
+    preferring the return's ``source_id`` when several cabinets have the row.
+    """
+    preferred_source: dict[int, int] = {}
+    order_ids: list[int] = []
     for row in rows:
         try:
             order_id = int(row.get("wb_order_id") or 0)
             source_id = int(row.get("source_id") or 0)
         except (TypeError, ValueError):
             continue
-        if order_id > 0 and source_id > 0:
-            pairs.append((source_id, order_id))
-    if not pairs:
+        if order_id <= 0:
+            continue
+        order_ids.append(order_id)
+        if order_id not in preferred_source and source_id > 0:
+            preferred_source[order_id] = source_id
+    unique_ids = sorted(set(order_ids))
+    if not unique_ids:
         return {}
-    source_ids = sorted({sid for sid, _oid in pairs})
-    order_ids = sorted({oid for _sid, oid in pairs})
-    found: dict[tuple[int, int], dict[str, Any]] = {}
-    source_sql = ",".join("?" * len(source_ids))
+    candidates: dict[int, list[dict[str, Any]]] = {}
     with repo._connect() as conn:
-        for chunk in _chunks(order_ids, 400):
+        for chunk in _chunks(unique_ids, 400):
             order_sql = ",".join("?" * len(chunk))
             fetched = conn.execute(
                 repo._sql(
@@ -563,20 +581,33 @@ def _load_orders(
                     SELECT source_id, order_id, article, nm_id, skus_json,
                            kiz_codes_json, sticker_part_a, sticker_part_b
                     FROM wb_fbs_orders
-                    WHERE user_id = ? AND source_id IN ({source_sql})
-                      AND order_id IN ({order_sql})
+                    WHERE user_id = ? AND order_id IN ({order_sql})
                     """
                 ),
-                tuple([int(user_id), *source_ids, *chunk]),
+                tuple([int(user_id), *chunk]),
             ).fetchall()
             for raw in fetched:
                 item = repo._row_to_dict(raw)
                 try:
-                    key = (int(item.get("source_id") or 0), int(item.get("order_id") or 0))
+                    oid = int(item.get("order_id") or 0)
+                    sid = int(item.get("source_id") or 0)
                 except (TypeError, ValueError):
                     continue
-                if key[0] > 0 and key[1] > 0:
-                    found[key] = item
+                if oid <= 0 or sid <= 0:
+                    continue
+                candidates.setdefault(oid, []).append(item)
+    found: dict[int, dict[str, Any]] = {}
+    for oid, rows_for_oid in candidates.items():
+        prefer = int(preferred_source.get(oid) or 0)
+        best = None
+        if prefer > 0:
+            for item in rows_for_oid:
+                if int(item.get("source_id") or 0) == prefer:
+                    best = item
+                    break
+        if best is None:
+            best = rows_for_oid[0]
+        found[oid] = best
     return found
 
 
