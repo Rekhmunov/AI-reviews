@@ -486,7 +486,7 @@ function _wbFbsPvzRenderSettings(sources) {
   if (!list) return;
   const rows = Array.isArray(sources) ? sources : [];
   if (!rows.length) {
-    list.innerHTML = `<p class="wb-fbs-pvz-settings-empty">Нет источников WB FBS. Добавьте их в Поставки → Настройки → Источники.</p>`;
+    list.innerHTML = `<p class="wb-fbs-pvz-settings-empty">Нет источников WB. Добавьте их в Поставки → Настройки → Источники.</p>`;
     return;
   }
   list.innerHTML = rows.map((s) => {

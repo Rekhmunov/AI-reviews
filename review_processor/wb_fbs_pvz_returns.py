@@ -354,10 +354,11 @@ def assemble_pvz_items(
     return sort_pvz_items(items)
 
 
-def _wb_fbs_sources(repo: ReviewRepository, *, user_id: int) -> list[dict[str, Any]]:
+def _wb_sources(repo: ReviewRepository, *, user_id: int) -> list[dict[str, Any]]:
+    """All WB cabinets from Поставки → Источники (not only FBS)."""
     out: list[dict[str, Any]] = []
     for source in repo.list_supply_sources(user_id=user_id):
-        if not isinstance(source, dict) or not wb.is_wb_fbs_source(source):
+        if not isinstance(source, dict) or not wb.is_wb_source(source):
             continue
         try:
             source_id = int(source.get("id") or 0)
@@ -404,7 +405,7 @@ def saved_source_ids(repo: ReviewRepository, *, user_id: int) -> list[int]:
 
 
 def settings_view(repo: ReviewRepository, *, user_id: int) -> dict[str, Any]:
-    sources = _wb_fbs_sources(repo, user_id=user_id)
+    sources = _wb_sources(repo, user_id=user_id)
     allowed = {int(s["id"]) for s in sources}
     selected = [sid for sid in saved_source_ids(repo, user_id=user_id) if sid in allowed]
     selected_set = set(selected)
@@ -424,7 +425,7 @@ def save_settings_view(
     user_id: int,
     source_ids: object,
 ) -> dict[str, Any]:
-    sources = _wb_fbs_sources(repo, user_id=user_id)
+    sources = _wb_sources(repo, user_id=user_id)
     allowed = {int(s["id"]) for s in sources}
     cleaned = [sid for sid in _clean_id_list(source_ids) if sid in allowed]
     ensure_pvz_return_tables(repo)
@@ -642,7 +643,7 @@ def start_pvz_sync(
                 name = str(source.get("name") or f"Источник {source_id}")
                 prefix = f"{index}/{len(source_snapshot)} {name}"
                 src_full = repo.get_supply_source_with_key(user_id=user_id, source_id=source_id)
-                if not src_full or not wb.is_wb_fbs_source(src_full):
+                if not src_full or not wb.is_wb_source(src_full):
                     errors.append(f"{name}: источник не найден")
                     _set_pvz_job(user_id, message=errors[-1], errors=list(errors))
                     continue

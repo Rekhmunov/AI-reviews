@@ -280,12 +280,16 @@ class PvzUiContractTests(unittest.TestCase):
         self.assertNotIn("hidden", pvz_btn)
         self.assertIn("Возвраты ПВЗ", pvz_btn)
         self.assertLess(html.index('id="wbFbsKizRestoreBtn"'), html.index('id="wbFbsPvzReturnsBtn"'))
-        self.assertIn('src="/static/wb_fbs_pvz_returns.js?v=3"', html)
+        self.assertIn('src="/static/wb_fbs_pvz_returns.js?v=4"', html)
+        self.assertIn("Отметьте кабинеты WB.", html)
+        self.assertNotIn("Отметьте кабинеты WB FBS.", html)
         js = (ROOT / "web_static" / "app.js").read_text(encoding="utf-8")
         gate = js.split("function _wbFbsSyncOwnerOnlyReturnsBtn()", 1)[1].split("function ", 1)[0]
         self.assertIn("wbFbsKizRestoreBtn", gate)
         self.assertNotIn("wbFbsPvzReturnsBtn", gate)
         pvz_js = (ROOT / "web_static" / "wb_fbs_pvz_returns.js").read_text(encoding="utf-8")
+        self.assertIn("Нет источников WB.", pvz_js)
+        self.assertNotIn("Нет источников WB FBS.", pvz_js)
         self.assertIn("Распечатать ШК", pvz_js)
         self.assertIn("Распечатать маркировку", pvz_js)
         self.assertIn("В таблице:", pvz_js)
@@ -295,3 +299,21 @@ class PvzUiContractTests(unittest.TestCase):
             syncing.index("toggleWbFbsPvzDatePanel(false)"),
             syncing.index("wbFbsPvzState.syncing = !!on"),
         )
+
+    def test_settings_lists_all_wb_sources_not_only_fbs(self):
+        repo = MagicMock()
+        repo.list_supply_sources.return_value = [
+            {"id": 1, "name": "ВБ основной", "marketplace": "wb"},
+            {"id": 2, "name": "ФБС ВБ склад", "marketplace": "wb"},
+            {"id": 3, "name": "Озон", "marketplace": "ozon"},
+            {"id": 4, "name": "Wildberries FBO", "marketplace": "wildberries"},
+        ]
+        with patch.object(pvz, "saved_source_ids", return_value=[1, 2]):
+            view = pvz.settings_view(repo, user_id=9)
+        ids = [s["id"] for s in view["sources"]]
+        self.assertEqual(ids, [1, 2, 4])
+        self.assertEqual(view["source_ids"], [1, 2])
+        selected = {s["id"]: s["selected"] for s in view["sources"]}
+        self.assertTrue(selected[1])
+        self.assertTrue(selected[2])
+        self.assertFalse(selected[4])
