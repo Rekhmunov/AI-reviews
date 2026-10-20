@@ -173,7 +173,41 @@ class OzonPvzSettingsTests(unittest.TestCase):
 
 
 class OzonPvzSyncTests(unittest.TestCase):
+    def test_sync_pagination_falls_back_to_max_return_id(self):
+        repo = MagicMock()
+        client = MagicMock()
+        client.post_json.side_effect = [
+            {
+                "returns": [{"id": 10, "visual": {"status": {"sys_name": "ReceivedBySeller"}, "change_moment": "2026-10-19T12:00:00Z"}, "product": {"quantity": 1}}],
+                "has_next": True,
+                "last_id": 0,
+            },
+            {
+                "returns": [],
+                "has_next": False,
+                "last_id": 10,
+            },
+        ]
+        with patch.object(pvz.ozon, "OzonFbsClient", return_value=client), patch.object(
+            pvz, "upsert_return_rows", side_effect=[1, 0]
+        ) as upsert:
+            total = pvz.sync_source_returns(
+                repo,
+                user_id=1,
+                source_id=2,
+                client_id="c",
+                api_key="k",
+                date_from="2026-09-19",
+                date_to="2026-10-19",
+            )
+        self.assertEqual(total, 1)
+        self.assertEqual(client.post_json.call_count, 2)
+        second_body = client.post_json.call_args_list[1].args[1]
+        self.assertEqual(second_body["last_id"], 10)
+        self.assertEqual(upsert.call_count, 2)
+
     def test_start_sync_uses_31_day_window_and_ignores_calendar(self):
+
         repo = MagicMock()
         with patch.object(
             pvz,
@@ -230,7 +264,7 @@ class OzonPvzUiContractTests(unittest.TestCase):
             html.index('id="ozonFbsKizRestoreBtn"'),
             html.index('id="ozonFbsPvzReturnsBtn"'),
         )
-        self.assertIn('src="/static/ozon_fbs_pvz_returns.js?v=1"', html)
+        self.assertIn('src="/static/ozon_fbs_pvz_returns.js?v=2"', html)
         self.assertIn('href="/static/style.css?v=437"', html)
         self.assertIn('id="ozonFbsPvzReturnsModal"', html)
         self.assertIn('id="ozonFbsPvzQrBtn"', html)
@@ -256,6 +290,10 @@ class OzonPvzUiContractTests(unittest.TestCase):
         self.assertNotIn("Распечатать маркировку", js)
         self.assertNotIn("printOzonFbsPvzKiz", js)
         self.assertIn("Распечатать ШК", js)
+        self.assertIn("Дата получения", js)
+        self.assertNotIn("Дата выдачи", js)
+        self.assertIn('onclick="toggleOzonFbsPvzFilterPanel()"', html)
+        self.assertNotIn("toggleOzonFbsPvzFilterPanel(event)", html)
         self.assertIn("_ozonFbsPvzSyncOwnerOnlySettingsBtn", js)
         self.assertIn("isTenantOwner", js)
         self.assertIn("Нет источников Ozon FBS.", js)
