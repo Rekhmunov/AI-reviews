@@ -259,9 +259,9 @@ function toggleWbFbsPvzFilterPanel(show) {
   panel.hidden = !willOpen;
   _wbFbsPvzSyncFilterBtnState();
   if (willOpen) {
-    const search = document.getElementById("wbFbsPvzSearchFilter");
-    if (search && typeof search.focus === "function") {
-      setTimeout(() => search.focus(), 0);
+    const source = document.getElementById("wbFbsPvzSourceFilter");
+    if (source && typeof source.focus === "function") {
+      setTimeout(() => source.focus(), 0);
     }
   }
 }
