@@ -160,6 +160,21 @@ def _match_address_fields(
     return raw, _parse_ru_address(raw), ""
 
 
+def format_ozon_fbs_waybill_number(doc_number: object) -> str:
+    """НомерТрН для эТрН Ozon FBS: «{№ ТН} FBS» (без двойного суффикса)."""
+    num = str(doc_number or "").strip()
+    if not num:
+        return "FBS"
+    if re.search(r"(?i)\s+FBS$", num):
+        # Already «… FBS» — keep as-is (normalize trailing spaces only).
+        return num
+    if re.search(r"(?i)FBS$", num):
+        # «201FBS» → «201 FBS»
+        base = re.sub(r"(?i)FBS$", "", num).strip()
+        return f"{base} FBS" if base else "FBS"
+    return f"{num} FBS"
+
+
 def build_ttn_cargoes_json(record: dict[str, Any]) -> dict[str, Any]:
     places = max(1, _as_int(record.get("cargo_places"), default=1))
     packing = str(record.get("packing_type") or "").strip().lower()
@@ -317,7 +332,11 @@ def collect_ttn_doc_context(
         item["supply_order_number"] = fbs_sid
         item["infpol_orders_value"] = fbs_sid
     elif fbs_sid and plat in ("ozon", "ozon_fbs"):
-        # Ozon FBS эТрН (регламент seller-edu): Тип потока = FBS.
+        # Ozon FBS эТрН: НомерТрН = «{№ ТН} FBS» (регламент seller-edu /
+        # ответ поддержки). ИнфПол Orders оставляем голым номером ТН;
+        # тип потока — отдельным shipment_flow_type=FBS.
+        item["supply_order_number"] = format_ozon_fbs_waybill_number(doc_number)
+        item["infpol_orders_value"] = doc_number or str(record.get("id") or "")
         item["infpol_shipment_flow_type"] = "FBS"
         try:
             fbs_src = int(record.get("fbs_source_id") or 0)

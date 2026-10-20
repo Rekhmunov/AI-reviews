@@ -4,7 +4,12 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 
 from review_processor.ozon_etrn import OZON_CONSIGNEE_NAME
-from review_processor.ttn_docs import build_ttn_etrn_xml, build_ttn_zakaz_xml, collect_ttn_doc_context
+from review_processor.ttn_docs import (
+    build_ttn_etrn_xml,
+    build_ttn_zakaz_xml,
+    collect_ttn_doc_context,
+    format_ozon_fbs_waybill_number,
+)
 
 
 class _Repo:
@@ -53,6 +58,13 @@ def _record(**overrides):
     }
     base.update(overrides)
     return base
+
+
+def test_format_ozon_fbs_waybill_number():
+    assert format_ozon_fbs_waybill_number("201") == "201 FBS"
+    assert format_ozon_fbs_waybill_number("201 FBS") == "201 FBS"
+    assert format_ozon_fbs_waybill_number("201FBS") == "201 FBS"
+    assert format_ozon_fbs_waybill_number("") == "FBS"
 
 
 def test_collect_ttn_context_maps_core_fields():
@@ -187,7 +199,7 @@ def test_ttn_etrn_non_wb_keeps_doc_number_in_infpol():
 
 
 def test_ttn_etrn_ozon_fbs_shipment_flow_type_and_cargo_marks():
-    """Ozon FBS ТН → InfPol shipment_flow_type=FBS и Марк = ID ГМ поставки."""
+    """Ozon FBS ТН → НомерТрН «{№} FBS», InfPol Orders=№, Марк=ID ГМ."""
 
     class _RepoWithGm(_Repo):
         def _connect(self):
@@ -222,18 +234,25 @@ def test_ttn_etrn_ozon_fbs_shipment_flow_type_and_cargo_marks():
         doc_number="9",
     )
     ctx = collect_ttn_doc_context(repository=_RepoWithGm(), owner_id=1, record=rec)
+    assert ctx["item"]["supply_order_number"] == "9 FBS"
+    assert ctx["item"].get("infpol_orders_value") == "9"
     assert ctx["item"].get("infpol_shipment_flow_type") == "FBS"
     assert ctx["cargo_mark_ids"] == ["1019563511789384", "1019563511789385"]
+    assert ctx["doc_number"] == "9"
 
-    xml_bytes, _ = build_ttn_etrn_xml(repository=_RepoWithGm(), owner_id=1, record=rec)
+    xml_bytes, fname = build_ttn_etrn_xml(repository=_RepoWithGm(), owner_id=1, record=rec)
+    assert fname.startswith("эТрН №9")
     root = ET.fromstring(xml_bytes)
     sod = root.find("Документ/СодИнфГО")
     assert sod is not None
+    assert sod.attrib.get("НомерТрН") == "9 FBS"
+    assert sod.attrib.get("НомЗак") == "9 FBS"
     texts = sod.findall("ИнфПол/ТекстИнф")
     by_id = {t.attrib.get("Идентиф"): t.attrib.get("Значение") for t in texts}
     assert by_id.get("shipment_flow_type") == "FBS"
-    # Номер ТН в Orders сохраняем (не подменяем локальным OZ-FBS id).
+    # Номер ТН в Orders сохраняем (не подменяем локальным OZ-FBS id и без FBS).
     assert by_id.get("Orders") == "9"
+    assert by_id.get("ORDERS") == "9"
 
     op = sod.find("СвГруз/ОпГруз")
     assert op is not None
