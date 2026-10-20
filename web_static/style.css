@@ -21065,6 +21065,13 @@ body.ttn-col-resizing {
   gap: 12px;
   margin-top: 16px;
 }
+#wbFbsPvzReturnsModal .wb-fbs-pvz-filters {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-left: auto;
+}
 #wbFbsPvzReturnsModal .wb-fbs-pvz-date-btn,
 #wbFbsPvzReturnsModal #wbFbsPvzSyncBtn,
 #wbFbsPvzReturnsModal #wbFbsPvzSettingsBtn,
@@ -21115,7 +21122,7 @@ body.ttn-col-resizing {
   cursor: not-allowed;
 }
 #wbFbsPvzReturnsModal .wb-fbs-pvz-count {
-  margin-left: auto;
+  margin-left: 0;
   font-size: 16px;
   font-weight: 600;
   color: #334155;
@@ -21249,14 +21256,12 @@ body.ttn-col-resizing {
     align-items: center;
     margin-top: 12px;
   }
-  #wbFbsPvzReturnsModal .wb-fbs-returns-date-wrap {
-    position: static;
+  #wbFbsPvzReturnsModal #wbFbsPvzSyncBtn {
     grid-column: 1;
     grid-row: 1;
-    min-width: 0;
-  }
-  #wbFbsPvzReturnsModal .wb-fbs-pvz-date-btn {
     width: 100%;
+    max-width: none;
+    min-width: 0;
     min-height: 44px;
   }
   #wbFbsPvzReturnsModal #wbFbsPvzSettingsBtn {
@@ -21267,17 +21272,26 @@ body.ttn-col-resizing {
     min-height: 44px;
     padding: 0;
   }
-  #wbFbsPvzReturnsModal #wbFbsPvzSyncBtn {
+  #wbFbsPvzReturnsModal .wb-fbs-pvz-filters {
     grid-column: 1 / -1;
     grid-row: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    margin-left: 0;
     width: 100%;
-    max-width: none;
+  }
+  #wbFbsPvzReturnsModal .wb-fbs-returns-date-wrap {
+    position: static;
+    width: 100%;
     min-width: 0;
+  }
+  #wbFbsPvzReturnsModal .wb-fbs-pvz-date-btn {
+    width: 100%;
     min-height: 44px;
   }
   #wbFbsPvzReturnsModal .wb-fbs-pvz-source {
-    grid-column: 1 / -1;
-    grid-row: 3;
     display: flex;
     flex-direction: column;
     align-items: stretch;
@@ -21291,7 +21305,7 @@ body.ttn-col-resizing {
   }
   #wbFbsPvzReturnsModal .wb-fbs-pvz-count {
     grid-column: 1 / -1;
-    grid-row: 4;
+    grid-row: 3;
     margin-left: 0;
   }
   #wbFbsPvzReturnsModal #wbFbsPvzDatePanel.supplies-date-panel {
