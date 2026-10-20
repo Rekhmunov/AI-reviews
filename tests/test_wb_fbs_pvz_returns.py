@@ -33,6 +33,13 @@ class PvzWindowTests(unittest.TestCase):
         self.assertEqual(end, date(2026, 10, 19))
         self.assertEqual((end - start).days + 1, 31)
 
+    def test_sync_display_range_is_last_31_days(self):
+        start, end = pvz.sync_display_range(today=date(2026, 10, 20))
+        self.assertEqual(end, date(2026, 10, 20))
+        self.assertEqual(start, date(2026, 9, 20))
+        self.assertEqual((end - start).days + 1, 31)
+        self.assertEqual(pvz.wb_query_window(end), ("2026-09-20", "2026-10-20"))
+
     def test_default_returns_chunk_splits_31_days_pvz_chunk_does_not(self):
         """Existing «Возвраты» stays on 30-day chunks. PVZ asks for one 31-day call."""
         split = returns.iter_goods_return_windows("2026-09-19", "2026-10-19")
@@ -240,6 +247,10 @@ class PvzSyncTests(unittest.TestCase):
                 "source_ids": [7],
             },
         ), patch.object(
+            pvz,
+            "sync_display_range",
+            return_value=(date(2026, 9, 19), date(2026, 10, 19)),
+        ), patch.object(
             pvz, "resolve_goods_return_api_keys", return_value=([("an", "source")], True)
         ), patch.object(
             pvz, "goods_return_rate_limit_status", return_value={"blocked": False}
@@ -249,10 +260,13 @@ class PvzSyncTests(unittest.TestCase):
             "review_processor.wb_kiz_circulation.get_wb_analytics_api_key",
             return_value=None,
         ):
+            # Client calendar dates must not shrink the sync window.
             out = pvz.start_pvz_sync(
                 repo, user_id=3, date_from="2026-10-19", date_to="2026-10-19"
             )
             self.assertEqual(out["status"], "running")
+            self.assertEqual(out["date_from"], "2026-09-19")
+            self.assertEqual(out["date_to"], "2026-10-19")
             deadline = time.time() + 3
             job = None
             while time.time() < deadline:
@@ -280,9 +294,14 @@ class PvzUiContractTests(unittest.TestCase):
         self.assertNotIn("hidden", pvz_btn)
         self.assertIn("Возвраты ПВЗ", pvz_btn)
         self.assertLess(html.index('id="wbFbsKizRestoreBtn"'), html.index('id="wbFbsPvzReturnsBtn"'))
-        self.assertIn('src="/static/wb_fbs_pvz_returns.js?v=4"', html)
+        self.assertIn('src="/static/wb_fbs_pvz_returns.js?v=5"', html)
+        self.assertIn('href="/static/style.css?v=427"', html)
         self.assertIn("Отметьте кабинеты WB.", html)
         self.assertNotIn("Отметьте кабинеты WB FBS.", html)
+        toolbar = html.split('class="wb-fbs-pvz-toolbar"', 1)[1].split("</div>", 1)[0]
+        self.assertLess(toolbar.index("wbFbsPvzSyncBtn"), toolbar.index("wbFbsPvzSettingsBtn"))
+        self.assertLess(toolbar.index("wbFbsPvzSettingsBtn"), toolbar.index("wbFbsPvzSourceFilter"))
+        self.assertLess(toolbar.index("wbFbsPvzSourceFilter"), toolbar.index("wbFbsPvzDateBtn"))
         js = (ROOT / "web_static" / "app.js").read_text(encoding="utf-8")
         gate = js.split("function _wbFbsSyncOwnerOnlyReturnsBtn()", 1)[1].split("function ", 1)[0]
         self.assertIn("wbFbsKizRestoreBtn", gate)
@@ -294,6 +313,15 @@ class PvzUiContractTests(unittest.TestCase):
         self.assertIn("Распечатать маркировку", pvz_js)
         self.assertIn("В таблице:", pvz_js)
         self.assertIn("Нет выданных возвратов за этот период", pvz_js)
+        self.assertIn("_wbFbsPvzSetIssueDates", pvz_js)
+        sync_fn = pvz_js.split("async function syncWbFbsPvzReturns", 1)[1].split(
+            "window.syncWbFbsPvzReturns", 1
+        )[0]
+        self.assertIn("_wbFbsPvzSetIssueDates(result.date_from, result.date_to)", sync_fn)
+        self.assertLess(
+            sync_fn.index("_wbFbsPvzSetIssueDates"),
+            sync_fn.index("loadWbFbsPvzReturns()"),
+        )
         syncing = pvz_js.split("function _wbFbsPvzSetSyncing", 1)[1].split("function ", 1)[0]
         self.assertLess(
             syncing.index("toggleWbFbsPvzDatePanel(false)"),

@@ -90,6 +90,29 @@ function _wbFbsPvzEnsureDates() {
   _wbFbsPvzUpdateDateBtn();
 }
 
+/** Apply issue-date bounds after sync (last 31 days). Does not reload the table. */
+function _wbFbsPvzSetIssueDates(fromIso, toIso) {
+  const start = _wbFbsPvzParseIso(fromIso);
+  const end = _wbFbsPvzParseIso(toIso);
+  if (!start || !end) return false;
+  let from = start;
+  let to = end;
+  if (to < from) {
+    from = end;
+    to = start;
+  }
+  _wbFbsPvzCal.startDate = from;
+  _wbFbsPvzCal.endDate = new Date(to.getTime());
+  _wbFbsPvzCal.viewYear = to.getFullYear();
+  _wbFbsPvzCal.viewMonth = to.getMonth();
+  const fromEl = document.getElementById("wbFbsPvzDateFrom");
+  const toEl = document.getElementById("wbFbsPvzDateTo");
+  if (fromEl) fromEl.value = _wbFbsPvzFmtIso(from);
+  if (toEl) toEl.value = _wbFbsPvzFmtIso(to);
+  _wbFbsPvzUpdateDateBtn();
+  return true;
+}
+
 function _wbFbsPvzUpdateDateBtn() {
   const btn = document.getElementById("wbFbsPvzDateBtn");
   if (!btn) return;
@@ -430,7 +453,6 @@ async function _wbFbsPvzPoll(token) {
 
 async function syncWbFbsPvzReturns() {
   if (wbFbsPvzState.syncing) return;
-  _wbFbsPvzEnsureDates();
   if (!_wbFbsPvzSelectedSources().length) {
     alert("Выберите источники в настройках");
     openWbFbsPvzSettings();
@@ -444,10 +466,7 @@ async function syncWbFbsPvzReturns() {
     const res = await fetch("/api/wb-fbs/pvz-returns/sync", {
       method: "POST",
       headers: _wbFbsPvzHeaders(),
-      body: JSON.stringify({
-        date_from: document.getElementById("wbFbsPvzDateFrom")?.value || "",
-        date_to: document.getElementById("wbFbsPvzDateTo")?.value || "",
-      }),
+      body: JSON.stringify({}),
     });
     const payload = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -470,6 +489,8 @@ async function syncWbFbsPvzReturns() {
     } else {
       _wbFbsPvzSetInfo("");
     }
+    // Sync always covers the last 31 days — put that range in the filter and show it.
+    _wbFbsPvzSetIssueDates(result.date_from, result.date_to);
     await loadWbFbsPvzReturns();
   } catch (err) {
     if (wbFbsPvzState.pollToken === token) {
@@ -582,6 +603,7 @@ async function openWbFbsPvzReturnsModal() {
           if (String(result.status || "") === "error") {
             _wbFbsPvzSetInfo(result.message || "Синхронизация не удалась", "error");
           }
+          _wbFbsPvzSetIssueDates(result.date_from, result.date_to);
           await loadWbFbsPvzReturns();
         }
         if (wbFbsPvzState.pollToken === token) _wbFbsPvzSetSyncing(false);

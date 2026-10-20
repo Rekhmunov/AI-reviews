@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=426" />
+  <link rel="stylesheet" href="/static/style.css?v=427" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2707,23 +2707,25 @@
                 <button type="button" class="icon-btn secondary wb-fbs-sd-close" onclick="closeWbFbsPvzReturnsModal()" aria-label="Закрыть">✕</button>
               </div>
               <div class="wb-fbs-pvz-toolbar">
-                <div class="supplies-date-wrap wb-fbs-returns-date-wrap">
-                  <button id="wbFbsPvzDateBtn" type="button" class="secondary wb-fbs-pvz-date-btn"
-                          onclick="toggleWbFbsPvzDatePanel()" title="Дата выдачи">📅</button>
-                  <input type="hidden" id="wbFbsPvzDateFrom" />
-                  <input type="hidden" id="wbFbsPvzDateTo" />
-                  <div id="wbFbsPvzDatePanel" class="supplies-date-panel" style="display:none">
-                    <div id="wbFbsPvzCalendar"></div>
-                  </div>
-                </div>
                 <button type="button" id="wbFbsPvzSyncBtn" onclick="syncWbFbsPvzReturns()">Синхронизировать</button>
                 <button type="button" id="wbFbsPvzSettingsBtn" class="secondary icon-btn"
                         onclick="openWbFbsPvzSettings()" title="Источники" aria-label="Источники">⚙</button>
-                <label class="wb-fbs-pvz-source" for="wbFbsPvzSourceFilter">Источник
-                  <select id="wbFbsPvzSourceFilter" onchange="onWbFbsPvzFilterChange()">
-                    <option value="0">Все источники</option>
-                  </select>
-                </label>
+                <div class="wb-fbs-pvz-filters">
+                  <label class="wb-fbs-pvz-source" for="wbFbsPvzSourceFilter">Источник
+                    <select id="wbFbsPvzSourceFilter" onchange="onWbFbsPvzFilterChange()">
+                      <option value="0">Все источники</option>
+                    </select>
+                  </label>
+                  <div class="supplies-date-wrap wb-fbs-returns-date-wrap">
+                    <button id="wbFbsPvzDateBtn" type="button" class="secondary wb-fbs-pvz-date-btn"
+                            onclick="toggleWbFbsPvzDatePanel()" title="Дата выдачи">📅</button>
+                    <input type="hidden" id="wbFbsPvzDateFrom" />
+                    <input type="hidden" id="wbFbsPvzDateTo" />
+                    <div id="wbFbsPvzDatePanel" class="supplies-date-panel" style="display:none">
+                      <div id="wbFbsPvzCalendar"></div>
+                    </div>
+                  </div>
+                </div>
                 <span id="wbFbsPvzCount" class="wb-fbs-pvz-count">В таблице: 0</span>
               </div>
               <div id="wbFbsPvzInfo" class="wb-fbs-pvz-info" hidden></div>
@@ -8596,6 +8598,6 @@
   <script src="/static/ozon_fbs.js?v=220"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=38"></script>
   <script src="/static/app.js?v=713"></script>
-  <script src="/static/wb_fbs_pvz_returns.js?v=4"></script>
+  <script src="/static/wb_fbs_pvz_returns.js?v=5"></script>
 </body>
 </html>

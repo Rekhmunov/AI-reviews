@@ -1,9 +1,9 @@
 """WB FBS «Возвраты ПВЗ» — issued-at-PVZ returns on top of goods-return cache.
 
-Selected dates are issue dates (``completedDt``, status «Выдано»).
-WB ``dateFrom``/``dateTo`` filters the return *order* date, so the request is
-always a 31-day window ending on the last selected day. The table then keeps
-only rows issued inside the selected dates.
+Sync always pulls a 31-day WB order-date window ending today (Moscow) and does
+not use the calendar filter. After sync the UI shows issued rows
+(``completedDt``, status «Выдано») for those same 31 days. The calendar filter
+only narrows the local table without calling WB.
 """
 
 from __future__ import annotations
@@ -83,11 +83,17 @@ def parse_issue_bounds(date_from: str = "", date_to: str = "") -> tuple[date, da
 def wb_query_window(issue_to: date) -> tuple[str, str]:
     """WB order-date window that can contain handouts on ``issue_to``.
 
-    For 2026-10-19 this is 2026-09-19..2026-10-19. A shorter issue range that
-    still ends that day uses the same request; the table filters ``completedDt``.
+    For 2026-10-19 this is 2026-09-19..2026-10-19.
     """
     start = issue_to - timedelta(days=WB_LOOKBACK_DAYS)
     return start.isoformat(), issue_to.isoformat()
+
+
+def sync_display_range(*, today: date | None = None) -> tuple[date, date]:
+    """Issue-date range shown after sync: last 31 inclusive days ending today (MSK)."""
+    end = today or datetime.now(MSK).date()
+    start = end - timedelta(days=WB_LOOKBACK_DAYS)
+    return start, end
 
 
 def row_issued_in_range(row: dict[str, Any], start: date, end: date) -> bool:
@@ -590,8 +596,14 @@ def start_pvz_sync(
     date_from: str = "",
     date_to: str = "",
 ) -> dict[str, Any]:
-    """Pull goods-return for each saved source, sequentially, then list locally."""
-    start, end = parse_issue_bounds(date_from, date_to)
+    """Pull goods-return for each saved source, sequentially, then list locally.
+
+    Calendar ``date_from``/``date_to`` are ignored: sync always uses the last
+    31 days ending today (Moscow). Those bounds are returned so the UI can
+    show the synced period in the table.
+    """
+    del date_from, date_to
+    start, end = sync_display_range()
     view = settings_view(repo, user_id=user_id)
     sources = [s for s in (view.get("sources") or []) if s.get("selected")]
     if not sources:
