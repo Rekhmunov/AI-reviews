@@ -5571,6 +5571,10 @@ body.sst-col-resizing * {
 .modal-close-btn:hover { color: #334155; background: #f1f5f9; }
 
 /* OZON returns giveout barcode modal */
+/* Above «Возвраты ПВЗ» (1200) and its settings (1400) when opened from QR. */
+#ozonReturnsModal.modal-overlay {
+  z-index: 1500;
+}
 .ozon-returns-modal-card {
   width: clamp(360px, 920px, 96vw);
   max-height: 90vh;
