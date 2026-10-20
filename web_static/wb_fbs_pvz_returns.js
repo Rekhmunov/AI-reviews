@@ -926,16 +926,77 @@ function _wbFbsPvzMergeItems(items) {
   return order.map((key) => merged.get(key));
 }
 
-function _wbFbsPvzPrintHtml(rows, title) {
+function _wbFbsPvzPrintDateLabel() {
+  const start = _wbFbsPvzCal.startDate;
+  const end = _wbFbsPvzCal.endDate;
+  if (!start || !end) {
+    const from = document.getElementById("wbFbsPvzDateFrom")?.value || "";
+    const to = document.getElementById("wbFbsPvzDateTo")?.value || "";
+    if (!from) return "";
+    const fmtIso = (iso) => {
+      const parts = String(iso || "").split("-");
+      if (parts.length < 3) return String(iso || "");
+      return `${parts[2]}.${parts[1]}.${parts[0]}`;
+    };
+    if (!to || to === from) return fmtIso(from);
+    return `${fmtIso(from)}–${fmtIso(to)}`;
+  }
+  const fmt = (d) => d.toLocaleDateString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+  if (start.getTime() === end.getTime()) return fmt(start);
+  return `${fmt(start)}–${fmt(end)}`;
+}
+
+function _wbFbsPvzPrintTitle(mode) {
+  const dateLabel = _wbFbsPvzPrintDateLabel();
+  if (String(mode || "") === "merged") {
+    return dateLabel ? `Возвраты ПВЗ (${dateLabel})` : "Возвраты ПВЗ";
+  }
+  return dateLabel
+    ? `Возвраты ПВЗ (${dateLabel}) — весь список`
+    : "Возвраты ПВЗ — весь список";
+}
+
+function _wbFbsPvzPrintHtml(rows, title, mode) {
   const list = Array.isArray(rows) ? rows : [];
   const total = list.reduce((sum, row) => sum + Math.max(1, Number(row?.qty || 1) || 1), 0);
+  const merged = String(mode || "") === "merged";
   const body = list.length
     ? list.map((row) => {
       const name = _wbFbsPvzEsc(row.product_name || row.article || "—");
       const qty = Math.max(1, Number(row.qty || 1) || 1);
+      if (merged) {
+        return `<tr>` +
+          `<td class="name">${name}</td>` +
+          `<td class="qty">${qty}</td>` +
+          `<td class="defect"></td>` +
+          `</tr>`;
+      }
       return `<tr><td class="name">${name}</td><td class="qty">${qty}</td></tr>`;
     }).join("")
-    : `<tr><td colspan="2" class="empty">Нет строк для печати</td></tr>`;
+    : (merged
+      ? `<tr><td colspan="3" class="empty">Нет строк для печати</td></tr>`
+      : `<tr><td colspan="2" class="empty">Нет строк для печати</td></tr>`);
+  const head = merged
+    ? `<tr><th class="name">Товар</th><th class="qty">Кол-во</th><th class="defect">Брак/утилизация</th></tr>`
+    : `<tr><th>Товар</th><th class="qty">Кол-во</th></tr>`;
+  const mergedCss = merged
+    ? `
+    th.name, td.name { width: 50%; }
+    th.qty, td.qty { width: 12%; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    th.defect, td.defect { width: 38%; text-align: left; }
+    td.defect { min-height: 24px; }
+    th, td { padding: 8px 10px; border-bottom: 1px solid #cbd5e1; }
+    table { border: 1px solid #cbd5e1; }
+    th { background: #f8fafc; border-bottom: 1px solid #cbd5e1; }
+    `
+    : `
+    th.qty, td.qty { text-align: right; white-space: nowrap; width: 72px; font-variant-numeric: tabular-nums; }
+    th, td { padding: 8px 0; border-bottom: 1px solid #e2e8f0; }
+    `;
   return `<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -946,19 +1007,19 @@ function _wbFbsPvzPrintHtml(rows, title) {
     body { font: 14px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #0f172a; margin: 0; }
     h1 { font-size: 18px; margin: 0 0 8px; font-weight: 700; }
     .meta { font-size: 13px; color: #475569; margin: 0 0 16px; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { padding: 8px 0; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    th, td { vertical-align: top; }
     th { font-size: 12px; font-weight: 600; color: #64748b; text-align: left; }
-    th.qty, td.qty { text-align: right; white-space: nowrap; width: 72px; font-variant-numeric: tabular-nums; }
-    td.name { font-size: 15px; font-weight: 600; padding-right: 16px; }
+    td.name { font-size: 15px; font-weight: 600; padding-right: 16px; word-wrap: break-word; }
     td.empty { color: #64748b; font-weight: 400; }
+    ${mergedCss}
   </style>
 </head>
 <body>
   <h1>${_wbFbsPvzEsc(title || "Возвраты ПВЗ")}</h1>
   <p class="meta">Строк: ${list.length} · Количество: ${total}</p>
   <table>
-    <thead><tr><th>Товар</th><th class="qty">Кол-во</th></tr></thead>
+    <thead>${head}</thead>
     <tbody>${body}</tbody>
   </table>
   <script>window.addEventListener("load", function () { window.focus(); window.print(); });</script>
@@ -981,13 +1042,13 @@ function printWbFbsPvzList(mode) {
       product_name: String(item.product_name || item.article || "—"),
       qty: Math.max(1, Number(item.qty || 1) || 1),
     }));
-  const title = merged ? "Возвраты ПВЗ — объединённый список" : "Возвраты ПВЗ — весь список";
+  const title = _wbFbsPvzPrintTitle(merged ? "merged" : "full");
   const win = window.open("", "_blank");
   if (!win) {
     _wbFbsPvzSetInfo("Разрешите всплывающие окна для печати", "warn");
     return;
   }
-  win.document.write(_wbFbsPvzPrintHtml(rows, title));
+  win.document.write(_wbFbsPvzPrintHtml(rows, title, merged ? "merged" : "full"));
   win.document.close();
 }
 window.printWbFbsPvzList = printWbFbsPvzList;
