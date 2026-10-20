@@ -16,6 +16,101 @@ const _wbFbsPvzCal = {
   hoveredDate: null,
 };
 
+const WB_FBS_PVZ_COL_WIDTHS_PREFIX = "wb_fbs_pvz_col_widths_v1";
+const WB_FBS_PVZ_DEFAULT_WIDTHS = [22, 58, 20]; // issued, product, qty (act is fixed)
+let _wbFbsPvzColResizerInited = false;
+
+function _wbFbsPvzColWidthsKey() {
+  const email = String(document.querySelector(".sidebar-user-email")?.textContent || "").trim().toLowerCase();
+  return email ? `${WB_FBS_PVZ_COL_WIDTHS_PREFIX}:${email}` : WB_FBS_PVZ_COL_WIDTHS_PREFIX;
+}
+
+function _wbFbsPvzResizableCols() {
+  return Array.from(document.querySelectorAll("#wbFbsPvzColgroup col")).filter((c) => !c.dataset.fixed);
+}
+
+function _applyWbFbsPvzColWidths(widths) {
+  _wbFbsPvzResizableCols().forEach((col, i) => {
+    if (widths[i] !== undefined) col.style.width = `${widths[i]}%`;
+  });
+}
+
+function _getWbFbsPvzColWidths() {
+  return _wbFbsPvzResizableCols().map((col, i) => parseFloat(col.style.width) || WB_FBS_PVZ_DEFAULT_WIDTHS[i] || 10);
+}
+
+function _restoreWbFbsPvzColWidths() {
+  let widths = WB_FBS_PVZ_DEFAULT_WIDTHS.slice();
+  try {
+    const saved = JSON.parse(localStorage.getItem(_wbFbsPvzColWidthsKey()) || "null");
+    if (Array.isArray(saved) && saved.length === widths.length) widths = saved;
+    else if (Array.isArray(saved)) localStorage.removeItem(_wbFbsPvzColWidthsKey());
+  } catch (_) { /* ignore */ }
+  _applyWbFbsPvzColWidths(widths);
+}
+
+function initWbFbsPvzColumnResizer() {
+  const table = document.getElementById("wbFbsPvzTable");
+  if (!table) return;
+  _restoreWbFbsPvzColWidths();
+  if (_wbFbsPvzColResizerInited) return;
+  _wbFbsPvzColResizerInited = true;
+
+  let startX = 0;
+  let colIdx = 0;
+  let startWidths = [];
+  let activeHandle = null;
+
+  function onMouseMove(e) {
+    const tableEl = document.getElementById("wbFbsPvzTable");
+    if (!tableEl) return;
+    const tableW = tableEl.offsetWidth || 1;
+    const deltaPct = ((e.clientX - startX) / tableW) * 100;
+    const newWidths = startWidths.slice();
+    const minPct = 8;
+    const nextIdx = colIdx < newWidths.length - 1 ? colIdx + 1 : colIdx - 1;
+    let newCur = Math.max(minPct, startWidths[colIdx] + deltaPct);
+    let newNext = Math.max(minPct, startWidths[nextIdx] - deltaPct);
+    if (newNext < minPct) {
+      newCur = startWidths[colIdx] + (startWidths[nextIdx] - minPct);
+      newNext = minPct;
+    }
+    newWidths[colIdx] = Math.round(newCur * 10) / 10;
+    newWidths[nextIdx] = Math.round(newNext * 10) / 10;
+    _applyWbFbsPvzColWidths(newWidths);
+  }
+
+  function onMouseUp() {
+    document.removeEventListener("mousemove", onMouseMove);
+    document.removeEventListener("mouseup", onMouseUp);
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    if (activeHandle) activeHandle.classList.remove("dragging");
+    activeHandle = null;
+    try {
+      localStorage.setItem(_wbFbsPvzColWidthsKey(), JSON.stringify(_getWbFbsPvzColWidths()));
+    } catch (_) { /* ignore */ }
+  }
+
+  table.addEventListener("mousedown", (e) => {
+    const handle = e.target?.closest?.(".col-resize-handle");
+    if (!handle) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const th = handle.parentElement;
+    colIdx = parseInt(th.getAttribute("data-col") || "0", 10);
+    startX = e.clientX;
+    startWidths = _getWbFbsPvzColWidths();
+    activeHandle = handle;
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    handle.classList.add("dragging");
+  });
+}
+window.initWbFbsPvzColumnResizer = initWbFbsPvzColumnResizer;
+
 function _wbFbsPvzEsc(value) {
   if (typeof _wbFbsEsc === "function") return _wbFbsEsc(value);
   return String(value ?? "")
@@ -751,6 +846,7 @@ async function openWbFbsPvzReturnsModal() {
   toggleWbFbsPvzFilterPanel(false);
   _wbFbsPvzEnsureDates();
   _wbFbsPvzSyncFilterBtnState();
+  initWbFbsPvzColumnResizer();
   _wbFbsPvzSetInfo("");
   try {
     await loadWbFbsPvzSettings();

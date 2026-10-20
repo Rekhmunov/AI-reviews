@@ -21225,10 +21225,8 @@ body.ttn-col-resizing {
 #wbFbsPvzSettingsModal .wb-fbs-pvz-info.is-error {
   color: #991b1b;
 }
-#wbFbsPvzReturnsModal .wb-fbs-pvz-col-issued { width: 180px; }
-#wbFbsPvzReturnsModal .wb-fbs-pvz-col-qty { width: 88px; }
 #wbFbsPvzReturnsModal .wb-fbs-pvz-col-act { width: 48px; }
-#wbFbsPvzReturnsModal .wb-fbs-pvz-num {
+#wbFbsPvzReturnsModal td.wb-fbs-pvz-num {
   text-align: right;
   font-variant-numeric: tabular-nums;
   font-size: 16px;
@@ -21237,7 +21235,30 @@ body.ttn-col-resizing {
 #wbFbsPvzReturnsModal .wb-fbs-pvz-cell-label {
   display: none;
 }
-#wbFbsPvzReturnsModal th.wb-fbs-pvz-num { text-align: right; }
+#wbFbsPvzReturnsModal th.wb-fbs-pvz-num {
+  text-align: right;
+  /* Same header type as «Выдан» / «Товар» (.wb-fbs-sd-table th). */
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+}
+#wbFbsPvzReturnsModal #wbFbsPvzTable th[data-col] {
+  position: relative;
+}
+#wbFbsPvzReturnsModal #wbFbsPvzTable th .col-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+}
+#wbFbsPvzReturnsModal #wbFbsPvzTable th .col-resize-handle:hover,
+#wbFbsPvzReturnsModal #wbFbsPvzTable th .col-resize-handle.dragging {
+  background: #2563eb;
+  opacity: 0.45;
+}
 #wbFbsPvzReturnsModal .wb-fbs-pvz-issued {
   white-space: nowrap;
   font-size: 16px;

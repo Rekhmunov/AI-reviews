@@ -408,13 +408,14 @@ class PvzUiContractTests(unittest.TestCase):
         self.assertNotIn("hidden", pvz_btn)
         self.assertIn("Возвраты ПВЗ", pvz_btn)
         self.assertLess(html.index('id="wbFbsKizRestoreBtn"'), html.index('id="wbFbsPvzReturnsBtn"'))
-        self.assertIn('src="/static/wb_fbs_pvz_returns.js?v=10"', html)
-        self.assertIn('href="/static/style.css?v=431"', html)
+        self.assertIn('src="/static/wb_fbs_pvz_returns.js?v=11"', html)
+        self.assertIn('href="/static/style.css?v=432"', html)
         self.assertIn('id="wbFbsPvzCategoryFilter"', html)
         self.assertIn('id="wbFbsPvzPrintBtn"', html)
         self.assertIn('id="wbFbsPvzFilterBtn"', html)
         self.assertIn('id="wbFbsPvzFilterPanel"', html)
         self.assertIn('id="wbFbsPvzSearchFilter"', html)
+        self.assertIn('id="wbFbsPvzColgroup"', html)
         self.assertIn("Весь список", html)
         self.assertIn("Объединённый (как лист подбора)", html)
         toolbar = html.split('class="wb-fbs-pvz-toolbar"', 1)[1]
@@ -434,6 +435,8 @@ class PvzUiContractTests(unittest.TestCase):
         date_label = date_btn.rsplit(">", 1)[-1].strip()
         self.assertEqual(date_label, "📅")
         table_head = html.split('id="wbFbsPvzTable"', 1)[1].split("</thead>", 1)[0]
+        self.assertIn('data-col="0"', table_head)
+        self.assertIn("col-resize-handle", table_head)
         self.assertLess(table_head.index(">Выдан<"), table_head.index(">Товар<"))
         self.assertLess(table_head.index(">Товар<"), table_head.index("Кол-во"))
         self.assertIn("Отметьте кабинеты WB.", html)
@@ -470,11 +473,15 @@ class PvzUiContractTests(unittest.TestCase):
         self.assertNotIn("📅 ${range}", date_btn_fn)
         self.assertIn("toggleWbFbsPvzFilterPanel", pvz_js)
         self.assertIn("_wbFbsPvzSyncFilterBtnState", pvz_js)
+        self.assertIn("initWbFbsPvzColumnResizer", pvz_js)
+        self.assertIn("wb_fbs_pvz_col_widths_v1", pvz_js)
         css = (ROOT / "web_static" / "style.css").read_text(encoding="utf-8")
         pvz_css = css.split("/* WB FBS — Возвраты ПВЗ */", 1)[1]
         desktop_photo = pvz_css.split("@media (max-width: 720px)", 1)[0]
         self.assertNotIn("72px", desktop_photo)
         self.assertIn(".wb-fbs-pvz-filter-panel", desktop_photo)
+        self.assertIn("th.wb-fbs-pvz-num", desktop_photo)
+        self.assertIn("font-size: 12px", desktop_photo.split("th.wb-fbs-pvz-num", 1)[1].split("}", 1)[0])
         self.assertIn('#wbFbsPvzReturnsModal .wb-fbs-product-photo', pvz_css.split("@media (max-width: 720px)", 1)[1])
         sync_fn = pvz_js.split("async function syncWbFbsPvzReturns", 1)[1].split(
             "window.syncWbFbsPvzReturns", 1
