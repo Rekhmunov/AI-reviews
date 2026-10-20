@@ -411,12 +411,17 @@ def is_fbs_source_name(name: object) -> bool:
     return "фбс" in text or "fbs" in text
 
 
-def is_wb_fbs_source(source: Mapping[str, Any] | None) -> bool:
-    """True for WB FBS sources. Name marker «ФБС»/FBS is the primary signal."""
+def is_wb_source(source: Mapping[str, Any] | None) -> bool:
+    """True for any Wildberries supply source (FBS, FBO, or unmarked)."""
     if not source:
         return False
     mp = str(source.get("marketplace") or "wb").strip().lower()
-    if mp not in ("wb", "wildberries"):
+    return mp in ("wb", "wildberries")
+
+
+def is_wb_fbs_source(source: Mapping[str, Any] | None) -> bool:
+    """True for WB FBS sources. Name marker «ФБС»/FBS is the primary signal."""
+    if not is_wb_source(source):
         return False
     if is_fbs_source_name(source.get("name")):
         return True
