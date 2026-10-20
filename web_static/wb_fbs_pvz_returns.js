@@ -987,9 +987,9 @@ function _wbFbsPvzPrintHtml(rows, title, mode) {
     : `<tr><th>Товар</th><th class="qty">Кол-во</th></tr>`;
   const mergedCss = merged
     ? `
-    th.name, td.name { width: 50%; }
-    th.qty, td.qty { width: 12%; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-    th.defect, td.defect { width: 38%; text-align: left; }
+    th.name, td.name { width: 70%; }
+    th.qty, td.qty { width: 15%; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    th.defect, td.defect { width: 15%; text-align: left; }
     td.defect { min-height: 24px; }
     th, td { padding: 8px 10px; border-bottom: 1px solid #cbd5e1; }
     table { border: 1px solid #cbd5e1; }
