@@ -1,4 +1,5 @@
 __pycache__/
 *.py[cod]
 *.db
+.env
 .cursor/rules/server-access.mdc
