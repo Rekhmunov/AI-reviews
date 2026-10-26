@@ -5180,6 +5180,7 @@
       /* ignore */
     }
     _scheduleManualSyncGatePoll();
+    _ozonFbsRefreshAutoSyncGear().catch(() => {});
     // Resume split/collect busy UI so supply links stay blocked after reload.
     try {
       const res = await fetch("/api/ozon-fbs/split-multi/status");
@@ -5224,6 +5225,22 @@
   function _ozonFbsAutoSyncMarkGear(enabled) {
     const btn = document.getElementById("ozonFbsSyncSettingsBtn");
     if (btn) btn.classList.toggle("is-auto-on", !!enabled);
+  }
+
+  async function _ozonFbsRefreshAutoSyncGear() {
+    if (typeof isTenantOwner === "function" && !isTenantOwner()) {
+      _ozonFbsAutoSyncMarkGear(false);
+      return;
+    }
+    try {
+      const res = await fetch("/api/ozon-fbs/sync-settings");
+      if (!res.ok) return;
+      const data = await res.json().catch(() => ({}));
+      _ozonFbsAutoSyncMarkGear(!!data.enabled);
+      _ozonFbsApplyManualSyncGate(data);
+    } catch (_e) {
+      /* ignore */
+    }
   }
 
   function _ozonFbsAutoSyncFormatLast(iso) {
@@ -5565,7 +5582,7 @@
           ? data.allowed_intervals_minutes.map(Number)
           : [10, 30, 60, 120, 180, 360, 720, 1440];
         let mins = Number(data.interval_minutes);
-        if (!allowed.includes(mins)) mins = 30;
+        if (!allowed.includes(mins)) mins = 60;
         intervalEl.value = String(mins);
       }
       if (fromEl) fromEl.value = String(data.active_from || "12:00").slice(0, 5);
@@ -5639,6 +5656,13 @@
     const blockEnabled = !!document.getElementById("ozonFbsManualSyncBlockEnabled")?.checked;
     const blockFrom = String(document.getElementById("ozonFbsManualSyncBlockFrom")?.value || "00:00").slice(0, 5);
     const blockTo = String(document.getElementById("ozonFbsManualSyncBlockTo")?.value || "00:00").slice(0, 5);
+    if (blockEnabled && blockFrom === blockTo) {
+      _ozonFbsSyncSettingsSetInfo(
+        "Для блокировки укажите интервал с разным временем «с» и «до» (МСК)",
+        "error"
+      );
+      return;
+    }
     const saveBtn = document.getElementById("ozonFbsSyncSettingsSaveBtn");
     if (saveBtn) saveBtn.disabled = true;
     _ozonFbsSyncSettingsSetInfo("Сохранение…");

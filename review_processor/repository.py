@@ -8539,6 +8539,11 @@ class ReviewRepository:
             field="конца окна блокировки ручной синхронизации",
             default="00:00",
         )
+        if bool(manual_sync_block_enabled) and block_from == block_to:
+            raise ValueError(
+                "Для блокировки кнопки «Синхронизировать» укажите интервал "
+                "с разным временем «с» и «до» (МСК)"
+            )
         with self._connect() as conn:
             self._ensure_ozon_fbs_auto_sync_columns(conn)
             result = conn.execute(

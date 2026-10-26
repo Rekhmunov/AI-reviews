@@ -4347,14 +4347,26 @@ def manual_sync_blocked_now(
     *,
     now_msk: datetime | None = None,
 ) -> bool:
-    """Whether the Sync button must be disabled for all users right now."""
+    """Whether the Sync button must be disabled for all users right now.
+
+    Requires a real interval (from != to). Equal bounds are treated as
+    «no interval» so a default 00:00–00:00 cannot lock Sync all day by accident.
+    """
     row = settings or {}
     if not bool(row.get("manual_sync_block_enabled")):
         return False
+    from_s = ReviewRepository._normalize_hhmm(
+        row.get("manual_sync_block_from"), default="00:00"
+    )
+    to_s = ReviewRepository._normalize_hhmm(
+        row.get("manual_sync_block_to"), default="00:00"
+    )
+    if from_s == to_s:
+        return False
     return msk_time_in_active_window(
         now_msk=now_msk,
-        active_from=row.get("manual_sync_block_from") or "00:00",
-        active_to=row.get("manual_sync_block_to") or "00:00",
+        active_from=from_s,
+        active_to=to_s,
     )
 
 

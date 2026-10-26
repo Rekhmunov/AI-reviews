@@ -62,6 +62,18 @@ class OzonFbsAutoSyncHelpersTests(unittest.TestCase):
         payload = oz.manual_sync_block_payload(settings, now_msk=now)
         self.assertFalse(payload["manual_sync_blocked"])
 
+    def test_manual_sync_block_equal_times_not_active(self):
+        """Default 00:00–00:00 must not lock Sync when toggle is on by mistake."""
+        now = datetime(2026, 10, 26, 12, 0, tzinfo=MSK)
+        settings = {
+            "manual_sync_block_enabled": True,
+            "manual_sync_block_from": "00:00",
+            "manual_sync_block_to": "00:00",
+        }
+        self.assertFalse(oz.manual_sync_blocked_now(settings, now_msk=now))
+        payload = oz.manual_sync_block_payload(settings, now_msk=now)
+        self.assertFalse(payload["manual_sync_blocked"])
+
     def test_auto_sync_is_due_without_last(self):
         self.assertTrue(oz.auto_sync_is_due(last_synced_at=None, interval_minutes=30))
 
@@ -74,6 +86,21 @@ class OzonFbsSyncSettingsRepoTests(unittest.TestCase):
         self.assertEqual(repo._normalize_ozon_fbs_auto_sync_interval_minutes(30), 30)
         self.assertEqual(repo._normalize_ozon_fbs_auto_sync_interval_minutes(99), 60)
         self.assertEqual(repo._normalize_ozon_fbs_auto_sync_interval_minutes(None), 60)
+
+    def test_save_rejects_equal_block_window(self):
+        from review_processor.repository import ReviewRepository
+
+        repo = ReviewRepository.__new__(ReviewRepository)
+        with self.assertRaises(ValueError) as ctx:
+            ReviewRepository.save_ozon_fbs_sync_settings(
+                repo,
+                user_id=1,
+                lookback_days=3,
+                manual_sync_block_enabled=True,
+                manual_sync_block_from="00:00",
+                manual_sync_block_to="00:00",
+            )
+        self.assertIn("интервал", str(ctx.exception).lower())
 
     @patch("review_processor.repository.ReviewRepository._connect")
     def test_get_settings_includes_auto_fields(self, connect_mock):
