@@ -3614,16 +3614,7 @@
     else _ozonFbsPickSplitSetTone(_ozonFbsPickToneFromSupply(supply));
     const searchQ = String(document.getElementById("ozonFbsSupplyDetailSearchFilter")?.value || "").trim().toLowerCase();
     const orders = searchQ
-      ? allOrders.filter((o) => {
-          const hay = [
-            o.posting_number, o.offer_id, o.sku, o.product_name, o.warehouse_label,
-            ...(Array.isArray(o.barcodes) ? o.barcodes : []),
-            ...(Array.isArray(o.products_brief)
-              ? o.products_brief.flatMap((p) => [p.offer_id, p.sku, p.name])
-              : []),
-          ].map((x) => String(x || "").toLowerCase()).join(" ");
-          return hay.includes(searchQ);
-        })
+      ? allOrders.filter((o) => _ozonFbsSupplyDetailRowMatchesSearch(o, searchQ))
       : allOrders;
     if (!tbody) return;
     if (!allOrders.length) {
@@ -9179,6 +9170,24 @@
     const pnDigits = pn.replace(/\D+/g, "");
     const sidDigits = sid.replace(/\D+/g, "");
     return (!!pnDigits && pnDigits.endsWith(tail)) || (!!sidDigits && sidDigits.endsWith(tail));
+  }
+
+  /** Supply-detail search: posting/SKU/name + package QR + ii… scanit (same idea as KIZ/Pick). */
+  function _ozonFbsSupplyDetailRowMatchesSearch(row, q) {
+    if (!q) return true;
+    const needle = String(q).trim().toLowerCase();
+    if (!needle) return true;
+    const fields = _ozonFbsResolvedStickerFields(row);
+    const hay = [
+      row?.posting_number, row?.offer_id, row?.sku, row?.product_name, row?.warehouse_label,
+      fields.upper, fields.lower, fields.scanit, fields.partA, fields.partB,
+      ...(Array.isArray(row?.barcodes) ? row.barcodes : []),
+      ...(Array.isArray(row?.products_brief)
+        ? row.products_brief.flatMap((p) => [p?.offer_id, p?.sku, p?.name])
+        : []),
+    ].map((x) => String(x || "").toLowerCase()).join(" ");
+    if (hay.includes(needle)) return true;
+    return _ozonFbsSearchMatchesPostingOrSupply(row, needle);
   }
 
   function _ozonFbsResolvedStickerFields(row) {
