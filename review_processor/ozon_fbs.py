@@ -4342,6 +4342,24 @@ def auto_sync_is_due(
     return (datetime.now(UTC) - last_dt).total_seconds() >= float(minutes) * 60.0
 
 
+def _manual_sync_block_bounds(
+    settings: Mapping[str, Any] | None,
+) -> tuple[str, str] | None:
+    """Normalized (from, to) when block is enabled with a real interval; else None."""
+    row = settings or {}
+    if not bool(row.get("manual_sync_block_enabled")):
+        return None
+    from_s = ReviewRepository._normalize_hhmm(
+        row.get("manual_sync_block_from"), default="00:00"
+    )
+    to_s = ReviewRepository._normalize_hhmm(
+        row.get("manual_sync_block_to"), default="00:00"
+    )
+    if from_s == to_s:
+        return None
+    return from_s, to_s
+
+
 def manual_sync_blocked_now(
     settings: Mapping[str, Any] | None,
     *,
@@ -4352,22 +4370,42 @@ def manual_sync_blocked_now(
     Requires a real interval (from != to). Equal bounds are treated as
     «no interval» so a default 00:00–00:00 cannot lock Sync all day by accident.
     """
-    row = settings or {}
-    if not bool(row.get("manual_sync_block_enabled")):
+    bounds = _manual_sync_block_bounds(settings)
+    if not bounds:
         return False
-    from_s = ReviewRepository._normalize_hhmm(
-        row.get("manual_sync_block_from"), default="00:00"
-    )
-    to_s = ReviewRepository._normalize_hhmm(
-        row.get("manual_sync_block_to"), default="00:00"
-    )
-    if from_s == to_s:
-        return False
+    from_s, to_s = bounds
     return msk_time_in_active_window(
         now_msk=now_msk,
         active_from=from_s,
         active_to=to_s,
     )
+
+
+def manual_sync_block_until_msk(
+    settings: Mapping[str, Any] | None,
+    *,
+    now_msk: datetime | None = None,
+) -> datetime | None:
+    """End of the current block window in MSK, or None if not blocked now."""
+    bounds = _manual_sync_block_bounds(settings)
+    if not bounds:
+        return None
+    from_s, to_s = bounds
+    now = (now_msk or _msk_now()).astimezone(_MSK)
+    if not msk_time_in_active_window(
+        now_msk=now, active_from=from_s, active_to=to_s
+    ):
+        return None
+    end = _parse_hhmm_to_time(to_s, default="00:00")
+    start = _parse_hhmm_to_time(from_s, default="00:00")
+    end_dt = datetime.combine(now.date(), end, tzinfo=_MSK)
+    if start < end:
+        # Same-day window: end is today at ``to``.
+        return end_dt
+    # Overnight: evening → tomorrow ``to``; early morning → today ``to``.
+    if now.time().replace(second=0, microsecond=0) >= start:
+        return end_dt + timedelta(days=1)
+    return end_dt
 
 
 def manual_sync_block_payload(
@@ -4376,19 +4414,31 @@ def manual_sync_block_payload(
     now_msk: datetime | None = None,
 ) -> dict[str, Any]:
     row = dict(settings or {})
-    blocked = manual_sync_blocked_now(row, now_msk=now_msk)
-    from_s = str(row.get("manual_sync_block_from") or "00:00")
-    to_s = str(row.get("manual_sync_block_to") or "00:00")
+    bounds = _manual_sync_block_bounds(row)
+    from_s = bounds[0] if bounds else ReviewRepository._normalize_hhmm(
+        row.get("manual_sync_block_from"), default="00:00"
+    )
+    to_s = bounds[1] if bounds else ReviewRepository._normalize_hhmm(
+        row.get("manual_sync_block_to"), default="00:00"
+    )
+    until = manual_sync_block_until_msk(row, now_msk=now_msk)
+    blocked = until is not None
+    if blocked and until is not None:
+        message = (
+            "Кнопка заблокирована до "
+            f"{until.strftime('%d.%m.%Y %H:%M')} (МСК)"
+        )
+        until_iso = until.isoformat()
+    else:
+        message = ""
+        until_iso = None
     return {
         "manual_sync_block_enabled": bool(row.get("manual_sync_block_enabled")),
         "manual_sync_block_from": from_s,
         "manual_sync_block_to": to_s,
         "manual_sync_blocked": blocked,
-        "manual_sync_block_message": (
-            f"Ручная синхронизация отключена с {from_s} до {to_s} (МСК)"
-            if blocked
-            else ""
-        ),
+        "manual_sync_block_until": until_iso,
+        "manual_sync_block_message": message,
     }
 
 
