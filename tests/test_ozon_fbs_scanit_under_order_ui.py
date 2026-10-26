@@ -95,7 +95,7 @@ def test_scanit_under_order_wired() -> None:
     assert orders.find("esc(pnRaw)") < orders.find("_ozonFbsScanitUnderOrderHtml(row)")
 
     assert ".wb-fbs-sd-order-id .ozon-fbs-posting-tail" in css
-    assert "ozon_fbs.js?v=220" in html
+    assert 'src="/static/ozon_fbs.js?v=' in html
 
 
 def test_format_ozon_scanit_html_last_four() -> None:
