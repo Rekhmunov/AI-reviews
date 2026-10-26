@@ -10362,6 +10362,24 @@ tr.dnd-over td {
   flex: 0 0 auto;
   background: #fff;
 }
+.ozon-fbs-sync-settings-section.wb-fbs-auto-sync-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ozon-fbs-manual-sync-block {
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+#ozonFbsSyncSettingsBtn.is-auto-on {
+  color: #047857;
+  border-color: #6ee7b7;
+  background: #ecfdf5;
+}
 .ozon-fbs-status-check-section {
   display: flex;
   flex-direction: column;

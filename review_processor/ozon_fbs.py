@@ -14,13 +14,16 @@ import logging
 import re
 import threading
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time as dt_time, timedelta
 from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
+from zoneinfo import ZoneInfo
 
 from .repository import ReviewRepository
+
+_MSK = ZoneInfo("Europe/Moscow")
 
 _log = logging.getLogger(__name__)
 
@@ -4012,6 +4015,7 @@ def start_sync_thread(
     user_id: int,
     sources: list[dict[str, Any]],
     lookback_days: int = DEFAULT_LOOKBACK_DAYS,
+    is_auto: bool = False,
     actor_user_id: int | None = None,
     actor_name: str = "",
 ) -> tuple[bool, str]:
@@ -4062,22 +4066,28 @@ def start_sync_thread(
                 "pallet_summary_error": "",
                 "multi_summary": [],
                 "cancel_requested": False,
+                "is_auto": bool(is_auto),
             }
         )
 
     try:
         from . import ozon_fbs_ops_log as ops_log
 
+        kind = "Автосинхронизация" if is_auto else "Синхронизация"
         ops_log.append_event(
             repo,
             user_id=user_id,
-            action=ops_log.ACTION_SYNC_START,
+            action=ops_log.ACTION_AUTO_SYNC if is_auto else ops_log.ACTION_SYNC_START,
             message=(
-                f"Синхронизация запущена ({len(jobs)} ист., глубина {lookback_days} дн.)"
+                f"{kind} запущена ({len(jobs)} ист., глубина {lookback_days} дн.)"
             ),
             actor_user_id=actor_user_id,
-            actor_name=actor_name,
-            details={"sources_count": len(jobs), "lookback_days": int(lookback_days)},
+            actor_name=actor_name or ("авто" if is_auto else ""),
+            details={
+                "sources_count": len(jobs),
+                "lookback_days": int(lookback_days),
+                "is_auto": bool(is_auto),
+            },
         )
     except Exception:
         pass
@@ -4201,6 +4211,15 @@ def start_sync_thread(
                         if row.get("message") == "Считаем паллеты…":
                             row["message"] = msg
 
+            if synced_sources > 0:
+                try:
+                    repo.mark_ozon_fbs_synced(user_id=user_id, is_auto=bool(is_auto))
+                except Exception:
+                    _log.warning(
+                        "ozon_fbs: failed to update ozon_fbs_last_synced_at for user %s",
+                        user_id,
+                    )
+
             with _ozon_fbs_sync_lock:
                 _ozon_fbs_sync_state["in_progress"] = False
                 _ozon_fbs_sync_state["errors"] = errors
@@ -4236,18 +4255,20 @@ def start_sync_thread(
                     message=final_message,
                     level=done_level,
                     actor_user_id=actor_user_id,
-                    actor_name=actor_name,
+                    actor_name=actor_name or ("авто" if is_auto else ""),
                     details={
                         "synced_sources": synced_sources,
                         "total_postings": total_postings,
                         "errors_count": len(errors),
+                        "is_auto": bool(is_auto),
                     },
                 )
             except Exception:
                 pass
 
     threading.Thread(target=_run, name="ozon-fbs-sync", daemon=True).start()
-    return True, f"Синхронизация запущена ({len(jobs)} источников)"
+    kind = "Автосинхронизация" if is_auto else "Синхронизация"
+    return True, f"{kind} запущена ({len(jobs)} источников)"
 
 
 def list_fbs_sync_jobs(repo: ReviewRepository, *, user_id: int) -> list[dict[str, Any]]:
@@ -4274,3 +4295,197 @@ def list_fbs_sync_jobs(repo: ReviewRepository, *, user_id: int) -> list[dict[str
             }
         )
     return jobs
+
+
+def _parse_hhmm_to_time(value: object, *, default: str) -> dt_time:
+    raw = ReviewRepository._normalize_hhmm(value, default=default)
+    hour_s, minute_s = raw.split(":", 1)
+    return dt_time(hour=int(hour_s), minute=int(minute_s))
+
+
+def _msk_now() -> datetime:
+    return datetime.now(_MSK)
+
+
+def msk_time_in_active_window(
+    *,
+    now_msk: datetime | None = None,
+    active_from: object = "12:00",
+    active_to: object = "06:00",
+) -> bool:
+    """True if MSK local time is inside [from, to]; supports overnight windows."""
+    now = now_msk or _msk_now()
+    start = _parse_hhmm_to_time(active_from, default="12:00")
+    end = _parse_hhmm_to_time(active_to, default="06:00")
+    current = now.astimezone(_MSK).time().replace(second=0, microsecond=0)
+    if start == end:
+        return True
+    if start < end:
+        return start <= current <= end
+    return current >= start or current <= end
+
+
+def auto_sync_is_due(
+    *,
+    last_synced_at: str | None,
+    interval_minutes: int | None = None,
+) -> bool:
+    if not last_synced_at:
+        return True
+    try:
+        last_dt = datetime.fromisoformat(str(last_synced_at).replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if last_dt.tzinfo is None:
+        last_dt = last_dt.replace(tzinfo=UTC)
+    minutes = max(1, int(interval_minutes or 1))
+    return (datetime.now(UTC) - last_dt).total_seconds() >= float(minutes) * 60.0
+
+
+def manual_sync_blocked_now(
+    settings: Mapping[str, Any] | None,
+    *,
+    now_msk: datetime | None = None,
+) -> bool:
+    """Whether the Sync button must be disabled for all users right now.
+
+    Requires a real interval (from != to). Equal bounds are treated as
+    «no interval» so a default 00:00–00:00 cannot lock Sync all day by accident.
+    """
+    row = settings or {}
+    if not bool(row.get("manual_sync_block_enabled")):
+        return False
+    from_s = ReviewRepository._normalize_hhmm(
+        row.get("manual_sync_block_from"), default="00:00"
+    )
+    to_s = ReviewRepository._normalize_hhmm(
+        row.get("manual_sync_block_to"), default="00:00"
+    )
+    if from_s == to_s:
+        return False
+    return msk_time_in_active_window(
+        now_msk=now_msk,
+        active_from=from_s,
+        active_to=to_s,
+    )
+
+
+def manual_sync_block_payload(
+    settings: Mapping[str, Any] | None,
+    *,
+    now_msk: datetime | None = None,
+) -> dict[str, Any]:
+    row = dict(settings or {})
+    blocked = manual_sync_blocked_now(row, now_msk=now_msk)
+    from_s = str(row.get("manual_sync_block_from") or "00:00")
+    to_s = str(row.get("manual_sync_block_to") or "00:00")
+    return {
+        "manual_sync_block_enabled": bool(row.get("manual_sync_block_enabled")),
+        "manual_sync_block_from": from_s,
+        "manual_sync_block_to": to_s,
+        "manual_sync_blocked": blocked,
+        "manual_sync_block_message": (
+            f"Ручная синхронизация отключена с {from_s} до {to_s} (МСК)"
+            if blocked
+            else ""
+        ),
+    }
+
+
+class OzonFbsScheduler:
+    """Background auto-sync for Ozon FBS only (no assembly / no WB FBS coupling)."""
+
+    def __init__(self, repository: ReviewRepository) -> None:
+        self.repository = repository
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._lock = threading.Lock()
+
+    def start(self) -> None:
+        with self._lock:
+            if self._thread and self._thread.is_alive():
+                return
+            self._stop_event.clear()
+            self._thread = threading.Thread(
+                target=self._loop,
+                name="feedpilot-ozon-fbs-scheduler",
+                daemon=True,
+            )
+            self._thread.start()
+            _log.info("OzonFbsScheduler: started")
+
+    def stop(self) -> None:
+        self._stop_event.set()
+
+    def _loop(self) -> None:
+        check_interval = 60
+        while not self._stop_event.is_set():
+            self._stop_event.wait(check_interval)
+            if self._stop_event.is_set():
+                break
+            try:
+                self._run_due_owners()
+            except Exception as exc:
+                _log.warning("OzonFbsScheduler loop error: %s", exc)
+
+    def _run_due_owners(self) -> None:
+        if get_sync_state().get("in_progress"):
+            return
+        try:
+            users = self.repository.list_users(owner_only=True)
+        except Exception:
+            return
+        for user in users:
+            if self._stop_event.is_set() or get_sync_state().get("in_progress"):
+                return
+            user_id = int(user.get("id") or 0)
+            if not user_id:
+                continue
+            try:
+                settings = self.repository.get_ozon_fbs_sync_settings(user_id=user_id)
+            except Exception:
+                continue
+            if not settings.get("enabled"):
+                continue
+            if not msk_time_in_active_window(
+                active_from=settings.get("active_from"),
+                active_to=settings.get("active_to"),
+            ):
+                continue
+            interval_minutes = int(settings.get("interval_minutes") or 60)
+            if not auto_sync_is_due(
+                last_synced_at=settings.get("last_synced_at"),
+                interval_minutes=interval_minutes,
+            ):
+                continue
+            try:
+                jobs = list_fbs_sync_jobs(self.repository, user_id=user_id)
+            except Exception as exc:
+                _log.warning(
+                    "OzonFbsScheduler user %s list jobs error: %s", user_id, exc
+                )
+                continue
+            if not jobs:
+                continue
+            lookback_days = int(settings.get("lookback_days") or DEFAULT_LOOKBACK_DAYS)
+            ok, message = start_sync_thread(
+                repo=self.repository,
+                user_id=user_id,
+                sources=jobs,
+                lookback_days=lookback_days,
+                is_auto=True,
+                actor_name="авто",
+            )
+            if ok:
+                _log.info(
+                    "OzonFbsScheduler: started auto-sync user=%s sources=%s interval=%sm",
+                    user_id,
+                    len(jobs),
+                    interval_minutes,
+                )
+            else:
+                _log.info(
+                    "OzonFbsScheduler: skip sync user=%s (%s)",
+                    user_id,
+                    message,
+                )
