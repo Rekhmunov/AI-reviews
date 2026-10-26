@@ -44670,7 +44670,7 @@ window.onWbFbsAutoCollectToggle = onWbFbsAutoCollectToggle;
 
 async function openWbFbsAutoSyncSettings() {
   if (!_wbFbsCanViewOwnerTabs()) {
-    alert("Настройки автоматики доступны только главному пользователю");
+    alert("Настройки синхронизации доступны только главному пользователю");
     return;
   }
   const modal = document.getElementById("wbFbsAutoSyncModal");
@@ -44922,7 +44922,7 @@ function _wbFbsNormTimeInput(value, fallback) {
 
 async function saveWbFbsAutoSyncSettings() {
   if (!_wbFbsCanViewOwnerTabs()) {
-    alert("Настройки автоматики доступны только главному пользователю");
+    alert("Настройки синхронизации доступны только главному пользователю");
     return;
   }
   const enabled = !!document.getElementById("wbFbsAutoSyncEnabled")?.checked;
