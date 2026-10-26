@@ -11775,7 +11775,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not _is_wb_fbs_tenant_owner(user):
             raise HTTPException(
                 status_code=403,
-                detail="Настройки автоматики доступны только главному пользователю",
+                detail="Настройки синхронизации доступны только главному пользователю",
             )
         owner_id = _supply_owner_id(user)
         try:
@@ -11795,7 +11795,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not _is_wb_fbs_tenant_owner(user):
             raise HTTPException(
                 status_code=403,
-                detail="Настройки автоматики доступны только главному пользователю",
+                detail="Настройки синхронизации доступны только главному пользователю",
             )
         owner_id = _supply_owner_id(user)
         try:
