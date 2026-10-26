@@ -56,11 +56,36 @@ class OzonFbsAutoSyncHelpersTests(unittest.TestCase):
         }
         payload = oz.manual_sync_block_payload(settings, now_msk=now)
         self.assertTrue(payload["manual_sync_blocked"])
-        self.assertIn("22:00", payload["manual_sync_block_message"])
+        self.assertEqual(
+            payload["manual_sync_block_message"],
+            "Кнопка заблокирована до 26.10.2026 23:00 (МСК)",
+        )
+        self.assertTrue(str(payload["manual_sync_block_until"] or "").startswith("2026-10-26T23:00"))
 
         settings["manual_sync_block_enabled"] = False
         payload = oz.manual_sync_block_payload(settings, now_msk=now)
         self.assertFalse(payload["manual_sync_blocked"])
+        self.assertEqual(payload["manual_sync_block_message"], "")
+
+    def test_manual_sync_block_until_overnight(self):
+        settings = {
+            "manual_sync_block_enabled": True,
+            "manual_sync_block_from": "22:00",
+            "manual_sync_block_to": "06:00",
+        }
+        evening = datetime(2026, 10, 26, 23, 0, tzinfo=MSK)
+        morning = datetime(2026, 10, 27, 5, 0, tzinfo=MSK)
+        midday = datetime(2026, 10, 27, 12, 0, tzinfo=MSK)
+        until_eve = oz.manual_sync_block_until_msk(settings, now_msk=evening)
+        until_morn = oz.manual_sync_block_until_msk(settings, now_msk=morning)
+        self.assertEqual(until_eve, datetime(2026, 10, 27, 6, 0, tzinfo=MSK))
+        self.assertEqual(until_morn, datetime(2026, 10, 27, 6, 0, tzinfo=MSK))
+        self.assertIsNone(oz.manual_sync_block_until_msk(settings, now_msk=midday))
+        payload = oz.manual_sync_block_payload(settings, now_msk=evening)
+        self.assertEqual(
+            payload["manual_sync_block_message"],
+            "Кнопка заблокирована до 27.10.2026 06:00 (МСК)",
+        )
 
     def test_manual_sync_block_equal_times_not_active(self):
         """Default 00:00–00:00 must not lock Sync when toggle is on by mistake."""

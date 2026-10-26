@@ -5324,8 +5324,9 @@
       return;
     }
     syncBtn.disabled = blocked;
+    // Native browser tooltip on hover while Sync is blocked by settings window.
     syncBtn.title = blocked
-      ? (message || "Ручная синхронизация временно отключена")
+      ? (message || "Кнопка заблокирована")
       : "";
   }
 
