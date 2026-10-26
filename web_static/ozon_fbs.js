@@ -6126,7 +6126,7 @@
   async function syncOzonFbs() {
     if (manualSyncGateState.blocked) {
       showSyncInfo(
-        manualSyncGateState.message || "Ручная синхронизация временно отключена",
+        manualSyncGateState.message || "Кнопка заблокирована",
         "error"
       );
       _ozonFbsApplyManualSyncGate({
