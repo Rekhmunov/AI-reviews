@@ -1279,9 +1279,27 @@ class StockSourceUpdateRequest(BaseModel):
 
 
 class OzonFbsSyncSettingsRequest(BaseModel):
-    """Ozon FBS sync settings (lookback only for now)."""
+    """Ozon FBS sync settings: lookback + auto-sync (no assembly)."""
 
     lookback_days: int = Field(default=3, ge=1, le=30)
+    enabled: bool = False
+    interval_minutes: int | None = Field(default=None, ge=10, le=1440)
+    active_from: str = "12:00"
+    active_to: str = "06:00"
+    manual_sync_block_enabled: bool = False
+    manual_sync_block_from: str = "00:00"
+    manual_sync_block_to: str = "00:00"
+
+    def validated_interval_minutes(self) -> int:
+        allowed = (10, 30, 60, 120, 180, 360, 720, 1440)
+        minutes = int(self.interval_minutes if self.interval_minutes is not None else 60)
+        if minutes not in allowed:
+            raise ValueError(
+                "Период синхронизации должен быть одним из: "
+                + ", ".join(str(v) for v in allowed)
+                + " минут"
+            )
+        return minutes
 
 
 class OzonFbsFinesSettingsRequest(BaseModel):
@@ -1495,6 +1513,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     failed_login_attempts: dict[str, list[float]] = {}
     stock_scheduler = StockScheduler(repository)
     wb_fbs_scheduler = wb_fbs_mod.WbFbsScheduler(repository)
+    ozon_fbs_scheduler = ozon_fbs_mod.OzonFbsScheduler(repository)
     supply_min_auto_scheduler = supply_min_auto.MinAutoScheduler(repository)
 
     def _client_ip(request: Request) -> str:
@@ -8734,6 +8753,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except Exception as _exc:
             _log.warning("restore_auto_sync_on_startup: wb_fbs_scheduler start failed: %s", _exc)
         try:
+            ozon_fbs_scheduler.start()
+        except Exception as _exc:
+            _log.warning(
+                "restore_auto_sync_on_startup: ozon_fbs_scheduler start failed: %s", _exc
+            )
+        try:
             supply_min_auto_scheduler.start()
         except Exception as _exc:
             _log.warning(
@@ -14766,10 +14791,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    def _ozon_fbs_manual_sync_gate(owner_id: int) -> dict[str, object]:
+        try:
+            settings = repository.get_ozon_fbs_sync_settings(user_id=owner_id)
+        except Exception:
+            settings = {}
+        return ozon_fbs_mod.manual_sync_block_payload(settings)
+
     @app.get("/api/ozon-fbs/sync/status")
     def get_ozon_fbs_sync_status(request: Request) -> dict[str, object]:
-        _require_user(request)
-        return ozon_fbs_mod.get_sync_state()
+        user = _require_user(request)
+        st = dict(ozon_fbs_mod.get_sync_state())
+        if _can_view_ozon_fbs(user):
+            st.update(_ozon_fbs_manual_sync_gate(_supply_owner_id(user)))
+        return st
 
     @app.post("/api/ozon-fbs/sync/stop")
     def stop_ozon_fbs_sync(request: Request) -> dict[str, object]:
@@ -14794,6 +14829,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         settings["can_edit"] = True
+        settings.update(ozon_fbs_mod.manual_sync_block_payload(settings))
         return settings
 
     @app.post("/api/ozon-fbs/delivering-status-check")
@@ -14885,25 +14921,52 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             )
         owner_id = _supply_owner_id(user)
         try:
+            interval_minutes = payload.validated_interval_minutes()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
             updated = repository.save_ozon_fbs_sync_settings(
                 user_id=owner_id,
                 lookback_days=int(payload.lookback_days),
+                enabled=bool(payload.enabled),
+                interval_minutes=interval_minutes,
+                active_from=str(payload.active_from or "12:00"),
+                active_to=str(payload.active_to or "06:00"),
+                manual_sync_block_enabled=bool(payload.manual_sync_block_enabled),
+                manual_sync_block_from=str(payload.manual_sync_block_from or "00:00"),
+                manual_sync_block_to=str(payload.manual_sync_block_to or "00:00"),
             )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         updated["can_edit"] = True
         updated["ok"] = True
+        updated.update(ozon_fbs_mod.manual_sync_block_payload(updated))
         try:
             from . import ozon_fbs_ops_log as ops_log
 
+            auto_label = "вкл" if updated.get("enabled") else "выкл"
+            block_label = "вкл" if updated.get("manual_sync_block_enabled") else "выкл"
             ops_log.append_event(
                 repository,
                 user_id=owner_id,
                 action=ops_log.ACTION_SETTINGS,
-                message=f"Глубина синхронизации: {updated.get('lookback_days')} дн.",
+                message=(
+                    f"Настройки синхронизации: авто {auto_label}, "
+                    f"глубина {updated.get('lookback_days')} дн., "
+                    f"блок ручной {block_label}"
+                ),
                 actor_user_id=int(user.get("id") or 0) or None,
                 actor_name=ops_log.actor_label(user),
-                details={"lookback_days": updated.get("lookback_days")},
+                details={
+                    "lookback_days": updated.get("lookback_days"),
+                    "enabled": bool(updated.get("enabled")),
+                    "interval_minutes": updated.get("interval_minutes"),
+                    "manual_sync_block_enabled": bool(
+                        updated.get("manual_sync_block_enabled")
+                    ),
+                },
             )
             # Retention follows lookback — purge immediately after change.
             ops_log.cleanup_old_events(
@@ -14985,7 +15048,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             sync_settings = repository.get_ozon_fbs_sync_settings(user_id=owner_id)
             lookback_days = int(sync_settings.get("lookback_days") or 3)
         except Exception:
+            sync_settings = {}
             lookback_days = 3
+        gate = ozon_fbs_mod.manual_sync_block_payload(sync_settings)
+        if gate.get("manual_sync_blocked"):
+            return {
+                "ok": False,
+                "message": gate.get("manual_sync_block_message")
+                or "Ручная синхронизация временно отключена",
+                "manual_sync_blocked": True,
+                **gate,
+            }
         from . import ozon_fbs_ops_log as ops_log
 
         ok, message = ozon_fbs_mod.start_sync_thread(
@@ -14993,6 +15066,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             user_id=owner_id,
             sources=jobs,
             lookback_days=lookback_days,
+            is_auto=False,
             actor_user_id=int(user.get("id") or 0) or None,
             actor_name=ops_log.actor_label(user),
         )
@@ -15002,6 +15076,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "source_ids": [int(j["source_id"]) for j in jobs],
             "sources_count": len(jobs),
             "lookback_days": lookback_days,
+            **gate,
         }
 
     @app.get("/api/ozon-fbs/postings/{posting_number}/detail")
@@ -24412,6 +24487,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         auto_sync_stop_event.set()
         stock_scheduler.stop()
         wb_fbs_scheduler.stop()
+        ozon_fbs_scheduler.stop()
         supply_min_auto_scheduler.stop()
         worker = auto_sync_worker.get("thread")
         if isinstance(worker, threading.Thread) and worker.is_alive():

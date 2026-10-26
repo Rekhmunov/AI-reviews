@@ -18,6 +18,7 @@ from .repository import ReviewRepository
 _log = logging.getLogger(__name__)
 
 ACTION_SYNC_START = "sync_start"
+ACTION_AUTO_SYNC = "auto_sync"
 ACTION_SYNC_DONE = "sync_done"
 ACTION_SYNC_STOP = "sync_stop"
 ACTION_COLLECT_START = "collect_start"

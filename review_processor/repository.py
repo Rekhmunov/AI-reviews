@@ -549,6 +549,60 @@ class ReviewRepository:
         conn.execute(
             """
             ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS ozon_fbs_auto_sync_enabled BOOLEAN NOT NULL DEFAULT FALSE
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS ozon_fbs_auto_sync_interval_minutes INTEGER NOT NULL DEFAULT 60
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS ozon_fbs_auto_sync_active_from TEXT NOT NULL DEFAULT '12:00'
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS ozon_fbs_auto_sync_active_to TEXT NOT NULL DEFAULT '06:00'
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS ozon_fbs_last_synced_at TIMESTAMPTZ
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS ozon_fbs_last_auto_synced_at TIMESTAMPTZ
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS ozon_fbs_manual_sync_block_enabled BOOLEAN NOT NULL DEFAULT FALSE
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS ozon_fbs_manual_sync_block_from TEXT NOT NULL DEFAULT '00:00'
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS ozon_fbs_manual_sync_block_to TEXT NOT NULL DEFAULT '00:00'
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE users
             ADD COLUMN IF NOT EXISTS wb_fbs_last_synced_at TIMESTAMPTZ
             """
         )
@@ -8342,6 +8396,7 @@ class ReviewRepository:
     _OZON_FBS_SYNC_LOOKBACK_MIN = 1
     _OZON_FBS_SYNC_LOOKBACK_MAX = 30
     _OZON_FBS_SYNC_LOOKBACK_DEFAULT = 3
+    _OZON_FBS_AUTO_SYNC_INTERVAL_MINUTES = (10, 30, 60, 120, 180, 360, 720, 1440)
 
     def _normalize_ozon_fbs_sync_lookback_days(self, value: object | None) -> int:
         try:
@@ -8357,21 +8412,50 @@ class ReviewRepository:
             min(self._OZON_FBS_SYNC_LOOKBACK_MAX, days),
         )
 
-    def get_ozon_fbs_sync_settings(self, *, user_id: int) -> dict[str, Any]:
-        with self._connect() as conn:
+    def _normalize_ozon_fbs_auto_sync_interval_minutes(self, value: object | None) -> int:
+        try:
+            minutes = int(value if value is not None else 60)
+        except (TypeError, ValueError):
+            return 60
+        if minutes in self._OZON_FBS_AUTO_SYNC_INTERVAL_MINUTES:
+            return minutes
+        return 60
+
+    def _ensure_ozon_fbs_auto_sync_columns(self, conn) -> None:
+        alters = (
+            "ADD COLUMN IF NOT EXISTS ozon_fbs_sync_lookback_days INTEGER NOT NULL DEFAULT 3",
+            "ADD COLUMN IF NOT EXISTS ozon_fbs_auto_sync_enabled BOOLEAN NOT NULL DEFAULT FALSE",
+            "ADD COLUMN IF NOT EXISTS ozon_fbs_auto_sync_interval_minutes INTEGER NOT NULL DEFAULT 60",
+            "ADD COLUMN IF NOT EXISTS ozon_fbs_auto_sync_active_from TEXT NOT NULL DEFAULT '12:00'",
+            "ADD COLUMN IF NOT EXISTS ozon_fbs_auto_sync_active_to TEXT NOT NULL DEFAULT '06:00'",
+            "ADD COLUMN IF NOT EXISTS ozon_fbs_last_synced_at TIMESTAMPTZ",
+            "ADD COLUMN IF NOT EXISTS ozon_fbs_last_auto_synced_at TIMESTAMPTZ",
+            "ADD COLUMN IF NOT EXISTS ozon_fbs_manual_sync_block_enabled BOOLEAN NOT NULL DEFAULT FALSE",
+            "ADD COLUMN IF NOT EXISTS ozon_fbs_manual_sync_block_from TEXT NOT NULL DEFAULT '00:00'",
+            "ADD COLUMN IF NOT EXISTS ozon_fbs_manual_sync_block_to TEXT NOT NULL DEFAULT '00:00'",
+        )
+        for clause in alters:
             try:
-                conn.execute(
-                    """
-                    ALTER TABLE users
-                    ADD COLUMN IF NOT EXISTS ozon_fbs_sync_lookback_days INTEGER NOT NULL DEFAULT 3
-                    """
-                )
+                conn.execute(f"ALTER TABLE users {clause}")
             except Exception:
                 pass
+
+    def get_ozon_fbs_sync_settings(self, *, user_id: int) -> dict[str, Any]:
+        with self._connect() as conn:
+            self._ensure_ozon_fbs_auto_sync_columns(conn)
             row = conn.execute(
                 self._sql(
                     """
-                    SELECT ozon_fbs_sync_lookback_days
+                    SELECT ozon_fbs_sync_lookback_days,
+                           ozon_fbs_auto_sync_enabled,
+                           ozon_fbs_auto_sync_interval_minutes,
+                           ozon_fbs_auto_sync_active_from,
+                           ozon_fbs_auto_sync_active_to,
+                           ozon_fbs_last_synced_at,
+                           ozon_fbs_last_auto_synced_at,
+                           ozon_fbs_manual_sync_block_enabled,
+                           ozon_fbs_manual_sync_block_from,
+                           ozon_fbs_manual_sync_block_to
                     FROM users
                     WHERE id = ? AND is_deleted = ?
                     """
@@ -8380,42 +8464,143 @@ class ReviewRepository:
             ).fetchone()
         if row is None:
             raise RuntimeError("User not found")
+        data = self._row_to_dict(row) if hasattr(self, "_row_to_dict") else dict(row)
         lookback_days = self._normalize_ozon_fbs_sync_lookback_days(
-            row["ozon_fbs_sync_lookback_days"] if hasattr(row, "keys") else row[0]
+            data.get("ozon_fbs_sync_lookback_days")
+        )
+        interval_minutes = self._normalize_ozon_fbs_auto_sync_interval_minutes(
+            data.get("ozon_fbs_auto_sync_interval_minutes")
         )
         return {
             "lookback_days": lookback_days,
             "lookback_days_min": self._OZON_FBS_SYNC_LOOKBACK_MIN,
             "lookback_days_max": self._OZON_FBS_SYNC_LOOKBACK_MAX,
+            "enabled": bool(data.get("ozon_fbs_auto_sync_enabled")),
+            "interval_minutes": interval_minutes,
+            "allowed_intervals_minutes": list(self._OZON_FBS_AUTO_SYNC_INTERVAL_MINUTES),
+            "active_from": self._normalize_hhmm(
+                data.get("ozon_fbs_auto_sync_active_from"), default="12:00"
+            ),
+            "active_to": self._normalize_hhmm(
+                data.get("ozon_fbs_auto_sync_active_to"), default="06:00"
+            ),
+            "last_synced_at": self._iso_or_none(data.get("ozon_fbs_last_synced_at")),
+            "last_auto_synced_at": self._iso_or_none(
+                data.get("ozon_fbs_last_auto_synced_at")
+            ),
+            "manual_sync_block_enabled": bool(
+                data.get("ozon_fbs_manual_sync_block_enabled")
+            ),
+            "manual_sync_block_from": self._normalize_hhmm(
+                data.get("ozon_fbs_manual_sync_block_from"), default="00:00"
+            ),
+            "manual_sync_block_to": self._normalize_hhmm(
+                data.get("ozon_fbs_manual_sync_block_to"), default="00:00"
+            ),
         }
 
     def save_ozon_fbs_sync_settings(
-        self, *, user_id: int, lookback_days: int
+        self,
+        *,
+        user_id: int,
+        lookback_days: int,
+        enabled: bool = False,
+        interval_minutes: int | None = None,
+        active_from: str = "12:00",
+        active_to: str = "06:00",
+        manual_sync_block_enabled: bool = False,
+        manual_sync_block_from: str = "00:00",
+        manual_sync_block_to: str = "00:00",
     ) -> dict[str, Any]:
         days = self._normalize_ozon_fbs_sync_lookback_days(lookback_days)
+        try:
+            interval = int(interval_minutes if interval_minutes is not None else 60)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Недопустимый период") from exc
+        if interval not in self._OZON_FBS_AUTO_SYNC_INTERVAL_MINUTES:
+            raise ValueError(
+                "Период синхронизации должен быть одним из: "
+                + ", ".join(str(v) for v in self._OZON_FBS_AUTO_SYNC_INTERVAL_MINUTES)
+                + " минут"
+            )
+        sync_from = self._parse_hhmm_strict(
+            active_from, field="начала окна автосинхронизации", default="12:00"
+        )
+        sync_to = self._parse_hhmm_strict(
+            active_to, field="конца окна автосинхронизации", default="06:00"
+        )
+        block_from = self._parse_hhmm_strict(
+            manual_sync_block_from,
+            field="начала окна блокировки ручной синхронизации",
+            default="00:00",
+        )
+        block_to = self._parse_hhmm_strict(
+            manual_sync_block_to,
+            field="конца окна блокировки ручной синхронизации",
+            default="00:00",
+        )
         with self._connect() as conn:
-            try:
-                conn.execute(
-                    """
-                    ALTER TABLE users
-                    ADD COLUMN IF NOT EXISTS ozon_fbs_sync_lookback_days INTEGER NOT NULL DEFAULT 3
-                    """
-                )
-            except Exception:
-                pass
+            self._ensure_ozon_fbs_auto_sync_columns(conn)
             result = conn.execute(
                 self._sql(
                     """
                     UPDATE users
-                    SET ozon_fbs_sync_lookback_days = ?
+                    SET ozon_fbs_sync_lookback_days = ?,
+                        ozon_fbs_auto_sync_enabled = ?,
+                        ozon_fbs_auto_sync_interval_minutes = ?,
+                        ozon_fbs_auto_sync_active_from = ?,
+                        ozon_fbs_auto_sync_active_to = ?,
+                        ozon_fbs_manual_sync_block_enabled = ?,
+                        ozon_fbs_manual_sync_block_from = ?,
+                        ozon_fbs_manual_sync_block_to = ?
                     WHERE id = ? AND is_deleted = ?
                     """
                 ),
-                (days, user_id, self._bool_db(False)),
+                (
+                    days,
+                    self._bool_db(bool(enabled)),
+                    interval,
+                    sync_from,
+                    sync_to,
+                    self._bool_db(bool(manual_sync_block_enabled)),
+                    block_from,
+                    block_to,
+                    user_id,
+                    self._bool_db(False),
+                ),
             )
             if not result.rowcount:
                 raise RuntimeError("User not found")
         return self.get_ozon_fbs_sync_settings(user_id=user_id)
+
+    def mark_ozon_fbs_synced(self, *, user_id: int, is_auto: bool = False) -> None:
+        """Record last Ozon FBS sync (tenant-level; separate from WB FBS timestamps)."""
+        now = _utc_now()
+        with self._connect() as conn:
+            self._ensure_ozon_fbs_auto_sync_columns(conn)
+            if is_auto:
+                conn.execute(
+                    self._sql(
+                        """
+                        UPDATE users
+                        SET ozon_fbs_last_synced_at = ?,
+                            ozon_fbs_last_auto_synced_at = ?
+                        WHERE id = ? AND is_deleted = ?
+                        """
+                    ),
+                    (now, now, user_id, self._bool_db(False)),
+                )
+            else:
+                conn.execute(
+                    self._sql(
+                        """
+                        UPDATE users
+                        SET ozon_fbs_last_synced_at = ?
+                        WHERE id = ? AND is_deleted = ?
+                        """
+                    ),
+                    (now, user_id, self._bool_db(False)),
+                )
 
     def _migrate_manually_closed_at(self, conn) -> None:
         """Add manually_closed_at column to conversation_items."""

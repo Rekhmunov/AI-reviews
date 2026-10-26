@@ -5170,6 +5170,7 @@
     try {
       const res = await fetch("/api/ozon-fbs/sync/status");
       const st = await res.json();
+      _ozonFbsApplyManualSyncGate(st);
       if (st?.in_progress) {
         setSyncUi(true);
         showSyncInfo(String(st.message || "Синхронизация…"));
@@ -5178,6 +5179,7 @@
     } catch (_e) {
       /* ignore */
     }
+    _scheduleManualSyncGatePoll();
     // Resume split/collect busy UI so supply links stay blocked after reload.
     try {
       const res = await fetch("/api/ozon-fbs/split-multi/status");
@@ -5217,6 +5219,108 @@
     if (typeof _ozonFbsKizSyncImportBtn === "function") {
       _ozonFbsKizSyncImportBtn();
     }
+  }
+
+  function _ozonFbsAutoSyncMarkGear(enabled) {
+    const btn = document.getElementById("ozonFbsSyncSettingsBtn");
+    if (btn) btn.classList.toggle("is-auto-on", !!enabled);
+  }
+
+  function _ozonFbsAutoSyncFormatLast(iso) {
+    const text = String(iso || "").trim();
+    if (!text) return "—";
+    const d = new Date(text);
+    if (Number.isNaN(d.getTime())) {
+      return text.slice(0, 16).replace("T", " ");
+    }
+    return d.toLocaleString("ru-RU", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  function _ozonFbsAutoSyncSetLast(iso, autoIso) {
+    const el = document.getElementById("ozonFbsAutoSyncLast");
+    if (el) el.textContent = `Последняя синхронизация: ${_ozonFbsAutoSyncFormatLast(iso)}`;
+    const autoEl = document.getElementById("ozonFbsAutoSyncLastAuto");
+    if (autoEl) {
+      autoEl.textContent = `Последняя автосинхронизация: ${_ozonFbsAutoSyncFormatLast(autoIso)}`;
+    }
+  }
+
+  function _ozonFbsAutoSyncApplyEnabledUi() {
+    const enabled = !!document.getElementById("ozonFbsAutoSyncEnabled")?.checked;
+    const state = document.getElementById("ozonFbsAutoSyncEnabledText");
+    if (state) {
+      state.textContent = enabled ? "Вкл" : "Выкл";
+      state.classList.toggle("is-on", enabled);
+    }
+    const interval = document.getElementById("ozonFbsAutoSyncInterval");
+    const fromEl = document.getElementById("ozonFbsAutoSyncFrom");
+    const toEl = document.getElementById("ozonFbsAutoSyncTo");
+    if (interval) interval.disabled = !enabled;
+    if (fromEl) fromEl.disabled = !enabled;
+    if (toEl) toEl.disabled = !enabled;
+  }
+
+  function _ozonFbsManualSyncBlockApplyUi() {
+    const enabled = !!document.getElementById("ozonFbsManualSyncBlockEnabled")?.checked;
+    const state = document.getElementById("ozonFbsManualSyncBlockText");
+    if (state) {
+      state.textContent = enabled ? "Вкл" : "Выкл";
+      state.classList.toggle("is-on", enabled);
+    }
+    const fromEl = document.getElementById("ozonFbsManualSyncBlockFrom");
+    const toEl = document.getElementById("ozonFbsManualSyncBlockTo");
+    if (fromEl) fromEl.disabled = !enabled;
+    if (toEl) toEl.disabled = !enabled;
+  }
+
+  function onOzonFbsAutoSyncToggle() {
+    _ozonFbsAutoSyncApplyEnabledUi();
+  }
+  window.onOzonFbsAutoSyncToggle = onOzonFbsAutoSyncToggle;
+
+  function onOzonFbsManualSyncBlockToggle() {
+    _ozonFbsManualSyncBlockApplyUi();
+  }
+  window.onOzonFbsManualSyncBlockToggle = onOzonFbsManualSyncBlockToggle;
+
+  const manualSyncGateState = {
+    blocked: false,
+    message: "",
+    timer: null,
+  };
+
+  function _ozonFbsApplyManualSyncGate(st) {
+    const blocked = !!st?.manual_sync_blocked;
+    const message = String(st?.manual_sync_block_message || "").trim();
+    manualSyncGateState.blocked = blocked;
+    manualSyncGateState.message = message;
+    const syncBtn = document.getElementById("ozonFbsSyncBtn");
+    if (!syncBtn) return;
+    if (state.syncBusy) {
+      syncBtn.disabled = true;
+      return;
+    }
+    syncBtn.disabled = blocked;
+    syncBtn.title = blocked
+      ? (message || "Ручная синхронизация временно отключена")
+      : "";
+  }
+
+  function _scheduleManualSyncGatePoll() {
+    if (manualSyncGateState.timer) clearTimeout(manualSyncGateState.timer);
+    manualSyncGateState.timer = setTimeout(() => {
+      fetch("/api/ozon-fbs/sync/status")
+        .then((r) => r.json())
+        .then((st) => _ozonFbsApplyManualSyncGate(st))
+        .catch(() => {})
+        .finally(() => _scheduleManualSyncGatePoll());
+    }, 30000);
   }
 
   function _ozonFbsSyncCancelledBtn() {
@@ -5423,14 +5527,23 @@
     if (!modal) return;
     modal.classList.remove("hidden");
     _ozonFbsSyncSettingsSetInfo("");
+    _ozonFbsAutoSyncSetLast(null, null);
     const saveBtn = document.getElementById("ozonFbsSyncSettingsSaveBtn");
     const lookbackEl = document.getElementById("ozonFbsSyncLookback");
+    const enabledEl = document.getElementById("ozonFbsAutoSyncEnabled");
+    const intervalEl = document.getElementById("ozonFbsAutoSyncInterval");
+    const fromEl = document.getElementById("ozonFbsAutoSyncFrom");
+    const toEl = document.getElementById("ozonFbsAutoSyncTo");
+    const blockEl = document.getElementById("ozonFbsManualSyncBlockEnabled");
+    const blockFromEl = document.getElementById("ozonFbsManualSyncBlockFrom");
+    const blockToEl = document.getElementById("ozonFbsManualSyncBlockTo");
     if (saveBtn) saveBtn.disabled = true;
     pollOzonFbsOpsLog(true).catch(() => {});
     try {
       const res = await fetch("/api/ozon-fbs/sync-settings");
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
+      const canEdit = data.can_edit !== false;
       if (lookbackEl) {
         const minD = Number(data.lookback_days_min) || 1;
         const maxD = Number(data.lookback_days_max) || 30;
@@ -5439,15 +5552,49 @@
         let days = Number(data.lookback_days);
         if (!Number.isFinite(days)) days = 3;
         lookbackEl.value = String(Math.min(maxD, Math.max(minD, Math.round(days))));
-        lookbackEl.disabled = data.can_edit === false;
+        lookbackEl.disabled = !canEdit;
         opsLogState.retentionDays = Math.min(maxD, Math.max(minD, Math.round(days)));
         _opsLogSetMeta(`хранение ${opsLogState.retentionDays} дн.`);
       }
+      if (enabledEl) {
+        enabledEl.checked = !!data.enabled;
+        enabledEl.disabled = !canEdit;
+      }
+      if (intervalEl) {
+        const allowed = Array.isArray(data.allowed_intervals_minutes)
+          ? data.allowed_intervals_minutes.map(Number)
+          : [10, 30, 60, 120, 180, 360, 720, 1440];
+        let mins = Number(data.interval_minutes);
+        if (!allowed.includes(mins)) mins = 30;
+        intervalEl.value = String(mins);
+      }
+      if (fromEl) fromEl.value = String(data.active_from || "12:00").slice(0, 5);
+      if (toEl) toEl.value = String(data.active_to || "06:00").slice(0, 5);
+      if (blockEl) {
+        blockEl.checked = !!data.manual_sync_block_enabled;
+        blockEl.disabled = !canEdit;
+      }
+      if (blockFromEl) {
+        blockFromEl.value = String(data.manual_sync_block_from || "00:00").slice(0, 5);
+      }
+      if (blockToEl) {
+        blockToEl.value = String(data.manual_sync_block_to || "00:00").slice(0, 5);
+      }
+      _ozonFbsAutoSyncSetLast(data.last_synced_at, data.last_auto_synced_at);
+      _ozonFbsAutoSyncApplyEnabledUi();
+      _ozonFbsManualSyncBlockApplyUi();
+      if (!canEdit) {
+        if (intervalEl) intervalEl.disabled = true;
+        if (fromEl) fromEl.disabled = true;
+        if (toEl) toEl.disabled = true;
+        if (blockFromEl) blockFromEl.disabled = true;
+        if (blockToEl) blockToEl.disabled = true;
+      }
+      _ozonFbsAutoSyncMarkGear(!!data.enabled);
+      _ozonFbsApplyManualSyncGate(data);
       if (saveBtn) {
-        saveBtn.disabled = data.can_edit === false;
-        saveBtn.title = data.can_edit === false
-          ? "Недостаточно прав для изменения настроек"
-          : "";
+        saveBtn.disabled = !canEdit;
+        saveBtn.title = canEdit ? "" : "Недостаточно прав для изменения настроек";
       }
     } catch (e) {
       _ozonFbsSyncSettingsSetInfo(String(e.message || e), "error");
@@ -5485,6 +5632,13 @@
       _ozonFbsSyncSettingsSetInfo("Укажите глубину от 1 до 30 дней", "error");
       return;
     }
+    const enabled = !!document.getElementById("ozonFbsAutoSyncEnabled")?.checked;
+    const intervalMinutes = Number(document.getElementById("ozonFbsAutoSyncInterval")?.value) || 30;
+    const activeFrom = String(document.getElementById("ozonFbsAutoSyncFrom")?.value || "12:00").slice(0, 5);
+    const activeTo = String(document.getElementById("ozonFbsAutoSyncTo")?.value || "06:00").slice(0, 5);
+    const blockEnabled = !!document.getElementById("ozonFbsManualSyncBlockEnabled")?.checked;
+    const blockFrom = String(document.getElementById("ozonFbsManualSyncBlockFrom")?.value || "00:00").slice(0, 5);
+    const blockTo = String(document.getElementById("ozonFbsManualSyncBlockTo")?.value || "00:00").slice(0, 5);
     const saveBtn = document.getElementById("ozonFbsSyncSettingsSaveBtn");
     if (saveBtn) saveBtn.disabled = true;
     _ozonFbsSyncSettingsSetInfo("Сохранение…");
@@ -5492,12 +5646,24 @@
       const res = await fetch("/api/ozon-fbs/sync-settings", {
         method: "PUT",
         headers: jsonHeaders(),
-        body: JSON.stringify({ lookback_days: lookbackDays }),
+        body: JSON.stringify({
+          lookback_days: lookbackDays,
+          enabled,
+          interval_minutes: intervalMinutes,
+          active_from: activeFrom,
+          active_to: activeTo,
+          manual_sync_block_enabled: blockEnabled,
+          manual_sync_block_from: blockFrom,
+          manual_sync_block_to: blockTo,
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(detailText(data.detail) || `Ошибка ${res.status}`);
       opsLogState.retentionDays = lookbackDays;
       _opsLogSetMeta(`хранение ${lookbackDays} дн.`);
+      _ozonFbsAutoSyncSetLast(data.last_synced_at, data.last_auto_synced_at);
+      _ozonFbsAutoSyncMarkGear(!!data.enabled);
+      _ozonFbsApplyManualSyncGate(data);
       _ozonFbsSyncSettingsSetInfo(
         `Сохранено. Журнал хранится ${lookbackDays} дн.`,
         "ok"
@@ -5878,8 +6044,16 @@
     const stopBtn = document.getElementById("ozonFbsStopBtn");
     const syncBtn = document.getElementById("ozonFbsSyncBtn");
     if (stopBtn) stopBtn.classList.toggle("hidden", !running);
-    if (syncBtn) syncBtn.disabled = running;
     state.syncBusy = Boolean(running);
+    if (syncBtn) {
+      if (running) {
+        syncBtn.disabled = true;
+      } else {
+        _ozonFbsApplyManualSyncGate(manualSyncGateState.blocked
+          ? { manual_sync_blocked: true, manual_sync_block_message: manualSyncGateState.message }
+          : { manual_sync_blocked: false });
+      }
+    }
     syncPackagingActionButtons();
   }
 
@@ -5887,6 +6061,7 @@
     try {
       const res = await fetch("/api/ozon-fbs/sync/status");
       const st = await res.json();
+      _ozonFbsApplyManualSyncGate(st);
       const running = Boolean(st.in_progress);
       setSyncUi(running);
       const msg = String(st.message || "");
@@ -5924,6 +6099,17 @@
   }
 
   async function syncOzonFbs() {
+    if (manualSyncGateState.blocked) {
+      showSyncInfo(
+        manualSyncGateState.message || "Ручная синхронизация временно отключена",
+        "error"
+      );
+      _ozonFbsApplyManualSyncGate({
+        manual_sync_blocked: true,
+        manual_sync_block_message: manualSyncGateState.message,
+      });
+      return;
+    }
     setSyncUi(true);
     showSyncInfo("Запуск синхронизации…");
     try {
@@ -5933,6 +6119,7 @@
         body: "{}",
       });
       const data = await res.json();
+      _ozonFbsApplyManualSyncGate(data);
       if (!res.ok || !data.ok) {
         showSyncInfo(data.message || data.detail || "Ошибка синхронизации", "error");
         setSyncUi(false);
