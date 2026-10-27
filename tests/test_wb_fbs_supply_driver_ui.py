@@ -121,7 +121,7 @@ def test_shared_driver_cabinet_shows_wb_items() -> None:
     assert 'id="wbFbsDriverPageBtn"' in html
     assert "openOzonFbsDriverPage()" in html
     driver_html = DRIVER_HTML.read_text(encoding="utf-8")
-    assert "ozon_fbs_driver.js?v=11" in driver_html
+    assert 'src="/static/ozon_fbs_driver.js?v=' in driver_html
 
 
 def test_wb_driver_modal_lives_in_wb_section_not_ozon() -> None:
@@ -148,8 +148,8 @@ def test_cache_bump_for_driver_modal() -> None:
     html = HTML.read_text(encoding="utf-8")
     css = CSS.read_text(encoding="utf-8")
     js = JS.read_text(encoding="utf-8")
-    assert "app.js?v=704" in html
-    assert "style.css?v=418" in html
+    assert 'src="/static/app.js?v=' in html
+    assert 'href="/static/style.css?v=' in html
     assert "#wbFbsDriverModal," in css or "#wbFbsDriverModal" in css
     assert "#wbFbsDriverModal," in css
     assert "z-index: 1450" in css

@@ -417,6 +417,44 @@ html, body {
   color: var(--ofd-muted);
 }
 
+.ofd-load-more {
+  margin-top: 16px;
+  display: flex;
+  justify-content: center;
+}
+
+.ofd-btn-load-more {
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #0f172a;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ofd-btn-load-more:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+.ofd-btn-load-more:active:not(:disabled) {
+  background: #f1f5f9;
+}
+
+.ofd-btn-load-more:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+
+.ofd-btn-load-more:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .ofd-errors {
   margin: 0 0 12px;
   padding: 12px 14px;

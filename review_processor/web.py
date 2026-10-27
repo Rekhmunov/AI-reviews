@@ -15607,7 +15607,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if msg and msg not in errors:
                 errors.append(msg)
         plate = str(oz.get("vehicle_number") or wb.get("vehicle_number") or "").strip()
-        from .ozon_fbs_supplies import driver_page_status_sort_key
+        from .ozon_fbs_supplies import (
+            DRIVER_PAGE_LOAD_MORE_DAYS,
+            driver_page_status_sort_key,
+        )
 
         items.sort(
             key=lambda r: (
@@ -15618,11 +15621,41 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 str(r.get("container_id") or ""),
             )
         )
-        lookback = oz.get("lookback_days")
-        try:
-            lookback_days = int(lookback) if lookback is not None else None
-        except (TypeError, ValueError):
-            lookback_days = None
+
+        def _int_field(payload: dict, key: str) -> int | None:
+            raw = payload.get(key)
+            if raw is None:
+                return None
+            try:
+                return int(raw)
+            except (TypeError, ValueError):
+                return None
+
+        lookback_candidates = [
+            x
+            for x in (
+                _int_field(oz, "lookback_days"),
+                _int_field(wb, "lookback_days"),
+            )
+            if x is not None and x > 0
+        ]
+        sync_candidates = [
+            x
+            for x in (
+                _int_field(oz, "sync_lookback_days"),
+                _int_field(wb, "sync_lookback_days"),
+            )
+            if x is not None and x > 0
+        ]
+        extra_candidates = [
+            x
+            for x in (_int_field(oz, "extra_days"), _int_field(wb, "extra_days"))
+            if x is not None and x >= 0
+        ]
+        lookback_days = max(lookback_candidates) if lookback_candidates else None
+        sync_lookback_days = max(sync_candidates) if sync_candidates else None
+        extra_days = max(extra_candidates) if extra_candidates else 0
+        has_more = bool(oz.get("has_more") or wb.get("has_more"))
         out: dict[str, object] = {
             "ok": True,
             "vehicle_number": plate,
@@ -15630,9 +15663,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "items": items,
             "total": len(items),
             "errors": errors,
+            "has_more": has_more,
+            "extra_days": extra_days,
+            "load_more_days": DRIVER_PAGE_LOAD_MORE_DAYS,
         }
-        if lookback_days is not None and lookback_days > 0:
+        if lookback_days is not None:
             out["lookback_days"] = lookback_days
+            out["window_days"] = lookback_days
+        if sync_lookback_days is not None:
+            out["sync_lookback_days"] = sync_lookback_days
         return out
 
     @app.get("/api/ozon-fbs/driver/vehicles")
@@ -15654,7 +15693,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.get("/api/ozon-fbs/driver/cargo-places")
     def ozon_fbs_driver_page_cargo_places(
-        request: Request, vehicle_number: str = ""
+        request: Request,
+        vehicle_number: str = "",
+        extra_days: int = 0,
     ) -> dict[str, object]:
         """Cargo places for supplies assigned to the selected vehicle plate."""
         from . import ozon_fbs as ozon_fbs_mod
@@ -15673,6 +15714,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="Укажите гос. номер")
         owner_id = _supply_owner_id(user)
         allowed = _ozon_fbs_allowed_source_ids(user)
+        try:
+            extra = max(0, int(extra_days or 0))
+        except (TypeError, ValueError):
+            extra = 0
 
         def _client_for_source(source_id: int):
             _require_ozon_fbs_source(user, int(source_id))
@@ -15685,6 +15730,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             vehicle_number=plate,
             client_for_source=_client_for_source,
             allowed_source_ids=allowed,
+            extra_days=extra,
         )
         # Owner page sees all WB FBS assignments for the tenant.
         wb_payload = wb_fbs_mod.list_driver_page_cargo_places(
@@ -15692,6 +15738,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             user_id=owner_id,
             vehicle_number=plate,
             allowed_source_ids=None,
+            extra_days=extra,
         )
         return _merge_driver_page_cargo_places(ozon_payload, wb_payload)
 
@@ -15757,6 +15804,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         page_token: str,
         vehicle_number: str = "",
         access_token: str = "",
+        extra_days: int = 0,
     ) -> dict[str, object]:
         """Public: cargo places for a plate of the PIN-unlocked driver."""
         from . import ozon_fbs as ozon_fbs_mod
@@ -15784,6 +15832,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             vehicle_number=plate,
         ):
             raise HTTPException(status_code=403, detail="Нет доступа к этому номеру")
+        try:
+            extra = max(0, int(extra_days or 0))
+        except (TypeError, ValueError):
+            extra = 0
 
         def _client_for_source(source_id: int):
             _, client_id, api_key = _ozon_fbs_source_credentials(owner_id, int(source_id))
@@ -15795,12 +15847,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             vehicle_number=plate,
             client_for_source=_client_for_source,
             allowed_source_ids=None,
+            extra_days=extra,
         )
         wb_payload = wb_fbs_mod.list_driver_page_cargo_places(
             repository,
             user_id=owner_id,
             vehicle_number=plate,
             allowed_source_ids=None,
+            extra_days=extra,
         )
         return _merge_driver_page_cargo_places(ozon_payload, wb_payload)
 

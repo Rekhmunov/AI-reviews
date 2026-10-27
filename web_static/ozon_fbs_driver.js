@@ -28,6 +28,11 @@
     expandedSupplies: {},
     /** @type {Record<string, boolean>} */
     expandedStatusHistory: {},
+    /** Extra days beyond sync lookback (load-more steps of 10). */
+    extraDays: 0,
+    hasMore: false,
+    loadMoreDays: 10,
+    loadingMore: false,
   };
 
   function esc(value) {
@@ -604,11 +609,26 @@
         "</div>"
       : "";
 
-    // No cargo in the tracked statuses → only the green banner, no empty list block.
+    const moreDays = Math.max(1, Number(state.loadMoreDays) || 10);
+    const moreBtn = state.hasMore
+      ? '<div class="ofd-load-more">' +
+        '<button type="button" id="ofdLoadMoreBtn" class="ofd-btn ofd-btn-load-more"' +
+        (state.loadingMore || state.loadingItems ? " disabled" : "") +
+        ">" +
+        (state.loadingMore
+          ? "Загрузка…"
+          : "Подгрузить ещё за " + moreDays + " дней") +
+        "</button>" +
+        "</div>"
+      : "";
+
+    // No cargo in the tracked statuses → green banner; keep load-more if older exist.
     if (!state.items.length) {
-      if (errorsHtml) {
+      if (errorsHtml || moreBtn) {
         box.hidden = false;
-        box.innerHTML = errorsHtml;
+        box.innerHTML = errorsHtml + moreBtn;
+        const moreEl = document.getElementById("ofdLoadMoreBtn");
+        if (moreEl) moreEl.addEventListener("click", onLoadMore);
       } else {
         box.innerHTML = "";
         box.hidden = true;
@@ -639,7 +659,8 @@
       listClass +
       '">' +
       rows +
-      "</ul>";
+      "</ul>" +
+      moreBtn;
 
     Array.prototype.forEach.call(
       box.querySelectorAll(".ofd-supply-head"),
@@ -667,11 +688,28 @@
         });
       }
     );
+    const moreEl = document.getElementById("ofdLoadMoreBtn");
+    if (moreEl) moreEl.addEventListener("click", onLoadMore);
     renderStatusBanner();
+  }
+
+  async function onLoadMore() {
+    if (state.loadingMore || state.loadingItems || !state.hasMore) return;
+    const step = Math.max(1, Number(state.loadMoreDays) || 10);
+    state.extraDays = Math.max(0, Number(state.extraDays) || 0) + step;
+    state.loadingMore = true;
+    renderResults();
+    try {
+      await loadCargo(state.vehicleNumber, { soft: true, keepExtra: true });
+    } finally {
+      state.loadingMore = false;
+      renderResults();
+    }
   }
 
   async function loadCargo(value, opts) {
     const soft = !!(opts && opts.soft);
+    const keepExtra = !!(opts && opts.keepExtra);
     const plate = String(value || "").trim();
     state.vehicleNumber = plate;
     state.softRefresh = soft;
@@ -680,6 +718,10 @@
       state.errors = [];
       state.expandedSupplies = {};
       state.expandedStatusHistory = {};
+      if (!keepExtra) {
+        state.extraDays = 0;
+        state.hasMore = false;
+      }
     }
     renderResults();
     if (!plate) {
@@ -690,6 +732,8 @@
     renderResults();
     try {
       const params = new URLSearchParams({ vehicle_number: plate });
+      const extra = Math.max(0, Number(state.extraDays) || 0);
+      if (extra > 0) params.set("extra_days", String(extra));
       let path;
       if (isPinMode) {
         path =
@@ -704,6 +748,15 @@
       state.items = Array.isArray(data.items) ? data.items : [];
       state.supplies = Array.isArray(data.supplies) ? data.supplies : [];
       state.errors = Array.isArray(data.errors) ? data.errors : [];
+      state.hasMore = data.has_more === true;
+      if (data.load_more_days != null) {
+        const n = Number(data.load_more_days);
+        if (Number.isFinite(n) && n > 0) state.loadMoreDays = n;
+      }
+      if (data.extra_days != null) {
+        const n = Number(data.extra_days);
+        if (Number.isFinite(n) && n >= 0) state.extraDays = n;
+      }
     } catch (err) {
       if (!soft) state.items = [];
       state.errors = [String(err.message || err)];
