@@ -26,6 +26,8 @@
     pinError: "",
     /** @type {Record<string, boolean>} */
     expandedSupplies: {},
+    /** @type {Record<string, boolean>} */
+    expandedStatusHistory: {},
   };
 
   function esc(value) {
@@ -264,6 +266,40 @@
         esc(String(item.order_count ?? 0)) +
         "</div>"
     );
+    if (!isWb) {
+      const hist = Array.isArray(item.status_history) ? item.status_history : [];
+      if (hist.length) {
+        const histKey =
+          String(item.source_id || "") + "|" + String(item.container_id || "");
+        const histOpen = !!state.expandedStatusHistory[histKey];
+        const histRows = hist
+          .map(function (h) {
+            return (
+              "<li>" +
+              '<span class="ofd-status-hist-label">' +
+              esc((h && (h.status_label || h.status)) || "—") +
+              "</span>" +
+              '<span class="ofd-status-hist-time">' +
+              esc((h && h.observed_at_display) || "") +
+              "</span>" +
+              "</li>"
+            );
+          })
+          .join("");
+        metaParts.push(
+          '<div class="ofd-status-hist">' +
+            '<button type="button" class="ofd-status-hist-toggle" data-hist-key="' +
+            esc(histKey) +
+            '" aria-expanded="' +
+            (histOpen ? "true" : "false") +
+            '">История статусов</button>' +
+            (histOpen
+              ? '<ul class="ofd-status-hist-list">' + histRows + "</ul>"
+              : "") +
+            "</div>"
+        );
+      }
+    }
     const title = isWb
       ? "Грузоместо " + esc(String(num || "—"))
       : "ГМ № " + esc(String(num || "—"));
@@ -618,6 +654,19 @@
         });
       }
     );
+    Array.prototype.forEach.call(
+      box.querySelectorAll(".ofd-status-hist-toggle"),
+      function (btn) {
+        btn.addEventListener("click", function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          const key = String(btn.getAttribute("data-hist-key") || "");
+          if (!key) return;
+          state.expandedStatusHistory[key] = !state.expandedStatusHistory[key];
+          renderResults();
+        });
+      }
+    );
     renderStatusBanner();
   }
 
@@ -630,6 +679,7 @@
       state.items = [];
       state.errors = [];
       state.expandedSupplies = {};
+      state.expandedStatusHistory = {};
     }
     renderResults();
     if (!plate) {

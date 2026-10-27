@@ -30,8 +30,8 @@ def test_driver_page_html_boot_and_assets() -> None:
     assert "Для водителя" in html
     assert "OFD_BOOT" in html
     assert "CAN_VIEW_OZON_FBS_DRIVER" in html
-    assert "/static/ozon_fbs_driver.js?v=11" in html
-    assert "/static/ozon_fbs_driver.css?v=8" in html
+    assert "/static/ozon_fbs_driver.js?v=12" in html
+    assert "/static/ozon_fbs_driver.css?v=9" in html
     assert "PAGE_MODE" in html
     assert "PAGE_TOKEN" in html
     assert "page_mode" in html
@@ -93,6 +93,10 @@ def test_driver_page_js_calls_apis() -> None:
     assert "ofd-supply" in js
     assert "ofd-supplies" in js
     assert "expandedSupplies" in js
+    assert "expandedStatusHistory" in js
+    assert "История статусов" in js
+    assert "ofd-status-hist-toggle" in js
+    assert "status_history" in js
     assert "Поставки" in js
     assert "is-ok" in js
     assert "is-warn" in js
@@ -111,6 +115,8 @@ def test_driver_page_js_calls_apis() -> None:
     assert "ofd-supply" in css
     assert "ofd-supply.is-ok" in css
     assert "ofd-supply.is-warn" in css
+    assert "ofd-status-hist-toggle" in css
+    assert "ofd-status-hist-list" in css
     assert "#f0fdf4" in css
     assert "#fff1f2" in css
     assert "is-refreshing" in css
@@ -539,3 +545,268 @@ def test_driver_page_uses_sync_settings_lookback() -> None:
     assert _driver_page_container_lookback_days(repo, user_id=1) == 2
     repo.get_ozon_fbs_sync_settings.side_effect = RuntimeError("missing")
     assert _driver_page_container_lookback_days(repo, user_id=1) == 3
+
+
+class _HistConn:
+    def __init__(self, store: "_HistStore") -> None:
+        self.store = store
+        self._pending: list[tuple] | None = None
+
+    def __enter__(self) -> "_HistConn":
+        return self
+
+    def __exit__(self, *a) -> None:
+        return None
+
+    def execute(self, sql: str, params: tuple | list | None = None):
+        text = " ".join(str(sql).split()).lower()
+        params = tuple(params or ())
+        if text.startswith("create table") or text.startswith("create index"):
+            return self
+        if "insert into ozon_fbs_container_status_history" in text:
+            self.store.insert(params)
+            return self
+        if "from ozon_fbs_container_status_history" in text and "limit 1" in text:
+            uid, sid, cid = int(params[0]), int(params[1]), int(params[2])
+            row = self.store.last(uid, sid, cid)
+            self._pending = [row] if row else []
+            return self
+        if "from ozon_fbs_container_status_history" in text:
+            uid, sid, cid = int(params[0]), int(params[1]), int(params[2])
+            self._pending = self.store.all(uid, sid, cid)
+            return self
+        self._pending = []
+        return self
+
+    def fetchone(self):
+        rows = self._pending or []
+        self._pending = None
+        return rows[0] if rows else None
+
+    def fetchall(self):
+        rows = self._pending or []
+        self._pending = None
+        return rows
+
+
+class _HistStore:
+    def __init__(self) -> None:
+        self.rows: list[dict] = []
+        self._id = 0
+
+    def insert(self, params: tuple) -> None:
+        from datetime import datetime, timezone
+
+        self._id += 1
+        uid, sid, cid, status = params[:4]
+        self.rows.append(
+            {
+                "id": self._id,
+                "user_id": int(uid),
+                "source_id": int(sid),
+                "container_id": int(cid),
+                "status": str(status),
+                "observed_at": datetime(2026, 10, 26, 12, 0, tzinfo=timezone.utc),
+            }
+        )
+
+    def last(self, uid: int, sid: int, cid: int):
+        matches = [
+            r
+            for r in self.rows
+            if r["user_id"] == uid
+            and r["source_id"] == sid
+            and r["container_id"] == cid
+        ]
+        if not matches:
+            return None
+        return matches[-1]
+
+    def all(self, uid: int, sid: int, cid: int):
+        return [
+            r
+            for r in self.rows
+            if r["user_id"] == uid
+            and r["source_id"] == sid
+            and r["container_id"] == cid
+        ]
+
+
+def _hist_repo(store: _HistStore) -> MagicMock:
+    repo = MagicMock()
+    repo._connect.side_effect = lambda: _HistConn(store)
+    repo._sql.side_effect = lambda s: s
+    repo._row_to_dict.side_effect = lambda row: dict(row) if isinstance(row, dict) else row
+    return repo
+
+
+def test_container_status_history_appends_only_on_change() -> None:
+    from review_processor.ozon_fbs_supplies import (
+        list_container_status_history,
+        record_container_status_history,
+    )
+
+    store = _HistStore()
+    repo = _hist_repo(store)
+
+    assert (
+        record_container_status_history(
+            repo, user_id=1, observations=[(5, 11, "formed")]
+        )
+        == 1
+    )
+    assert (
+        record_container_status_history(
+            repo, user_id=1, observations=[(5, 11, "formed")]
+        )
+        == 0
+    )
+    assert (
+        record_container_status_history(
+            repo,
+            user_id=1,
+            observations=[(5, 11, "acceptance_in_progress")],
+        )
+        == 1
+    )
+    assert (
+        record_container_status_history(
+            repo, user_id=1, observations=[(5, 11, "formed")]
+        )
+        == 1
+    )
+
+    hist = list_container_status_history(repo, user_id=1, keys=[(5, 11)])
+    statuses = [x["status"] for x in hist[(5, 11)]]
+    assert statuses == ["formed", "acceptance_in_progress", "formed"]
+    assert all(x.get("observed_at_display") for x in hist[(5, 11)])
+
+
+def test_list_driver_page_attaches_status_history(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "review_processor.ozon_fbs_supplies.list_supplies_for_driver_vehicle",
+        lambda *a, **k: [
+            {
+                "source_id": 5,
+                "supply_id": "OZ-1",
+                "supply_name": "Поставка 1",
+                "warehouse_name": "Склад",
+                "driver_name": "Иванов",
+                "vehicle_number": "А123ВС777",
+            }
+        ],
+    )
+
+    import review_processor.ozon_fbs_containers as oz_ct
+
+    items = [
+        {
+            "container_id": 11,
+            "container_number": 1,
+            "status": "formed",
+            "status_label": "Сформировано",
+            "order_count": 2,
+        }
+    ]
+    monkeypatch.setattr(
+        oz_ct, "resolve_supply_warehouse_id", lambda *a, **k: (99, "Склад")
+    )
+    monkeypatch.setattr(
+        oz_ct, "list_containers", lambda *a, **k: {"ok": True, "items": items}
+    )
+    monkeypatch.setattr(
+        oz_ct,
+        "enrich_containers_for_supply_modal",
+        lambda *a, **k: {"ok": True, "items": items},
+    )
+    monkeypatch.setattr(oz_ct, "status_label", lambda st: st)
+    monkeypatch.setattr(
+        oz_ct, "list_locally_archived_container_ids", lambda *a, **k: set()
+    )
+
+    store = _HistStore()
+    repo = _hist_repo(store)
+    repo.get_ozon_fbs_sync_settings.return_value = {"lookback_days": 3}
+
+    out1 = list_driver_page_cargo_places(
+        repo,
+        user_id=1,
+        vehicle_number="А123ВС777",
+        client_for_source=lambda sid: object(),
+    )
+    assert [x["status"] for x in out1["items"][0]["status_history"]] == ["formed"]
+
+    items[0]["status"] = "acceptance_in_progress"
+    items[0]["status_label"] = "Принято на СЦ"
+    out2 = list_driver_page_cargo_places(
+        repo,
+        user_id=1,
+        vehicle_number="А123ВС777",
+        client_for_source=lambda sid: object(),
+    )
+    assert [x["status"] for x in out2["items"][0]["status_history"]] == [
+        "formed",
+        "acceptance_in_progress",
+    ]
+
+
+def test_driver_page_status_history_uses_ozon_status_not_local_archive(
+    monkeypatch,
+) -> None:
+    """Local archive remaps UI to finished, but history must keep Ozon formed."""
+    monkeypatch.setattr(
+        "review_processor.ozon_fbs_supplies.list_supplies_for_driver_vehicle",
+        lambda *a, **k: [
+            {
+                "source_id": 5,
+                "supply_id": "OZ-1",
+                "supply_name": "Поставка 1",
+                "warehouse_name": "Склад",
+                "driver_name": "Иванов",
+                "vehicle_number": "А123ВС777",
+            }
+        ],
+    )
+
+    import review_processor.ozon_fbs_containers as oz_ct
+
+    items = [
+        {
+            "container_id": 11,
+            "container_number": 1,
+            "status": "formed",
+            "status_label": "Сформировано",
+            "order_count": 1,
+        }
+    ]
+    monkeypatch.setattr(
+        oz_ct, "resolve_supply_warehouse_id", lambda *a, **k: (99, "Склад")
+    )
+    monkeypatch.setattr(
+        oz_ct, "list_containers", lambda *a, **k: {"ok": True, "items": items}
+    )
+    monkeypatch.setattr(
+        oz_ct,
+        "enrich_containers_for_supply_modal",
+        lambda *a, **k: {"ok": True, "items": items},
+    )
+    monkeypatch.setattr(
+        oz_ct,
+        "status_label",
+        lambda st: "Завершено на СЦ" if st == "finished" else str(st),
+    )
+    monkeypatch.setattr(
+        oz_ct, "list_locally_archived_container_ids", lambda *a, **k: {11}
+    )
+
+    store = _HistStore()
+    repo = _hist_repo(store)
+    repo.get_ozon_fbs_sync_settings.return_value = {"lookback_days": 3}
+    out = list_driver_page_cargo_places(
+        repo,
+        user_id=1,
+        vehicle_number="А123ВС777",
+        client_for_source=lambda sid: object(),
+    )
+    assert out["items"][0]["status"] == "finished"
+    assert [x["status"] for x in out["items"][0]["status_history"]] == ["formed"]

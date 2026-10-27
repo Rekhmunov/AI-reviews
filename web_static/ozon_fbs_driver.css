@@ -359,6 +359,64 @@ html, body {
 
 .ofd-item-meta span { color: var(--ofd-muted); }
 
+.ofd-status-hist {
+  margin-top: 4px;
+}
+
+.ofd-status-hist-toggle {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #1d4ed8;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.ofd-status-hist-toggle:hover {
+  color: #1e40af;
+}
+
+.ofd-status-hist-toggle:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.ofd-status-hist-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ofd-status-hist-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  color: #334155;
+}
+
+.ofd-status-hist-label {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.ofd-status-hist-time {
+  color: var(--ofd-muted);
+}
+
 .ofd-errors {
   margin: 0 0 12px;
   padding: 12px 14px;
