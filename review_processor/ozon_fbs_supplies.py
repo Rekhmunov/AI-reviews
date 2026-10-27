@@ -3919,16 +3919,17 @@ def list_driver_page_cargo_places(
             observed_status = status
             locally_archived = cid in archived_ids
             # Same rule as «Доставляются» row_tone: local archive ⇒ accepted/green.
+            # Do not rewrite labels for GMs already at SC (acceptance/finished).
             if locally_archived and status not in {
                 "acceptance_in_progress",
                 "finished",
             }:
                 status = "finished"
             status_label = str(
-                raw.get("status_label") or oz_ct.status_label(status)
+                oz_ct.status_label(status)
+                or raw.get("status_label")
+                or status
             )
-            if locally_archived:
-                status_label = str(oz_ct.status_label("finished") or status_label)
             status_observations.append((source_id, cid, observed_status))
             items.append(
                 {
