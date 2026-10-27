@@ -3514,6 +3514,178 @@ def driver_page_status_sort_key(status: object) -> int:
     return DRIVER_PAGE_STATUS_SORT_ORDER.get(str(status or "").strip().lower(), 99)
 
 
+def ensure_container_status_history_table(repo: ReviewRepository) -> None:
+    """Local observations of Ozon GM statuses for the driver page audit trail."""
+    with repo._connect() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ozon_fbs_container_status_history (
+                id BIGSERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                source_id BIGINT NOT NULL,
+                container_id BIGINT NOT NULL,
+                status TEXT NOT NULL,
+                observed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        try:
+            conn.execute(
+                repo._sql(
+                    "CREATE INDEX IF NOT EXISTS "
+                    "idx_ozon_fbs_container_status_history_lookup "
+                    "ON ozon_fbs_container_status_history("
+                    "user_id, source_id, container_id, observed_at, id)"
+                )
+            )
+        except Exception:
+            pass
+
+
+def record_container_status_history(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    observations: list[tuple[int, int, str]],
+) -> int:
+    """Append a row only when the observed status differs from the last stored.
+
+    ``observations``: ``(source_id, container_id, status)``. Only driver-page
+    statuses are stored. Returns the number of new rows inserted.
+    """
+    uid = int(user_id)
+    cleaned: list[tuple[int, int, str]] = []
+    seen_keys: set[tuple[int, int]] = set()
+    for source_id, container_id, status in observations:
+        try:
+            sid = int(source_id)
+            cid = int(container_id)
+        except (TypeError, ValueError):
+            continue
+        st = str(status or "").strip().lower()
+        if sid <= 0 or cid <= 0 or st not in DRIVER_PAGE_CONTAINER_STATUSES:
+            continue
+        key = (sid, cid)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        cleaned.append((sid, cid, st))
+    if not cleaned:
+        return 0
+
+    ensure_container_status_history_table(repo)
+    inserted = 0
+    with repo._connect() as conn:
+        last_by_key: dict[tuple[int, int], str] = {}
+        for sid, cid, _st in cleaned:
+            row = conn.execute(
+                repo._sql(
+                    """
+                    SELECT status
+                    FROM ozon_fbs_container_status_history
+                    WHERE user_id = ? AND source_id = ? AND container_id = ?
+                    ORDER BY observed_at DESC, id DESC
+                    LIMIT 1
+                    """
+                ),
+                (uid, sid, cid),
+            ).fetchone()
+            if not row:
+                continue
+            try:
+                d = repo._row_to_dict(row)
+                prev = str(d.get("status") or "").strip().lower()
+            except Exception:
+                try:
+                    prev = str(row[0] or "").strip().lower()
+                except Exception:
+                    prev = ""
+            if prev:
+                last_by_key[(sid, cid)] = prev
+
+        for sid, cid, st in cleaned:
+            if last_by_key.get((sid, cid)) == st:
+                continue
+            conn.execute(
+                repo._sql(
+                    """
+                    INSERT INTO ozon_fbs_container_status_history
+                        (user_id, source_id, container_id, status, observed_at)
+                    VALUES (?, ?, ?, ?, NOW())
+                    """
+                ),
+                (uid, sid, cid, st),
+            )
+            inserted += 1
+            last_by_key[(sid, cid)] = st
+    return inserted
+
+
+def list_container_status_history(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    keys: list[tuple[int, int]],
+) -> dict[tuple[int, int], list[dict[str, Any]]]:
+    """History rows oldest→newest per ``(source_id, container_id)``."""
+    from . import ozon_fbs as oz
+    from . import ozon_fbs_containers as oz_ct
+
+    uid = int(user_id)
+    want: list[tuple[int, int]] = []
+    seen: set[tuple[int, int]] = set()
+    for source_id, container_id in keys:
+        try:
+            sid = int(source_id)
+            cid = int(container_id)
+        except (TypeError, ValueError):
+            continue
+        if sid <= 0 or cid <= 0 or (sid, cid) in seen:
+            continue
+        seen.add((sid, cid))
+        want.append((sid, cid))
+    out: dict[tuple[int, int], list[dict[str, Any]]] = {k: [] for k in want}
+    if not want:
+        return out
+
+    ensure_container_status_history_table(repo)
+    with repo._connect() as conn:
+        for sid, cid in want:
+            rows = conn.execute(
+                repo._sql(
+                    """
+                    SELECT status, observed_at
+                    FROM ozon_fbs_container_status_history
+                    WHERE user_id = ? AND source_id = ? AND container_id = ?
+                    ORDER BY observed_at ASC, id ASC
+                    """
+                ),
+                (uid, sid, cid),
+            ).fetchall()
+            entries: list[dict[str, Any]] = []
+            for row in rows:
+                try:
+                    d = repo._row_to_dict(row)
+                except Exception:
+                    d = {
+                        "status": row[0] if row else "",
+                        "observed_at": row[1] if row and len(row) > 1 else None,
+                    }
+                st = str(d.get("status") or "").strip().lower()
+                if st not in DRIVER_PAGE_CONTAINER_STATUSES:
+                    continue
+                observed = d.get("observed_at")
+                entries.append(
+                    {
+                        "status": st,
+                        "status_label": oz_ct.status_label(st),
+                        "observed_at": str(observed or "").strip(),
+                        "observed_at_display": oz.format_lookup_datetime(observed),
+                    }
+                )
+            out[(sid, cid)] = entries
+    return out
+
 
 def driver_owns_vehicle_plate(
     repo: ReviewRepository, *, user_id: int, driver_id: int, vehicle_number: str
@@ -3665,9 +3837,12 @@ def list_driver_page_cargo_places(
     items: list[dict[str, Any]] = []
     errors: list[str] = []
     seen: set[tuple[int, int]] = set()
+    status_observations: list[tuple[int, int, str]] = []
     # Cache Ozon list per (source_id, warehouse_id).
     listed_by_wh: dict[tuple[int, int], dict[str, Any]] = {}
     wh_name_by_key: dict[tuple[int, int], str] = {}
+    # Local archive (arrow → завершённые) counts as SC-accepted for driver UI tones.
+    archived_by_source: dict[int, set[int]] = {}
 
     for supply in supplies:
         source_id = int(supply["source_id"])
@@ -3702,10 +3877,20 @@ def list_driver_page_cargo_places(
                 listed=listed,
                 only_this_supply=True,
             )
+            if source_id not in archived_by_source:
+                try:
+                    archived_by_source[source_id] = (
+                        oz_ct.list_locally_archived_container_ids(
+                            repo, user_id=user_id, source_id=source_id
+                        )
+                    )
+                except Exception:
+                    archived_by_source[source_id] = set()
         except Exception as exc:
             errors.append(f"{supply.get('supply_name') or supply_id}: {exc}")
             continue
 
+        archived_ids = archived_by_source.get(source_id) or set()
         for raw in enriched.get("items") or []:
             if not isinstance(raw, dict):
                 continue
@@ -3730,14 +3915,29 @@ def list_driver_page_cargo_places(
                 orders = int(raw.get("order_count") or 0)
             except (TypeError, ValueError):
                 orders = 0
+            # History tracks the live Ozon status before local-archive remap.
+            observed_status = status
+            locally_archived = cid in archived_ids
+            # Same rule as «Доставляются» row_tone: local archive ⇒ accepted/green.
+            # Do not rewrite labels for GMs already at SC (acceptance/finished).
+            if locally_archived and status not in {
+                "acceptance_in_progress",
+                "finished",
+            }:
+                status = "finished"
+            status_label = str(
+                oz_ct.status_label(status)
+                or raw.get("status_label")
+                or status
+            )
+            status_observations.append((source_id, cid, observed_status))
             items.append(
                 {
                     "container_id": cid,
                     "container_number": number,
                     "status": status,
-                    "status_label": str(
-                        raw.get("status_label") or oz_ct.status_label(status)
-                    ),
+                    "status_label": status_label,
+                    "locally_archived": locally_archived,
                     "cargo_type": str(raw.get("cargo_type") or "").strip(),
                     "cargo_type_label": str(
                         raw.get("cargo_type_label") or ""
@@ -3762,8 +3962,26 @@ def list_driver_page_cargo_places(
                     "vehicle_number": str(
                         supply.get("vehicle_number") or plate
                     ).strip(),
+                    "status_history": [],
                 }
             )
+
+    if status_observations:
+        try:
+            record_container_status_history(
+                repo, user_id=user_id, observations=status_observations
+            )
+            history_by_key = list_container_status_history(
+                repo,
+                user_id=user_id,
+                keys=[(sid, cid) for sid, cid, _st in status_observations],
+            )
+            for item in items:
+                key = (int(item["source_id"]), int(item["container_id"]))
+                item["status_history"] = history_by_key.get(key) or []
+        except Exception:
+            # Driver page must still load if history storage fails.
+            pass
 
     def _supply_created_ms(value: object) -> float:
         raw = str(value or "").strip()
