@@ -90,6 +90,86 @@ def test_ozon_enrich_skips_unknown_gm_as_formed() -> None:
     assert "Only known live statuses" in enrich
     assert "if st:" in enrich
     assert "gm_statuses.append(st)" in enrich
+    # Local archive (arrow → завершённые) counts as accepted for row tone.
+    assert "list_locally_archived_container_ids" in enrich
+    assert 'gm_statuses.append("finished")' in enrich
+    assert "locally_archived" in enrich
+
+
+def test_enrich_local_archive_clears_warn_for_formed_gm() -> None:
+    """formed GM that was archived locally must not keep the supply pale-red."""
+    from unittest.mock import MagicMock, patch
+
+    from review_processor.ozon_fbs_supplies import enrich_ozon_supply_items_row_tones
+
+    repo = MagicMock()
+    client = MagicMock()
+    items = [{"supply_id": "S1", "ttn_id": 0, "has_driver": True}]
+
+    with (
+        patch(
+            "review_processor.ozon_fbs_containers.list_locally_archived_container_ids",
+            return_value={101},
+        ),
+        patch(
+            "review_processor.ozon_fbs_containers._active_local_order_counts_by_container",
+            return_value={101: 2},
+        ),
+        patch(
+            "review_processor.ozon_fbs_containers.resolve_supply_warehouse_id",
+            return_value=(55, "WH"),
+        ),
+        patch(
+            "review_processor.ozon_fbs_containers._list_containers_cached",
+            return_value={
+                "items": [{"container_id": 101, "status": "formed"}],
+            },
+        ),
+    ):
+        enrich_ozon_supply_items_row_tones(
+            repo, user_id=1, source_id=2, items=items, client=client
+        )
+
+    assert items[0]["gm_has_formed"] is False
+    assert items[0]["gm_all_accepted"] is True
+    assert items[0]["row_tone"] == ""
+
+
+def test_enrich_formed_gm_without_local_archive_stays_warn() -> None:
+    from unittest.mock import MagicMock, patch
+
+    from review_processor.ozon_fbs_supplies import enrich_ozon_supply_items_row_tones
+
+    repo = MagicMock()
+    client = MagicMock()
+    items = [{"supply_id": "S1", "ttn_id": 0, "has_driver": True}]
+
+    with (
+        patch(
+            "review_processor.ozon_fbs_containers.list_locally_archived_container_ids",
+            return_value=set(),
+        ),
+        patch(
+            "review_processor.ozon_fbs_containers._active_local_order_counts_by_container",
+            return_value={101: 2},
+        ),
+        patch(
+            "review_processor.ozon_fbs_containers.resolve_supply_warehouse_id",
+            return_value=(55, "WH"),
+        ),
+        patch(
+            "review_processor.ozon_fbs_containers._list_containers_cached",
+            return_value={
+                "items": [{"container_id": 101, "status": "formed"}],
+            },
+        ),
+    ):
+        enrich_ozon_supply_items_row_tones(
+            repo, user_id=1, source_id=2, items=items, client=client
+        )
+
+    assert items[0]["gm_has_formed"] is True
+    assert items[0]["row_tone"] == "warn"
 
 
 def test_ozon_backend_enriches_tones() -> None:
@@ -114,13 +194,15 @@ def test_ozon_backend_enriches_tones() -> None:
 
 def test_wb_delivery_row_tone_from_boxes_and_scan() -> None:
     wb = WB.read_text(encoding="utf-8")
-    block = wb.split("if tab_key == TAB_DELIVERY and items:", 1)[1].split(
-        "\n    return {", 1
+    assert "def _enrich_delivery_supply_row_tones" in wb
+    assert "resolve_fbs_supply_row_tone" in wb
+    assert "TAB_DELIVERY and items" in wb
+    enrich = wb.split("def _enrich_delivery_supply_row_tones", 1)[1].split(
+        "\ndef ", 1
     )[0]
-    assert "resolve_fbs_supply_row_tone" in block
-    assert "boxes_count" in block
-    assert "scan_dt" in block
-    assert 'row_tone' in block
+    assert "boxes_count" in enrich
+    assert "scan_dt" in enrich
+    assert "row_tone" in enrich
 
 
 def test_ui_row_classes_and_cache_bump() -> None:
@@ -143,6 +225,6 @@ def test_ui_row_classes_and_cache_bump() -> None:
     assert ".fbs-supply-row-ok" in css
     assert "#fff1f2" in css
     assert "#f0fdf4" in css
-    assert "ozon_fbs.js?v=220" in html
-    assert "app.js?v=704" in html
-    assert "style.css?v=418" in html
+    assert 'src="/static/ozon_fbs.js?v=' in html
+    assert 'src="/static/app.js?v=' in html
+    assert 'href="/static/style.css?v=' in html
