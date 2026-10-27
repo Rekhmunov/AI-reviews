@@ -45,8 +45,8 @@ def test_driver_button_next_to_tsd() -> None:
     assert tsd < driver
     assert "Для водителя" in html
     assert "openOzonFbsDriverPage()" in html
-    assert "ozon_fbs.js?v=220" in html
-    assert "app.js?v=704" in html
+    assert 'src="/static/ozon_fbs.js?v=' in html
+    assert 'src="/static/app.js?v=' in html
 
 
 def test_web_routes_and_builder() -> None:
@@ -292,6 +292,9 @@ def test_list_driver_page_cargo_places_filters_statuses(monkeypatch) -> None:
     monkeypatch.setattr(oz_ct, "list_containers", _list)
     monkeypatch.setattr(oz_ct, "enrich_containers_for_supply_modal", _enrich)
     monkeypatch.setattr(oz_ct, "status_label", lambda st: st)
+    monkeypatch.setattr(
+        oz_ct, "list_locally_archived_container_ids", lambda *a, **k: set()
+    )
 
     repo = MagicMock()
     repo.get_ozon_fbs_sync_settings.return_value = {"lookback_days": 2}
@@ -315,6 +318,97 @@ def test_list_driver_page_cargo_places_filters_statuses(monkeypatch) -> None:
     assert all(x.get("supply_created_at") == "" or "supply_created_at" in x for x in out["items"])
     assert all(x["status"] in DRIVER_PAGE_CONTAINER_STATUSES for x in out["items"])
     assert "new" not in {x["status"] for x in out["items"]}
+    assert all(x.get("locally_archived") is False for x in out["items"])
+
+
+def test_list_driver_page_cargo_places_local_archive_as_finished(
+    monkeypatch,
+) -> None:
+    """Locally archived formed GM → finished (green), same as delivering row_tone."""
+    monkeypatch.setattr(
+        "review_processor.ozon_fbs_supplies.list_supplies_for_driver_vehicle",
+        lambda *a, **k: [
+            {
+                "source_id": 5,
+                "supply_id": "OZ-1",
+                "supply_name": "Поставка 1",
+                "warehouse_name": "Склад",
+                "driver_name": "Иванов",
+                "vehicle_number": "А123ВС777",
+            }
+        ],
+    )
+
+    import review_processor.ozon_fbs_containers as oz_ct
+
+    listed_items = [
+        {
+            "container_id": 11,
+            "container_number": 1,
+            "status": "formed",
+            "status_label": "Сформировано",
+            "order_count": 3,
+        },
+        {
+            "container_id": 12,
+            "container_number": 2,
+            "status": "formed",
+            "status_label": "Сформировано",
+            "order_count": 1,
+        },
+        {
+            "container_id": 13,
+            "container_number": 3,
+            "status": "acceptance_in_progress",
+            "status_label": "Принято на СЦ",
+            "order_count": 2,
+        },
+    ]
+
+    monkeypatch.setattr(
+        oz_ct, "resolve_supply_warehouse_id", lambda *a, **k: (99, "Склад")
+    )
+    monkeypatch.setattr(
+        oz_ct,
+        "list_containers",
+        lambda *a, **k: {"ok": True, "items": listed_items},
+    )
+    monkeypatch.setattr(
+        oz_ct,
+        "enrich_containers_for_supply_modal",
+        lambda *a, **k: {"ok": True, "items": listed_items},
+    )
+    monkeypatch.setattr(
+        oz_ct,
+        "status_label",
+        lambda st: {
+            "finished": "Завершено на СЦ",
+            "acceptance_in_progress": "Принято на СЦ",
+            "formed": "Сформировано",
+        }.get(str(st), str(st)),
+    )
+    monkeypatch.setattr(
+        oz_ct, "list_locally_archived_container_ids", lambda *a, **k: {11}
+    )
+
+    repo = MagicMock()
+    repo.get_ozon_fbs_sync_settings.return_value = {"lookback_days": 3}
+    out = list_driver_page_cargo_places(
+        repo,
+        user_id=1,
+        vehicle_number="А123ВС777",
+        client_for_source=lambda sid: object(),
+    )
+    by_id = {x["container_id"]: x for x in out["items"]}
+    assert by_id[11]["status"] == "finished"
+    assert by_id[11]["locally_archived"] is True
+    assert by_id[11]["status_label"] == "Завершено на СЦ"
+    assert by_id[12]["status"] == "formed"
+    assert by_id[12]["locally_archived"] is False
+    assert by_id[13]["status"] == "acceptance_in_progress"
+    assert by_id[13]["locally_archived"] is False
+    # Sort still: formed → SC → finished (archived formed sorts as finished).
+    assert [x["container_id"] for x in out["items"]] == [12, 13, 11]
 
 
 def test_driver_page_cargo_places_sort_by_supply_date(monkeypatch) -> None:
@@ -396,6 +490,9 @@ def test_driver_page_cargo_places_sort_by_supply_date(monkeypatch) -> None:
     monkeypatch.setattr(oz_ct, "list_containers", _list)
     monkeypatch.setattr(oz_ct, "enrich_containers_for_supply_modal", _enrich)
     monkeypatch.setattr(oz_ct, "status_label", lambda st: st)
+    monkeypatch.setattr(
+        oz_ct, "list_locally_archived_container_ids", lambda *a, **k: set()
+    )
 
     repo = MagicMock()
     repo.get_ozon_fbs_sync_settings.return_value = {"lookback_days": 2}

@@ -3668,6 +3668,8 @@ def list_driver_page_cargo_places(
     # Cache Ozon list per (source_id, warehouse_id).
     listed_by_wh: dict[tuple[int, int], dict[str, Any]] = {}
     wh_name_by_key: dict[tuple[int, int], str] = {}
+    # Local archive (arrow → завершённые) counts as SC-accepted for driver UI tones.
+    archived_by_source: dict[int, set[int]] = {}
 
     for supply in supplies:
         source_id = int(supply["source_id"])
@@ -3702,10 +3704,20 @@ def list_driver_page_cargo_places(
                 listed=listed,
                 only_this_supply=True,
             )
+            if source_id not in archived_by_source:
+                try:
+                    archived_by_source[source_id] = (
+                        oz_ct.list_locally_archived_container_ids(
+                            repo, user_id=user_id, source_id=source_id
+                        )
+                    )
+                except Exception:
+                    archived_by_source[source_id] = set()
         except Exception as exc:
             errors.append(f"{supply.get('supply_name') or supply_id}: {exc}")
             continue
 
+        archived_ids = archived_by_source.get(source_id) or set()
         for raw in enriched.get("items") or []:
             if not isinstance(raw, dict):
                 continue
@@ -3730,14 +3742,25 @@ def list_driver_page_cargo_places(
                 orders = int(raw.get("order_count") or 0)
             except (TypeError, ValueError):
                 orders = 0
+            locally_archived = cid in archived_ids
+            # Same rule as «Доставляются» row_tone: local archive ⇒ accepted/green.
+            if locally_archived and status not in {
+                "acceptance_in_progress",
+                "finished",
+            }:
+                status = "finished"
+            status_label = str(
+                raw.get("status_label") or oz_ct.status_label(status)
+            )
+            if locally_archived:
+                status_label = str(oz_ct.status_label("finished") or status_label)
             items.append(
                 {
                     "container_id": cid,
                     "container_number": number,
                     "status": status,
-                    "status_label": str(
-                        raw.get("status_label") or oz_ct.status_label(status)
-                    ),
+                    "status_label": status_label,
+                    "locally_archived": locally_archived,
                     "cargo_type": str(raw.get("cargo_type") or "").strip(),
                     "cargo_type_label": str(
                         raw.get("cargo_type_label") or ""
