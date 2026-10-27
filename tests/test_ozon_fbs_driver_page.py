@@ -413,7 +413,7 @@ def test_list_driver_page_cargo_places_local_archive_as_finished(
     by_id = {x["container_id"]: x for x in out["items"]}
     assert by_id[11]["status"] == "finished"
     assert by_id[11]["locally_archived"] is True
-    assert by_id[11]["status_label"] == "Завершено на СЦ"
+    assert by_id[11]["status_label"] == "Перенесено локально"
     assert by_id[12]["status"] == "formed"
     assert by_id[12]["locally_archived"] is False
     assert by_id[13]["status"] == "acceptance_in_progress"
@@ -422,8 +422,8 @@ def test_list_driver_page_cargo_places_local_archive_as_finished(
     assert [x["container_id"] for x in out["items"]] == [12, 13, 11]
 
 
-def test_local_archive_does_not_relabel_sc_accepted(monkeypatch) -> None:
-    """Archived acceptance_in_progress stays «Принято на СЦ», not «Завершено»."""
+def test_local_archive_badge_not_sc_finished_label(monkeypatch) -> None:
+    """Local archive keeps green tone status but badge is «Перенесено локально»."""
     monkeypatch.setattr(
         "review_processor.ozon_fbs_supplies.list_supplies_for_driver_vehicle",
         lambda *a, **k: [
@@ -483,9 +483,9 @@ def test_local_archive_does_not_relabel_sc_accepted(monkeypatch) -> None:
     )
     row = out["items"][0]
     assert row["status"] == "acceptance_in_progress"
-    assert row["status_label"] == "Принято на СЦ"
+    assert row["status_label"] == "Перенесено локально"
     assert row["locally_archived"] is True
-
+    assert "Завершено на СЦ" not in row["status_label"]
 
 def test_driver_page_cargo_places_sort_by_supply_date(monkeypatch) -> None:
     """Nearest supply dates first; inside supply: formed → SC → finished."""
@@ -967,4 +967,5 @@ def test_driver_page_status_history_uses_ozon_status_not_local_archive(
         client_for_source=lambda sid: object(),
     )
     assert out["items"][0]["status"] == "finished"
+    assert out["items"][0]["status_label"] == "Перенесено локально"
     assert [x["status"] for x in out["items"][0]["status_history"]] == ["formed"]
