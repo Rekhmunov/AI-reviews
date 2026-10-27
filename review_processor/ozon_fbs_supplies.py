@@ -3999,18 +3999,21 @@ def list_driver_page_cargo_places(
             # History tracks the live Ozon status before local-archive remap.
             observed_status = status
             locally_archived = cid in archived_ids
-            # Same rule as «Доставляются» row_tone: local archive ⇒ accepted/green.
-            # Do not rewrite labels for GMs already at SC (acceptance/finished).
+            # Local archive ⇒ green supply tone (same as SC-accepted), but the
+            # driver badge must not claim «Завершено на СЦ» — Ozon did not finish it.
             if locally_archived and status not in {
                 "acceptance_in_progress",
                 "finished",
             }:
                 status = "finished"
-            status_label = str(
-                oz_ct.status_label(status)
-                or raw.get("status_label")
-                or status
-            )
+            if locally_archived:
+                status_label = "Перенесено локально"
+            else:
+                status_label = str(
+                    oz_ct.status_label(status)
+                    or raw.get("status_label")
+                    or status
+                )
             status_observations.append((source_id, cid, observed_status))
             items.append(
                 {
