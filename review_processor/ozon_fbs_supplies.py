@@ -2616,7 +2616,11 @@ def enrich_ozon_supply_items_row_tones(
     items: list[dict[str, Any]],
     client: Any,
 ) -> None:
-    """Attach ``row_tone`` / GM flags using live carriage list (cached) + local binds."""
+    """Attach ``row_tone`` / GM flags using live carriage list (cached) + local binds.
+
+    Locally archived cargo places (arrow → «завершённые», without Ozon SC accept)
+    count as accepted for pale-red/green tones so they do not keep the supply red.
+    """
     from . import ozon_fbs_containers as oz_ct
 
     if not items:
@@ -2625,6 +2629,12 @@ def enrich_ozon_supply_items_row_tones(
     listed_by_wh: dict[int, dict[str, Any]] = {}
     status_by_wh: dict[int, dict[int, str]] = {}
     sc_accepted = frozenset({"acceptance_in_progress", "finished"})
+    try:
+        locally_archived = oz_ct.list_locally_archived_container_ids(
+            repo, user_id=user_id, source_id=source_id
+        )
+    except Exception:
+        locally_archived = set()
 
     for it in items:
         if not isinstance(it, dict):
@@ -2679,9 +2689,15 @@ def enrich_ozon_supply_items_row_tones(
                 # Only known live statuses. Missing GMs (lookback / shipped /
                 # wrong WH) must not invent «formed» — that falsely paints
                 # pale-red over accepted+TTN rows.
+                # Locally archived GMs count as finished for tone even if Ozon
+                # still shows «formed» / not SC-accepted.
                 if wh > 0:
                     for cid in cids:
-                        st = st_map.get(int(cid), "")
+                        cid_i = int(cid)
+                        if cid_i in locally_archived:
+                            gm_statuses.append("finished")
+                            continue
+                        st = st_map.get(cid_i, "")
                         if st:
                             gm_statuses.append(st)
         except Exception:
