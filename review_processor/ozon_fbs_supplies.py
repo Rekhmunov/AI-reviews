@@ -3796,6 +3796,10 @@ def list_supplies_for_driver_vehicle(
     return out
 
 
+DRIVER_PAGE_LOAD_MORE_DAYS = 10
+DRIVER_PAGE_WINDOW_MAX_DAYS = 90
+
+
 def _driver_page_container_lookback_days(
     repo: ReviewRepository, *, user_id: int
 ) -> int:
@@ -3808,6 +3812,68 @@ def _driver_page_container_lookback_days(
     return max(1, min(int(days), 30))
 
 
+def resolve_driver_page_window_days(
+    *, sync_lookback_days: int, extra_days: int | None = None
+) -> int:
+    """Initial window = sync lookback; each load-more adds days up to max."""
+    sync = max(1, min(int(sync_lookback_days or 1), 30))
+    try:
+        extra = max(0, int(extra_days or 0))
+    except (TypeError, ValueError):
+        extra = 0
+    return max(sync, min(sync + extra, DRIVER_PAGE_WINDOW_MAX_DAYS))
+
+
+def parse_driver_page_supply_created_at(value: object) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        norm = raw.replace("Z", "+00:00") if raw.endswith("Z") else raw
+        dt = datetime.fromisoformat(norm)
+    except Exception:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt
+
+
+def supply_created_within_driver_window(
+    created_at: object, *, window_days: int, now: datetime | None = None
+) -> bool:
+    """True when supply is inside the window (missing/unparseable dates stay visible)."""
+    dt = parse_driver_page_supply_created_at(created_at)
+    if dt is None:
+        return True
+    try:
+        from zoneinfo import ZoneInfo
+
+        now_dt = now or datetime.now(ZoneInfo("Europe/Moscow"))
+    except Exception:
+        now_dt = now or datetime.now(UTC)
+    if now_dt.tzinfo is None:
+        now_dt = now_dt.replace(tzinfo=UTC)
+    cutoff = now_dt.astimezone(UTC) - timedelta(days=max(1, int(window_days)))
+    return dt.astimezone(UTC) >= cutoff
+
+
+def driver_page_has_older_supplies(
+    supplies: list[dict[str, Any]], *, window_days: int, now: datetime | None = None
+) -> bool:
+    """True if any dated supply is older than the current window."""
+    for supply in supplies:
+        if not isinstance(supply, dict):
+            continue
+        dt = parse_driver_page_supply_created_at(supply.get("supply_created_at"))
+        if dt is None:
+            continue
+        if not supply_created_within_driver_window(
+            supply.get("supply_created_at"), window_days=window_days, now=now
+        ):
+            return True
+    return False
+
+
 def list_driver_page_cargo_places(
     repo: ReviewRepository,
     *,
@@ -3815,6 +3881,7 @@ def list_driver_page_cargo_places(
     vehicle_number: str,
     client_for_source: Callable[[int], Any],
     allowed_source_ids: set[str] | None = None,
+    extra_days: int | None = None,
 ) -> dict[str, Any]:
     """Cargo places for supplies assigned to ``vehicle_number``.
 
@@ -3822,18 +3889,32 @@ def list_driver_page_cargo_places(
     (``acceptance_in_progress``) and «Завершено» (``finished``).
     Containers are limited to GMs bound to the assigned supply
     (same as «ГМ у этой поставки»).
-    Lookback follows Ozon FBS sync settings (not the warehouse GM default 30d).
+    Initial window follows Ozon FBS sync settings; ``extra_days`` widens it
+    (load-more, +10 days per step).
     """
     from . import ozon_fbs_containers as oz_ct
 
     plate = str(vehicle_number or "").strip()
-    lookback_days = _driver_page_container_lookback_days(repo, user_id=user_id)
-    supplies = list_supplies_for_driver_vehicle(
+    sync_lookback_days = _driver_page_container_lookback_days(repo, user_id=user_id)
+    lookback_days = resolve_driver_page_window_days(
+        sync_lookback_days=sync_lookback_days, extra_days=extra_days
+    )
+    all_supplies = list_supplies_for_driver_vehicle(
         repo,
         user_id=user_id,
         vehicle_number=plate,
         allowed_source_ids=allowed_source_ids,
     )
+    has_more = driver_page_has_older_supplies(
+        all_supplies, window_days=lookback_days
+    )
+    supplies = [
+        s
+        for s in all_supplies
+        if supply_created_within_driver_window(
+            s.get("supply_created_at"), window_days=lookback_days
+        )
+    ]
     items: list[dict[str, Any]] = []
     errors: list[str] = []
     seen: set[tuple[int, int]] = set()
@@ -4012,6 +4093,10 @@ def list_driver_page_cargo_places(
             str(s.get("supply_id") or ""),
         ),
     )
+    try:
+        extra_out = max(0, int(extra_days or 0))
+    except (TypeError, ValueError):
+        extra_out = 0
     return {
         "ok": True,
         "vehicle_number": plate,
@@ -4020,6 +4105,11 @@ def list_driver_page_cargo_places(
         "total": len(items),
         "errors": errors,
         "lookback_days": lookback_days,
+        "sync_lookback_days": sync_lookback_days,
+        "window_days": lookback_days,
+        "extra_days": extra_out,
+        "has_more": bool(has_more),
+        "load_more_days": DRIVER_PAGE_LOAD_MORE_DAYS,
     }
 
 

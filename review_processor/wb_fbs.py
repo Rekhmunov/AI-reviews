@@ -1806,24 +1806,57 @@ def list_supplies_for_driver_vehicle(
     return out
 
 
+def _driver_page_wb_sync_lookback_days(repo: ReviewRepository, *, user_id: int) -> int:
+    """WB FBS sync lookback (1..30), default 3 — same gear as auto-sync."""
+    try:
+        settings = repo.get_wb_fbs_auto_sync_settings(user_id=int(user_id))
+        days = int((settings or {}).get("lookback_days") or 3)
+    except Exception:
+        days = 3
+    return max(1, min(int(days), 30))
+
+
 def list_driver_page_cargo_places(
     repo: ReviewRepository,
     *,
     user_id: int,
     vehicle_number: str,
     allowed_source_ids: set[str] | None = None,
+    extra_days: int | None = None,
 ) -> dict[str, Any]:
     """TRBX cargo places for WB FBS supplies assigned to ``vehicle_number``.
 
     Uses local ``boxes_json`` cache (no live WB API) so the driver page stays fast.
+    Initial window = WB sync lookback; ``extra_days`` widens from local cache.
     """
+    from review_processor.ozon_fbs_supplies import (
+        DRIVER_PAGE_LOAD_MORE_DAYS,
+        driver_page_has_older_supplies,
+        resolve_driver_page_window_days,
+        supply_created_within_driver_window,
+    )
+
     plate = str(vehicle_number or "").strip()
-    supplies = list_supplies_for_driver_vehicle(
+    sync_lookback_days = _driver_page_wb_sync_lookback_days(repo, user_id=user_id)
+    lookback_days = resolve_driver_page_window_days(
+        sync_lookback_days=sync_lookback_days, extra_days=extra_days
+    )
+    all_supplies = list_supplies_for_driver_vehicle(
         repo,
         user_id=user_id,
         vehicle_number=plate,
         allowed_source_ids=allowed_source_ids,
     )
+    has_more = driver_page_has_older_supplies(
+        all_supplies, window_days=lookback_days
+    )
+    supplies = [
+        s
+        for s in all_supplies
+        if supply_created_within_driver_window(
+            s.get("supply_created_at"), window_days=lookback_days
+        )
+    ]
     items: list[dict[str, Any]] = []
     errors: list[str] = []
     seen: set[tuple[int, str]] = set()
@@ -1925,6 +1958,10 @@ def list_driver_page_cargo_places(
             str(s.get("supply_id") or ""),
         ),
     )
+    try:
+        extra_out = max(0, int(extra_days or 0))
+    except (TypeError, ValueError):
+        extra_out = 0
     return {
         "ok": True,
         "vehicle_number": plate,
@@ -1932,6 +1969,12 @@ def list_driver_page_cargo_places(
         "items": items,
         "total": len(items),
         "errors": errors,
+        "lookback_days": lookback_days,
+        "sync_lookback_days": sync_lookback_days,
+        "window_days": lookback_days,
+        "extra_days": extra_out,
+        "has_more": bool(has_more),
+        "load_more_days": DRIVER_PAGE_LOAD_MORE_DAYS,
     }
 
 
