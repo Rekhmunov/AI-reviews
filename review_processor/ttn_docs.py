@@ -333,10 +333,9 @@ def collect_ttn_doc_context(
         item["infpol_orders_value"] = fbs_sid
     elif fbs_sid and plat in ("ozon", "ozon_fbs"):
         # Ozon FBS эТрН: НомерТрН = «{№ ТН} FBS» (регламент seller-edu /
-        # ответ поддержки). ИнфПол Orders оставляем голым номером ТН;
-        # тип потока — отдельным shipment_flow_type=FBS.
+        # ответ поддержки). ИнфПол — только shipment_flow_type=FBS
+        # (Orders/ORDERS для Ozon не пишем).
         item["supply_order_number"] = format_ozon_fbs_waybill_number(doc_number)
-        item["infpol_orders_value"] = doc_number or str(record.get("id") or "")
         item["infpol_shipment_flow_type"] = "FBS"
         try:
             fbs_src = int(record.get("fbs_source_id") or 0)
@@ -353,6 +352,9 @@ def collect_ttn_doc_context(
             )
         if cargo_mark_ids:
             item["cargo_mark_ids"] = list(cargo_mark_ids)
+    else:
+        # Обычная ТН (не WB/Ozon FBS): ИнфПол Orders = номер ТН.
+        item["infpol_orders_value"] = doc_number or str(record.get("id") or "")
 
     cargoes_json = build_ttn_cargoes_json(record)
     # Места в XML = число ГМ, привязанных к этой поставке (если известны).

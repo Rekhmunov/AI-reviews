@@ -87,7 +87,8 @@ def test_etrn_infpol_shipment_flow_type():
         for t in root.findall("Документ/СодИнфГО/ИнфПол/ТекстИнф")
     }
     assert by_id.get("shipment_flow_type") == "FBS"
-    assert by_id.get("Orders") == "9"
+    assert "Orders" not in by_id
+    assert "ORDERS" not in by_id
     root = ET.fromstring(_build())
     assert root.tag == "Файл"
     assert root.attrib["ВерсФорм"] == "5.01"
@@ -101,14 +102,8 @@ def test_etrn_infpol_shipment_flow_type():
     sod = doc.find("СодИнфГО")
     assert sod is not None
 
-    # InfPol is last child of СодИнфГО and uses Значение (not Значен).
-    children = list(sod)
-    assert children[-1].tag == "ИнфПол"
-    texts = children[-1].findall("ТекстИнф")
-    assert {t.attrib.get("Идентиф") for t in texts} >= {"Orders", "ORDERS"}
-    for t in texts:
-        assert t.attrib.get("Значение") == "0123456789"
-        assert "Значен" not in t.attrib
+    # Ozon FBO draft: no InfPol Orders/ORDERS (and no empty InfPol).
+    assert sod.find("ИнфПол") is None
 
     # Delivery / loading use АдресРФ; legal address under Адрес uses АдрРФ.
     # Never emit АдрИнф/АдресИнф — Kontur treats that as foreign address type.
@@ -203,8 +198,8 @@ def test_ozon_supply_number_prefers_table_column():
     assert _ozon_supply_number({"supply_order_id": 999, "supply_order_number": ""}) == "999"
 
 
-def test_etrn_infpol_orders_uses_supply_number_from_main_table():
-    """ИнфПол/ТекстИнф Идентиф=Orders → Значение = номер из основной таблицы ОЗОН."""
+def test_etrn_ozon_omits_orders_infpol():
+    """Ozon эТрН больше не пишет Orders/ORDERS в ИнфПол."""
     root = ET.fromstring(
         _build(
             item={
@@ -216,12 +211,11 @@ def test_etrn_infpol_orders_uses_supply_number_from_main_table():
             }
         )
     )
-    texts = root.findall("Документ/СодИнфГО/ИнфПол/ТекстИнф")
-    by_id = {t.attrib.get("Идентиф"): t.attrib.get("Значение") for t in texts}
-    assert by_id.get("Orders") == "020-987654321"
-    assert by_id.get("ORDERS") == "020-987654321"
-    # Must not put internal supply_order_id when table number is present.
-    assert "555666" not in by_id.values()
+    assert root.find("Документ/СодИнфГО/ИнфПол") is None
+    # Номер поставки по-прежнему в НомерТрН.
+    sod = root.find("Документ/СодИнфГО")
+    assert sod is not None
+    assert sod.attrib.get("НомерТрН") == "020-987654321"
 
 
 def test_cargo_stats_transport_pallets_drive_kol_mest():
