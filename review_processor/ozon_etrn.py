@@ -7,8 +7,8 @@ draft the user uploads into Kontur.Logistics and completes/signs there.
 Schema references:
 - FNS order ЕД-7-26/1065@ (format 5.01)
 - Diadoc GenerateTitleXml sample (АдресРФ vs АдрРФ, Подписант)
-- Kontur.Logistics InfPol keys (ORDERS / Значение)
-- Ozon FBS InfPol: shipment_flow_type=FBS; cargo place IDs in ОпГруз/Марк
+- Kontur.Logistics InfPol: WB keeps Orders/ORDERS; Ozon FBS uses shipment_flow_type only
+- Ozon FBS: cargo place IDs in ОпГруз/Марк
 """
 from __future__ import annotations
 
@@ -1069,7 +1069,8 @@ def _add_adr_rf(parent: ET.Element, tag: str, addr: dict[str, str]) -> None:
 def _ozon_supply_number(item: dict[str, Any] | None) -> str:
     """Номер поставки из основной таблицы Поставки → ОЗОН (`supply_order_number`).
 
-    Это значение уходит в ``ИнфПол/ТекстИнф`` (``Идентиф=Orders`` / ``ORDERS``).
+    Используется в ``НомерТрН`` / имени файла. В ``ИнфПол`` для Ozon больше
+    не дублируется как Orders/ORDERS (остаётся ``shipment_flow_type`` для FBS).
     Если колонка пуста — пробуем ``order_number`` из ``raw_json``, затем
     внутренний ``supply_order_id`` как крайний fallback.
     """
@@ -1508,10 +1509,9 @@ def build_ozon_etrn_xml(
         _el(ident2, "ИННЮЛ", inn)
 
     # ИнфПол must be last in СодИнфГО sequence (table 5.3).
-    # Идентиф=Orders / ORDERS → Значение = номер поставки (Озон) или override
-    # (например WB-GI-… для ТН из ВБ ФБС в каталоге Логистика).
-    # Ozon FBS (регламент): shipment_flow_type = FBS.
-    infpol_val = str((item or {}).get("infpol_orders_value") or "").strip() or supply_num
+    # Ozon (поставки / ТН FBS): только shipment_flow_type — без Orders/ORDERS.
+    # WB и прочие ТН: Orders/ORDERS только при явном infpol_orders_value.
+    infpol_val = str((item or {}).get("infpol_orders_value") or "").strip()
     infpol_flow = str((item or {}).get("infpol_shipment_flow_type") or "").strip()
     if infpol_val or infpol_flow:
         inf = _el(sod, "ИнфПол")

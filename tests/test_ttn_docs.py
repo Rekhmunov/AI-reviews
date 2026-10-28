@@ -199,7 +199,7 @@ def test_ttn_etrn_non_wb_keeps_doc_number_in_infpol():
 
 
 def test_ttn_etrn_ozon_fbs_shipment_flow_type_and_cargo_marks():
-    """Ozon FBS ТН → НомерТрН «{№} FBS», InfPol Orders=№, Марк=ID ГМ."""
+    """Ozon FBS ТН → НомерТрН «{№} FBS», InfPol только shipment_flow_type, Марк=ID ГМ."""
 
     class _RepoWithGm(_Repo):
         def _connect(self):
@@ -235,7 +235,7 @@ def test_ttn_etrn_ozon_fbs_shipment_flow_type_and_cargo_marks():
     )
     ctx = collect_ttn_doc_context(repository=_RepoWithGm(), owner_id=1, record=rec)
     assert ctx["item"]["supply_order_number"] == "9 FBS"
-    assert ctx["item"].get("infpol_orders_value") == "9"
+    assert "infpol_orders_value" not in ctx["item"]
     assert ctx["item"].get("infpol_shipment_flow_type") == "FBS"
     assert ctx["cargo_mark_ids"] == ["1019563511789384", "1019563511789385"]
     assert ctx["doc_number"] == "9"
@@ -250,9 +250,8 @@ def test_ttn_etrn_ozon_fbs_shipment_flow_type_and_cargo_marks():
     texts = sod.findall("ИнфПол/ТекстИнф")
     by_id = {t.attrib.get("Идентиф"): t.attrib.get("Значение") for t in texts}
     assert by_id.get("shipment_flow_type") == "FBS"
-    # Номер ТН в Orders сохраняем (не подменяем локальным OZ-FBS id и без FBS).
-    assert by_id.get("Orders") == "9"
-    assert by_id.get("ORDERS") == "9"
+    assert "Orders" not in by_id
+    assert "ORDERS" not in by_id
 
     op = sod.find("СвГруз/ОпГруз")
     assert op is not None
