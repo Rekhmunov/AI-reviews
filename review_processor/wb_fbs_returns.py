@@ -125,9 +125,13 @@ def ensure_wb_fbs_returns_tables(repo: ReviewRepository) -> None:
 GOODS_RETURN_MAX_WINDOW_DAYS = 31
 GOODS_RETURN_DEFAULT_TOTAL_DAYS = 90
 GOODS_RETURN_STATUS_BATCH = 500
-# WB Personal/Service token: 1 request / minute for goods-return.
+# WB Personal/Service token: 1 request / minute for goods-return / item-returns.
 GOODS_RETURN_REQUEST_INTERVAL_SEC = 61
 GOODS_RETURN_HYDRATE_CONFIRMED_LIMIT = 30
+# New Analytics report (replaces /api/v1/analytics/goods-return, shut down 2026-10-26).
+ITEM_RETURNS_PATH = "/api/analytics/v1/item-returns"
+ITEM_RETURNS_PAGE_LIMIT = 1000
+ITEM_RETURNS_STATUSES = ("active", "archive")
 
 _goods_return_sync_lock_guard = threading.Lock()
 _goods_return_sync_locks: dict[str, threading.Lock] = {}
@@ -814,18 +818,23 @@ def _goods_return_values_from_row(
     srid = str(row.get("srid") or "").strip()
     if not srid and not sticker_id and order_id <= 0:
         return None
-    barcode = str(row.get("barcode") or "").strip()
-    shk_id = str(row.get("shkId") or "").strip()
+    # Legacy goods-return used barcode/status/reason; item-returns uses sku/returnStatus/returnReason.
+    barcode = str(row.get("barcode") or row.get("sku") or "").strip()
+    shk_raw = row.get("shkId")
+    shk_id = "" if shk_raw is None else str(shk_raw).strip()
     try:
         nm_id = int(row.get("nmId") or 0) or None
     except (TypeError, ValueError):
         nm_id = None
     raw_json = json.dumps(row, ensure_ascii=False)
-    status = str(row.get("status") or "").strip()
-    reason = str(row.get("reason") or "").strip()
-    ready_dt = str(row.get("readyToReturnDt") or "").strip()
-    completed_dt = str(row.get("completedDt") or "").strip()
-    order_dt = str(row.get("orderDt") or "").strip()
+    status = str(row.get("status") or row.get("returnStatus") or "").strip()
+    reason = str(row.get("reason") or row.get("returnReason") or "").strip()
+    ready_raw = row.get("readyToReturnDt")
+    completed_raw = row.get("completedDt")
+    order_raw = row.get("orderDt")
+    ready_dt = "" if ready_raw is None else str(ready_raw).strip()
+    completed_dt = "" if completed_raw is None else str(completed_raw).strip()
+    order_dt = "" if order_raw is None else str(order_raw).strip()
     values = (
         user_id,
         source_id,
@@ -1043,18 +1052,61 @@ def _upsert_goods_return_row(
     return "inserted"
 
 
-def fetch_goods_return_report(
+def _normalize_item_return_row(
+    row: dict[str, Any],
+    *,
+    list_status: str = "",
+) -> dict[str, Any]:
+    """Map item-returns fields onto legacy goods-return names used by upsert/match.
+
+    Also keeps ``isStatusActive`` (0/1) for CSV export compatibility: the new
+    API drops that response field and filters via the ``status`` query param.
+    """
+    out = dict(row)
+    if not str(out.get("barcode") or "").strip():
+        sku = out.get("sku")
+        if sku is not None:
+            out["barcode"] = str(sku).strip()
+    if not str(out.get("status") or "").strip():
+        status = out.get("returnStatus")
+        if status is not None:
+            out["status"] = str(status).strip()
+    if not str(out.get("reason") or "").strip():
+        reason = out.get("returnReason")
+        if reason is not None:
+            out["reason"] = str(reason).strip()
+    if out.get("isStatusActive") is None:
+        st = str(list_status or "").strip().lower()
+        if st == "active":
+            out["isStatusActive"] = 1
+        elif st == "archive":
+            out["isStatusActive"] = 0
+    return out
+
+
+def _fetch_item_returns_page(
     *,
     api_key: str,
     date_from: str,
     date_to: str,
+    status: str,
+    limit: int = ITEM_RETURNS_PAGE_LIMIT,
+    offset: int = 0,
     timeout: int = 60,
-) -> list[dict[str, Any]]:
-    """WB Analytics: GET /api/v1/analytics/goods-return (max 31 days)."""
+) -> tuple[list[dict[str, Any]], int]:
+    """One page of GET /api/analytics/v1/item-returns. Returns (rows, total_count)."""
+    page_limit = max(0, min(int(limit or 0), ITEM_RETURNS_PAGE_LIMIT))
+    page_offset = max(0, int(offset or 0))
     params = urlencode(
-        {"dateFrom": _parse_iso_date(date_from), "dateTo": _parse_iso_date(date_to)}
+        {
+            "dateFrom": _parse_iso_date(date_from),
+            "dateTo": _parse_iso_date(date_to),
+            "status": str(status or "").strip(),
+            "limit": page_limit,
+            "offset": page_offset,
+        }
     )
-    url = f"{WB_ANALYTICS_API}/api/v1/analytics/goods-return?{params}"
+    url = f"{WB_ANALYTICS_API}{ITEM_RETURNS_PATH}?{params}"
     req = urllib.request.Request(
         url,
         method="GET",
@@ -1066,6 +1118,7 @@ def fetch_goods_return_report(
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
+            code = int(getattr(resp, "status", None) or resp.getcode() or 0)
             payload = resp.read()
     except urllib.error.HTTPError as exc:
         err = ""
@@ -1086,16 +1139,67 @@ def fetch_goods_return_report(
             retry_after=retry_after,
             reason=str(exc.reason or ""),
         ) from exc
-    if not payload:
-        return []
+    # Empty window: WB returns HTTP 204 with no body.
+    if code == 204 or not payload:
+        return [], 0
     parsed = json.loads(payload.decode("utf-8"))
+    rows: list[dict[str, Any]] = []
+    total = 0
     if isinstance(parsed, dict):
+        try:
+            total = int(parsed.get("count") or 0)
+        except (TypeError, ValueError):
+            total = 0
         report = parsed.get("report")
         if isinstance(report, list):
-            return [x for x in report if isinstance(x, dict)]
-    if isinstance(parsed, list):
-        return [x for x in parsed if isinstance(x, dict)]
-    return []
+            rows = [x for x in report if isinstance(x, dict)]
+    elif isinstance(parsed, list):
+        rows = [x for x in parsed if isinstance(x, dict)]
+        total = len(rows)
+    return rows, total
+
+
+def fetch_goods_return_report(
+    *,
+    api_key: str,
+    date_from: str,
+    date_to: str,
+    timeout: int = 60,
+) -> list[dict[str, Any]]:
+    """WB Analytics: GET /api/analytics/v1/item-returns (active+archive, max 31 days).
+
+    Replaces deprecated ``GET /api/v1/analytics/goods-return`` (removed 2026-10-26).
+    Fetches both ``active`` and ``archive`` statuses with pagination. Rows are
+    normalized to the legacy field names (``barcode`` / ``status`` / ``reason``)
+    so upsert and matching stay unchanged. Paces HTTP calls at the WB 1/min limit.
+    """
+    out: list[dict[str, Any]] = []
+    first_request = True
+    for status in ITEM_RETURNS_STATUSES:
+        offset = 0
+        while True:
+            if not first_request:
+                time.sleep(GOODS_RETURN_REQUEST_INTERVAL_SEC)
+            first_request = False
+            page, total = _fetch_item_returns_page(
+                api_key=api_key,
+                date_from=date_from,
+                date_to=date_to,
+                status=status,
+                limit=ITEM_RETURNS_PAGE_LIMIT,
+                offset=offset,
+                timeout=timeout,
+            )
+            for row in page:
+                out.append(_normalize_item_return_row(row, list_status=status))
+            if not page:
+                break
+            offset += len(page)
+            if len(page) < ITEM_RETURNS_PAGE_LIMIT:
+                break
+            if total > 0 and offset >= total:
+                break
+    return out
 
 
 def fetch_goods_return_report_rated(
@@ -1274,7 +1378,7 @@ def _goods_return_api_row_matches_source(
         nm_id = int(row.get("nmId") or 0) or None
     except (TypeError, ValueError):
         nm_id = None
-    barcode = str(row.get("barcode") or "").strip()
+    barcode = str(row.get("barcode") or row.get("sku") or "").strip()
     sticker_id = str(row.get("stickerId") or "").strip()
     return _goods_return_row_matches_source(
         order_id=order_id,

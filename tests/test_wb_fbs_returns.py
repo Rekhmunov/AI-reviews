@@ -104,6 +104,180 @@ class GoodsReturnUpsertTests(unittest.TestCase):
         self.assertEqual(outcome, "unchanged")
         self.assertEqual(conn.execute.call_count, 1)
 
+    def test_values_from_row_accepts_item_returns_field_names(self):
+        row = {
+            "orderId": 42,
+            "stickerId": "st-1",
+            "srid": "srid-1",
+            "sku": "203001",
+            "shkId": 987612345,
+            "nmId": 111,
+            "returnStatus": "В пути в пвз",
+            "returnReason": "брак",
+            "readyToReturnDt": None,
+            "completedDt": None,
+            "orderDt": "2026-08-24",
+        }
+        parsed = returns._goods_return_values_from_row(
+            row, user_id=1, source_id=2, synced_at="now"
+        )
+        self.assertIsNotNone(parsed)
+        values, _raw, srid, order_id, sticker_id = parsed
+        self.assertEqual(srid, "srid-1")
+        self.assertEqual(order_id, 42)
+        self.assertEqual(sticker_id, "st-1")
+        self.assertEqual(values[4], "203001")  # barcode from sku
+        self.assertEqual(values[5], "987612345")  # shk_id
+        self.assertEqual(values[8], "В пути в пвз")  # status
+        self.assertEqual(values[9], "брак")  # reason
+        self.assertEqual(values[12], "2026-08-24")
+
+
+class ItemReturnsFetchTests(unittest.TestCase):
+    def test_normalize_item_return_row_maps_legacy_fields(self):
+        normalized = returns._normalize_item_return_row(
+            {
+                "sku": "SKU-1",
+                "returnStatus": "active-status",
+                "returnReason": "reason-x",
+                "orderId": 1,
+            },
+            list_status="active",
+        )
+        self.assertEqual(normalized["barcode"], "SKU-1")
+        self.assertEqual(normalized["status"], "active-status")
+        self.assertEqual(normalized["reason"], "reason-x")
+        self.assertEqual(normalized["sku"], "SKU-1")
+        self.assertEqual(normalized["isStatusActive"], 1)
+        archived = returns._normalize_item_return_row(
+            {"sku": "2", "returnStatus": "done"}, list_status="archive"
+        )
+        self.assertEqual(archived["isStatusActive"], 0)
+
+    @patch("review_processor.wb_fbs_returns.time.sleep")
+    @patch("review_processor.wb_fbs_returns.urllib.request.urlopen")
+    def test_fetch_goods_return_report_uses_item_returns_active_and_archive(
+        self, urlopen_mock, sleep_mock
+    ):
+        responses = [
+            {
+                "count": 1,
+                "report": [
+                    {
+                        "orderId": 1,
+                        "srid": "a1",
+                        "sku": "111",
+                        "returnStatus": "В пути",
+                        "stickerId": "st-a",
+                    }
+                ],
+            },
+            {
+                "count": 1,
+                "report": [
+                    {
+                        "orderId": 2,
+                        "srid": "b1",
+                        "sku": "222",
+                        "returnStatus": "Выдан",
+                        "stickerId": "st-b",
+                    }
+                ],
+            },
+        ]
+        calls: list[str] = []
+
+        class _Resp:
+            def __init__(self, payload: dict):
+                self.status = 200
+                self._payload = json.dumps(payload).encode("utf-8")
+
+            def read(self):
+                return self._payload
+
+            def getcode(self):
+                return 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        def _open(req, timeout=60):
+            calls.append(str(req.full_url))
+            return _Resp(responses[len(calls) - 1])
+
+        urlopen_mock.side_effect = _open
+        rows = returns.fetch_goods_return_report(
+            api_key="token",
+            date_from="2026-08-01",
+            date_to="2026-08-20",
+        )
+        self.assertEqual(len(calls), 2)
+        self.assertIn("/api/analytics/v1/item-returns?", calls[0])
+        self.assertIn("status=active", calls[0])
+        self.assertIn("limit=1000", calls[0])
+        self.assertIn("offset=0", calls[0])
+        self.assertIn("status=archive", calls[1])
+        self.assertNotIn("/api/v1/analytics/goods-return", calls[0])
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["barcode"], "111")
+        self.assertEqual(rows[0]["status"], "В пути")
+        self.assertEqual(rows[0]["isStatusActive"], 1)
+        self.assertEqual(rows[1]["barcode"], "222")
+        self.assertEqual(rows[1]["isStatusActive"], 0)
+        sleep_mock.assert_called_once_with(returns.GOODS_RETURN_REQUEST_INTERVAL_SEC)
+
+    @patch("review_processor.wb_fbs_returns.time.sleep")
+    @patch("review_processor.wb_fbs_returns.urllib.request.urlopen")
+    def test_fetch_goods_return_report_handles_204_empty(self, urlopen_mock, sleep_mock):
+        class _Resp:
+            status = 204
+
+            def read(self):
+                return b""
+
+            def getcode(self):
+                return 204
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        urlopen_mock.return_value = _Resp()
+        rows = returns.fetch_goods_return_report(
+            api_key="token",
+            date_from="2026-08-01",
+            date_to="2026-08-02",
+        )
+        self.assertEqual(rows, [])
+        self.assertEqual(urlopen_mock.call_count, 2)
+        sleep_mock.assert_called_once()
+
+    @patch("review_processor.wb_fbs_returns.time.sleep")
+    @patch("review_processor.wb_fbs_returns._fetch_item_returns_page")
+    def test_fetch_goods_return_report_paginates_until_exhausted(self, page_mock, sleep_mock):
+        page_mock.side_effect = [
+            ([{"orderId": 1, "srid": "p1", "sku": "1", "returnStatus": "a"}] * 1000, 1001),
+            ([{"orderId": 2, "srid": "p2", "sku": "2", "returnStatus": "a"}], 1001),
+            ([], 0),
+        ]
+        rows = returns.fetch_goods_return_report(
+            api_key="token",
+            date_from="2026-08-01",
+            date_to="2026-08-10",
+        )
+        self.assertEqual(page_mock.call_count, 3)
+        self.assertEqual(page_mock.call_args_list[0].kwargs["status"], "active")
+        self.assertEqual(page_mock.call_args_list[0].kwargs["offset"], 0)
+        self.assertEqual(page_mock.call_args_list[1].kwargs["offset"], 1000)
+        self.assertEqual(page_mock.call_args_list[2].kwargs["status"], "archive")
+        self.assertEqual(len(rows), 1001)
+        self.assertEqual(sleep_mock.call_count, 2)
+
 
 class GoodsReturnMatchTests(unittest.TestCase):
     def _repo_with_goods_returns(self, rows: list[dict]):
