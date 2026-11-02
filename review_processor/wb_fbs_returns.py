@@ -1052,8 +1052,16 @@ def _upsert_goods_return_row(
     return "inserted"
 
 
-def _normalize_item_return_row(row: dict[str, Any]) -> dict[str, Any]:
-    """Map item-returns fields onto legacy goods-return names used by upsert/match."""
+def _normalize_item_return_row(
+    row: dict[str, Any],
+    *,
+    list_status: str = "",
+) -> dict[str, Any]:
+    """Map item-returns fields onto legacy goods-return names used by upsert/match.
+
+    Also keeps ``isStatusActive`` (0/1) for CSV export compatibility: the new
+    API drops that response field and filters via the ``status`` query param.
+    """
     out = dict(row)
     if not str(out.get("barcode") or "").strip():
         sku = out.get("sku")
@@ -1067,6 +1075,12 @@ def _normalize_item_return_row(row: dict[str, Any]) -> dict[str, Any]:
         reason = out.get("returnReason")
         if reason is not None:
             out["reason"] = str(reason).strip()
+    if out.get("isStatusActive") is None:
+        st = str(list_status or "").strip().lower()
+        if st == "active":
+            out["isStatusActive"] = 1
+        elif st == "archive":
+            out["isStatusActive"] = 0
     return out
 
 
@@ -1177,7 +1191,7 @@ def fetch_goods_return_report(
                 timeout=timeout,
             )
             for row in page:
-                out.append(_normalize_item_return_row(row))
+                out.append(_normalize_item_return_row(row, list_status=status))
             if not page:
                 break
             offset += len(page)

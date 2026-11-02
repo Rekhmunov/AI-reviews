@@ -141,12 +141,18 @@ class ItemReturnsFetchTests(unittest.TestCase):
                 "returnStatus": "active-status",
                 "returnReason": "reason-x",
                 "orderId": 1,
-            }
+            },
+            list_status="active",
         )
         self.assertEqual(normalized["barcode"], "SKU-1")
         self.assertEqual(normalized["status"], "active-status")
         self.assertEqual(normalized["reason"], "reason-x")
         self.assertEqual(normalized["sku"], "SKU-1")
+        self.assertEqual(normalized["isStatusActive"], 1)
+        archived = returns._normalize_item_return_row(
+            {"sku": "2", "returnStatus": "done"}, list_status="archive"
+        )
+        self.assertEqual(archived["isStatusActive"], 0)
 
     @patch("review_processor.wb_fbs_returns.time.sleep")
     @patch("review_processor.wb_fbs_returns.urllib.request.urlopen")
@@ -218,7 +224,9 @@ class ItemReturnsFetchTests(unittest.TestCase):
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[0]["barcode"], "111")
         self.assertEqual(rows[0]["status"], "В пути")
+        self.assertEqual(rows[0]["isStatusActive"], 1)
         self.assertEqual(rows[1]["barcode"], "222")
+        self.assertEqual(rows[1]["isStatusActive"], 0)
         sleep_mock.assert_called_once_with(returns.GOODS_RETURN_REQUEST_INTERVAL_SEC)
 
     @patch("review_processor.wb_fbs_returns.time.sleep")
