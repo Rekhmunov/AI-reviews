@@ -90,12 +90,28 @@ class TestCachedSupplyBoxesById(unittest.TestCase):
 
 
 class TestSyncSkipsDoneTrbxWhenCached(unittest.TestCase):
-    """sync_wb_fbs_source skips get_supply_boxes when local boxes_json is cached."""
+    """Open supplies: boxes cache skip; done supplies skipped (except local open→done)."""
 
-    def test_open_and_uncached_done_fetch_boxes_cached_skips(self) -> None:
+    def test_open_cached_skips_boxes_done_supplies_ignored(self) -> None:
         box_calls: list[str] = []
         order_id_calls: list[str] = []
-        upserted: list[tuple[str, list]] = []
+        upserted: list[tuple[str, bool, list, list]] = []
+        cache_queries: list[list[str]] = []
+        sql_log: list[str] = []
+
+        class _Conn(_FakeConn):
+            def execute(self, sql: str, params=None):
+                sql_log.append(sql)
+                # Local open set: supply that WB will report as done this sync.
+                if "done = FALSE" in sql and "SELECT supply_id" in sql:
+                    self._rows = [{"supply_id": "WB-GI-JUST-CLOSED"}]
+                else:
+                    self._rows = []
+                return self
+
+        class _Repo(_FakeRepo):
+            def _connect(self):
+                return _Conn(self._rows)
 
         class FakeClient:
             def __init__(self, _key: str) -> None:
@@ -114,6 +130,7 @@ class TestSyncSkipsDoneTrbxWhenCached(unittest.TestCase):
                 return [
                     {"id": "WB-GI-OPEN", "name": "open", "done": False},
                     {"id": "WB-GI-OPEN-CACHED", "name": "open-cached", "done": False},
+                    {"id": "WB-GI-JUST-CLOSED", "name": "was-open", "done": True},
                     {"id": "WB-GI-DONE-CACHED", "name": "cached", "done": True},
                     {"id": "WB-GI-DONE-NEW", "name": "new-done", "done": True},
                 ], 0
@@ -127,22 +144,27 @@ class TestSyncSkipsDoneTrbxWhenCached(unittest.TestCase):
                 return [{"id": f"BOX-{sid}"}]
 
         def fake_upsert(_repo, *, user_id, source_id, supply, order_ids=None, boxes=None):
-            upserted.append((str(supply.get("id") or ""), list(boxes or [])))
+            upserted.append(
+                (
+                    str(supply.get("id") or ""),
+                    bool(supply.get("done")),
+                    list(order_ids or []),
+                    list(boxes or []),
+                )
+            )
 
-        repo = _FakeRepo([])
+        def fake_cached(_repo, *, user_id, source_id, supply_ids):
+            cache_queries.append(list(supply_ids))
+            return {"WB-GI-OPEN-CACHED": [{"id": "WB-TRBX-OPEN"}]}
+
+        repo = _Repo([])
         with (
             patch.object(wb_fbs, "WbFbsClient", FakeClient),
             patch.object(wb_fbs, "ensure_wb_fbs_tables"),
             patch.object(wb_fbs, "upsert_supply", side_effect=fake_upsert),
             patch.object(wb_fbs, "upsert_order"),
-            patch.object(
-                wb_fbs,
-                "cached_supply_boxes_by_id",
-                return_value={
-                    "WB-GI-OPEN-CACHED": [{"id": "WB-TRBX-OPEN"}],
-                    "WB-GI-DONE-CACHED": [{"id": "WB-TRBX-9"}],
-                },
-            ),
+            patch.object(wb_fbs, "cached_supply_boxes_by_id", side_effect=fake_cached),
+            patch.object(wb_fbs, "_pin_all_current_delivery_supplies"),
             patch.object(wb_fbs.time, "sleep", lambda _s: None),
         ):
             result = wb_fbs.sync_wb_fbs_source(
@@ -154,24 +176,35 @@ class TestSyncSkipsDoneTrbxWhenCached(unittest.TestCase):
             )
 
         self.assertFalse(result.get("scope_error"))
-        self.assertEqual(result.get("supplies"), 4)
-        # Open without cache + done without cache still fetch boxes.
-        self.assertIn("WB-GI-OPEN", box_calls)
-        self.assertIn("WB-GI-DONE-NEW", box_calls)
-        # Cached open and cached done skip boxes.
+        # Only currently open supplies are counted in sync stats.
+        self.assertEqual(result.get("supplies"), 2)
+        self.assertEqual(cache_queries, [["WB-GI-OPEN", "WB-GI-OPEN-CACHED"]])
+        # Open without cache still fetches boxes; cached open skips.
+        self.assertEqual(box_calls, ["WB-GI-OPEN"])
         self.assertNotIn("WB-GI-OPEN-CACHED", box_calls)
+        # Long-closed done supplies: no API, no upsert.
+        self.assertNotIn("WB-GI-DONE-NEW", box_calls)
         self.assertNotIn("WB-GI-DONE-CACHED", box_calls)
+        self.assertNotIn("WB-GI-DONE-NEW", order_id_calls)
+        self.assertNotIn("WB-GI-JUST-CLOSED", order_id_calls)
         # Open supplies still refresh order-ids even when boxes are cached.
         self.assertIn("WB-GI-OPEN", order_id_calls)
         self.assertIn("WB-GI-OPEN-CACHED", order_id_calls)
-        self.assertNotIn("WB-GI-DONE-CACHED", order_id_calls)
 
-        by_id = {sid: boxes for sid, boxes in upserted}
-        self.assertEqual(by_id["WB-GI-OPEN"], [{"id": "BOX-WB-GI-OPEN"}])
-        self.assertEqual(by_id["WB-GI-DONE-NEW"], [{"id": "BOX-WB-GI-DONE-NEW"}])
-        # Empty list → upsert_supply keeps previous non-empty boxes_json.
-        self.assertEqual(by_id["WB-GI-OPEN-CACHED"], [])
-        self.assertEqual(by_id["WB-GI-DONE-CACHED"], [])
+        by_id = {sid: (done, oids, boxes) for sid, done, oids, boxes in upserted}
+        self.assertEqual(
+            set(by_id),
+            {"WB-GI-OPEN", "WB-GI-OPEN-CACHED", "WB-GI-JUST-CLOSED"},
+        )
+        self.assertFalse(by_id["WB-GI-OPEN"][0])
+        self.assertEqual(by_id["WB-GI-OPEN"][2], [{"id": "BOX-WB-GI-OPEN"}])
+        self.assertEqual(by_id["WB-GI-OPEN-CACHED"][2], [])  # keep cached boxes
+        # Locally open → WB done: metadata-only close, no order-ids/boxes fetch.
+        self.assertTrue(by_id["WB-GI-JUST-CLOSED"][0])
+        self.assertEqual(by_id["WB-GI-JUST-CLOSED"][1], [])
+        self.assertEqual(by_id["WB-GI-JUST-CLOSED"][2], [])
+        self.assertNotIn("WB-GI-DONE-NEW", by_id)
+        self.assertNotIn("WB-GI-DONE-CACHED", by_id)
 
 
 class TestSyncStatusRefreshAgeFilter(unittest.TestCase):

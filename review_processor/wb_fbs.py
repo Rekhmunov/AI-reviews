@@ -5280,10 +5280,39 @@ def sync_wb_fbs_source(
             "stopped": True,
         }
 
-    # 4) Supplies (+ order ids / boxes for open; boxes for done only if not cached)
+    # 4) Open supplies only (assembly / in-delivery on WB: done=false).
+    # Closed supplies are not refreshed (no order-ids/boxes API). If a supply we
+    # still had open locally appears as done on WB, flip done via list payload only
+    # so the UI does not keep a stale «open» card.
     _prog("Поставки FBS…", _supply_count())
     next_sup = 0
     sup_pages = 0
+    local_open_ids: set[str] = set()
+    try:
+        with repo._connect() as conn:
+            open_rows = conn.execute(
+                repo._sql(
+                    """
+                    SELECT supply_id FROM wb_fbs_supplies
+                    WHERE user_id = ? AND source_id = ? AND done = FALSE
+                      AND supply_id <> ''
+                    """
+                ),
+                (user_id, source_id),
+            ).fetchall()
+        for row in open_rows:
+            d = repo._row_to_dict(row)
+            sid = str(d.get("supply_id") or "").strip()
+            if sid:
+                local_open_ids.add(sid)
+    except Exception as exc:
+        _log.warning(
+            "wb_fbs load local open supplies failed user=%s source=%s: %s",
+            user_id,
+            source_id,
+            exc,
+        )
+        local_open_ids = set()
     try:
         while sup_pages < 10:
             if _stopped():
@@ -5292,50 +5321,60 @@ def sync_wb_fbs_source(
             supplies, next_sup = client.get_supplies(limit=1000, next_token=next_sup)
             if not supplies:
                 break
-            # Reuse local boxes_json when already cached (open and done). After the
-            # first fill, list sync skips get_supply_boxes; create/delete trbx and
-            # detail enrich still refresh live. Always refresh order-ids for open.
-            page_sids = [
-                str(s.get("id") or "").strip()
-                for s in supplies
-                if str(s.get("id") or "").strip()
-            ]
+            open_supplies: list[dict[str, Any]] = []
+            for raw in supplies:
+                if not isinstance(raw, dict):
+                    continue
+                sid = str(raw.get("id") or "").strip()
+                if not sid:
+                    continue
+                if bool(raw.get("done")):
+                    # No heavy API: only close locally if we still tracked it as open.
+                    if sid in local_open_ids:
+                        try:
+                            upsert_supply(
+                                repo,
+                                user_id=user_id,
+                                source_id=source_id,
+                                supply=raw,
+                                order_ids=[],
+                                boxes=[],
+                            )
+                            local_open_ids.discard(sid)
+                        except Exception as exc:
+                            errors.append(friendly_sync_error(f"supply {sid}", exc))
+                    continue
+                open_supplies.append(raw)
+            # Reuse local boxes_json when already cached. After the first fill,
+            # list sync skips get_supply_boxes; create/delete trbx and detail
+            # enrich still refresh live. Always refresh order-ids for open.
+            page_sids = [str(s.get("id") or "").strip() for s in open_supplies]
             cached_boxes = cached_supply_boxes_by_id(
                 repo,
                 user_id=user_id,
                 source_id=source_id,
                 supply_ids=page_sids,
             )
-            for supply in supplies:
+            for supply in open_supplies:
                 if _stopped():
                     stopped = True
                     break
-                sid = str(supply.get("id") or "")
+                sid = str(supply.get("id") or "").strip()
+                if not sid:
+                    continue
                 order_ids: list[int] = []
                 boxes: list[dict[str, Any]] = []
-                is_done = bool(supply.get("done"))
-                local_boxes = (cached_boxes.get(sid) or []) if sid else []
-                if sid and not is_done:
-                    try:
-                        # Read-only WB calls (no deliver/cancel/add). ≥200 ms gap.
-                        order_ids = client.get_supply_order_ids(sid)
-                        time.sleep(0.21)
-                        if need_fetch_supply_boxes(local_boxes):
-                            boxes = client.get_supply_boxes(sid)
-                            time.sleep(0.21)
-                        # else: boxes=[] → upsert_supply keeps existing non-empty boxes_json
-                    except Exception as exc:
-                        errors.append(friendly_sync_error(f"supply {sid}", exc))
-                elif sid and is_done:
-                    # After PATCH /deliver WB sets done=true; trbx is frozen.
-                    # Fetch only when local cache is empty (first time / missing).
+                local_boxes = cached_boxes.get(sid) or []
+                try:
+                    # Read-only WB calls (no deliver/cancel/add). ≥200 ms gap.
+                    order_ids = client.get_supply_order_ids(sid)
+                    time.sleep(0.21)
                     if need_fetch_supply_boxes(local_boxes):
-                        try:
-                            boxes = client.get_supply_boxes(sid)
-                            time.sleep(0.21)
-                        except Exception as exc:
-                            _log.debug("boxes for done supply %s: %s", sid, exc)
+                        boxes = client.get_supply_boxes(sid)
+                        time.sleep(0.21)
                     # else: boxes=[] → upsert_supply keeps existing non-empty boxes_json
+                except Exception as exc:
+                    errors.append(friendly_sync_error(f"supply {sid}", exc))
                 upsert_supply(
                     repo,
                     user_id=user_id,
@@ -5344,8 +5383,8 @@ def sync_wb_fbs_source(
                     order_ids=order_ids,
                     boxes=boxes,
                 )
-                if sid:
-                    seen_supply_ids.add(sid)
+                seen_supply_ids.add(sid)
+                local_open_ids.add(sid)
                 # Link orders to supply + mark assembly if still new
                 if order_ids:
                     with repo._connect() as conn:
