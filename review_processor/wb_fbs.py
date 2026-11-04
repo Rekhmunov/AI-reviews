@@ -51,6 +51,10 @@ TAB_LABELS: dict[str, str] = {
 HIDDEN_TABS = frozenset({TAB_FINISHED, TAB_CANCELLED, TAB_ARCHIVE})
 OWNER_ONLY_TABS = HIDDEN_TABS
 
+# Status refresh in sync_wb_fbs_source: only operational orders created within
+# this window (avoids re-polling thousands of stale assembly/delivery rows).
+STATUS_REFRESH_MAX_AGE_DAYS = 7
+
 
 def is_hidden_tab(tab: object) -> bool:
     return str(tab or "").strip().lower() in HIDDEN_TABS
@@ -4874,9 +4878,19 @@ def _persist_supply_boxes(
         )
 
 
-def need_fetch_done_supply_boxes(existing_boxes: list[Any] | None) -> bool:
-    """Closed supplies cannot change trbx; refresh only when local cache is empty."""
+def need_fetch_supply_boxes(existing_boxes: list[Any] | None) -> bool:
+    """Fetch trbx from WB only when local ``boxes_json`` cache is empty.
+
+    Used for both open and closed supplies during sync: after the first successful
+    cache fill, list sync skips ``get_supply_boxes``. Live create/delete trbx and
+    supply-detail enrich still refresh from WB.
+    """
     return not bool(existing_boxes)
+
+
+def need_fetch_done_supply_boxes(existing_boxes: list[Any] | None) -> bool:
+    """Back-compat alias for :func:`need_fetch_supply_boxes`."""
+    return need_fetch_supply_boxes(existing_boxes)
 
 
 def cached_supply_boxes_by_id(
@@ -5145,7 +5159,12 @@ def sync_wb_fbs_source(
 
     # 3) Refresh statuses for operational tabs only (new / assembly / delivery).
     # Finished / cancelled / archive are hidden and not re-polled every sync.
+    # Age filter: only orders created within STATUS_REFRESH_MAX_AGE_DAYS — older
+    # hanging rows stay in UI until opened/touched elsewhere, but do not dominate sync.
     _prog("Статусы…")
+    status_cutoff = datetime.now(UTC) - timedelta(
+        days=max(1, int(STATUS_REFRESH_MAX_AGE_DAYS))
+    )
     with repo._connect() as conn:
         id_rows = conn.execute(
             repo._sql(
@@ -5154,11 +5173,13 @@ def sync_wb_fbs_source(
                 WHERE user_id = ? AND source_id = ?
                   AND is_archive = FALSE
                   AND tab IN ('new', 'assembly', 'delivery')
+                  AND created_at_wb IS NOT NULL
+                  AND created_at_wb >= ?
                 ORDER BY synced_at DESC
                 LIMIT 5000
                 """
             ),
-            (user_id, source_id),
+            (user_id, source_id, status_cutoff.isoformat()),
         ).fetchall()
     all_ids = [int(r["order_id"]) for r in id_rows]
     # Stock ledger (Поставки → Остатки): remember final tab/article per order
@@ -5271,17 +5292,19 @@ def sync_wb_fbs_source(
             supplies, next_sup = client.get_supplies(limit=1000, next_token=next_sup)
             if not supplies:
                 break
-            # Closed supplies cannot change trbx after deliver — reuse local boxes_json.
-            done_sids = [
+            # Reuse local boxes_json when already cached (open and done). After the
+            # first fill, list sync skips get_supply_boxes; create/delete trbx and
+            # detail enrich still refresh live. Always refresh order-ids for open.
+            page_sids = [
                 str(s.get("id") or "").strip()
                 for s in supplies
-                if bool(s.get("done")) and str(s.get("id") or "").strip()
+                if str(s.get("id") or "").strip()
             ]
-            cached_done_boxes = cached_supply_boxes_by_id(
+            cached_boxes = cached_supply_boxes_by_id(
                 repo,
                 user_id=user_id,
                 source_id=source_id,
-                supply_ids=done_sids,
+                supply_ids=page_sids,
             )
             for supply in supplies:
                 if _stopped():
@@ -5291,20 +5314,22 @@ def sync_wb_fbs_source(
                 order_ids: list[int] = []
                 boxes: list[dict[str, Any]] = []
                 is_done = bool(supply.get("done"))
+                local_boxes = (cached_boxes.get(sid) or []) if sid else []
                 if sid and not is_done:
                     try:
                         # Read-only WB calls (no deliver/cancel/add). ≥200 ms gap.
                         order_ids = client.get_supply_order_ids(sid)
                         time.sleep(0.21)
-                        boxes = client.get_supply_boxes(sid)
-                        time.sleep(0.21)
+                        if need_fetch_supply_boxes(local_boxes):
+                            boxes = client.get_supply_boxes(sid)
+                            time.sleep(0.21)
+                        # else: boxes=[] → upsert_supply keeps existing non-empty boxes_json
                     except Exception as exc:
                         errors.append(friendly_sync_error(f"supply {sid}", exc))
                 elif sid and is_done:
                     # After PATCH /deliver WB sets done=true; trbx is frozen.
                     # Fetch only when local cache is empty (first time / missing).
-                    local_boxes = cached_done_boxes.get(sid) or []
-                    if need_fetch_done_supply_boxes(local_boxes):
+                    if need_fetch_supply_boxes(local_boxes):
                         try:
                             boxes = client.get_supply_boxes(sid)
                             time.sleep(0.21)
