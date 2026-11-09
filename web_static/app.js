@@ -11883,6 +11883,7 @@ async function loadAccounts() {
       </td>
       <td>
         <div class="row">
+          <button class="secondary" onclick="openEditAccountModal(${account.id})">Изменить</button>
           <button class="secondary" onclick="toggleAccount(${account.id}, ${account.is_active ? "false" : "true"})">
             ${account.is_active ? "Отключить" : "Включить"}
           </button>
@@ -11953,6 +11954,7 @@ async function loadAccounts() {
           </div>
         </div>
         <div class="account-card-actions">
+          <button class="secondary" onclick="openEditAccountModal(${account.id})">Изменить</button>
           <button class="secondary" onclick="toggleAccount(${account.id}, ${isActive ? "false" : "true"})">${isActive ? "Отключить" : "Включить"}</button>
           <button class="secondary danger" onclick="deleteAccount(${account.id})">🗑 Удалить</button>
         </div>
@@ -12092,6 +12094,126 @@ async function createAccount() {
   toggleAddSourceForm(false);
   await loadAccounts();
 }
+
+let _editAccountId = null;
+let _editAccountMarketplace = "";
+
+window.openEditAccountModal = function(accountId) {
+  const accounts = Array.isArray(teamState.accounts) ? teamState.accounts : [];
+  const account = accounts.find((item) => Number(item.id) === Number(accountId));
+  if (!account) {
+    const info = document.getElementById("accountsInfo");
+    if (info) info.textContent = "Кабинет не найден. Обновите список источников.";
+    return;
+  }
+  _editAccountId = Number(account.id);
+  _editAccountMarketplace = String(account.marketplace || "").toLowerCase();
+  const mpLabel = labelFromMap(marketplaceLabels, account.marketplace);
+  const title = document.getElementById("editAccountTitle");
+  if (title) title.textContent = "Редактировать источник";
+  const mpEl = document.getElementById("editAccountMarketplaceLabel");
+  if (mpEl) mpEl.textContent = `Маркетплейс: ${mpLabel} · №${account.id}`;
+  const nameEl = document.getElementById("editAccountName");
+  if (nameEl) nameEl.value = String(account.account_name || "");
+  const extra = account.extra || {};
+  const clientEl = document.getElementById("editAccountClientId");
+  if (clientEl) clientEl.value = String(extra.client_id || "");
+  const businessEl = document.getElementById("editAccountBusinessId");
+  if (businessEl) businessEl.value = String(extra.business_id || "");
+  const tokenEl = document.getElementById("editAccountApiToken");
+  if (tokenEl) tokenEl.value = "";
+  document.getElementById("editAccountOzonClientField")?.classList.toggle("hidden", _editAccountMarketplace !== "ozon");
+  document.getElementById("editAccountYandexBusinessField")?.classList.toggle("hidden", _editAccountMarketplace !== "yandex");
+  const info = document.getElementById("editAccountInfo");
+  if (info) {
+    info.textContent = "";
+    info.style.color = "";
+  }
+  const modal = document.getElementById("editAccountModal");
+  modal?.classList.remove("hidden");
+};
+
+window.closeEditAccountModal = function() {
+  document.getElementById("editAccountModal")?.classList.add("hidden");
+  _editAccountId = null;
+  _editAccountMarketplace = "";
+};
+
+window.saveEditAccount = async function() {
+  if (!_editAccountId) return;
+  const info = document.getElementById("editAccountInfo");
+  const btn = document.getElementById("editAccountSaveBtn");
+  const accountName = document.getElementById("editAccountName")?.value.trim() || "";
+  const apiToken = document.getElementById("editAccountApiToken")?.value.trim() || "";
+  const clientId = document.getElementById("editAccountClientId")?.value.trim() || "";
+  const businessId = document.getElementById("editAccountBusinessId")?.value.trim() || "";
+
+  if (!accountName) {
+    if (info) {
+      info.textContent = "Укажите название кабинета";
+      info.style.color = "#b91c1c";
+    }
+    return;
+  }
+  if (_editAccountMarketplace === "ozon" && !clientId) {
+    if (info) {
+      info.textContent = "Для OZON укажите идентификатор клиента";
+      info.style.color = "#b91c1c";
+    }
+    return;
+  }
+  if (_editAccountMarketplace === "yandex" && !businessId) {
+    if (info) {
+      info.textContent = "Для Яндекс Маркета укажите Business ID";
+      info.style.color = "#b91c1c";
+    }
+    return;
+  }
+
+  const payload = { account_name: accountName };
+  if (apiToken) payload.api_key = apiToken;
+  if (_editAccountMarketplace === "ozon") payload.client_id = clientId;
+  if (_editAccountMarketplace === "yandex") payload.business_id = businessId;
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Сохранение…";
+  }
+  try {
+    const res = await fetch(`/api/accounts/${_editAccountId}`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify(payload),
+    });
+    let data = {};
+    try { data = await res.json(); } catch (_) {}
+    if (!res.ok) {
+      if (info) {
+        info.textContent = data.detail || "Не удалось сохранить изменения";
+        info.style.color = "#b91c1c";
+      }
+      return;
+    }
+    closeEditAccountModal();
+    const accountsInfo = document.getElementById("accountsInfo");
+    if (accountsInfo) {
+      accountsInfo.textContent = apiToken
+        ? "Источник обновлён. Новый ключ сохранён, история сохранена."
+        : "Источник обновлён.";
+    }
+    await loadAccounts();
+  } catch (e) {
+    if (info) {
+      info.textContent = "Ошибка: " + (e?.message || "сеть");
+      info.style.color = "#b91c1c";
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Сохранить";
+    }
+  }
+};
 
 async function toggleAccount(accountId, active) {
   const payload = { is_active: active };

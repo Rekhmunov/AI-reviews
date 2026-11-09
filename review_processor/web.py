@@ -318,6 +318,18 @@ class AccountCreateRequest(BaseModel):
     integration: dict[str, object] | None = None
 
 
+class AccountUpdateRequest(BaseModel):
+    """Edit feedback marketplace cabinet. Omitted fields keep previous values.
+
+    Empty ``api_key`` keeps the current token (same as supply-source edit).
+    """
+
+    account_name: str | None = Field(default=None, min_length=2, max_length=120)
+    api_key: str | None = Field(default=None, max_length=2000)
+    client_id: str | None = Field(default=None, max_length=200)
+    business_id: str | None = Field(default=None, max_length=200)
+
+
 class AccountStatusRequest(BaseModel):
     is_active: bool
 
@@ -5328,6 +5340,51 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not updated:
             raise HTTPException(status_code=404, detail="Кабинет маркетплейса не найден")
         return {"ok": True}
+
+    @app.patch("/api/accounts/{account_id}")
+    def update_account(
+        account_id: int, request: Request, payload: AccountUpdateRequest
+    ) -> dict[str, object]:
+        """Replace name / API key / Client-Id / Business ID without deleting history."""
+        user = _require_settings_access(request)
+        account = repository.get_marketplace_account(
+            user_id=int(user["id"]),
+            account_id=account_id,
+            include_secrets=False,
+        )
+        if account is None:
+            raise HTTPException(status_code=404, detail="Кабинет маркетплейса не найден")
+
+        marketplace = str(account.get("marketplace") or "").strip().lower()
+        api_key_raw = payload.api_key
+        api_key_value: str | None = None
+        if api_key_raw is not None:
+            cleaned = api_key_raw.strip()
+            # Empty string = keep previous token (UI leaves the field blank).
+            api_key_value = cleaned or None
+
+        client_id_value = payload.client_id
+        business_id_value = payload.business_id
+        if marketplace == "ozon" and client_id_value is not None and not client_id_value.strip():
+            raise HTTPException(
+                status_code=400, detail="Для OZON требуется идентификатор клиента"
+            )
+        if marketplace == "yandex" and business_id_value is not None and not business_id_value.strip():
+            raise HTTPException(
+                status_code=400, detail="Для Яндекс Маркета требуется Business ID"
+            )
+
+        updated = repository.update_marketplace_account(
+            user_id=int(user["id"]),
+            account_id=account_id,
+            account_name=payload.account_name,
+            api_key=api_key_value,
+            client_id=client_id_value if marketplace == "ozon" else None,
+            business_id=business_id_value if marketplace == "yandex" else None,
+        )
+        if updated is None:
+            raise HTTPException(status_code=404, detail="Кабинет маркетплейса не найден")
+        return {"ok": True, "item": updated}
 
     @app.delete("/api/accounts/{account_id}")
     def delete_account(account_id: int, request: Request) -> dict[str, object]:

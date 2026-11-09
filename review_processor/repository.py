@@ -3361,6 +3361,85 @@ class ReviewRepository:
             )
         return result.rowcount > 0
 
+    def update_marketplace_account(
+        self,
+        *,
+        user_id: int,
+        account_id: int,
+        account_name: str | None = None,
+        api_key: str | None = None,
+        client_id: str | None = None,
+        business_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Update feedback marketplace account credentials.
+
+        ``api_key=None`` keeps the current token. Empty string is rejected by the
+        API layer — callers pass a non-empty key only when replacing.
+        ``client_id`` / ``business_id`` update ``extra_json`` when not None.
+        """
+        existing = self.get_marketplace_account(
+            user_id=user_id, account_id=account_id, include_secrets=False
+        )
+        if existing is None:
+            return None
+
+        sets: list[str] = ["updated_at = ?"]
+        params: list[Any] = [_utc_now()]
+
+        if account_name is not None:
+            clean_name = str(account_name).strip()
+            if clean_name:
+                sets.append("account_name = ?")
+                params.append(clean_name)
+
+        if api_key is not None:
+            clean_key = str(api_key).strip()
+            if clean_key:
+                sets.append("api_key_encrypted = ?")
+                params.append(encrypt_secret(clean_key))
+
+        extra_changed = False
+        extra = dict(existing.get("extra") or {})
+        if client_id is not None:
+            clean_client = str(client_id).strip()
+            if clean_client:
+                extra["client_id"] = clean_client
+            else:
+                extra.pop("client_id", None)
+            extra_changed = True
+        if business_id is not None:
+            clean_business = str(business_id).strip()
+            if clean_business:
+                extra["business_id"] = clean_business
+            else:
+                extra.pop("business_id", None)
+            extra_changed = True
+        if extra_changed:
+            sets.append("extra_json = ?")
+            params.append(self._json_param(extra))
+
+        if len(sets) == 1:
+            # Only updated_at — nothing meaningful to change.
+            return existing
+
+        params.extend([user_id, account_id])
+        with self._connect() as conn:
+            result = conn.execute(
+                self._sql(
+                    f"""
+                    UPDATE marketplace_accounts
+                    SET {", ".join(sets)}
+                    WHERE user_id = ? AND id = ?
+                    """
+                ),
+                tuple(params),
+            )
+            if result.rowcount <= 0:
+                return None
+        return self.get_marketplace_account(
+            user_id=user_id, account_id=account_id, include_secrets=False
+        )
+
     def delete_marketplace_account(self, *, user_id: int, account_id: int) -> bool:
         with self._connect() as conn:
             result = conn.execute(
