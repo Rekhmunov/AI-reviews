@@ -3249,11 +3249,36 @@ class ReviewRepository:
             "ALTER TABLE marketplace_accounts ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ"
         )
         # Backfill from extra_json when cabinet id was stored only there.
+        # Never overwrite an occupied active binding (collision-safe).
+        occupied: set[tuple[int, str, str]] = set()
+        try:
+            active_rows = conn.execute(
+                self._sql(
+                    """
+                    SELECT user_id, marketplace, external_account_id
+                    FROM marketplace_accounts
+                    WHERE deleted_at IS NULL
+                      AND external_account_id IS NOT NULL
+                      AND TRIM(external_account_id) <> ''
+                    """
+                )
+            ).fetchall()
+            for row in active_rows:
+                d = self._row_to_dict(row)
+                occupied.add(
+                    (
+                        int(d["user_id"]),
+                        str(d.get("marketplace") or "").strip().lower(),
+                        str(d.get("external_account_id") or "").strip(),
+                    )
+                )
+        except Exception:
+            occupied = set()
         try:
             rows = conn.execute(
                 self._sql(
                     """
-                    SELECT id, marketplace, extra_json, external_account_id
+                    SELECT id, user_id, marketplace, extra_json, external_account_id, deleted_at
                     FROM marketplace_accounts
                     WHERE external_account_id IS NULL OR TRIM(COALESCE(external_account_id, '')) = ''
                     """
@@ -3269,6 +3294,12 @@ class ReviewRepository:
             )
             if not ext:
                 continue
+            user_id = int(d["user_id"])
+            mp = str(d.get("marketplace") or "").strip().lower()
+            key = (user_id, mp, ext)
+            # Skip filling a duplicate active cabinet binding.
+            if not d.get("deleted_at") and key in occupied:
+                continue
             try:
                 conn.execute(
                     self._sql(
@@ -3281,6 +3312,8 @@ class ReviewRepository:
                     ),
                     (ext, int(d["id"])),
                 )
+                if not d.get("deleted_at"):
+                    occupied.add(key)
             except Exception:
                 continue
         try:
@@ -3595,10 +3628,11 @@ class ReviewRepository:
             business_id=extra.get("business_id"),
             extra=extra,
         )
-        if feedback_identity.marketplace_requires_cabinet_id(mp) and not next_external:
-            raise ValueError(f"Укажите {feedback_identity.cabinet_id_label(mp)}")
-
+        # Require cabinet id only when identity fields are being edited — legacy
+        # rows may still rotate api_key/name without a stored Client-Id yet.
         if extra_changed:
+            if feedback_identity.marketplace_requires_cabinet_id(mp) and not next_external:
+                raise ValueError(f"Укажите {feedback_identity.cabinet_id_label(mp)}")
             sets.append("extra_json = ?")
             params.append(self._json_param(extra))
             sets.append("external_account_id = ?")
