@@ -700,8 +700,8 @@
                 </select>
                 <input id="newSourceName" type="text" placeholder="Название кабинета" />
               </div>
-              <div id="ozonClientField" class="row hidden">
-                <input id="newSourceClientId" type="text" placeholder="Идентификатор клиента (Client-Id)" />
+              <div id="cabinetIdField" class="row hidden">
+                <input id="newSourceClientId" type="text" placeholder="ID кабинета / Client-Id" />
               </div>
               <div id="yandexBusinessIdField" class="row hidden">
                 <input id="newSourceBusinessId" type="text" placeholder="Business ID (идентификатор кабинета ЯМ)" />
@@ -7601,9 +7601,9 @@
           <label class="small" for="editAccountName" style="display:block;margin-bottom:6px">Название кабинета</label>
           <input id="editAccountName" type="text" placeholder="Название кабинета" style="width:100%" />
         </div>
-        <div id="editAccountOzonClientField" class="hidden">
-          <label class="small" for="editAccountClientId" style="display:block;margin-bottom:6px">Идентификатор клиента (Client-Id)</label>
-          <input id="editAccountClientId" type="text" placeholder="Client-Id" style="width:100%" />
+        <div id="editAccountCabinetField" class="hidden">
+          <label class="small" for="editAccountClientId" id="editAccountCabinetLabel" style="display:block;margin-bottom:6px">ID кабинета</label>
+          <input id="editAccountClientId" type="text" placeholder="ID кабинета" style="width:100%" />
         </div>
         <div id="editAccountYandexBusinessField" class="hidden">
           <label class="small" for="editAccountBusinessId" style="display:block;margin-bottom:6px">Business ID</label>
@@ -7612,7 +7612,7 @@
         <div>
           <label class="small" for="editAccountApiToken" style="display:block;margin-bottom:6px">Токен / ключ доступа API</label>
           <textarea id="editAccountApiToken" class="textarea-compact" placeholder="Оставьте пустым, чтобы не менять текущий ключ" rows="3" style="width:100%"></textarea>
-          <div class="small" style="margin-top:6px;color:#64748b">Пустое поле сохраняет текущий ключ. История вопросов и отзывов не удаляется.</div>
+          <div class="small" style="margin-top:6px;color:#64748b">Пустое поле сохраняет текущий ключ. История привязана к ID кабинета — при удалении и повторном добавлении с тем же ID восстановится.</div>
         </div>
         <div id="editAccountInfo" class="small"></div>
         <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -8853,7 +8853,7 @@
 
   <script src="/static/ozon_fbs.js?v=225"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=38"></script>
-  <script src="/static/app.js?v=714"></script>
+  <script src="/static/app.js?v=715"></script>
   <script src="/static/wb_fbs_pvz_returns.js?v=19"></script>
   <script src="/static/ozon_fbs_pvz_returns.js?v=2"></script>
 </body>

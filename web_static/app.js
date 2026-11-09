@@ -1516,8 +1516,16 @@ function toggleAddSourceForm(show) {
 
 function onSourceMarketplaceChange() {
   const marketplace = document.getElementById("newSourceMarketplace")?.value || "wb";
-  document.getElementById("ozonClientField")?.classList.toggle("hidden", marketplace !== "ozon");
+  const cabinetField = document.getElementById("cabinetIdField");
+  const cabinetInput = document.getElementById("newSourceClientId");
+  const showCabinet = marketplace === "ozon" || marketplace === "wb";
+  cabinetField?.classList.toggle("hidden", !showCabinet);
   document.getElementById("yandexBusinessIdField")?.classList.toggle("hidden", marketplace !== "yandex");
+  if (cabinetInput) {
+    cabinetInput.placeholder = marketplace === "ozon"
+      ? "Client-Id (идентификатор клиента Ozon)"
+      : "ID кабинета Wildberries";
+  }
 }
 
 function syncRuleFormFromStore() {
@@ -11856,8 +11864,8 @@ async function loadAccounts() {
     const apiKeyTooltip = rawApiKey || apiKeyPreview;
     const extra = account.extra || {};
     const clientOrBusinessId = String(account.marketplace || "").toLowerCase() === "yandex"
-      ? (extra.business_id || "-")
-      : (extra.client_id || "-");
+      ? (account.external_account_id || extra.business_id || "-")
+      : (account.external_account_id || extra.client_id || "-");
     tr.innerHTML = `
       <td>${esc(account.id)}</td>
       <td>${esc(labelFromMap(marketplaceLabels, account.marketplace))}</td>
@@ -11945,7 +11953,7 @@ async function loadAccounts() {
           <span class="account-card-label">API URL</span>
           <span class="account-card-value" title="${esc(account.api_url)}">${esc(apiUrlShort)}</span>
         </div>
-        ${(account.extra || {}).client_id ? `<div class="account-card-row"><span class="account-card-label">Client-Id</span><span class="account-card-value">${esc((account.extra || {}).client_id)}</span></div>` : ""}
+        ${(account.external_account_id || (account.extra || {}).client_id || (account.extra || {}).business_id) ? `<div class="account-card-row"><span class="account-card-label">ID кабинета</span><span class="account-card-value">${esc(account.external_account_id || (account.extra || {}).client_id || (account.extra || {}).business_id)}</span></div>` : ""}
         <div class="account-card-row">
           <span class="account-card-label">Ключ</span>
           <div class="account-card-key-wrap">
@@ -12060,8 +12068,10 @@ async function createAccount() {
     return;
   }
   const businessId = document.getElementById("newSourceBusinessId")?.value.trim() || "";
-  if (marketplace === "ozon" && !clientId) {
-    document.getElementById("accountsInfo").textContent = "Ошибка: укажите идентификатор клиента для OZON";
+  if ((marketplace === "ozon" || marketplace === "wb") && !clientId) {
+    document.getElementById("accountsInfo").textContent = marketplace === "ozon"
+      ? "Ошибка: укажите Client-Id для OZON"
+      : "Ошибка: укажите ID кабинета для WB";
     return;
   }
   if (marketplace === "yandex" && !businessId) {
@@ -12073,7 +12083,7 @@ async function createAccount() {
   const payload = {
     marketplace: marketplace,
     account_name: accountName,
-    client_id: marketplace === "ozon" ? clientId : null,
+    client_id: (marketplace === "ozon" || marketplace === "wb") ? clientId : null,
     api_key: apiToken,
     integration,
   };
@@ -12087,9 +12097,13 @@ async function createAccount() {
     document.getElementById("accountsInfo").textContent = "Ошибка: " + (data.detail || "не удалось сохранить");
     return;
   }
-  document.getElementById("accountsInfo").textContent = "Кабинет добавлен.";
+  document.getElementById("accountsInfo").textContent = data.revived
+    ? "Кабинет восстановлен. История вопросов и отзывов на месте."
+    : "Кабинет добавлен.";
   document.getElementById("newSourceName").value = "";
   document.getElementById("newSourceClientId").value = "";
+  const bizEl = document.getElementById("newSourceBusinessId");
+  if (bizEl) bizEl.value = "";
   document.getElementById("newSourceApiToken").value = "";
   toggleAddSourceForm(false);
   await loadAccounts();
@@ -12117,13 +12131,29 @@ window.openEditAccountModal = function(accountId) {
   if (nameEl) nameEl.value = String(account.account_name || "");
   const extra = account.extra || {};
   const clientEl = document.getElementById("editAccountClientId");
-  if (clientEl) clientEl.value = String(extra.client_id || "");
+  const cabinetId = String(account.external_account_id || extra.client_id || "");
+  if (clientEl) clientEl.value = cabinetId;
   const businessEl = document.getElementById("editAccountBusinessId");
-  if (businessEl) businessEl.value = String(extra.business_id || "");
+  if (businessEl) {
+    businessEl.value = String(account.external_account_id || extra.business_id || "");
+  }
   const tokenEl = document.getElementById("editAccountApiToken");
   if (tokenEl) tokenEl.value = "";
-  document.getElementById("editAccountOzonClientField")?.classList.toggle("hidden", _editAccountMarketplace !== "ozon");
-  document.getElementById("editAccountYandexBusinessField")?.classList.toggle("hidden", _editAccountMarketplace !== "yandex");
+  const showCabinet = _editAccountMarketplace === "ozon" || _editAccountMarketplace === "wb";
+  document.getElementById("editAccountCabinetField")?.classList.toggle("hidden", !showCabinet);
+  document.getElementById("editAccountYandexBusinessField")?.classList.toggle(
+    "hidden",
+    _editAccountMarketplace !== "yandex"
+  );
+  const cabinetLabel = document.getElementById("editAccountCabinetLabel");
+  if (cabinetLabel) {
+    cabinetLabel.textContent = _editAccountMarketplace === "ozon"
+      ? "Client-Id"
+      : "ID кабинета WB";
+  }
+  if (clientEl) {
+    clientEl.placeholder = _editAccountMarketplace === "ozon" ? "Client-Id" : "ID кабинета WB";
+  }
   const info = document.getElementById("editAccountInfo");
   if (info) {
     info.textContent = "";
@@ -12155,9 +12185,11 @@ window.saveEditAccount = async function() {
     }
     return;
   }
-  if (_editAccountMarketplace === "ozon" && !clientId) {
+  if ((_editAccountMarketplace === "ozon" || _editAccountMarketplace === "wb") && !clientId) {
     if (info) {
-      info.textContent = "Для OZON укажите идентификатор клиента";
+      info.textContent = _editAccountMarketplace === "ozon"
+        ? "Для OZON укажите Client-Id"
+        : "Для WB укажите ID кабинета";
       info.style.color = "#b91c1c";
     }
     return;
@@ -12172,7 +12204,9 @@ window.saveEditAccount = async function() {
 
   const payload = { account_name: accountName };
   if (apiToken) payload.api_key = apiToken;
-  if (_editAccountMarketplace === "ozon") payload.client_id = clientId;
+  if (_editAccountMarketplace === "ozon" || _editAccountMarketplace === "wb") {
+    payload.client_id = clientId;
+  }
   if (_editAccountMarketplace === "yandex") payload.business_id = businessId;
 
   if (btn) {
@@ -12236,7 +12270,13 @@ async function toggleAccount(accountId, active) {
 }
 
 async function deleteAccount(accountId) {
-  if (!confirm("Удалить источник данных?")) return;
+  const accounts = Array.isArray(teamState.accounts) ? teamState.accounts : [];
+  const account = accounts.find((item) => Number(item.id) === Number(accountId));
+  const cabinet = String(account?.external_account_id || account?.extra?.client_id || account?.extra?.business_id || "").trim();
+  const restoreHint = cabinet
+    ? `Чтобы восстановить историю — добавьте источник снова с тем же ID кабинета (${cabinet}).\n\n`
+    : "Чтобы восстановить историю — добавьте источник снова с тем же ID кабинета.\n\n";
+  if (!confirm(`${restoreHint}Скрыть источник? Данные не удаляются.`)) return;
   const res = await fetch(`/api/accounts/${accountId}`, {
     method: "DELETE",
     headers: withCsrfHeaders(),
@@ -12246,7 +12286,8 @@ async function deleteAccount(accountId) {
     alert(data.detail || "Не удалось удалить источник");
     return;
   }
-  document.getElementById("accountsInfo").textContent = "Источник удален. Ключ доступа удален из базы.";
+  document.getElementById("accountsInfo").textContent = data.detail
+    || "Источник скрыт. История сохранится при повторном добавлении с тем же ID кабинета.";
   await loadAccounts();
 }
 

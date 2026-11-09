@@ -5295,14 +5295,22 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if marketplace in {"wb", "ozon", "yandex"} and not (payload.api_key or "").strip():
             raise HTTPException(status_code=400, detail="Для WB/OZON/ЯМ требуется ключ доступа")
         client_id_value = (payload.client_id or "").strip() or str(integration.get("client_id") or "").strip()
+        # Yandex Market: require business_id; WB/Ozon: cabinet / Client-Id.
+        business_id_value = str(
+            (payload.integration or {}).get("business_id")
+            if isinstance(payload.integration, dict)
+            else ""
+        ).strip() or str(integration.get("business_id") or "").strip()
         if marketplace == "ozon" and not client_id_value:
-            raise HTTPException(status_code=400, detail="Для OZON требуется идентификатор клиента")
-        # Yandex Market: require business_id
-        business_id_value = str(integration.get("business_id") or "").strip()
+            raise HTTPException(status_code=400, detail="Для OZON требуется Client-Id")
+        if marketplace == "wb" and not client_id_value:
+            raise HTTPException(status_code=400, detail="Для WB требуется ID кабинета")
         if marketplace == "yandex" and not business_id_value:
             raise HTTPException(status_code=400, detail="Для Яндекс Маркета требуется Business ID")
         if client_id_value:
             integration["client_id"] = client_id_value
+        if business_id_value:
+            integration["business_id"] = business_id_value
         if marketplace == "ozon":
             page_size = integration.get("page_size")
             if page_size is not None and (not isinstance(page_size, int) or page_size <= 0):
@@ -5312,15 +5320,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if max_pages is not None and (not isinstance(max_pages, int) or max_pages <= 0):
                 raise HTTPException(status_code=400, detail="Лимит страниц должен быть положительным целым числом")
 
-        account = repository.create_marketplace_account(
-            user_id=int(user["id"]),
-            marketplace=marketplace,
-            account_name=payload.account_name.strip(),
-            api_url=api_url,
-            api_key=(payload.api_key or "").strip() or None,
-            extra=integration,
-        )
-        return {"ok": True, "item": account}
+        try:
+            account = repository.create_marketplace_account(
+                user_id=int(user["id"]),
+                marketplace=marketplace,
+                account_name=payload.account_name.strip(),
+                api_url=api_url,
+                api_key=(payload.api_key or "").strip() or None,
+                extra=integration,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True, "item": account, "revived": bool(account.get("revived"))}
 
     @app.post("/api/accounts/{account_id}/status")
     def update_account_status(account_id: int, request: Request, payload: AccountStatusRequest) -> dict[str, object]:
@@ -5365,23 +5376,29 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         client_id_value = payload.client_id
         business_id_value = payload.business_id
-        if marketplace == "ozon" and client_id_value is not None and not client_id_value.strip():
-            raise HTTPException(
-                status_code=400, detail="Для OZON требуется идентификатор клиента"
+        if marketplace in {"ozon", "wb"} and client_id_value is not None and not client_id_value.strip():
+            detail = (
+                "Для OZON требуется Client-Id"
+                if marketplace == "ozon"
+                else "Для WB требуется ID кабинета"
             )
+            raise HTTPException(status_code=400, detail=detail)
         if marketplace == "yandex" and business_id_value is not None and not business_id_value.strip():
             raise HTTPException(
                 status_code=400, detail="Для Яндекс Маркета требуется Business ID"
             )
 
-        updated = repository.update_marketplace_account(
-            user_id=int(user["id"]),
-            account_id=account_id,
-            account_name=payload.account_name,
-            api_key=api_key_value,
-            client_id=client_id_value if marketplace == "ozon" else None,
-            business_id=business_id_value if marketplace == "yandex" else None,
-        )
+        try:
+            updated = repository.update_marketplace_account(
+                user_id=int(user["id"]),
+                account_id=account_id,
+                account_name=payload.account_name,
+                api_key=api_key_value,
+                client_id=client_id_value if marketplace in {"ozon", "wb"} else None,
+                business_id=business_id_value if marketplace == "yandex" else None,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         if updated is None:
             raise HTTPException(status_code=404, detail="Кабинет маркетплейса не найден")
         return {"ok": True, "item": updated}
@@ -5396,18 +5413,21 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         if account is None:
             raise HTTPException(status_code=404, detail="Кабинет маркетплейса не найден")
-        repository.update_marketplace_account_status(
-            user_id=int(user["id"]),
-            account_id=account_id,
-            is_active=False,
-        )
         deleted = repository.delete_marketplace_account(
             user_id=int(user["id"]),
             account_id=account_id,
         )
         if not deleted:
             raise HTTPException(status_code=404, detail="Кабинет маркетплейса не найден")
-        return {"ok": True}
+        cabinet = str(account.get("external_account_id") or "").strip()
+        return {
+            "ok": True,
+            "soft_deleted": True,
+            "detail": (
+                "Источник скрыт. История сохранена и восстановится при повторном "
+                f"добавлении с тем же ID кабинета{f' ({cabinet})' if cabinet else ''}."
+            ),
+        }
 
     @app.get("/api/templates")
     def list_templates(request: Request) -> dict[str, object]:
