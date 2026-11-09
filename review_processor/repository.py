@@ -17,6 +17,7 @@ from psycopg import rows as psycopg_rows  # type: ignore
 
 from .models import ProcessedReview, ReviewInput
 from .security import decrypt_secret, encrypt_secret, mask_secret
+from . import feedback_account_identity as feedback_identity
 from . import supply_source_identity as supply_identity
 
 DEFAULT_GROUP_PROCESSORS: dict[str, str] = {
@@ -3239,6 +3240,95 @@ class ReviewRepository:
         return [self._row_to_dict(row) for row in rows]
 
 
+    def _ensure_marketplace_account_identity(self, conn) -> None:
+        """Soft-delete + cabinet-id binding columns for feedback accounts."""
+        conn.execute(
+            "ALTER TABLE marketplace_accounts ADD COLUMN IF NOT EXISTS external_account_id TEXT"
+        )
+        conn.execute(
+            "ALTER TABLE marketplace_accounts ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ"
+        )
+        # Backfill from extra_json when cabinet id was stored only there.
+        # Never overwrite an occupied active binding (collision-safe).
+        occupied: set[tuple[int, str, str]] = set()
+        try:
+            active_rows = conn.execute(
+                self._sql(
+                    """
+                    SELECT user_id, marketplace, external_account_id
+                    FROM marketplace_accounts
+                    WHERE deleted_at IS NULL
+                      AND external_account_id IS NOT NULL
+                      AND TRIM(external_account_id) <> ''
+                    """
+                )
+            ).fetchall()
+            for row in active_rows:
+                d = self._row_to_dict(row)
+                occupied.add(
+                    (
+                        int(d["user_id"]),
+                        str(d.get("marketplace") or "").strip().lower(),
+                        str(d.get("external_account_id") or "").strip(),
+                    )
+                )
+        except Exception:
+            occupied = set()
+        try:
+            rows = conn.execute(
+                self._sql(
+                    """
+                    SELECT id, user_id, marketplace, extra_json, external_account_id, deleted_at
+                    FROM marketplace_accounts
+                    WHERE external_account_id IS NULL OR TRIM(COALESCE(external_account_id, '')) = ''
+                    """
+                )
+            ).fetchall()
+        except Exception:
+            rows = []
+        for row in rows:
+            d = self._row_to_dict(row)
+            ext = feedback_identity.resolve_external_account_id(
+                marketplace=d.get("marketplace"),
+                extra=d.get("extra") if isinstance(d.get("extra"), dict) else {},
+            )
+            if not ext:
+                continue
+            user_id = int(d["user_id"])
+            mp = str(d.get("marketplace") or "").strip().lower()
+            key = (user_id, mp, ext)
+            # Skip filling a duplicate active cabinet binding.
+            if not d.get("deleted_at") and key in occupied:
+                continue
+            try:
+                conn.execute(
+                    self._sql(
+                        """
+                        UPDATE marketplace_accounts
+                        SET external_account_id = ?
+                        WHERE id = ?
+                          AND (external_account_id IS NULL OR TRIM(COALESCE(external_account_id, '')) = '')
+                        """
+                    ),
+                    (ext, int(d["id"])),
+                )
+                if not d.get("deleted_at"):
+                    occupied.add(key)
+            except Exception:
+                continue
+        try:
+            conn.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_marketplace_accounts_active_cabinet
+                ON marketplace_accounts (user_id, marketplace, external_account_id)
+                WHERE deleted_at IS NULL
+                  AND external_account_id IS NOT NULL
+                  AND TRIM(external_account_id) <> ''
+                """
+            )
+        except Exception:
+            pass
+
     def create_marketplace_account(
         self,
         *,
@@ -3250,23 +3340,112 @@ class ReviewRepository:
         extra: dict[str, Any] | None = None,
         is_active: bool = True,
     ) -> dict[str, Any]:
+        """Create or revive a feedback cabinet.
+
+        Reviews/questions stay on ``account_id``. ``external_account_id`` binds
+        the row to Ozon Client-Id / WB cabinet id / YM Business ID so delete +
+        re-add restores the same account (and history).
+        """
         now = _utc_now()
+        mp = str(marketplace or "").strip().lower()
+        clean_name = str(account_name or "").strip()
+        if not clean_name:
+            raise ValueError("Название кабинета не может быть пустым")
+        extra_dict = dict(extra or {})
+        external_account_id = feedback_identity.resolve_external_account_id(
+            marketplace=mp,
+            client_id=extra_dict.get("client_id"),
+            business_id=extra_dict.get("business_id"),
+            extra=extra_dict,
+        )
+        if feedback_identity.marketplace_requires_cabinet_id(mp) and not external_account_id:
+            label = feedback_identity.cabinet_id_label(mp)
+            raise ValueError(f"Укажите {label}")
+        if external_account_id:
+            if mp == "yandex":
+                extra_dict["business_id"] = external_account_id
+            else:
+                extra_dict["client_id"] = external_account_id
+
         encrypted_api_key = encrypt_secret(api_key)
         with self._connect() as conn:
+            self._ensure_marketplace_account_identity(conn)
+            existing = None
+            if external_account_id:
+                existing = conn.execute(
+                    self._sql(
+                        """
+                        SELECT * FROM marketplace_accounts
+                        WHERE user_id = ? AND marketplace = ? AND external_account_id = ?
+                        ORDER BY CASE WHEN deleted_at IS NULL THEN 0 ELSE 1 END, id ASC
+                        LIMIT 1
+                        """
+                    ),
+                    (user_id, mp, external_account_id),
+                ).fetchone()
+
+            if existing is not None:
+                ed = self._account_row_to_dict(existing, include_secrets=False)
+                account_id = int(ed["id"])
+                was_deleted = bool(ed.get("deleted_at"))
+                if not was_deleted and bool(ed.get("is_active")):
+                    label = feedback_identity.cabinet_id_label(mp)
+                    raise ValueError(
+                        f"Кабинет уже подключён ({label} {external_account_id}). "
+                        "Чтобы сменить ключ — нажмите «Изменить» у существующего источника."
+                    )
+                # Revive soft-deleted / inactive — keep the same account_id + history.
+                conn.execute(
+                    self._sql(
+                        """
+                        UPDATE marketplace_accounts
+                        SET account_name = ?,
+                            api_url = ?,
+                            api_key_encrypted = ?,
+                            extra_json = ?,
+                            external_account_id = ?,
+                            is_active = ?,
+                            deleted_at = NULL,
+                            updated_at = ?
+                        WHERE user_id = ? AND id = ?
+                        """
+                    ),
+                    (
+                        clean_name,
+                        api_url,
+                        encrypted_api_key,
+                        self._json_param(extra_dict),
+                        external_account_id,
+                        self._bool_db(True),
+                        now,
+                        user_id,
+                        account_id,
+                    ),
+                )
+                account = self.get_marketplace_account(
+                    user_id=user_id, account_id=account_id, include_secrets=False
+                )
+                if account is None:
+                    raise RuntimeError("Marketplace account revive failed")
+                account["revived"] = True
+                return account
+
             account_id = self._insert_and_get_id(
                 conn,
                 """
                 INSERT INTO marketplace_accounts (
-                    user_id, marketplace, account_name, api_url, api_key_encrypted, extra_json, is_active, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    user_id, marketplace, account_name, api_url, api_key_encrypted,
+                    extra_json, external_account_id, is_active, deleted_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
                 """,
                 (
                     user_id,
-                    marketplace,
-                    account_name,
+                    mp,
+                    clean_name,
                     api_url,
                     encrypted_api_key,
-                    self._json_param(extra or {}),
+                    self._json_param(extra_dict),
+                    external_account_id,
                     self._bool_db(is_active),
                     now,
                     now,
@@ -3279,14 +3458,29 @@ class ReviewRepository:
 
     def list_marketplace_accounts(self, user_id: int, *, include_secrets: bool = False) -> list[dict[str, Any]]:
         with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT * FROM marketplace_accounts
-                WHERE user_id = ?
-                ORDER BY id DESC
-                """,
-                (user_id,),
-            ).fetchall()
+            self._ensure_marketplace_account_identity(conn)
+            try:
+                rows = conn.execute(
+                    self._sql(
+                        """
+                        SELECT * FROM marketplace_accounts
+                        WHERE user_id = ? AND deleted_at IS NULL
+                        ORDER BY id DESC
+                        """
+                    ),
+                    (user_id,),
+                ).fetchall()
+            except Exception:
+                rows = conn.execute(
+                    self._sql(
+                        """
+                        SELECT * FROM marketplace_accounts
+                        WHERE user_id = ?
+                        ORDER BY id DESC
+                        """
+                    ),
+                    (user_id,),
+                ).fetchall()
         return [self._account_row_to_dict(row, include_secrets=include_secrets) for row in rows]
 
     def get_marketplace_account(
@@ -3295,18 +3489,25 @@ class ReviewRepository:
         user_id: int,
         account_id: int,
         include_secrets: bool = False,
+        include_deleted: bool = False,
     ) -> dict[str, Any] | None:
         with self._connect() as conn:
+            self._ensure_marketplace_account_identity(conn)
             row = conn.execute(
-                """
-                SELECT * FROM marketplace_accounts
-                WHERE user_id = ? AND id = ?
-                """,
+                self._sql(
+                    """
+                    SELECT * FROM marketplace_accounts
+                    WHERE user_id = ? AND id = ?
+                    """
+                ),
                 (user_id, account_id),
             ).fetchone()
         if row is None:
             return None
-        return self._account_row_to_dict(row, include_secrets=include_secrets)
+        data = self._account_row_to_dict(row, include_secrets=include_secrets)
+        if not include_deleted and data.get("deleted_at"):
+            return None
+        return data
 
     def _account_row_to_dict(self, row, *, include_secrets: bool) -> dict[str, Any]:
         data = self._row_to_dict(row)
@@ -3314,6 +3515,8 @@ class ReviewRepository:
         api_key = decrypt_secret(encrypted) if encrypted else None
         data["has_api_key"] = bool(api_key)
         data["api_key_preview"] = mask_secret(api_key)
+        ext = str(data.get("external_account_id") or "").strip()
+        data["external_account_id"] = ext or None
         if include_secrets:
             data["api_key"] = api_key
         return data
@@ -3339,11 +3542,12 @@ class ReviewRepository:
         extra = dict(account.get("extra") or {})
         extra[str(key)] = value
         with self._connect() as conn:
+            self._ensure_marketplace_account_identity(conn)
             result = conn.execute(
                 self._sql("""
                 UPDATE marketplace_accounts
                 SET extra_json = ?, updated_at = ?
-                WHERE user_id = ? AND id = ?
+                WHERE user_id = ? AND id = ? AND deleted_at IS NULL
                 """),
                 (self._json_param(extra), _utc_now(), user_id, account_id),
             )
@@ -3351,24 +3555,145 @@ class ReviewRepository:
 
     def update_marketplace_account_status(self, *, user_id: int, account_id: int, is_active: bool) -> bool:
         with self._connect() as conn:
+            self._ensure_marketplace_account_identity(conn)
             result = conn.execute(
-                """
-                UPDATE marketplace_accounts
-                SET is_active = ?, updated_at = ?
-                WHERE user_id = ? AND id = ?
-                """,
+                self._sql(
+                    """
+                    UPDATE marketplace_accounts
+                    SET is_active = ?, updated_at = ?
+                    WHERE user_id = ? AND id = ? AND deleted_at IS NULL
+                    """
+                ),
                 (self._bool_db(is_active), _utc_now(), user_id, account_id),
             )
         return result.rowcount > 0
 
-    def delete_marketplace_account(self, *, user_id: int, account_id: int) -> bool:
+    def update_marketplace_account(
+        self,
+        *,
+        user_id: int,
+        account_id: int,
+        account_name: str | None = None,
+        api_key: str | None = None,
+        client_id: str | None = None,
+        business_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Update feedback marketplace account credentials.
+
+        ``api_key=None`` keeps the current token. Changing cabinet id only updates
+        revive-binding metadata — reviews/questions stay on ``account_id``.
+        """
+        existing = self.get_marketplace_account(
+            user_id=user_id, account_id=account_id, include_secrets=False
+        )
+        if existing is None:
+            return None
+
+        mp = str(existing.get("marketplace") or "").strip().lower()
+        sets: list[str] = ["updated_at = ?"]
+        params: list[Any] = [_utc_now()]
+
+        if account_name is not None:
+            clean_name = str(account_name).strip()
+            if clean_name:
+                sets.append("account_name = ?")
+                params.append(clean_name)
+
+        if api_key is not None:
+            clean_key = str(api_key).strip()
+            if clean_key:
+                sets.append("api_key_encrypted = ?")
+                params.append(encrypt_secret(clean_key))
+
+        extra = dict(existing.get("extra") or {})
+        extra_changed = False
+        if client_id is not None:
+            clean_client = feedback_identity.normalize_cabinet_id(client_id)
+            if clean_client:
+                extra["client_id"] = clean_client
+            else:
+                extra.pop("client_id", None)
+            extra_changed = True
+        if business_id is not None:
+            clean_business = feedback_identity.normalize_cabinet_id(business_id)
+            if clean_business:
+                extra["business_id"] = clean_business
+            else:
+                extra.pop("business_id", None)
+            extra_changed = True
+
+        next_external = feedback_identity.resolve_external_account_id(
+            marketplace=mp,
+            client_id=extra.get("client_id"),
+            business_id=extra.get("business_id"),
+            extra=extra,
+        )
+        # Require cabinet id only when identity fields are being edited — legacy
+        # rows may still rotate api_key/name without a stored Client-Id yet.
+        if extra_changed:
+            if feedback_identity.marketplace_requires_cabinet_id(mp) and not next_external:
+                raise ValueError(f"Укажите {feedback_identity.cabinet_id_label(mp)}")
+            sets.append("extra_json = ?")
+            params.append(self._json_param(extra))
+            sets.append("external_account_id = ?")
+            params.append(next_external)
+
+        if len(sets) == 1:
+            return existing
+
+        if next_external and extra_changed:
+            with self._connect() as conn:
+                self._ensure_marketplace_account_identity(conn)
+                clash = conn.execute(
+                    self._sql(
+                        """
+                        SELECT id FROM marketplace_accounts
+                        WHERE user_id = ? AND marketplace = ? AND external_account_id = ?
+                          AND deleted_at IS NULL AND id <> ?
+                        LIMIT 1
+                        """
+                    ),
+                    (user_id, mp, next_external, account_id),
+                ).fetchone()
+                if clash is not None:
+                    raise ValueError(
+                        f"Кабинет с {feedback_identity.cabinet_id_label(mp)} "
+                        f"{next_external} уже подключён."
+                    )
+
+        params.extend([user_id, account_id])
         with self._connect() as conn:
+            self._ensure_marketplace_account_identity(conn)
             result = conn.execute(
-                """
-                DELETE FROM marketplace_accounts
-                WHERE user_id = ? AND id = ?
-                """,
-                (user_id, account_id),
+                self._sql(
+                    f"""
+                    UPDATE marketplace_accounts
+                    SET {", ".join(sets)}
+                    WHERE user_id = ? AND id = ? AND deleted_at IS NULL
+                    """
+                ),
+                tuple(params),
+            )
+            if result.rowcount <= 0:
+                return None
+        return self.get_marketplace_account(
+            user_id=user_id, account_id=account_id, include_secrets=False
+        )
+
+    def delete_marketplace_account(self, *, user_id: int, account_id: int) -> bool:
+        """Soft-delete: hide cabinet, keep account_id and review/question history."""
+        now = _utc_now()
+        with self._connect() as conn:
+            self._ensure_marketplace_account_identity(conn)
+            result = conn.execute(
+                self._sql(
+                    """
+                    UPDATE marketplace_accounts
+                    SET deleted_at = ?, is_active = FALSE, updated_at = ?
+                    WHERE user_id = ? AND id = ? AND deleted_at IS NULL
+                    """
+                ),
+                (now, now, user_id, account_id),
             )
         return result.rowcount > 0
 

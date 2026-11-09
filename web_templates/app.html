@@ -700,8 +700,8 @@
                 </select>
                 <input id="newSourceName" type="text" placeholder="Название кабинета" />
               </div>
-              <div id="ozonClientField" class="row hidden">
-                <input id="newSourceClientId" type="text" placeholder="Идентификатор клиента (Client-Id)" />
+              <div id="cabinetIdField" class="row hidden">
+                <input id="newSourceClientId" type="text" placeholder="ID кабинета / Client-Id" />
               </div>
               <div id="yandexBusinessIdField" class="row hidden">
                 <input id="newSourceBusinessId" type="text" placeholder="Business ID (идентификатор кабинета ЯМ)" />
@@ -7589,6 +7589,40 @@
     </div>
   </div>
 
+  <div id="editAccountModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="editAccountTitle" onclick="if(event.target===this)closeEditAccountModal()">
+    <div class="modal-card" style="max-width:480px">
+      <div class="modal-card-header">
+        <h4 class="no-margin" id="editAccountTitle">Редактировать источник</h4>
+        <button type="button" class="modal-close-btn" onclick="closeEditAccountModal()" aria-label="Закрыть">✕</button>
+      </div>
+      <div style="padding:20px;display:flex;flex-direction:column;gap:16px">
+        <div class="small" id="editAccountMarketplaceLabel" style="color:#64748b"></div>
+        <div>
+          <label class="small" for="editAccountName" style="display:block;margin-bottom:6px">Название кабинета</label>
+          <input id="editAccountName" type="text" placeholder="Название кабинета" style="width:100%" />
+        </div>
+        <div id="editAccountCabinetField" class="hidden">
+          <label class="small" for="editAccountClientId" id="editAccountCabinetLabel" style="display:block;margin-bottom:6px">ID кабинета</label>
+          <input id="editAccountClientId" type="text" placeholder="ID кабинета" style="width:100%" />
+        </div>
+        <div id="editAccountYandexBusinessField" class="hidden">
+          <label class="small" for="editAccountBusinessId" style="display:block;margin-bottom:6px">Business ID</label>
+          <input id="editAccountBusinessId" type="text" placeholder="Business ID" style="width:100%" />
+        </div>
+        <div>
+          <label class="small" for="editAccountApiToken" style="display:block;margin-bottom:6px">Токен / ключ доступа API</label>
+          <textarea id="editAccountApiToken" class="textarea-compact" placeholder="Оставьте пустым, чтобы не менять текущий ключ" rows="3" style="width:100%"></textarea>
+          <div class="small" style="margin-top:6px;color:#64748b">Пустое поле сохраняет текущий ключ. История привязана к ID кабинета — при удалении и повторном добавлении с тем же ID восстановится.</div>
+        </div>
+        <div id="editAccountInfo" class="small"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button type="button" class="secondary" onclick="closeEditAccountModal()">Отмена</button>
+          <button type="button" id="editAccountSaveBtn" onclick="saveEditAccount()">Сохранить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Workers Import Preview Modal ── -->
   <div id="workersImportPreviewModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
     <div class="modal-card" style="max-width:600px">
@@ -8819,7 +8853,7 @@
 
   <script src="/static/ozon_fbs.js?v=225"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=38"></script>
-  <script src="/static/app.js?v=713"></script>
+  <script src="/static/app.js?v=715"></script>
   <script src="/static/wb_fbs_pvz_returns.js?v=19"></script>
   <script src="/static/ozon_fbs_pvz_returns.js?v=2"></script>
 </body>
