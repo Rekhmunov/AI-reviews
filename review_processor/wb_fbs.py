@@ -3670,9 +3670,13 @@ def _orders_filter_sql(
     if search:
         q = f"%{str(search).strip()}%"
         conditions.append(
-            "(CAST(order_id AS TEXT) ILIKE ? OR article ILIKE ? OR supply_id ILIKE ? OR skus_json ILIKE ?)"
+            "(CAST(order_id AS TEXT) ILIKE ? OR article ILIKE ? OR supply_id ILIKE ?"
+            " OR skus_json ILIKE ? OR COALESCE(sticker_barcode, '') ILIKE ?"
+            " OR COALESCE(sticker_part_a, '') ILIKE ?"
+            " OR COALESCE(sticker_part_b, '') ILIKE ?"
+            " OR (COALESCE(sticker_part_a, '') || COALESCE(sticker_part_b, '')) ILIKE ?)"
         )
-        params.extend([q, q, q, q])
+        params.extend([q, q, q, q, q, q, q, q])
     return " AND ".join(conditions), params
 
 
@@ -4199,6 +4203,33 @@ def lookup_order_by_id(
     key = str(api_key or "").strip()
 
     local = get_order_by_id(repo, user_id=user_id, source_id=sid, order_id=oid)
+    # Operators often paste/scan the assembly sticker barcode (digits). When it
+    # is not an order id, resolve via local sticker columns before remote WB.
+    if not local:
+        try:
+            from .wb_fbs_kiz_restore import find_orders_by_sticker_scan
+
+            sticker_hit = find_orders_by_sticker_scan(
+                repo,
+                user_id=user_id,
+                source_id=sid,
+                scan=str(oid),
+            )
+            row = sticker_hit.get("row") if isinstance(sticker_hit, dict) else None
+            if isinstance(row, dict) and not sticker_hit.get("ambiguous"):
+                try:
+                    sticker_oid = int(row.get("order_id"))
+                except (TypeError, ValueError):
+                    sticker_oid = 0
+                if sticker_oid > 0:
+                    local = get_order_by_id(
+                        repo, user_id=user_id, source_id=sid, order_id=sticker_oid
+                    )
+                    if local:
+                        oid = sticker_oid
+        except Exception as exc:
+            _log.debug("wb-fbs lookup sticker fallback order=%s: %s", oid, exc)
+
     if local:
         status_refreshed = False
         if refresh and key:
@@ -4553,9 +4584,13 @@ def _list_supplies_for_orders_tab(
         like = f"%{q}%"
         conditions.append(
             "(o.supply_id ILIKE ? OR CAST(o.order_id AS TEXT) ILIKE ? OR o.article ILIKE ?"
-            " OR COALESCE(s.name, '') ILIKE ? OR COALESCE(o.offices_json, '') ILIKE ?)"
+            " OR COALESCE(s.name, '') ILIKE ? OR COALESCE(o.offices_json, '') ILIKE ?"
+            " OR COALESCE(o.sticker_barcode, '') ILIKE ?"
+            " OR COALESCE(o.sticker_part_a, '') ILIKE ?"
+            " OR COALESCE(o.sticker_part_b, '') ILIKE ?"
+            " OR (COALESCE(o.sticker_part_a, '') || COALESCE(o.sticker_part_b, '')) ILIKE ?)"
         )
-        params.extend([like, like, like, like, like])
+        params.extend([like, like, like, like, like, like, like, like, like])
     where = " AND ".join(conditions)
     safe_page = max(int(page), 1)
     # Assembly / public callers stay at 200; delivery merge may load a larger set.
@@ -4746,8 +4781,30 @@ def _list_empty_delivery_listed_supplies(
     q = str(search or "").strip()
     if q:
         like = f"%{q}%"
-        conditions.append("(s.supply_id ILIKE ? OR COALESCE(s.name, '') ILIKE ?)")
-        params.extend([like, like])
+        # Match supply id/name, cached order_ids_json, or any linked order
+        # (any tab) by order id / assembly sticker — empty pins keep cards
+        # after orders leave «В доставке», so order search must still work.
+        conditions.append(
+            """(
+                s.supply_id ILIKE ?
+                OR COALESCE(s.name, '') ILIKE ?
+                OR COALESCE(s.order_ids_json, '') ILIKE ?
+                OR EXISTS (
+                    SELECT 1 FROM wb_fbs_orders o
+                    WHERE o.user_id = s.user_id
+                      AND o.source_id = s.source_id
+                      AND o.supply_id = s.supply_id
+                      AND (
+                        CAST(o.order_id AS TEXT) ILIKE ?
+                        OR COALESCE(o.sticker_barcode, '') ILIKE ?
+                        OR COALESCE(o.sticker_part_a, '') ILIKE ?
+                        OR COALESCE(o.sticker_part_b, '') ILIKE ?
+                        OR (COALESCE(o.sticker_part_a, '') || COALESCE(o.sticker_part_b, '')) ILIKE ?
+                      )
+                )
+            )"""
+        )
+        params.extend([like, like, like, like, like, like, like, like])
     where = " AND ".join(conditions)
     live_conditions = ["user_id = ?", "tab = ?", "COALESCE(supply_id, '') != ''"]
     live_params: list[Any] = [int(user_id), TAB_DELIVERY]
@@ -4802,15 +4859,24 @@ def _list_empty_delivery_listed_supplies(
         sid = str(d.get("supply_id") or "").strip()
         if not sid or (src, sid) in skip or (src, sid) in live_set:
             continue
+        # Keep historical order ids for toolbar exact-id filtering; count stays 0
+        # because no orders remain on the delivery tab.
+        cached_ids = _parse_json_list(d.get("order_ids_json"))
+        order_ids: list[int] = []
+        for oid in cached_ids:
+            try:
+                order_ids.append(int(oid))
+            except (TypeError, ValueError):
+                continue
         d["order_count"] = 0
-        d["order_ids"] = []
+        d["order_ids"] = order_ids
         d["boxes"] = _parse_json_list(d.get("boxes_json"))
         d["done_int"] = 1 if d.get("done") else 0
         item = _supply_list_item_from_group_row(d, tab_key=TAB_DELIVERY)
         if not item:
             continue
         item["order_count"] = 0
-        item["order_ids"] = []
+        item["order_ids"] = order_ids
         item["delivery_listed"] = True
         out.append(item)
     return out

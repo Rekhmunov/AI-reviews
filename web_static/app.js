@@ -35113,6 +35113,11 @@ function _wbFbsOrderRowMatchesNonId(row, query) {
   if (String(row?.supply_id || "").toLowerCase().includes(q)) return true;
   if (String(row?.nm_id || "").toLowerCase().includes(q)) return true;
   if (String(row?.product_name || "").toLowerCase().includes(q)) return true;
+  if (String(row?.sticker_barcode || "").toLowerCase().includes(q)) return true;
+  if (String(row?.sticker_part_a || "").toLowerCase().includes(q)) return true;
+  if (String(row?.sticker_part_b || "").toLowerCase().includes(q)) return true;
+  const stickerJoined = `${row?.sticker_part_a || ""}${row?.sticker_part_b || ""}`.toLowerCase();
+  if (stickerJoined && stickerJoined.includes(q)) return true;
   const barcodes = Array.isArray(row?.barcodes)
     ? row.barcodes
     : (Array.isArray(row?.skus) ? row.skus : []);
@@ -35986,10 +35991,19 @@ async function loadWbFbsOrders(resetPage = false) {
         }
         if (seq !== wbFbsState.loadSeq) return;
         if (lookup && _wbFbsApplyLookupResult(lookup, orderIdQuery)) return;
-        // Lookup failed: if the tab already had a supply/order hit, fall back to it.
+        // Lookup failed: prefer exact client hits, else keep server-filtered
+        // supply rows (empty pinned / sticker / order_ids_json matches).
         if (exactItems.length) {
           wbFbsState.items = exactItems;
           wbFbsState.total = exactItems.length;
+        } else if (nonIdItems.length) {
+          wbFbsState.items = nonIdItems;
+          wbFbsState.total = nonIdItems.length;
+        } else if (Array.isArray(data.items) && data.items.length) {
+          // Keep server hits on Новые / На сборке / В доставке (sticker ILIKE,
+          // order substring, empty pinned) when exact order-id lookup missed.
+          wbFbsState.items = data.items;
+          wbFbsState.total = data.items.length;
         } else {
           wbFbsState.items = [];
           wbFbsState.total = 0;
