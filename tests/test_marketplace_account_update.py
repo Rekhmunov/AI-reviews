@@ -35,7 +35,7 @@ def test_account_update_and_revive_wired() -> None:
     assert "saveEditAccount" in APP_JS
     assert "Кабинет восстановлен" in APP_JS
     assert "Для WB требуется ID кабинета" in WEB_PY or "ID кабинета для WB" in APP_JS
-    assert "app.js?v=716" in APP_HTML
+    assert "app.js?v=717" in APP_HTML
     assert "resolve_external_account_id" in IDENTITY_PY
 
 

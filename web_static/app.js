@@ -35113,6 +35113,11 @@ function _wbFbsOrderRowMatchesNonId(row, query) {
   if (String(row?.supply_id || "").toLowerCase().includes(q)) return true;
   if (String(row?.nm_id || "").toLowerCase().includes(q)) return true;
   if (String(row?.product_name || "").toLowerCase().includes(q)) return true;
+  if (String(row?.sticker_barcode || "").toLowerCase().includes(q)) return true;
+  if (String(row?.sticker_part_a || "").toLowerCase().includes(q)) return true;
+  if (String(row?.sticker_part_b || "").toLowerCase().includes(q)) return true;
+  const stickerJoined = `${row?.sticker_part_a || ""}${row?.sticker_part_b || ""}`.toLowerCase();
+  if (stickerJoined && stickerJoined.includes(q)) return true;
   const barcodes = Array.isArray(row?.barcodes)
     ? row.barcodes
     : (Array.isArray(row?.skus) ? row.skus : []);
@@ -35994,7 +35999,9 @@ async function loadWbFbsOrders(resetPage = false) {
         } else if (nonIdItems.length) {
           wbFbsState.items = nonIdItems;
           wbFbsState.total = nonIdItems.length;
-        } else if (suppliesMode && Array.isArray(data.items) && data.items.length) {
+        } else if (Array.isArray(data.items) && data.items.length) {
+          // Keep server hits on Новые / На сборке / В доставке (sticker ILIKE,
+          // order substring, empty pinned) when exact order-id lookup missed.
           wbFbsState.items = data.items;
           wbFbsState.total = data.items.length;
         } else {

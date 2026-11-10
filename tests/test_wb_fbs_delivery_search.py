@@ -110,10 +110,31 @@ def test_supplies_tab_search_sql_includes_stickers() -> None:
 def test_lookup_keeps_server_hits_ui() -> None:
     js = open("web_static/app.js", encoding="utf-8").read()
     assert "else if (nonIdItems.length)" in js
-    assert "suppliesMode && Array.isArray(data.items) && data.items.length" in js
+    # Applies to Новые + supply tabs (not suppliesMode-only).
+    assert "Array.isArray(data.items) && data.items.length" in js
+    assert "sticker_barcode" in js.split("function _wbFbsOrderRowMatchesNonId")[1][
+        :800
+    ]
 
 
 def test_lookup_sticker_fallback_wired() -> None:
     src = open(wb.__file__, encoding="utf-8").read()
     assert "find_orders_by_sticker_scan" in src
     assert "lookup sticker fallback" in src
+
+
+def test_new_and_assembly_search_cover_stickers() -> None:
+    """Новые uses _orders_filter_sql; На сборке uses supply aggregate stickers."""
+    where_new, params_new = wb._orders_filter_sql(
+        user_id=1, source_id=9, tab="new", search="!uKEtX"
+    )
+    assert "tab = ?" in where_new
+    assert params_new[2] == "new"
+    assert "sticker_barcode" in where_new
+    assert any(p == "%!uKEtX%" for p in params_new)
+
+    src = open(wb.__file__, encoding="utf-8").read()
+    # Assembly/delivery aggregate path.
+    assert "def list_assembly_supplies" in src
+    assert "COALESCE(o.sticker_barcode, '') ILIKE ?" in src
+    assert "def list_delivery_supplies" in src
