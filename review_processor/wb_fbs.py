@@ -5280,39 +5280,14 @@ def sync_wb_fbs_source(
             "stopped": True,
         }
 
-    # 4) Open supplies only (assembly / in-delivery on WB: done=false).
-    # Closed supplies are not refreshed (no order-ids/boxes API). If a supply we
-    # still had open locally appears as done on WB, flip done via list payload only
-    # so the UI does not keep a stale «open» card.
+    # 4) Supplies from GET /api/v3/supplies (official list includes done/scanDt).
+    # Open (done=false): refresh order-ids (+ boxes if uncached).
+    # Closed (done=true): metadata-only upsert from the list payload — no
+    # order-ids/trbx API. Required so scanDt (warehouse scan) updates after
+    # PATCH /deliver; otherwise «В доставке» stays on «Отгрузите поставку».
     _prog("Поставки FBS…", _supply_count())
     next_sup = 0
     sup_pages = 0
-    local_open_ids: set[str] = set()
-    try:
-        with repo._connect() as conn:
-            open_rows = conn.execute(
-                repo._sql(
-                    """
-                    SELECT supply_id FROM wb_fbs_supplies
-                    WHERE user_id = ? AND source_id = ? AND done = FALSE
-                      AND supply_id <> ''
-                    """
-                ),
-                (user_id, source_id),
-            ).fetchall()
-        for row in open_rows:
-            d = repo._row_to_dict(row)
-            sid = str(d.get("supply_id") or "").strip()
-            if sid:
-                local_open_ids.add(sid)
-    except Exception as exc:
-        _log.warning(
-            "wb_fbs load local open supplies failed user=%s source=%s: %s",
-            user_id,
-            source_id,
-            exc,
-        )
-        local_open_ids = set()
     try:
         while sup_pages < 10:
             if _stopped():
@@ -5329,20 +5304,18 @@ def sync_wb_fbs_source(
                 if not sid:
                     continue
                 if bool(raw.get("done")):
-                    # No heavy API: only close locally if we still tracked it as open.
-                    if sid in local_open_ids:
-                        try:
-                            upsert_supply(
-                                repo,
-                                user_id=user_id,
-                                source_id=source_id,
-                                supply=raw,
-                                order_ids=[],
-                                boxes=[],
-                            )
-                            local_open_ids.discard(sid)
-                        except Exception as exc:
-                            errors.append(friendly_sync_error(f"supply {sid}", exc))
+                    # List already carries scanDt/closedAt/done/name (WB docs).
+                    try:
+                        upsert_supply(
+                            repo,
+                            user_id=user_id,
+                            source_id=source_id,
+                            supply=raw,
+                            order_ids=[],
+                            boxes=[],
+                        )
+                    except Exception as exc:
+                        errors.append(friendly_sync_error(f"supply {sid}", exc))
                     continue
                 open_supplies.append(raw)
             # Reuse local boxes_json when already cached. After the first fill,
@@ -5384,7 +5357,6 @@ def sync_wb_fbs_source(
                     boxes=boxes,
                 )
                 seen_supply_ids.add(sid)
-                local_open_ids.add(sid)
                 # Link orders to supply + mark assembly if still new
                 if order_ids:
                     with repo._connect() as conn:
