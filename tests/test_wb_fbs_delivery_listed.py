@@ -177,6 +177,18 @@ def test_upsert_done_supply_pins_delivery_listed(monkeypatch) -> None:
     )
     assert ("WB-1", True) in pinned
 
+    pinned.clear()
+    wb.upsert_supply(
+        _FakeRepo(),  # type: ignore[arg-type]
+        user_id=1,
+        source_id=2,
+        supply={"id": "WB-2", "done": True, "name": "Y", "scanDt": "2026-11-06T10:00:00Z"},
+        order_ids=[],
+        boxes=[],
+        pin_delivery_when_done=False,
+    )
+    assert pinned == []
+
 
 def test_supply_is_in_delivery_true_when_only_pinned(monkeypatch) -> None:
     class _FakeRepo:

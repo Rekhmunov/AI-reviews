@@ -3572,6 +3572,7 @@ def upsert_supply(
     supply: dict[str, Any],
     order_ids: list[int] | None = None,
     boxes: list[dict[str, Any]] | None = None,
+    pin_delivery_when_done: bool = True,
 ) -> None:
     supply_id = str(supply.get("id") or "").strip()
     if not supply_id:
@@ -3633,7 +3634,10 @@ def upsert_supply(
         )
     # After PATCH /deliver WB sets done=true — keep the card on «В доставке»
     # even when every order later moves to archive / finished.
-    if bool(supply.get("done")):
+    # List-sync metadata refresh of already-closed rows must pass
+    # pin_delivery_when_done=False so historical done supplies are not
+    # re-pinned onto «В доставке».
+    if bool(supply.get("done")) and pin_delivery_when_done:
         try:
             set_supply_delivery_listed(
                 repo,
@@ -5280,39 +5284,49 @@ def sync_wb_fbs_source(
             "stopped": True,
         }
 
-    # 4) Open supplies only (assembly / in-delivery on WB: done=false).
-    # Closed supplies are not refreshed (no order-ids/boxes API). If a supply we
-    # still had open locally appears as done on WB, flip done via list payload only
-    # so the UI does not keep a stale «open» card.
+    # 4) Supplies from GET /api/v3/supplies (official list includes done/scanDt).
+    # Open (done=false): refresh order-ids (+ boxes if uncached).
+    # Closed (done=true): metadata-only upsert only when needed —
+    #   • local open→done (close + pin «В доставке»), or
+    #   • local done still missing scan_dt (warehouse QR scan time).
+    # Once scan_dt is stored it never changes — skip further list refresh.
+    # Never-seen done rows stay skipped (skip-done).
     _prog("Поставки FBS…", _supply_count())
     next_sup = 0
     sup_pages = 0
     local_open_ids: set[str] = set()
+    local_missing_scan_dt: set[str] = set()
     try:
         with repo._connect() as conn:
-            open_rows = conn.execute(
+            local_rows = conn.execute(
                 repo._sql(
                     """
-                    SELECT supply_id FROM wb_fbs_supplies
-                    WHERE user_id = ? AND source_id = ? AND done = FALSE
+                    SELECT supply_id, done, scan_dt FROM wb_fbs_supplies
+                    WHERE user_id = ? AND source_id = ?
                       AND supply_id <> ''
                     """
                 ),
                 (user_id, source_id),
             ).fetchall()
-        for row in open_rows:
+        for row in local_rows:
             d = repo._row_to_dict(row)
             sid = str(d.get("supply_id") or "").strip()
-            if sid:
+            if not sid:
+                continue
+            if not bool(d.get("done")):
                 local_open_ids.add(sid)
+            elif not d.get("scan_dt"):
+                # Already closed locally but QR scan time not stored yet.
+                local_missing_scan_dt.add(sid)
     except Exception as exc:
         _log.warning(
-            "wb_fbs load local open supplies failed user=%s source=%s: %s",
+            "wb_fbs load local supplies failed user=%s source=%s: %s",
             user_id,
             source_id,
             exc,
         )
         local_open_ids = set()
+        local_missing_scan_dt = set()
     try:
         while sup_pages < 10:
             if _stopped():
@@ -5329,20 +5343,25 @@ def sync_wb_fbs_source(
                 if not sid:
                     continue
                 if bool(raw.get("done")):
-                    # No heavy API: only close locally if we still tracked it as open.
-                    if sid in local_open_ids:
-                        try:
-                            upsert_supply(
-                                repo,
-                                user_id=user_id,
-                                source_id=source_id,
-                                supply=raw,
-                                order_ids=[],
-                                boxes=[],
-                            )
-                            local_open_ids.discard(sid)
-                        except Exception as exc:
-                            errors.append(friendly_sync_error(f"supply {sid}", exc))
+                    need_close = sid in local_open_ids
+                    need_scan = sid in local_missing_scan_dt
+                    if not need_close and not need_scan:
+                        continue
+                    try:
+                        upsert_supply(
+                            repo,
+                            user_id=user_id,
+                            source_id=source_id,
+                            supply=raw,
+                            order_ids=[],
+                            boxes=[],
+                            # Pin only when this sync closes a locally open card.
+                            pin_delivery_when_done=need_close,
+                        )
+                        local_open_ids.discard(sid)
+                        local_missing_scan_dt.discard(sid)
+                    except Exception as exc:
+                        errors.append(friendly_sync_error(f"supply {sid}", exc))
                     continue
                 open_supplies.append(raw)
             # Reuse local boxes_json when already cached. After the first fill,
@@ -5384,7 +5403,6 @@ def sync_wb_fbs_source(
                     boxes=boxes,
                 )
                 seen_supply_ids.add(sid)
-                local_open_ids.add(sid)
                 # Link orders to supply + mark assembly if still new
                 if order_ids:
                     with repo._connect() as conn:
