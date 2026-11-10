@@ -17,12 +17,13 @@ def test_exact_order_search_always_looks_up_details() -> None:
     assert "const needsOrderLookup = orderHit || (!exactItems.length && !nonIdItems.length);" in js
     assert "_wbFbsLookupOrderById(orderIdQuery, { signal, seq })" in js
     assert "_wbFbsApplyLookupResult(lookup, orderIdQuery)" in js
-    assert "Lookup failed: if the tab already had a supply/order hit, fall back to it." in js
+    assert "suppliesMode && Array.isArray(data.items) && data.items.length" in js
+    assert "else if (nonIdItems.length)" in js
     # Supply-id-only match must not force order lookup.
     assert "Numeric query matched supply_id only" in js
     assert "function _wbFbsIsSuppliesTab()" in js
     assert 'wbFbsState.tab === "delivery" || wbFbsState.tab === "assembly"' in js
-    assert "app.js?v=583" in html
+    assert "app.js?v=716" in html
 
 
 def test_lookup_helpers_still_render_detail_card() -> None:

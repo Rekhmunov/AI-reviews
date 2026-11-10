@@ -35986,10 +35986,17 @@ async function loadWbFbsOrders(resetPage = false) {
         }
         if (seq !== wbFbsState.loadSeq) return;
         if (lookup && _wbFbsApplyLookupResult(lookup, orderIdQuery)) return;
-        // Lookup failed: if the tab already had a supply/order hit, fall back to it.
+        // Lookup failed: prefer exact client hits, else keep server-filtered
+        // supply rows (empty pinned / sticker / order_ids_json matches).
         if (exactItems.length) {
           wbFbsState.items = exactItems;
           wbFbsState.total = exactItems.length;
+        } else if (nonIdItems.length) {
+          wbFbsState.items = nonIdItems;
+          wbFbsState.total = nonIdItems.length;
+        } else if (suppliesMode && Array.isArray(data.items) && data.items.length) {
+          wbFbsState.items = data.items;
+          wbFbsState.total = data.items.length;
         } else {
           wbFbsState.items = [];
           wbFbsState.total = 0;
