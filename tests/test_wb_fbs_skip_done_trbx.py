@@ -90,7 +90,7 @@ class TestCachedSupplyBoxesById(unittest.TestCase):
 
 
 class TestSyncSkipsDoneTrbxWhenCached(unittest.TestCase):
-    """Open: boxes cache skip; known done: metadata upsert; unknown done: skip."""
+    """Open: boxes cache; done: upsert only open→done or missing local scan_dt."""
 
     def test_open_cached_skips_boxes_done_metadata_only(self) -> None:
         box_calls: list[str] = []
@@ -101,12 +101,34 @@ class TestSyncSkipsDoneTrbxWhenCached(unittest.TestCase):
         class _Conn(_FakeConn):
             def execute(self, sql: str, params=None):
                 # Local supplies known before list sync.
-                if "FROM wb_fbs_supplies" in sql and "SELECT supply_id, done" in sql:
+                if (
+                    "FROM wb_fbs_supplies" in sql
+                    and "SELECT supply_id, done, scan_dt" in sql
+                ):
                     self._rows = [
-                        {"supply_id": "WB-GI-OPEN", "done": False},
-                        {"supply_id": "WB-GI-OPEN-CACHED", "done": False},
-                        {"supply_id": "WB-GI-JUST-CLOSED", "done": False},
-                        {"supply_id": "WB-GI-DONE-CACHED", "done": True},
+                        {"supply_id": "WB-GI-OPEN", "done": False, "scan_dt": None},
+                        {
+                            "supply_id": "WB-GI-OPEN-CACHED",
+                            "done": False,
+                            "scan_dt": None,
+                        },
+                        {
+                            "supply_id": "WB-GI-JUST-CLOSED",
+                            "done": False,
+                            "scan_dt": None,
+                        },
+                        # Already has QR scan time — must not be refreshed again.
+                        {
+                            "supply_id": "WB-GI-DONE-SCANNED",
+                            "done": True,
+                            "scan_dt": "2026-11-05T12:00:00Z",
+                        },
+                        # Closed but scan time still missing — refresh once.
+                        {
+                            "supply_id": "WB-GI-DONE-NEED-SCAN",
+                            "done": True,
+                            "scan_dt": None,
+                        },
                     ]
                 else:
                     self._rows = []
@@ -140,10 +162,16 @@ class TestSyncSkipsDoneTrbxWhenCached(unittest.TestCase):
                         "scanDt": "2026-11-06T10:00:00Z",
                     },
                     {
-                        "id": "WB-GI-DONE-CACHED",
-                        "name": "cached",
+                        "id": "WB-GI-DONE-SCANNED",
+                        "name": "already-scanned",
                         "done": True,
                         "scanDt": "2026-11-05T12:00:00Z",
+                    },
+                    {
+                        "id": "WB-GI-DONE-NEED-SCAN",
+                        "name": "need-scan",
+                        "done": True,
+                        "scanDt": "2026-11-07T09:00:00Z",
                     },
                     {
                         "id": "WB-GI-DONE-NEW",
@@ -213,7 +241,8 @@ class TestSyncSkipsDoneTrbxWhenCached(unittest.TestCase):
         self.assertNotIn("WB-GI-OPEN-CACHED", box_calls)
         # Done supplies: no heavy API.
         self.assertNotIn("WB-GI-DONE-NEW", box_calls)
-        self.assertNotIn("WB-GI-DONE-CACHED", box_calls)
+        self.assertNotIn("WB-GI-DONE-SCANNED", box_calls)
+        self.assertNotIn("WB-GI-DONE-NEED-SCAN", box_calls)
         self.assertNotIn("WB-GI-DONE-NEW", order_id_calls)
         self.assertNotIn("WB-GI-JUST-CLOSED", order_id_calls)
         # Open supplies still refresh order-ids even when boxes are cached.
@@ -230,10 +259,11 @@ class TestSyncSkipsDoneTrbxWhenCached(unittest.TestCase):
                 "WB-GI-OPEN",
                 "WB-GI-OPEN-CACHED",
                 "WB-GI-JUST-CLOSED",
-                "WB-GI-DONE-CACHED",
+                "WB-GI-DONE-NEED-SCAN",
             },
         )
         self.assertNotIn("WB-GI-DONE-NEW", by_id)  # never-seen done skipped
+        self.assertNotIn("WB-GI-DONE-SCANNED", by_id)  # local scan_dt already set
         self.assertFalse(by_id["WB-GI-OPEN"][0])
         self.assertEqual(by_id["WB-GI-OPEN"][2], [{"id": "BOX-WB-GI-OPEN"}])
         self.assertEqual(by_id["WB-GI-OPEN-CACHED"][2], [])  # keep cached boxes
@@ -243,9 +273,9 @@ class TestSyncSkipsDoneTrbxWhenCached(unittest.TestCase):
         self.assertEqual(by_id["WB-GI-JUST-CLOSED"][2], [])
         self.assertEqual(by_id["WB-GI-JUST-CLOSED"][3], "2026-11-06T10:00:00Z")
         self.assertTrue(by_id["WB-GI-JUST-CLOSED"][4])
-        # Already-local done: refresh scanDt, do not re-pin «В доставке».
-        self.assertEqual(by_id["WB-GI-DONE-CACHED"][3], "2026-11-05T12:00:00Z")
-        self.assertFalse(by_id["WB-GI-DONE-CACHED"][4])
+        # Local done missing scan_dt: one-shot refresh, no re-pin.
+        self.assertEqual(by_id["WB-GI-DONE-NEED-SCAN"][3], "2026-11-07T09:00:00Z")
+        self.assertFalse(by_id["WB-GI-DONE-NEED-SCAN"][4])
 
 
 class TestSyncStatusRefreshAgeFilter(unittest.TestCase):
