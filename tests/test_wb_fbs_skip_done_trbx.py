@@ -90,13 +90,31 @@ class TestCachedSupplyBoxesById(unittest.TestCase):
 
 
 class TestSyncSkipsDoneTrbxWhenCached(unittest.TestCase):
-    """Open: boxes cache skip; done: list metadata upsert only (scanDt), no trbx."""
+    """Open: boxes cache skip; known done: metadata upsert; unknown done: skip."""
 
     def test_open_cached_skips_boxes_done_metadata_only(self) -> None:
         box_calls: list[str] = []
         order_id_calls: list[str] = []
-        upserted: list[tuple[str, bool, list, list, object]] = []
+        upserted: list[tuple[str, bool, list, list, object, bool | None]] = []
         cache_queries: list[list[str]] = []
+
+        class _Conn(_FakeConn):
+            def execute(self, sql: str, params=None):
+                # Local supplies known before list sync.
+                if "FROM wb_fbs_supplies" in sql and "SELECT supply_id, done" in sql:
+                    self._rows = [
+                        {"supply_id": "WB-GI-OPEN", "done": False},
+                        {"supply_id": "WB-GI-OPEN-CACHED", "done": False},
+                        {"supply_id": "WB-GI-JUST-CLOSED", "done": False},
+                        {"supply_id": "WB-GI-DONE-CACHED", "done": True},
+                    ]
+                else:
+                    self._rows = []
+                return self
+
+        class _Repo(_FakeRepo):
+            def _connect(self):
+                return _Conn(self._rows)
 
         class FakeClient:
             def __init__(self, _key: str) -> None:
@@ -143,7 +161,16 @@ class TestSyncSkipsDoneTrbxWhenCached(unittest.TestCase):
                 box_calls.append(sid)
                 return [{"id": f"BOX-{sid}"}]
 
-        def fake_upsert(_repo, *, user_id, source_id, supply, order_ids=None, boxes=None):
+        def fake_upsert(
+            _repo,
+            *,
+            user_id,
+            source_id,
+            supply,
+            order_ids=None,
+            boxes=None,
+            pin_delivery_when_done=True,
+        ):
             upserted.append(
                 (
                     str(supply.get("id") or ""),
@@ -151,6 +178,7 @@ class TestSyncSkipsDoneTrbxWhenCached(unittest.TestCase):
                     list(order_ids or []),
                     list(boxes or []),
                     supply.get("scanDt"),
+                    pin_delivery_when_done,
                 )
             )
 
@@ -158,7 +186,7 @@ class TestSyncSkipsDoneTrbxWhenCached(unittest.TestCase):
             cache_queries.append(list(supply_ids))
             return {"WB-GI-OPEN-CACHED": [{"id": "WB-TRBX-OPEN"}]}
 
-        repo = _FakeRepo([])
+        repo = _Repo([])
         with (
             patch.object(wb_fbs, "WbFbsClient", FakeClient),
             patch.object(wb_fbs, "ensure_wb_fbs_tables"),
@@ -193,8 +221,8 @@ class TestSyncSkipsDoneTrbxWhenCached(unittest.TestCase):
         self.assertIn("WB-GI-OPEN-CACHED", order_id_calls)
 
         by_id = {
-            sid: (done, oids, boxes, scan)
-            for sid, done, oids, boxes, scan in upserted
+            sid: (done, oids, boxes, scan, pin)
+            for sid, done, oids, boxes, scan, pin in upserted
         }
         self.assertEqual(
             set(by_id),
@@ -203,19 +231,21 @@ class TestSyncSkipsDoneTrbxWhenCached(unittest.TestCase):
                 "WB-GI-OPEN-CACHED",
                 "WB-GI-JUST-CLOSED",
                 "WB-GI-DONE-CACHED",
-                "WB-GI-DONE-NEW",
             },
         )
+        self.assertNotIn("WB-GI-DONE-NEW", by_id)  # never-seen done skipped
         self.assertFalse(by_id["WB-GI-OPEN"][0])
         self.assertEqual(by_id["WB-GI-OPEN"][2], [{"id": "BOX-WB-GI-OPEN"}])
         self.assertEqual(by_id["WB-GI-OPEN-CACHED"][2], [])  # keep cached boxes
-        # Done: metadata-only (scanDt from list), no order-ids/boxes.
+        # Local open→done: metadata + pin delivery.
         self.assertTrue(by_id["WB-GI-JUST-CLOSED"][0])
         self.assertEqual(by_id["WB-GI-JUST-CLOSED"][1], [])
         self.assertEqual(by_id["WB-GI-JUST-CLOSED"][2], [])
         self.assertEqual(by_id["WB-GI-JUST-CLOSED"][3], "2026-11-06T10:00:00Z")
+        self.assertTrue(by_id["WB-GI-JUST-CLOSED"][4])
+        # Already-local done: refresh scanDt, do not re-pin «В доставке».
         self.assertEqual(by_id["WB-GI-DONE-CACHED"][3], "2026-11-05T12:00:00Z")
-        self.assertIsNone(by_id["WB-GI-DONE-NEW"][3])
+        self.assertFalse(by_id["WB-GI-DONE-CACHED"][4])
 
 
 class TestSyncStatusRefreshAgeFilter(unittest.TestCase):

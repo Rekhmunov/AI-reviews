@@ -3572,6 +3572,7 @@ def upsert_supply(
     supply: dict[str, Any],
     order_ids: list[int] | None = None,
     boxes: list[dict[str, Any]] | None = None,
+    pin_delivery_when_done: bool = True,
 ) -> None:
     supply_id = str(supply.get("id") or "").strip()
     if not supply_id:
@@ -3633,7 +3634,10 @@ def upsert_supply(
         )
     # After PATCH /deliver WB sets done=true — keep the card on «В доставке»
     # even when every order later moves to archive / finished.
-    if bool(supply.get("done")):
+    # List-sync metadata refresh of already-closed rows must pass
+    # pin_delivery_when_done=False so historical done supplies are not
+    # re-pinned onto «В доставке».
+    if bool(supply.get("done")) and pin_delivery_when_done:
         try:
             set_supply_delivery_listed(
                 repo,
@@ -5282,12 +5286,44 @@ def sync_wb_fbs_source(
 
     # 4) Supplies from GET /api/v3/supplies (official list includes done/scanDt).
     # Open (done=false): refresh order-ids (+ boxes if uncached).
-    # Closed (done=true): metadata-only upsert from the list payload — no
-    # order-ids/trbx API. Required so scanDt (warehouse scan) updates after
-    # PATCH /deliver; otherwise «В доставке» stays on «Отгрузите поставку».
+    # Closed (done=true): metadata-only upsert for supplies we already track —
+    # no order-ids/trbx API, and pin «В доставке» only on local open→done.
+    # Never-seen done rows stay skipped (skip-done). Required so scanDt
+    # updates after PATCH /deliver without flooding «В доставке».
     _prog("Поставки FBS…", _supply_count())
     next_sup = 0
     sup_pages = 0
+    local_open_ids: set[str] = set()
+    local_supply_ids: set[str] = set()
+    try:
+        with repo._connect() as conn:
+            local_rows = conn.execute(
+                repo._sql(
+                    """
+                    SELECT supply_id, done FROM wb_fbs_supplies
+                    WHERE user_id = ? AND source_id = ?
+                      AND supply_id <> ''
+                    """
+                ),
+                (user_id, source_id),
+            ).fetchall()
+        for row in local_rows:
+            d = repo._row_to_dict(row)
+            sid = str(d.get("supply_id") or "").strip()
+            if not sid:
+                continue
+            local_supply_ids.add(sid)
+            if not bool(d.get("done")):
+                local_open_ids.add(sid)
+    except Exception as exc:
+        _log.warning(
+            "wb_fbs load local supplies failed user=%s source=%s: %s",
+            user_id,
+            source_id,
+            exc,
+        )
+        local_open_ids = set()
+        local_supply_ids = set()
     try:
         while sup_pages < 10:
             if _stopped():
@@ -5304,7 +5340,10 @@ def sync_wb_fbs_source(
                 if not sid:
                     continue
                 if bool(raw.get("done")):
-                    # List already carries scanDt/closedAt/done/name (WB docs).
+                    # Only refresh rows we already store (scanDt/closedAt/name).
+                    # Unknown historical done supplies are ignored.
+                    if sid not in local_supply_ids:
+                        continue
                     try:
                         upsert_supply(
                             repo,
@@ -5313,7 +5352,10 @@ def sync_wb_fbs_source(
                             supply=raw,
                             order_ids=[],
                             boxes=[],
+                            # Pin only when this sync closes a locally open card.
+                            pin_delivery_when_done=(sid in local_open_ids),
                         )
+                        local_open_ids.discard(sid)
                     except Exception as exc:
                         errors.append(friendly_sync_error(f"supply {sid}", exc))
                     continue
