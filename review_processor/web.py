@@ -1281,6 +1281,13 @@ class CertificateCreateRequest(BaseModel):
     doc_type: str = "Сертификат соответствия"
 
 
+class CertificateIkDateRequest(BaseModel):
+    """Record actual annual inspection-control (ИК) date for a certificate year."""
+
+    year: int = Field(..., ge=1990, le=2100)
+    date: str = ""
+
+
 class StockSourceUpdateRequest(BaseModel):
     account_name: str | None = None
     api_key: str | None = None
@@ -22797,6 +22804,28 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         )
         return {"ok": ok}
 
+    @app.put("/api/certificates/{cert_id}/ik")
+    def set_certificate_ik_date(request: Request, cert_id: int, body: CertificateIkDateRequest) -> dict[str, object]:
+        user = _require_user(request)
+        if not _can_view_supplies(user):
+            raise HTTPException(status_code=403, detail="Нет доступа")
+        repository._ensure_supply_tables()
+        date_s = str(body.date or "").strip()[:10]
+        if len(date_s) != 10:
+            raise HTTPException(status_code=400, detail="Укажите дату проведения ИК")
+        try:
+            updated = repository.set_certificate_ik_date(
+                user_id=_supply_owner_id(user),
+                cert_id=cert_id,
+                year=int(body.year),
+                date=date_s,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if not updated:
+            raise HTTPException(status_code=404, detail="Документ не найден")
+        return {"ok": True, "certificate": updated}
+
     @app.delete("/api/certificates/{cert_id}")
     def delete_certificate(request: Request, cert_id: int) -> dict[str, object]:
         user = _require_user(request)
@@ -24952,8 +24981,13 @@ def build_app_html(user: dict[str, object], repository=None) -> str:
                       if can_view_ozon_fbs_supplies else "")
     _poa_link = ('<a id="nav-supplies-poa" class="nav-item" href="#" onclick="showSection(\'supplies-poa\')"><span class="nav-item-icon">☐</span> Логистика</a>'
                  if can_view_supply_poa else "")
-    _certs_link = ('<a id="nav-supplies-certificates" class="nav-item" href="#" onclick="showSection(\'supplies-certificates\')"><span class="nav-item-icon">✦</span> Сертификаты</a>'
-                   if can_view_supply_certs else "")
+    _certs_link = (
+        '<a id="nav-supplies-certificates" class="nav-item" href="#" onclick="showSection(\'supplies-certificates\')">'
+        '<span class="nav-item-icon">✦</span> Сертификаты'
+        '<span id="navCertsAlertBadge" class="nav-certs-alert-badge hidden" aria-hidden="true">0</span>'
+        '</a>'
+        if can_view_supply_certs else ""
+    )
     nav_supplies_wb = (
         (_wb_link + _wb_fbs_link + _tsd_link + _ozon_link + _ozon_fbs_link + _stock_link + _poa_link + _certs_link)
         if can_view_supplies or can_supply_stock or can_view_wb_fbs_tsd
