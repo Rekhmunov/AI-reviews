@@ -19616,6 +19616,10 @@ document.addEventListener("DOMContentLoaded", () => {
     ]).then(() => loadSupplies()).catch(() => {});
     initSuppliesColumnResizer();
     initOzonSuppliesColumnResizer();
+    // Soft alert badge next to «Сертификаты» in the left nav.
+    if (document.getElementById("navCertsAlertBadge") || document.getElementById("nav-supplies-certificates")) {
+      loadCertificates().catch(() => {});
+    }
   }
   // Load stock sources/reports lazily
   loadStockSources().then(() => loadStockReports()).catch(() => {});
@@ -23836,6 +23840,138 @@ function toggleCertsSort(col) {
 }
 window.toggleCertsSort = toggleCertsSort;
 
+function _certsIsCertificateDoc(c) {
+  const t = String(c?.doc_type || "Сертификат соответствия").trim().toLowerCase();
+  return t.includes("сертификат");
+}
+
+function _certsTodayIso(now = new Date()) {
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function _certsShiftMonths(iso, deltaMonths) {
+  const raw = String(iso || "").slice(0, 10);
+  const parts = raw.split("-").map(Number);
+  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return "";
+  let [y, m, d] = parts;
+  let monthIndex = m - 1 + Number(deltaMonths || 0);
+  y += Math.floor(monthIndex / 12);
+  monthIndex = ((monthIndex % 12) + 12) % 12;
+  const dim = new Date(Date.UTC(y, monthIndex + 1, 0)).getUTCDate();
+  const day = Math.min(d, dim);
+  return `${y}-${String(monthIndex + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function _certsParseIkDates(c) {
+  const src = Array.isArray(c?.ik_dates) ? c.ik_dates : [];
+  const map = new Map();
+  for (const item of src) {
+    const year = Number(item?.year);
+    const date = String(item?.date || "").slice(0, 10);
+    if (!Number.isFinite(year) || year < 1990 || year > 2100 || date.length !== 10) continue;
+    map.set(year, date);
+  }
+  return map;
+}
+
+/** Planned IK date for anniversary year = expiry month-day in that year, minus 3 months. */
+function _certsPlannedIkDate(expiryIso, year) {
+  const expiry = String(expiryIso || "").slice(0, 10);
+  if (expiry.length !== 10 || !Number.isFinite(Number(year))) return "";
+  const anniversary = `${Number(year)}-${expiry.slice(5)}`;
+  return _certsShiftMonths(anniversary, -3);
+}
+
+/**
+ * Stack under expiry:
+ * - completed IK dates (normal)
+ * - due planned IK lines (red) when today >= planned and year not completed
+ * Only for certificates; years up to expiry year.
+ */
+function _certsIkStack(c, todayIso = _certsTodayIso()) {
+  if (!_certsIsCertificateDoc(c)) return [];
+  const expiry = String(c?.expiry_date || "").slice(0, 10);
+  if (expiry.length !== 10) return [];
+  const expiryYear = Number(expiry.slice(0, 4));
+  if (!Number.isFinite(expiryYear)) return [];
+  const completed = _certsParseIkDates(c);
+  const todayYear = Number(String(todayIso).slice(0, 4)) || expiryYear;
+  const startYear = Math.min(expiryYear, todayYear) - 10;
+  const years = new Set();
+  for (let y = startYear; y <= expiryYear; y += 1) years.add(y);
+  for (const y of completed.keys()) years.add(y);
+  const lines = [];
+  for (const year of [...years].sort((a, b) => a - b)) {
+    const anniversary = `${year}-${expiry.slice(5)}`;
+    if (anniversary > expiry) continue;
+    const planned = _certsPlannedIkDate(expiry, year);
+    if (!planned || planned > expiry) continue;
+    if (completed.has(year)) {
+      lines.push({ kind: "done", year, date: completed.get(year) });
+      continue;
+    }
+    if (String(todayIso) >= planned) {
+      lines.push({ kind: "due", year, date: planned });
+    }
+  }
+  return lines;
+}
+
+function _certsExpiryIsRed(c, nowMs = Date.now()) {
+  const expiry = String(c?.expiry_date || "").slice(0, 10);
+  if (!expiry) return false;
+  const expiryMs = new Date(expiry).getTime();
+  if (!Number.isFinite(expiryMs)) return false;
+  const sixMonthsBefore = expiryMs - 6 * 30 * 24 * 60 * 60 * 1000;
+  return nowMs >= sixMonthsBefore;
+}
+
+function _certsRowNeedsAttention(c) {
+  if (_certsExpiryIsRed(c)) return true;
+  return _certsIkStack(c).some((line) => line.kind === "due");
+}
+
+function _updateCertsNavBadge() {
+  const badge = document.getElementById("navCertsAlertBadge");
+  if (!badge) return;
+  const count = (_certsData || []).filter((c) => _certsRowNeedsAttention(c)).length;
+  if (count > 0) {
+    badge.textContent = count > 99 ? "99+" : String(count);
+    badge.classList.remove("hidden");
+    badge.setAttribute("aria-hidden", "false");
+    badge.title = `Документов требуют внимания: ${count}`;
+  } else {
+    badge.textContent = "0";
+    badge.classList.add("hidden");
+    badge.setAttribute("aria-hidden", "true");
+    badge.removeAttribute("title");
+  }
+}
+
+function _certsExpiryCellHtml(c) {
+  const expiry = String(c?.expiry_date || "").slice(0, 10);
+  const expiryDisplay = expiry || "—";
+  const expiryRed = _certsExpiryIsRed(c);
+  const expiryHtml = expiryRed
+    ? `<span class="certs-expiry-date is-alert">${esc(expiryDisplay)} ⚠</span>`
+    : `<span class="certs-expiry-date">${esc(expiryDisplay)}</span>`;
+  const ikLines = _certsIkStack(c).map((line) => {
+    if (line.kind === "done") {
+      return `<div class="certs-ik-line">${esc(line.date)}</div>`;
+    }
+    return (
+      `<button type="button" class="certs-ik-line is-due"`
+      + ` onclick="openCertIkModal(${Number(c.id)}, ${Number(line.year)}, '${esc(line.date)}')"`
+      + ` title="Указать дату проведения ИК">`
+      + `${esc(line.date)} (ИК)</button>`
+    );
+  }).join("");
+  return `<div class="certs-expiry-cell">${expiryHtml}${ikLines}</div>`;
+}
+
 async function loadCertificates() {
   try {
     const r = await fetch("/api/certificates", {credentials: "include"});
@@ -23843,6 +23979,7 @@ async function loadCertificates() {
     _certsData = await r.json().catch(() => []);
     _populateCertFilters();
     renderCertsTable();
+    _updateCertsNavBadge();
   } catch(e) { console.error("loadCertificates:", e); }
 }
 
@@ -23867,6 +24004,7 @@ function renderCertsTable() {
   if (docTypeF) rows = rows.filter(c => (c.doc_type || "Сертификат соответствия") === docTypeF);
   rows = _sortCertsRows(rows);
   _updateCertsSortIcons();
+  _updateCertsNavBadge();
 
   if (!rows.length) {
     tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">Документы не добавлены</td></tr>';
@@ -23874,18 +24012,6 @@ function renderCertsTable() {
   }
   tbody.innerHTML = "";
   for (const c of rows) {
-    // Red highlight: within 6 months of expiry
-    let expiryStyle = "";
-    if (c.expiry_date) {
-      const expiryMs = new Date(c.expiry_date.slice(0,10)).getTime();
-      const sixMonthsBefore = expiryMs - 6 * 30 * 24 * 60 * 60 * 1000;
-      if (Date.now() >= sixMonthsBefore) expiryStyle = "color:#dc2626;font-weight:600";
-    }
-    const expiryDisplay = c.expiry_date ? c.expiry_date.slice(0,10) : "—";
-    const expiryHtml2 = expiryStyle
-      ? `<span style="${expiryStyle}">${expiryDisplay} ⚠</span>`
-      : `<span>${expiryDisplay}</span>`;
-
     const editBtn = `<button class="icon-btn secondary" title="Редактировать" onclick="openCertEditModal(${c.id})" style="min-width:32px;min-height:28px;padding:0 6px;font-size:14px">✏</button>`;
     const linkBtn = c.verification_url
       ? `<a href="${esc(c.verification_url)}" target="_blank" rel="noopener" title="Проверить" class="icon-btn secondary" style="min-width:32px;min-height:28px;padding:0 6px;font-size:14px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center">🔗</a>`
@@ -23898,16 +24024,84 @@ function renderCertsTable() {
       : "";
 
     const tr = document.createElement("tr");
+    if (_certsRowNeedsAttention(c)) tr.classList.add("certs-row-alert");
     tr.innerHTML = `
       <td>${esc(c.legal_entity_short || "—")}</td>
       <td>${esc(c.doc_type || "Сертификат соответствия")}</td>
       <td>${esc(c.category || "—")}</td>
       <td>${esc(c.number || "—")}</td>
-      <td>${expiryHtml2}</td>
+      <td>${_certsExpiryCellHtml(c)}</td>
       <td style="white-space:nowrap;overflow:visible"><div style="display:flex;gap:4px;justify-content:center;align-items:center;flex-wrap:nowrap">${editBtn}${linkBtn}${imgBtn}${delBtn}</div></td>`;
     tbody.appendChild(tr);
   }
 }
+
+function openCertIkModal(certId, year, plannedDate) {
+  const id = Number(certId);
+  const y = Number(year);
+  if (!id || !Number.isFinite(y)) return;
+  const c = _certsData.find((x) => Number(x.id) === id);
+  document.getElementById("certIkCertId").value = String(id);
+  document.getElementById("certIkYear").value = String(y);
+  const dateInput = document.getElementById("certIkDate");
+  if (dateInput) {
+    dateInput.value = _certsTodayIso();
+    dateInput.min = "";
+    dateInput.max = "";
+  }
+  const hint = document.getElementById("certIkModalHint");
+  if (hint) {
+    const planned = String(plannedDate || _certsPlannedIkDate(c?.expiry_date, y) || "").slice(0, 10);
+    const num = c?.number ? ` №${c.number}` : "";
+    hint.textContent = planned
+      ? `Плановый ИК${num}: ${planned}. Укажите фактическую дату проведения.`
+      : `Укажите фактическую дату проведения ИК${num}.`;
+  }
+  document.getElementById("certIkModal")?.classList.remove("hidden");
+}
+window.openCertIkModal = openCertIkModal;
+
+function closeCertIkModal() {
+  document.getElementById("certIkModal")?.classList.add("hidden");
+}
+window.closeCertIkModal = closeCertIkModal;
+
+async function saveCertIkDate() {
+  const id = Number(document.getElementById("certIkCertId")?.value || 0);
+  const year = Number(document.getElementById("certIkYear")?.value || 0);
+  const date = String(document.getElementById("certIkDate")?.value || "").slice(0, 10);
+  if (!id || !year) return;
+  if (!date) { alert("Укажите дату проведения ИК"); return; }
+  try {
+    const r = await fetch(`/api/certificates/${id}/ik`, {
+      method: "PUT",
+      credentials: "include",
+      headers: {"Content-Type": "application/json", ...jsonHeaders()},
+      body: JSON.stringify({ year, date }),
+    });
+    if (!r.ok) {
+      alert("Ошибка: " + await r.text());
+      return;
+    }
+    const data = await r.json().catch(() => ({}));
+    const updated = data?.certificate;
+    if (updated && updated.id != null) {
+      const idx = _certsData.findIndex((x) => Number(x.id) === Number(updated.id));
+      if (idx >= 0) _certsData[idx] = { ..._certsData[idx], ...updated };
+      else _certsData.push(updated);
+    } else {
+      await loadCertificates();
+      closeCertIkModal();
+      return;
+    }
+    closeCertIkModal();
+    renderCertsTable();
+    _updateCertsNavBadge();
+  } catch (e) {
+    alert("Ошибка: " + (e?.message || e));
+  }
+}
+window.saveCertIkDate = saveCertIkDate;
 
 function openCreateCertModal() {
   // Populate legal entities dropdown

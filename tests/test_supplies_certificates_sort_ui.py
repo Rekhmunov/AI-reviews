@@ -56,5 +56,10 @@ def test_certs_spacing_styles() -> None:
 
 
 def test_asset_versions_bumped() -> None:
-    assert "app.js?v=562" in APP_HTML
-    assert "style.css?v=318" in APP_HTML
+    assert "app.js?v=718" in APP_HTML
+    assert "style.css?v=440" in APP_HTML
+
+
+def test_certs_expiry_ik_column_label() -> None:
+    block = _certs_section()
+    assert "Дата завершения/ИК" in block

@@ -5972,6 +5972,66 @@ body.sst-col-resizing * {
   color: #2563eb;
 }
 
+.certs-expiry-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  line-height: 1.35;
+}
+.certs-expiry-date.is-alert {
+  color: #dc2626;
+  font-weight: 600;
+}
+.certs-ik-line {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: #334155;
+  line-height: 1.3;
+}
+button.certs-ik-line.is-due {
+  color: #dc2626;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+button.certs-ik-line.is-due:hover {
+  color: #b91c1c;
+}
+button.certs-ik-line.is-due:focus-visible {
+  outline: 2px solid #fca5a5;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.nav-certs-alert-badge {
+  margin-left: auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #fecaca;
+  color: #b91c1c;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.nav-certs-alert-badge.hidden {
+  display: none;
+}
+#nav-supplies-certificates.nav-item {
+  gap: 8px;
+}
+
 /* Override global min-width that would cause overflow on narrow screens */
 .supplies-table-wrap .supplies-main-table {
   min-width: 0 !important;
