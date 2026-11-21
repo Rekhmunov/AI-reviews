@@ -13314,9 +13314,19 @@ button.wb-fbs-select-all-link:disabled {
 .wb-fbs-sd-actions > button[hidden],
 .wb-fbs-sd-actions .wb-fbs-picking-split[hidden],
 .wb-fbs-sd-actions .wb-fbs-kiz-split[hidden],
+.wb-fbs-sd-actions .ozon-fbs-move-gate-wrap[hidden],
 .wb-fbs-sd-actions .wb-fbs-picking-split > button.secondary[hidden],
 .wb-fbs-sd-actions .wb-fbs-kiz-split > button.secondary[hidden] {
   display: none !important;
+}
+.wb-fbs-sd-actions .ozon-fbs-move-gate-wrap > button {
+  min-height: 36px;
+  height: 36px;
+  padding: 4px 14px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .wb-fbs-picking-caret,
 .wb-fbs-kiz-refresh {

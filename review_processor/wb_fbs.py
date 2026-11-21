@@ -100,6 +100,52 @@ def compute_tab(*, supplier_status: str, wb_status: str, is_archive: bool) -> st
     return TAB_ASSEMBLY if ss else TAB_NEW
 
 
+_TAB_PIPELINE_RANK: dict[str, int] = {
+    TAB_NEW: 10,
+    TAB_ASSEMBLY: 20,
+    TAB_DELIVERY: 30,
+    TAB_FINISHED: 40,
+}
+
+
+def tab_pipeline_rank(tab: object) -> int | None:
+    """Rank for local anti-regression (new < assembly < delivery < finished)."""
+    key = str(tab or "").strip().lower()
+    return _TAB_PIPELINE_RANK.get(key)
+
+
+def resolve_upsert_tab(
+    *,
+    local_tab: object = "",
+    remote_supplier_status: object = "",
+    remote_wb_status: object = "",
+    is_archive: bool = False,
+) -> str:
+    """Pick tab after WB status refresh; never regress local delivery←assembly.
+
+    Local «Перенести в доставку» sets ``tab=delivery`` without calling WB.
+    Sync must not bounce those rows back to assembly while WB still reports
+    ``confirm``. Cancelled / archive from WB always win.
+    """
+    remote_tab = compute_tab(
+        supplier_status=str(remote_supplier_status or ""),
+        wb_status=str(remote_wb_status or ""),
+        is_archive=bool(is_archive),
+    )
+    if remote_tab in (TAB_CANCELLED, TAB_ARCHIVE):
+        return remote_tab
+    old_tab = str(local_tab or "").strip().lower()
+    old_rank = tab_pipeline_rank(old_tab)
+    new_rank = tab_pipeline_rank(remote_tab)
+    if (
+        old_rank is not None
+        and new_rank is not None
+        and new_rank < old_rank
+    ):
+        return old_tab
+    return remote_tab
+
+
 def format_price_rub(price_kopecks: object, currency_code: object = 643) -> str:
     try:
         kopecks = int(price_kopecks or 0)
@@ -1541,6 +1587,207 @@ def set_supply_delivery_listed(
             ),
             (bool(listed), int(user_id), int(source_id), sid),
         )
+
+
+def _reconcile_wb_fbs_stock_after_local_move(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    orders: list[dict[str, Any]],
+) -> dict[str, int]:
+    """Ship ledger rows for orders just moved to «В доставке» locally."""
+    empty = {"shipped": 0, "reversed": 0, "skipped": 0, "ok": 0, "settled": 0}
+    if not orders:
+        return empty
+    prod_id = 0
+    try:
+        productions = repo.list_supply_productions(user_id=user_id)
+        if productions:
+            prod_id = int(productions[0].get("id") or 0)
+    except Exception:
+        prod_id = 0
+    if prod_id <= 0:
+        return empty
+    try:
+        move_date = datetime.now(_MSK).date().isoformat()
+    except Exception:
+        move_date = datetime.now(UTC).date().isoformat()
+    try:
+        return repo.reconcile_wb_fbs_stock_orders(
+            user_id=user_id,
+            production_id=prod_id,
+            orders=list(orders),
+            movement_date=move_date,
+        )
+    except Exception as exc:
+        _log.warning(
+            "wb fbs local-move stock reconcile failed user=%s: %s",
+            user_id,
+            exc,
+        )
+        return empty
+
+
+def move_supply_to_delivery(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply_id: str,
+) -> dict[str, Any]:
+    """Locally move a supply from «На сборке» to «В доставке».
+
+    No Wildberries API calls. Sets non-cancelled assembly orders ``tab`` to
+    ``delivery`` and reconciles their stock (списание с Остатки). Sync later
+    will not regress moved rows while WB still reports ``confirm``.
+    """
+    ensure_wb_fbs_tables(repo)
+    sid = str(supply_id or "").strip()
+    if not sid:
+        raise ValueError("Укажите supply_id")
+
+    with repo._connect() as conn:
+        supply_row = conn.execute(
+            repo._sql(
+                """
+                SELECT supply_id, name, done FROM wb_fbs_supplies
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                """
+            ),
+            (user_id, source_id, sid),
+        ).fetchone()
+        rows = conn.execute(
+            repo._sql(
+                """
+                SELECT order_id, tab, article, nm_id
+                FROM wb_fbs_orders
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                  AND tab = ?
+                ORDER BY order_id
+                """
+            ),
+            (user_id, source_id, sid, TAB_ASSEMBLY),
+        ).fetchall()
+        to_move = [repo._row_to_dict(r) for r in rows]
+        if not to_move:
+            already = conn.execute(
+                repo._sql(
+                    """
+                    SELECT COUNT(*) AS n FROM wb_fbs_orders
+                    WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                      AND tab = ?
+                    """
+                ),
+                (user_id, source_id, sid, TAB_DELIVERY),
+            ).fetchone()
+            already_n = int(
+                (
+                    already["n"]
+                    if already and hasattr(already, "keys")
+                    else (already[0] if already else 0)
+                )
+                or 0
+            )
+            stock_stats = {
+                "shipped": 0,
+                "reversed": 0,
+                "skipped": 0,
+                "ok": 0,
+                "settled": 0,
+            }
+            if already_n or supply_row:
+                try:
+                    set_supply_delivery_listed(
+                        repo,
+                        user_id=user_id,
+                        source_id=source_id,
+                        supply_id=sid,
+                        listed=True,
+                    )
+                except Exception:
+                    pass
+            if not supply_row and already_n <= 0:
+                raise RuntimeError("Поставка не найдена")
+            return {
+                "ok": True,
+                "supply_id": sid,
+                "moved": 0,
+                "already_delivery": already_n,
+                "stock": stock_stats,
+                "message": (
+                    "Поставка уже на вкладке «В доставке»"
+                    if already_n
+                    else "Нет заказов в «На сборке» для переноса"
+                ),
+            }
+
+        oids = []
+        for r in to_move:
+            try:
+                oid = int(r.get("order_id") or 0)
+            except (TypeError, ValueError):
+                oid = 0
+            if oid > 0:
+                oids.append(oid)
+        if not oids:
+            raise RuntimeError("Нет заказов для переноса")
+        placeholders = ", ".join("?" for _ in oids)
+        conn.execute(
+            repo._sql(
+                f"""
+                UPDATE wb_fbs_orders
+                SET tab = ?, synced_at = ?
+                WHERE user_id = ? AND source_id = ? AND supply_id = ?
+                  AND order_id IN ({placeholders})
+                  AND tab = ?
+                """
+            ),
+            (
+                TAB_DELIVERY,
+                _utc_now(),
+                user_id,
+                source_id,
+                sid,
+                *oids,
+                TAB_ASSEMBLY,
+            ),
+        )
+
+    for row in to_move:
+        row["tab"] = TAB_DELIVERY
+
+    try:
+        set_supply_delivery_listed(
+            repo,
+            user_id=user_id,
+            source_id=source_id,
+            supply_id=sid,
+            listed=True,
+        )
+    except Exception as exc:
+        _log.warning(
+            "wb fbs delivery_listed pin failed supply=%s: %s", sid, exc
+        )
+
+    stock_stats = _reconcile_wb_fbs_stock_after_local_move(
+        repo, user_id=user_id, orders=list(to_move)
+    )
+    _log.info(
+        "wb fbs move-to-delivery user=%s source=%s supply=%s moved=%s stock=%s",
+        user_id,
+        source_id,
+        sid,
+        len(to_move),
+        stock_stats,
+    )
+    return {
+        "ok": True,
+        "supply_id": sid,
+        "moved": len(to_move),
+        "already_delivery": 0,
+        "stock": stock_stats,
+        "message": f"Перенесено на «В доставке»: {len(to_move)} зак.",
+    }
 
 
 def pin_delivery_listed_supplies(
@@ -3043,7 +3290,29 @@ def upsert_order(
     ss = str(supplier_status if supplier_status is not None else order.get("supplierStatus") or "").strip()
     ws = str(wb_status if wb_status is not None else order.get("wbStatus") or "").strip()
     sid = str(supply_id if supply_id is not None else order.get("supplyId") or "").strip()
-    tab = compute_tab(supplier_status=ss, wb_status=ws, is_archive=is_archive)
+    local_tab = ""
+    if ss or ws or is_archive:
+        try:
+            with repo._connect() as conn:
+                prev = conn.execute(
+                    repo._sql(
+                        """
+                        SELECT tab FROM wb_fbs_orders
+                        WHERE user_id = ? AND source_id = ? AND order_id = ?
+                        """
+                    ),
+                    (user_id, source_id, order_id),
+                ).fetchone()
+            if prev:
+                local_tab = str(prev["tab"] if hasattr(prev, "keys") else prev[0] or "")
+        except Exception:
+            local_tab = ""
+    tab = resolve_upsert_tab(
+        local_tab=local_tab,
+        remote_supplier_status=ss,
+        remote_wb_status=ws,
+        is_archive=is_archive,
+    )
     offices = order.get("offices") if isinstance(order.get("offices"), list) else []
     skus = order.get("skus") if isinstance(order.get("skus"), list) else []
     price_i, currency_i = resolve_order_price(order)
@@ -5252,9 +5521,6 @@ def sync_wb_fbs_source(
             (user_id, source_id, status_cutoff.isoformat()),
         ).fetchall()
     all_ids = [int(r["order_id"]) for r in id_rows]
-    # Stock ledger (Поставки → Остатки): remember final tab/article per order
-    # after status refresh, then reconcile. Must never break FBS sync.
-    stock_order_states: dict[int, dict[str, Any]] = {}
     for i in range(0, len(all_ids), 1000):
         if _stopped():
             stopped = True
@@ -5271,32 +5537,27 @@ def sync_wb_fbs_source(
                 prior_rows = conn.execute(
                     repo._sql(
                         f"""
-                        SELECT order_id, tab, article, nm_id FROM wb_fbs_orders
+                        SELECT order_id, tab FROM wb_fbs_orders
                         WHERE user_id = ? AND source_id = ?
                           AND order_id IN ({", ".join("?" for _ in chunk)})
                         """
                     ),
                     (user_id, source_id, *chunk),
                 ).fetchall()
-                prior_map = {
-                    int(r["order_id"]): {
-                        "tab": str(r["tab"] or ""),
-                        "article": str(r["article"] or ""),
-                        "nm_id": str(r["nm_id"] or ""),
-                    }
+                prior_tab = {
+                    int(r["order_id"]): str(r["tab"] or "")
                     for r in prior_rows
                 }
                 for oid, st in status_map.items():
                     ss = str(st.get("supplierStatus") or "")
                     ws = str(st.get("wbStatus") or "")
-                    tab = compute_tab(supplier_status=ss, wb_status=ws, is_archive=False)
-                    prev = prior_map.get(oid) or {}
-                    stock_order_states[oid] = {
-                        "order_id": oid,
-                        "tab": tab,
-                        "article": str(prev.get("article") or ""),
-                        "nm_id": str(prev.get("nm_id") or ""),
-                    }
+                    # Local «Перенести в доставку» must survive WB still reporting confirm.
+                    tab = resolve_upsert_tab(
+                        local_tab=prior_tab.get(oid) or "",
+                        remote_supplier_status=ss,
+                        remote_wb_status=ws,
+                        is_archive=False,
+                    )
                     conn.execute(
                         repo._sql(
                             """
@@ -5312,35 +5573,9 @@ def sync_wb_fbs_source(
             errors.append(friendly_sync_error("status", exc))
             break
 
-    # Reconcile every sync (not only on tab change): repairs missed ships after
-    # a previous stock failure and covers assembly→finished (skips delivery tab).
-    if stock_order_states:
-        try:
-            prod_id = 0
-            try:
-                productions = repo.list_supply_productions(user_id=user_id)
-                if productions:
-                    prod_id = int(productions[0].get("id") or 0)
-            except Exception:
-                prod_id = 0
-            if prod_id > 0:
-                try:
-                    move_date = datetime.now(_MSK).date().isoformat()
-                except Exception:
-                    move_date = datetime.now(UTC).date().isoformat()
-                repo.reconcile_wb_fbs_stock_orders(
-                    user_id=user_id,
-                    production_id=prod_id,
-                    orders=list(stock_order_states.values()),
-                    movement_date=move_date,
-                )
-        except Exception as exc:
-            _log.warning(
-                "supply stock ledger hook failed user=%s source=%s: %s",
-                user_id,
-                source_id,
-                exc,
-            )
+    # Stock ledger: intentionally NOT reconciled here. Marketplace delivery
+    # status must not auto-deduct Остатки — operator uses local
+    # «Перенести в доставку» on the supply detail modal.
 
     if _stopped():
         return {
