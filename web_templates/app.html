@@ -2298,6 +2298,14 @@
                 <button type="button" class="secondary" id="wbFbsSupplyDetailDriverBtn"
                         onclick="openWbFbsDriverModal()"
                         title="Водитель поставки: выбрать из справочника и гос. номер ТС">Водитель</button>
+                <span class="ozon-fbs-move-gate-wrap" id="wbFbsMoveDeliveryGateWrap">
+                  <button type="button" id="wbFbsSupplyDetailMoveDeliveryBtn"
+                          onclick="moveWbFbsSupplyToDelivery()"
+                          title="Локально перенести поставку в «В доставке» и списать с Остатки (без отправки в WB)">
+                    Перенести в доставку
+                  </button>
+                  <div class="ozon-fbs-move-gate-tip" id="wbFbsMoveDeliveryGateTip" hidden role="tooltip"></div>
+                </span>
                 <span class="ozon-fbs-move-gate-wrap" id="wbFbsPortalGateWrap">
                   <button type="button" class="secondary wb-fbs-sd-portal-btn" id="wbFbsSupplyDetailPortalBtn"
                           onclick="openWbFbsSupplyPortal()" title="Открыть поставку на портале Wildberries">
@@ -2335,6 +2343,26 @@
                   <tr><td colspan="4" class="wb-fbs-empty">Загрузка…</td></tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="wbFbsMoveDeliveryModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+             aria-labelledby="wbFbsMoveDeliveryTitle"
+             onclick="if(event.target===this)closeWbFbsMoveDeliveryModal()">
+          <div class="modal-card ozon-fbs-move-delivering-modal">
+            <div class="ozon-fbs-move-delivering-header">
+              <h3 id="wbFbsMoveDeliveryTitle" class="ozon-fbs-move-delivering-title">Перенести в доставку</h3>
+              <button type="button" class="icon-btn secondary" onclick="closeWbFbsMoveDeliveryModal()" aria-label="Закрыть">✕</button>
+            </div>
+            <div id="wbFbsMoveDeliveryBody" class="ozon-fbs-move-delivering-body"></div>
+            <div class="ozon-fbs-move-delivering-footer">
+              <button type="button" class="secondary" id="wbFbsMoveDeliveryCancelBtn"
+                      onclick="closeWbFbsMoveDeliveryModal()">Отмена</button>
+              <button type="button" class="ozon-fbs-ship-all-btn" id="wbFbsMoveDeliveryConfirmBtn"
+                      onclick="confirmWbFbsMoveDelivery()">Перенести</button>
+              <button type="button" class="ozon-fbs-ship-all-btn" id="wbFbsMoveDeliveryOkBtn" hidden
+                      onclick="closeWbFbsMoveDeliveryModal()">Закрыть</button>
             </div>
           </div>
         </div>

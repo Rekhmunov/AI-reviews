@@ -36820,6 +36820,7 @@ function _wbFbsSupplyDetailSetActionsReady(ready) {
   _wbFbsSyncOwnerOnlyCancelledBtn();
   // Delivery: KIZ/pick remain visible as status tones but must not open editors.
   _wbFbsSyncSupplyDetailToneOnlySplits(_wbFbsIsSupplyDetailReadOnly());
+  _wbFbsSyncMoveDeliveryBtn();
   _wbFbsSyncPortalBtn();
 }
 
@@ -37534,6 +37535,285 @@ function _wbFbsCanOpenPortal() {
   return true;
 }
 
+function _wbFbsCanMoveToDelivery() {
+  if (_wbFbsIsDeliverySuppliesTab() || _wbFbsIsSupplyDetailReadOnly()) return false;
+  if (!_wbFbsSupplyDetailActionsReady()) return false;
+  const supply = wbFbsDetailState.supply;
+  if (!supply) return false;
+  // Same gates as «Портал ВБ»: KIZ / pick / driver when applicable.
+  if (!_wbFbsDriverHasAssignment(supply)) return false;
+  if (!_wbFbsKizOkForPortal(supply)) return false;
+  if (!_wbFbsPickOkForPortal(supply)) return false;
+  return true;
+}
+
+function _wbFbsRenderMoveDeliveryGateTip(items) {
+  const tip = document.getElementById("wbFbsMoveDeliveryGateTip");
+  if (!tip) return;
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) {
+    tip.hidden = true;
+    tip.innerHTML = "";
+    return;
+  }
+  tip.innerHTML =
+    `<p class="ozon-fbs-move-gate-title">Чтобы перенести в доставку</p>` +
+    `<ul class="ozon-fbs-move-gate-list">` +
+    list
+      .map((it) => {
+        const done = !!it.done;
+        const mark = done ? "✓" : "○";
+        return (
+          `<li class="${done ? "is-done" : "is-todo"}">` +
+          `<span class="ozon-fbs-move-gate-mark" aria-hidden="true">${mark}</span>` +
+          `<span>${_wbFbsEsc(it.label)}</span>` +
+          `</li>`
+        );
+      })
+      .join("") +
+    `</ul>`;
+}
+
+function _wbFbsSyncMoveDeliveryBtn() {
+  const btn = document.getElementById("wbFbsSupplyDetailMoveDeliveryBtn");
+  const tip = document.getElementById("wbFbsMoveDeliveryGateTip");
+  const wrap = document.getElementById("wbFbsMoveDeliveryGateWrap");
+  if (!btn) {
+    if (tip) tip.hidden = true;
+    return;
+  }
+  // Only on «На сборке»; hide on delivery (already moved).
+  const onDelivery = _wbFbsIsDeliverySuppliesTab() || _wbFbsIsSupplyDetailReadOnly();
+  btn.hidden = !!onDelivery;
+  if (wrap) wrap.hidden = !!onDelivery;
+  if (onDelivery) {
+    if (tip) {
+      tip.hidden = true;
+      tip.innerHTML = "";
+    }
+    return;
+  }
+  if (!_wbFbsSupplyDetailActionsReady() || btn.classList.contains("is-wait-orders")) {
+    btn.classList.remove("is-scan-incomplete");
+    if (tip) tip.hidden = true;
+    return;
+  }
+  const tipOk =
+    "Локально перенести поставку в «В доставке» и списать с Остатки (без отправки в WB)";
+  const gateItems = _wbFbsPortalGateItems();
+  const can = _wbFbsCanMoveToDelivery();
+  if (can) {
+    btn.removeAttribute("aria-disabled");
+    btn.classList.remove("is-scan-incomplete");
+    btn.removeAttribute("tabindex");
+    btn.setAttribute("title", tipOk);
+    if (tip) {
+      tip.hidden = true;
+      tip.innerHTML = "";
+    }
+  } else {
+    btn.setAttribute("aria-disabled", "true");
+    btn.classList.add("is-scan-incomplete");
+    btn.tabIndex = -1;
+    btn.removeAttribute("title");
+    _wbFbsRenderMoveDeliveryGateTip(gateItems);
+    if (tip) tip.hidden = false;
+  }
+}
+
+const wbFbsMoveDeliveryModalState = { mode: "confirm", busy: false };
+
+function _wbFbsMoveDeliverySetVisible(show) {
+  if (typeof setModalVisibility === "function") {
+    setModalVisibility("wbFbsMoveDeliveryModal", !!show);
+    return;
+  }
+  const modal = document.getElementById("wbFbsMoveDeliveryModal");
+  if (!modal) return;
+  modal.classList.toggle("hidden", !show);
+}
+
+function closeWbFbsMoveDeliveryModal() {
+  if (wbFbsMoveDeliveryModalState.busy) return;
+  wbFbsMoveDeliveryModalState.mode = "confirm";
+  _wbFbsMoveDeliverySetVisible(false);
+}
+window.closeWbFbsMoveDeliveryModal = closeWbFbsMoveDeliveryModal;
+
+function _wbFbsMoveDeliveryRender(mode, { title, html, kind } = {}) {
+  wbFbsMoveDeliveryModalState.mode = mode;
+  const titleEl = document.getElementById("wbFbsMoveDeliveryTitle");
+  const body = document.getElementById("wbFbsMoveDeliveryBody");
+  const cancelBtn = document.getElementById("wbFbsMoveDeliveryCancelBtn");
+  const confirmBtn = document.getElementById("wbFbsMoveDeliveryConfirmBtn");
+  const okBtn = document.getElementById("wbFbsMoveDeliveryOkBtn");
+  const card = document.querySelector("#wbFbsMoveDeliveryModal .ozon-fbs-move-delivering-modal");
+  if (titleEl) titleEl.textContent = title || "Перенести в доставку";
+  if (body) body.innerHTML = html || "";
+  if (card) {
+    card.classList.toggle("is-error", kind === "error");
+    card.classList.toggle("is-ok", kind === "ok");
+  }
+  const isConfirm = mode === "confirm";
+  if (cancelBtn) cancelBtn.hidden = !isConfirm;
+  if (confirmBtn) {
+    confirmBtn.hidden = !isConfirm;
+    confirmBtn.disabled = false;
+    confirmBtn.textContent = "Перенести";
+  }
+  if (okBtn) okBtn.hidden = isConfirm;
+  _wbFbsMoveDeliverySetVisible(true);
+}
+
+function _wbFbsMoveDeliveryNotice(message, { title, kind } = {}) {
+  const msg = String(message || "").trim() || "Готово";
+  const lines = msg.split("\n").map((l) => l.trim()).filter(Boolean);
+  const html = lines.map((l) => `<p class="ozon-fbs-move-delivering-text">${_wbFbsEsc(l)}</p>`).join("");
+  _wbFbsMoveDeliveryRender("notice", {
+    title: title || (kind === "error" ? "Не удалось перенести" : "Поставка перенесена"),
+    html,
+    kind: kind || "ok",
+  });
+}
+
+function moveWbFbsSupplyToDelivery() {
+  const btn = document.getElementById("wbFbsSupplyDetailMoveDeliveryBtn");
+  if (btn && btn.getAttribute("aria-disabled") === "true") {
+    _wbFbsSyncMoveDeliveryBtn();
+    return;
+  }
+  const sid = String(wbFbsDetailState.supplyId || "").trim();
+  const sourceId = wbFbsState.sourceId;
+  if (!sid || !sourceId || !_wbFbsSupplyDetailActionsReady()) {
+    _wbFbsMoveDeliveryNotice(
+      "Откройте поставку и дождитесь загрузки заказов",
+      { title: "Перенести в доставку", kind: "error" }
+    );
+    return;
+  }
+  if (_wbFbsIsDeliverySuppliesTab() || _wbFbsIsSupplyDetailReadOnly()) {
+    _wbFbsMoveDeliveryNotice(
+      "Поставка уже в «В доставке»",
+      { title: "Перенести в доставку", kind: "error" }
+    );
+    return;
+  }
+  if (!_wbFbsCanMoveToDelivery()) {
+    _wbFbsSyncMoveDeliveryBtn();
+    _wbFbsMoveDeliveryNotice(
+      "Сначала выполните все условия: зелёные «Товары с КИЗ» / «Товары без КИЗ» (если нужны) и выбранный водитель",
+      { title: "Перенести в доставку", kind: "error" }
+    );
+    return;
+  }
+  const name = String(
+    wbFbsDetailState.supply?.name || wbFbsDetailState.supply?.supply_id || sid
+  ).trim();
+  const orderN = Number(
+    wbFbsDetailState.supply?.order_count
+    || (Array.isArray(wbFbsDetailState.supply?.orders)
+      ? wbFbsDetailState.supply.orders.length
+      : 0)
+  );
+  const orderLabel = orderN > 0 ? String(orderN) : "Все";
+  _wbFbsMoveDeliveryRender("confirm", {
+    title: "Перенести в доставку",
+    html: `
+      <p class="ozon-fbs-move-delivering-lead">
+        Перенести поставку «${_wbFbsEsc(name)}» в «В доставке»?
+      </p>
+      <ul class="ozon-fbs-move-delivering-list">
+        <li>На Wildberries ничего не отправится</li>
+        <li>${_wbFbsEsc(orderLabel)} заказ(ов) уйдут из «На сборке»</li>
+        <li>Продукция спишется с Остатки прямо сейчас</li>
+        <li>Передача в доставку на портале ВБ — отдельно, кнопкой «Портал ВБ»</li>
+      </ul>
+    `,
+  });
+}
+window.moveWbFbsSupplyToDelivery = moveWbFbsSupplyToDelivery;
+
+async function confirmWbFbsMoveDelivery() {
+  if (wbFbsMoveDeliveryModalState.mode !== "confirm" || wbFbsMoveDeliveryModalState.busy) return;
+  const sid = String(wbFbsDetailState.supplyId || "").trim();
+  const sourceId = wbFbsState.sourceId;
+  const btn = document.getElementById("wbFbsSupplyDetailMoveDeliveryBtn");
+  const confirmBtn = document.getElementById("wbFbsMoveDeliveryConfirmBtn");
+  if (!sid || !sourceId) {
+    _wbFbsMoveDeliveryNotice(
+      "Откройте поставку и дождитесь загрузки заказов",
+      { title: "Перенести в доставку", kind: "error" }
+    );
+    return;
+  }
+  if (!_wbFbsCanMoveToDelivery()) {
+    _wbFbsSyncMoveDeliveryBtn();
+    _wbFbsMoveDeliveryNotice(
+      "Сначала выполните все условия: зелёные «Товары с КИЗ» / «Товары без КИЗ» (если нужны) и выбранный водитель",
+      { title: "Перенести в доставку", kind: "error" }
+    );
+    return;
+  }
+  wbFbsMoveDeliveryModalState.busy = true;
+  if (confirmBtn) {
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = "Перенос…";
+  }
+  if (btn) {
+    btn.setAttribute("aria-disabled", "true");
+    btn.classList.add("is-wait-orders");
+  }
+  try {
+    const res = await fetch(
+      `/api/wb-fbs/supplies/${encodeURIComponent(sid)}/move-to-delivery`
+        + `?source_id=${encodeURIComponent(sourceId)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...jsonHeaders() },
+      }
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const detail =
+        typeof detailText === "function" ? detailText(data.detail) : "";
+      throw new Error(detail || data.detail || `Ошибка ${res.status}`);
+    }
+    closeWbFbsSupplyDetailModal();
+    setWbFbsTab("delivery");
+    const moved = Number(data.moved || 0);
+    const shipped = Number(data.stock?.shipped || 0);
+    const base = String(data.message || "Поставка перенесена в «В доставке»");
+    const stockNote = moved > 0
+      ? (shipped > 0
+        ? `Списание с Остатки: записей ${shipped}`
+        : "Списание с Остатки: будет при следующей попытке / нет производства")
+      : "";
+    wbFbsMoveDeliveryModalState.busy = false;
+    _wbFbsMoveDeliveryNotice(
+      stockNote ? `${base}\n${stockNote}` : base,
+      { title: "Поставка перенесена", kind: "ok" }
+    );
+    if (typeof showSyncInfo === "function") showSyncInfo(base, "ok");
+  } catch (e) {
+    wbFbsMoveDeliveryModalState.busy = false;
+    _wbFbsMoveDeliveryNotice(e.message || String(e), {
+      title: "Не удалось перенести",
+      kind: "error",
+    });
+  } finally {
+    wbFbsMoveDeliveryModalState.busy = false;
+    if (confirmBtn) {
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = "Перенести";
+    }
+    if (btn) {
+      btn.classList.remove("is-wait-orders");
+      _wbFbsSyncMoveDeliveryBtn();
+    }
+  }
+}
+window.confirmWbFbsMoveDelivery = confirmWbFbsMoveDelivery;
+
 function _wbFbsSyncPortalBtn() {
   const btn = document.getElementById("wbFbsSupplyDetailPortalBtn");
   const tip = document.getElementById("wbFbsPortalGateTip");
@@ -37593,6 +37873,7 @@ function _wbFbsSyncDriverBtn() {
       }
     }
   }
+  _wbFbsSyncMoveDeliveryBtn();
   _wbFbsSyncPortalBtn();
 }
 
@@ -38065,6 +38346,7 @@ function renderWbFbsSupplyDetail(data) {
   _wbFbsSyncPickVerifyBtn();
   _wbFbsSyncKizPickBtnLabels();
   _wbFbsSyncDriverBtn();
+  _wbFbsSyncMoveDeliveryBtn();
   _wbFbsSyncPortalBtn();
   const readOnly = _wbFbsIsSupplyDetailReadOnly();
   _wbFbsSyncSupplyDetailReadOnlyMode(readOnly);
@@ -38927,6 +39209,7 @@ function _wbFbsKizSplitSetTone(tone) {
   if (t === "ok") split.classList.add("is-ok");
   else if (t === "error") split.classList.add("is-error");
   // pending / none / unknown → leave default secondary styling
+  _wbFbsSyncMoveDeliveryBtn();
   _wbFbsSyncPortalBtn();
 }
 
@@ -42127,7 +42410,8 @@ function _wbFbsPickSplitSetTone(tone) {
   const t = String(tone || "").trim().toLowerCase();
   if (t === "ok") split.classList.add("is-ok");
   else if (t === "error") split.classList.add("is-error");
-  // Re-evaluate «Портал ВБ» gate when pick tone changes (parity with KIZ).
+  // Re-evaluate move / portal gates when pick tone changes (parity with KIZ).
+  _wbFbsSyncMoveDeliveryBtn();
   _wbFbsSyncPortalBtn();
 }
 
