@@ -1,4 +1,4 @@
-"""Ozon FBS: operator removes one cancelled posting from a supply (stocks it)."""
+"""Ozon FBS: operator removes one cancelled posting from a supply (no stock)."""
 
 from __future__ import annotations
 
@@ -97,7 +97,7 @@ def test_remove_cancelled_posting_clears_supply_link(monkeypatch) -> None:
     assert repo.posting["supply_id"] == ""
 
 
-def test_remove_cancelled_posting_stocks_as_delivering(monkeypatch) -> None:
+def test_remove_cancelled_posting_does_not_touch_stock(monkeypatch) -> None:
     repo = _FakeRepo(
         {
             "posting_number": "PN-CX",
@@ -130,15 +130,8 @@ def test_remove_cancelled_posting_stocks_as_delivering(monkeypatch) -> None:
         repo, user_id=1, source_id=5, supply_id="OZ-1", posting_number="PN-CX"
     )
     assert out["removed"] is True
-    assert len(stocked) == 1
-    assert len(stocked[0]) == 1
-    row = stocked[0][0]
-    assert row["posting_number"] == "PN-CX"
-    assert row["offer_id"] == "ART"
-    assert row["sku"] == 11
-    assert row["quantity"] == 2
-    assert row["tab"] == oz.TAB_DELIVERING
-    assert row["status"] == oz.TAB_DELIVERING
+    assert stocked == []
+    assert int((out.get("stock") or {}).get("shipped") or 0) == 0
     assert len(repo.updates) == 1
 
 
@@ -192,7 +185,8 @@ def test_remove_cancelled_ui_wiring() -> None:
     # Menu id must be mode-prefixed so supply-detail ⋮ does not shadow KIZ/pick delete.
     assert '`${mode || "kiz"}_${pn}`' in actions_fn or "${mode || \"kiz\"}_${pn}" in actions_fn or 'mode || "kiz"' in actions_fn
     assert "sd_${pn}" in js or "`sd_${pn}`" in js
-    assert "ozon_fbs.js?v=220" in html
+    assert "ozon_fbs.js?v=226" in html
+    assert "Остатки не изменятся" in js
 
 
 def test_endpoint_registered() -> None:

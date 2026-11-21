@@ -7595,8 +7595,8 @@ def remove_cancelled_posting_from_supply(
 
     Only cancelled postings still linked to ``supply_id`` may be removed.
     Clears ``supply_id`` and drops the number from ``posting_numbers_json``.
-    Stock is written off here (the row leaves the warehouse). Moving the
-    supply to «Доставляются» does not stock cancelled rows that stay linked.
+    Does **not** touch Остатки — cancelled goods were never shipped; stock
+    is written only on local «Перенести в доставку» for active postings.
     """
     ensure_ozon_fbs_supply_schema(repo)
     oz.ensure_ozon_fbs_tables(repo)
@@ -7657,26 +7657,18 @@ def remove_cancelled_posting_from_supply(
         )
     _log.info(
         "ozon fbs remove cancelled posting from supply user=%s source=%s "
-        "supply=%s posting=%s",
+        "supply=%s posting=%s (no stock)",
         user_id,
         source_id,
         sid,
         pn,
-    )
-    ship = dict(posting)
-    # Reconcile treats cancelled as leave-as-is. Fake delivering so the
-    # manual delete writes the line off, same as a shipped posting.
-    ship["tab"] = oz.TAB_DELIVERING
-    ship["status"] = oz.TAB_DELIVERING
-    stock_stats = _reconcile_ozon_fbs_stock_after_local_move(
-        repo, user_id=user_id, postings=[ship]
     )
     return {
         "ok": True,
         "supply_id": sid,
         "posting_number": pn,
         "removed": True,
-        "stock": stock_stats,
+        "stock": {"shipped": 0, "reversed": 0, "skipped": 0, "ok": 0, "settled": 0},
         "message": f"Отправление {pn} удалено из поставки",
     }
 
@@ -7692,8 +7684,8 @@ def move_supply_to_delivering(
 
     No Ozon API calls. Sets non-cancelled awaiting postings ``status``/``tab``
     to ``delivering`` and reconciles their stock (списание с Остатки).
-    Cancelled rows that stay linked to the supply are not stocked — stock
-    moves only when the operator deletes that cancelled order by hand.
+    Cancelled rows (linked or already removed) are never stocked here —
+    Остатки change only for active awaiting→delivering postings.
     Sync later will not regress moved rows while Ozon is still
     ``awaiting_deliver``; when Ozon advances to delivering/delivered, status
     moves forward as usual.
