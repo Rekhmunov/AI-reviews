@@ -43,12 +43,16 @@ def test_certs_ik_js_helpers() -> None:
     assert "certs-ik-label" in APP_JS
     assert "latestDue" in APP_JS
     assert "dueStartYear" in APP_JS
+    assert "is-done" in APP_JS
+    assert "maxCompletedYear + 1" in APP_JS
     assert "navCertsAlertBadge" in APP_JS
     assert "/api/certificates/" in APP_JS and "/ik" in APP_JS
 
 
 def test_certs_ik_styles_and_nav_badge() -> None:
     assert ".certs-ik-line.is-due" in STYLE
+    assert "button.certs-ik-line.is-done" in STYLE
+    assert "background: none !important" in STYLE
     assert ".certs-ik-line .certs-ik-label" in STYLE
     assert "font-size: inherit" in STYLE
     assert ".nav-certs-alert-badge" in STYLE

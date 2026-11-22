@@ -5990,14 +5990,23 @@ body.sst-col-resizing * {
   color: #dc2626;
   font-weight: 600;
 }
+/* Plain text control — must beat global `button` gradient/border/min-height. */
+button.certs-ik-line,
 .certs-ik-line {
+  appearance: none;
+  -webkit-appearance: none;
   display: inline-flex;
   align-items: baseline;
-  gap: 0;
+  gap: 4px;
   margin: 0;
   padding: 0;
-  border: 0;
-  background: none;
+  min-height: 0;
+  height: auto;
+  border: 0 !important;
+  border-radius: 0;
+  background: none !important;
+  background-image: none !important;
+  box-shadow: none !important;
   font: inherit;
   font-size: inherit;
   font-weight: inherit;
@@ -6005,6 +6014,9 @@ body.sst-col-resizing * {
   letter-spacing: inherit;
   color: inherit;
   line-height: inherit;
+  transform: none;
+  cursor: pointer;
+  text-decoration: none;
 }
 .certs-ik-line .certs-ik-date,
 .certs-ik-line .certs-ik-label {
@@ -6020,17 +6032,28 @@ body.sst-col-resizing * {
 button.certs-ik-line.is-due {
   color: #dc2626;
   font-weight: 600;
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
 }
 button.certs-ik-line.is-due:hover {
   color: #b91c1c;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
-button.certs-ik-line.is-due:focus-visible {
-  outline: 2px solid #fca5a5;
+button.certs-ik-line.is-done {
+  color: inherit;
+  font-weight: inherit;
+}
+button.certs-ik-line.is-done:hover {
+  color: #1d4ed8;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+button.certs-ik-line:focus-visible {
+  outline: 2px solid #93c5fd;
   outline-offset: 2px;
   border-radius: 4px;
+}
+button.certs-ik-line.is-due:focus-visible {
+  outline-color: #fca5a5;
 }
 
 .nav-certs-alert-badge {
@@ -17210,6 +17233,78 @@ button.sb-order-cat-btn[aria-expanded="true"] .sb-order-cat-caret {
   font-size: 16px;
   font-weight: 500;
   color: #0f172a;
+}
+.sb-movements-kind-wrap {
+  position: relative;
+  display: inline-flex;
+  max-width: 100%;
+}
+.sb-movements-kind-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.sb-movements-kind-btn:hover .sb-movements-kind,
+.sb-movements-kind-btn:hover .sb-movements-kind-caret {
+  color: #1d4ed8;
+}
+.sb-movements-kind-btn:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.sb-movements-kind-caret {
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 1;
+  color: #64748b;
+}
+.sb-movements-kind-menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 220px;
+  max-width: min(320px, 80vw);
+  padding: 4px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+.sb-movements-kind-option {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #0f172a;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.sb-movements-kind-option:hover,
+.sb-movements-kind-option:focus-visible {
+  background: #eff6ff;
+  color: #1d4ed8;
+  outline: none;
+}
+.sb-movements-kind-option[aria-current="true"] {
+  background: #dbeafe;
+  color: #1e40af;
+  font-weight: 600;
 }
 .sb-movements-meta {
   margin-top: 4px;

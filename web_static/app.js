@@ -17335,12 +17335,16 @@ window.closeSupplyStockWriteoffModal = closeSupplyStockWriteoffModal;
 async function saveSupplyStockWriteoff() {
   const btn = document.getElementById("supplyStockWriteoffSaveBtn");
   const dateEl = document.getElementById("supplyStockWriteoffDate");
+  const kindEl = document.getElementById("supplyStockWriteoffKind");
   _sbSetDocErr("supplyStockWriteoffErr", "");
   const items = _sbCollectWriteoffItemsFromList();
   if (!items.length) {
     _sbSetDocErr("supplyStockWriteoffErr", "Укажите количество хотя бы по одной позиции");
     return;
   }
+  const mode = String(kindEl?.value || "writeoff").trim().toLowerCase() === "sale"
+    ? "sale"
+    : "writeoff";
   if (btn) btn.disabled = true;
   try {
     const res = await fetch("/api/supply-balances/writeoff", {
@@ -17349,6 +17353,7 @@ async function saveSupplyStockWriteoff() {
       body: JSON.stringify({
         date: String(dateEl?.value || ""),
         comment: "",
+        mode,
         items,
       }),
     });
@@ -17356,8 +17361,9 @@ async function saveSupplyStockWriteoff() {
     if (!res.ok) throw new Error(data.detail || "Ошибка сохранения");
     closeSupplyStockWriteoffModal({ force: true });
     await loadSupplyBalancesData();
+    const label = mode === "sale" ? "Продажа сохранена" : "Списание сохранено";
     _sbSetStatus(
-      `Списание сохранено: ${data.saved || 0} · ${_sbFormatDateLabel(data.date)}`,
+      `${label}: ${data.saved || 0} · ${_sbFormatDateLabel(data.date)}`,
       "ok",
     );
   } catch (e) {
@@ -18944,7 +18950,52 @@ function _sbMovementsCountLabel(n) {
   return `${n} движений`;
 }
 
-function _sbRenderMovementRow(m, unit) {
+const _SB_DEFAULT_KIND_OPTIONS = [
+  { kind: "opening", label: "Начальный остаток" },
+  { kind: "receipt", label: "Приход" },
+  { kind: "fbs_ship", label: "Списание FBS" },
+  { kind: "operator_writeoff", label: "Списание оператором" },
+  { kind: "operator_sale", label: "Продажа оператором" },
+  { kind: "adjustment", label: "Корректировка" },
+  { kind: "fbs_reverse", label: "Возврат FBS" },
+];
+
+function _sbSalesKinds() {
+  return new Set(["fbs_ship", "operator_sale"]);
+}
+
+function _sbRenderMovementKindMenu(m, options) {
+  const mid = Number(m && m.id) || 0;
+  if (mid <= 0) {
+    return `<div class="sb-movements-kind">${esc(m.kind_label || m.kind || "Движение")}</div>`;
+  }
+  const current = String(m.kind || "").trim().toLowerCase();
+  const opts = (Array.isArray(options) && options.length ? options : _SB_DEFAULT_KIND_OPTIONS)
+    .map((opt) => {
+      const k = String(opt.kind || "").trim();
+      const label = String(opt.label || k);
+      const selected = k === current ? " aria-current=\"true\"" : "";
+      return (
+        `<button type="button" class="sb-movements-kind-option" role="menuitem"`
+        + ` data-kind="${esc(k)}"${selected}>${esc(label)}</button>`
+      );
+    })
+    .join("");
+  return `<div class="sb-movements-kind-wrap">
+    <button type="button" class="sb-movements-kind-btn" aria-haspopup="menu"
+            aria-expanded="false" data-movement-id="${mid}"
+            title="Сменить тип движения"
+            onclick="toggleSupplyStockMovementKindMenu(event, ${mid})">
+      <span class="sb-movements-kind">${esc(m.kind_label || m.kind || "Движение")}</span>
+      <span class="sb-movements-kind-caret" aria-hidden="true">▾</span>
+    </button>
+    <div class="sb-movements-kind-menu" role="menu" hidden data-movement-id="${mid}">
+      ${opts}
+    </div>
+  </div>`;
+}
+
+function _sbRenderMovementRow(m, unit, kindOptions) {
   const qty = Number(m.qty);
   const qtyClass = !Number.isFinite(qty)
     ? ""
@@ -18957,26 +19008,27 @@ function _sbRenderMovementRow(m, unit) {
   const metaParts = [who, comment];
   if (m && m.outside_window) metaParts.push("раньше выбранного периода");
   const meta = metaParts.filter(Boolean).join(" · ");
-  return `<div class="sb-movements-row">
+  return `<div class="sb-movements-row" data-movement-id="${Number(m.id) || 0}">
     <div class="sb-movements-main">
-      <div class="sb-movements-kind">${esc(m.kind_label || m.kind || "Движение")}</div>
+      ${_sbRenderMovementKindMenu(m, kindOptions)}
       ${meta ? `<div class="sb-movements-meta">${esc(meta)}</div>` : ""}
     </div>
     <div class="sb-movements-qty ${qtyClass}">${esc(qtyText)} <span>${esc(unit)}</span></div>
   </div>`;
 }
 
-/** Day header: receipts/additions and FBS sales separately, not their difference. */
+/** Day header: receipts/additions and sales separately, not their difference. */
 function _sbDayReceiptAndSold(items) {
   let receipt = 0;
   let sold = 0;
+  const salesKinds = _sbSalesKinds();
   for (const m of items || []) {
     const q = Number(m && m.qty);
     if (!Number.isFinite(q) || q === 0) continue;
     const kind = String((m && m.kind) || "").trim().toLowerCase();
     if (q > 0 && (kind === "receipt" || kind === "opening" || kind === "adjustment")) {
       receipt += q;
-    } else if (q < 0 && kind === "fbs_ship") {
+    } else if (q < 0 && salesKinds.has(kind)) {
       sold += -q;
     }
   }
@@ -18993,7 +19045,7 @@ function _sbWindowSoldQty(items) {
   return sold;
 }
 
-function _sbRenderMovementsByDay(items, unit) {
+function _sbRenderMovementsByDay(items, unit, kindOptions) {
   return _sbGroupMovementsByDay(items).map((group) => {
     const { receipt, sold } = _sbDayReceiptAndSold(group.items);
     const parts = [];
@@ -19010,7 +19062,9 @@ function _sbRenderMovementsByDay(items, unit) {
     const nets = parts.length
       ? `<span class="sb-movements-day-nets">${parts.join("")}</span>`
       : "";
-    const rows = group.items.map((m) => _sbRenderMovementRow(m, unit)).join("");
+    const rows = group.items
+      .map((m) => _sbRenderMovementRow(m, unit, kindOptions))
+      .join("");
     return `<details class="sb-movements-day">
       <summary class="sb-movements-day-summary">
         <span class="sb-movements-day-chevron" aria-hidden="true"></span>
@@ -19022,6 +19076,88 @@ function _sbRenderMovementsByDay(items, unit) {
     </details>`;
   }).join("");
 }
+
+const supplyStockMovementsState = {
+  itemType: "",
+  itemId: 0,
+  kindOptions: _SB_DEFAULT_KIND_OPTIONS.slice(),
+};
+
+function closeAllSupplyStockMovementKindMenus() {
+  document.querySelectorAll(".sb-movements-kind-menu:not([hidden])").forEach((el) => {
+    el.hidden = true;
+  });
+  document.querySelectorAll(".sb-movements-kind-btn[aria-expanded='true']").forEach((btn) => {
+    btn.setAttribute("aria-expanded", "false");
+  });
+}
+
+function toggleSupplyStockMovementKindMenu(event, movementId) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  const mid = Number(movementId) || 0;
+  const menu = document.querySelector(
+    `.sb-movements-kind-menu[data-movement-id="${mid}"]`,
+  );
+  const btn = document.querySelector(
+    `.sb-movements-kind-btn[data-movement-id="${mid}"]`,
+  );
+  if (!menu || !btn) return;
+  const willOpen = menu.hidden;
+  closeAllSupplyStockMovementKindMenus();
+  if (!willOpen) return;
+  menu.hidden = false;
+  btn.setAttribute("aria-expanded", "true");
+}
+window.toggleSupplyStockMovementKindMenu = toggleSupplyStockMovementKindMenu;
+
+async function changeSupplyStockMovementKind(movementId, kind) {
+  const mid = Number(movementId) || 0;
+  const nextKind = String(kind || "").trim().toLowerCase();
+  if (!mid || !nextKind) return;
+  closeAllSupplyStockMovementKindMenus();
+  try {
+    const res = await fetch(`/api/supply-balances/movements/${mid}/kind`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ kind: nextKind }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Не удалось сменить тип");
+    const itype = supplyStockMovementsState.itemType;
+    const iid = supplyStockMovementsState.itemId;
+    if (itype && iid) {
+      await openSupplyStockMovementsModal(itype, iid);
+    }
+    // Balance unchanged (qty same); refresh table so min/sold context stays fresh.
+    if (typeof loadSupplyBalancesData === "function") {
+      try { await loadSupplyBalancesData(); } catch (_e) { /* ignore */ }
+    }
+  } catch (e) {
+    alert(String(e.message || e));
+  }
+}
+window.changeSupplyStockMovementKind = changeSupplyStockMovementKind;
+
+document.addEventListener("click", (event) => {
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  const option = target.closest(".sb-movements-kind-option");
+  if (option) {
+    const menu = option.closest(".sb-movements-kind-menu");
+    const mid = Number(menu && menu.getAttribute("data-movement-id")) || 0;
+    const kind = String(option.getAttribute("data-kind") || "");
+    event.preventDefault();
+    event.stopPropagation();
+    changeSupplyStockMovementKind(mid, kind);
+    return;
+  }
+  if (!target.closest(".sb-movements-kind-wrap")) {
+    closeAllSupplyStockMovementKindMenus();
+  }
+});
 
 /** Days window from «Дней продаж» (min-auto). Same setting as auto min_qty. */
 async function _sbResolveMinAutoDays() {
@@ -19050,6 +19186,8 @@ async function openSupplyStockMovementsModal(itemType, itemId) {
   const itype = String(itemType || "").trim().toLowerCase();
   const iid = Number(itemId || 0);
   if (!itype || !iid) return;
+  supplyStockMovementsState.itemType = itype;
+  supplyStockMovementsState.itemId = iid;
   const list = document.getElementById("supplyStockMovementsList");
   const lead = document.getElementById("supplyStockMovementsLead");
   const title = document.getElementById("supplyStockMovementsTitle");
@@ -19083,6 +19221,10 @@ async function openSupplyStockMovementsModal(itemType, itemId) {
     const unit = String(data.unit || "шт");
     const balText = _sbQtyText(data.balance);
     const daysN = Number(data.days || daysWindow) || daysWindow || 14;
+    const kindOptions = Array.isArray(data.kind_options) && data.kind_options.length
+      ? data.kind_options
+      : _SB_DEFAULT_KIND_OPTIONS;
+    supplyStockMovementsState.kindOptions = kindOptions;
     if (title) title.textContent = name || "Журнал движений";
     if (lead) {
       const truncNote = data.truncated
@@ -19111,7 +19253,7 @@ async function openSupplyStockMovementsModal(itemType, itemId) {
       }
       return;
     }
-    if (list) list.innerHTML = _sbRenderMovementsByDay(items, unit);
+    if (list) list.innerHTML = _sbRenderMovementsByDay(items, unit, kindOptions);
   } catch (e) {
     if (lead) lead.textContent = "";
     const rawDetail = e && e.message !== undefined ? e.message : e;
@@ -19128,6 +19270,7 @@ async function openSupplyStockMovementsModal(itemType, itemId) {
 window.openSupplyStockMovementsModal = openSupplyStockMovementsModal;
 
 function closeSupplyStockMovementsModal() {
+  closeAllSupplyStockMovementKindMenus();
   setModalVisibility("supplyStockMovementsModal", false);
 }
 window.closeSupplyStockMovementsModal = closeSupplyStockMovementsModal;
@@ -23887,10 +24030,9 @@ function _certsPlannedIkDate(expiryIso, year) {
 
 /**
  * Stack under expiry:
- * - completed IK dates (normal)
- * - at most one due planned IK line (red): the latest year where
- *   today >= planned and the year is not completed yet
- * Only for certificates; due scan covers current and previous calendar year.
+ * - completed IK dates (clickable to edit)
+ * - at most one due planned IK line (red): next anniversary year after
+ *   the latest completed year, when today >= planned (expiry MD − 3 months)
  */
 function _certsIkStack(c, todayIso = _certsTodayIso()) {
   if (!_certsIsCertificateDoc(c)) return [];
@@ -23900,12 +24042,15 @@ function _certsIkStack(c, todayIso = _certsTodayIso()) {
   if (!Number.isFinite(expiryYear)) return [];
   const completed = _certsParseIkDates(c);
   const todayYear = Number(String(todayIso).slice(0, 4)) || expiryYear;
-  // Do not flood the cell with 10 years of overdue red IK — only recent cycles.
-  const dueStartYear = Math.min(expiryYear, todayYear) - 1;
   const maxCompletedYear = completed.size ? Math.max(...completed.keys()) : null;
+  // After a confirmed year Y, the next candidate is Y+1 (e.g. 2027-09-09).
+  // Until then do not keep showing the same year's planned date in red.
+  const dueStartYear = maxCompletedYear != null
+    ? maxCompletedYear + 1
+    : Math.min(expiryYear, todayYear) - 1;
   const years = new Set();
-  for (let y = dueStartYear; y <= expiryYear; y += 1) years.add(y);
   for (const y of completed.keys()) years.add(y);
+  for (let y = dueStartYear; y <= expiryYear; y += 1) years.add(y);
   const lines = [];
   let latestDue = null;
   for (const year of [...years].sort((a, b) => a - b)) {
@@ -23914,13 +24059,18 @@ function _certsIkStack(c, todayIso = _certsTodayIso()) {
     const planned = _certsPlannedIkDate(expiry, year);
     if (!planned || planned > expiry) continue;
     if (completed.has(year)) {
-      lines.push({ kind: "done", year, date: completed.get(year) });
+      lines.push({
+        kind: "done",
+        year,
+        date: completed.get(year),
+        planned,
+      });
       continue;
     }
-    // After a later year is recorded, do not nag about older gaps.
-    if (maxCompletedYear != null && year < maxCompletedYear) continue;
+    // Never due for a year already completed or earlier than next cycle.
+    if (maxCompletedYear != null && year <= maxCompletedYear) continue;
     if (year >= dueStartYear && String(todayIso) >= planned) {
-      latestDue = { kind: "due", year, date: planned };
+      latestDue = { kind: "due", year, date: planned, planned };
     }
   }
   if (latestDue) lines.push(latestDue);
@@ -23967,15 +24117,21 @@ function _certsExpiryCellHtml(c) {
     ? `<span class="certs-expiry-date is-alert">${esc(expiryDisplay)} ⚠</span>`
     : `<span class="certs-expiry-date">${esc(expiryDisplay)}</span>`;
   const ikLines = _certsIkStack(c).map((line) => {
-    if (line.kind === "done") {
-      return `<div class="certs-ik-line">${esc(line.date)}</div>`;
-    }
+    const planned = String(line.planned || line.date || "").slice(0, 10);
+    const actual = String(line.date || "").slice(0, 10);
+    const isDue = line.kind === "due";
+    const title = isDue
+      ? "Указать дату проведения ИК"
+      : "Изменить дату проведения ИК";
+    const cls = isDue ? "certs-ik-line is-due" : "certs-ik-line is-done";
+    // Due: planned date + (ИК). Done: actual date only (still editable).
+    const body = isDue
+      ? `<span class="certs-ik-date">${esc(actual)}</span><span class="certs-ik-label">(ИК)</span>`
+      : `<span class="certs-ik-date">${esc(actual)}</span>`;
     return (
-      `<button type="button" class="certs-ik-line is-due"`
-      + ` onclick="openCertIkModal(${Number(c.id)}, ${Number(line.year)}, '${esc(line.date)}')"`
-      + ` title="Указать дату проведения ИК">`
-      + `<span class="certs-ik-date">${esc(line.date)}</span>`
-      + `<span class="certs-ik-label"> (ИК)</span></button>`
+      `<button type="button" class="${cls}"`
+      + ` onclick="openCertIkModal(${Number(c.id)}, ${Number(line.year)}, '${esc(planned)}', '${esc(actual)}')"`
+      + ` title="${title}">${body}</button>`
     );
   }).join("");
   return `<div class="certs-expiry-cell">${expiryHtml}${ikLines}</div>`;
@@ -24045,7 +24201,7 @@ function renderCertsTable() {
   }
 }
 
-function openCertIkModal(certId, year, plannedDate) {
+function openCertIkModal(certId, year, plannedDate, existingDate) {
   const id = Number(certId);
   const y = Number(year);
   if (!id || !Number.isFinite(y)) return;
@@ -24053,8 +24209,9 @@ function openCertIkModal(certId, year, plannedDate) {
   document.getElementById("certIkCertId").value = String(id);
   document.getElementById("certIkYear").value = String(y);
   const dateInput = document.getElementById("certIkDate");
+  const existing = String(existingDate || "").slice(0, 10);
   if (dateInput) {
-    dateInput.value = _certsTodayIso();
+    dateInput.value = existing.length === 10 ? existing : _certsTodayIso();
     dateInput.min = "";
     dateInput.max = "";
   }
@@ -24062,9 +24219,13 @@ function openCertIkModal(certId, year, plannedDate) {
   if (hint) {
     const planned = String(plannedDate || _certsPlannedIkDate(c?.expiry_date, y) || "").slice(0, 10);
     const num = c?.number ? ` №${c.number}` : "";
-    hint.textContent = planned
-      ? `Плановый ИК${num}: ${planned}. Укажите фактическую дату проведения.`
-      : `Укажите фактическую дату проведения ИК${num}.`;
+    if (existing.length === 10 && planned) {
+      hint.textContent = `Плановый ИК${num}: ${planned}. Сейчас отмечено: ${existing}. Можно изменить.`;
+    } else if (planned) {
+      hint.textContent = `Плановый ИК${num}: ${planned}. Укажите фактическую дату проведения.`;
+    } else {
+      hint.textContent = `Укажите фактическую дату проведения ИК${num}.`;
+    }
   }
   document.getElementById("certIkModal")?.classList.remove("hidden");
 }
