@@ -3717,15 +3717,32 @@ def refresh_order_statuses_light(
             if oid > 0:
                 by_id[oid] = st
         with repo._connect() as conn:
+            prior_rows = conn.execute(
+                repo._sql(
+                    f"""
+                    SELECT order_id, tab FROM wb_fbs_orders
+                    WHERE user_id = ? AND source_id = ?
+                      AND order_id IN ({", ".join("?" for _ in chunk)})
+                    """
+                ),
+                (user_id, source_id, *chunk),
+            ).fetchall()
+            prior_tab = {
+                int(r["order_id"]): str(r["tab"] or "")
+                for r in prior_rows
+            }
             for oid in chunk:
                 st = by_id.get(oid) or {}
                 ss = str(st.get("supplierStatus") or "").strip()
                 ws = str(st.get("wbStatus") or "").strip()
                 if not ss and not ws:
                     continue
-                tab = compute_tab(
-                    supplier_status=ss,
-                    wb_status=ws,
+                # Same rules as full sync: no portal-complete → delivery,
+                # no local delivery → assembly regression on confirm.
+                tab = resolve_upsert_tab(
+                    local_tab=prior_tab.get(oid) or "",
+                    remote_supplier_status=ss,
+                    remote_wb_status=ws,
                     is_archive=False,
                 )
                 conn.execute(
@@ -7513,11 +7530,19 @@ def preview_collect_mgt(
         )
         buckets.setdefault(key, []).append(o)
 
+    all_open = list_supplies(
+        repo, user_id=user_id, source_id=source_id, only_open=True
+    )
+    # Keep all open titles for name conflicts — including delivering ones
+    # that are not selectable for collect.
+    existing_names = {
+        str(s.get("name") or "").strip()
+        for s in all_open
+        if str(s.get("name") or "").strip()
+    }
     open_supplies = [
         s
-        for s in list_supplies(
-            repo, user_id=user_id, source_id=source_id, only_open=True
-        )
+        for s in all_open
         if not supply_blocked_for_collect(
             repo, user_id=user_id, source_id=source_id, supply=s
         )
@@ -7537,13 +7562,6 @@ def preview_collect_mgt(
             continue
         if int(s.get("cargo_type") or 0) == 1:
             mgt_supplies.append(s)
-
-    # Real open-supply titles only (returned to FE for conflict checks).
-    existing_names = {
-        str(s.get("name") or "").strip()
-        for s in open_supplies
-        if str(s.get("name") or "").strip()
-    }
     # Working set also reserves suggested titles across buckets so groups
     # don't collide — must NOT be leaked into existing_names (that caused a
     # false «поставка уже есть» on the suggested name itself).
