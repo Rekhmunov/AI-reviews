@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 JS = (ROOT / "web_static" / "app.js").read_text(encoding="utf-8")
 CSS = (ROOT / "web_static" / "style.css").read_text(encoding="utf-8")
 HTML = (ROOT / "web_templates" / "app.html").read_text(encoding="utf-8")
+REPO = (ROOT / "review_processor" / "repository.py").read_text(encoding="utf-8")
 
 
 def _extract_certs_ik_helpers() -> str:
@@ -26,6 +27,7 @@ def test_ik_stack_after_confirm_waits_for_next_year(tmp_path: Path) -> None:
     if not shutil.which("node"):
         assert "maxCompletedYear + 1" in JS
         assert "year <= maxCompletedYear" in JS
+        assert "_certsMaxCoveredIkYear" in JS
         return
 
     helpers = _extract_certs_ik_helpers()
@@ -70,7 +72,26 @@ if (openDues.length !== 1 || openDues[0].date !== "2026-09-09" || openDues[0].ye
   console.error("expected single 2026-09-09 due, got", JSON.stringify(openStack));
   process.exit(5);
 }
-console.log(JSON.stringify({ ok: true, nextDues, dones }));
+
+// VarFabrik case: confirmation saved under year 2025 with date 2026-11-19
+// must still close the 2026-09-09 planned due.
+const wrongYear = {
+  doc_type: "Сертификат соответствия",
+  expiry_date: "2030-12-09",
+  ik_dates: [{ year: 2025, date: "2026-11-19" }],
+};
+const fixed = _certsIkStack(wrongYear, "2026-11-22");
+const fixedDues = fixed.filter((x) => x.kind === "due");
+const fixedDones = fixed.filter((x) => x.kind === "done");
+if (fixedDues.length !== 0) {
+  console.error("wrong-year confirm still shows due", JSON.stringify(fixed));
+  process.exit(6);
+}
+if (fixedDones.length !== 1 || fixedDones[0].date !== "2026-11-19") {
+  console.error("expected done 2026-11-19", JSON.stringify(fixed));
+  process.exit(7);
+}
+console.log(JSON.stringify({ ok: true, nextDues, dones, fixed }));
 """,
         encoding="utf-8",
     )
@@ -102,11 +123,29 @@ def test_ik_label_shares_expiry_font() -> None:
     assert 'class="certs-ik-label"' in JS
     assert ".certs-ik-line .certs-ik-label" in CSS
     assert "font-size: inherit" in CSS
-    assert "app.js?v=727" in HTML
-    assert "style.css?v=448" in HTML
+    assert "app.js?v=728" in HTML
 
 
 def test_ui_helpers_mention_next_cycle() -> None:
     assert "latestDue" in JS
     assert "dueStartYear" in JS
     assert "maxCompletedYear + 1" in JS
+    assert "function _certsMaxCoveredIkYear" in JS
+    assert "_certificate_ik_year_covered_by_date" in REPO
+    assert "_certificate_planned_ik_date" in REPO
+
+
+def test_repo_ik_year_cover_repairs_wrong_year() -> None:
+    from review_processor.repository import ReviewRepository
+
+    repo = ReviewRepository.__new__(ReviewRepository)
+    assert (
+        repo._certificate_ik_year_covered_by_date(
+            expiry_date="2030-12-09",
+            date="2026-11-19",
+            year_hint=2025,
+        )
+        == 2026
+    )
+    assert ReviewRepository._certificate_planned_ik_date("2030-12-09", 2026) == "2026-09-09"
+    assert ReviewRepository._certificate_planned_ik_date("2030-12-09", 2027) == "2027-09-09"

@@ -104,5 +104,5 @@ def test_day_sold_js_counts_operator_sale() -> None:
 
 
 def test_cache_bumped() -> None:
-    assert "app.js?v=727" in APP_HTML
+    assert "app.js?v=728" in APP_HTML
     assert "style.css?v=448" in APP_HTML

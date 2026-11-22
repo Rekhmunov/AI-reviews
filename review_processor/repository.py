@@ -12717,6 +12717,73 @@ class ReviewRepository:
             )
         return bool(result.rowcount)
 
+    @staticmethod
+    def _certificate_planned_ik_date(expiry_date: str, year: int) -> str:
+        """Expiry month-day in ``year``, shifted back 3 months (YYYY-MM-DD)."""
+        expiry = str(expiry_date or "").strip()[:10]
+        if len(expiry) != 10:
+            return ""
+        try:
+            y = int(year)
+            em = int(expiry[5:7])
+            ed = int(expiry[8:10])
+        except ValueError:
+            return ""
+        from datetime import date as _date
+
+        month_index = em - 1 - 3
+        py = y + (month_index // 12)
+        pm0 = month_index % 12
+        if pm0 < 0:
+            pm0 += 12
+        try:
+            dim = (_date(py, pm0 + 1, 1) + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+            planned = _date(py, pm0 + 1, min(ed, dim.day))
+        except ValueError:
+            return ""
+        anniversary = f"{y}-{expiry[5:]}"
+        if anniversary > expiry:
+            return ""
+        out = planned.isoformat()
+        if out > expiry:
+            return ""
+        return out
+
+    def _certificate_ik_year_covered_by_date(self, *, expiry_date: str, date: str, year_hint: int) -> int:
+        """Pick anniversary year for an IK confirmation date.
+
+        A confirmation on D covers the latest planned cycle with
+        planned(Y) <= D. Never keep a year earlier than the covered cycle
+        when the date already closes a later planned deadline
+        (repairs year=2025 + date=2026-11-19 → year=2026).
+        """
+        expiry = str(expiry_date or "").strip()[:10]
+        date_s = str(date or "").strip()[:10]
+        try:
+            y_hint = int(year_hint)
+        except (TypeError, ValueError):
+            y_hint = 0
+        if len(expiry) != 10 or len(date_s) != 10:
+            return y_hint if 1990 <= y_hint <= 2100 else 0
+        try:
+            expiry_year = int(expiry[:4])
+            date_year = int(date_s[:4])
+        except ValueError:
+            return y_hint if 1990 <= y_hint <= 2100 else 0
+        covered = y_hint if 1990 <= y_hint <= 2100 else None
+        candidates = [y for y in (y_hint, date_year, expiry_year) if isinstance(y, int) and y > 0]
+        from_y = min(candidates) - 1
+        to_y = max(candidates)
+        for y in range(max(1990, from_y), min(2100, to_y) + 1):
+            planned = self._certificate_planned_ik_date(expiry, y)
+            if not planned:
+                continue
+            if planned <= date_s:
+                covered = y if covered is None else max(int(covered), y)
+        if covered is None:
+            return y_hint if 1990 <= y_hint <= 2100 else 0
+        return int(covered)
+
     def set_certificate_ik_date(self, *, user_id: int, cert_id: int, year: int, date: str) -> dict[str, Any] | None:
         """Record actual IK date for a planned year; returns updated certificate or None."""
         date_s = str(date or "").strip()[:10]
@@ -12729,9 +12796,22 @@ class ReviewRepository:
             ).fetchone()
             if not row:
                 return None
-            current = self._parse_certificate_ik_dates(self._row_to_dict(row).get("ik_dates_json"))
+            row_d = self._row_to_dict(row)
+            current = self._parse_certificate_ik_dates(row_d.get("ik_dates_json"))
+            year_n = self._certificate_ik_year_covered_by_date(
+                expiry_date=str(row_d.get("expiry_date") or ""),
+                date=date_s,
+                year_hint=int(year),
+            )
+            if year_n < 1990 or year_n > 2100:
+                year_n = int(year)
             by_year = {int(item["year"]): str(item["date"]) for item in current}
-            by_year[int(year)] = date_s
+            # If the same confirmation date was stored under an earlier year key,
+            # move it to the covered year so the red due for that cycle disappears.
+            for old_y in list(by_year.keys()):
+                if old_y < year_n and str(by_year.get(old_y) or "") == date_s:
+                    by_year.pop(old_y, None)
+            by_year[int(year_n)] = date_s
             merged = [{"year": y, "date": by_year[y]} for y in sorted(by_year)]
             payload = json.dumps(merged, ensure_ascii=False)
             conn.execute(

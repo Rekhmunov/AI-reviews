@@ -27,7 +27,7 @@ def test_basis_helper_wired_in_api_and_ui() -> None:
     assert "outside_window" in APP_JS
     assert "раньше выбранного периода" in APP_JS
     assert "production_id: Number(supplyBalancesState.productionId" in APP_JS
-    assert "app.js?v=727" in APP_HTML
+    assert "app.js?v=728" in APP_HTML
 
 
 @pytest.mark.skipif(not os.environ.get("APP_DB_URL"), reason="APP_DB_URL required")
