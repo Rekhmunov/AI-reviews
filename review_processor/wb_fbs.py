@@ -121,11 +121,13 @@ def resolve_upsert_tab(
     remote_wb_status: object = "",
     is_archive: bool = False,
 ) -> str:
-    """Pick tab after WB status refresh; never regress local delivery←assembly.
+    """Pick tab after WB status refresh.
 
-    Local «Перенести в доставку» sets ``tab=delivery`` without calling WB.
-    Sync must not bounce those rows back to assembly while WB still reports
-    ``confirm``. Cancelled / archive from WB always win.
+    Local «Перенести в доставку» is the only path onto ``delivery``.
+    Sync must not advance new/assembly → delivery when WB reports
+    ``complete`` (portal move). Also never regress local delivery back to
+    assembly while WB still reports ``confirm``. Cancelled / archive from
+    WB always win; finished may still advance past delivery.
     """
     remote_tab = compute_tab(
         supplier_status=str(remote_supplier_status or ""),
@@ -135,6 +137,10 @@ def resolve_upsert_tab(
     if remote_tab in (TAB_CANCELLED, TAB_ARCHIVE):
         return remote_tab
     old_tab = str(local_tab or "").strip().lower()
+    # Marketplace «complete» alone must not put the supply on «В доставке».
+    if remote_tab == TAB_DELIVERY and old_tab != TAB_DELIVERY:
+        if old_tab in (TAB_NEW, TAB_ASSEMBLY, ""):
+            return old_tab or TAB_ASSEMBLY
     old_rank = tab_pipeline_rank(old_tab)
     new_rank = tab_pipeline_rank(remote_tab)
     if (
@@ -1936,6 +1942,34 @@ def supply_is_in_delivery(
             (user_id, source_id, sid),
         ).fetchone()
     return bool(pinned)
+
+
+def supply_blocked_for_collect(
+    repo: ReviewRepository,
+    *,
+    user_id: int,
+    source_id: int,
+    supply: dict[str, Any],
+) -> bool:
+    """True when collect-MGT must not add orders into this supply.
+
+    Blocked when WB already closed it (``done`` / portal-moved) or when it is
+    already on local «В доставке» (orders or pin).
+    """
+    if bool(supply.get("done")):
+        return True
+    sid = str(supply.get("supply_id") or supply.get("id") or "").strip()
+    if not sid:
+        return True
+    try:
+        src = int(supply.get("source_id") or source_id or 0)
+    except (TypeError, ValueError):
+        src = int(source_id or 0)
+    if src <= 0:
+        return True
+    return supply_is_in_delivery(
+        repo, user_id=user_id, source_id=src, supply_id=sid
+    )
 
 
 def set_supply_driver(
@@ -5032,6 +5066,8 @@ def _supply_list_item_from_group_row(
         "source_id": d.get("source_id"),
         "name": name,
         "done": done,
+        # WB closed/delivered on portal while orders may still be local assembly.
+        "portal_moved": bool(done) if tab_key == TAB_ASSEMBLY else False,
         "cargo_type": cargo_type or 0,
         "cargo_label": cargo_type_label(cargo_type),
         "pickup_allowed": pickup_allowed,
@@ -5674,8 +5710,11 @@ def sync_wb_fbs_source(
                             supply=raw,
                             order_ids=[],
                             boxes=[],
-                            # Pin only when this sync closes a locally open card.
-                            pin_delivery_when_done=need_close,
+                            # Never pin «В доставке» from marketplace done —
+                            # only local «Перенести в доставку» lists there.
+                            # Still store done/scan_dt so assembly shows
+                            # «Перенесена на портале».
+                            pin_delivery_when_done=False,
                         )
                         local_open_ids.discard(sid)
                         local_missing_scan_dt.discard(sid)
@@ -6956,9 +6995,15 @@ def run_auto_collect_mgt_for_owner(
         }
         try:
             preview = preview_collect_mgt(repo, user_id=user_id, source_id=sid)
-            open_supplies = list_supplies(
-                repo, user_id=user_id, source_id=sid, only_open=True
-            )
+            open_supplies = [
+                s
+                for s in list_supplies(
+                    repo, user_id=user_id, source_id=sid, only_open=True
+                )
+                if not supply_blocked_for_collect(
+                    repo, user_id=user_id, source_id=sid, supply=s
+                )
+            ]
             for s in open_supplies:
                 s["order_ids"] = s.get("order_ids") or _parse_json_list(
                     s.get("order_ids_json")
@@ -7468,7 +7513,15 @@ def preview_collect_mgt(
         )
         buckets.setdefault(key, []).append(o)
 
-    open_supplies = list_supplies(repo, user_id=user_id, source_id=source_id, only_open=True)
+    open_supplies = [
+        s
+        for s in list_supplies(
+            repo, user_id=user_id, source_id=source_id, only_open=True
+        )
+        if not supply_blocked_for_collect(
+            repo, user_id=user_id, source_id=source_id, supply=s
+        )
+    ]
     for s in open_supplies:
         s["order_ids"] = s.get("order_ids") or _parse_json_list(s.get("order_ids_json"))
         raw = _parse_json_obj(s.get("raw_json"))
@@ -7716,6 +7769,22 @@ def execute_collect_mgt(
             live_supply = client.get_supply(supply_id)
             if bool(live_supply.get("done")):
                 errors.append(f"{label}: поставка {supply_id} уже закрыта на WB")
+                not_added.extend(live_ids)
+                continue
+            if supply_blocked_for_collect(
+                repo,
+                user_id=user_id,
+                source_id=source_id,
+                supply={
+                    "supply_id": supply_id,
+                    "source_id": source_id,
+                    "done": False,
+                },
+            ):
+                errors.append(
+                    f"{label}: поставка {supply_id} уже в доставке — "
+                    "новые заказы нельзя собрать в неё"
+                )
                 not_added.extend(live_ids)
                 continue
             live_cargo = int(live_supply.get("cargoType") or 0)
@@ -8176,7 +8245,15 @@ def _compatible_supplies_for_traits(
     is_b2b = bool(traits.get("is_b2b"))
     warehouse_id = traits.get("warehouse_id")
     cross_border = traits.get("cross_border_type")
-    open_supplies = list_supplies(repo, user_id=user_id, source_id=source_id, only_open=True)
+    open_supplies = [
+        s
+        for s in list_supplies(
+            repo, user_id=user_id, source_id=source_id, only_open=True
+        )
+        if not supply_blocked_for_collect(
+            repo, user_id=user_id, source_id=source_id, supply=s
+        )
+    ]
     out: list[dict[str, Any]] = []
     for s in open_supplies:
         s["order_ids"] = s.get("order_ids") or _parse_json_list(s.get("order_ids_json"))

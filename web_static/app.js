@@ -38425,6 +38425,14 @@ function renderWbFbsSupplyDetail(data) {
       );
     }
     if (supply.cargo_label) chips.push(`<span class="wb-fbs-sd-chip">${_wbFbsEsc(supply.cargo_label)}</span>`);
+    if (
+      !_wbFbsIsDeliverySuppliesTab()
+      && (supply.portal_moved || supply.done)
+    ) {
+      chips.push(
+        `<span class="wb-fbs-sd-chip wb-fbs-sd-chip-portal-moved" title="На портале Wildberries поставка уже в доставке">Перенесена на портале</span>`
+      );
+    }
     // order_count chip removed — cargo line already shows product count.
     chips.push(`<span class="wb-fbs-sd-chip">Грузоместа ${_wbFbsEsc(supply.boxes_count || 0)}</span>`);
     chips.push(`<span class="wb-fbs-sd-chip">Создана ${_wbFbsEsc(supply.created_date || "—")}</span>`);
@@ -44767,6 +44775,11 @@ function renderWbFbsSuppliesTable() {
     const badges = [];
     if (s.cargo_label) badges.push(`<span class="wb-fbs-badge cargo">${_wbFbsEsc(s.cargo_label)}</span>`);
     if (s.pickup_allowed) badges.push(`<span class="wb-fbs-badge pvz">Можно в ПВЗ</span>`);
+    if (isAssembly && (s.portal_moved || s.done)) {
+      badges.push(
+        `<span class="wb-fbs-badge portal-moved" title="На портале Wildberries поставка уже в доставке">Перенесена на портале</span>`
+      );
+    }
     const createdMeta = s.created_at_wb
       ? `<div class="wb-fbs-order-meta">от ${_wbFbsEsc(_wbFbsFmtDate(s.created_at_wb))}</div>`
       : "";

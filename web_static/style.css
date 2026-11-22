@@ -12974,6 +12974,16 @@ button.wb-fbs-select-all-link:disabled {
   gap: 4px;
   min-width: 0;
 }
+.wb-fbs-badge.portal-moved {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+.wb-fbs-sd-chip.wb-fbs-sd-chip-portal-moved {
+  background: #fef3c7;
+  color: #92400e;
+  border-color: #fde68a;
+}
 .wb-fbs-badge.pvz {
   background: #f1f5f9;
   color: #334155;

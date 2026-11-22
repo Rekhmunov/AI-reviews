@@ -99,12 +99,28 @@ def test_resolve_upsert_keeps_local_delivery_when_wb_still_confirm() -> None:
     )
     assert tab == "delivery"
 
+    # Portal «complete» must NOT auto-advance assembly → delivery.
     tab2 = wb_fbs.resolve_upsert_tab(
         local_tab="assembly",
         remote_supplier_status="complete",
         remote_wb_status="sorted",
     )
-    assert tab2 == "delivery"
+    assert tab2 == "assembly"
+
+    tab_new = wb_fbs.resolve_upsert_tab(
+        local_tab="new",
+        remote_supplier_status="complete",
+        remote_wb_status="sorted",
+    )
+    assert tab_new == "new"
+
+    # Local delivery stays when WB already reports complete.
+    tab_keep = wb_fbs.resolve_upsert_tab(
+        local_tab="delivery",
+        remote_supplier_status="complete",
+        remote_wb_status="sorted",
+    )
+    assert tab_keep == "delivery"
 
     tab3 = wb_fbs.resolve_upsert_tab(
         local_tab="delivery",
