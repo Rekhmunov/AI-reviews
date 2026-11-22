@@ -5990,14 +5990,23 @@ body.sst-col-resizing * {
   color: #dc2626;
   font-weight: 600;
 }
+/* Plain text control — must beat global `button` gradient/border/min-height. */
+button.certs-ik-line,
 .certs-ik-line {
+  appearance: none;
+  -webkit-appearance: none;
   display: inline-flex;
   align-items: baseline;
-  gap: 0;
+  gap: 4px;
   margin: 0;
   padding: 0;
-  border: 0;
-  background: none;
+  min-height: 0;
+  height: auto;
+  border: 0 !important;
+  border-radius: 0;
+  background: none !important;
+  background-image: none !important;
+  box-shadow: none !important;
   font: inherit;
   font-size: inherit;
   font-weight: inherit;
@@ -6005,6 +6014,9 @@ body.sst-col-resizing * {
   letter-spacing: inherit;
   color: inherit;
   line-height: inherit;
+  transform: none;
+  cursor: pointer;
+  text-decoration: none;
 }
 .certs-ik-line .certs-ik-date,
 .certs-ik-line .certs-ik-label {
@@ -6020,17 +6032,28 @@ body.sst-col-resizing * {
 button.certs-ik-line.is-due {
   color: #dc2626;
   font-weight: 600;
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
 }
 button.certs-ik-line.is-due:hover {
   color: #b91c1c;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
-button.certs-ik-line.is-due:focus-visible {
-  outline: 2px solid #fca5a5;
+button.certs-ik-line.is-done {
+  color: inherit;
+  font-weight: inherit;
+}
+button.certs-ik-line.is-done:hover {
+  color: #1d4ed8;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+button.certs-ik-line:focus-visible {
+  outline: 2px solid #93c5fd;
   outline-offset: 2px;
   border-radius: 4px;
+}
+button.certs-ik-line.is-due:focus-visible {
+  outline-color: #fca5a5;
 }
 
 .nav-certs-alert-badge {
