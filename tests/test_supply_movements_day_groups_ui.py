@@ -20,14 +20,16 @@ def test_movements_journal_groups_by_day_collapsed() -> None:
     )[0]
     assert " open>" not in render_fn
     assert 'open="' not in render_fn
-    assert "list.innerHTML = _sbRenderMovementsByDay(items, unit);" in APP_JS
+    assert "_sbRenderMovementsByDay(items, unit, kindOptions)" in APP_JS
+    assert "_sbRenderSupplyStockMovementsList" in APP_JS
     split_fn = APP_JS.split("function _sbDayReceiptAndSold(", 1)[1].split(
         "function _sbRenderMovementsByDay(", 1
     )[0]
     assert 'kind === "receipt"' in split_fn
     assert 'kind === "opening"' in split_fn
     assert 'kind === "adjustment"' in split_fn
-    assert 'kind === "fbs_ship"' in split_fn
+    assert "_sbSalesKinds()" in split_fn
+    assert 'return new Set(["fbs_ship", "operator_sale"])' in APP_JS
     assert "fbs_reverse" not in split_fn
     assert "group.items.reduce" not in render_fn
     assert "sb-movements-day-nets" in render_fn
@@ -39,5 +41,5 @@ def test_movements_day_group_styles_and_cache() -> None:
     assert ".sb-movements-day-summary" in STYLE_CSS
     assert ".sb-movements-day-chevron" in STYLE_CSS
     assert ".sb-movements-day[open]" in STYLE_CSS
-    assert "style.css?v=418" in APP_HTML
-    assert "app.js?v=704" in APP_HTML
+    assert "style.css?v=448" in APP_HTML
+    assert "app.js?v=727" in APP_HTML
