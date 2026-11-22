@@ -40,12 +40,17 @@ def test_certs_ik_js_helpers() -> None:
         assert name in APP_JS
     assert "_certsShiftMonths(anniversary, -3)" in APP_JS
     assert "(ИК)" in APP_JS
+    assert "certs-ik-label" in APP_JS
+    assert "latestDue" in APP_JS
+    assert "dueStartYear" in APP_JS
     assert "navCertsAlertBadge" in APP_JS
     assert "/api/certificates/" in APP_JS and "/ik" in APP_JS
 
 
 def test_certs_ik_styles_and_nav_badge() -> None:
     assert ".certs-ik-line.is-due" in STYLE
+    assert ".certs-ik-line .certs-ik-label" in STYLE
+    assert "font-size: inherit" in STYLE
     assert ".nav-certs-alert-badge" in STYLE
     assert "navCertsAlertBadge" in WEB_PY
     assert "nav-certs-alert-badge" in WEB_PY

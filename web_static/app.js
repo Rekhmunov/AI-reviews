@@ -23888,8 +23888,9 @@ function _certsPlannedIkDate(expiryIso, year) {
 /**
  * Stack under expiry:
  * - completed IK dates (normal)
- * - due planned IK lines (red) when today >= planned and year not completed
- * Only for certificates; years up to expiry year.
+ * - at most one due planned IK line (red): the latest year where
+ *   today >= planned and the year is not completed yet
+ * Only for certificates; due scan covers current and previous calendar year.
  */
 function _certsIkStack(c, todayIso = _certsTodayIso()) {
   if (!_certsIsCertificateDoc(c)) return [];
@@ -23899,11 +23900,14 @@ function _certsIkStack(c, todayIso = _certsTodayIso()) {
   if (!Number.isFinite(expiryYear)) return [];
   const completed = _certsParseIkDates(c);
   const todayYear = Number(String(todayIso).slice(0, 4)) || expiryYear;
-  const startYear = Math.min(expiryYear, todayYear) - 10;
+  // Do not flood the cell with 10 years of overdue red IK — only recent cycles.
+  const dueStartYear = Math.min(expiryYear, todayYear) - 1;
+  const maxCompletedYear = completed.size ? Math.max(...completed.keys()) : null;
   const years = new Set();
-  for (let y = startYear; y <= expiryYear; y += 1) years.add(y);
+  for (let y = dueStartYear; y <= expiryYear; y += 1) years.add(y);
   for (const y of completed.keys()) years.add(y);
   const lines = [];
+  let latestDue = null;
   for (const year of [...years].sort((a, b) => a - b)) {
     const anniversary = `${year}-${expiry.slice(5)}`;
     if (anniversary > expiry) continue;
@@ -23913,10 +23917,14 @@ function _certsIkStack(c, todayIso = _certsTodayIso()) {
       lines.push({ kind: "done", year, date: completed.get(year) });
       continue;
     }
-    if (String(todayIso) >= planned) {
-      lines.push({ kind: "due", year, date: planned });
+    // After a later year is recorded, do not nag about older gaps.
+    if (maxCompletedYear != null && year < maxCompletedYear) continue;
+    if (year >= dueStartYear && String(todayIso) >= planned) {
+      latestDue = { kind: "due", year, date: planned };
     }
   }
+  if (latestDue) lines.push(latestDue);
+  lines.sort((a, b) => a.year - b.year);
   return lines;
 }
 
@@ -23966,7 +23974,8 @@ function _certsExpiryCellHtml(c) {
       `<button type="button" class="certs-ik-line is-due"`
       + ` onclick="openCertIkModal(${Number(c.id)}, ${Number(line.year)}, '${esc(line.date)}')"`
       + ` title="Указать дату проведения ИК">`
-      + `${esc(line.date)} (ИК)</button>`
+      + `<span class="certs-ik-date">${esc(line.date)}</span>`
+      + `<span class="certs-ik-label"> (ИК)</span></button>`
     );
   }).join("");
   return `<div class="certs-expiry-cell">${expiryHtml}${ikLines}</div>`;
