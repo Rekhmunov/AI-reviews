@@ -146,13 +146,32 @@ def _marketplace_date_ymd_expr(*candidates: str) -> str:
     return f"LEFT(COALESCE({', '.join(parts)}), 10)"
 
 
-def supply_window_sold_qty(rows: list[dict[str, Any]]) -> float:
-    """Gross FBS shipments in a journal window (positive = sold).
+# Ledger kinds that count toward sales / min-auto / «Продалось».
+SUPPLY_STOCK_SALES_KINDS = frozenset({"fbs_ship", "operator_sale"})
 
-    Counts ``fbs_ship`` only. Returns (``fbs_reverse``), receipts and
-    adjustments are not included, and rows pulled in from before the
-    window (``outside_window``) are skipped. This is the same total as
-    the red per-day sales figures in the movement modal.
+SUPPLY_STOCK_KIND_LABELS: dict[str, str] = {
+    "opening": "Начальный остаток",
+    "receipt": "Приход",
+    "fbs_ship": "Списание FBS",
+    "operator_writeoff": "Списание оператором",
+    "operator_sale": "Продажа оператором",
+    "adjustment": "Корректировка",
+    "fbs_reverse": "Возврат FBS",
+}
+
+
+def supply_stock_kind_label(kind: object) -> str:
+    key = str(kind or "").strip().lower()
+    return SUPPLY_STOCK_KIND_LABELS.get(key, key or "Движение")
+
+
+def supply_window_sold_qty(rows: list[dict[str, Any]]) -> float:
+    """Gross sales qty in a journal window (positive = sold).
+
+    Counts ``fbs_ship`` and ``operator_sale`` (negative ledger). Returns
+    (``fbs_reverse``), receipts, plain operator write-offs and adjustments
+    are not included; rows from before the window (``outside_window``) are
+    skipped. Same total as the red per-day sales figures in the modal.
     """
     sold = 0.0
     for row in rows or []:
@@ -160,7 +179,8 @@ def supply_window_sold_qty(rows: list[dict[str, Any]]) -> float:
             continue
         if row.get("outside_window"):
             continue
-        if str(row.get("kind") or "").strip().lower() != "fbs_ship":
+        kind = str(row.get("kind") or "").strip().lower()
+        if kind not in SUPPLY_STOCK_SALES_KINDS:
             continue
         try:
             qty = float(row.get("qty") or 0)
@@ -16228,8 +16248,18 @@ class ReviewRepository:
             "adjustment",
             "fbs_reverse",
             "operator_writeoff",
+            "operator_sale",
         }
     )
+    _STOCK_KIND_SOURCE_DEFAULTS = {
+        "opening": "manual_opening",
+        "receipt": "manual_receipt",
+        "adjustment": "manual_adjustment",
+        "operator_writeoff": "manual_writeoff",
+        "operator_sale": "manual_sale",
+        "fbs_ship": "manual_fbs_ship",
+        "fbs_reverse": "manual_fbs_reverse",
+    }
 
     def get_product_id_by_article_map(self, *, user_id: int) -> dict[str, int]:
         """Map supplier_article / wb_nmid (+ casefold) → product_photos.id."""
@@ -16839,10 +16869,12 @@ class ReviewRepository:
         date_to: str,
         marketplace: str = "all",
     ) -> dict[tuple[str, int], float]:
-        """Net FBS sales qty for an inclusive date range (positive = sold).
+        """Net sales qty for an inclusive date range (positive = sold).
 
-        Uses ``fbs_ship`` (negative ledger) and ``fbs_reverse`` (positive).
-        ``marketplace``: ``all`` | ``wb`` | ``ozon`` filters by source_type.
+        Uses ``fbs_ship`` (negative), ``fbs_reverse`` (positive) and
+        ``operator_sale`` (manual sale / negative). ``marketplace``:
+        ``all`` | ``wb`` | ``ozon`` filters FBS rows by source_type;
+        operator sales are always included.
         """
         from_s = str(date_from or "").strip()
         to_s = str(date_to or "").strip()
@@ -16853,15 +16885,26 @@ class ReviewRepository:
         mp = str(marketplace or "all").strip().lower()
         if mp not in {"all", "wb", "ozon"}:
             mp = "all"
-        source_filter = ""
         params: list[object] = [user_id, int(production_id), from_s, to_s]
         if mp == "wb":
-            source_filter = (
-                "AND source_type IN ('wb_fbs_order', 'wb_fbs_order_reverse') "
+            kind_clause = (
+                "AND ("
+                "  (kind IN ('fbs_ship', 'fbs_reverse') "
+                "   AND source_type IN ('wb_fbs_order', 'wb_fbs_order_reverse')) "
+                "  OR kind = 'operator_sale'"
+                ") "
             )
         elif mp == "ozon":
-            source_filter = (
-                "AND source_type IN ('ozon_fbs_posting', 'ozon_fbs_posting_reverse') "
+            kind_clause = (
+                "AND ("
+                "  (kind IN ('fbs_ship', 'fbs_reverse') "
+                "   AND source_type IN ('ozon_fbs_posting', 'ozon_fbs_posting_reverse')) "
+                "  OR kind = 'operator_sale'"
+                ") "
+            )
+        else:
+            kind_clause = (
+                "AND kind IN ('fbs_ship', 'fbs_reverse', 'operator_sale') "
             )
         with self._connect() as conn:
             self._ensure_supply_balances_tables(conn)
@@ -16871,8 +16914,7 @@ class ReviewRepository:
                     "FROM supply_stock_movements "
                     "WHERE user_id = ? AND production_id = ? "
                     "AND movement_date >= ? AND movement_date <= ? "
-                    "AND kind IN ('fbs_ship', 'fbs_reverse') "
-                    f"{source_filter}"
+                    f"{kind_clause}"
                     "GROUP BY item_type, item_id"
                 ),
                 tuple(params),
@@ -16987,6 +17029,68 @@ class ReviewRepository:
                 )
                 saved += max(0, int(getattr(cur, "rowcount", 0) or 0))
         return saved
+
+    def update_supply_stock_movement_kind(
+        self,
+        *,
+        user_id: int,
+        movement_id: int,
+        kind: str,
+    ) -> dict[str, Any] | None:
+        """Change ledger row kind (qty/date stay). Updates manual source_type defaults."""
+        kind_s = str(kind or "").strip().lower()
+        if kind_s not in self._STOCK_KINDS:
+            raise ValueError("Неизвестный тип движения")
+        try:
+            mid = int(movement_id or 0)
+        except (TypeError, ValueError):
+            mid = 0
+        if mid <= 0:
+            raise ValueError("Некорректный id движения")
+        src_default = self._STOCK_KIND_SOURCE_DEFAULTS.get(kind_s, "manual")
+        with self._connect() as conn:
+            self._ensure_supply_balances_tables(conn)
+            row = conn.execute(
+                self._sql(
+                    "SELECT * FROM supply_stock_movements "
+                    "WHERE user_id = ? AND id = ?"
+                ),
+                (user_id, mid),
+            ).fetchone()
+            if not row:
+                return None
+            current = self._row_to_dict(row)
+            cur_kind = str(current.get("kind") or "").strip().lower()
+            if cur_kind == kind_s:
+                return current
+            cur_src = str(current.get("source_type") or "").strip()
+            # Keep marketplace FBS links when switching between fbs_* kinds;
+            # otherwise apply the manual default for the new kind.
+            if kind_s in {"fbs_ship", "fbs_reverse"} and cur_src in {
+                "wb_fbs_order",
+                "wb_fbs_order_reverse",
+                "ozon_fbs_posting",
+                "ozon_fbs_posting_reverse",
+            }:
+                new_src = cur_src
+            else:
+                new_src = src_default
+            conn.execute(
+                self._sql(
+                    "UPDATE supply_stock_movements "
+                    "SET kind = ?, source_type = ? "
+                    "WHERE user_id = ? AND id = ?"
+                ),
+                (kind_s, new_src, user_id, mid),
+            )
+            updated = conn.execute(
+                self._sql(
+                    "SELECT * FROM supply_stock_movements "
+                    "WHERE user_id = ? AND id = ?"
+                ),
+                (user_id, mid),
+            ).fetchone()
+        return self._row_to_dict(updated) if updated else None
 
     def _fbs_stock_ship_counts(
         self, conn, *, user_id: int, order_id: int

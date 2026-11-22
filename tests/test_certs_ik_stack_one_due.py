@@ -89,8 +89,8 @@ def test_ik_label_shares_expiry_font() -> None:
     block = CSS[CSS.find(".certs-ik-line {"): CSS.find("button.certs-ik-line.is-due")]
     assert "font-size: 13px" not in block
     assert "font-size: inherit" in block
-    assert "app.js?v=723" in HTML
-    assert "style.css?v=444" in HTML
+    assert "app.js?v=724" in HTML
+    assert "style.css?v=445" in HTML
 
 
 def test_ui_helpers_mention_one_due() -> None:
