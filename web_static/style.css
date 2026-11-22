@@ -13456,24 +13456,24 @@ button.wb-fbs-select-all-link:disabled {
   padding: 4px 8px;
   margin: 0;
   border-radius: 0 8px 8px 0;
-  border: 1px solid #0039a6;
-  border-left: 1px solid rgba(255, 255, 255, 0.55);
-  background: #0039a6;
+  border: 1px solid #005bff;
+  border-left: 1px solid rgba(255, 255, 255, 0.35);
+  background: #005bff;
   color: #fff;
   box-shadow: none;
   transform: none;
   cursor: pointer;
 }
 .wb-fbs-sd-actions .fbs-move-delivery-caret:hover {
-  background: #002f8a;
-  border-color: #002f8a;
+  background: #0047cc;
+  border-color: #0047cc;
   color: #fff;
   transform: none;
   box-shadow: none;
 }
 .wb-fbs-sd-actions .fbs-move-delivery-caret:active {
-  background: #00266f;
-  border-color: #00266f;
+  background: #0039a6;
+  border-color: #0039a6;
   color: #fff;
   transform: none;
   box-shadow: none;
@@ -13514,8 +13514,8 @@ button.wb-fbs-select-all-link:disabled {
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
-  border-color: #0039a6;
-  background: #0039a6;
+  border-color: #005bff;
+  background: #005bff;
   color: #fff;
 }
 .wb-fbs-sd-actions .fbs-move-delivery-split .wb-fbs-picking-menu {
