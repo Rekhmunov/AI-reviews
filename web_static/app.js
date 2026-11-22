@@ -24182,10 +24182,46 @@ function _certsPlannedIkDate(expiryIso, year) {
 }
 
 /**
+ * Latest anniversary year already covered by recorded IK dates.
+ * Uses both the stored year key and the confirmation date: a date D covers
+ * every planned cycle with planned(Y) <= D (so 2026-11-19 closes 2026-09-09
+ * even if the row was saved under year 2025).
+ */
+function _certsMaxCoveredIkYear(expiryIso, completed) {
+  const expiry = String(expiryIso || "").slice(0, 10);
+  if (expiry.length !== 10 || !(completed instanceof Map) || !completed.size) return null;
+  const expiryYear = Number(expiry.slice(0, 4));
+  if (!Number.isFinite(expiryYear)) return null;
+  let maxYear = null;
+  for (const [year, date] of completed.entries()) {
+    const yStored = Number(year);
+    if (Number.isFinite(yStored)) {
+      maxYear = maxYear == null ? yStored : Math.max(maxYear, yStored);
+    }
+    const dateS = String(date || "").slice(0, 10);
+    if (dateS.length !== 10) continue;
+    const startY = Number.isFinite(yStored) ? Math.min(yStored, expiryYear) : expiryYear;
+    // Walk a small window around the stored year / date year.
+    const dateYear = Number(dateS.slice(0, 4)) || startY;
+    const fromY = Math.min(startY, dateYear) - 1;
+    const toY = Math.max(startY, dateYear, expiryYear);
+    for (let y = fromY; y <= toY; y += 1) {
+      if (y < 1990 || y > 2100) continue;
+      const planned = _certsPlannedIkDate(expiry, y);
+      if (!planned || planned > expiry) continue;
+      if (planned <= dateS) {
+        maxYear = maxYear == null ? y : Math.max(maxYear, y);
+      }
+    }
+  }
+  return maxYear;
+}
+
+/**
  * Stack under expiry:
  * - completed IK dates (clickable to edit)
  * - at most one due planned IK line (red): next anniversary year after
- *   the latest completed year, when today >= planned (expiry MD − 3 months)
+ *   the latest covered cycle, when today >= planned (expiry MD − 3 months)
  */
 function _certsIkStack(c, todayIso = _certsTodayIso()) {
   if (!_certsIsCertificateDoc(c)) return [];
@@ -24195,9 +24231,9 @@ function _certsIkStack(c, todayIso = _certsTodayIso()) {
   if (!Number.isFinite(expiryYear)) return [];
   const completed = _certsParseIkDates(c);
   const todayYear = Number(String(todayIso).slice(0, 4)) || expiryYear;
-  const maxCompletedYear = completed.size ? Math.max(...completed.keys()) : null;
-  // After a confirmed year Y, the next candidate is Y+1 (e.g. 2027-09-09).
-  // Until then do not keep showing the same year's planned date in red.
+  const maxCompletedYear = _certsMaxCoveredIkYear(expiry, completed);
+  // After a covered year Y, the next candidate is Y+1 (e.g. 2027-09-09).
+  // Until then do not keep showing an earlier planned date in red.
   const dueStartYear = maxCompletedYear != null
     ? maxCompletedYear + 1
     : Math.min(expiryYear, todayYear) - 1;
@@ -24220,7 +24256,7 @@ function _certsIkStack(c, todayIso = _certsTodayIso()) {
       });
       continue;
     }
-    // Never due for a year already completed or earlier than next cycle.
+    // Never due for a year already covered or earlier than next cycle.
     if (maxCompletedYear != null && year <= maxCompletedYear) continue;
     if (year >= dueStartYear && String(todayIso) >= planned) {
       latestDue = { kind: "due", year, date: planned, planned };

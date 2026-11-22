@@ -248,7 +248,7 @@ def test_ui_badge_portal_moved() -> None:
     assert "s.portal_moved || s.done" in JS
     assert ".wb-fbs-badge.portal-moved" in CSS
     assert "wb-fbs-sd-chip-portal-moved" in CSS
-    assert "app.js?v=727" in HTML
+    assert "app.js?v=728" in HTML
     assert "style.css?v=448" in HTML
 
 

@@ -69,5 +69,5 @@ def test_split_styles_and_cache_bump() -> None:
         OZ_JS.index("const _OZON_FBS_DETAIL_ACTION_IDS") + 800
     ]
     assert "ozon_fbs.js?v=230" in HTML
-    assert "app.js?v=727" in HTML
+    assert "app.js?v=728" in HTML
     assert "style.css?v=448" in HTML
