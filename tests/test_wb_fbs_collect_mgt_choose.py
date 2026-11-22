@@ -101,6 +101,9 @@ def test_preview_one_mgt_supply_needs_modal(monkeypatch) -> None:
         "_supply_matches_mgt_traits",
         lambda *a, **k: True,
     )
+    monkeypatch.setattr(
+        wb, "supply_blocked_for_collect", lambda *a, **k: False
+    )
 
     preview = wb.preview_collect_mgt(object(), user_id=1, source_id=2)
     assert preview["ok"] is True
