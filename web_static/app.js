@@ -37790,6 +37790,9 @@ function _wbFbsOpenMoveDeliveryConfirm({ deductStock }) {
   const stockLine = wantStock
     ? "<li>Продукция спишется с Остатки прямо сейчас</li>"
     : "<li>Остатки <strong>не</strong> изменятся</li>";
+  const portalLine = wantStock
+    ? "<li>Сразу откроется вкладка портала ВБ (как кнопка «Портал ВБ»)</li>"
+    : "<li>Передача в доставку на портале ВБ — отдельно, кнопкой «Портал ВБ»</li>";
   _wbFbsMoveDeliveryRender("confirm", {
     title: wantStock ? "Перенести в доставку" : "Перенести без списания",
     html: `
@@ -37800,7 +37803,7 @@ function _wbFbsOpenMoveDeliveryConfirm({ deductStock }) {
         <li>На Wildberries ничего не отправится</li>
         <li>${_wbFbsEsc(orderLabel)} заказ(ов) уйдут из «На сборке»</li>
         ${stockLine}
-        <li>Передача в доставку на портале ВБ — отдельно, кнопкой «Портал ВБ»</li>
+        ${portalLine}
       </ul>
     `,
   });
@@ -37845,6 +37848,11 @@ async function confirmWbFbsMoveDelivery() {
     );
     return;
   }
+  // Open blank tab in the click gesture so popup blockers allow portal after await.
+  let portalWin = null;
+  if (deductStock) {
+    portalWin = window.open("about:blank", "_blank");
+  }
   wbFbsMoveDeliveryModalState.busy = true;
   if (confirmBtn) {
     confirmBtn.disabled = true;
@@ -37885,6 +37893,15 @@ async function confirmWbFbsMoveDelivery() {
         stockNote = "Списание с Остатки: будет при следующей попытке / нет производства";
       }
     }
+    if (deductStock) {
+      const opened = _wbFbsOpenSupplyPortalTab(sid, { win: portalWin });
+      portalWin = null;
+      if (!opened) {
+        stockNote = stockNote
+          ? `${stockNote}\nРазрешите всплывающие окна для перехода на портал`
+          : "Разрешите всплывающие окна для перехода на портал";
+      }
+    }
     wbFbsMoveDeliveryModalState.busy = false;
     wbFbsMoveDeliveryModalState.deductStock = true;
     _wbFbsMoveDeliveryNotice(
@@ -37893,12 +37910,19 @@ async function confirmWbFbsMoveDelivery() {
     );
     if (typeof showSyncInfo === "function") showSyncInfo(base, "ok");
   } catch (e) {
+    if (portalWin && !portalWin.closed) {
+      try { portalWin.close(); } catch (_err) { /* ignore */ }
+    }
+    portalWin = null;
     wbFbsMoveDeliveryModalState.busy = false;
     _wbFbsMoveDeliveryNotice(e.message || String(e), {
       title: "Не удалось перенести",
       kind: "error",
     });
   } finally {
+    if (portalWin && !portalWin.closed) {
+      try { portalWin.close(); } catch (_err) { /* ignore */ }
+    }
     wbFbsMoveDeliveryModalState.busy = false;
     if (confirmBtn) {
       confirmBtn.disabled = false;
@@ -38954,6 +38978,35 @@ function wbFbsPrintStickersByCategory() {
 }
 window.wbFbsPrintStickersByCategory = wbFbsPrintStickersByCategory;
 
+function _wbFbsSupplyPortalUrl(supplyId) {
+  const sid = String(supplyId || "").trim();
+  if (!sid) return "";
+  return (
+    "https://seller.wildberries.ru/marketplace-orders-fbs/supply-detail/packaging"
+    + `?supplyID=${encodeURIComponent(sid)}`
+  );
+}
+
+/** Open (or navigate) the seller-portal packaging tab for a supply. */
+function _wbFbsOpenSupplyPortalTab(supplyId, { win = null } = {}) {
+  const url = _wbFbsSupplyPortalUrl(supplyId);
+  if (!url) return false;
+  let target = win && !win.closed ? win : null;
+  if (target) {
+    try {
+      target.opener = null;
+      target.location.href = url;
+      try { target.focus(); } catch (_e) { /* ignore */ }
+      return true;
+    } catch (_e) {
+      try { target.close(); } catch (_err) { /* ignore */ }
+      target = null;
+    }
+  }
+  target = window.open(url, "_blank", "noopener,noreferrer");
+  return !!target;
+}
+
 function openWbFbsSupplyPortal() {
   const btn = document.getElementById("wbFbsSupplyDetailPortalBtn");
   if (btn && btn.getAttribute("aria-disabled") === "true") return;
@@ -38963,11 +39016,9 @@ function openWbFbsSupplyPortal() {
   }
   const sid = String(wbFbsDetailState.supplyId || wbFbsDetailState.supply?.supply_id || "").trim();
   if (!sid) return;
-  const url =
-    "https://seller.wildberries.ru/marketplace-orders-fbs/supply-detail/packaging" +
-    `?supplyID=${encodeURIComponent(sid)}`;
-  const win = window.open(url, "_blank", "noopener,noreferrer");
-  if (!win) alert("Разрешите всплывающие окна для перехода на портал");
+  if (!_wbFbsOpenSupplyPortalTab(sid)) {
+    alert("Разрешите всплывающие окна для перехода на портал");
+  }
 }
 window.openWbFbsSupplyPortal = openWbFbsSupplyPortal;
 
