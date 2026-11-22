@@ -256,3 +256,119 @@ def test_sync_done_supplies_do_not_pin_delivery() -> None:
     src = (ROOT / "review_processor" / "wb_fbs.py").read_text(encoding="utf-8")
     assert "pin_delivery_when_done=False" in src
     assert "pin_delivery_when_done: bool = True" in src
+
+
+def test_refresh_order_statuses_light_uses_resolve_upsert_tab(monkeypatch) -> None:
+    """Light status refresh must not auto-advance assembly → delivery."""
+
+    class _Cur:
+        def __init__(self, rows=None):
+            self._rows = rows or []
+
+        def fetchall(self):
+            return self._rows
+
+        def fetchone(self):
+            return self._rows[0] if self._rows else None
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def execute(self, sql, params=()):
+            sql_s = str(sql)
+            if "SELECT order_id, tab" in sql_s:
+                return _Cur(
+                    [{"order_id": 101, "tab": "assembly"}]
+                )
+            self.last = (sql_s, params)
+            return _Cur()
+
+    class _Repo:
+        def _connect(self):
+            return _Conn()
+
+        def _sql(self, s):
+            return s
+
+    class _Client:
+        def __init__(self, key):
+            pass
+
+        def get_statuses(self, ids):
+            return [
+                {
+                    "id": 101,
+                    "supplierStatus": "complete",
+                    "wbStatus": "sorted",
+                }
+            ]
+
+    captured: list[dict] = []
+
+    def fake_resolve(**kwargs):
+        captured.append(kwargs)
+        return "assembly"
+
+    monkeypatch.setattr(wb_fbs, "WbFbsClient", _Client)
+    monkeypatch.setattr(wb_fbs, "resolve_upsert_tab", fake_resolve)
+    monkeypatch.setattr(wb_fbs, "_utc_now", lambda: "now")
+
+    n = wb_fbs.refresh_order_statuses_light(
+        _Repo(),
+        user_id=1,
+        source_id=2,
+        order_ids=[101],
+        api_key="key",
+    )
+    assert n == 1
+    assert captured
+    assert captured[0]["local_tab"] == "assembly"
+    assert captured[0]["remote_supplier_status"] == "complete"
+
+
+def test_preview_keeps_blocked_supply_names_for_conflicts(monkeypatch) -> None:
+    def fake_orders(repo, *, user_id, source_id):
+        return [
+            {
+                "order_id": 10,
+                "is_b2b": False,
+                "warehouse_id": 1,
+                "cross_border_type": None,
+            }
+        ]
+
+    def fake_supplies(repo, *, user_id, source_id, only_open=True):
+        return [
+            {
+                "supply_id": "WB-DELIV",
+                "name": "Поставка МГТ",
+                "cargo_type": 1,
+                "done": False,
+                "order_ids": [1],
+                "order_ids_json": "[1]",
+                "raw_json": "{}",
+            }
+        ]
+
+    monkeypatch.setattr(wb_fbs, "_load_new_mgt_orders", fake_orders)
+    monkeypatch.setattr(wb_fbs, "list_supplies", fake_supplies)
+    monkeypatch.setattr(wb_fbs, "ensure_wb_fbs_tables", lambda repo: None)
+    monkeypatch.setattr(
+        wb_fbs,
+        "_source_display_name",
+        lambda repo, *, user_id, source_id: "ИП",
+    )
+    monkeypatch.setattr(wb_fbs, "supply_blocked_for_collect", lambda *a, **k: True)
+    monkeypatch.setattr(
+        wb_fbs, "_supply_matches_mgt_traits", lambda *a, **k: True
+    )
+
+    preview = wb_fbs.preview_collect_mgt(object(), user_id=1, source_id=2)
+    assert "Поставка МГТ" in (preview.get("existing_names") or [])
+    # Blocked supply is not offered for collect.
+    group = preview["groups"][0]
+    assert group["compatible_supplies"] == []
