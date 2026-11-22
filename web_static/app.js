@@ -36636,6 +36636,17 @@ const wbFbsDetailState = {
   ordersReady: false,
   /** Tab snapshot at detail open — lock/driver gates use this, not live list tab. */
   openedTab: "",
+  /**
+   * Supply-detail row filter (checkboxes combine).
+   * KIZ-type / filled: both off or both on = no restriction for that facet.
+   * Filled uses the same rules as KIZ + Pick windows (summed for the whole supply).
+   */
+  rowFilter: {
+    withKiz: false,
+    withoutKiz: false,
+    filled: false,
+    empty: false,
+  },
 };
 
 /** Generic % column resizer with per-user localStorage (WB FBS modal tables). */
@@ -36928,6 +36939,107 @@ function _wbFbsSupplyDetailResetSearch() {
   if (search) search.value = "";
 }
 
+function _wbFbsSupplyDetailEmptyRowFilter() {
+  return { withKiz: false, withoutKiz: false, filled: false, empty: false };
+}
+
+function _wbFbsSupplyDetailFilterActive() {
+  const f = wbFbsDetailState.rowFilter || {};
+  return !!(f.withKiz || f.withoutKiz || f.filled || f.empty);
+}
+
+function _wbFbsSyncSupplyDetailFilterUi() {
+  const btn = document.getElementById("wbFbsSupplyDetailFilterBtn");
+  const f = wbFbsDetailState.rowFilter || {};
+  const map = [
+    ["wbFbsSdFilterWithKiz", !!f.withKiz],
+    ["wbFbsSdFilterWithoutKiz", !!f.withoutKiz],
+    ["wbFbsSdFilterFilled", !!f.filled],
+    ["wbFbsSdFilterEmpty", !!f.empty],
+  ];
+  for (const [id, on] of map) {
+    const el = document.getElementById(id);
+    if (el) el.checked = on;
+  }
+  if (btn) {
+    const on = _wbFbsSupplyDetailFilterActive();
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+}
+
+function toggleWbFbsSupplyDetailFilterPanel(forceOrEvent) {
+  const panel = document.getElementById("wbFbsSupplyDetailFilterPanel");
+  const btn = document.getElementById("wbFbsSupplyDetailFilterBtn");
+  if (!panel) return;
+  let show;
+  if (forceOrEvent === true || forceOrEvent === false) {
+    show = forceOrEvent;
+  } else if (forceOrEvent && typeof forceOrEvent === "object" && forceOrEvent.preventDefault) {
+    forceOrEvent.preventDefault();
+    forceOrEvent.stopPropagation();
+    show = panel.hidden;
+  } else {
+    show = panel.hidden;
+  }
+  if (show) {
+    _wbFbsSyncSupplyDetailFilterUi();
+    panel.hidden = false;
+    if (btn) btn.setAttribute("aria-expanded", "true");
+  } else {
+    panel.hidden = true;
+    if (btn) btn.setAttribute("aria-expanded", "false");
+  }
+}
+window.toggleWbFbsSupplyDetailFilterPanel = toggleWbFbsSupplyDetailFilterPanel;
+
+function applyWbFbsSupplyDetailFilter() {
+  wbFbsDetailState.rowFilter = {
+    withKiz: !!document.getElementById("wbFbsSdFilterWithKiz")?.checked,
+    withoutKiz: !!document.getElementById("wbFbsSdFilterWithoutKiz")?.checked,
+    filled: !!document.getElementById("wbFbsSdFilterFilled")?.checked,
+    empty: !!document.getElementById("wbFbsSdFilterEmpty")?.checked,
+  };
+  _wbFbsSyncSupplyDetailFilterUi();
+  toggleWbFbsSupplyDetailFilterPanel(false);
+  renderWbFbsSupplyDetail();
+}
+window.applyWbFbsSupplyDetailFilter = applyWbFbsSupplyDetailFilter;
+
+function resetWbFbsSupplyDetailFilter() {
+  wbFbsDetailState.rowFilter = _wbFbsSupplyDetailEmptyRowFilter();
+  _wbFbsSyncSupplyDetailFilterUi();
+  toggleWbFbsSupplyDetailFilterPanel(false);
+  renderWbFbsSupplyDetail();
+}
+window.resetWbFbsSupplyDetailFilter = resetWbFbsSupplyDetailFilter;
+
+/** Same filled rules as KIZ / Pick modals, summed for the whole supply table. */
+function _wbFbsSupplyDetailRowIsFilled(o) {
+  if (!o) return false;
+  if (o.kiz_required) return !_wbFbsKizRowIsEmpty(o);
+  return _wbFbsPickRowIsComplete(o);
+}
+
+function _wbFbsSupplyDetailRowMatchesFilter(o) {
+  const f = wbFbsDetailState.rowFilter || {};
+  const withKiz = !!f.withKiz;
+  const withoutKiz = !!f.withoutKiz;
+  if (withKiz !== withoutKiz) {
+    const needsKiz = !!o?.kiz_required;
+    if (withKiz && !needsKiz) return false;
+    if (withoutKiz && needsKiz) return false;
+  }
+  const filledOn = !!f.filled;
+  const emptyOn = !!f.empty;
+  if (filledOn !== emptyOn) {
+    const isFilled = _wbFbsSupplyDetailRowIsFilled(o);
+    if (filledOn && !isFilled) return false;
+    if (emptyOn && isFilled) return false;
+  }
+  return true;
+}
+
 function _wbFbsSupplyDetailHideNewWarn() {
   const el = document.getElementById("wbFbsSupplyDetailNewWarn");
   if (el) el.hidden = true;
@@ -36974,12 +37086,15 @@ function closeWbFbsSupplyDetailModal() {
   wbFbsDetailState.trbxRemaining = 0;
   wbFbsDetailState.trbxLoaded = false;
   wbFbsDetailState.trbxLoading = false;
+  wbFbsDetailState.rowFilter = _wbFbsSupplyDetailEmptyRowFilter();
   _wbFbsSupplyDetailSetActionsReady(false);
   _wbFbsKizSplitSetTone("");
   _wbFbsCloseRowMenus();
   _wbFbsClosePickingMenu();
   _wbFbsCloseStickersMenu();
   _wbFbsSupplyDetailResetSearch();
+  toggleWbFbsSupplyDetailFilterPanel(false);
+  _wbFbsSyncSupplyDetailFilterUi();
   _wbFbsSupplyDetailHideNewWarn();
   _wbFbsSyncSupplyDetailReadOnlyMode(false);
   closeWbFbsCreateTrbxModal();
@@ -38316,6 +38431,9 @@ async function openWbFbsSupplyDetailModal(supplyId) {
     pickSplitOpen.style.display = "none";
   }
   _wbFbsSupplyDetailResetSearch();
+  wbFbsDetailState.rowFilter = _wbFbsSupplyDetailEmptyRowFilter();
+  toggleWbFbsSupplyDetailFilterPanel(false);
+  _wbFbsSyncSupplyDetailFilterUi();
   setModalVisibility("wbFbsSupplyDetailModal", true);
   wbFbsSupplyDetailColResizer.init();
   const title = document.getElementById("wbFbsSupplyDetailTitle");
@@ -38472,9 +38590,11 @@ function renderWbFbsSupplyDetail(data) {
     (o) => !String(o?.cancel_reason_label || "").trim()
   );
   const searchQ = document.getElementById("wbFbsSupplyDetailSearchFilter")?.value || "";
-  const orders = String(searchQ || "").trim()
-    ? allOrders.filter((o) => _wbFbsKizRowMatchesSearch(o, searchQ))
-    : allOrders;
+  let orders = allOrders.filter((o) => _wbFbsSupplyDetailRowMatchesFilter(o));
+  if (String(searchQ || "").trim()) {
+    orders = orders.filter((o) => _wbFbsKizRowMatchesSearch(o, searchQ));
+  }
+  _wbFbsSyncSupplyDetailFilterUi();
   const kizSplit = document.getElementById("wbFbsKizSplit");
   if (kizSplit) {
     // Show Маркировка + refresh only when at least one order accepts sgtin/КИЗ.
@@ -45220,6 +45340,14 @@ document.addEventListener("click", (event) => {
   if (!event.target.closest("#wbFbsPickingSplit")) _wbFbsClosePickingMenu();
   if (!event.target.closest("#wbFbsStickersSplit")) _wbFbsCloseStickersMenu();
   if (!event.target.closest("#wbFbsMoveDeliverySplit")) closeWbFbsMoveDeliveryMenu();
+  const sdFilterWrap = document.querySelector(
+    "#wbFbsSupplyDetailModal .wb-fbs-sd-search-filter-wrap"
+  );
+  const sdFilterPanel = document.getElementById("wbFbsSupplyDetailFilterPanel");
+  if (sdFilterWrap && sdFilterPanel && !sdFilterPanel.hidden
+      && !sdFilterWrap.contains(event.target)) {
+    toggleWbFbsSupplyDetailFilterPanel(false);
+  }
   if (event.target.closest(".wb-fbs-row-menu-wrap") || event.target.closest(".wb-fbs-row-menu")) return;
   _wbFbsCloseRowMenus();
 });
@@ -45229,6 +45357,7 @@ document.addEventListener("keydown", (event) => {
     _wbFbsCloseStickersMenu();
     closeWbFbsMoveDeliveryMenu();
     _wbFbsCloseRowMenus();
+    toggleWbFbsSupplyDetailFilterPanel(false);
     const stickersCat = document.getElementById("wbFbsStickersCategoryModal");
     if (stickersCat && !stickersCat.classList.contains("hidden")) {
       closeWbFbsStickersByCategoryModal();
