@@ -49,4 +49,4 @@ def test_confirm_copy_mentions_auto_portal_for_stock() -> None:
 
 
 def test_cache_bump() -> None:
-    assert "app.js?v=723" in HTML
+    assert "app.js?v=725" in HTML

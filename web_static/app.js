@@ -23887,10 +23887,9 @@ function _certsPlannedIkDate(expiryIso, year) {
 
 /**
  * Stack under expiry:
- * - completed IK dates (normal)
- * - at most one due planned IK line (red): the latest year where
- *   today >= planned and the year is not completed yet
- * Only for certificates; due scan covers current and previous calendar year.
+ * - completed IK dates (clickable to edit)
+ * - at most one due planned IK line (red): next anniversary year after
+ *   the latest completed year, when today >= planned (expiry MD − 3 months)
  */
 function _certsIkStack(c, todayIso = _certsTodayIso()) {
   if (!_certsIsCertificateDoc(c)) return [];
@@ -23900,12 +23899,15 @@ function _certsIkStack(c, todayIso = _certsTodayIso()) {
   if (!Number.isFinite(expiryYear)) return [];
   const completed = _certsParseIkDates(c);
   const todayYear = Number(String(todayIso).slice(0, 4)) || expiryYear;
-  // Do not flood the cell with 10 years of overdue red IK — only recent cycles.
-  const dueStartYear = Math.min(expiryYear, todayYear) - 1;
   const maxCompletedYear = completed.size ? Math.max(...completed.keys()) : null;
+  // After a confirmed year Y, the next candidate is Y+1 (e.g. 2027-09-09).
+  // Until then do not keep showing the same year's planned date in red.
+  const dueStartYear = maxCompletedYear != null
+    ? maxCompletedYear + 1
+    : Math.min(expiryYear, todayYear) - 1;
   const years = new Set();
-  for (let y = dueStartYear; y <= expiryYear; y += 1) years.add(y);
   for (const y of completed.keys()) years.add(y);
+  for (let y = dueStartYear; y <= expiryYear; y += 1) years.add(y);
   const lines = [];
   let latestDue = null;
   for (const year of [...years].sort((a, b) => a - b)) {
@@ -23914,13 +23916,18 @@ function _certsIkStack(c, todayIso = _certsTodayIso()) {
     const planned = _certsPlannedIkDate(expiry, year);
     if (!planned || planned > expiry) continue;
     if (completed.has(year)) {
-      lines.push({ kind: "done", year, date: completed.get(year) });
+      lines.push({
+        kind: "done",
+        year,
+        date: completed.get(year),
+        planned,
+      });
       continue;
     }
-    // After a later year is recorded, do not nag about older gaps.
-    if (maxCompletedYear != null && year < maxCompletedYear) continue;
+    // Never due for a year already completed or earlier than next cycle.
+    if (maxCompletedYear != null && year <= maxCompletedYear) continue;
     if (year >= dueStartYear && String(todayIso) >= planned) {
-      latestDue = { kind: "due", year, date: planned };
+      latestDue = { kind: "due", year, date: planned, planned };
     }
   }
   if (latestDue) lines.push(latestDue);
@@ -23967,15 +23974,21 @@ function _certsExpiryCellHtml(c) {
     ? `<span class="certs-expiry-date is-alert">${esc(expiryDisplay)} ⚠</span>`
     : `<span class="certs-expiry-date">${esc(expiryDisplay)}</span>`;
   const ikLines = _certsIkStack(c).map((line) => {
-    if (line.kind === "done") {
-      return `<div class="certs-ik-line">${esc(line.date)}</div>`;
-    }
+    const planned = String(line.planned || line.date || "").slice(0, 10);
+    const actual = String(line.date || "").slice(0, 10);
+    const isDue = line.kind === "due";
+    const title = isDue
+      ? "Указать дату проведения ИК"
+      : "Изменить дату проведения ИК";
+    const cls = isDue ? "certs-ik-line is-due" : "certs-ik-line is-done";
+    // Due: planned date + (ИК). Done: actual date only (still editable).
+    const body = isDue
+      ? `<span class="certs-ik-date">${esc(actual)}</span><span class="certs-ik-label">(ИК)</span>`
+      : `<span class="certs-ik-date">${esc(actual)}</span>`;
     return (
-      `<button type="button" class="certs-ik-line is-due"`
-      + ` onclick="openCertIkModal(${Number(c.id)}, ${Number(line.year)}, '${esc(line.date)}')"`
-      + ` title="Указать дату проведения ИК">`
-      + `<span class="certs-ik-date">${esc(line.date)}</span>`
-      + `<span class="certs-ik-label"> (ИК)</span></button>`
+      `<button type="button" class="${cls}"`
+      + ` onclick="openCertIkModal(${Number(c.id)}, ${Number(line.year)}, '${esc(planned)}', '${esc(actual)}')"`
+      + ` title="${title}">${body}</button>`
     );
   }).join("");
   return `<div class="certs-expiry-cell">${expiryHtml}${ikLines}</div>`;
@@ -24045,7 +24058,7 @@ function renderCertsTable() {
   }
 }
 
-function openCertIkModal(certId, year, plannedDate) {
+function openCertIkModal(certId, year, plannedDate, existingDate) {
   const id = Number(certId);
   const y = Number(year);
   if (!id || !Number.isFinite(y)) return;
@@ -24053,8 +24066,9 @@ function openCertIkModal(certId, year, plannedDate) {
   document.getElementById("certIkCertId").value = String(id);
   document.getElementById("certIkYear").value = String(y);
   const dateInput = document.getElementById("certIkDate");
+  const existing = String(existingDate || "").slice(0, 10);
   if (dateInput) {
-    dateInput.value = _certsTodayIso();
+    dateInput.value = existing.length === 10 ? existing : _certsTodayIso();
     dateInput.min = "";
     dateInput.max = "";
   }
@@ -24062,9 +24076,13 @@ function openCertIkModal(certId, year, plannedDate) {
   if (hint) {
     const planned = String(plannedDate || _certsPlannedIkDate(c?.expiry_date, y) || "").slice(0, 10);
     const num = c?.number ? ` №${c.number}` : "";
-    hint.textContent = planned
-      ? `Плановый ИК${num}: ${planned}. Укажите фактическую дату проведения.`
-      : `Укажите фактическую дату проведения ИК${num}.`;
+    if (existing.length === 10 && planned) {
+      hint.textContent = `Плановый ИК${num}: ${planned}. Сейчас отмечено: ${existing}. Можно изменить.`;
+    } else if (planned) {
+      hint.textContent = `Плановый ИК${num}: ${planned}. Укажите фактическую дату проведения.`;
+    } else {
+      hint.textContent = `Укажите фактическую дату проведения ИК${num}.`;
+    }
   }
   document.getElementById("certIkModal")?.classList.remove("hidden");
 }
