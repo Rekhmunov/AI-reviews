@@ -3754,10 +3754,45 @@
                 <div id="ozonFbsSupplyDetailCargo" class="wb-fbs-sd-cargo wb-fbs-sd-cargo-inline" hidden></div>
                 <div id="ozonFbsSupplyDetailMeta" class="wb-fbs-sd-meta"></div>
                 <div id="ozonFbsSupplyDetailMovedAt" class="wb-fbs-sd-cargo wb-fbs-sd-cargo-inline ozon-fbs-sd-moved" hidden></div>
-                <input id="ozonFbsSupplyDetailSearchFilter" class="wb-fbs-kiz-search" type="search"
-                       placeholder="🔍 Поиск..." autocomplete="off"
-                       title="Поиск по отправлению, названию товара и ШК"
-                       oninput="renderOzonFbsSupplyDetail()" />
+                <div class="ozon-fbs-sd-search-filter-wrap">
+                  <input id="ozonFbsSupplyDetailSearchFilter" class="wb-fbs-kiz-search" type="search"
+                         placeholder="🔍 Поиск..." autocomplete="off"
+                         title="Поиск по отправлению, названию товара и ШК"
+                         oninput="renderOzonFbsSupplyDetail()" />
+                  <button type="button" id="ozonFbsSupplyDetailGmFilterBtn"
+                          class="secondary icon-btn ozon-fbs-sd-gm-filter-btn"
+                          onclick="toggleOzonFbsSupplyDetailGmFilterPanel(event)"
+                          title="Фильтр по грузоместам"
+                          aria-label="Фильтр по грузоместам"
+                          aria-haspopup="true" aria-expanded="false"
+                          aria-controls="ozonFbsSupplyDetailGmFilterPanel">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M4 6h16M7 12h10M10 18h4" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round"/>
+                    </svg>
+                  </button>
+                  <div id="ozonFbsSupplyDetailGmFilterPanel" class="ozon-fbs-sd-gm-filter-panel" hidden
+                       role="dialog" aria-label="Фильтр по грузоместам">
+                    <div class="ozon-fbs-sd-gm-filter-panel-head">
+                      <span class="ozon-fbs-sd-gm-filter-panel-title">Грузоместа</span>
+                      <button type="button" class="icon-btn secondary ozon-fbs-sd-gm-filter-close"
+                              onclick="toggleOzonFbsSupplyDetailGmFilterPanel(false)"
+                              aria-label="Закрыть фильтр">✕</button>
+                    </div>
+                    <label class="ozon-fbs-sd-gm-filter-check" for="ozonFbsSdGmFilterWith">
+                      <input type="checkbox" id="ozonFbsSdGmFilterWith" />
+                      <span>С ГМ</span>
+                    </label>
+                    <label class="ozon-fbs-sd-gm-filter-check" for="ozonFbsSdGmFilterWithout">
+                      <input type="checkbox" id="ozonFbsSdGmFilterWithout" />
+                      <span>Без ГМ</span>
+                    </label>
+                    <div class="ozon-fbs-sd-gm-filter-actions">
+                      <button type="button" onclick="applyOzonFbsSupplyDetailGmFilter()">Применить</button>
+                      <button type="button" class="secondary" onclick="resetOzonFbsSupplyDetailGmFilter()">Сбросить</button>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div class="wb-fbs-sd-actions">
                 <button type="button" class="secondary" id="ozonFbsSupplyDetailCancelledBtn"
@@ -8903,7 +8938,7 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=226"></script>
+  <script src="/static/ozon_fbs.js?v=227"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=38"></script>
   <script src="/static/app.js?v=718"></script>
   <script src="/static/wb_fbs_pvz_returns.js?v=19"></script>

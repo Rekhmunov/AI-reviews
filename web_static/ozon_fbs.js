@@ -75,6 +75,8 @@
     postingTab: null,
     /** False until supply detail (orders) finished loading. */
     ordersReady: false,
+    /** Applied GM filter in supply modal: with / without (both false = all). */
+    gmFilter: { withGm: false, withoutGm: false },
   };
 
   const _OZON_FBS_DETAIL_ACTION_IDS = [
@@ -3042,6 +3044,7 @@
     _ozonFbsClearRuLayoutGuard();
     closeOzonFbsRowMenus();
     _ozonFbsCloseMovedToDeliveringHistory();
+    toggleOzonFbsSupplyDetailGmFilterPanel(false);
     document.getElementById("ozonFbsSupplyDetailModal")?.classList.add("hidden");
     syncSupplyDetailReadOnlyMode(false);
     closeStickersMenu();
@@ -3053,9 +3056,87 @@
     supplyDetailState.supply = null;
     supplyDetailState.selected = new Set();
     supplyDetailState.postingTab = null;
+    supplyDetailState.gmFilter = { withGm: false, withoutGm: false };
+    _ozonFbsSyncSupplyDetailGmFilterUi();
     _ozonFbsSupplyDetailSetActionsReady(false);
     _ozonFbsSyncDriverBtn();
     updateSupplyDetailBottomBar();
+  }
+
+  function _ozonFbsSupplyDetailGmFilterActive() {
+    const f = supplyDetailState.gmFilter || {};
+    return !!(f.withGm || f.withoutGm);
+  }
+
+  function _ozonFbsSyncSupplyDetailGmFilterUi() {
+    const btn = document.getElementById("ozonFbsSupplyDetailGmFilterBtn");
+    const withEl = document.getElementById("ozonFbsSdGmFilterWith");
+    const withoutEl = document.getElementById("ozonFbsSdGmFilterWithout");
+    const f = supplyDetailState.gmFilter || { withGm: false, withoutGm: false };
+    if (withEl) withEl.checked = !!f.withGm;
+    if (withoutEl) withoutEl.checked = !!f.withoutGm;
+    if (btn) {
+      const on = _ozonFbsSupplyDetailGmFilterActive();
+      btn.classList.toggle("is-active", on);
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+    }
+  }
+
+  function toggleOzonFbsSupplyDetailGmFilterPanel(forceOrEvent) {
+    const panel = document.getElementById("ozonFbsSupplyDetailGmFilterPanel");
+    const btn = document.getElementById("ozonFbsSupplyDetailGmFilterBtn");
+    if (!panel) return;
+    let show;
+    if (forceOrEvent === true || forceOrEvent === false) {
+      show = forceOrEvent;
+    } else if (forceOrEvent && typeof forceOrEvent === "object" && forceOrEvent.preventDefault) {
+      forceOrEvent.preventDefault();
+      forceOrEvent.stopPropagation();
+      show = panel.hidden;
+    } else {
+      show = panel.hidden;
+    }
+    if (show) {
+      _ozonFbsSyncSupplyDetailGmFilterUi();
+      panel.hidden = false;
+      if (btn) btn.setAttribute("aria-expanded", "true");
+    } else {
+      panel.hidden = true;
+      if (btn) btn.setAttribute("aria-expanded", "false");
+    }
+  }
+  window.toggleOzonFbsSupplyDetailGmFilterPanel = toggleOzonFbsSupplyDetailGmFilterPanel;
+
+  function applyOzonFbsSupplyDetailGmFilter() {
+    const withEl = document.getElementById("ozonFbsSdGmFilterWith");
+    const withoutEl = document.getElementById("ozonFbsSdGmFilterWithout");
+    supplyDetailState.gmFilter = {
+      withGm: !!(withEl && withEl.checked),
+      withoutGm: !!(withoutEl && withoutEl.checked),
+    };
+    _ozonFbsSyncSupplyDetailGmFilterUi();
+    toggleOzonFbsSupplyDetailGmFilterPanel(false);
+    renderSupplyDetail();
+  }
+  window.applyOzonFbsSupplyDetailGmFilter = applyOzonFbsSupplyDetailGmFilter;
+
+  function resetOzonFbsSupplyDetailGmFilter() {
+    supplyDetailState.gmFilter = { withGm: false, withoutGm: false };
+    _ozonFbsSyncSupplyDetailGmFilterUi();
+    toggleOzonFbsSupplyDetailGmFilterPanel(false);
+    renderSupplyDetail();
+  }
+  window.resetOzonFbsSupplyDetailGmFilter = resetOzonFbsSupplyDetailGmFilter;
+
+  function _ozonFbsSupplyDetailRowMatchesGmFilter(o) {
+    const f = supplyDetailState.gmFilter || {};
+    const withOn = !!f.withGm;
+    const withoutOn = !!f.withoutGm;
+    if (!withOn && !withoutOn) return true;
+    if (withOn && withoutOn) return true;
+    const hasGm = _ozonFbsOrderHasContainer(o);
+    if (withOn) return hasGm;
+    return !hasGm;
   }
 
   function supplyDetailReady() {
@@ -3613,9 +3694,11 @@
     if (!needsPick) _ozonFbsPickSplitSetTone("");
     else _ozonFbsPickSplitSetTone(_ozonFbsPickToneFromSupply(supply));
     const searchQ = String(document.getElementById("ozonFbsSupplyDetailSearchFilter")?.value || "").trim().toLowerCase();
-    const orders = searchQ
-      ? allOrders.filter((o) => _ozonFbsSupplyDetailRowMatchesSearch(o, searchQ))
-      : allOrders;
+    let orders = allOrders.filter((o) => _ozonFbsSupplyDetailRowMatchesGmFilter(o));
+    if (searchQ) {
+      orders = orders.filter((o) => _ozonFbsSupplyDetailRowMatchesSearch(o, searchQ));
+    }
+    _ozonFbsSyncSupplyDetailGmFilterUi();
     if (!tbody) return;
     if (!allOrders.length) {
       tbody.innerHTML = `<tr><td colspan="${detailColspan}" class="wb-fbs-empty">В поставке нет отправлений</td></tr>`;
@@ -3761,6 +3844,9 @@
     supplyDetailState.sourceId = state.sourceId;
     supplyDetailState.selected = new Set();
     supplyDetailState.postingTab = isSuppliesTab() ? String(state.tab || "").trim() : null;
+    supplyDetailState.gmFilter = { withGm: false, withoutGm: false };
+    toggleOzonFbsSupplyDetailGmFilterPanel(false);
+    _ozonFbsSyncSupplyDetailGmFilterUi();
     _ozonFbsSupplyDetailSetActionsReady(false);
     _ozonFbsKizSplitSetTone("");
     _ozonFbsPickSplitSetTone("");
@@ -15218,6 +15304,15 @@
     const wrap = document.querySelector("#ozonFbsFinesModal .ozon-fbs-fines-filter-wrap");
     if (!wrap || wrap.contains(e.target)) return;
     closeOzonFbsFinesFilterMenu();
+  });
+  document.addEventListener("click", (e) => {
+    const wrap = document.querySelector(
+      "#ozonFbsSupplyDetailModal .ozon-fbs-sd-search-filter-wrap"
+    );
+    const panel = document.getElementById("ozonFbsSupplyDetailGmFilterPanel");
+    if (!wrap || !panel || panel.hidden) return;
+    if (wrap.contains(e.target)) return;
+    toggleOzonFbsSupplyDetailGmFilterPanel(false);
   });
   window.openOzonFbsFinesSettingsModal = openOzonFbsFinesSettingsModal;
   window.closeOzonFbsFinesSettingsModal = closeOzonFbsFinesSettingsModal;
