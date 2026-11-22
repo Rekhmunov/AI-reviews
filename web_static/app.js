@@ -37574,10 +37574,53 @@ function _wbFbsRenderMoveDeliveryGateTip(items) {
     `</ul>`;
 }
 
+function _wbFbsSyncMoveDeliveryOwnerMenu() {
+  const caret = document.getElementById("wbFbsMoveDeliveryMenuBtn");
+  if (!caret) return;
+  const show =
+    typeof isTenantOwner === "function"
+    && isTenantOwner()
+    && !_wbFbsIsDeliverySuppliesTab()
+    && !_wbFbsIsSupplyDetailReadOnly();
+  caret.hidden = !show;
+  if (!show) closeWbFbsMoveDeliveryMenu();
+}
+
+function closeWbFbsMoveDeliveryMenu() {
+  const menu = document.getElementById("wbFbsMoveDeliveryMenu");
+  const caret = document.getElementById("wbFbsMoveDeliveryMenuBtn");
+  if (menu) menu.hidden = true;
+  if (caret) caret.setAttribute("aria-expanded", "false");
+}
+
+function toggleWbFbsMoveDeliveryMenu(event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  if (typeof isTenantOwner !== "function" || !isTenantOwner()) return;
+  const caret = document.getElementById("wbFbsMoveDeliveryMenuBtn");
+  if (caret && (caret.hidden || caret.getAttribute("aria-disabled") === "true")) return;
+  if (!_wbFbsCanMoveToDelivery()) {
+    _wbFbsSyncMoveDeliveryBtn();
+    return;
+  }
+  if (typeof _wbFbsClosePickingMenu === "function") _wbFbsClosePickingMenu();
+  if (typeof _wbFbsCloseStickersMenu === "function") _wbFbsCloseStickersMenu();
+  const menu = document.getElementById("wbFbsMoveDeliveryMenu");
+  if (!menu || !caret) return;
+  const willOpen = menu.hidden;
+  menu.hidden = !willOpen;
+  caret.setAttribute("aria-expanded", willOpen ? "true" : "false");
+}
+window.toggleWbFbsMoveDeliveryMenu = toggleWbFbsMoveDeliveryMenu;
+
 function _wbFbsSyncMoveDeliveryBtn() {
   const btn = document.getElementById("wbFbsSupplyDetailMoveDeliveryBtn");
+  const caret = document.getElementById("wbFbsMoveDeliveryMenuBtn");
   const tip = document.getElementById("wbFbsMoveDeliveryGateTip");
   const wrap = document.getElementById("wbFbsMoveDeliveryGateWrap");
+  _wbFbsSyncMoveDeliveryOwnerMenu();
   if (!btn) {
     if (tip) tip.hidden = true;
     return;
@@ -37591,10 +37634,12 @@ function _wbFbsSyncMoveDeliveryBtn() {
       tip.hidden = true;
       tip.innerHTML = "";
     }
+    closeWbFbsMoveDeliveryMenu();
     return;
   }
   if (!_wbFbsSupplyDetailActionsReady() || btn.classList.contains("is-wait-orders")) {
     btn.classList.remove("is-scan-incomplete");
+    if (caret) caret.classList.remove("is-scan-incomplete");
     if (tip) tip.hidden = true;
     return;
   }
@@ -37607,6 +37652,11 @@ function _wbFbsSyncMoveDeliveryBtn() {
     btn.classList.remove("is-scan-incomplete");
     btn.removeAttribute("tabindex");
     btn.setAttribute("title", tipOk);
+    if (caret) {
+      caret.removeAttribute("aria-disabled");
+      caret.classList.remove("is-scan-incomplete");
+      caret.removeAttribute("tabindex");
+    }
     if (tip) {
       tip.hidden = true;
       tip.innerHTML = "";
@@ -37616,12 +37666,18 @@ function _wbFbsSyncMoveDeliveryBtn() {
     btn.classList.add("is-scan-incomplete");
     btn.tabIndex = -1;
     btn.removeAttribute("title");
+    if (caret) {
+      caret.setAttribute("aria-disabled", "true");
+      caret.classList.add("is-scan-incomplete");
+      caret.tabIndex = -1;
+      closeWbFbsMoveDeliveryMenu();
+    }
     _wbFbsRenderMoveDeliveryGateTip(gateItems);
     if (tip) tip.hidden = false;
   }
 }
 
-const wbFbsMoveDeliveryModalState = { mode: "confirm", busy: false };
+const wbFbsMoveDeliveryModalState = { mode: "confirm", busy: false, deductStock: true };
 
 function _wbFbsMoveDeliverySetVisible(show) {
   if (typeof setModalVisibility === "function") {
@@ -37636,6 +37692,7 @@ function _wbFbsMoveDeliverySetVisible(show) {
 function closeWbFbsMoveDeliveryModal() {
   if (wbFbsMoveDeliveryModalState.busy) return;
   wbFbsMoveDeliveryModalState.mode = "confirm";
+  wbFbsMoveDeliveryModalState.deductStock = true;
   _wbFbsMoveDeliverySetVisible(false);
 }
 window.closeWbFbsMoveDeliveryModal = closeWbFbsMoveDeliveryModal;
@@ -37676,7 +37733,8 @@ function _wbFbsMoveDeliveryNotice(message, { title, kind } = {}) {
   });
 }
 
-function moveWbFbsSupplyToDelivery() {
+function _wbFbsOpenMoveDeliveryConfirm({ deductStock }) {
+  closeWbFbsMoveDeliveryMenu();
   const btn = document.getElementById("wbFbsSupplyDetailMoveDeliveryBtn");
   if (btn && btn.getAttribute("aria-disabled") === "true") {
     _wbFbsSyncMoveDeliveryBtn();
@@ -37684,6 +37742,7 @@ function moveWbFbsSupplyToDelivery() {
   }
   const sid = String(wbFbsDetailState.supplyId || "").trim();
   const sourceId = wbFbsState.sourceId;
+  const wantStock = deductStock !== false;
   if (!sid || !sourceId || !_wbFbsSupplyDetailActionsReady()) {
     _wbFbsMoveDeliveryNotice(
       "Откройте поставку и дождитесь загрузки заказов",
@@ -37706,6 +37765,14 @@ function moveWbFbsSupplyToDelivery() {
     );
     return;
   }
+  if (!wantStock && (typeof isTenantOwner !== "function" || !isTenantOwner())) {
+    _wbFbsMoveDeliveryNotice(
+      "Перенос без списания доступен только основному оператору",
+      { title: "Перенести в доставку", kind: "error" }
+    );
+    return;
+  }
+  wbFbsMoveDeliveryModalState.deductStock = wantStock;
   const name = String(
     wbFbsDetailState.supply?.name || wbFbsDetailState.supply?.supply_id || sid
   ).trim();
@@ -37716,22 +37783,34 @@ function moveWbFbsSupplyToDelivery() {
       : 0)
   );
   const orderLabel = orderN > 0 ? String(orderN) : "Все";
+  const stockLine = wantStock
+    ? "<li>Продукция спишется с Остатки прямо сейчас</li>"
+    : "<li>Остатки <strong>не</strong> изменятся</li>";
   _wbFbsMoveDeliveryRender("confirm", {
-    title: "Перенести в доставку",
+    title: wantStock ? "Перенести в доставку" : "Перенести без списания",
     html: `
       <p class="ozon-fbs-move-delivering-lead">
-        Перенести поставку «${_wbFbsEsc(name)}» в «В доставке»?
+        Перенести поставку «${_wbFbsEsc(name)}» в «В доставке»${wantStock ? "" : " без списания Остатки"}?
       </p>
       <ul class="ozon-fbs-move-delivering-list">
         <li>На Wildberries ничего не отправится</li>
         <li>${_wbFbsEsc(orderLabel)} заказ(ов) уйдут из «На сборке»</li>
-        <li>Продукция спишется с Остатки прямо сейчас</li>
+        ${stockLine}
         <li>Передача в доставку на портале ВБ — отдельно, кнопкой «Портал ВБ»</li>
       </ul>
     `,
   });
 }
+
+function moveWbFbsSupplyToDelivery() {
+  _wbFbsOpenMoveDeliveryConfirm({ deductStock: true });
+}
 window.moveWbFbsSupplyToDelivery = moveWbFbsSupplyToDelivery;
+
+function moveWbFbsSupplyToDeliveryNoStock() {
+  _wbFbsOpenMoveDeliveryConfirm({ deductStock: false });
+}
+window.moveWbFbsSupplyToDeliveryNoStock = moveWbFbsSupplyToDeliveryNoStock;
 
 async function confirmWbFbsMoveDelivery() {
   if (wbFbsMoveDeliveryModalState.mode !== "confirm" || wbFbsMoveDeliveryModalState.busy) return;
@@ -37739,6 +37818,7 @@ async function confirmWbFbsMoveDelivery() {
   const sourceId = wbFbsState.sourceId;
   const btn = document.getElementById("wbFbsSupplyDetailMoveDeliveryBtn");
   const confirmBtn = document.getElementById("wbFbsMoveDeliveryConfirmBtn");
+  const deductStock = wbFbsMoveDeliveryModalState.deductStock !== false;
   if (!sid || !sourceId) {
     _wbFbsMoveDeliveryNotice(
       "Откройте поставку и дождитесь загрузки заказов",
@@ -37750,6 +37830,13 @@ async function confirmWbFbsMoveDelivery() {
     _wbFbsSyncMoveDeliveryBtn();
     _wbFbsMoveDeliveryNotice(
       "Сначала выполните все условия: зелёные «Товары с КИЗ» / «Товары без КИЗ» (если нужны) и выбранный водитель",
+      { title: "Перенести в доставку", kind: "error" }
+    );
+    return;
+  }
+  if (!deductStock && (typeof isTenantOwner !== "function" || !isTenantOwner())) {
+    _wbFbsMoveDeliveryNotice(
+      "Перенос без списания доступен только основному оператору",
       { title: "Перенести в доставку", kind: "error" }
     );
     return;
@@ -37766,7 +37853,8 @@ async function confirmWbFbsMoveDelivery() {
   try {
     const res = await fetch(
       `/api/wb-fbs/supplies/${encodeURIComponent(sid)}/move-to-delivery`
-        + `?source_id=${encodeURIComponent(sourceId)}`,
+        + `?source_id=${encodeURIComponent(sourceId)}`
+        + `&deduct_stock=${deductStock ? "true" : "false"}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json", ...jsonHeaders() },
@@ -37783,12 +37871,18 @@ async function confirmWbFbsMoveDelivery() {
     const moved = Number(data.moved || 0);
     const shipped = Number(data.stock?.shipped || 0);
     const base = String(data.message || "Поставка перенесена в «В доставке»");
-    const stockNote = moved > 0
-      ? (shipped > 0
-        ? `Списание с Остатки: записей ${shipped}`
-        : "Списание с Остатки: будет при следующей попытке / нет производства")
-      : "";
+    let stockNote = "";
+    if (moved > 0) {
+      if (!deductStock) {
+        stockNote = "Списание с Остатки: не выполнялось";
+      } else if (shipped > 0) {
+        stockNote = `Списание с Остатки: записей ${shipped}`;
+      } else {
+        stockNote = "Списание с Остатки: будет при следующей попытке / нет производства";
+      }
+    }
     wbFbsMoveDeliveryModalState.busy = false;
+    wbFbsMoveDeliveryModalState.deductStock = true;
     _wbFbsMoveDeliveryNotice(
       stockNote ? `${base}\n${stockNote}` : base,
       { title: "Поставка перенесена", kind: "ok" }
@@ -45048,6 +45142,7 @@ window.wbFbsPrintSelectedSupplyQr = wbFbsPrintSelectedSupplyQr;
 document.addEventListener("click", (event) => {
   if (!event.target.closest("#wbFbsPickingSplit")) _wbFbsClosePickingMenu();
   if (!event.target.closest("#wbFbsStickersSplit")) _wbFbsCloseStickersMenu();
+  if (!event.target.closest("#wbFbsMoveDeliverySplit")) closeWbFbsMoveDeliveryMenu();
   if (event.target.closest(".wb-fbs-row-menu-wrap") || event.target.closest(".wb-fbs-row-menu")) return;
   _wbFbsCloseRowMenus();
 });
@@ -45055,6 +45150,7 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     _wbFbsClosePickingMenu();
     _wbFbsCloseStickersMenu();
+    closeWbFbsMoveDeliveryMenu();
     _wbFbsCloseRowMenus();
     const stickersCat = document.getElementById("wbFbsStickersCategoryModal");
     if (stickersCat && !stickersCat.classList.contains("hidden")) {

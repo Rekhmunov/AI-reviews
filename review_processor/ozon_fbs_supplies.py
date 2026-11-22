@@ -7679,13 +7679,14 @@ def move_supply_to_delivering(
     user_id: int,
     source_id: int,
     supply_id: str,
+    deduct_stock: bool = True,
 ) -> dict[str, Any]:
     """Locally move a supply from «Ожидают отгрузки» to «Доставляются».
 
     No Ozon API calls. Sets non-cancelled awaiting postings ``status``/``tab``
-    to ``delivering`` and reconciles their stock (списание с Остатки).
-    Cancelled rows (linked or already removed) are never stocked here —
-    Остатки change only for active awaiting→delivering postings.
+    to ``delivering``. By default reconciles stock (списание с Остатки).
+    ``deduct_stock=False`` (owner-only API) moves the tab without ledger writes.
+    Cancelled rows (linked or already removed) are never stocked here.
     Sync later will not regress moved rows while Ozon is still
     ``awaiting_deliver``; when Ozon advances to delivering/delivered, status
     moves forward as usual.
@@ -7807,27 +7808,42 @@ def move_supply_to_delivering(
             "ozon fbs delivering_listed pin failed supply=%s: %s", sid, exc
         )
 
-    stock_stats = _reconcile_ozon_fbs_stock_after_local_move(
-        repo, user_id=user_id, postings=list(to_move)
-    )
+    do_stock = bool(deduct_stock)
+    if do_stock:
+        stock_stats = _reconcile_ozon_fbs_stock_after_local_move(
+            repo, user_id=user_id, postings=list(to_move)
+        )
+    else:
+        stock_stats = {
+            "shipped": 0,
+            "reversed": 0,
+            "skipped": 0,
+            "ok": 0,
+            "settled": 0,
+        }
     _log.info(
         "ozon fbs move-to-delivering user=%s source=%s supply=%s moved=%s "
-        "cancelled_stocked=%s stock=%s",
+        "cancelled_stocked=%s deduct_stock=%s stock=%s",
         user_id,
         source_id,
         sid,
         len(to_move),
         0,
+        do_stock,
         stock_stats,
     )
+    msg = f"Перенесено в «Доставляются»: {len(to_move)} отпр."
+    if not do_stock:
+        msg += " (без списания Остатки)"
     return {
         "ok": True,
         "supply_id": sid,
         "moved": len(to_move),
         "already_delivering": 0,
         "stock": stock_stats,
+        "deduct_stock": do_stock,
         "cancelled_stocked": 0,
-        "message": f"Перенесено в «Доставляются»: {len(to_move)} отпр.",
+        "message": msg,
     }
 
 
