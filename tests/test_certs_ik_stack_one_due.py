@@ -102,8 +102,8 @@ def test_ik_label_shares_expiry_font() -> None:
     assert 'class="certs-ik-label"' in JS
     assert ".certs-ik-line .certs-ik-label" in CSS
     assert "font-size: inherit" in CSS
-    assert "app.js?v=726" in HTML
-    assert "style.css?v=447" in HTML
+    assert "app.js?v=727" in HTML
+    assert "style.css?v=448" in HTML
 
 
 def test_ui_helpers_mention_next_cycle() -> None:

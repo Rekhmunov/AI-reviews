@@ -40,7 +40,7 @@ def test_supply_detail_gm_filter_ui_wiring() -> None:
     assert "withKiz" in js
     assert "withoutKiz" in js
     assert "ozon_fbs.js?v=230" in html
-    assert "style.css?v=447" in html
+    assert "style.css?v=448" in html
 
 
 def test_supply_detail_filter_panel_sections() -> None:

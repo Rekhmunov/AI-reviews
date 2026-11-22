@@ -19077,10 +19077,21 @@ function _sbRenderMovementsByDay(items, unit, kindOptions) {
   }).join("");
 }
 
+/** Older chunks appended under the initial «Дней продаж» window. */
+const SB_MOVEMENTS_LOAD_MORE_DAYS = 16;
+
 const supplyStockMovementsState = {
   itemType: "",
   itemId: 0,
+  productionId: 0,
   kindOptions: _SB_DEFAULT_KIND_OPTIONS.slice(),
+  items: [],
+  unit: "шт",
+  dateFrom: "",
+  dateTo: "",
+  daysWindow: 14,
+  hasMore: false,
+  loadingMore: false,
 };
 
 function closeAllSupplyStockMovementKindMenus() {
@@ -19182,10 +19193,71 @@ function _sbDaysWord(n) {
   return "дней";
 }
 
+function _sbMovementsIsoAddDays(iso, deltaDays) {
+  const s = String(iso || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return "";
+  const [y, m, d] = s.split("-").map((x) => Number(x));
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (Number.isNaN(dt.getTime())) return "";
+  dt.setUTCDate(dt.getUTCDate() + Number(deltaDays || 0));
+  const yy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getUTCDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+function _sbResetSupplyStockMovementsState() {
+  supplyStockMovementsState.productionId = 0;
+  supplyStockMovementsState.items = [];
+  supplyStockMovementsState.unit = "шт";
+  supplyStockMovementsState.dateFrom = "";
+  supplyStockMovementsState.dateTo = "";
+  supplyStockMovementsState.daysWindow = 14;
+  supplyStockMovementsState.hasMore = false;
+  supplyStockMovementsState.loadingMore = false;
+  supplyStockMovementsState.kindOptions = _SB_DEFAULT_KIND_OPTIONS.slice();
+}
+
+function _sbRenderSupplyStockMovementsList() {
+  const list = document.getElementById("supplyStockMovementsList");
+  if (!list) return;
+  const st = supplyStockMovementsState;
+  const items = Array.isArray(st.items) ? st.items : [];
+  const unit = String(st.unit || "шт");
+  const kindOptions = Array.isArray(st.kindOptions) && st.kindOptions.length
+    ? st.kindOptions
+    : _SB_DEFAULT_KIND_OPTIONS;
+  const moreDays = SB_MOVEMENTS_LOAD_MORE_DAYS;
+  const parts = [];
+  if (items.length) {
+    parts.push(_sbRenderMovementsByDay(items, unit, kindOptions));
+  } else {
+    const daysN = Number(st.daysWindow) || 14;
+    parts.push(
+      `<div class="sb-doc-empty">Движений за последние ${esc(String(daysN))} дн. нет</div>`,
+    );
+  }
+  if (st.hasMore) {
+    const label = st.loadingMore
+      ? "Загрузка…"
+      : `Подгрузить ещё ${moreDays}`;
+    parts.push(
+      `<div class="sb-movements-load-more">` +
+        `<button type="button" class="secondary sb-movements-load-more-btn"` +
+        ` onclick="loadMoreSupplyStockMovements()"` +
+        `${st.loadingMore ? " disabled" : ""}` +
+        `>${esc(label)}</button>` +
+      `</div>`,
+    );
+  }
+  list.innerHTML = parts.join("");
+}
+
 async function openSupplyStockMovementsModal(itemType, itemId) {
   const itype = String(itemType || "").trim().toLowerCase();
   const iid = Number(itemId || 0);
   if (!itype || !iid) return;
+  _sbResetSupplyStockMovementsState();
   supplyStockMovementsState.itemType = itype;
   supplyStockMovementsState.itemId = iid;
   const list = document.getElementById("supplyStockMovementsList");
@@ -19224,7 +19296,16 @@ async function openSupplyStockMovementsModal(itemType, itemId) {
     const kindOptions = Array.isArray(data.kind_options) && data.kind_options.length
       ? data.kind_options
       : _SB_DEFAULT_KIND_OPTIONS;
+    const items = Array.isArray(data.items) ? data.items : [];
+    supplyStockMovementsState.productionId = Number(data.production_id || pid) || 0;
     supplyStockMovementsState.kindOptions = kindOptions;
+    supplyStockMovementsState.items = items;
+    supplyStockMovementsState.unit = unit;
+    supplyStockMovementsState.dateFrom = String(data.date_from || "").trim();
+    supplyStockMovementsState.dateTo = String(data.date_to || "").trim();
+    supplyStockMovementsState.daysWindow = daysN;
+    supplyStockMovementsState.hasMore = !!data.has_more;
+    supplyStockMovementsState.loadingMore = false;
     if (title) title.textContent = name || "Журнал движений";
     if (lead) {
       const truncNote = data.truncated
@@ -19234,26 +19315,33 @@ async function openSupplyStockMovementsModal(itemType, itemId) {
       const basisNote = basisN > 0
         ? ` Добавлены более ранние приходы/корректировки (${basisN}), из которых сложился текущий остаток.`
         : "";
-      const windowItems = Array.isArray(data.items) ? data.items : [];
-      const soldText = _sbQtyText(_sbWindowSoldQty(windowItems));
+      // Sold stays tied to the initial «Дней продаж» window (not load-more).
+      const soldItems = items.filter((m) => !m?.outside_window);
+      const soldText = _sbQtyText(_sbWindowSoldQty(soldItems.length ? soldItems : items));
       lead.replaceChildren(
         document.createTextNode(`Текущий остаток: ${balText} ${unit}.${basisNote}${truncNote}`),
         document.createElement("br"),
         document.createTextNode(`Продалось за ${daysN} ${_sbDaysWord(daysN)}: ${soldText} ${unit}`),
       );
     }
-    const items = Array.isArray(data.items) ? data.items : [];
     if (!items.length) {
-      if (list) {
-        const balNum = Number(data.balance);
-        const emptyHint = Number.isFinite(balNum) && balNum !== 0
-          ? `Движений за последние ${daysN} дн. нет. Остаток ${balText} ${unit} сложился из более ранних записей — смените период в отчёте «На дату», если нужна полная история.`
-          : `Движений за последние ${daysN} дн. нет`;
-        list.innerHTML = `<div class="sb-doc-empty">${esc(emptyHint)}</div>`;
+      const balNum = Number(data.balance);
+      let emptyHint = `Движений за последние ${daysN} дн. нет`;
+      if (Number.isFinite(balNum) && balNum !== 0) {
+        emptyHint = supplyStockMovementsState.hasMore
+          ? `Движений за последние ${daysN} дн. нет. Остаток ${balText} ${unit} сложился из более ранних записей — можно подгрузить историю ниже.`
+          : `Движений за последние ${daysN} дн. нет. Остаток ${balText} ${unit} сложился из более ранних записей — смените период в отчёте «На дату», если нужна полная история.`;
       }
+      if (list && !supplyStockMovementsState.hasMore) {
+        list.innerHTML = `<div class="sb-doc-empty">${esc(emptyHint)}</div>`;
+        return;
+      }
+      _sbRenderSupplyStockMovementsList();
+      const emptyEl = list && list.querySelector(".sb-doc-empty");
+      if (emptyEl) emptyEl.textContent = emptyHint;
       return;
     }
-    if (list) list.innerHTML = _sbRenderMovementsByDay(items, unit, kindOptions);
+    _sbRenderSupplyStockMovementsList();
   } catch (e) {
     if (lead) lead.textContent = "";
     const rawDetail = e && e.message !== undefined ? e.message : e;
@@ -19269,8 +19357,73 @@ async function openSupplyStockMovementsModal(itemType, itemId) {
 }
 window.openSupplyStockMovementsModal = openSupplyStockMovementsModal;
 
+async function loadMoreSupplyStockMovements() {
+  const st = supplyStockMovementsState;
+  if (st.loadingMore || !st.hasMore) return;
+  const itype = String(st.itemType || "").trim().toLowerCase();
+  const iid = Number(st.itemId || 0);
+  const fromS = String(st.dateFrom || "").trim();
+  if (!itype || !iid || !fromS) return;
+  const dateTo = _sbMovementsIsoAddDays(fromS, -1);
+  if (!dateTo) return;
+  const step = SB_MOVEMENTS_LOAD_MORE_DAYS;
+  const dateFrom = _sbMovementsIsoAddDays(dateTo, -(step - 1));
+  if (!dateFrom) return;
+  st.loadingMore = true;
+  _sbRenderSupplyStockMovementsList();
+  try {
+    const params = new URLSearchParams({
+      item_type: itype,
+      item_id: String(iid),
+      date_from: dateFrom,
+      date_to: dateTo,
+      days: String(step),
+      include_basis: "0",
+    });
+    const pid = Number(st.productionId || supplyBalancesState.productionId || 0);
+    if (pid) params.set("production_id", String(pid));
+    const res = await fetch(`/api/supply-balances/movements?${params.toString()}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const detail = data.detail;
+      const msg = typeof detail === "string"
+        ? detail
+        : (Array.isArray(detail)
+          ? detail.map((x) => (x && (x.msg || x.detail)) || x).join("; ")
+          : "Ошибка загрузки");
+      throw new Error(msg || "Ошибка загрузки");
+    }
+    const incoming = Array.isArray(data.items) ? data.items : [];
+    const seen = new Set(
+      (st.items || []).map((m) => Number(m?.id) || 0).filter((id) => id > 0),
+    );
+    const extra = [];
+    for (const m of incoming) {
+      const mid = Number(m?.id) || 0;
+      if (mid > 0 && seen.has(mid)) continue;
+      if (mid > 0) seen.add(mid);
+      extra.push(m);
+    }
+    // Keep newest-first: existing (newer window) then older chunk.
+    st.items = (st.items || []).concat(extra);
+    st.dateFrom = String(data.date_from || dateFrom).trim() || dateFrom;
+    st.hasMore = !!data.has_more;
+    if (Array.isArray(data.kind_options) && data.kind_options.length) {
+      st.kindOptions = data.kind_options;
+    }
+    if (data.unit) st.unit = String(data.unit);
+  } catch (e) {
+    alert(String(e && e.message ? e.message : e));
+  } finally {
+    st.loadingMore = false;
+    _sbRenderSupplyStockMovementsList();
+  }
+}
+window.loadMoreSupplyStockMovements = loadMoreSupplyStockMovements;
+
 function closeSupplyStockMovementsModal() {
   closeAllSupplyStockMovementKindMenus();
+  _sbResetSupplyStockMovementsState();
   setModalVisibility("supplyStockMovementsModal", false);
 }
 window.closeSupplyStockMovementsModal = closeSupplyStockMovementsModal;

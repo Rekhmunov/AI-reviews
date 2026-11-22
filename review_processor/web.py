@@ -22598,6 +22598,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         date_from: str = "",
         date_to: str = "",
         limit: int = 20000,
+        include_basis: int = 1,
     ) -> dict[str, object]:
         """Read-only ledger journal for one Остатки row.
 
@@ -22605,6 +22606,9 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         UI passes the same «Дней продаж» value as min-auto (1..366).
         ``sold`` is the sum of FBS shipments in that window. Returns are
         not subtracted, so it matches the red per-day sales totals.
+        Load-more older chunks pass ``date_from``/``date_to`` and
+        ``include_basis=0``; ``has_more`` is true when any row is older
+        than ``date_from``.
         """
         user = _require_user(request)
         if not _can_view_supply_stock(user):
@@ -22652,6 +22656,16 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         except (TypeError, ValueError):
             lim = 20000
         lim = max(1, min(lim, 50000))
+        raw_basis = str(include_basis).strip().lower()
+        if raw_basis in {"0", "false", "no", "off"}:
+            want_basis = False
+        elif raw_basis in {"1", "true", "yes", "on"}:
+            want_basis = True
+        else:
+            try:
+                want_basis = int(include_basis) != 0
+            except (TypeError, ValueError):
+                want_basis = True
         name = ""
         unit = "шт"
         found = False
@@ -22699,7 +22713,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         except (TypeError, ValueError):
             bal_num = 0.0
         basis_rows: list[dict] = []
-        if bal_num != 0 and not has_plus_basis:
+        if want_basis and bal_num != 0 and not has_plus_basis:
             seen_ids = {
                 int(r.get("id") or 0)
                 for r in rows
@@ -22716,6 +22730,18 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             )
             if basis_rows:
                 rows = list(rows) + basis_rows
+        from datetime import date as _date
+
+        day_before_from = (_date.fromisoformat(from_s) - timedelta(days=1)).isoformat()
+        older_probe = repository.list_supply_stock_movements_for_item(
+            user_id=owner_id,
+            production_id=pid,
+            item_type=itype,
+            item_id=iid,
+            date_to=day_before_from,
+            limit=1,
+        )
+        has_more = bool(older_probe)
         from .repository import supply_window_sold_qty
 
         sold = supply_window_sold_qty(rows)
@@ -22802,6 +22828,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             "date_to": to_s,
             "days": days_n,
             "basis_added": len(basis_rows),
+            "has_more": has_more,
             "truncated": truncated,
             "limit": lim,
             "kind_options": [
