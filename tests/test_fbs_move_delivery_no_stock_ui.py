@@ -62,6 +62,12 @@ def test_split_styles_and_cache_bump() -> None:
     assert ".fbs-move-delivery-split" in CSS
     assert ".fbs-move-delivery-main" in CSS
     assert ".fbs-move-delivery-caret" in CSS
-    assert "ozon_fbs.js?v=228" in HTML
-    assert "app.js?v=719" in HTML
-    assert "style.css?v=441" in HTML
+    assert "caret.style.display = show ? \"\" : \"none\"" in OZ_JS
+    assert "caret.style.display = show ? \"\" : \"none\"" in WB_JS
+    assert "ozonFbsMoveDeliveringMenuBtn" in OZ_JS[
+        OZ_JS.index("const _OZON_FBS_DETAIL_ACTION_IDS") :
+        OZ_JS.index("const _OZON_FBS_DETAIL_ACTION_IDS") + 800
+    ]
+    assert "ozon_fbs.js?v=229" in HTML
+    assert "app.js?v=720" in HTML
+    assert "style.css?v=442" in HTML

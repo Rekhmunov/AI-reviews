@@ -26,4 +26,4 @@ def test_supply_detail_gm_filter_ui_wiring() -> None:
     assert "function _ozonFbsSupplyDetailRowMatchesGmFilter" in js
     assert "_ozonFbsSupplyDetailRowMatchesGmFilter(o)" in js
     assert "gmFilter" in js
-    assert "ozon_fbs.js?v=228" in html
+    assert "ozon_fbs.js?v=229" in html

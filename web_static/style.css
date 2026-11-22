@@ -13451,33 +13451,45 @@ button.wb-fbs-select-all-link:disabled {
   outline-offset: 2px;
 }
 .wb-fbs-sd-actions .fbs-move-delivery-caret {
-  min-width: 36px;
-  width: 36px;
+  min-width: 40px;
+  width: 40px;
   padding: 4px 8px;
   margin: 0;
   border-radius: 0 8px 8px 0;
-  border: 1px solid #005bff;
-  border-left: 1px solid rgba(255, 255, 255, 0.35);
-  background: #005bff;
+  border: 1px solid #0039a6;
+  border-left: 1px solid rgba(255, 255, 255, 0.55);
+  background: #0039a6;
   color: #fff;
+  box-shadow: none;
+  transform: none;
   cursor: pointer;
 }
 .wb-fbs-sd-actions .fbs-move-delivery-caret:hover {
-  background: #0047cc;
-  border-color: #0047cc;
+  background: #002f8a;
+  border-color: #002f8a;
   color: #fff;
+  transform: none;
+  box-shadow: none;
 }
 .wb-fbs-sd-actions .fbs-move-delivery-caret:active {
-  background: #0039a6;
-  border-color: #0039a6;
+  background: #00266f;
+  border-color: #00266f;
   color: #fff;
+  transform: none;
+  box-shadow: none;
 }
 .wb-fbs-sd-actions .fbs-move-delivery-caret:focus-visible {
   outline: 2px solid #93c5fd;
   outline-offset: 2px;
 }
-.wb-fbs-sd-actions .fbs-move-delivery-caret[hidden] {
+.wb-fbs-sd-actions .fbs-move-delivery-caret[hidden],
+.wb-fbs-sd-actions .fbs-move-delivery-caret[style*="display: none"],
+.wb-fbs-sd-actions .fbs-move-delivery-caret[style*="display:none"] {
   display: none !important;
+}
+.wb-fbs-sd-actions .fbs-move-delivery-caret svg {
+  width: 14px;
+  height: 10px;
 }
 .wb-fbs-sd-actions .fbs-move-delivery-split:not(:has(.fbs-move-delivery-caret:not([hidden]))) .fbs-move-delivery-main {
   border-radius: 8px;
@@ -13485,7 +13497,15 @@ button.wb-fbs-select-all-link:disabled {
 .wb-fbs-sd-actions .fbs-move-delivery-main.is-scan-incomplete,
 .wb-fbs-sd-actions .fbs-move-delivery-main.is-scan-incomplete:hover,
 .wb-fbs-sd-actions .fbs-move-delivery-main.is-scan-incomplete:active,
-.wb-fbs-sd-actions .fbs-move-delivery-main.is-scan-incomplete:focus,
+.wb-fbs-sd-actions .fbs-move-delivery-main.is-scan-incomplete:focus {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+  border-color: #005bff;
+  background: #005bff;
+  color: #fff;
+}
 .wb-fbs-sd-actions .fbs-move-delivery-caret.is-scan-incomplete,
 .wb-fbs-sd-actions .fbs-move-delivery-caret.is-scan-incomplete:hover,
 .wb-fbs-sd-actions .fbs-move-delivery-caret.is-scan-incomplete:active,
@@ -13494,8 +13514,8 @@ button.wb-fbs-select-all-link:disabled {
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
-  border-color: #005bff;
-  background: #005bff;
+  border-color: #0039a6;
+  background: #0039a6;
   color: #fff;
 }
 .wb-fbs-sd-actions .fbs-move-delivery-split .wb-fbs-picking-menu {
@@ -19623,13 +19643,31 @@ button.sb-order-cat-btn[aria-expanded="true"] .sb-order-cat-caret {
     grid-column: 1 / -1;
   }
 
+  #ozonFbsSupplyDetailModal .ozon-fbs-move-gate-wrap {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  #ozonFbsSupplyDetailModal .fbs-move-delivery-split {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+  }
+
+  #ozonFbsSupplyDetailModal .fbs-move-delivery-main {
+    flex: 1 1 auto;
+    min-height: 44px;
+  }
+
   #ozonFbsSupplyDetailModal .wb-fbs-picking-split > .secondary:first-child {
     flex: 1 1 auto;
     min-height: 44px;
   }
 
-  #ozonFbsSupplyDetailModal .wb-fbs-picking-caret {
+  #ozonFbsSupplyDetailModal .wb-fbs-picking-caret,
+  #ozonFbsSupplyDetailModal .fbs-move-delivery-caret {
     min-width: 44px;
+    width: 44px;
     min-height: 44px;
   }
 
@@ -20661,9 +20699,27 @@ button.sb-order-cat-btn[aria-expanded="true"] .sb-order-cat-caret {
   }
   #wbFbsSupplyDetailModal .wb-fbs-sd-actions > button,
   #wbFbsSupplyDetailModal .wb-fbs-sd-actions > .wb-fbs-picking-split,
-  #wbFbsSupplyDetailModal .wb-fbs-sd-actions > .wb-fbs-kiz-split {
+  #wbFbsSupplyDetailModal .wb-fbs-sd-actions > .wb-fbs-kiz-split,
+  #wbFbsSupplyDetailModal .wb-fbs-sd-actions > .ozon-fbs-move-gate-wrap {
     min-height: 44px;
     width: 100%;
+  }
+  #wbFbsSupplyDetailModal .ozon-fbs-move-gate-wrap {
+    grid-column: 1 / -1;
+  }
+  #wbFbsSupplyDetailModal .fbs-move-delivery-split {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+  }
+  #wbFbsSupplyDetailModal .fbs-move-delivery-main {
+    flex: 1 1 auto;
+    min-height: 44px;
+  }
+  #wbFbsSupplyDetailModal .fbs-move-delivery-caret {
+    min-width: 44px;
+    width: 44px;
+    min-height: 44px;
   }
   #wbFbsSupplyDetailModal .wb-fbs-sd-actions > button,
   #wbFbsSupplyDetailModal .wb-fbs-picking-split > .secondary:first-child,
