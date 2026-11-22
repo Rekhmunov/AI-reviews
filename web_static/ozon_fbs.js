@@ -75,8 +75,19 @@
     postingTab: null,
     /** False until supply detail (orders) finished loading. */
     ordersReady: false,
-    /** Applied GM filter in supply modal: with / without (both false = all). */
-    gmFilter: { withGm: false, withoutGm: false },
+    /**
+     * Supply-detail row filter (checkboxes combine).
+     * GM / KIZ-type / filled: both off or both on = no restriction for that facet.
+     * Filled uses the same rules as KIZ + Pick windows (summed for the whole supply).
+     */
+    gmFilter: {
+      withGm: false,
+      withoutGm: false,
+      withKiz: false,
+      withoutKiz: false,
+      filled: false,
+      empty: false,
+    },
   };
 
   const _OZON_FBS_DETAIL_ACTION_IDS = [
@@ -3057,7 +3068,14 @@
     supplyDetailState.supply = null;
     supplyDetailState.selected = new Set();
     supplyDetailState.postingTab = null;
-    supplyDetailState.gmFilter = { withGm: false, withoutGm: false };
+    supplyDetailState.gmFilter = {
+      withGm: false,
+      withoutGm: false,
+      withKiz: false,
+      withoutKiz: false,
+      filled: false,
+      empty: false,
+    };
     _ozonFbsSyncSupplyDetailGmFilterUi();
     _ozonFbsSupplyDetailSetActionsReady(false);
     _ozonFbsSyncDriverBtn();
@@ -3066,16 +3084,31 @@
 
   function _ozonFbsSupplyDetailGmFilterActive() {
     const f = supplyDetailState.gmFilter || {};
-    return !!(f.withGm || f.withoutGm);
+    return !!(
+      f.withGm
+      || f.withoutGm
+      || f.withKiz
+      || f.withoutKiz
+      || f.filled
+      || f.empty
+    );
   }
 
   function _ozonFbsSyncSupplyDetailGmFilterUi() {
     const btn = document.getElementById("ozonFbsSupplyDetailGmFilterBtn");
-    const withEl = document.getElementById("ozonFbsSdGmFilterWith");
-    const withoutEl = document.getElementById("ozonFbsSdGmFilterWithout");
-    const f = supplyDetailState.gmFilter || { withGm: false, withoutGm: false };
-    if (withEl) withEl.checked = !!f.withGm;
-    if (withoutEl) withoutEl.checked = !!f.withoutGm;
+    const f = supplyDetailState.gmFilter || {};
+    const map = [
+      ["ozonFbsSdGmFilterWith", !!f.withGm],
+      ["ozonFbsSdGmFilterWithout", !!f.withoutGm],
+      ["ozonFbsSdFilterWithKiz", !!f.withKiz],
+      ["ozonFbsSdFilterWithoutKiz", !!f.withoutKiz],
+      ["ozonFbsSdFilterFilled", !!f.filled],
+      ["ozonFbsSdFilterEmpty", !!f.empty],
+    ];
+    for (const [id, on] of map) {
+      const el = document.getElementById(id);
+      if (el) el.checked = on;
+    }
     if (btn) {
       const on = _ozonFbsSupplyDetailGmFilterActive();
       btn.classList.toggle("is-active", on);
@@ -3109,11 +3142,13 @@
   window.toggleOzonFbsSupplyDetailGmFilterPanel = toggleOzonFbsSupplyDetailGmFilterPanel;
 
   function applyOzonFbsSupplyDetailGmFilter() {
-    const withEl = document.getElementById("ozonFbsSdGmFilterWith");
-    const withoutEl = document.getElementById("ozonFbsSdGmFilterWithout");
     supplyDetailState.gmFilter = {
-      withGm: !!(withEl && withEl.checked),
-      withoutGm: !!(withoutEl && withoutEl.checked),
+      withGm: !!document.getElementById("ozonFbsSdGmFilterWith")?.checked,
+      withoutGm: !!document.getElementById("ozonFbsSdGmFilterWithout")?.checked,
+      withKiz: !!document.getElementById("ozonFbsSdFilterWithKiz")?.checked,
+      withoutKiz: !!document.getElementById("ozonFbsSdFilterWithoutKiz")?.checked,
+      filled: !!document.getElementById("ozonFbsSdFilterFilled")?.checked,
+      empty: !!document.getElementById("ozonFbsSdFilterEmpty")?.checked,
     };
     _ozonFbsSyncSupplyDetailGmFilterUi();
     toggleOzonFbsSupplyDetailGmFilterPanel(false);
@@ -3122,22 +3157,51 @@
   window.applyOzonFbsSupplyDetailGmFilter = applyOzonFbsSupplyDetailGmFilter;
 
   function resetOzonFbsSupplyDetailGmFilter() {
-    supplyDetailState.gmFilter = { withGm: false, withoutGm: false };
+    supplyDetailState.gmFilter = {
+      withGm: false,
+      withoutGm: false,
+      withKiz: false,
+      withoutKiz: false,
+      filled: false,
+      empty: false,
+    };
     _ozonFbsSyncSupplyDetailGmFilterUi();
     toggleOzonFbsSupplyDetailGmFilterPanel(false);
     renderSupplyDetail();
   }
   window.resetOzonFbsSupplyDetailGmFilter = resetOzonFbsSupplyDetailGmFilter;
 
+  /** Same filled rules as KIZ / Pick modals, summed for the whole supply table. */
+  function _ozonFbsSupplyDetailRowIsFilled(o) {
+    if (!o) return false;
+    if (o.kiz_required) return _ozonFbsKizRowFilled(o);
+    return _ozonFbsPickRowPickOk(o);
+  }
+
   function _ozonFbsSupplyDetailRowMatchesGmFilter(o) {
     const f = supplyDetailState.gmFilter || {};
-    const withOn = !!f.withGm;
-    const withoutOn = !!f.withoutGm;
-    if (!withOn && !withoutOn) return true;
-    if (withOn && withoutOn) return true;
-    const hasGm = _ozonFbsOrderHasContainer(o);
-    if (withOn) return hasGm;
-    return !hasGm;
+    const withGm = !!f.withGm;
+    const withoutGm = !!f.withoutGm;
+    if (withGm !== withoutGm) {
+      const hasGm = _ozonFbsOrderHasContainer(o);
+      if (withGm && !hasGm) return false;
+      if (withoutGm && hasGm) return false;
+    }
+    const withKiz = !!f.withKiz;
+    const withoutKiz = !!f.withoutKiz;
+    if (withKiz !== withoutKiz) {
+      const needsKiz = !!o?.kiz_required;
+      if (withKiz && !needsKiz) return false;
+      if (withoutKiz && needsKiz) return false;
+    }
+    const filledOn = !!f.filled;
+    const emptyOn = !!f.empty;
+    if (filledOn !== emptyOn) {
+      const isFilled = _ozonFbsSupplyDetailRowIsFilled(o);
+      if (filledOn && !isFilled) return false;
+      if (emptyOn && isFilled) return false;
+    }
+    return true;
   }
 
   function supplyDetailReady() {
@@ -3845,7 +3909,14 @@
     supplyDetailState.sourceId = state.sourceId;
     supplyDetailState.selected = new Set();
     supplyDetailState.postingTab = isSuppliesTab() ? String(state.tab || "").trim() : null;
-    supplyDetailState.gmFilter = { withGm: false, withoutGm: false };
+    supplyDetailState.gmFilter = {
+      withGm: false,
+      withoutGm: false,
+      withKiz: false,
+      withoutKiz: false,
+      filled: false,
+      empty: false,
+    };
     toggleOzonFbsSupplyDetailGmFilterPanel(false);
     _ozonFbsSyncSupplyDetailGmFilterUi();
     _ozonFbsSupplyDetailSetActionsReady(false);

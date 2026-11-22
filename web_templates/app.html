@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=446" />
+  <link rel="stylesheet" href="/static/style.css?v=447" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2200,10 +2200,63 @@
               <div class="wb-fbs-sd-meta-row">
                 <div id="wbFbsSupplyDetailMeta" class="wb-fbs-sd-meta"></div>
                 <div id="wbFbsSupplyDetailCargo" class="wb-fbs-sd-cargo wb-fbs-sd-cargo-inline" hidden></div>
-                <input id="wbFbsSupplyDetailSearchFilter" class="wb-fbs-kiz-search" type="search"
-                       placeholder="🔍 Поиск..." autocomplete="off"
-                       title="Поиск по заказу, стикеру, названию товара и ШК"
-                       oninput="renderWbFbsSupplyDetail()" />
+                <div class="wb-fbs-sd-search-filter-wrap">
+                  <input id="wbFbsSupplyDetailSearchFilter" class="wb-fbs-kiz-search" type="search"
+                         placeholder="🔍 Поиск..." autocomplete="off"
+                         title="Поиск по заказу, стикеру, названию товара и ШК"
+                         oninput="renderWbFbsSupplyDetail()" />
+                  <button type="button" id="wbFbsSupplyDetailFilterBtn"
+                          class="secondary icon-btn wb-fbs-sd-filter-btn"
+                          onclick="toggleWbFbsSupplyDetailFilterPanel(event)"
+                          title="Фильтр заказов"
+                          aria-label="Фильтр заказов"
+                          aria-haspopup="true" aria-expanded="false"
+                          aria-controls="wbFbsSupplyDetailFilterPanel">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M4 6h16M7 12h10M10 18h4" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round"/>
+                    </svg>
+                  </button>
+                  <div id="wbFbsSupplyDetailFilterPanel" class="wb-fbs-sd-filter-panel" hidden
+                       role="dialog" aria-label="Фильтр заказов">
+                    <div class="wb-fbs-sd-filter-panel-head">
+                      <span class="wb-fbs-sd-filter-panel-title">Фильтр</span>
+                      <button type="button" class="icon-btn secondary wb-fbs-sd-filter-close"
+                              onclick="toggleWbFbsSupplyDetailFilterPanel(false)"
+                              aria-label="Закрыть фильтр">✕</button>
+                    </div>
+                    <div class="wb-fbs-sd-filter-section">
+                      <div class="wb-fbs-sd-filter-section-title">Товары</div>
+                      <div class="wb-fbs-sd-filter-checks">
+                        <label class="wb-fbs-sd-filter-check" for="wbFbsSdFilterWithKiz">
+                          <input type="checkbox" id="wbFbsSdFilterWithKiz" />
+                          <span>С КИЗ</span>
+                        </label>
+                        <label class="wb-fbs-sd-filter-check" for="wbFbsSdFilterWithoutKiz">
+                          <input type="checkbox" id="wbFbsSdFilterWithoutKiz" />
+                          <span>Без КИЗ</span>
+                        </label>
+                      </div>
+                    </div>
+                    <div class="wb-fbs-sd-filter-section">
+                      <div class="wb-fbs-sd-filter-section-title">Заполнение</div>
+                      <div class="wb-fbs-sd-filter-checks">
+                        <label class="wb-fbs-sd-filter-check" for="wbFbsSdFilterFilled">
+                          <input type="checkbox" id="wbFbsSdFilterFilled" />
+                          <span>Заполненные</span>
+                        </label>
+                        <label class="wb-fbs-sd-filter-check" for="wbFbsSdFilterEmpty">
+                          <input type="checkbox" id="wbFbsSdFilterEmpty" />
+                          <span>Незаполненные</span>
+                        </label>
+                      </div>
+                    </div>
+                    <div class="wb-fbs-sd-filter-actions">
+                      <button type="button" onclick="applyWbFbsSupplyDetailFilter()">Применить</button>
+                      <button type="button" class="secondary" onclick="resetWbFbsSupplyDetailFilter()">Сбросить</button>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div class="wb-fbs-sd-actions">
                 <button type="button" class="secondary" id="wbFbsSupplyDetailCancelledBtn"
@@ -3785,8 +3838,8 @@
                   <button type="button" id="ozonFbsSupplyDetailGmFilterBtn"
                           class="secondary icon-btn ozon-fbs-sd-gm-filter-btn"
                           onclick="toggleOzonFbsSupplyDetailGmFilterPanel(event)"
-                          title="Фильтр по грузоместам"
-                          aria-label="Фильтр по грузоместам"
+                          title="Фильтр отправлений"
+                          aria-label="Фильтр отправлений"
                           aria-haspopup="true" aria-expanded="false"
                           aria-controls="ozonFbsSupplyDetailGmFilterPanel">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -3795,21 +3848,52 @@
                     </svg>
                   </button>
                   <div id="ozonFbsSupplyDetailGmFilterPanel" class="ozon-fbs-sd-gm-filter-panel" hidden
-                       role="dialog" aria-label="Фильтр по грузоместам">
+                       role="dialog" aria-label="Фильтр отправлений">
                     <div class="ozon-fbs-sd-gm-filter-panel-head">
-                      <span class="ozon-fbs-sd-gm-filter-panel-title">Грузоместа</span>
+                      <span class="ozon-fbs-sd-gm-filter-panel-title">Фильтр</span>
                       <button type="button" class="icon-btn secondary ozon-fbs-sd-gm-filter-close"
                               onclick="toggleOzonFbsSupplyDetailGmFilterPanel(false)"
                               aria-label="Закрыть фильтр">✕</button>
                     </div>
-                    <label class="ozon-fbs-sd-gm-filter-check" for="ozonFbsSdGmFilterWith">
-                      <input type="checkbox" id="ozonFbsSdGmFilterWith" />
-                      <span>С ГМ</span>
-                    </label>
-                    <label class="ozon-fbs-sd-gm-filter-check" for="ozonFbsSdGmFilterWithout">
-                      <input type="checkbox" id="ozonFbsSdGmFilterWithout" />
-                      <span>Без ГМ</span>
-                    </label>
+                    <div class="ozon-fbs-sd-filter-section">
+                      <div class="ozon-fbs-sd-filter-section-title">Грузоместа</div>
+                      <div class="ozon-fbs-sd-filter-checks">
+                        <label class="ozon-fbs-sd-gm-filter-check" for="ozonFbsSdGmFilterWith">
+                          <input type="checkbox" id="ozonFbsSdGmFilterWith" />
+                          <span>С ГМ</span>
+                        </label>
+                        <label class="ozon-fbs-sd-gm-filter-check" for="ozonFbsSdGmFilterWithout">
+                          <input type="checkbox" id="ozonFbsSdGmFilterWithout" />
+                          <span>Без ГМ</span>
+                        </label>
+                      </div>
+                    </div>
+                    <div class="ozon-fbs-sd-filter-section">
+                      <div class="ozon-fbs-sd-filter-section-title">Товары</div>
+                      <div class="ozon-fbs-sd-filter-checks">
+                        <label class="ozon-fbs-sd-gm-filter-check" for="ozonFbsSdFilterWithKiz">
+                          <input type="checkbox" id="ozonFbsSdFilterWithKiz" />
+                          <span>С КИЗ</span>
+                        </label>
+                        <label class="ozon-fbs-sd-gm-filter-check" for="ozonFbsSdFilterWithoutKiz">
+                          <input type="checkbox" id="ozonFbsSdFilterWithoutKiz" />
+                          <span>Без КИЗ</span>
+                        </label>
+                      </div>
+                    </div>
+                    <div class="ozon-fbs-sd-filter-section">
+                      <div class="ozon-fbs-sd-filter-section-title">Заполнение</div>
+                      <div class="ozon-fbs-sd-filter-checks">
+                        <label class="ozon-fbs-sd-gm-filter-check" for="ozonFbsSdFilterFilled">
+                          <input type="checkbox" id="ozonFbsSdFilterFilled" />
+                          <span>Заполненные</span>
+                        </label>
+                        <label class="ozon-fbs-sd-gm-filter-check" for="ozonFbsSdFilterEmpty">
+                          <input type="checkbox" id="ozonFbsSdFilterEmpty" />
+                          <span>Незаполненные</span>
+                        </label>
+                      </div>
+                    </div>
                     <div class="ozon-fbs-sd-gm-filter-actions">
                       <button type="button" onclick="applyOzonFbsSupplyDetailGmFilter()">Применить</button>
                       <button type="button" class="secondary" onclick="resetOzonFbsSupplyDetailGmFilter()">Сбросить</button>
@@ -8985,9 +9069,9 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=229"></script>
+  <script src="/static/ozon_fbs.js?v=230"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=38"></script>
-  <script src="/static/app.js?v=725"></script>
+  <script src="/static/app.js?v=726"></script>
   <script src="/static/wb_fbs_pvz_returns.js?v=19"></script>
   <script src="/static/ozon_fbs_pvz_returns.js?v=2"></script>
 </body>
