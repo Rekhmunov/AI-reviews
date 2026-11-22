@@ -35,6 +35,7 @@ def test_writeoff_modal_markup() -> None:
     assert start > 0 and end > start
     block = APP_HTML[start:end]
     assert 'value="writeoff">Списание<' in block
+    assert 'value="sale">Продажа<' in block
     assert 'id="supplyStockWriteoffDate"' in block
     assert "Импорт" not in block
     assert 'id="supplyStockWriteoffSearch"' in block
@@ -53,15 +54,17 @@ def test_writeoff_js_wiring() -> None:
 
 def test_operator_writeoff_kind_in_backend() -> None:
     assert '"operator_writeoff"' in REPO_PY
-    assert 'kind="operator_writeoff"' in WEB_PY
-    assert '"Списание оператором"' in WEB_PY
-    assert WEB_PY.count('"Списание оператором"') >= 2
+    assert "operator_writeoff" in WEB_PY
+    assert "operator_sale" in WEB_PY
+    assert "Списание оператором" in REPO_PY
+    assert "Продажа оператором" in REPO_PY
     assert '@app.post("/api/supply-balances/writeoff")' in WEB_PY
     assert "qty\": -abs(float(line[\"qty\"]))" in WEB_PY or "qty\": -abs" in WEB_PY
 
 
 def test_app_js_cache_bump() -> None:
-    assert "app.js?v=704" in APP_HTML
+    assert "app.js?v=724" in APP_HTML
+    assert "style.css?v=445" in APP_HTML
 
 
 def test_add_supply_stock_movements_accepts_operator_writeoff() -> None:

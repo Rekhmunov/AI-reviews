@@ -129,7 +129,7 @@ def test_ozon_gm_still_mandatory_when_binds_exist() -> None:
 
 
 def test_cache_bumped() -> None:
-    assert "app.js?v=723" in HTML
-    assert "style.css?v=444" in HTML
+    assert "app.js?v=724" in HTML
+    assert "style.css?v=445" in HTML
     assert ".ozon-fbs-move-gate-tip" in CSS
     assert "button.wb-fbs-sd-portal-btn.is-scan-incomplete" in CSS
