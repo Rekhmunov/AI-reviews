@@ -93,6 +93,7 @@
     "ozonFbsSupplyDetailCancelledBtn",
     "ozonFbsSupplyDetailDriverBtn",
     "ozonFbsSupplyDetailMoveDeliveringBtn",
+    "ozonFbsMoveDeliveringMenuBtn",
   ];
 
   const ozonFbsCancelledState = {
@@ -5237,6 +5238,7 @@
     _ozonFbsSyncOwnerOnlyNewStickersBtn();
     _ozonFbsSyncOwnerOnlyAllCancellationsBtn();
     _ozonFbsSyncOwnerOnlyFinesBtn();
+    _ozonFbsSyncMoveDeliveringOwnerMenu();
     syncTableMode();
     initColumnResizer();
     ozonFbsSupplyDetailColResizer.init();
@@ -10887,11 +10889,12 @@
   function _ozonFbsSyncMoveDeliveringOwnerMenu() {
     const caret = document.getElementById("ozonFbsMoveDeliveringMenuBtn");
     if (!caret) return;
-    const show =
-      _ozonFbsIsTenantOwner()
-      && !isDeliveringSuppliesTab()
-      && !isSupplyDetailReadOnly();
+    const moveBtn = document.getElementById("ozonFbsSupplyDetailMoveDeliveringBtn");
+    const wrap = document.getElementById("ozonFbsMoveDeliveringGateWrap");
+    const moveVisible = !!(moveBtn && !moveBtn.hidden && !(wrap && wrap.hidden));
+    const show = _ozonFbsIsTenantOwner() && moveVisible;
     caret.hidden = !show;
+    caret.style.display = show ? "" : "none";
     if (!show) closeOzonFbsMoveDeliveringMenu();
   }
 
@@ -10928,6 +10931,7 @@
     const btn = document.getElementById("ozonFbsSupplyDetailMoveDeliveringBtn");
     const caret = document.getElementById("ozonFbsMoveDeliveringMenuBtn");
     const tip = document.getElementById("ozonFbsMoveDeliveringGateTip");
+    // Owner caret follows current move-button visibility (set by read-only/tab sync first).
     _ozonFbsSyncMoveDeliveringOwnerMenu();
     if (!btn || btn.hidden) {
       if (tip) tip.hidden = true;

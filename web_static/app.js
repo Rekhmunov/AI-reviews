@@ -37577,12 +37577,15 @@ function _wbFbsRenderMoveDeliveryGateTip(items) {
 function _wbFbsSyncMoveDeliveryOwnerMenu() {
   const caret = document.getElementById("wbFbsMoveDeliveryMenuBtn");
   if (!caret) return;
+  const moveBtn = document.getElementById("wbFbsSupplyDetailMoveDeliveryBtn");
+  const wrap = document.getElementById("wbFbsMoveDeliveryGateWrap");
+  const moveVisible = !!(moveBtn && !moveBtn.hidden && !(wrap && wrap.hidden));
   const show =
     typeof isTenantOwner === "function"
     && isTenantOwner()
-    && !_wbFbsIsDeliverySuppliesTab()
-    && !_wbFbsIsSupplyDetailReadOnly();
+    && moveVisible;
   caret.hidden = !show;
+  caret.style.display = show ? "" : "none";
   if (!show) closeWbFbsMoveDeliveryMenu();
 }
 
@@ -37620,8 +37623,8 @@ function _wbFbsSyncMoveDeliveryBtn() {
   const caret = document.getElementById("wbFbsMoveDeliveryMenuBtn");
   const tip = document.getElementById("wbFbsMoveDeliveryGateTip");
   const wrap = document.getElementById("wbFbsMoveDeliveryGateWrap");
-  _wbFbsSyncMoveDeliveryOwnerMenu();
   if (!btn) {
+    _wbFbsSyncMoveDeliveryOwnerMenu();
     if (tip) tip.hidden = true;
     return;
   }
@@ -37629,6 +37632,7 @@ function _wbFbsSyncMoveDeliveryBtn() {
   const onDelivery = _wbFbsIsDeliverySuppliesTab() || _wbFbsIsSupplyDetailReadOnly();
   btn.hidden = !!onDelivery;
   if (wrap) wrap.hidden = !!onDelivery;
+  _wbFbsSyncMoveDeliveryOwnerMenu();
   if (onDelivery) {
     if (tip) {
       tip.hidden = true;
