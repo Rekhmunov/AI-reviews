@@ -70,4 +70,4 @@ def test_split_styles_and_cache_bump() -> None:
     ]
     assert "ozon_fbs.js?v=229" in HTML
     assert "app.js?v=725" in HTML
-    assert "style.css?v=444" in HTML
+    assert "style.css?v=446" in HTML

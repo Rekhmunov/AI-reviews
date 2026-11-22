@@ -249,7 +249,7 @@ def test_ui_badge_portal_moved() -> None:
     assert ".wb-fbs-badge.portal-moved" in CSS
     assert "wb-fbs-sd-chip-portal-moved" in CSS
     assert "app.js?v=725" in HTML
-    assert "style.css?v=444" in HTML
+    assert "style.css?v=446" in HTML
 
 
 def test_sync_done_supplies_do_not_pin_delivery() -> None:

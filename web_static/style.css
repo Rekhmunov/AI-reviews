@@ -17175,6 +17175,78 @@ button.sb-order-cat-btn[aria-expanded="true"] .sb-order-cat-caret {
   font-weight: 500;
   color: #0f172a;
 }
+.sb-movements-kind-wrap {
+  position: relative;
+  display: inline-flex;
+  max-width: 100%;
+}
+.sb-movements-kind-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.sb-movements-kind-btn:hover .sb-movements-kind,
+.sb-movements-kind-btn:hover .sb-movements-kind-caret {
+  color: #1d4ed8;
+}
+.sb-movements-kind-btn:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.sb-movements-kind-caret {
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 1;
+  color: #64748b;
+}
+.sb-movements-kind-menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 220px;
+  max-width: min(320px, 80vw);
+  padding: 4px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+.sb-movements-kind-option {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #0f172a;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.sb-movements-kind-option:hover,
+.sb-movements-kind-option:focus-visible {
+  background: #eff6ff;
+  color: #1d4ed8;
+  outline: none;
+}
+.sb-movements-kind-option[aria-current="true"] {
+  background: #dbeafe;
+  color: #1e40af;
+  font-weight: 600;
+}
 .sb-movements-meta {
   margin-top: 4px;
   font-size: 14px;

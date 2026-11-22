@@ -1019,11 +1019,21 @@ class SupplyStockReceiptRequest(BaseModel):
 
 
 class SupplyStockWriteoffRequest(BaseModel):
-    """Manual operator write-off (negative ledger rows)."""
+    """Manual operator write-off or sale (negative ledger rows).
+
+    ``mode``: ``writeoff`` (does not count in sales) | ``sale`` (counts like FBS).
+    """
 
     date: str = Field(default="", max_length=20)
     comment: str = Field(default="", max_length=500)
+    mode: str = Field(default="writeoff", max_length=32)
     items: list[dict[str, object]] = Field(default_factory=list)
+
+
+class SupplyStockMovementKindRequest(BaseModel):
+    """Change kind of an existing ledger row."""
+
+    kind: str = Field(default="", max_length=64)
 
 
 class SupplyStockAdjustmentRequest(BaseModel):
@@ -22019,7 +22029,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
     def post_supply_stock_writeoff(
         request: Request, payload: SupplyStockWriteoffRequest
     ) -> dict[str, object]:
-        """Manual write-off by operator: same shape as receipt, qty stored negative."""
+        """Manual write-off or sale by operator: qty stored negative."""
         user = _require_user(request)
         if not _can_view_supply_stock(user):
             raise HTTPException(status_code=403, detail="Нет доступа к остаткам")
@@ -22030,6 +22040,16 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                 status_code=400,
                 detail="Добавьте производство в Поставки → Настройки → Производства",
             )
+        mode = str(payload.mode or "writeoff").strip().lower()
+        if mode not in {"writeoff", "sale"}:
+            raise HTTPException(
+                status_code=400,
+                detail="Тип: списание или продажа",
+            )
+        is_sale = mode == "sale"
+        kind = "operator_sale" if is_sale else "operator_writeoff"
+        source_type = "manual_sale" if is_sale else "manual_writeoff"
+        prefix = "sale" if is_sale else "writeoff"
         today = _moscow_today()
         date_s = _parse_stock_date(payload.date, today=today)
         lines = _normalize_stock_line_items(list(payload.items or []))
@@ -22044,7 +22064,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                 **line,
                 "qty": -abs(float(line["qty"])),
                 "source_id": (
-                    f"writeoff:{date_s}:{line['item_type']}:{line['item_id']}:"
+                    f"{prefix}:{date_s}:{line['item_type']}:{line['item_id']}:"
                     f"{_uuid.uuid4().hex[:10]}"
                 ),
             }
@@ -22054,13 +22074,59 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             user_id=owner_id,
             production_id=pid,
             movement_date=date_s,
-            kind="operator_writeoff",
-            source_type="manual_writeoff",
+            kind=kind,
+            source_type=source_type,
             items=items,
             comment=str(payload.comment or "").strip(),
             created_by=int(user.get("id") or 0) or None,
         )
-        return {"ok": True, "saved": saved, "date": date_s, "production_id": pid}
+        return {
+            "ok": True,
+            "saved": saved,
+            "date": date_s,
+            "production_id": pid,
+            "mode": mode,
+            "kind": kind,
+        }
+
+    @app.patch("/api/supply-balances/movements/{movement_id}/kind")
+    def patch_supply_stock_movement_kind(
+        request: Request,
+        movement_id: int,
+        payload: SupplyStockMovementKindRequest,
+    ) -> dict[str, object]:
+        """Change kind of one ledger row (affects sales / min-auto when applicable)."""
+        from .repository import (
+            SUPPLY_STOCK_KIND_LABELS,
+            supply_stock_kind_label,
+        )
+
+        user = _require_user(request)
+        if not _can_view_supply_stock(user):
+            raise HTTPException(status_code=403, detail="Нет доступа к остаткам")
+        owner_id = _supply_owner_id(user)
+        kind = str(payload.kind or "").strip().lower()
+        if kind not in SUPPLY_STOCK_KIND_LABELS:
+            raise HTTPException(status_code=400, detail="Неизвестный тип движения")
+        try:
+            updated = repository.update_supply_stock_movement_kind(
+                user_id=owner_id,
+                movement_id=int(movement_id),
+                kind=kind,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if not updated:
+            raise HTTPException(status_code=404, detail="Движение не найдено")
+        return {
+            "ok": True,
+            "id": int(updated.get("id") or 0),
+            "kind": str(updated.get("kind") or ""),
+            "kind_label": supply_stock_kind_label(updated.get("kind")),
+            "source_type": str(updated.get("source_type") or ""),
+            "qty": updated.get("qty"),
+            "movement_date": str(updated.get("movement_date") or ""),
+        }
 
     @app.post("/api/supply-balances/adjustment")
     def post_supply_stock_adjustment(
@@ -22393,14 +22459,9 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         truncated = len(rows) > lim
         if truncated:
             rows = rows[:lim]
-        kind_labels = {
-            "opening": "Начальный остаток",
-            "receipt": "Приход",
-            "fbs_ship": "Списание FBS",
-            "operator_writeoff": "Списание оператором",
-            "adjustment": "Корректировка",
-            "fbs_reverse": "Возврат FBS",
-        }
+        from .repository import SUPPLY_STOCK_KIND_LABELS, supply_stock_kind_label
+
+        kind_labels = SUPPLY_STOCK_KIND_LABELS
         materials = {
             int(m.get("id") or 0): m
             for m in repository.list_feedback_materials(user_id=owner_id)
@@ -22491,7 +22552,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                     "supplier_article": article,
                     "product_category": product_category,
                     "kind": kind,
-                    "kind_label": kind_labels.get(kind, kind or "Движение"),
+                    "kind_label": supply_stock_kind_label(kind),
                     "qty": r.get("qty"),
                     "comment": comment,
                     "created_by": created_by_i,
@@ -22513,6 +22574,18 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             "truncated": truncated,
             "limit": lim,
             "mode": "movements",
+            "kind_options": [
+                {"kind": k, "label": kind_labels[k]}
+                for k in (
+                    "opening",
+                    "receipt",
+                    "fbs_ship",
+                    "operator_writeoff",
+                    "operator_sale",
+                    "adjustment",
+                    "fbs_reverse",
+                )
+            ],
         }
 
     @app.get("/api/supply-balances/movements")
@@ -22646,14 +22719,9 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
         from .repository import supply_window_sold_qty
 
         sold = supply_window_sold_qty(rows)
-        kind_labels = {
-            "opening": "Начальный остаток",
-            "receipt": "Приход",
-            "fbs_ship": "Списание FBS",
-            "operator_writeoff": "Списание оператором",
-            "adjustment": "Корректировка",
-            "fbs_reverse": "Возврат FBS",
-        }
+        from .repository import SUPPLY_STOCK_KIND_LABELS, supply_stock_kind_label
+
+        kind_labels = SUPPLY_STOCK_KIND_LABELS
         creator_ids = {
             int(r["created_by"])
             for r in rows
@@ -22706,7 +22774,7 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
                     "id": int(r.get("id") or 0),
                     "movement_date": str(r.get("movement_date") or ""),
                     "kind": kind,
-                    "kind_label": kind_labels.get(kind, kind or "Движение"),
+                    "kind_label": supply_stock_kind_label(kind),
                     "qty": r.get("qty"),
                     "comment": comment,
                     "source_type": source_type,
@@ -22736,6 +22804,18 @@ p{{margin:2pt 0}}tr{{page-break-inside:avoid}}
             "basis_added": len(basis_rows),
             "truncated": truncated,
             "limit": lim,
+            "kind_options": [
+                {"kind": k, "label": kind_labels[k]}
+                for k in (
+                    "opening",
+                    "receipt",
+                    "fbs_ship",
+                    "operator_writeoff",
+                    "operator_sale",
+                    "adjustment",
+                    "fbs_reverse",
+                )
+            ],
         }
 
     @app.get("/api/supply-contractors")
