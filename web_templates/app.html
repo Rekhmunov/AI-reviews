@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Рабочий кабинет</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/style.css?v=440" />
+  <link rel="stylesheet" href="/static/style.css?v=441" />
 </head>
 <body>
   <div class="mobile-topbar">
@@ -2299,11 +2299,34 @@
                         onclick="openWbFbsDriverModal()"
                         title="Водитель поставки: выбрать из справочника и гос. номер ТС">Водитель</button>
                 <span class="ozon-fbs-move-gate-wrap" id="wbFbsMoveDeliveryGateWrap">
-                  <button type="button" id="wbFbsSupplyDetailMoveDeliveryBtn"
-                          onclick="moveWbFbsSupplyToDelivery()"
-                          title="Локально перенести поставку в «В доставке» и списать с Остатки (без отправки в WB)">
-                    Перенести в доставку
-                  </button>
+                  <div class="wb-fbs-picking-split fbs-move-delivery-split" id="wbFbsMoveDeliverySplit">
+                    <button type="button" id="wbFbsSupplyDetailMoveDeliveryBtn"
+                            class="fbs-move-delivery-main"
+                            onclick="moveWbFbsSupplyToDelivery()"
+                            title="Локально перенести поставку в «В доставке» и списать с Остатки (без отправки в WB)">
+                      Перенести в доставку
+                    </button>
+                    <button type="button" class="fbs-move-delivery-caret wb-fbs-picking-caret"
+                            id="wbFbsMoveDeliveryMenuBtn"
+                            onclick="toggleWbFbsMoveDeliveryMenu(event)"
+                            title="Другие варианты переноса"
+                            aria-label="Другие варианты переноса"
+                            aria-haspopup="menu"
+                            aria-expanded="false"
+                            aria-controls="wbFbsMoveDeliveryMenu"
+                            hidden>
+                      <svg width="12" height="8" viewBox="0 0 12 8" fill="none" aria-hidden="true">
+                        <path d="M1 1.5L6 6.5L11 1.5" stroke="currentColor" stroke-width="1.8"
+                              stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    </button>
+                    <div id="wbFbsMoveDeliveryMenu" class="wb-fbs-picking-menu" role="menu" hidden>
+                      <button type="button" class="wb-fbs-picking-menu-item" role="menuitem"
+                              onclick="moveWbFbsSupplyToDeliveryNoStock()">
+                        Перенести в доставляются без списания
+                      </button>
+                    </div>
+                  </div>
                   <div class="ozon-fbs-move-gate-tip" id="wbFbsMoveDeliveryGateTip" hidden role="tooltip"></div>
                 </span>
                 <span class="ozon-fbs-move-gate-wrap" id="wbFbsPortalGateWrap">
@@ -3890,11 +3913,34 @@
                         onclick="openOzonFbsDriverModal()"
                         title="Водитель поставки: выбрать из справочника и гос. номер ТС">Водитель</button>
                 <span class="ozon-fbs-move-gate-wrap" id="ozonFbsMoveDeliveringGateWrap">
-                  <button type="button" id="ozonFbsSupplyDetailMoveDeliveringBtn"
-                          onclick="moveOzonFbsSupplyToDelivering()"
-                          title="Локально перенести поставку в «Доставляются» и списать с Остатки (без отправки в Ozon)">
-                    Перенести в доставку
-                  </button>
+                  <div class="wb-fbs-picking-split fbs-move-delivery-split" id="ozonFbsMoveDeliveringSplit">
+                    <button type="button" id="ozonFbsSupplyDetailMoveDeliveringBtn"
+                            class="fbs-move-delivery-main"
+                            onclick="moveOzonFbsSupplyToDelivering()"
+                            title="Локально перенести поставку в «Доставляются» и списать с Остатки (без отправки в Ozon)">
+                      Перенести в доставку
+                    </button>
+                    <button type="button" class="fbs-move-delivery-caret wb-fbs-picking-caret"
+                            id="ozonFbsMoveDeliveringMenuBtn"
+                            onclick="toggleOzonFbsMoveDeliveringMenu(event)"
+                            title="Другие варианты переноса"
+                            aria-label="Другие варианты переноса"
+                            aria-haspopup="menu"
+                            aria-expanded="false"
+                            aria-controls="ozonFbsMoveDeliveringMenu"
+                            hidden>
+                      <svg width="12" height="8" viewBox="0 0 12 8" fill="none" aria-hidden="true">
+                        <path d="M1 1.5L6 6.5L11 1.5" stroke="currentColor" stroke-width="1.8"
+                              stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    </button>
+                    <div id="ozonFbsMoveDeliveringMenu" class="wb-fbs-picking-menu" role="menu" hidden>
+                      <button type="button" class="wb-fbs-picking-menu-item" role="menuitem"
+                              onclick="moveOzonFbsSupplyToDeliveringNoStock()">
+                        Перенести в доставляются без списания
+                      </button>
+                    </div>
+                  </div>
                   <div class="ozon-fbs-move-gate-tip" id="ozonFbsMoveDeliveringGateTip" hidden role="tooltip"></div>
                 </span>
               </div>
@@ -8938,9 +8984,9 @@
     </div>
   </div>
 
-  <script src="/static/ozon_fbs.js?v=227"></script>
+  <script src="/static/ozon_fbs.js?v=228"></script>
   <script src="/static/ozon_fbs_container_bind.js?v=38"></script>
-  <script src="/static/app.js?v=718"></script>
+  <script src="/static/app.js?v=719"></script>
   <script src="/static/wb_fbs_pvz_returns.js?v=19"></script>
   <script src="/static/ozon_fbs_pvz_returns.js?v=2"></script>
 </body>

@@ -148,6 +148,39 @@ def test_move_supply_to_delivering_idempotent_when_already_moved(monkeypatch) ->
     assert repo.updated == []
 
 
+def test_move_supply_to_delivering_without_stock(monkeypatch) -> None:
+    repo = _FakeRepo(
+        [
+            {
+                "posting_number": "P-1",
+                "tab": "awaiting_deliver",
+                "offer_id": "ART",
+                "sku": "1",
+                "quantity": 2,
+                "products_json": '[{"offer_id":"ART","sku":1,"quantity":2}]',
+            }
+        ]
+    )
+    monkeypatch.setattr(oz_sup, "ensure_ozon_fbs_supply_schema", lambda r: None)
+    monkeypatch.setattr(oz, "ensure_ozon_fbs_tables", lambda r: None)
+    monkeypatch.setattr(
+        oz_sup,
+        "get_supply",
+        lambda r, **kw: {"supply_id": "OZ-FBS-1", "name": "Test"},
+    )
+
+    out = oz_sup.move_supply_to_delivering(
+        repo, user_id=1, source_id=5, supply_id="OZ-FBS-1", deduct_stock=False
+    )
+    assert out["ok"] is True
+    assert out["moved"] == 1
+    assert out["deduct_stock"] is False
+    assert "без списания" in out["message"]
+    assert oz.TAB_DELIVERING in repo.updated[0][1]
+    assert repo.reconcile_calls == []
+    assert out["stock"]["shipped"] == 0
+
+
 def test_resolve_upsert_keeps_local_delivering_when_ozon_still_awaiting() -> None:
     status, tab = oz.resolve_upsert_status(
         local_status="delivering",

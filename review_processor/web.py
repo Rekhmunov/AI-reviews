@@ -11097,8 +11097,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         request: Request,
         supply_id: str,
         source_id: int,
+        deduct_stock: bool = True,
     ) -> dict[str, object]:
-        """Locally move supply to «В доставке» and deduct Остатки. No WB calls."""
+        """Locally move supply to «В доставке». Stock deduct optional (owner-only)."""
         user = _require_user(request)
         if not _can_view_wb_fbs(user):
             raise HTTPException(status_code=403, detail="Нет доступа")
@@ -11106,6 +11107,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         sid = str(supply_id or "").strip()
         if not sid or not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        do_stock = bool(deduct_stock)
+        if not do_stock and not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Перенос без списания доступен только основному оператору",
+            )
         _wb_fbs_source_key(owner_id, int(source_id))
         try:
             result = wb_fbs_mod.move_supply_to_delivery(
@@ -11113,6 +11120,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 user_id=owner_id,
                 source_id=int(source_id),
                 supply_id=sid,
+                deduct_stock=do_stock,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -11134,7 +11142,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 actor_name=ops_log.actor_label(user),
                 source_id=int(source_id),
                 supply_id=sid,
-                details={"moved": moved},
+                details={"moved": moved, "deduct_stock": do_stock},
             )
         except Exception:
             pass
@@ -15996,8 +16004,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         request: Request,
         supply_id: str,
         source_id: int,
+        deduct_stock: bool = True,
     ) -> dict[str, object]:
-        """Locally move supply to «Доставляются» and deduct Остатки. No Ozon calls."""
+        """Locally move supply to «Доставляются». Stock deduct optional (owner-only)."""
         from . import ozon_fbs_supplies as oz_sup
 
         user = _require_user(request)
@@ -16007,12 +16016,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         sid = str(supply_id or "").strip()
         if not sid or not source_id:
             raise HTTPException(status_code=400, detail="Укажите source_id и supply_id")
+        do_stock = bool(deduct_stock)
+        if not do_stock and not _is_wb_fbs_tenant_owner(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Перенос без списания доступен только основному оператору",
+            )
         try:
             result = oz_sup.move_supply_to_delivering(
                 repository,
                 user_id=owner_id,
                 source_id=int(source_id),
                 supply_id=sid,
+                deduct_stock=do_stock,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -16034,7 +16050,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 actor_name=ops_log.actor_label(user),
                 source_id=int(source_id),
                 supply_id=sid,
-                details={"moved": moved},
+                details={"moved": moved, "deduct_stock": do_stock},
             )
         except Exception:
             pass

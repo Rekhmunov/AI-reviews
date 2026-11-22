@@ -160,3 +160,29 @@ def test_move_supply_to_delivery_idempotent_when_already_moved(monkeypatch) -> N
     assert out["already_delivery"] == 3
     assert repo.reconcile_calls == []
     assert repo.updated == []
+
+
+def test_move_supply_to_delivery_without_stock(monkeypatch) -> None:
+    repo = _FakeRepo(
+        [
+            {
+                "order_id": 101,
+                "tab": "assembly",
+                "article": "ART",
+                "nm_id": "1",
+            }
+        ]
+    )
+    monkeypatch.setattr(wb_fbs, "ensure_wb_fbs_tables", lambda r: None)
+
+    out = wb_fbs.move_supply_to_delivery(
+        repo, user_id=1, source_id=5, supply_id="WB-FBS-1", deduct_stock=False
+    )
+    assert out["ok"] is True
+    assert out["moved"] == 1
+    assert out["deduct_stock"] is False
+    assert "без списания" in out["message"]
+    assert wb_fbs.TAB_DELIVERY in repo.updated[0][1]
+    assert repo.reconcile_calls == []
+    assert out["stock"]["shipped"] == 0
+    assert repo.listed_calls

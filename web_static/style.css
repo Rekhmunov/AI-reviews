@@ -13408,7 +13408,9 @@ button.wb-fbs-select-all-link:disabled {
 .wb-fbs-sd-actions .wb-fbs-kiz-split > button.secondary[hidden] {
   display: none !important;
 }
-.wb-fbs-sd-actions .ozon-fbs-move-gate-wrap > button {
+.wb-fbs-sd-actions .ozon-fbs-move-gate-wrap > button,
+.wb-fbs-sd-actions .ozon-fbs-move-gate-wrap .fbs-move-delivery-main,
+.wb-fbs-sd-actions .ozon-fbs-move-gate-wrap .fbs-move-delivery-caret {
   min-height: 36px;
   height: 36px;
   padding: 4px 14px;
@@ -13416,6 +13418,90 @@ button.wb-fbs-select-all-link:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+.wb-fbs-sd-actions .fbs-move-delivery-split {
+  align-items: stretch;
+}
+.wb-fbs-sd-actions .fbs-move-delivery-main {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  border-radius: 8px 0 0 8px;
+  border: 1px solid #005bff;
+  background: #005bff;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.wb-fbs-sd-actions .fbs-move-delivery-main:hover {
+  background: #0047cc;
+  border-color: #0047cc;
+  color: #fff;
+}
+.wb-fbs-sd-actions .fbs-move-delivery-main:active {
+  background: #0039a6;
+  border-color: #0039a6;
+  color: #fff;
+}
+.wb-fbs-sd-actions .fbs-move-delivery-main:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+.wb-fbs-sd-actions .fbs-move-delivery-caret {
+  min-width: 36px;
+  width: 36px;
+  padding: 4px 8px;
+  margin: 0;
+  border-radius: 0 8px 8px 0;
+  border: 1px solid #005bff;
+  border-left: 1px solid rgba(255, 255, 255, 0.35);
+  background: #005bff;
+  color: #fff;
+  cursor: pointer;
+}
+.wb-fbs-sd-actions .fbs-move-delivery-caret:hover {
+  background: #0047cc;
+  border-color: #0047cc;
+  color: #fff;
+}
+.wb-fbs-sd-actions .fbs-move-delivery-caret:active {
+  background: #0039a6;
+  border-color: #0039a6;
+  color: #fff;
+}
+.wb-fbs-sd-actions .fbs-move-delivery-caret:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+.wb-fbs-sd-actions .fbs-move-delivery-caret[hidden] {
+  display: none !important;
+}
+.wb-fbs-sd-actions .fbs-move-delivery-split:not(:has(.fbs-move-delivery-caret:not([hidden]))) .fbs-move-delivery-main {
+  border-radius: 8px;
+}
+.wb-fbs-sd-actions .fbs-move-delivery-main.is-scan-incomplete,
+.wb-fbs-sd-actions .fbs-move-delivery-main.is-scan-incomplete:hover,
+.wb-fbs-sd-actions .fbs-move-delivery-main.is-scan-incomplete:active,
+.wb-fbs-sd-actions .fbs-move-delivery-main.is-scan-incomplete:focus,
+.wb-fbs-sd-actions .fbs-move-delivery-caret.is-scan-incomplete,
+.wb-fbs-sd-actions .fbs-move-delivery-caret.is-scan-incomplete:hover,
+.wb-fbs-sd-actions .fbs-move-delivery-caret.is-scan-incomplete:active,
+.wb-fbs-sd-actions .fbs-move-delivery-caret.is-scan-incomplete:focus {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+  border-color: #005bff;
+  background: #005bff;
+  color: #fff;
+}
+.wb-fbs-sd-actions .fbs-move-delivery-split .wb-fbs-picking-menu {
+  left: 0;
+  right: auto;
+  min-width: 280px;
 }
 .wb-fbs-picking-caret,
 .wb-fbs-kiz-refresh {

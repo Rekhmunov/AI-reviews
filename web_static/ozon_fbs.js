@@ -5187,6 +5187,7 @@
     if (!(t instanceof Element)) return;
     if (!t.closest("#ozonFbsStickersSplit")) closeStickersMenu();
     if (!t.closest("#ozonFbsNewStickersSplit")) closeNewStickersMenu();
+    if (!t.closest("#ozonFbsMoveDeliveringSplit")) closeOzonFbsMoveDeliveringMenu();
     if (
       !t.closest(".wb-fbs-row-menu-wrap") &&
       !t.closest(".wb-fbs-row-menu[id^='ozonFbsRowMenu_']")
@@ -5204,6 +5205,7 @@
     if (stickersCat && !stickersCat.classList.contains("hidden")) {
       closeStickersByCategoryModal();
     }
+    closeOzonFbsMoveDeliveringMenu();
     _ozonFbsCloseMovedToDeliveringHistory();
   });
 
@@ -8172,7 +8174,7 @@
    * Local only: move supply awaiting_deliver → delivering and deduct Остатки.
    * Does not call Ozon. Uses in-app confirm/notice modals (not browser dialogs).
    */
-  const moveDeliveringModalState = { mode: "confirm", busy: false };
+  const moveDeliveringModalState = { mode: "confirm", busy: false, deductStock: true };
 
   function _ozonFbsMoveDeliveringSetVisible(show) {
     if (typeof setModalVisibility === "function") {
@@ -8187,6 +8189,7 @@
   function closeOzonFbsMoveDeliveringModal() {
     if (moveDeliveringModalState.busy) return;
     moveDeliveringModalState.mode = "confirm";
+    moveDeliveringModalState.deductStock = true;
     _ozonFbsMoveDeliveringSetVisible(false);
   }
 
@@ -8226,9 +8229,11 @@
     });
   }
 
-  function moveOzonFbsSupplyToDelivering() {
+  function _ozonFbsOpenMoveDeliveringConfirm({ deductStock }) {
+    closeOzonFbsMoveDeliveringMenu();
     const sid = String(supplyDetailState.supplyId || "").trim();
     const sourceId = supplyDetailState.sourceId || state.sourceId;
+    const wantStock = deductStock !== false;
     if (!sid || !sourceId || !_ozonFbsSupplyActionsReady()) {
       _ozonFbsMoveDeliveringNotice(
         "Откройте поставку и дождитесь загрузки заказов",
@@ -8251,24 +8256,44 @@
       );
       return;
     }
+    if (!wantStock && !_ozonFbsIsTenantOwner()) {
+      _ozonFbsMoveDeliveringNotice(
+        "Перенос без списания доступен только основному оператору",
+        { title: "Перенести в доставку", kind: "error" }
+      );
+      return;
+    }
+    moveDeliveringModalState.deductStock = wantStock;
     const name = String(supplyDetailState.supply?.name || sid).trim();
     const orderN = Number(supplyDetailState.supply?.order_count || 0);
     const orderLabel = orderN > 0 ? String(orderN) : "Все";
+    const stockLine = wantStock
+      ? "<li>Продукция спишется с Остатки прямо сейчас</li>"
+      : "<li>Остатки <strong>не</strong> изменятся</li>";
     _ozonFbsMoveDeliveringRender("confirm", {
-      title: "Перенести в доставку",
+      title: wantStock ? "Перенести в доставку" : "Перенести без списания",
       html: `
         <p class="ozon-fbs-move-delivering-lead">
-          Перенести поставку «${esc(name)}» в «Доставляются»?
+          Перенести поставку «${esc(name)}» в «Доставляются»${wantStock ? "" : " без списания Остатки"}?
         </p>
         <ul class="ozon-fbs-move-delivering-list">
           <li>На Ozon ничего не отправится</li>
           <li>${esc(orderLabel)} отправлений уйдут из «Ожидают отгрузки»</li>
-          <li>Продукция спишется с Остатки прямо сейчас</li>
+          ${stockLine}
           <li>При следующей сборке заказов создастся новая поставка</li>
         </ul>
       `,
     });
   }
+
+  function moveOzonFbsSupplyToDelivering() {
+    _ozonFbsOpenMoveDeliveringConfirm({ deductStock: true });
+  }
+
+  function moveOzonFbsSupplyToDeliveringNoStock() {
+    _ozonFbsOpenMoveDeliveringConfirm({ deductStock: false });
+  }
+  window.moveOzonFbsSupplyToDeliveringNoStock = moveOzonFbsSupplyToDeliveringNoStock;
 
   async function confirmOzonFbsMoveDelivering() {
     if (moveDeliveringModalState.mode !== "confirm" || moveDeliveringModalState.busy) return;
@@ -8276,6 +8301,7 @@
     const sourceId = supplyDetailState.sourceId || state.sourceId;
     const btn = document.getElementById("ozonFbsSupplyDetailMoveDeliveringBtn");
     const confirmBtn = document.getElementById("ozonFbsMoveDeliveringConfirmBtn");
+    const deductStock = moveDeliveringModalState.deductStock !== false;
     if (!sid || !sourceId) {
       _ozonFbsMoveDeliveringNotice(
         "Откройте поставку и дождитесь загрузки заказов",
@@ -8287,6 +8313,13 @@
       _ozonFbsSyncMoveDeliveringEnabled();
       _ozonFbsMoveDeliveringNotice(
         "Сначала выполните все условия: подтверждение грузомест (если есть), зелёные «Товары с КИЗ» / «Товары без КИЗ» и выбранный водитель",
+        { title: "Перенести в доставку", kind: "error" }
+      );
+      return;
+    }
+    if (!deductStock && !_ozonFbsIsTenantOwner()) {
+      _ozonFbsMoveDeliveringNotice(
+        "Перенос без списания доступен только основному оператору",
         { title: "Перенести в доставку", kind: "error" }
       );
       return;
@@ -8303,7 +8336,8 @@
     try {
       const res = await fetch(
         `/api/ozon-fbs/supplies/${encodeURIComponent(sid)}/move-to-delivering`
-          + `?source_id=${encodeURIComponent(sourceId)}`,
+          + `?source_id=${encodeURIComponent(sourceId)}`
+          + `&deduct_stock=${deductStock ? "true" : "false"}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json", ...jsonHeaders() },
@@ -8316,12 +8350,18 @@
       const moved = Number(data.moved || 0);
       const shipped = Number(data.stock?.shipped || 0);
       const base = String(data.message || "Поставка перенесена в «Доставляются»");
-      const stockNote = moved > 0
-        ? (shipped > 0
-          ? `Списание с Остатки: записей ${shipped}`
-          : "Списание с Остатки: будет при следующей синхронизации / нет производства")
-        : "";
+      let stockNote = "";
+      if (moved > 0) {
+        if (!deductStock) {
+          stockNote = "Списание с Остатки: не выполнялось";
+        } else if (shipped > 0) {
+          stockNote = `Списание с Остатки: записей ${shipped}`;
+        } else {
+          stockNote = "Списание с Остатки: будет при следующей синхронизации / нет производства";
+        }
+      }
       moveDeliveringModalState.busy = false;
+      moveDeliveringModalState.deductStock = true;
       _ozonFbsMoveDeliveringNotice(
         stockNote ? `${base}\n${stockNote}` : base,
         { title: "Поставка перенесена", kind: "ok" }
@@ -10844,9 +10884,51 @@
     return true;
   }
 
+  function _ozonFbsSyncMoveDeliveringOwnerMenu() {
+    const caret = document.getElementById("ozonFbsMoveDeliveringMenuBtn");
+    if (!caret) return;
+    const show =
+      _ozonFbsIsTenantOwner()
+      && !isDeliveringSuppliesTab()
+      && !isSupplyDetailReadOnly();
+    caret.hidden = !show;
+    if (!show) closeOzonFbsMoveDeliveringMenu();
+  }
+
+  function closeOzonFbsMoveDeliveringMenu() {
+    const menu = document.getElementById("ozonFbsMoveDeliveringMenu");
+    const caret = document.getElementById("ozonFbsMoveDeliveringMenuBtn");
+    if (menu) menu.hidden = true;
+    if (caret) caret.setAttribute("aria-expanded", "false");
+  }
+
+  function toggleOzonFbsMoveDeliveringMenu(event) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    if (!_ozonFbsIsTenantOwner()) return;
+    const caret = document.getElementById("ozonFbsMoveDeliveringMenuBtn");
+    if (caret && (caret.hidden || caret.getAttribute("aria-disabled") === "true")) return;
+    if (!_ozonFbsCanMoveToDelivering()) {
+      _ozonFbsSyncMoveDeliveringEnabled();
+      return;
+    }
+    closeStickersMenu();
+    closeNewStickersMenu();
+    const menu = document.getElementById("ozonFbsMoveDeliveringMenu");
+    if (!menu || !caret) return;
+    const willOpen = menu.hidden;
+    menu.hidden = !willOpen;
+    caret.setAttribute("aria-expanded", willOpen ? "true" : "false");
+  }
+  window.toggleOzonFbsMoveDeliveringMenu = toggleOzonFbsMoveDeliveringMenu;
+
   function _ozonFbsSyncMoveDeliveringEnabled() {
     const btn = document.getElementById("ozonFbsSupplyDetailMoveDeliveringBtn");
+    const caret = document.getElementById("ozonFbsMoveDeliveringMenuBtn");
     const tip = document.getElementById("ozonFbsMoveDeliveringGateTip");
+    _ozonFbsSyncMoveDeliveringOwnerMenu();
     if (!btn || btn.hidden) {
       if (tip) tip.hidden = true;
       return;
@@ -10854,6 +10936,7 @@
     // While orders are loading / request in flight, leave wait-orders alone.
     if (!supplyDetailState.ordersReady || btn.classList.contains("is-wait-orders")) {
       btn.classList.remove("is-scan-incomplete");
+      if (caret) caret.classList.remove("is-scan-incomplete");
       if (tip) tip.hidden = true;
       return;
     }
@@ -10866,6 +10949,11 @@
       btn.classList.remove("is-scan-incomplete");
       btn.removeAttribute("tabindex");
       btn.setAttribute("title", tipOk);
+      if (caret) {
+        caret.removeAttribute("aria-disabled");
+        caret.classList.remove("is-scan-incomplete");
+        caret.removeAttribute("tabindex");
+      }
       if (tip) {
         tip.hidden = true;
         tip.innerHTML = "";
@@ -10876,6 +10964,12 @@
       btn.tabIndex = -1;
       // Rich hover checklist replaces the plain title while blocked.
       btn.removeAttribute("title");
+      if (caret) {
+        caret.setAttribute("aria-disabled", "true");
+        caret.classList.add("is-scan-incomplete");
+        caret.tabIndex = -1;
+        closeOzonFbsMoveDeliveringMenu();
+      }
       _ozonFbsRenderMoveDeliveringGateTip(gateItems);
       if (tip) tip.hidden = false;
     }

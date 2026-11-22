@@ -1634,12 +1634,14 @@ def move_supply_to_delivery(
     user_id: int,
     source_id: int,
     supply_id: str,
+    deduct_stock: bool = True,
 ) -> dict[str, Any]:
     """Locally move a supply from «На сборке» to «В доставке».
 
     No Wildberries API calls. Sets non-cancelled assembly orders ``tab`` to
-    ``delivery`` and reconciles their stock (списание с Остатки). Sync later
-    will not regress moved rows while WB still reports ``confirm``.
+    ``delivery``. By default reconciles stock (списание с Остатки).
+    ``deduct_stock=False`` (owner-only API) moves the tab without ledger writes.
+    Sync later will not regress moved rows while WB still reports ``confirm``.
     """
     ensure_wb_fbs_tables(repo)
     sid = str(supply_id or "").strip()
@@ -1769,24 +1771,40 @@ def move_supply_to_delivery(
             "wb fbs delivery_listed pin failed supply=%s: %s", sid, exc
         )
 
-    stock_stats = _reconcile_wb_fbs_stock_after_local_move(
-        repo, user_id=user_id, orders=list(to_move)
-    )
+    do_stock = bool(deduct_stock)
+    if do_stock:
+        stock_stats = _reconcile_wb_fbs_stock_after_local_move(
+            repo, user_id=user_id, orders=list(to_move)
+        )
+    else:
+        stock_stats = {
+            "shipped": 0,
+            "reversed": 0,
+            "skipped": 0,
+            "ok": 0,
+            "settled": 0,
+        }
     _log.info(
-        "wb fbs move-to-delivery user=%s source=%s supply=%s moved=%s stock=%s",
+        "wb fbs move-to-delivery user=%s source=%s supply=%s moved=%s "
+        "deduct_stock=%s stock=%s",
         user_id,
         source_id,
         sid,
         len(to_move),
+        do_stock,
         stock_stats,
     )
+    msg = f"Перенесено на «В доставке»: {len(to_move)} зак."
+    if not do_stock:
+        msg += " (без списания Остатки)"
     return {
         "ok": True,
         "supply_id": sid,
         "moved": len(to_move),
         "already_delivery": 0,
         "stock": stock_stats,
-        "message": f"Перенесено на «В доставке»: {len(to_move)} зак.",
+        "deduct_stock": do_stock,
+        "message": msg,
     }
 
 
