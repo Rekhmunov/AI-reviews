@@ -56,7 +56,7 @@ def test_certs_spacing_styles() -> None:
 
 
 def test_asset_versions_bumped() -> None:
-    assert "app.js?v=728" in APP_HTML
+    assert "app.js?v=729" in APP_HTML
     assert "style.css?v=448" in APP_HTML
 
 
