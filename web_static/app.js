@@ -24313,10 +24313,10 @@ function _certsExpiryCellHtml(c) {
       ? "Указать дату проведения ИК"
       : "Изменить дату проведения ИК";
     const cls = isDue ? "certs-ik-line is-due" : "certs-ik-line is-done";
-    // Due: planned date + (ИК). Done: actual date only (still editable).
-    const body = isDue
-      ? `<span class="certs-ik-date">${esc(actual)}</span><span class="certs-ik-label">(ИК)</span>`
-      : `<span class="certs-ik-date">${esc(actual)}</span>`;
+    // Due and done: date + (ИК). Gap between spans is the visual space.
+    const body =
+      `<span class="certs-ik-date">${esc(actual)}</span>`
+      + `<span class="certs-ik-label">(ИК)</span>`;
     return (
       `<button type="button" class="${cls}"`
       + ` onclick="openCertIkModal(${Number(c.id)}, ${Number(line.year)}, '${esc(planned)}', '${esc(actual)}')"`

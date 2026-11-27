@@ -123,7 +123,18 @@ def test_ik_label_shares_expiry_font() -> None:
     assert 'class="certs-ik-label"' in JS
     assert ".certs-ik-line .certs-ik-label" in CSS
     assert "font-size: inherit" in CSS
-    assert "app.js?v=728" in HTML
+    assert "app.js?v=729" in HTML
+    # Done IK lines also carry the (ИК) label next to the date.
+    assert "certs-ik-line is-done" in JS
+    cell_fn = JS.split("function _certsExpiryCellHtml", 1)[1].split(
+        "async function loadCertificates", 1
+    )[0]
+    assert 'certs-ik-label">(ИК)</span>' in cell_fn
+    assert "isDue" in cell_fn
+    # Label is no longer due-only.
+    assert "Date only" not in cell_fn
+    assert cell_fn.count("certs-ik-label") >= 1
+    assert "actual date only" not in cell_fn
 
 
 def test_ui_helpers_mention_next_cycle() -> None:

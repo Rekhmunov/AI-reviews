@@ -38,7 +38,7 @@ def test_wb_supply_detail_filter_ui_wiring() -> None:
     assert "!_wbFbsKizRowIsEmpty(o)" in js
     assert "_wbFbsPickRowIsComplete(o)" in js
     assert "rowFilter" in js
-    assert "app.js?v=728" in html
+    assert "app.js?v=729" in html
     assert "style.css?v=448" in html
     assert ".wb-fbs-sd-filter-panel" in css
     assert ".wb-fbs-sd-filter-btn.is-active" in css

@@ -25,7 +25,7 @@ def test_load_more_ui_wiring() -> None:
     assert "st.hasMore = !!data.has_more" in APP_JS
     assert "sb-movements-load-more" in APP_JS
     assert "onclick=\"loadMoreSupplyStockMovements()\"" in APP_JS
-    assert "app.js?v=728" in APP_HTML
+    assert "app.js?v=729" in APP_HTML
     assert "style.css?v=448" in APP_HTML
     assert "подгрузить ещё по 16 дней" in APP_HTML
 
